@@ -1270,10 +1270,9 @@ fn only_via_checks(d: &Decl, world: &BTreeMap<&str, &Decl>, out: &mut Vec<Found4
                     str_or(body, "transition", "") == t.name
                         && match s.kind {
                             "call" => simple_path(&squash(&str_or(body, "target", ""))),
-                            "create" => body
-                                .get("result")
-                                .filter(|r| super::doc::truthy(Some(r)))
-                                .is_none(),
+                            // a creation naming its result reaches the
+                            // transition as a bare one does (D551)
+                            "create" => true,
                             _ => false,
                         }
                 });

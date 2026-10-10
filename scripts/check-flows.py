@@ -5446,7 +5446,10 @@ def syntax_plants():
          p(CREW, "inputs: { n: inputs.n }", "inputs: { n: note }")),
     ]
     ok = True
-    for base, text in (("the plants' modules", MINI), ("parts", PARTS), ("a pair", PAIR), ("a metric", METRIC), ("an assignee", ASSIGN), ("an evaluator", CREW)):
+    # a creation naming its result reaches its only-via child as a bare one does (check 13, D551)
+    named = p(PARTS, "inputs: { order: this } } }", "inputs: { order: this }, result: made } }")
+    for base, text in (("the plants' modules", MINI), ("parts", PARTS), ("parts whose creation names its result", named), ("a pair", PAIR),
+                       ("a metric", METRIC), ("an assignee", ASSIGN), ("an evaluator", CREW)):
         found, _notes = check([("plant.yaml", text)])
         ok &= not found
         if found:

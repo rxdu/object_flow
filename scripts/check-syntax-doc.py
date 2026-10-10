@@ -542,8 +542,9 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                                          "\n".join(v[1] for v in t.rels.values()))
                     if pt is None and not cascades:
                         add(13, f"{d.name}.{tn} names parent {ty}.{tr}, which does not exist", ln); continue
+                    # a creation naming its result, `create r = T.t(…)`, reaches t as a bare one does (D551)
                     reaches = cascades or (pt and re.search(
-                        rf"\b(?:call|create)\s+(?:[\w.$]+\.)?{tn}\s*\(", pt[3]))
+                        rf"\b(?:call|create)\s+(?:\w+\s*=\s*)?(?:[\w.$]+\.)?{tn}\s*\(", pt[3]))
                     if not reaches:
                         add(13, f"{d.name}.{tn} names parent {ty}.{tr}, which never reaches it", ln)
 

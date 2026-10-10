@@ -14451,6 +14451,29 @@
   "files": [
    [
     "plant.yaml",
+    "4584fd7d4be1548d"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Line": [
+    0,
+    0
+   ],
+   "Order": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants",
+  "files": [
+   [
+    "plant.yaml",
     "59dd8041aef1ff70"
    ]
   ],
