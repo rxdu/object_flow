@@ -6,7 +6,7 @@ Findings from every review of this design. It began as the implementation-readin
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. One is open — D516, the third cold reading's open questions, deferred to the Rust core by ADR-0148; of the procurement review of 2026-10-10 (`procurement-cold-draft.md`), still open: none; D529, two modules checked together declaring the same type, found 2026-10-07, was resolved the same day by ADR-0163; its fixes and the conversion to one normative home per rule, D514 and D515, are resolved. D505 to D513, the areas of the cold reading of 2026-10-04 (`cold-reading-2-review.md`), were each decided by ADR-0147 and resolved the same day as their documents and tools came to say so. D495 to D504, the areas of the cold reading of 2026-09-30 (`cold-reading-review.md`), were each decided by ADR-0146 and resolved on 2026-10-01. D395 to D442, found on 2026-09-27 reviewing whether a builder can recover the robot inventory and the Jira flows from the specification and the YAML (`flow-recoverability-review.md`), were resolved the same day by ADR-0122 and in place, D410 to D416 after a second review, D417 to D420 after a third, D421 and D422 after a fourth, D423 to D427 after a fifth, D428 to D433 after a sixth, D434 and D435 after a seventh, D436 to D438 after an eighth, D439 and D440 after a ninth and D441 and D442 after a tenth; D443 and D444, found writing the metric scenarios the same day, were resolved by ADR-0123, D445 to D448 in place, D449 by ADR-0124, D450 by ADR-0125, D451 in place, D452 by ADR-0126, D453 and D454 in place, D455, D456 and D461 by ADR-0133, and D457 to D460 in place; D383, found extending the walkthrough's inventory item on 2026-09-25, was resolved in place the same day at the author's direction; an operations review of the worked example on 2026-09-24 found D289, corrected in place; an audit of the first consumer's production code the same day found D275 to D281, of which D280 and D281 were corrected in place, reviewing the design against the PRD with the unit's journey found D282 and D283, and verifying ADR-0103's first draft found D284 to D288; ADR-0103 resolved D275 to D279, D282 and D284 to D288, and D283 was corrected in place; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. One is open — D516, the third cold reading's open questions, deferred to the Rust core by ADR-0148; of the procurement review of 2026-10-10 (`procurement-cold-draft.md`), still open: none, its second round's (`procurement-second-review.md`) none; D529, two modules checked together declaring the same type, found 2026-10-07, was resolved the same day by ADR-0163; its fixes and the conversion to one normative home per rule, D514 and D515, are resolved. D505 to D513, the areas of the cold reading of 2026-10-04 (`cold-reading-2-review.md`), were each decided by ADR-0147 and resolved the same day as their documents and tools came to say so. D495 to D504, the areas of the cold reading of 2026-09-30 (`cold-reading-review.md`), were each decided by ADR-0146 and resolved on 2026-10-01. D395 to D442, found on 2026-09-27 reviewing whether a builder can recover the robot inventory and the Jira flows from the specification and the YAML (`flow-recoverability-review.md`), were resolved the same day by ADR-0122 and in place, D410 to D416 after a second review, D417 to D420 after a third, D421 and D422 after a fourth, D423 to D427 after a fifth, D428 to D433 after a sixth, D434 and D435 after a seventh, D436 to D438 after an eighth, D439 and D440 after a ninth and D441 and D442 after a tenth; D443 and D444, found writing the metric scenarios the same day, were resolved by ADR-0123, D445 to D448 in place, D449 by ADR-0124, D450 by ADR-0125, D451 in place, D452 by ADR-0126, D453 and D454 in place, D455, D456 and D461 by ADR-0133, and D457 to D460 in place; D383, found extending the walkthrough's inventory item on 2026-09-25, was resolved in place the same day at the author's direction; an operations review of the worked example on 2026-09-24 found D289, corrected in place; an audit of the first consumer's production code the same day found D275 to D281, of which D280 and D281 were corrected in place, reviewing the design against the PRD with the unit's journey found D282 and D283, and verifying ADR-0103's first draft found D284 to D288; ADR-0103 resolved D275 to D279, D282 and D284 to D288, and D283 was corrected in place; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -572,6 +572,23 @@ Findings from every review of this design. It began as the implementation-readin
 | [D558](#d558) | The README and the engine's entry points mislead a newcomer | Resolved |
 | [D559](#d559) | A `file` attribute's wire form is unspecified, and the core takes any string | Resolved |
 | [D560](#d560) | The reference runner's wire refuses an actor named by its identity, and faults on a login given as a reference | Resolved |
+| [D561](#d561) | The README says a deployment's service is not yet built | Resolved |
+| [D562](#d562) | An event's consulted verdicts sit inside its payload, not at the top level the library's `Event` gives them | Resolved |
+| [D563](#d563) | A slow evaluator endpoint holds every request | Resolved |
+| [D564](#d564) | The generated tools cannot read, though each tells the agent to call availability first | Resolved |
+| [D565](#d565) | A metric by a recorded identity is not marked as naming a person | Resolved |
+| [D566](#d566) | Who acts does not count as provably present for what a state requires | Resolved |
+| [D567](#d567) | The coverage notice asks for examples of transitions no request may name | Resolved |
+| [D568](#d568) | A metric expectation reads a value that is also an alias as the alias's object | Resolved |
+| [D569](#d569) | A metric read's filter naming what its rows do not bind answers nothing | Resolved |
+| [D570](#d570) | A `get` or `history` naming no object answers null | Resolved |
+| [D571](#d571) | A tool's money pattern accepts more places than its currency has | Resolved |
+| [D572](#d572) | The import batch's JSON is documented only in a test and the core's source | Resolved |
+| [D573](#d573) | The evaluator endpoint's call is shown only in an ADR | Resolved |
+| [D574](#d574) | The guide's pattern for who acted, written through references, vetoes later changes to what it reads | Resolved |
+| [D575](#d575) | The go-live's constraints on the model are found only by trying | Resolved |
+| [D576](#d576) | The built-in label offer on every object is unmentioned in the guides | Resolved |
+| [D577](#d577) | A required input left out arrives in two shapes, unsaid to an application | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3655,3 +3672,92 @@ Three readers with no context read what earlier rounds had not ([`cold-reading-r
 **The reference runner's wire refuses an actor named by its identity, and faults on a login given as a reference.** "A request's actor is the object whose actor identity the request names" (`DESIGN.md` §5.8). Through the Flow Studio's server with the runner, over `reimbursement.yaml`: an actor `{"id": "alice@corp"}`, an employee's `user_id`, its actor identity, is refused `unsatisfied actor_known`, which the core accepts, as it also accepts the object's id; and `inputs: {"claimant": "alice@corp"}` answers `500 {"fault": "KeyError: 'alice@corp'"}`, where the core refuses `invalid_input ["claimant"]`. Found 2026-10-10 by the procurement review (P15, I9), by a probe.
 
 **Resolved** 2026-10-10 by ADR-0173 decisions 9 and 13. A reference input naming no object is refused on the runner as on the core, `invalid_input`, its reason `no_such_object`; and the runner's wire resolves an actor as the core does, by the object's id, else by the actor identity it names, so a request by `alice@corp` is the employee's on both. `DESIGN.md` §5.8 names both forms; a test through both backends at once requests by identity and by id alike.
+
+## Found by the second procurement review, 2026-10-10
+
+Two agents new to ObjectFlow built the procurement brief again at commit `c494d5c`, after D547 to D560 and ADR-0173 were built ([`procurement-second-review.md`](procurement-second-review.md)); each finding below was reproduced, or its claim corrected, before it was entered.
+
+### D561
+**The README says a deployment's service is not yet built.** README.md's status line said so after ADR-0174 built it, while `core/README.md`, the guides and `--help` described `--store`. Found 2026-10-10 by the second procurement review (integrator), by reading.
+
+**Resolved** 2026-10-10: the status line says the core runs as a sandbox's and as a deployment's service, ready to pilot on one machine and not yet for production, and why.
+
+### D562
+**An event's consulted verdicts sit inside its payload, not at the top level the library's `Event` gives them.** `library-api.md` §5 types `Event.consulted` and `Event.as_of`, each by guard; the core wrote them as `payload.consulted` with `as_of` and `values` inside, and the wire reference said nothing of either, so the integrator, reading `reads`, reported the verdict missing from the record. A probe on a sandbox settling a transfer the bank evaluator cleared found `payload.consulted.cleared.values` holding `bank.cleared(T-1): satisfied`. Found 2026-10-10 by the second procurement review (integrator), its claim that the record omits the verdict wrong as stated.
+
+**Resolved** 2026-10-10: the wire's event carries `consulted` and `as_of` by guard at its top level, the payload its inputs alone; the scenarios' replay reads them there, and `deployment.rs` asserts the endpoint's verdict on the settle event. `wire.md` shows an event whole.
+
+### D563
+**A slow evaluator endpoint holds every request.** ADR-0175's service asked the endpoint between attempts but under the service's one lock, so a plain `get` sent while a submit's endpoint timed out waited for it: 1.75 s of the integrator's 2 s timeout. Found 2026-10-10 by the second procurement review (integrator), by measurement, and confirmed by reading `consulting`.
+
+**Resolved** 2026-10-10: the service lets go of its lock while an endpoint answers, each attempt taking it again, in `block_in_place` so the runtime serves others; `deployment.rs` holds a read under half a second during a slow call, and holding the lock across the call fails it at 0.76 s.
+
+### D564
+**The generated tools cannot read, though each tells the agent to call availability first.** `tools` rendered a tool for every transition, observation kind and metric, and no read, while 28 of the integrator's 34 tool descriptions said "Call availability(object_id) first". Found 2026-10-10 by the second procurement review (integrator), by reading `/v1/tools`.
+
+**Resolved** 2026-10-10: both renderers add `get_object`, `object_availability` and `query_objects`, the last's `type` an enumeration of the declared types, and each transition's description names `object_availability`; the tee compares them and `test_tools.py` asserts them. `renderers.md` §3 says so.
+
+### D565
+**A metric by a recorded identity is not marked as naming a person.** The guide records who acted as `assign … actor.id` into an `identity` attribute; a metric whose dimension reads it, a per-approver turnaround, was not in `person_dimensions`, which marked only objects of actor types and a row's `.actor_id`. Reproduced on both backends with a request approved by `ana`: `person_dimensions: []`. Found 2026-10-10 by the second procurement review (both agents).
+
+**Resolved** 2026-10-10: on both backends, a dimension reading an `identity` attribute of the row's object, or of one its single references reach, is marked (`flow-format.md` §4.9); a tee test asserts `Request.approvals_by_approver.approver` alike.
+
+### D566
+**Who acts does not count as provably present for what a state requires.** `actor.id` and `actor.kind` are on every request, yet a state requiring an attribute assigned from either was refused `required`: `Request.approve enters APPROVED without setting 'approved_by'`. Reproduced with the flow checker. Found 2026-10-10 by the second procurement review (both agents).
+
+**Resolved** 2026-10-10: both checkers count `actor.id` and `actor.kind` as provably present (`flow-format.md` §4.5); a planted module requiring who approved is clean, and the identity plants hold it.
+
+### D567
+**The coverage notice asks for examples of transitions no request may name.** Its second part, the transitions no example requests as the request under test, listed 13 `only_via` transitions of the drafter's module, which no example can request. Reproduced over `reimbursement.yaml`. Found 2026-10-10 by the second procurement review (drafter).
+
+**Resolved** 2026-10-10: both checkers leave a transition only via others out of that part, taken; it stays in the first where nothing takes it (`flow-format.md` §11.5).
+
+### D568
+**A metric expectation reads a value that is also an alias as the alias's object.** An example expecting a metric's identity dimension `approver: mark`, where `mark` was also the user's alias, failed on all four players, the alias resolving to the object's id; and the failure printed the runner's raw row, a duration as `7200`, beside the expected `2 h`. Reproduced with a one-example module. Found 2026-10-10 by the second procurement review (drafter).
+
+**Resolved** 2026-10-10: the runner, the core's run, the replay and the web player accept the text as written or the alias's object, and the runner prints a metric's duration as an example writes it; the identity plants, the replay tests on both backends and a web test hold it.
+
+### D569
+**A metric read's filter naming what its rows do not bind answers nothing.** `Request.time_in_state` filtered `state == Request.OPEN`, the member without the item `i.`, answered no rows and no refusal on both backends, and `nonsense == 3` answered 501 on the core and no rows on the runner. Reproduced on both. Found 2026-10-10 by the second procurement review (integrator).
+
+**Resolved** 2026-10-10: a filter that does not parse, or starts from a name other than the metric's item, an aggregation's own, `now`, a type, an enumeration or a kind of actor, is refused `malformed_filter` on both, alike by a tee test (`library-api.md` §5, `wire.md`).
+
+### D570
+**A `get` or `history` naming no object answers null.** `wire.md` §1 makes an argument left out a `400`; `/v1/get {}` answered `200 null`, as for an object that does not exist. Reproduced on the core. Found 2026-10-10 by the second procurement review (integrator).
+
+**Resolved** 2026-10-10: both backends answer `400`, `get names an object's id`, and the same of `history`; the faults test holds it alike.
+
+### D571
+**A tool's money pattern accepts more places than its currency has.** `^SGD -?[0-9]+(\\.[0-9]+)?$` let a model send `SGD 95.005`, which the engine refused `malformed`. Found 2026-10-10 by the second procurement review (integrator).
+
+**Resolved** 2026-10-10: both renderers bound the places by the currency's minor unit, none for a currency with none; `test_tools.py` refuses `USD 120.005` by the schema.
+
+### D572
+**The import batch's JSON is documented only in a test and the core's source.** `wire.md` listed `import_batch`'s keys and not a batch's shape; both agents copied it from `test_golive.py`, and the drafter read `imported_object()` for `created_at` and `entered`. Found 2026-10-10 by the second procurement review (both agents).
+
+**Resolved** 2026-10-10: `wire.md` shows a batch object with every key the service reads, the sequences and the legacy kinds, and the disposition file's form.
+
+### D573
+**The evaluator endpoint's call is shown only in an ADR.** The integrator's bridge read the arguments by name, crashed on the positional array ADR-0175 shows, and every request was refused `temporal`, the reason only on the engine's stderr. Found 2026-10-10 by the second procurement review (integrator).
+
+**Resolved** 2026-10-10 in the guides: `wire.md` gives the call and the answer, the arguments in the order the function declares them, and where a failing integration shows. The verdict's not computing which evaluator went unanswered stays in `TODO.md` (`unknown`).
+
+### D574
+**The guide's pattern for who acted, written through references, vetoes later changes to what it reads.** "Approved by the requester's manager", an invariant `approver == requisition.requester.manager.user_id`, refused HR changing the requester's manager after the approval, `invariant_violated … dependent`, since an invariant holds at all times. Found 2026-10-10 by the second procurement review (drafter), its module kept as `procurement.v0-invariant-through-references.yaml`; by design (`flow-format.md` §4.6), and the guide did not warn.
+
+**Resolved** 2026-10-10 in the guide: `write-a-flow.md` §5 says to copy the fact onto the record when the decision is made and constrain the record's own attributes. A checker notice for it is a question for the author (the second review's §5).
+
+### D575
+**The go-live's constraints on the model are found only by trying.** A reference from a family brought in to a type the store owns makes that type a mirror too, so an order naming its requisition makes 15 of 16 types mirrors; and the import checks invariants, never guards, so a legacy over-receipt went in unseen. Both by design (`flow-format.md` §4.15, `publish-and-import.md` §4), unsaid where an author plans a go-live. Found 2026-10-10 by the second procurement review (both agents).
+
+**Resolved** 2026-10-10 in the guides: `publish-and-import.md` §7 and `write-a-flow.md` §5 say to keep such a link on the new side and that a rule legacy data may break is checked at go-live only as an invariant.
+
+### D576
+**The built-in label offer on every object is unmentioned in the guides.** Every offer list ends with `record`, `creates: "label"`, which the integrator's renderer showed as a form until it recognised it from `flow-format.md`. Found 2026-10-10 by the second procurement review (integrator).
+
+**Resolved** 2026-10-10: `wire.md` names it beside offers.
+
+### D577
+**A required input left out arrives in two shapes, unsaid to an application.** `invalid_input` with the reason `missing`, or, where the attribute is optional elsewhere in the type, `unsatisfied <attribute>_provided` (`flow-format.md` §6); documented for authors, not for a client. Found 2026-10-10 by the second procurement review (drafter).
+
+**Resolved** 2026-10-10: `integrate.md` §4 says so.

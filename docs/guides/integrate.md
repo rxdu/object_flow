@@ -64,7 +64,7 @@ POST /v1/request
 
 **A refusal is an answer, never an error.** Branch on `kind`, then on `remedy`, which says what can be done (`wire.md` §3):
 
-- `self_serviceable`: show the person what to correct. An `invalid_input` names each input and why (`"reasons": {"amount": "wrong_currency"}`), so a form marks the field; a `stale` means re-read the object and send again.
+- `self_serviceable`: show the person what to correct. An `invalid_input` names each input and why (`"reasons": {"amount": "wrong_currency"}`), so a form marks the field; a `stale` means re-read the object and send again. A required input left out arrives in one of two shapes: `invalid_input` with the reason `missing`, or, where the attribute it writes is optional elsewhere in the type, `unsatisfied` with the clause `<attribute>_provided`; a form maps both to the field (`flow-format.md` §6).
 - `delegable`: someone else must act. An agent hands it to a person, or files it as a proposal.
 - `temporal`: retry later.
 - `dependent`: another object must change first.
@@ -91,8 +91,8 @@ An agent acts through the same requests as a person, as an actor of an agent typ
 
 - `availability` says what it may do now, and why not; `actor_dependent` marks what may be refused for who it is.
 - Every refusal's `remedy` is its next move, `delegable` among them where a person must act.
-- **"Agents draft, people approve"** is a rule a flow states: record who acted (`assign: { location: confirmed_by, expr: actor.kind }`) and constrain it with an invariant (`confirmed_by == human`), as `reimbursement.yaml`'s `confirmed_by_a_person` does; an agent refused by it is told `delegable`. A transition marked `proposable` lets the agent file the request for a person to approve.
-- `tools` gives an agent's tool definitions, rendered from the flow for its actor kind: one per transition it may request, but those a rule over who acted refuses it, one per observation kind, and one reading any metric, each a JSON Schema in the wire's notation (`docs/design/renderers.md` §3). Hand them to the model, and send each call as a request in the agent's name.
+- **"Agents draft, people approve"** is a rule a flow states: record who acted (`assign: { location: confirmed_by, expr: actor.kind }`) and constrain it with an invariant (`confirmed_by == human`), as `reimbursement.yaml`'s `confirmed_by_a_person` does; an agent refused by it is told `delegable`. A transition marked `proposable` lets the agent file the request for a person to approve. **Nothing an agent may take is forbidden unless the flow says so**: state it on every transition a person must take, approvals, overrides and payments among them, and keep an allowlist of the agent's tools in your application until you have.
+- `tools` gives an agent's tool definitions, rendered from the flow for its actor kind: one per transition it may request, but those a rule over who acted refuses it, one per observation kind, one reading any metric, and three reads it plans with, `get_object`, `object_availability` and `query_objects`, each a JSON Schema in the wire's notation (`docs/design/renderers.md` §3). Hand them to the model, send each write as a request in the agent's name, and each read as the operation it names. The tools are what the flow allows an agent, not what your application permits it: filter them by your own rules.
 
 ## 7. Changing a flow, and bringing in existing data
 

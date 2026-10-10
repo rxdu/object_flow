@@ -323,6 +323,8 @@ The author chose staged over big-bang (ADR-0075), and the shape of a stage follo
 4. **The cutover.** The module itself is published as version 2. Its dry run reports what the objects gain, `Order.place` for the open order among them, and its approval makes the three types the store's own; no object changes id.
 5. **After it.** The imported `PO-04300` takes a line at today's rate, its total going from SGD 648.00 to SGD 918.00; the first order opened here is `PO-04301`, the number after the legacy system's last; and a batch naming an `Order` is refused, `refused_types: ["Order"]`, since only a mirror is imported.
 
+**The go-live shapes the model.** The worked go-live works because an order references nothing born here; a reference from a family brought in to a type the store owns, an order to its requisition, makes that type a mirror too, since a mirror may not reference an owned type (§7's first rule, `flow-format.md` §4.15), and `mirror-version.py` says so as it brings it in. Keep such a link on the new side. And the import checks a mirror's invariants, never a guard, since it writes through the built-in assertion (§4): a rule the legacy data may already break is checked at go-live only where it is also an invariant.
+
 What this does **not** solve is a legacy *read* of a migrated type. Only writes are forbidden. Where the retiring system must still show data that has moved, that is a read-only projection out of the read surface, and whether each such screen earns its cost is a per-stage judgement about that codebase rather than something this design decides.
 
 ## 8. Decided since the first draft, and still open

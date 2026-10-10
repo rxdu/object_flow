@@ -106,8 +106,8 @@ POST /v1/request
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `get` | `id`, `follow` | the object, or `null` |
-| `history` | `id`, `follow` | `{"events": [...], "not_computed": [...]}`, its legacy entries first, or `null` |
+| `get` | `id`, `follow` | the object, or `null`; no `id` is a `400` |
+| `history` | `id`, `follow` | `{"events": [...], "not_computed": [...]}`, its legacy entries first, or `null`; no `id` is a `400` |
 | `events` | `positions` | `{"events": [...]}`, each position's event or `null` |
 | `availability` | `actor`, `id` | each transition's offer to the actor, or `null` |
 | `query` | `actor`, `type`, `filter`, `order`, `fields`, `cursor` | `{"items": [...], "cursor": null, "refused": null}` |
@@ -143,7 +143,22 @@ An **offer**, one per transition, its inputs as types to build a form from (whic
 
 `availability` is `available`, `available_with_input` or `unavailable`, with the refusal it would meet; `flags` are the warnings taking it would raise; `unevaluated`, the evaluators it would ask. **`actor_dependent: true`** says the transition writes who takes it into what an invariant reads, so it may be refused for who takes it, which an offer cannot tell: a person's confirmation an agent is offered, say.
 
-A **query filter** is an expression over the type's members (`declaration-syntax.md` §8): `amount > USD 100.00`, `state == ClaimLine.LISTED`, `claim.number == "EXP-00001"`. A reference is compared by its id, `claim.id == "claim-4"`: a filter comparing a reference with a string, or computing with one, is refused `malformed_filter`. A query's refusal is `refused`, a code: `unknown_type`, `malformed_filter`, `unknown_order_key`, `unknown_field`.
+Every offer of an object carries the built-in `record` with `"creates": "label"`: a label, a name a person or an agent puts on any object, which a metric reads (`flow-format.md` §4.9). A form for it takes `name` and an optional `note`.
+
+An **event**, as `history`, `events` and `pull` answer it:
+
+```json
+{"position": 3, "object_id": "transfer-2", "transition": "settle", "from_state": "SENT", "to_state": "SETTLED",
+ "changes_state": true, "actor_id": "operator", "actor_kind": "human", "principal": null, "declaration_version": 1,
+ "recorded_at": "2026-10-10T09:31:02Z", "occurred_at": "2026-10-10T09:31:02Z", "imported": false,
+ "payload": {"inputs": {}}, "cause": null, "context": null,
+ "reads": {"objects": {}, "scans": {}, "now": "2026-10-10T09:31:02Z"},
+ "consulted": {"cleared": {"bank.cleared(T-1)": "satisfied"}}, "as_of": {"cleared": "2026-10-10T09:31:02Z"}}
+```
+
+`payload.inputs` holds what the request sent; `reads`, what its rules read; and `consulted` and `as_of`, by guard, each evaluator's verdict or metric's value it was given, by the call with its arguments, and when (`library-api.md` §5).
+
+A **query filter** is an expression over the type's members (`declaration-syntax.md` §8): `amount > USD 100.00`, `state == ClaimLine.LISTED`, `claim.number == "EXP-00001"`. A reference is compared by its id, `claim.id == "claim-4"`: a filter comparing a reference with a string, or computing with one, is refused `malformed_filter`. A query's refusal is `refused`, a code: `unknown_type`, `malformed_filter`, `unknown_order_key`, `unknown_field`. A **metric's filter** reads its rows through the metric's item, `i.state == Claim.SUBMITTED` for `time_in_state`; one naming anything else is refused `malformed_filter`, as are `unknown_metric`, `unknown_dimension`, `filter_on_combined`, `no_window` and `personal` (`library-api.md` §5).
 
 **Pages hold everything today**: `query`, `available` and `metric` answer every row on one page with `cursor: null`, and a cursor sent to `query` or `metric` is a fault. Page in the client until the core pages.
 
@@ -166,7 +181,28 @@ There is no push: a consumer polls `pull` and acknowledges what it has handled.
 | `import_batch` | `actor`, `batch`, `disposition`, `dry_run` | `{"written": …, "findings": [...], "refused_types": [...], "refusal": …}` |
 | `maintain` | `actor`, `task` | `{"moved": …, "refused": …}`: `prune_attempts`, `prune_idempotency` or `archive_events` before a time |
 
-A change is an object: `{"type": "DeclarationChange", "transition": "draft", "inputs": {"source": {"<module>": "<its YAML>", …}, "source_ref": "git:…"}}`, then `submit`, which runs its dry run, then `publish` with `expected_version` to approve it. The whole procedure, and importing legacy data into mirror types, is `docs/design/publish-and-import.md`.
+A change is an object: `{"type": "DeclarationChange", "transition": "draft", "inputs": {"source": {"<module>": "<its YAML>", …}, "source_ref": "git:…"}}`, then `submit`, which runs its dry run, then `publish` with `expected_version` to approve it. The whole procedure, and importing legacy data into mirror types, is `docs/design/publish-and-import.md`; §7 there works a go-live through.
+
+A **batch** (`publish-and-import.md` §4), each object of a mirror type, its references by the other's legacy key:
+
+```json
+{"objects": [
+   {"type": "PurchaseOrder", "legacy_key": "4300", "state": "OPEN",
+    "attributes": {"number": "PO-04300", "supplier": "S-12", "legacy_key": "4300"},
+    "created_at": "2025-11-02T08:00:00Z", "created_by_kind": "human",
+    "entered": {"state": {"at": "2025-11-03T10:00:00Z", "by": "jo@corp", "by_kind": "human"}},
+    "legacy_intervals": [{"dimension": "state", "value": "DRAFT", "entered_at": "2025-11-02T08:00:00Z",
+                          "left_at": "2025-11-03T10:00:00Z", "entered_by": "jo@corp", "entered_by_kind": "human"}],
+    "legacy_entries": [{"kind": "note", "occurred_at": "2025-11-02T09:00:00Z", "payload": {"text": "…"},
+                        "about": {"customer": "Customer:C-7"}}],
+    "silent_spans": [["2025-12-20T00:00:00Z", "2026-01-05T00:00:00Z"]]}],
+ "sequences": [{"sequence": "order_number", "last": 4300, "scope": ""}],
+ "legacy_kinds": {"note": ["text"]}}
+```
+
+`type`, `legacy_key` and `state` are required; the rest is what the legacy record can say: when the object was created and by what kind of actor, when it took its current state or a tracked member its value and who changed it (`entered`), its earlier values (`legacy_intervals`), its audit rows (`legacy_entries`, each kind's fields kept through an erasure in `legacy_kinds`), the spans the record is silent over, and each sequence's last number. A mirror's external identifier, `legacy_key` above, holds the key in `attributes` too. The **disposition file** is the dry run's `findings`, each with `disposition` set: `clean_upstream`, `admit` (an invariant), `exclude` or `drop` (a reference or a field), and optionally `decided_by` and `reason` (§6 there).
+
+A **deployment's evaluator endpoint** (ADR-0175) is posted each call as `{"evaluator": "xero", "function": "bill_paid", "arguments": ["BILL-0042"]}`, the arguments in the order the function declares them, each in this page's notation, and answers `{"verdict": "satisfied"}` or `{"verdict": "unsatisfied"}` with a `200`; anything else, or no answer within `--evaluator-timeout`, is the evaluator's unknown, so its guard is refused `temporal`, and the service writes why on its standard error, which is where an integration's fault shows.
 
 ### The sandbox's controls
 

@@ -4,7 +4,7 @@
 
 Governed flows for business objects. People and agents move objects only along declared transitions; every change is checked, recorded and measured.
 
-> **Status: in design, with a running core.** The design is complete and under its author's review: the requirements, the model, the language flows are declared in, every decision with the alternatives it rejected, and the checkers that hold it together. The engine's core runs, in Rust, as a sandbox's service held to a Python reference runner, and the Flow Studio is built on it; a deployment's service, whose store survives a restart, is not yet built. See [getting started](#getting-started) and [where it stands](#where-it-stands).
+> **Status: in design, with a running core.** The design is complete and under its author's review: the requirements, the model, the language flows are declared in, every decision with the alternatives it rejected, and the checkers that hold it together. The engine's core runs, in Rust, held to a Python reference runner: as a sandbox's service, on which the Flow Studio is built, and as a deployment's, whose store is one SQLite file that survives a restart, on the wall clock, asking external systems over HTTP. It is ready to pilot a flow on one machine, and not yet for production: it serves one request at a time, does not page reads, and cannot yet carry a store to a newer engine release. See [getting started](#getting-started) and [where it stands](#where-it-stands).
 
 ## The problem
 
@@ -149,7 +149,7 @@ In design, under review by its author. What exists:
 - **Jira's typical flows**: [a catalogue](docs/design/jira-flows.md) of the workflows Jira's templates ship, each a checked module with its state diagram, saying which parts Atlassian states and which the catalogue chose.
 - **Can a builder recover a flow?** [A review](docs/design/flow-recoverability-review.md) of the robot inventory and the Jira flows by readers given only the specification and the YAML, with its open findings.
 
-The engine's core is being built in Rust behind an HTTP service (ADR-0132, ADR-0150), slice by slice, with the [Flow Studio](apps/flow-studio/README.md) as its first application. [`TODO.md`](TODO.md) says exactly where things stand.
+The engine's core is being built in Rust behind an HTTP service (ADR-0132, ADR-0150), slice by slice, with the [Flow Studio](apps/flow-studio/README.md) as its first application. Two cold reviews had agents new to ObjectFlow build a procurement system on it, a flow and an application, and record what hurt ([the first](docs/design/procurement-cold-draft.md), [the second](docs/design/procurement-second-review.md)); both of the second round's agents judged it ready to pilot on one machine and not yet for production. [`TODO.md`](TODO.md) says exactly where things stand.
 
 To check the record, build the scripts' pinned Python environment once with `scripts/setup/python-env`, then run `scripts/.venv/bin/python scripts/check-corpus.py`. It runs every checker: the declaration language's rules over every example, the storage schema's SQL, the library API, the agent tool schemas, and the traceability map.
 
