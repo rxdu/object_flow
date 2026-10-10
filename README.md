@@ -29,7 +29,7 @@ Agents are governed exactly as people are, which is what makes handing them work
 - **One interface, one set of rules.** An agent acts through the same requests as a person and is refused by the same rules. There is no side door.
 - **It can ask what it may do.** `availability` evaluates the real rules against the real data and says, for each transition, whether it is available, needs input, or is blocked and why.
 - **A refusal is an instruction.** Every refusal carries a remedy, so an agent knows whether to fix its request, ask a person, wait, or work on something else first.
-- **Its tools come from the rules.** Agent tool definitions are to be generated from the declaration (ADR-0173), so they cannot drift from what is enforced.
+- **Its tools come from the rules.** Agent tool definitions are generated from the declaration, by `tools` for an actor kind (ADR-0173), so they cannot drift from what is enforced.
 - **What an agent is, is declared.** Whether an actor is a person, an agent or a service is declared with its type, so every record and every metric says truthfully which kind of actor acted, whatever a request claims.
 - **Agents draft, people approve.** An agent can draft a change to a flow, or file a proposal for a request. Your application decides who approves, and the record keeps who drafted and who approved.
 - **Permissions stay with your application.** ObjectFlow never decides who may act. Your application does, sending the version it read, so its check cannot race a change.

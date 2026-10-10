@@ -1,0 +1,470 @@
+//! The tool schemas an agent is handed, rendered from the declaration
+//! (`renderers.md` §3, ADR-0173 decision 10): one for each transition of a
+//! declared type a request may name, one for each observation kind, and
+//! `read_metric`, sorted by name. A transition is left out for an actor kind
+//! where an invariant of its type, over a value its effect assigns from
+//! `actor.kind`, is certain to fail with that kind (decision 1).
+//!
+//! `scripts/flowtools.py` renders the same, the reference the Flow Studio's
+//! server answers with on the runner's side, so the two are compared answer
+//! for answer.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use serde_json::{Map, Value as Json, json};
+
+use crate::expr::{BinOp, Expr};
+use crate::model::{Declared, Kind, Library, Step, Transition, Type};
+
+/// The kinds of actor a tool is rendered for.
+pub const ACTOR_KINDS: [&str; 3] = ["human", "agent", "service"];
+
+/// The standard metrics every type has, and those each assignee reference
+/// adds (`declaration-syntax.md` §6.11).
+const STANDARD: [&str; 11] = [
+    "time_in_state",
+    "time_in_state_p80",
+    "throughput",
+    "work_in_progress",
+    "oldest_open",
+    "transition_counts",
+    "refusals",
+    "flags_raised",
+    "refusal_rate",
+    "override_counts",
+    "rework",
+];
+const ASSIGNMENT: [&str; 11] = [
+    "open_work",
+    "time_unassigned",
+    "time_to_first_assignment",
+    "time_with_assignee",
+    "cycle_time_by_assignee",
+    "time_in_state_by_holder",
+    "handoffs",
+    "reassigned_back",
+    "acted_by_non_assignee",
+    "handoffs_by_object",
+    "returns_by_object",
+];
+const AVAILABILITY: &str = "Call availability(object_id) first: it evaluates the real guards against the real data, and says whether this transition is available now, which rule refuses it if not, and what can be done about it.";
+const RETRY: &str = "the same key on a retry answers the first result";
+const BACKDATED: &str =
+    "when it happened, if earlier than now; how far back is a rule the store checks";
+
+/// `PurchaseRequest` as `purchase_request`.
+fn snake(name: &str) -> String {
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// A scalar type's JSON Schema, in the wire's notation (ADR-0150 decision 2).
+fn scalar(typ: &str, enums: &BTreeMap<String, Vec<String>>) -> Map<String, Json> {
+    let mut out = Map::new();
+    out.insert("type".into(), json!("string"));
+    if let Some(members) = enums.get(typ) {
+        out.insert("enum".into(), json!(members));
+    } else if typ == "actor_kind" {
+        out.insert("enum".into(), json!(ACTOR_KINDS));
+    } else if typ == "int" {
+        out.insert("type".into(), json!("integer"));
+    } else if typ == "bool" {
+        out.insert("type".into(), json!("boolean"));
+    } else if let Some(args) = typ.strip_prefix("decimal") {
+        let scale = args
+            .trim_start_matches('(')
+            .trim_end_matches(')')
+            .split(',')
+            .nth(1)
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && *s != "0");
+        let fraction = scale.map_or(String::new(), |s| format!("(\\.[0-9]{{1,{s}}})?"));
+        out.insert("pattern".into(), json!(format!("^-?[0-9]+{fraction}$")));
+    } else if let Some(currency) = typ.strip_prefix("money(").and_then(|c| c.strip_suffix(')')) {
+        out.insert(
+            "pattern".into(),
+            json!(format!("^{currency} -?[0-9]+(\\.[0-9]+)?$")),
+        );
+    } else if typ == "timestamp" {
+        out.insert("format".into(), json!("date-time"));
+    } else if typ == "date" {
+        out.insert("format".into(), json!("date"));
+    } else if typ == "duration" {
+        out.insert(
+            "pattern".into(),
+            json!("^[0-9]+ (s|min|h|day|days|week|weeks)$"),
+        );
+    }
+    out
+}
+
+/// An input's schema from what it declares: a reference or a type, one or
+/// a set, and the unit an observation's field is measured in.
+fn schema_of(
+    declared: &Declared,
+    many: bool,
+    unit: Option<&str>,
+    enums: &BTreeMap<String, Vec<String>>,
+) -> Json {
+    match declared {
+        Declared::Reference(target) if many => json!({
+            "type": "array", "items": {"type": "string"}, "uniqueItems": true,
+            "description": format!("the {target} objects, by their ids"),
+        }),
+        Declared::Reference(target) => {
+            json!({"type": "string", "description": format!("the {target}, by its id")})
+        }
+        Declared::Scalar(typ) => {
+            let one = Json::Object(scalar(typ, enums));
+            let mut out = if many {
+                json!({"type": "array", "items": one, "uniqueItems": true})
+            } else {
+                one
+            };
+            if let (Some(u), Some(o)) = (unit, out.as_object_mut())
+                && !many
+            {
+                o.insert("description".into(), json!(format!("in {u}")));
+            }
+            out
+        }
+    }
+}
+
+/// An input written as the flow format writes it, an observation's field.
+fn schema_of_source(spec: &Json, enums: &BTreeMap<String, Vec<String>>) -> Json {
+    let (text, reference) = match (spec.get("reference"), spec.get("type")) {
+        (Some(r), _) => (r.as_str().unwrap_or_default(), true),
+        (None, Some(t)) => (t.as_str().unwrap_or_default(), false),
+        (None, None) => ("string", false),
+    };
+    let many = text.ends_with("[]");
+    let base = text.trim_end_matches("[]").to_string();
+    let declared = if reference {
+        Declared::Reference(base)
+    } else {
+        Declared::Scalar(base)
+    };
+    schema_of(
+        &declared,
+        many,
+        spec.get("unit").and_then(Json::as_str),
+        enums,
+    )
+}
+
+/// A transition's inputs, each an attribute it writes or an input it
+/// declares, and those a request must give.
+fn inputs_schema(t: &Type, x: &Transition, enums: &BTreeMap<String, Vec<String>>) -> Json {
+    let mut props = Map::new();
+    let mut required: BTreeSet<String> = x.required_inputs.iter().cloned().collect();
+    for name in x.required_inputs.iter().chain(&x.optional_inputs) {
+        let schema = t.attributes.iter().find(|(a, _)| a == name).map_or_else(
+            || json!({"type": "string"}),
+            |(_, a)| schema_of(&a.declared, a.many, None, enums),
+        );
+        props.insert(name.clone(), schema);
+    }
+    for (name, i) in &x.inputs {
+        props.insert(name.clone(), schema_of(&i.declared, i.many, None, enums));
+        if !i.optional && i.default.is_none() {
+            required.insert(name.clone());
+        }
+    }
+    let mut out = json!({"type": "object", "properties": props, "additionalProperties": false});
+    if !required.is_empty() {
+        out["required"] = json!(required);
+    }
+    out
+}
+
+// ── for an actor kind: what an invariant over the recorded kind is certain of
+#[derive(Clone, Debug, PartialEq)]
+enum Held {
+    Known(String),
+    Present,
+    Absent,
+}
+
+/// True, false or none, unknown: an invariant over what a request writes,
+/// in three-valued logic.
+fn certain(e: &Expr, env: &BTreeMap<String, Held>) -> Option<bool> {
+    match e {
+        Expr::Bin(op @ (BinOp::And | BinOp::Or), a, b) => {
+            let (a, b) = (certain(a, env), certain(b, env));
+            if *op == BinOp::And {
+                if a == Some(false) || b == Some(false) {
+                    Some(false)
+                } else if a == Some(true) && b == Some(true) {
+                    Some(true)
+                } else {
+                    None
+                }
+            } else if a == Some(true) || b == Some(true) {
+                Some(true)
+            } else if a == Some(false) && b == Some(false) {
+                Some(false)
+            } else {
+                None
+            }
+        }
+        Expr::Not(a) => certain(a, env).map(|v| !v),
+        Expr::IsNull(inner, negated) => {
+            let Expr::Name(n) = inner.as_ref() else {
+                return None;
+            };
+            let present = *env.get(n)? != Held::Absent;
+            Some(if *negated { present } else { !present })
+        }
+        Expr::Bin(op @ (BinOp::Eq | BinOp::Ne), a, b) => {
+            for (left, right) in [(a, b), (b, a)] {
+                if let (Expr::Name(l), Expr::Name(r)) = (left.as_ref(), right.as_ref())
+                    && ACTOR_KINDS.contains(&r.as_str())
+                    && !env.contains_key(r)
+                {
+                    let same = match env.get(l)? {
+                        Held::Present => return None,
+                        Held::Known(k) => k == r,
+                        Held::Absent => false,
+                    };
+                    return Some(if *op == BinOp::Eq { same } else { !same });
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// The bare names an expression reads.
+fn names(e: &Expr, out: &mut BTreeSet<String>) {
+    if let Expr::Name(n) = e {
+        out.insert(n.clone());
+    }
+    for c in e.children() {
+        names(c, out);
+    }
+}
+
+/// Whether an assigned expression is a value present whatever the request:
+/// `now`, a number, a text or an enumeration's member.
+fn constant(e: &Expr) -> bool {
+    match e {
+        Expr::Name(n) => n == "now",
+        Expr::Num(_) | Expr::Str(_) => true,
+        Expr::Path(head, member) => {
+            matches!(head.as_ref(), Expr::Name(t)
+            if t.starts_with(|c: char| c.is_ascii_uppercase()))
+                && member.starts_with(|c: char| c.is_ascii_uppercase())
+        }
+        _ => false,
+    }
+}
+
+/// Whether an invariant of the type, reading a value the transition assigns
+/// from `actor.kind`, is certain to fail when an actor of that kind takes it
+/// (ADR-0173 decisions 1 and 10).
+fn refuses(t: &Type, x: &Transition, kind: &str) -> bool {
+    let mut env: BTreeMap<String, Held> = BTreeMap::new();
+    for name in &x.required_inputs {
+        env.insert(name.clone(), Held::Present);
+    }
+    let mut kinded = BTreeSet::new();
+    for st in &x.effect {
+        match st {
+            Step::Assign { location, expr } => {
+                if matches!(expr, Expr::Path(head, m)
+                    if m == "kind" && matches!(head.as_ref(), Expr::Name(a) if a == "actor"))
+                {
+                    env.insert(location.clone(), Held::Known(kind.to_string()));
+                    kinded.insert(location.clone());
+                } else if constant(expr) {
+                    env.insert(location.clone(), Held::Present);
+                } else {
+                    env.remove(location);
+                }
+            }
+            Step::Clear(cleared) => {
+                for n in cleared {
+                    env.insert(n.clone(), Held::Absent);
+                }
+            }
+            _ => {}
+        }
+    }
+    if kinded.is_empty() {
+        return false;
+    }
+    t.invariants.iter().any(|(_, e)| {
+        let mut read = BTreeSet::new();
+        names(e, &mut read);
+        !read.is_disjoint(&kinded) && certain(e, &env) == Some(false)
+    })
+}
+
+// ── the tools ────────────────────────────────────────────────────────────
+fn transition_tool(
+    tn: &str,
+    xn: &str,
+    t: &Type,
+    x: &Transition,
+    enums: &BTreeMap<String, Vec<String>>,
+) -> Json {
+    let creation = x.kind == Kind::Initial;
+    let mut props = Map::new();
+    if !creation {
+        props.insert(
+            "object_id".into(),
+            json!({"type": "string", "description": format!("the {tn}, by its id")}),
+        );
+        props.insert(
+            "expected_version".into(),
+            json!({"type": "integer", "description": "the version read, so a change since is refused as stale"}),
+        );
+    }
+    props.insert(
+        "idempotency_key".into(),
+        json!({"type": "string", "description": RETRY}),
+    );
+    if x.backdating_limit.is_some() {
+        props.insert(
+            "occurred_at".into(),
+            json!({"type": "string", "format": "date-time", "description": BACKDATED}),
+        );
+    }
+    if x.proposable {
+        props.insert(
+            "propose".into(),
+            json!({"type": "boolean", "description": "file the request as a proposal a person approves, instead of taking it"}),
+        );
+    }
+    props.insert("inputs".into(), inputs_schema(t, x, enums));
+    let own = x.description.as_deref().map(str::trim).unwrap_or_default();
+    let lead = if !own.is_empty() {
+        own.to_string()
+    } else if creation {
+        format!("Creates a new {tn} by {xn}.")
+    } else {
+        format!("Takes {tn}.{xn}.")
+    };
+    let description = if creation {
+        lead
+    } else {
+        format!("{lead} {AVAILABILITY}")
+    };
+    let required = if creation {
+        json!(["inputs"])
+    } else {
+        json!(["inputs", "object_id"])
+    };
+    json!({"name": format!("{}_{xn}", snake(tn)), "description": description,
+           "input_schema": {"type": "object", "properties": props, "required": required,
+                            "additionalProperties": false}})
+}
+
+fn observation_tool(tn: &str, ob: &Json, enums: &BTreeMap<String, Vec<String>>) -> Json {
+    let kind = ob.get("kind").and_then(Json::as_str).unwrap_or_default();
+    let mut props = Map::new();
+    props.insert(
+        "subject".into(),
+        json!({"type": "string", "description": format!("the {tn}, by its id")}),
+    );
+    let mut required: BTreeSet<String> = BTreeSet::from(["subject".to_string()]);
+    if let Some(fields) = ob.get("attributes").and_then(Json::as_object) {
+        for (f, spec) in fields {
+            props.insert(f.clone(), schema_of_source(spec, enums));
+            if spec.get("optional").and_then(Json::as_bool) != Some(true) {
+                required.insert(f.clone());
+            }
+        }
+    }
+    props.insert(
+        "corrects".into(),
+        json!({"type": "string", "description": format!("the {kind} on this {tn} that this one replaces")}),
+    );
+    let own = ob
+        .get("description")
+        .and_then(Json::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    let lead = if own.is_empty() {
+        format!("Records a new {kind} about its subject.")
+    } else {
+        own.to_string()
+    };
+    json!({"name": format!("record_{}", snake(kind)),
+           "description": format!("{lead} availability(subject) offers recording it beside the subject's own transitions, and says whether it is available now."),
+           "input_schema": {"type": "object", "properties": {
+               "idempotency_key": {"type": "string", "description": RETRY},
+               "occurred_at": {"type": "string", "format": "date-time", "description": BACKDATED},
+               "inputs": {"type": "object", "properties": props, "required": required,
+                          "additionalProperties": false}},
+               "required": ["inputs"], "additionalProperties": false}})
+}
+
+fn metric_tool(names: &BTreeSet<String>) -> Json {
+    json!({"name": "read_metric",
+           "description": "Read a declared or standard metric, as rows of its dimensions and value and the flags that hold, in UTC calendar time. The definitions are in declaration(type); this tool does not restate them.",
+           "input_schema": {"type": "object", "properties": {
+               "name": {"type": "string", "enum": names},
+               "bind": {"type": "object", "description": "dimension values to fix"},
+               "keep": {"type": "array", "items": {"type": "string"},
+                        "description": "the dimensions to group by; all by default, and any left out is aggregated over"},
+               "over": {"type": "string", "description": "a window back from now, such as 30 days"},
+               "filter": {"type": "string"}},
+               "required": ["name"], "additionalProperties": false}})
+}
+
+/// Every tool for an actor of the kind, sorted by name.
+pub fn tools(lib: &Library, actor_kind: &str) -> Vec<Json> {
+    let mut out = Vec::new();
+    for tn in &lib.declared {
+        let Some(t) = lib.types.get(tn) else { continue };
+        for (xn, x) in &t.transitions {
+            if !x.only_via.is_empty() || refuses(t, x, actor_kind) {
+                continue;
+            }
+            out.push(transition_tool(tn, xn, t, x, &lib.enumerations));
+        }
+        if let Some(obs) = t.source.get("observations").and_then(Json::as_object) {
+            for ob in obs.values() {
+                out.push(observation_tool(tn, ob, &lib.enumerations));
+            }
+        }
+    }
+    let mut names = BTreeSet::new();
+    for metrics in lib.metrics.values() {
+        for (name, (owner, _)) in metrics {
+            names.insert(
+                owner
+                    .as_ref()
+                    .map_or_else(|| name.clone(), |o| format!("{o}.{name}")),
+            );
+        }
+    }
+    for tn in &lib.declared {
+        let Some(t) = lib.types.get(tn) else { continue };
+        if t.abstract_ {
+            continue;
+        }
+        names.extend(STANDARD.iter().map(|m| format!("{tn}.{m}")));
+        for (r, a) in &t.attributes {
+            if a.assignee {
+                names.extend(ASSIGNMENT.iter().map(|m| format!("{tn}.{m}.{r}")));
+            }
+        }
+    }
+    out.push(metric_tool(&names));
+    out.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    out
+}

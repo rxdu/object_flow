@@ -702,6 +702,9 @@ class Store(Protocol):
     def declaration(self, actor: Actor, type: str,
                     version: int | None = None) -> Mapping[str, Any]: ...
 
+    # the tools an agent of the kind is handed, sorted by name (renderers.md §3, ADR-0173 decision 10)
+    def tools(self, actor: Actor, actor_kind: str) -> Sequence[Mapping[str, Any]]: ...
+
     # from the cursor given, else the acknowledged one; refused for a revoked subscription (ADR-0146)
     def pull(self, actor: Actor, subscription: str,
              cursor: str | None = None) -> EventPage: ...

@@ -490,3 +490,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The deployment service's tests checked that a store of another release, and a retention given without a store, are refused, by running the service to its exit with `Command::output()`. Mutating either refusal away let the service start and serve, and the test waited on it for twenty minutes instead of failing, until its process was stopped by hand.
 - **Correction:** A test that a server refuses to start spawns it and polls `try_wait` against a deadline, stopping the child and failing when the deadline passes; mutate the refusal to see the test fail, not hang, before trusting it.
 - **Context:** Rust integration tests that run a service binary, `objectflow-service/tests/deployment.rs`, ObjectFlow; 2026-10-10.
+
+### The gates run as a tracked background task, never behind a bare `&`
+- **Pattern:** Three times on 2026-10-10 the full gates were started as `bash watch.sh > /dev/null 2>&1 &`: nothing announced their end, and the redirect threw away clippy's status line, which the gate script prints first; once it hid clippy's refusal of `expect()` in a new integration test until the core's check failed on it minutes later.
+- **Correction:** Start the gates with the tool's background mode, whose end is announced and whose output is kept; where a run was already started bare, watch it by its pid in a background task that prints the result file and clippy's log when the pid ends. Run clippy over a new test file before the gates, not only its tests.
+- **Context:** The full gates, `scratchpad/watch.sh`, ObjectFlow; 2026-10-10.

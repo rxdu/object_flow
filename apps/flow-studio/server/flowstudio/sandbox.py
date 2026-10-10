@@ -22,7 +22,7 @@ from fractions import Fraction
 from typing import Any
 
 from . import values
-from .scripts import flowexpr, flowpublish, flowrun, flows
+from .scripts import flowexpr, flowpublish, flowrun, flows, flowtools
 
 PROPOSAL_VERBS = ("approve", "reject", "withdraw")
 UNSUPPORTED = ("expected_version", "idempotency_key", "expires_at")
@@ -746,6 +746,19 @@ class Sandbox:
         return {"events": [self.event(log[p]) if p in log else None
                            for p in positions],
                 "not_computed": EVENT_NOT_COMPUTED}
+
+    def tools(self, body: dict) -> dict:
+        """The tool schemas an agent of a kind is handed, rendered from the
+        installed version's declaration (`renderers.md` §3, ADR-0173
+        decision 10), as the core's `tools` renders them."""
+        self.loaded()
+        kind = body.get("actor_kind")
+        if kind not in flowtools.ACTOR_KINDS:
+            raise Fault(400, "tools names an actor_kind: human, agent or "
+                             "service")
+        s = self.store
+        return {"tools": flowtools.render(s.kinds, s.enums, list(self.written),
+                                          s.decl.metrics, kind)}
 
     def declaration(self, body: dict) -> dict:
         """A type as a version declares it, the installed one where none is

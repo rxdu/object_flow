@@ -137,6 +137,7 @@ const TAKES: &[(&str, &[&str])] = &[
     ("/v1/events", &["actor", "positions"]),
     ("/v1/exceptions", &["actor", "type", "cursor"]),
     ("/v1/declaration", &["actor", "type", "version"]),
+    ("/v1/tools", &["actor", "actor_kind"]),
     ("/v1/pull", &["actor", "subscription", "cursor"]),
     ("/v1/acknowledge", &["actor", "subscription", "cursor"]),
     (
@@ -1180,6 +1181,22 @@ async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
     })))
 }
 
+/// The tool schemas an agent of a kind is handed, rendered from the
+/// installed version's declaration (`renderers.md` §3, ADR-0173 decision 10).
+async fn tools(State(shared): State<Shared>, Body(body): Body) -> Answer {
+    let kind = text(&body, "actor_kind")
+        .filter(|k| objectflow_core::tools::ACTOR_KINDS.contains(k))
+        .ok_or_else(|| {
+            Fault::Bad("tools names an actor_kind: human, agent or service".to_string())
+        })?
+        .to_string();
+    let mut sandbox = locked(&shared)?;
+    let s = store(&mut sandbox)?;
+    Ok(Json(
+        json!({"tools": objectflow_core::tools::tools(&s.lib, &kind)}),
+    ))
+}
+
 async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
@@ -1400,6 +1417,7 @@ fn app(shared: Shared, deployment: bool) -> Router {
         .route("/v1/history", post(history))
         .route("/v1/events", post(events))
         .route("/v1/declaration", post(declaration))
+        .route("/v1/tools", post(tools))
         .route("/v1/availability", post(availability))
         .route("/v1/metric", post(metric))
         .route("/v1/query", post(query))

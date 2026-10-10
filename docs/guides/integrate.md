@@ -91,7 +91,7 @@ An agent acts through the same requests as a person, as an actor of an agent typ
 - `availability` says what it may do now, and why not; `actor_dependent` marks what may be refused for who it is.
 - Every refusal's `remedy` is its next move, `delegable` among them where a person must act.
 - **"Agents draft, people approve"** is a rule a flow states: record who acted (`assign: { location: confirmed_by, expr: actor.kind }`) and constrain it with an invariant (`confirmed_by == human`), as `reimbursement.yaml`'s `confirmed_by_a_person` does; an agent refused by it is told `delegable`. A transition marked `proposable` lets the agent file the request for a person to approve.
-- Tool definitions are written from `declaration` and `availability` today; generating them is decided (ADR-0173 decision 10) and not yet built.
+- `tools` gives an agent's tool definitions, rendered from the flow for its actor kind: one per transition it may request, but those a rule over who acted refuses it, one per observation kind, and one reading any metric, each a JSON Schema in the wire's notation (`docs/design/renderers.md` §3). Hand them to the model, and send each call as a request in the agent's name.
 
 ## 7. Changing a flow, and bringing in existing data
 

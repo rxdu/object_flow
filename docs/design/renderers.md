@@ -146,22 +146,34 @@ Guard descriptions are rendered from the expression, not written by hand. `none(
 
 An agent is given one tool per **requestable** transition. Only-via transitions are not tools; they are not requestable, and offering them would be offering a call that always returns `not requestable`.
 
+**The `tools` operation renders them** (ADR-0173 decision 10): `tools(actor_kind)` answers every tool of the installed version for an actor of that kind, sorted by name, and the core and the reference runner (`scripts/flowtools.py`) render the same, compared whole over the design's modules (`apps/flow-studio/server/tests/test_tools.py`); the examples below are its output, which `scripts/check-renderers-doc.py` holds them to.
+- **A transition's tool** is named `<type>_<transition>`, the type in snake case, for each transition of a type the modules declare that is not only via another; the built-ins' are not tools. A creation's takes `idempotency_key` and `inputs`; any other's takes `object_id`, which it requires, and `expected_version` besides. One that declares a `backdating_limit` takes `occurred_at`, and a `proposable` one takes `propose`, filing the request for a person to approve. Its description is the transition's own, else one naming it, followed, for a transition on an object, by the direction to `availability`.
+- **Inputs are typed in the wire's notation** (ADR-0150 decision 2): a string, an identity or a file a string; an int an integer; a bool a boolean; a decimal a string of digits with no more places than its scale; an amount a string `CCC 0.00` in its currency; a timestamp a `date-time` string and a date a `date` string; a duration a string `<n> <unit>`; an enumeration member or an actor kind one of its names; a reference the object's id; a set an array of distinct items. Those a request must give are required: the transition's required inputs, and the inputs it declares that are neither optional nor defaulted.
+- **For an actor kind, a transition is left out** where an invariant of its type, reading a value the transition's effect assigns from `actor.kind`, is certain to fail with that kind (decision 1). It is decided in three-valued logic over what the request writes: the kind assigned, an attribute a required input or a constant writes present, one it clears absent, and anything else unknown; so `reimbursement.yaml`'s `confirm_nature`, whose invariant asks that a person confirmed, is no agent's tool, and an invariant that may hold leaves the tool in, its refusal told by `availability`'s `actor_dependent` and the verdict's `delegable` (decision 1).
+- **Each observation kind is a tool**, `record_<kind>`, and **`read_metric` names every metric** a reader may read: each type's declared ones as `<Type>.<metric>`, a module's own by its name, the standard ones of every declared type that is not abstract, and the assignment ones by each assignee reference.
+
 ```json
 {
-  "name": "delivery_complete_sale",
-  "description": "Complete a delivery as a sale. Call availability(id) first: it evaluates the real guards against the real data, and its verdict says whether this transition is available now, which guard refuses it if not, and what can be done about it.",
+  "name": "delivery_complete",
+  "description": "Hands the item over, which delivers it externally at the delivery's price; an agent may propose it for a person to approve. Call availability(object_id) first: it evaluates the real guards against the real data, and says whether this transition is available now, which rule refuses it if not, and what can be done about it.",
   "input_schema": {
     "type": "object",
     "properties": {
       "object_id": {
         "type": "string",
-        "description": "the Delivery"
+        "description": "the Delivery, by its id"
       },
       "expected_version": {
-        "type": "integer"
+        "type": "integer",
+        "description": "the version read, so a change since is refused as stale"
       },
       "idempotency_key": {
-        "type": "string"
+        "type": "string",
+        "description": "the same key on a retry answers the first result"
+      },
+      "propose": {
+        "type": "boolean",
+        "description": "file the request as a proposal a person approves, instead of taking it"
       },
       "inputs": {
         "type": "object",
@@ -170,6 +182,7 @@ An agent is given one tool per **requestable** transition. Only-via transitions 
       }
     },
     "required": [
+      "inputs",
       "object_id"
     ],
     "additionalProperties": false
@@ -186,51 +199,109 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
 ```json
 {
   "name": "record_inspection_result",
-  "description": "Record one inspection result on a service job. How late it may be recorded is a rule the store checks, and who may record it is the application's; availability(subject) offers recording beside the service job's own transitions, and says whether it is available now.",
+  "description": "One inspection result for the job. availability(subject) offers recording it beside the subject's own transitions, and says whether it is available now.",
   "input_schema": {
     "type": "object",
     "properties": {
       "idempotency_key": {
-        "type": "string"
+        "type": "string",
+        "description": "the same key on a retry answers the first result"
       },
-      "occurred_at": {"type": "string", "format": "date-time", "description": "when it happened, if earlier than now; how far back is a rule the store checks"},
+      "occurred_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "when it happened, if earlier than now; how far back is a rule the store checks"
+      },
       "inputs": {
         "type": "object",
         "properties": {
-          "subject": {"type": "string", "description": "the ServiceJob"},
-          "check": {"type": "string", "description": "the InspectionCheck"},
-          "outcome": {"type": "string", "enum": ["PASS", "FAIL", "NOT_APPLICABLE"]},
-          "value": {"type": "number", "description": "in V"},
-          "note": {"type": "string"},
-          "corrects": {"type": "string", "description": "the InspectionResult on this service job that this one replaces"}
+          "subject": {
+            "type": "string",
+            "description": "the ServiceJob, by its id"
+          },
+          "check": {
+            "type": "string",
+            "description": "the InspectionCheck, by its id"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "FAIL",
+              "NOT_APPLICABLE"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]{1,3})?$",
+            "description": "in V"
+          },
+          "note": {
+            "type": "string"
+          },
+          "corrects": {
+            "type": "string",
+            "description": "the InspectionResult on this ServiceJob that this one replaces"
+          }
         },
-        "required": ["subject", "check", "outcome"],
+        "required": [
+          "check",
+          "outcome",
+          "subject"
+        ],
         "additionalProperties": false
       }
     },
-    "required": ["inputs"],
+    "required": [
+      "inputs"
+    ],
     "additionalProperties": false
   }
 }
 ```
 
-**Metrics are one tool**, naming every metric by name — the declared ones and the standard ones of the syntax's §6.11 — and nothing more (ADR-0084, ADR-0098). It takes the same arguments a guard's reference does: dimension values to bind, a window, and a filter. The description does not restate a definition, for the reason a transition's description does not restate a guard: `metric()` evaluates the real definition against the real data.
+**Metrics are one tool**, naming every metric by name — the declared ones and the standard ones of the syntax's §6.11 — and nothing more (ADR-0084, ADR-0098); the example shows six of the 69 names it gives over `people.yaml` and `service.yaml`. It takes the same arguments a guard's reference does: dimension values to bind, a window, and a filter. The description does not restate a definition, for the reason a transition's description does not restate a guard: `metric()` evaluates the real definition against the real data.
 
 ```json
 {
   "name": "read_metric",
-  "description": "Read a declared or standard metric, as rows of dimensions, value and the flags that hold, in UTC calendar time, computed over every row the filter selects. The definitions are in declaration(type); this tool does not restate them.",
+  "description": "Read a declared or standard metric, as rows of its dimensions and value and the flags that hold, in UTC calendar time. The definitions are in declaration(type); this tool does not restate them.",
   "input_schema": {
     "type": "object",
     "properties": {
-      "name": {"type": "string", "enum": ["time_working", "inspection_pass_rate", "ServiceJob.time_in_state", "ServiceJob.work_in_progress", "ServiceJob.open_work.engineer", "ServiceJob.cycle_time_by_assignee.engineer"]},
-      "bind": {"type": "object", "description": "dimension values to fix"},
-      "keep": {"type": "array", "items": {"type": "string"}, "description": "the dimensions to group by; all by default, and any left out is aggregated over"},
-      "over": {"type": "string", "description": "a window back from now, such as 30 days"},
-      "filter": {"type": "string"},
-      "cursor": {"type": "string"}
+      "name": {
+        "type": "string",
+        "enum": [
+          "ServiceJob.time_working",
+          "ServiceJob.inspection_pass_rate",
+          "ServiceJob.time_in_state",
+          "ServiceJob.work_in_progress",
+          "ServiceJob.open_work.engineer",
+          "ServiceJob.cycle_time_by_assignee.engineer"
+        ]
+      },
+      "bind": {
+        "type": "object",
+        "description": "dimension values to fix"
+      },
+      "keep": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "the dimensions to group by; all by default, and any left out is aggregated over"
+      },
+      "over": {
+        "type": "string",
+        "description": "a window back from now, such as 30 days"
+      },
+      "filter": {
+        "type": "string"
+      }
     },
-    "required": ["name"],
+    "required": [
+      "name"
+    ],
     "additionalProperties": false
   }
 }

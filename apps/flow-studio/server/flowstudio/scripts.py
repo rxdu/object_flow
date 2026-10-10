@@ -19,6 +19,7 @@ if str(SCRIPTS) not in sys.path:
 import flowexpr  # noqa: E402
 import flowrun  # noqa: E402
 import flowpublish  # noqa: E402
+import flowtools  # noqa: E402
 
 
 def _script(name: str, file: str):
@@ -31,4 +32,5 @@ def _script(name: str, file: str):
 flows = _script("check_flows", "check-flows.py")
 diagrams = _script("flow_diagram", "flow-diagram.py")
 
-__all__ = ["EXAMPLES", "ROOT", "diagrams", "flowexpr", "flowrun", "flows"]
+__all__ = ["EXAMPLES", "ROOT", "diagrams", "flowexpr", "flowrun", "flows",
+           "flowtools"]

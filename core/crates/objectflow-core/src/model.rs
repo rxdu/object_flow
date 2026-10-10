@@ -220,6 +220,9 @@ pub enum From {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Transition {
     pub kind: Kind,
+    /// What it does, in the author's words, which a tool's description
+    /// leads with (`renderers.md` §3).
+    pub description: Option<String>,
     pub from: Option<From>,
     pub to: Vec<String>,
     pub only_via: Vec<String>,
@@ -684,6 +687,10 @@ impl Reader<'_> {
         }
         Ok(Transition {
             kind,
+            description: node
+                .get("description")
+                .and_then(Node::text)
+                .map(str::to_string),
             from,
             to: self.names(node.get("to"))?,
             only_via: self.names(node.get("only_via"))?,
@@ -887,6 +894,7 @@ impl Reader<'_> {
         let mut transitions = vec![(
             "record".to_string(),
             Transition {
+                description: None,
                 kind: Kind::Initial,
                 from: None,
                 to: vec!["RECORDED".into()],
@@ -922,6 +930,7 @@ impl Reader<'_> {
             transitions.push((
                 "forget".into(),
                 Transition {
+                    description: None,
                     kind: Kind::Erasure,
                     from: None,
                     to: Vec::new(),
@@ -1327,6 +1336,7 @@ pub const OPERATOR_TYPE: &str = "Operator";
 /// One of the operator's transitions, taking no input.
 fn operator_transition(kind: Kind, from: Option<From>, to: &str) -> Transition {
     Transition {
+        description: None,
         kind,
         from,
         to: vec![to.to_string()],
@@ -1639,6 +1649,7 @@ fn label_type() -> Type {
                       optional: &[&str],
                       inputs: Vec<(String, Input)>| {
         Transition {
+            description: None,
             kind,
             from: None,
             to,
@@ -1778,6 +1789,7 @@ fn subscription_type() -> Type {
     let transition =
         |kind: Kind, from: Option<From>, to: &str, required: &[&str], optional: &[&str]| {
             Transition {
+                description: None,
                 kind,
                 from,
                 to: vec![to.to_string()],

@@ -114,6 +114,7 @@ POST /v1/request
 | `available` | `actor`, `type`, `transition`, `cursor` | a page of the objects the transition is available to |
 | `exceptions` | `actor`, `type`, `cursor` | a page of the objects holding an admitted violation |
 | `declaration` | `type`, `version` | the type as declared, with its enumerations, `version`, `source_ref`, `source_digest` and `person_dimensions` |
+| `tools` | `actor_kind` | `{"tools": [...]}`: each `{name, description, input_schema}` an agent of that kind is handed, sorted by name (`renderers.md` §3) |
 | `metric` | `actor`, `name`, `bind`, `keep`, `over`, `filter`, `cursor` | `{"rows": [{"dimensions": …, "value": …}], "flags": [...], "history_complete": …, "refused": null}` |
 | `lookup` | `actor`, `source`, `value` | the object an external identifier names (`source` an external system, or `legacy` with `"<Type>:<key>"`), or `null` |
 | `export` | `actor`, `source`, `cursor` | `{"lines": [...], "cursor": …}`: JSON lines of `events`, an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, personal values left out |
