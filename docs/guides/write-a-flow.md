@@ -103,10 +103,135 @@ The [Flow Studio](../../apps/flow-studio/README.md) is the same loop with a diag
 - **Lines of a document**, such as a requisition's: a `Line[]` attribute with `aggregation: composite` and `opposite`, the line created by the parent's transition (`create:` in its effect, the line's creation `only_via` it), and a total as a `derived_attributes` sum (`reimbursement.yaml`).
 - **Approval by amount**: guards over the derived total on transitions to each level, and the decision recorded in a part.
 - **Rules about who acts**, "a person confirms", "nobody approves their own": a condition may not read the actor, so record it in the outcome (`assign: { location: confirmed_by, expr: actor.kind }`, or `actor.id`) and constrain the record with an invariant. An agent refused by one is told `delegable`, and its offer is marked `actor_dependent`.
-- **Several currencies**: an amount holds one currency (ADR-0068). Keep a currency reference with a rate, write amounts in the transaction's currency as decimals, and compute and keep the home-currency amount when the line is entered (`SGD 1.00 * quantity * unit_price * currency.rate_to_sgd`), against which thresholds and budgets are written. Nothing stops adding two decimals of different currencies, so keep each total in one.
+- **Several currencies**: an amount holds one currency, so a currency reference with a rate, the transaction's amounts as decimals, and the home-currency amount computed and kept on entry (§6).
 - **A value a state requires**: set it from an input, a literal, `now`, or a path of references that are never empty ending in an attribute that is never empty (`cost_centre.fiscal_year`); anything else needs a required input or an invariant (`flow-format.md` §4.5).
 - **A metric's regression test**: an example's `expect` may say what a metric reads after its request, `metrics: { ServiceJob.transition_counts: 3 }` for its whole value, or its rows by every dimension, `ServiceJob.work_in_progress: [{ state: WORKING, value: 1 }]` (`flow-format.md` §11.4), as `service.examples.yaml`'s `a_reassignment_is_measured_as_a_handoff` does.
 - **An effect sees the new state**: the state is written first, then the effect runs (`DESIGN.md` §6 step 5), so a derived value read in an effect already counts the object in its new state.
 - **An external system's check**: an `evaluators:` entry, read by a guard; an example or a setup gives its answer with `evaluators:`, as `xero.bill_matches: satisfied`, and a sandbox with `/sandbox/evaluators`.
 - **The agent proposes, a person decides**: mark the transition `proposable`; the agent files it with `propose: true`, and approving the proposal takes it as the approver.
 - **Existing records at go-live**: a first version declaring the families brought in as `mirror`, an import, then a publish of the flow proper (`publish-and-import.md` §4 to §7).
+
+## 6. Several currencies
+
+An amount holds one currency, which its type names, `money(USD)`, so a sum, a comparison or a threshold never mixes two (ADR-0068). A flow whose orders are placed in several currencies and whose limits are in one keeps three things (ADR-0173 decision 5):
+
+1. **A currency reference with a rate**, an object finance keeps, here `Currency` with `rate_to_sgd`;
+2. **the transaction's amounts as decimals**, in the currency its reference names, here a line's `unit_price`, since no `money` type can hold whichever currency an order is placed in;
+3. **the home-currency amount computed and kept when the line is entered**, here `amount_sgd`, assigned from the rate that day, so a rate changed later does not change what was entered; limits, budgets and metrics are written against it.
+
+Nothing stops a flow adding two decimals in different currencies, since a decimal carries none: keep each total in one currency, the home currency's computed amounts or one order's own.
+
+```yaml
+module: purchasing
+categories: [live, closed]
+
+types:
+  Currency:
+    description: A currency an order may be placed in, with its rate to Singapore dollars, kept by finance.
+    tracking: record
+    attributes:
+      code:        { type: string, unique: true }
+      rate_to_sgd: { type: "decimal(12,6)" }
+    states:
+      ACTIVE:  { description: Orders may be placed in it., category: live }
+      RETIRED: { description: No longer offered., category: closed, final: true }
+    transitions:
+      add:      { kind: initial, to: ACTIVE, required_inputs: [code, rate_to_sgd] }
+      set_rate: { kind: internal, from: ACTIVE, required_inputs: [rate_to_sgd] }
+      retire:   { kind: external, from: ACTIVE, to: RETIRED }
+
+  Order:
+    description: An order placed in one currency, its lines' amounts kept in that currency and in Singapore dollars.
+    tracking: record
+    attributes:
+      currency: { reference: Currency }
+      lines:    { reference: "OrderLine[]", aggregation: composite, opposite: order, survives: true }
+    states:
+      OPEN:   { description: Lines are being added., category: live }
+      PLACED: { description: Sent to the supplier., category: closed, final: true }
+    derived_attributes:
+      total_sgd:
+        description: The order's value in Singapore dollars, as its lines were valued when entered.
+        expression: "sum(l in lines: l.amount_sgd)"
+    conditions:
+      within_limit:
+        description: An order of SGD 10,000.00 or more is not placed without finance's review.
+        expression: total_sgd < SGD 10000.00
+        remedy: delegable
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [currency] }
+      add_line:
+        kind: internal
+        from: OPEN
+        description: Adds a line, priced in the order's currency.
+        inputs:
+          quantity:   { type: int }
+          unit_price: { type: "decimal(12,2)" }
+        effect:
+          - create:
+              type: OrderLine
+              transition: add
+              inputs: { order: this, quantity: inputs.quantity, unit_price: inputs.unit_price }
+      place:
+        kind: external
+        from: OPEN
+        to: PLACED
+        guards:
+          within_limit: deny
+
+  OrderLine:
+    description: A line of an order, its price in the order's currency and its amount in Singapore dollars at the rate on entry.
+    tracking: record
+    attributes:
+      order:      { reference: Order, opposite: lines }
+      quantity:   { type: int }
+      unit_price: { type: "decimal(12,2)" }
+      amount_sgd: { type: money(SGD) }
+    states:
+      LISTED: { description: On its order., category: closed, final: true }
+    transitions:
+      add:
+        kind: initial
+        to: LISTED
+        only_via: [Order.add_line]
+        required_inputs: [order, quantity, unit_price]
+        effect:
+          - assign: { location: amount_sgd, expr: SGD 1.00 * quantity * unit_price * order.currency.rate_to_sgd }
+```
+
+Its examples show the line valued on entry, a rate changed afterwards leaving the order as valued, and the limit held in Singapore dollars:
+
+```yaml
+examples_for: purchasing
+
+setups:
+  an_order_in_dollars:
+    description: An order placed in US dollars, at 1.35 Singapore dollars to the dollar.
+    steps:
+      - request: { type: Currency, transition: add, as: usd, inputs: { code: USD, rate_to_sgd: 1.35 } }
+      - request: { type: Order, transition: open, as: order, inputs: { currency: usd } }
+
+examples:
+  a_line_is_valued_in_singapore_dollars_on_entry:
+    description: A line of four at USD 100.00 is valued SGD 540.00 at the rate when it is entered.
+    given: an_order_in_dollars
+    request: { object: order, transition: add_line, inputs: { quantity: 4, unit_price: 100.00 } }
+    expect: { verdict: applied, state: OPEN, values: { total_sgd: SGD 540.00 }, cascaded: [OrderLine.add] }
+
+  a_rate_changed_later_leaves_the_order_as_valued:
+    description: A rate set after a line was entered leaves the order's value as its line was valued, SGD 540.00, and the order is placed at it.
+    given: an_order_in_dollars
+    steps:
+      - request: { object: order, transition: add_line, inputs: { quantity: 4, unit_price: 100.00 } }
+      - request: { object: usd, transition: set_rate, inputs: { rate_to_sgd: 1.40 } }
+    request: { object: order, transition: place }
+    expect: { verdict: applied, state: PLACED, values: { total_sgd: SGD 540.00 } }
+
+  the_limit_is_in_singapore_dollars:
+    description: An order of USD 8,000.00 is SGD 10,800.00, past the limit, so it is not placed without finance's review.
+    given: an_order_in_dollars
+    steps:
+      - request: { object: order, transition: add_line, inputs: { quantity: 80, unit_price: 100.00 } }
+    request: { object: order, transition: place }
+    expect: { verdict: unsatisfied, clause: within_limit, remedy: delegable }
+```
