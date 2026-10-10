@@ -4,7 +4,7 @@
 
 Governed flows for business objects. People and agents move objects only along declared transitions; every change is checked, recorded and measured.
 
-> **Status: in design.** There is no runnable code yet. This repository holds the complete design: the requirements, the model, the language flows are declared in, every decision with the alternatives it rejected, and the checkers that hold it together. See [where it stands](#where-it-stands).
+> **Status: in design, with a running core.** The design is complete and under its author's review: the requirements, the model, the language flows are declared in, every decision with the alternatives it rejected, and the checkers that hold it together. The engine's core runs, in Rust, as a sandbox's service held to a Python reference runner, and the Flow Studio is built on it; a deployment's service, whose store survives a restart, is not yet built. See [getting started](#getting-started) and [where it stands](#where-it-stands).
 
 ## The problem
 
@@ -29,7 +29,7 @@ Agents are governed exactly as people are, which is what makes handing them work
 - **One interface, one set of rules.** An agent acts through the same requests as a person and is refused by the same rules. There is no side door.
 - **It can ask what it may do.** `availability` evaluates the real rules against the real data and says, for each transition, whether it is available, needs input, or is blocked and why.
 - **A refusal is an instruction.** Every refusal carries a remedy, so an agent knows whether to fix its request, ask a person, wait, or work on something else first.
-- **Its tools come from the rules.** Agent tool definitions are generated from the declaration, so they cannot drift from what is enforced.
+- **Its tools come from the rules.** Agent tool definitions are to be generated from the declaration (ADR-0173), so they cannot drift from what is enforced.
 - **What an agent is, is declared.** Whether an actor is a person, an agent or a service is declared with its type, so every record and every metric says truthfully which kind of actor acted, whatever a request claims.
 - **Agents draft, people approve.** An agent can draft a change to a flow, or file a proposal for a request. Your application decides who approves, and the record keeps who drafted and who approved.
 - **Permissions stay with your application.** ObjectFlow never decides who may act. Your application does, sending the version it read, so its check cannot race a change.
@@ -39,44 +39,57 @@ Agents are governed exactly as people are, which is what makes handing them work
 
 A returns flow, published with no rules at all and measured from its first request:
 
-```text
-type Return version 1 {
-  tracking record
-  states   RECEIVED category inbound, INSPECTING category live,
-           RESOLVED category closed, CLOSED category closed terminal
-  summary  unit, customer, state
-
-  ref      unit     : Robot
-  ref      customer : Customer
-
-  create receive -> RECEIVED accepts unit, customer { }
-  do inspect RECEIVED   -> INSPECTING { }
-  do resolve INSPECTING -> RESOLVED   { }
-  do close   RESOLVED   -> CLOSED     { }
-}
+```yaml
+types:
+  Return:
+    description: A unit a customer sent back, from its receipt to its resolution.
+    tracking: record
+    attributes:
+      unit:     { reference: Robot }
+      customer: { reference: Customer }
+    states:
+      RECEIVED:   { category: inbound }
+      INSPECTING: { category: live }
+      RESOLVED:   { category: closed }
+      CLOSED:     { category: closed, final: true }
+    transitions:
+      receive: { kind: initial, to: RECEIVED, required_inputs: [unit, customer] }
+      inspect: { kind: external, from: RECEIVED, to: INSPECTING }
+      resolve: { kind: external, from: INSPECTING, to: RESOLVED }
+      close:   { kind: external, from: RESOLVED, to: CLOSED }
 ```
 
 A month later its own data shows where it waits, and the next version adds rules only where they are needed. A replacement now needs a lead's approval once the robot's model keeps coming back:
 
-```text
-  act approve_replacement at INSPECTING {
-    set approved_by := actor.id
-  }
-  do resolve INSPECTING -> RESOLVED {
-    input outcome : ReturnOutcome
-    require second_eye: inputs.outcome != ReturnOutcome.REPLACED
-                        or approved_by is not null
-                        or metric(returns_by_model, model := unit.model, over last 30 days) < 5
-                                                                             because delegable
-    set outcome := inputs.outcome
-  }
+```yaml
+    conditions:
+      second_eye:
+        description: A replacement carries a lead's recorded approval once the unit's model has had five or more returns in thirty days.
+        expression: >-
+          inputs.outcome != ReturnOutcome.REPLACED
+          or approved_by is not null
+          or metric(returns_by_model, model := unit.model, over last 30 days) < 5
+        remedy: delegable
+    transitions:
+      approve_replacement:
+        kind: internal
+        from: INSPECTING
+        effect:
+          - assign: { location: approved_by, expr: actor.id }
+      resolve:
+        kind: external
+        from: INSPECTING
+        to: RESOLVED
+        inputs:
+          outcome: { type: ReturnOutcome }
+        guards:
+          second_eye: deny
 ```
 
 An engineer, or an agent, who asks for a replacement before a lead has approved it gets an answer it can act on rather than an error:
 
-```python
-Unsatisfied(clause="second_eye", remedy=Remedy.DELEGABLE, unknown=False,
-            proposable=False)
+```json
+{"kind": "unsatisfied", "clause": "second_eye", "remedy": "delegable"}
 ```
 
 The rule reads that an approval was recorded, and by whom. Who counts as a lead is your application's decision.
@@ -115,6 +128,13 @@ What it is not:
 ## Designed against a real system
 
 ObjectFlow's case study, called the first consumer, is the author's robotics operations platform: inventory, deliveries and service in production today, with loans and leasing designed. The first application built on the engine is the Flow Studio ([`flow-studio.md`](docs/design/flow-studio.md)), an editor, viewer and simulator of flows in this repository. The design has been checked rule by rule against that system's production code ([`first-consumer-audit.md`](docs/design/first-consumer-audit.md)) and against its own product requirements ([`first-consumer-prd-check.md`](docs/design/first-consumer-prd-check.md)). Its worked examples are written as checked modules: a unit's whole journey from purchase request to lease-to-own, and a returns flow tightened from its own data.
+
+## Getting started
+
+- **Write a flow**: [`docs/guides/write-a-flow.md`](docs/guides/write-a-flow.md), from an empty file to examples passing on both of the engine's implementations.
+- **Build an application on it**: [`docs/guides/integrate.md`](docs/guides/integrate.md), and the wire's reference, [`docs/guides/wire.md`](docs/guides/wire.md).
+- **Run the engine**: [`core/README.md`](core/README.md).
+- **See a flow run**: the [Flow Studio](apps/flow-studio/README.md), an editor and simulator of flows.
 
 ## Where it stands
 

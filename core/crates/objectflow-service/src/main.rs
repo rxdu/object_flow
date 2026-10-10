@@ -1384,16 +1384,34 @@ fn app(shared: Shared) -> Router {
         .with_state(shared)
 }
 
+const USAGE: &str = "usage: objectflow-service [--port <n>]
+
+Serves the engine's operations, POST /v1/<operation>, and a sandbox's
+controls, POST /sandbox/<control>, on 127.0.0.1 at port n (8712 unless
+given; 0 takes a free one), writing the address to stderr once it
+answers. The store is a sandbox's, held in memory (core/README.md).";
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> std::io::Result<()> {
     let mut port: u16 = 8712;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
-        if a == "--port" {
-            port = args
-                .next()
-                .and_then(|p| p.parse().ok())
-                .ok_or_else(|| std::io::Error::other("--port takes a number"))?;
+        match a.as_str() {
+            "--port" => {
+                port = args
+                    .next()
+                    .and_then(|p| p.parse().ok())
+                    .ok_or_else(|| std::io::Error::other("--port takes a number"))?;
+            }
+            "--help" | "-h" => {
+                println!("{USAGE}");
+                return Ok(());
+            }
+            // an argument it does not take is an error, never ignored (D558)
+            other => {
+                eprintln!("objectflow-service: no argument {other}\n{USAGE}");
+                std::process::exit(2);
+            }
         }
     }
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;

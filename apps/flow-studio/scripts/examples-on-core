@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Run a module's examples on the Rust core, as the flow checker's step 6 runs
+# them on the reference runner: the core's service built and started on a
+# free port, every example played through it by the Flow Studio's replay, and
+# each that does not pass printed with why. Check the module first with
+# scripts/check-flows.py, since the core's load does not (ADR-0153).
+#
+# Usage: apps/flow-studio/scripts/examples-on-core <module.yaml>... <module.examples.yaml>
+#        the modules in import order, the examples file last
+set -euo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+if [[ $# -lt 2 || ! "${!#}" == *.examples.yaml ]]; then
+  echo "usage: $0 <module.yaml>... <module.examples.yaml>" >&2
+  exit 2
+fi
+if [[ ! -x "$here/server/.venv/bin/python" ]]; then
+  echo "no server environment: create it as apps/flow-studio/README.md says" >&2
+  exit 1
+fi
+cargo=${CARGO:-$HOME/.cargo/bin/cargo}
+(cd "$here/../../core" && "$cargo" build -q -p objectflow-service)
+
+exec "$here/server/.venv/bin/python" - "$here" "$@" <<'PY'
+import pathlib
+import re
+import subprocess
+import sys
+
+here = pathlib.Path(sys.argv[1])
+files = [pathlib.Path(a) for a in sys.argv[2:]]
+examples, modules = files[-1], files[:-1]
+sys.path[:0] = [str(here / "server"), str(here / "server" / "tests")]
+from replay import Wire, replay  # noqa: E402
+
+bundle = {"files": [{"name": m.name, "text": m.read_text()} for m in modules],
+          "examples": {"name": examples.name, "text": examples.read_text()}}
+module = examples.name.replace(".examples.yaml", ".yaml")
+service = subprocess.Popen(
+    [str(here.parent.parent / "core/target/debug/objectflow-service"), "--port", "0"],
+    stderr=subprocess.PIPE, text=True)
+try:
+    line = service.stderr.readline()
+    url = re.search(r"(http://127\.0\.0\.1:\d+)", line)
+    if not url:
+        sys.exit(f"the core's service did not start: {line!r}")
+    # a file beside the examples file, which a publish step names
+    beside = lambda name: (examples.parent / name).read_text() \
+        if (examples.parent / name).exists() else None
+    out = replay(Wire(url.group(1)), module, bundle=bundle, read=beside)
+finally:
+    service.terminate()
+    service.wait()
+tally = {}
+for name, (outcome, why) in out.items():
+    tally[outcome] = tally.get(outcome, 0) + 1
+    if outcome != "passed":
+        print(f"{outcome:8} {name}: {why}")
+print(", ".join(f"{n} {k}" for k, n in sorted(tally.items())) or "no examples")
+sys.exit(1 if tally.get("failed") else 0)
+PY

@@ -15,6 +15,14 @@ apps/flow-studio/scripts/dev runner   # or name one: runner or core
 
 It starts the studio's server, waits until it answers, which takes longer the first time the core is built, prints the page's address, `http://127.0.0.1:<web_port>`, and runs the front end's development server. Ctrl-C stops both, and the core's service with them. The page's header says which backend answers.
 
+## Running a module's examples on the core
+
+```sh
+apps/flow-studio/scripts/examples-on-core people.yaml service.yaml service.examples.yaml
+```
+
+The core's counterpart of the flow checker's step 6, which runs examples on the reference runner: it builds the core's service, starts it on a free port, plays every example of the examples file given last through it, the modules before it in import order, and prints each that does not pass with why. It needs the server's environment, below, and exits 1 if any example fails.
+
 ## Testing it by hand
 
 Each walk below was driven in a browser against both backends on 2026-10-09, with no page error, and says what each step should show, so a difference is a finding. Start each from a fresh page, or *Reset* under *Simulation*, which empties the sandbox. Where the backends word a step differently, both are given.
