@@ -36,7 +36,7 @@ BUILT_IN = {
 }
 EVENT_NOT_COMPUTED = [
     "object_seq", "source", "principal", "context", "cause", "taint_version",
-    "txn", "retries", "payload", "reads", "consulted", "as_of", "flags",
+    "txn", "payload", "reads", "consulted", "as_of", "flags",
 ]
 
 
@@ -932,7 +932,10 @@ class Sandbox:
                 "declaration_version": e["declaration_version"],
                 "recorded_at": ts(e["recorded_at"]),
                 "occurred_at": ts(e["occurred_at"]),
-                "imported": e["imported"]}
+                "imported": e["imported"],
+                # one request at a time: none waits out another's lock
+                # (ADR-0178)
+                "retries": 0}
 
 
 def jsonable(v: Any) -> Any:

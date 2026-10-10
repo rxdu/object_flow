@@ -1054,6 +1054,7 @@ fn decide(
         let from_state = p.held.as_ref().map(|h| h.state.clone());
         let event = Event {
             position,
+            retries: 0,
             object_id: obj.id.clone(),
             object_seq: obj.version,
             transition: "import".into(),

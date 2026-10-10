@@ -83,6 +83,11 @@ pub enum Verdict {
         expected: i64,
         actual: i64,
     },
+    /// The store's write lock was held past the busy timeout and every
+    /// retry, a race answered as a verdict, never a fault: `stale`, cause
+    /// `retries_exhausted`, neither version (`library-api.md` §4,
+    /// ADR-0090, ADR-0178).
+    RetriesExhausted,
     Unsatisfied {
         clause: String,
         remedy: Option<Remedy>,
@@ -134,7 +139,7 @@ impl Verdict {
     pub fn kind(&self) -> &'static str {
         match self {
             Verdict::Satisfied { .. } => "satisfied",
-            Verdict::Stale { .. } => "stale",
+            Verdict::Stale { .. } | Verdict::RetriesExhausted => "stale",
             Verdict::Unsatisfied { .. } => "unsatisfied",
             Verdict::NotFound => "not_found",
             Verdict::Unavailable { .. } => "unavailable",
@@ -181,6 +186,8 @@ impl Verdict {
             | Verdict::Unavailable { .. }
             | Verdict::NotRequestable { .. }
             | Verdict::OverLimit { .. } => Some(Remedy::UnreachableFromHere),
+            // the race is over by the time it is sent again (ADR-0105)
+            Verdict::RetriesExhausted => Some(Remedy::Temporal),
             // a moved version: re-read and send again (ADR-0105)
             // a transition not proposable: send it as a request, if its
             // caller may (ADR-0173)

@@ -2,6 +2,7 @@
 
 - **Status:** Built at the author's direction, 2026-10-10 ("go with ureq for the evaluator transport", on `TODO.md`'s recommendation), for the author's review.
 - **Date:** 2026-10-10
+- **Refined by:** ADR-0178 — a check's calls are asked from a read of its own, a request's from the writer between attempts.
 - **Builds:** ADR-0173 decision 2, ADR-0174 decision 7
 - **Relates to:** `DESIGN.md` §2, §6; ADR-0008, ADR-0049, ADR-0092, ADR-0158; `design/procurement-cold-draft.md` I16; `core/README.md`; `TODO.md`
 

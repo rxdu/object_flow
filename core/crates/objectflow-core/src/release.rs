@@ -183,6 +183,7 @@ pub fn upgrade_through(
     conn.execute_batch(
         "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;",
     )?;
+    conn.busy_timeout(crate::store::BUSY_TIMEOUT)?;
     let operator: Option<String> = conn
         .query_row(
             "SELECT id FROM t_operator WHERE id = ?1 OR identity = ?1",

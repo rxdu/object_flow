@@ -66,7 +66,7 @@ A request's answer, and each refusal inside an offer. Every refusal carries `rem
 | `unknown_transition` | `transition` |
 | `not_requestable` | `parents`, the transitions it is taken only through |
 | `not_proposable` | none: a proposal of a transition not marked proposable |
-| `stale` | `cause`, `expected`, `actual`: the version read and the one it is at |
+| `stale` | `cause`: `expected_version`, with `expected` and `actual`, the version read and the one it is at; or `retries_exhausted`, remedy `temporal`, where the store's write lock was held past the busy timeout and every retry, by another process (ADR-0178) |
 | `not_found` | none |
 | `over_limit` | `loop`, `bound` |
 | `call_refused` | `step`, `object_id`, and `verdict`, the caused transition's own |
@@ -154,10 +154,11 @@ An **event**, as `history`, `events` and `pull` answer it:
  "recorded_at": "2026-10-10T09:31:02Z", "occurred_at": "2026-10-10T09:31:02Z", "imported": false,
  "payload": {"inputs": {}}, "cause": null, "context": null,
  "reads": {"objects": {}, "scans": {}, "now": "2026-10-10T09:31:02Z"},
- "consulted": {"cleared": {"bank.cleared(T-1)": "satisfied"}}, "as_of": {"cleared": "2026-10-10T09:31:02Z"}}
+ "consulted": {"cleared": {"bank.cleared(T-1)": "satisfied"}}, "as_of": {"cleared": "2026-10-10T09:31:02Z"},
+ "retries": 0}
 ```
 
-`payload.inputs` holds what the request sent; `reads`, what its rules read; and `consulted` and `as_of`, by guard, each evaluator's verdict or metric's value it was given, by the call with its arguments, and when (`library-api.md` §5).
+`retries` is how many times the request waited out another process's write lock (ADR-0178). `payload.inputs` holds what the request sent; `reads`, what its rules read; and `consulted` and `as_of`, by guard, each evaluator's verdict or metric's value it was given, by the call with its arguments, and when (`library-api.md` §5).
 
 A **query filter** is an expression over the type's members (`declaration-syntax.md` §8): `amount > USD 100.00`, `state == ClaimLine.LISTED`, `claim.number == "EXP-00001"`. A reference is compared by its id, `claim.id == "claim-4"`: a filter comparing a reference with a string, or computing with one, is refused `malformed_filter`. A query's refusal is `refused`, a code: `unknown_type`, `malformed_filter`, `unknown_order_key`, `unknown_field`. A **metric's filter** reads its rows through the metric's item, `i.state == Claim.SUBMITTED` for `time_in_state`; one naming anything else is refused `malformed_filter`, as are `unknown_metric`, `unknown_dimension`, `filter_on_combined`, `no_window` and `personal` (`library-api.md` §5).
 

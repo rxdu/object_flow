@@ -607,7 +607,9 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
             let now = history["events"].as_array().expect("its events");
             if id == "operator" {
                 // the operator's act naming the release, after what it did
-                assert_eq!(&now[..before.len()], &before[..], "{name}");
+                for (was, is) in before.iter().zip(now) {
+                    assert_answers_alike(was, is, &format!("{name} {id}"));
+                }
                 assert_eq!(now.len(), before.len() + 1);
                 assert_eq!(now[before.len()]["transition"], "upgrade");
                 assert_eq!(
@@ -615,13 +617,18 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
                     json!(was["version"].as_i64().unwrap_or(0) + 1)
                 );
             } else {
-                assert_eq!(history, was["history"], "{name} {id}");
+                assert_eq!(now.len(), before.len(), "{name} {id}");
+                for (was, is) in before.iter().zip(now) {
+                    assert_answers_alike(was, is, &format!("{name} {id}"));
+                }
                 assert_eq!(got["version"], was["version"], "{name} {id}");
             }
         }
         let log = exported_log(&s);
         let was = recorded["log"].as_array().expect("its log");
-        assert_eq!(&log[..was.len()], &was[..], "{name}");
+        for (was, is) in was.iter().zip(&log) {
+            assert_answers_alike(was, is, &format!("{name} log"));
+        }
         assert_eq!(log.len(), was.len() + 1, "{name}");
         // a second upgrade has nothing to do
         let again = post(&s, "/v1/upgrade", &json!({"actor": op}));
@@ -657,5 +664,448 @@ fn only_an_operator_upgrades() {
     );
 }
 
+/// What an earlier release answered, answered alike: every key it gave has
+/// the same value, whatever keys a later release's wire adds beside them,
+/// such as an event's `retries` (ADR-0178).
+fn assert_answers_alike(was: &Value, is: &Value, what: &str) {
+    match was {
+        Value::Object(keys) => {
+            for (k, v) in keys {
+                assert!(is.get(k).is_some(), "{what}: {k} is no longer answered");
+                assert_answers_alike(v, &is[k], &format!("{what}.{k}"));
+            }
+        }
+        _ => assert_eq!(was, is, "{what}"),
+    }
+}
+
 /// This release, as a store records it.
 const BUILTINS_RELEASE: &str = concat!("objectflow-core ", env!("CARGO_PKG_VERSION"));
+
+// ── more than one request at a time (ADR-0178) ─────────────────────────────
+
+/// The service at an address, for a thread of its own: it stops nothing
+/// when dropped.
+fn at(s: &Service) -> Service {
+    Service {
+        child: None,
+        addr: s.addr.clone(),
+    }
+}
+
+/// The concurrency tests' module published, and a tally, two accounts of a
+/// hundred each and the pair of them created: their ids.
+fn ledger(s: &Service) -> (String, String, String, String) {
+    let text = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ledger.yaml"),
+    )
+    .expect("the ledger module");
+    publish(s, &json!({ "ledger": text }));
+    let op = json!({"id": "operator"});
+    let made = |tn: &str, xn: &str, inputs: Value| -> String {
+        let v = post(
+            s,
+            "/v1/request",
+            &json!({"actor": op, "type": tn, "transition": xn, "inputs": inputs}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        v["object_id"].as_str().expect("its id").to_string()
+    };
+    let tally = made("Tally", "start", json!({"count": 0}));
+    let a = made("Account", "open", json!({"name": "a", "balance": 100}));
+    let b = made("Account", "open", json!({"name": "b", "balance": 100}));
+    let pair = made("Pair", "make", json!({"left": a, "right": b}));
+    (tally, a, b, pair)
+}
+
+fn bump(s: &Service, tally: &str, expected: Option<i64>) -> Value {
+    let mut body = json!({"actor": {"id": "operator"}, "object_id": tally, "transition": "bump"});
+    if let Some(v) = expected {
+        body["expected_version"] = json!(v);
+    }
+    post(s, "/v1/request", &body)
+}
+
+/// Another process's write lock on the store's file, held until dropped.
+fn held_lock(path: &Path) -> rusqlite::Connection {
+    let conn = rusqlite::Connection::open(path).expect("the file");
+    conn.execute_batch("BEGIN IMMEDIATE")
+        .expect("the write lock");
+    conn
+}
+
+/// A write waiting out another process's lock holds the writer, and every
+/// read answers beside it, never behind it; the write applies once the lock
+/// is let go (ADR-0178 decisions 1 and 2).
+#[test]
+fn reads_answer_beside_a_write_waiting_on_the_lock() {
+    let file = fresh_store("beside");
+    let path = file.to_str().expect("a path");
+    let s = start(&["--store", path, "--port", "0", "--busy-timeout", "5 s"]);
+    let (tally, a, _, pair) = ledger(&s);
+    let lock = held_lock(&file);
+    let writer = {
+        let w = at(&s);
+        let tally = tally.clone();
+        std::thread::spawn(move || bump(&w, &tally, None))
+    };
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let op = json!({"actor": {"id": "operator"}});
+    let reads: Vec<(&str, Value)> = vec![
+        ("/v1/get", json!({"actor": op["actor"], "id": tally})),
+        ("/v1/get", json!({"actor": op["actor"], "id": pair})),
+        (
+            "/v1/query",
+            json!({"actor": op["actor"], "type": "Account"}),
+        ),
+        ("/v1/history", json!({"actor": op["actor"], "id": a})),
+        (
+            "/v1/availability",
+            json!({"actor": op["actor"], "id": tally}),
+        ),
+        (
+            "/v1/declaration",
+            json!({"actor": op["actor"], "type": "Tally"}),
+        ),
+        (
+            "/v1/metric",
+            json!({"actor": op["actor"], "name": "Tally.work_in_progress"}),
+        ),
+        (
+            "/v1/check",
+            json!({"actor": op["actor"], "object_id": tally, "transition": "bump"}),
+        ),
+    ];
+    for (path, body) in &reads {
+        let began = std::time::Instant::now();
+        let (status, out) = call(&s, "POST", path, Some(body));
+        let took = began.elapsed();
+        assert_eq!(status, 200, "{path}: {out}");
+        assert!(
+            took < std::time::Duration::from_millis(500),
+            "{path} took {took:?} beside the write"
+        );
+    }
+    let (status, _) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 200);
+    // the read of the tally saw it as it stood, the write not yet applied
+    assert_eq!(
+        post(&s, "/v1/get", &json!({"actor": op["actor"], "id": tally}))["attributes"]["count"],
+        0
+    );
+    assert!(!writer.is_finished(), "the write did not wait on the lock");
+    drop(lock);
+    let v = writer.join().expect("the writer");
+    assert_eq!(v["kind"], "satisfied", "{v}");
+    assert_eq!(
+        post(&s, "/v1/get", &json!({"actor": op["actor"], "id": tally}))["attributes"]["count"],
+        1
+    );
+}
+
+/// A lock held past the busy timeout is waited out again, and the event
+/// records the retry; held past every retry, the write is refused `stale`,
+/// cause `retries_exhausted`, a verdict, and nothing is written (ADR-0178
+/// decision 2, `library-api.md` §4).
+#[test]
+fn a_write_meeting_a_lock_past_its_timeout_is_retried_then_refused_stale() {
+    let file = fresh_store("busy");
+    let path = file.to_str().expect("a path");
+    let s = start(&["--store", path, "--port", "0", "--busy-timeout", "1 s"]);
+    let (tally, _, _, _) = ledger(&s);
+    // let go after one timeout and before the next: one retry
+    let lock = held_lock(&file);
+    let writer = {
+        let w = at(&s);
+        let tally = tally.clone();
+        std::thread::spawn(move || bump(&w, &tally, None))
+    };
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    drop(lock);
+    let v = writer.join().expect("the writer");
+    assert_eq!(v["kind"], "satisfied", "{v}");
+    let history = post(
+        &s,
+        "/v1/history",
+        &json!({"actor": {"id": "operator"}, "id": tally}),
+    );
+    let last = history["events"]
+        .as_array()
+        .and_then(|e| e.last())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        (&last["transition"], &last["retries"]),
+        (&json!("bump"), &json!(1)),
+        "{last}"
+    );
+    // held past every retry
+    drop(s);
+    let s = start(&["--store", path, "--port", "0", "--busy-timeout", "0 s"]);
+    let lock = held_lock(&file);
+    let v = bump(&s, &tally, None);
+    drop(lock);
+    assert_eq!(
+        (&v["kind"], &v["cause"], &v["remedy"]),
+        (
+            &json!("stale"),
+            &json!("retries_exhausted"),
+            &json!("temporal")
+        ),
+        "{v}"
+    );
+    assert_eq!(
+        post(
+            &s,
+            "/v1/get",
+            &json!({"actor": {"id": "operator"}, "id": tally})
+        )["attributes"]["count"],
+        1
+    );
+}
+
+/// Writes from many callers at once are taken one at a time, and none is
+/// lost: every bump counts, the tally's versions follow one another, and
+/// every event has a position of its own; with `expected_version`, a bump
+/// that read a version another moved is refused `stale` and sent again
+/// (ADR-0178 decision 7).
+#[test]
+fn concurrent_writes_lose_no_update() {
+    let file = fresh_store("writers");
+    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let (tally, _, _, _) = ledger(&s);
+    let (threads, each) = (8, 25);
+    let workers: Vec<_> = (0..threads)
+        .map(|_| {
+            let w = at(&s);
+            let tally = tally.clone();
+            std::thread::spawn(move || {
+                for _ in 0..each {
+                    let v = bump(&w, &tally, None);
+                    assert_eq!(v["kind"], "satisfied", "{v}");
+                }
+            })
+        })
+        .collect();
+    for w in workers {
+        w.join().expect("a writer");
+    }
+    let op = json!({"id": "operator"});
+    let got = post(&s, "/v1/get", &json!({"actor": op, "id": tally}));
+    assert_eq!(got["attributes"]["count"], json!(threads * each));
+    assert_eq!(got["version"], json!(threads * each + 1));
+    let history = post(&s, "/v1/history", &json!({"actor": op, "id": tally}));
+    let positions: std::collections::BTreeSet<i64> = history["events"]
+        .as_array()
+        .expect("its events")
+        .iter()
+        .filter_map(|e| e["position"].as_i64())
+        .collect();
+    assert_eq!(positions.len(), threads * each + 1);
+    // read, then write naming the version read, again until it applies
+    let (threads, each) = (4, 10);
+    let stale = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let workers: Vec<_> = (0..threads)
+        .map(|_| {
+            let w = at(&s);
+            let tally = tally.clone();
+            let stale = std::sync::Arc::clone(&stale);
+            std::thread::spawn(move || {
+                let mut applied = 0;
+                while applied < each {
+                    let read = post(
+                        &w,
+                        "/v1/get",
+                        &json!({"actor": {"id": "operator"}, "id": tally}),
+                    );
+                    let v = bump(&w, &tally, read["version"].as_i64());
+                    match v["kind"].as_str() {
+                        Some("satisfied") => applied += 1,
+                        Some("stale") => {
+                            assert_eq!(v["cause"], "expected_version", "{v}");
+                            stale.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        _ => panic!("{v}"),
+                    }
+                }
+            })
+        })
+        .collect();
+    for w in workers {
+        w.join().expect("a writer");
+    }
+    let got = post(&s, "/v1/get", &json!({"actor": op, "id": tally}));
+    assert_eq!(got["attributes"]["count"], json!(200 + threads * each));
+    eprintln!(
+        "{} bumps naming a version another moved were refused stale and sent again",
+        stale.load(std::sync::atomic::Ordering::SeqCst)
+    );
+}
+
+/// A read sees one committed state while writes commit around it: the
+/// pair's total, read through both its accounts, is the same at every read
+/// while moves between them commit (ADR-0178 decision 1).
+#[test]
+fn a_read_sees_one_committed_state() {
+    let file = fresh_store("snapshot");
+    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let (_, a, b, pair) = ledger(&s);
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let movers: Vec<_> = [(a.clone(), b.clone()), (b.clone(), a.clone())]
+        .into_iter()
+        .map(|(from, to)| {
+            let w = at(&s);
+            std::thread::spawn(move || {
+                let mut moves = 0;
+                let mut amount = 1;
+                while std::time::Instant::now() < until {
+                    let v = post(
+                        &w,
+                        "/v1/request",
+                        &json!({"actor": {"id": "operator"}, "object_id": from,
+                        "transition": "move_to", "inputs": {"other": to, "amount": amount}}),
+                    );
+                    assert_eq!(v["kind"], "satisfied", "{v}");
+                    amount = amount % 7 + 1;
+                    moves += 1;
+                }
+                moves
+            })
+        })
+        .collect();
+    let readers: Vec<_> = (0..4)
+        .map(|_| {
+            let r = at(&s);
+            let pair = pair.clone();
+            std::thread::spawn(move || {
+                let mut reads = 0;
+                while std::time::Instant::now() < until {
+                    let got = post(&r, "/v1/get", &json!({"actor": {"id": "operator"}, "id": pair}));
+                    assert_eq!(got["attributes"]["total"], json!(200), "{got}");
+                    let page = post(&r, "/v1/query", &json!({"actor": {"id": "operator"}, "type": "Account", "fields": ["balance"]}));
+                    let sum: i64 = page["items"]
+                        .as_array()
+                        .expect("its items")
+                        .iter()
+                        .filter_map(|i| i["fields"]["balance"].as_i64())
+                        .sum();
+                    assert_eq!(sum, 200, "{page}");
+                    reads += 1;
+                }
+                reads
+            })
+        })
+        .collect();
+    let moves: i64 = movers.into_iter().map(|m| m.join().expect("a mover")).sum();
+    let reads: i64 = readers
+        .into_iter()
+        .map(|r| r.join().expect("a reader"))
+        .sum();
+    assert!(moves > 10 && reads > 10, "{moves} moves, {reads} reads");
+    eprintln!(
+        "{moves} moves and {reads} reads of the pair and the accounts in 2 s, every total 200"
+    );
+}
+
+/// A second process on the same file publishes; the first reads the new
+/// version and writes under it, reloading its rules inside its own
+/// transactions (ADR-0178 decision 3).
+#[test]
+fn a_version_another_process_publishes_is_read_and_written_by_this_one() {
+    let file = fresh_store("two");
+    let path = file.to_str().expect("a path");
+    let first = start(&["--store", path, "--port", "0"]);
+    let (tally, _, _, _) = ledger(&first);
+    let second = start(&["--store", path, "--port", "0"]);
+    let text = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ledger.yaml"),
+    )
+    .expect("the ledger module");
+    let twice = text.replace(
+        "      finish: { kind: external, from: COUNTING, to: DONE }",
+        "      finish: { kind: external, from: COUNTING, to: DONE }\n      bump_twice:\n        kind: internal\n        from: COUNTING\n        effect:\n          - assign: { location: count, expr: count + 2 }",
+    );
+    assert_ne!(twice, text);
+    publish(&second, &json!({ "ledger": twice }));
+    let op = json!({"id": "operator"});
+    let decl = post(
+        &first,
+        "/v1/declaration",
+        &json!({"actor": op, "type": "Tally"}),
+    );
+    assert_eq!(decl["version"], json!(2), "{decl}");
+    assert!(decl["transitions"].get("bump_twice").is_some(), "{decl}");
+    let v = post(
+        &first,
+        "/v1/request",
+        &json!({"actor": op, "object_id": tally, "transition": "bump_twice"}),
+    );
+    assert_eq!(v["kind"], "satisfied", "{v}");
+    let got = post(&first, "/v1/get", &json!({"actor": op, "id": tally}));
+    assert_eq!(got["attributes"]["count"], json!(2));
+}
+
+/// Reads a second, alone and beside writes, as measured on the machine the
+/// test runs on; it asserts only that reads go on while writes run.
+#[test]
+fn reads_and_writes_a_second_measured() {
+    let file = fresh_store("probe");
+    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let (tally, _, _, pair) = ledger(&s);
+    let window = std::time::Duration::from_secs(2);
+    let read_for = |until: std::time::Instant| -> Vec<std::thread::JoinHandle<i64>> {
+        (0..4)
+            .map(|_| {
+                let r = at(&s);
+                let pair = pair.clone();
+                std::thread::spawn(move || {
+                    let mut n = 0;
+                    while std::time::Instant::now() < until {
+                        post(
+                            &r,
+                            "/v1/get",
+                            &json!({"actor": {"id": "operator"}, "id": pair}),
+                        );
+                        n += 1;
+                    }
+                    n
+                })
+            })
+            .collect()
+    };
+    let alone: i64 = read_for(std::time::Instant::now() + window)
+        .into_iter()
+        .map(|h| h.join().expect("a reader"))
+        .sum();
+    let until = std::time::Instant::now() + window;
+    let writers: Vec<_> = (0..2)
+        .map(|_| {
+            let w = at(&s);
+            let tally = tally.clone();
+            std::thread::spawn(move || {
+                let mut n = 0;
+                while std::time::Instant::now() < until {
+                    bump(&w, &tally, None);
+                    n += 1;
+                }
+                n
+            })
+        })
+        .collect();
+    let beside: i64 = read_for(until)
+        .into_iter()
+        .map(|h| h.join().expect("a reader"))
+        .sum();
+    let writes: i64 = writers
+        .into_iter()
+        .map(|h| h.join().expect("a writer"))
+        .sum();
+    let per = |n: i64| n as f64 / window.as_secs_f64();
+    eprintln!(
+        "reads a second, 4 readers: {:.0} alone, {:.0} beside {:.0} writes a second from 2 writers",
+        per(alone),
+        per(beside),
+        per(writes)
+    );
+    assert!(beside > 0 && writes > 0, "{beside} reads, {writes} writes");
+}

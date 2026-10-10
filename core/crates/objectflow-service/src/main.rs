@@ -12,6 +12,7 @@
 //! <file>` for a deployment's store (ADR-0174); `--port 0` takes a free port,
 //! and the address listened on is written to standard error.
 
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::extract::State;
@@ -27,7 +28,7 @@ use objectflow_core::import::{
 use objectflow_core::model::{Declared, Library};
 use objectflow_core::reads::{self, Availability, Offer};
 use objectflow_core::request::{self, Request};
-use objectflow_core::store::{BUILTINS, ENGINE_MISMATCH, Event, Store};
+use objectflow_core::store::{BUILTINS, ENGINE_MISMATCH, Event, Readers, Store};
 use objectflow_core::value::{parse_duration, parse_timestamp, timestamp_text};
 use objectflow_core::verdict::{Flag, Verdict};
 use objectflow_core::wire::encode;
@@ -55,6 +56,9 @@ struct Sandbox {
     evaluator_timeout: std::time::Duration,
     /// A deployment's store file, which an upgrade opens.
     path: Option<std::path::PathBuf>,
+    /// How long its writes wait out another process's write lock
+    /// (ADR-0178 decision 2).
+    busy_timeout: std::time::Duration,
     /// The release a deployment's store is at where it is due an upgrade to
     /// this one: every operation but the upgrade is refused until it runs
     /// (ADR-0177 decision 4).
@@ -121,39 +125,45 @@ fn asked(endpoint: &str, timeout: std::time::Duration, call: &Call) -> &'static 
 /// endpoint answers (D563); the verdicts are the request's alone.
 fn consulting<T>(
     shared: &Shared,
+    read: bool,
     mut attempt: impl FnMut(&mut Store) -> Result<T, Fault>,
     stopped: impl Fn(&T) -> Option<Call>,
 ) -> Result<T, Fault> {
     let mut asked_so_far: std::collections::BTreeMap<String, String> =
         std::collections::BTreeMap::new();
     let mut calls = 0;
+    let timeout = shared.evaluator_timeout;
     loop {
-        let (out, call, endpoint, timeout) = {
-            let mut sandbox = locked(shared)?;
-            let (endpoints, timeout) = (sandbox.endpoints.clone(), sandbox.evaluator_timeout);
-            let deployment = sandbox.deployment;
-            let s = store(&mut sandbox)?;
-            let given = s.answers.clone();
-            s.answers.extend(asked_so_far.clone());
-            let out = attempt(s);
-            s.answers = given;
-            let call = match &out {
-                Ok(t) if deployment => stopped(t),
-                _ => None,
+        // a check on a read of its own, a request on the writer (ADR-0178)
+        let out = {
+            let mut run = |s: &mut Store| {
+                let given = s.answers.clone();
+                s.answers.extend(asked_so_far.clone());
+                let out = attempt(s);
+                s.answers = given;
+                out
             };
-            let endpoint = call
-                .as_ref()
-                .and_then(|c| endpoints.get(&c.evaluator).cloned());
-            (out, call, endpoint, timeout)
+            if read {
+                let mut r = reading(shared)?;
+                run(r.store()?)
+            } else {
+                let mut sandbox = locked(shared)?;
+                run(store(&mut sandbox)?)
+            }
         };
+        let call = match &out {
+            Ok(t) if shared.deployment => stopped(t),
+            _ => None,
+        };
+        let endpoint = call
+            .as_ref()
+            .and_then(|c| shared.endpoints.get(&c.evaluator).cloned());
         // a call that changes at every attempt stops the request, unrun
         let Some(call) = call.filter(|_| calls < 2 * MAX_CALLS) else {
             return out;
         };
         let verdict = match endpoint {
-            Some(endpoint) if calls < MAX_CALLS => {
-                tokio::task::block_in_place(|| asked(&endpoint, timeout, &call))
-            }
+            Some(endpoint) if calls < MAX_CALLS => asked(&endpoint, timeout, &call),
             _ => "unanswered",
         };
         calls += 1;
@@ -169,7 +179,165 @@ fn wall_clock() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
-type Shared = Arc<Mutex<Sandbox>>;
+/// The service's state (ADR-0178): its writer, behind the lock every write
+/// takes, and for a deployment what its reads need without that lock; and
+/// what it was started with.
+struct Service {
+    writer: Mutex<Sandbox>,
+    reads: Option<Reads>,
+    /// A deployment's evaluator endpoints, by namespace, and how long an
+    /// answer is waited for, fixed when it starts (ADR-0175 decision 5).
+    endpoints: std::collections::BTreeMap<String, String>,
+    evaluator_timeout: std::time::Duration,
+    deployment: bool,
+}
+
+/// What a deployment's reads need beside its writer (ADR-0178): its read
+/// connections, what the writer last held, and the latest time the store
+/// recorded or read, behind which no read's clock goes (ADR-0174 decision
+/// 4).
+struct Reads {
+    pool: Readers,
+    seen: std::sync::RwLock<Seen>,
+    floor: AtomicI64,
+}
+
+/// The library a store runs and the earlier versions', as a read shares
+/// them with the writer.
+type Rules = (Arc<Library>, Arc<std::collections::BTreeMap<i64, Library>>);
+
+/// What the writer held when it last let its lock go: the library and the
+/// earlier versions', its evaluator answers, and an upgrade it is due.
+#[derive(Clone, Default)]
+struct Seen {
+    lib: Option<Rules>,
+    answers: std::collections::BTreeMap<String, String>,
+    due: Option<String>,
+}
+
+impl Seen {
+    fn of(sandbox: &Sandbox) -> Seen {
+        Seen {
+            lib: sandbox.store.as_ref().map(Store::shared),
+            answers: sandbox
+                .store
+                .as_ref()
+                .map(|s| s.answers.clone())
+                .unwrap_or_default(),
+            due: sandbox.due.clone(),
+        }
+    }
+}
+
+type Shared = Arc<Service>;
+
+/// The writer, held while a write runs; when it is let go, what reads need
+/// is refreshed from it, so a read after a publish reads its version
+/// (ADR-0178 decision 3).
+struct Writing<'a> {
+    guard: std::sync::MutexGuard<'a, Sandbox>,
+    reads: Option<&'a Reads>,
+}
+
+impl std::ops::Deref for Writing<'_> {
+    type Target = Sandbox;
+    fn deref(&self) -> &Sandbox {
+        &self.guard
+    }
+}
+
+impl std::ops::DerefMut for Writing<'_> {
+    fn deref_mut(&mut self) -> &mut Sandbox {
+        &mut self.guard
+    }
+}
+
+impl Drop for Writing<'_> {
+    fn drop(&mut self) {
+        if let Some(reads) = self.reads {
+            if let Some(s) = &self.guard.store {
+                reads.floor.fetch_max(s.now, Ordering::SeqCst);
+            }
+            if let Ok(mut seen) = reads.seen.write() {
+                *seen = Seen::of(&self.guard);
+            }
+        }
+    }
+}
+
+/// A read's store (ADR-0178): a deployment's own read connection, in its
+/// own read transaction and given back when the read ends; or a sandbox's
+/// one store, read under its lock.
+enum Reading<'a> {
+    Own(Option<Store>, &'a Reads),
+    Locked(Writing<'a>),
+}
+
+impl Reading<'_> {
+    fn store(&mut self) -> Result<&mut Store, Fault> {
+        match self {
+            Reading::Own(Some(s), _) => Ok(s),
+            Reading::Own(None, _) => {
+                Err(Fault::Internal("a read's store was given back".to_string()))
+            }
+            Reading::Locked(w) => store(w),
+        }
+    }
+}
+
+impl Drop for Reading<'_> {
+    fn drop(&mut self) {
+        if let Reading::Own(s, reads) = self
+            && let Some(s) = s.take()
+        {
+            reads.pool.give_back(s);
+        }
+    }
+}
+
+/// A read of the store as it stands, beside the writes and never behind
+/// them, for a deployment; under the lock for a sandbox.
+fn reading(shared: &Shared) -> Result<Reading<'_>, Fault> {
+    let Some(reads) = &shared.reads else {
+        return Ok(Reading::Locked(locked(shared)?));
+    };
+    let seen = reads
+        .seen
+        .read()
+        .map_err(|_| Fault::Internal("a previous request panicked".to_string()))?
+        .clone();
+    if let Some(at) = seen.due {
+        return Err(due(&at));
+    }
+    let Some((lib, earlier)) = seen.lib else {
+        return Err(Fault::Conflict("no store is open".to_string()));
+    };
+    // an evaluator no endpoint answers is unknown (ADR-0175 decision 5)
+    let mut answers = seen.answers;
+    for f in &lib.evaluators {
+        let namespace = f.split_once('.').map_or(f.as_str(), |(n, _)| n);
+        if !shared.endpoints.contains_key(namespace) {
+            answers
+                .entry(f.clone())
+                .or_insert_with(|| "unanswered".to_string());
+        }
+    }
+    let now = reads
+        .floor
+        .fetch_max(wall_clock(), Ordering::SeqCst)
+        .max(wall_clock());
+    Ok(Reading::Own(
+        Some(reads.pool.read(lib, earlier, now, answers)?),
+        reads,
+    ))
+}
+
+/// The refusal of everything but the upgrade on a store due one.
+fn due(at: &str) -> Fault {
+    Fault::Mismatch(format!(
+        "{ENGINE_MISMATCH}: the store is at {at}, and this core is {BUILTINS}: upgrade it with POST /v1/upgrade"
+    ))
+}
 
 /// What the service answers a request it cannot: the wire's 4xx or 5xx.
 enum Fault {
@@ -321,17 +489,19 @@ impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
     }
 }
 
-fn locked(shared: &Shared) -> Result<std::sync::MutexGuard<'_, Sandbox>, Fault> {
-    shared
-        .lock()
-        .map_err(|_| Fault::Internal("a previous request panicked".to_string()))
+fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
+    Ok(Writing {
+        guard: shared
+            .writer
+            .lock()
+            .map_err(|_| Fault::Internal("a previous request panicked".to_string()))?,
+        reads: shared.reads.as_ref(),
+    })
 }
 
 fn store(sandbox: &mut Sandbox) -> Result<&mut Store, Fault> {
     if let Some(at) = &sandbox.due {
-        return Err(Fault::Mismatch(format!(
-            "{ENGINE_MISMATCH}: the store is at {at}, and this core is {BUILTINS}: upgrade it with POST /v1/upgrade"
-        )));
+        return Err(due(at));
     }
     let deployment = sandbox.deployment;
     let endpoints = &sandbox.endpoints;
@@ -392,6 +562,9 @@ fn verdict(v: &Verdict) -> J {
         Verdict::Stale { expected, actual } => {
             json!({ "cause": "expected_version", "expected": expected, "actual": actual })
         }
+        // a race the lock's retries could not win: neither version
+        // (library-api.md §4, ADR-0178)
+        Verdict::RetriesExhausted => json!({ "cause": "retries_exhausted" }),
         Verdict::Unavailable { state } => json!({ "state": state }),
         Verdict::UnknownTransition { transition } => json!({ "transition": transition }),
         Verdict::InvalidInput { inputs, reasons } => json!({
@@ -455,17 +628,12 @@ fn event(e: &Event) -> J {
         "occurred_at": e.occurred_at.map(timestamp_text), "imported": e.imported,
         "payload": payload, "cause": e.cause, "reads": e.reads, "context": e.context,
         "consulted": consulted, "as_of": as_of,
+        // the serialisation retries its request took (ADR-0178 decision 2)
+        "retries": e.retries,
     })
 }
 
-const EVENT_NOT_COMPUTED: [&str; 6] = [
-    "object_seq",
-    "source",
-    "taint_version",
-    "txn",
-    "retries",
-    "flags",
-];
+const EVENT_NOT_COMPUTED: [&str; 5] = ["object_seq", "source", "taint_version", "txn", "flags"];
 
 fn offer(o: &Offer, actor_dependent: bool) -> J {
     let inputs: Map<String, J> = o
@@ -484,148 +652,163 @@ fn offer(o: &Offer, actor_dependent: bool) -> J {
 
 // ── the sandbox's controls ────────────────────────────────────────────────
 async fn load(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    // the deployment's attempt and idempotency retentions, durations
-    let retention = |k: &str| -> Result<Option<i64>, Fault> {
-        match text(&body, k) {
-            None => Ok(None),
-            Some(d) => parse_duration(d)
-                .map(Some)
-                .ok_or_else(|| Fault::Bad(format!("{k} takes a duration such as '90 days'"))),
-        }
-    };
-    let retentions = (
-        retention("attempt_retention")?,
-        retention("idempotency_retention")?,
-    );
-    let mut files = Vec::new();
-    for f in body
-        .get("files")
-        .and_then(J::as_array)
-        .into_iter()
-        .flatten()
-    {
-        let (Some(name), Some(text)) = (text(f, "name"), text(f, "text")) else {
-            return Err(Fault::Bad(
-                "load takes files, each with a name and a text".to_string(),
-            ));
+    tokio::task::block_in_place(move || {
+        // the deployment's attempt and idempotency retentions, durations
+        let retention = |k: &str| -> Result<Option<i64>, Fault> {
+            match text(&body, k) {
+                None => Ok(None),
+                Some(d) => parse_duration(d)
+                    .map(Some)
+                    .ok_or_else(|| Fault::Bad(format!("{k} takes a duration such as '90 days'"))),
+            }
         };
-        // an examples file is part of version 1's source, and no module
-        files.push((name.to_string(), text.to_string()));
-    }
-    if files.is_empty() {
-        return Err(Fault::Bad(
-            "load takes the module files, in import order".to_string(),
-        ));
-    }
-    let lib = match Library::load(&files) {
-        Ok(lib) => lib,
-        Err(e) => {
-            return Ok(Json(json!({"loaded": false, "findings": [
-                {"file": e.file, "line": e.line, "code": "load", "message": e.message}]})));
+        let retentions = (
+            retention("attempt_retention")?,
+            retention("idempotency_retention")?,
+        );
+        let mut files = Vec::new();
+        for f in body
+            .get("files")
+            .and_then(J::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let (Some(name), Some(text)) = (text(f, "name"), text(f, "text")) else {
+                return Err(Fault::Bad(
+                    "load takes files, each with a name and a text".to_string(),
+                ));
+            };
+            // an examples file is part of version 1's source, and no module
+            files.push((name.to_string(), text.to_string()));
         }
-    };
-    // the types the load installed, as the reference runner lists them
-    let answer = json!({"loaded": true, "modules": lib.modules, "notices": 0, "now": CLOCK_START,
+        if files.is_empty() {
+            return Err(Fault::Bad(
+                "load takes the module files, in import order".to_string(),
+            ));
+        }
+        let lib = match Library::load(&files) {
+            Ok(lib) => lib,
+            Err(e) => {
+                return Ok(Json(json!({"loaded": false, "findings": [
+                {"file": e.file, "line": e.line, "code": "load", "message": e.message}]})));
+            }
+        };
+        // the types the load installed, as the reference runner lists them
+        let answer = json!({"loaded": true, "modules": lib.modules, "notices": 0, "now": CLOCK_START,
                         "types": lib.declared, "evaluators": lib.evaluators});
-    let now = parse_timestamp(CLOCK_START).unwrap_or(0);
-    let mut store = Store::sandbox(lib, now)?;
-    (store.attempt_retention, store.idempotency_retention) = retentions;
-    let mut sandbox = locked(&shared)?;
-    sandbox.files = files;
-    sandbox.retentions = retentions;
-    sandbox.store = Some(store);
-    sandbox.answers = Map::new();
-    Ok(Json(answer))
+        let now = parse_timestamp(CLOCK_START).unwrap_or(0);
+        let mut store = Store::sandbox(lib, now)?;
+        (store.attempt_retention, store.idempotency_retention) = retentions;
+        let mut sandbox = locked(&shared)?;
+        sandbox.files = files;
+        sandbox.retentions = retentions;
+        sandbox.store = Some(store);
+        sandbox.answers = Map::new();
+        Ok(Json(answer))
+    })
 }
 
 async fn reset(State(shared): State<Shared>) -> Answer {
-    let mut sandbox = locked(&shared)?;
-    if sandbox.files.is_empty() {
-        return Err(Fault::Conflict(
-            "no modules are loaded; load them first".to_string(),
-        ));
-    }
-    let lib = Library::load(&sandbox.files).map_err(|e| Fault::Internal(e.to_string()))?;
-    let now = parse_timestamp(CLOCK_START).unwrap_or(0);
-    let mut store = Store::sandbox(lib, now)?;
-    (store.attempt_retention, store.idempotency_retention) = sandbox.retentions;
-    sandbox.store = Some(store);
-    sandbox.answers = Map::new();
-    Ok(Json(json!({ "now": CLOCK_START })))
+    tokio::task::block_in_place(move || {
+        let mut sandbox = locked(&shared)?;
+        if sandbox.files.is_empty() {
+            return Err(Fault::Conflict(
+                "no modules are loaded; load them first".to_string(),
+            ));
+        }
+        let lib = Library::load(&sandbox.files).map_err(|e| Fault::Internal(e.to_string()))?;
+        let now = parse_timestamp(CLOCK_START).unwrap_or(0);
+        let mut store = Store::sandbox(lib, now)?;
+        (store.attempt_retention, store.idempotency_retention) = sandbox.retentions;
+        sandbox.store = Some(store);
+        sandbox.answers = Map::new();
+        Ok(Json(json!({ "now": CLOCK_START })))
+    })
 }
 
 async fn clock(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let target = if let Some(by) = text(&body, "advance") {
-        let step = parse_duration(by)
-            .ok_or_else(|| Fault::Bad(format!("advance takes a duration such as '1 h': {by}")))?;
-        s.now + step
-    } else if let Some(at) = text(&body, "set") {
-        parse_timestamp(at)
-            .ok_or_else(|| Fault::Bad(format!("set takes an RFC 3339 timestamp: {at}")))?
-    } else {
-        s.now
-    };
-    if target < s.now {
-        return Err(Fault::Bad(
-            "the clock never moves back, or an interval would".to_string(),
-        ));
-    }
-    s.now = target;
-    Ok(Json(json!({ "now": timestamp_text(s.now) })))
+    tokio::task::block_in_place(move || {
+        let mut sandbox = locked(&shared)?;
+        let s = store(&mut sandbox)?;
+        let target = if let Some(by) = text(&body, "advance") {
+            let step = parse_duration(by).ok_or_else(|| {
+                Fault::Bad(format!("advance takes a duration such as '1 h': {by}"))
+            })?;
+            s.now + step
+        } else if let Some(at) = text(&body, "set") {
+            parse_timestamp(at)
+                .ok_or_else(|| Fault::Bad(format!("set takes an RFC 3339 timestamp: {at}")))?
+        } else {
+            s.now
+        };
+        if target < s.now {
+            return Err(Fault::Bad(
+                "the clock never moves back, or an interval would".to_string(),
+            ));
+        }
+        s.now = target;
+        Ok(Json(json!({ "now": timestamp_text(s.now) })))
+    })
 }
 
 async fn evaluators(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let mut sandbox = locked(&shared)?;
-    store(&mut sandbox)?;
-    if let Some(answers) = body.get("answers").and_then(J::as_object) {
-        sandbox.answers.extend(answers.clone());
-    }
-    // the store asks its evaluators through these answers (PRD F13)
-    let given = sandbox
-        .answers
-        .iter()
-        .filter_map(|(k, v)| v.as_str().map(|a| (k.clone(), a.to_string())))
-        .collect();
-    store(&mut sandbox)?.answers = given;
-    Ok(Json(json!({ "answers": sandbox.answers })))
+    tokio::task::block_in_place(move || {
+        let mut sandbox = locked(&shared)?;
+        store(&mut sandbox)?;
+        if let Some(answers) = body.get("answers").and_then(J::as_object) {
+            sandbox.answers.extend(answers.clone());
+        }
+        // the store asks its evaluators through these answers (PRD F13)
+        let given = sandbox
+            .answers
+            .iter()
+            .filter_map(|(k, v)| v.as_str().map(|a| (k.clone(), a.to_string())))
+            .collect();
+        store(&mut sandbox)?.answers = given;
+        Ok(Json(json!({ "answers": sandbox.answers })))
+    })
 }
 
 // ── the library's operations ──────────────────────────────────────────────
 async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let req = request_of(&body)?;
-    let v = consulting(
-        &shared,
-        |s| Ok(request::request(s, &req)?),
-        |out| match out {
-            Err(request::NoVerdict::NotRun(NotRun::Unanswered(c))) => Some((**c).clone()),
-            _ => None,
-        },
-    )??;
-    Ok(Json(verdict(&v)))
+    tokio::task::block_in_place(move || {
+        let req = request_of(&body)?;
+        let v = consulting(
+            &shared,
+            false,
+            |s| Ok(request::request(s, &req)?),
+            |out| match out {
+                Err(request::NoVerdict::NotRun(NotRun::Unanswered(c))) => Some((**c).clone()),
+                _ => None,
+            },
+        )??;
+        Ok(Json(verdict(&v)))
+    })
 }
 
 /// The verdict a request would receive, simulated and never written, with
 /// the guards it did not evaluate (`library-api.md` §6, ADR-0054).
 async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let req = request_of(&body)?;
-    if req.propose {
-        return Err(Fault::Bad(
-            "a check simulates a request, not a proposal".to_string(),
-        ));
-    }
-    let c = consulting(
-        &shared,
-        |s| Ok(request::check(s, &req)?),
-        |out| match out {
-            Err(NotRun::Unanswered(c)) => Some((**c).clone()),
-            _ => None,
-        },
-    )??;
-    Ok(Json(
-        json!({ "verdict": verdict(&c.verdict), "unevaluated": c.unevaluated }),
-    ))
+    tokio::task::block_in_place(move || {
+        let req = request_of(&body)?;
+        if req.propose {
+            return Err(Fault::Bad(
+                "a check simulates a request, not a proposal".to_string(),
+            ));
+        }
+        let c = consulting(
+            &shared,
+            true,
+            |s| Ok(request::check(s, &req)?),
+            |out| match out {
+                Err(NotRun::Unanswered(c)) => Some((**c).clone()),
+                _ => None,
+            },
+        )??;
+        Ok(Json(
+            json!({ "verdict": verdict(&c.verdict), "unevaluated": c.unevaluated }),
+        ))
+    })
 }
 
 /// A settled cursor as the wire carries it, an opaque string, which on
@@ -646,25 +829,27 @@ fn cursor_of(body: &J) -> Result<Option<i64>, Fault> {
 /// A page of the events a subscription selects after a cursor, or its
 /// acknowledged one, and the settled cursor (`library-api.md` §6).
 async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let (Some(_actor), Some(subscription)) = (
-        body.get("actor").and_then(|a| text(a, "id")),
-        text(&body, "subscription"),
-    ) else {
-        return Err(Fault::Bad(
-            "pull names its actor and the subscription".to_string(),
-        ));
-    };
-    let cursor = cursor_of(&body)?;
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let world = s.snapshot()?;
-    let page = objectflow_core::subscription::pull(&world, subscription, cursor)?;
-    Ok(Json(json!({
-        "events": page.events.iter().map(event).collect::<Vec<_>>(),
-        "settled": page.settled.to_string(),
-        "refused": page.refused,
-        "not_computed": EVENT_NOT_COMPUTED,
-    })))
+    tokio::task::block_in_place(move || {
+        let (Some(_actor), Some(subscription)) = (
+            body.get("actor").and_then(|a| text(a, "id")),
+            text(&body, "subscription"),
+        ) else {
+            return Err(Fault::Bad(
+                "pull names its actor and the subscription".to_string(),
+            ));
+        };
+        let cursor = cursor_of(&body)?;
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let world = s.snapshot()?;
+        let page = objectflow_core::subscription::pull(&world, subscription, cursor)?;
+        Ok(Json(json!({
+            "events": page.events.iter().map(event).collect::<Vec<_>>(),
+            "settled": page.settled.to_string(),
+            "refused": page.refused,
+            "not_computed": EVENT_NOT_COMPUTED,
+        })))
+    })
 }
 
 /// A page of objects as the wire gives it: each object's id, type and
@@ -683,145 +868,157 @@ fn page_json(page: &reads::QueryPage) -> J {
 /// The objects an assertion put in their state, the import's excepted, and
 /// those holding an admitted violation (`DESIGN.md` §10).
 async fn exceptions(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let (Some(_actor), Some(type_)) = (
-        body.get("actor").and_then(|a| text(a, "id")),
-        text(&body, "type"),
-    ) else {
-        return Err(Fault::Bad(
-            "exceptions names its actor and the type".to_string(),
-        ));
-    };
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let world = s.snapshot()?;
-    Ok(Json(page_json(&reads::exceptions(&world, type_)?)))
+    tokio::task::block_in_place(move || {
+        let (Some(_actor), Some(type_)) = (
+            body.get("actor").and_then(|a| text(a, "id")),
+            text(&body, "type"),
+        ) else {
+            return Err(Fault::Bad(
+                "exceptions names its actor and the type".to_string(),
+            ));
+        };
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let world = s.snapshot()?;
+        Ok(Json(page_json(&reads::exceptions(&world, type_)?)))
+    })
 }
 
 /// The objects of a type a transition is offered to, asking no evaluator
 /// (`DESIGN.md` §10, ADR-0048).
 async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let (Some(actor), Some(type_), Some(transition)) = (
-        body.get("actor").and_then(|a| text(a, "id")),
-        text(&body, "type"),
-        text(&body, "transition"),
-    ) else {
-        return Err(Fault::Bad(
-            "available names its actor, the type and the transition".to_string(),
-        ));
-    };
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let world = s.snapshot()?;
-    let mut page = page_json(&reads::available(&world, actor, type_, transition)?);
-    // a row is swept on the state and the guards, so one the transition may
-    // refuse for who takes it says so, rather than each row simulated
-    // (ADR-0176 decision 2)
-    let dependent = s
-        .lib
-        .type_(type_)
-        .and_then(|t| t.transition(transition).map(|x| (t, x)))
-        .is_some_and(|(t, x)| objectflow_core::request::actor_dependent(&s.lib, t, x));
-    page["actor_dependent"] = json!(dependent);
-    Ok(Json(page))
+    tokio::task::block_in_place(move || {
+        let (Some(actor), Some(type_), Some(transition)) = (
+            body.get("actor").and_then(|a| text(a, "id")),
+            text(&body, "type"),
+            text(&body, "transition"),
+        ) else {
+            return Err(Fault::Bad(
+                "available names its actor, the type and the transition".to_string(),
+            ));
+        };
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let world = s.snapshot()?;
+        let mut page = page_json(&reads::available(&world, actor, type_, transition)?);
+        // a row is swept on the state and the guards, so one the transition may
+        // refuse for who takes it says so, rather than each row simulated
+        // (ADR-0176 decision 2)
+        let dependent = s
+            .lib
+            .type_(type_)
+            .and_then(|t| t.transition(transition).map(|x| (t, x)))
+            .is_some_and(|(t, x)| objectflow_core::request::actor_dependent(&s.lib, t, x));
+        page["actor_dependent"] = json!(dependent);
+        Ok(Json(page))
+    })
 }
 
 /// Where a type's flow and reality disagree, over a window (`DESIGN.md`
 /// §10, ADR-0160); a type it does not declare is refused, a value.
 async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let (Some(_actor), Some(type_), Some(window)) = (
-        body.get("actor").and_then(|a| text(a, "id")),
-        text(&body, "type"),
-        text(&body, "window"),
-    ) else {
-        return Err(Fault::Bad(
-            "diagnostics names its actor, the type and a window".to_string(),
-        ));
-    };
-    let window = parse_duration(window).ok_or_else(|| {
-        Fault::Bad(format!(
-            "window takes a duration such as '30 days': {window}"
+    tokio::task::block_in_place(move || {
+        let (Some(_actor), Some(type_), Some(window)) = (
+            body.get("actor").and_then(|a| text(a, "id")),
+            text(&body, "type"),
+            text(&body, "window"),
+        ) else {
+            return Err(Fault::Bad(
+                "diagnostics names its actor, the type and a window".to_string(),
+            ));
+        };
+        let window = parse_duration(window).ok_or_else(|| {
+            Fault::Bad(format!(
+                "window takes a duration such as '30 days': {window}"
+            ))
+        })?;
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let world = s.snapshot()?;
+        Ok(Json(
+            match objectflow_core::diagnostics::diagnostics(&world, type_, window)? {
+                Ok(found) => json!({
+                    "diagnostics": found.iter().map(objectflow_core::diagnostics::Diagnostic::json).collect::<Vec<_>>(),
+                    "refused": J::Null,
+                }),
+                Err(why) => json!({ "diagnostics": [], "refused": why }),
+            },
         ))
-    })?;
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let world = s.snapshot()?;
-    Ok(Json(
-        match objectflow_core::diagnostics::diagnostics(&world, type_, window)? {
-            Ok(found) => json!({
-                "diagnostics": found.iter().map(objectflow_core::diagnostics::Diagnostic::json).collect::<Vec<_>>(),
-                "refused": J::Null,
-            }),
-            Err(why) => json!({ "diagnostics": [], "refused": why }),
-        },
-    ))
+    })
 }
 
 /// A maintenance task run outside the retention the store was built with:
 /// the rows it moved or removed, or its refusal, a value (`DESIGN.md` §10).
 async fn maintain(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let task = body.get("task");
-    let (Some(_actor), Some(name), Some(before)) = (
-        body.get("actor").and_then(|a| text(a, "id")),
-        task.and_then(|t| text(t, "name")),
-        task.and_then(|t| text(t, "before")),
-    ) else {
-        return Err(Fault::Bad(
-            "maintain names its actor and a task, its name and a time before which it prunes"
-                .to_string(),
-        ));
-    };
-    let before = parse_timestamp(before)
-        .ok_or_else(|| Fault::Bad(format!("before takes a timestamp: {before}")))?;
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let task = objectflow_core::store::MaintenanceTask {
-        name: name.to_string(),
-        before,
-    };
-    Ok(Json(match s.maintain(&task)?? {
-        Ok(moved) => json!({ "moved": moved, "refused": J::Null }),
-        Err(why) => json!({ "moved": 0, "refused": why }),
-    }))
+    tokio::task::block_in_place(move || {
+        let task = body.get("task");
+        let (Some(_actor), Some(name), Some(before)) = (
+            body.get("actor").and_then(|a| text(a, "id")),
+            task.and_then(|t| text(t, "name")),
+            task.and_then(|t| text(t, "before")),
+        ) else {
+            return Err(Fault::Bad(
+                "maintain names its actor and a task, its name and a time before which it prunes"
+                    .to_string(),
+            ));
+        };
+        let before = parse_timestamp(before)
+            .ok_or_else(|| Fault::Bad(format!("before takes a timestamp: {before}")))?;
+        let mut sandbox = locked(&shared)?;
+        let s = store(&mut sandbox)?;
+        let task = objectflow_core::store::MaintenanceTask {
+            name: name.to_string(),
+            before,
+        };
+        Ok(Json(match s.maintain(&task)?? {
+            Ok(moved) => json!({ "moved": moved, "refused": J::Null }),
+            Err(why) => json!({ "moved": 0, "refused": why }),
+        }))
+    })
 }
 
 /// A source's rows after a cursor, as JSON lines, every personal value
 /// omitted; a refusal is a value (`library-api.md` §6, ADR-0094).
 async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let (Some(_actor), Some(source)) = (
-        body.get("actor").and_then(|a| text(a, "id")),
-        text(&body, "source"),
-    ) else {
-        return Err(Fault::Bad(
-            "export names its actor and the source".to_string(),
-        ));
-    };
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let world = s.snapshot()?;
-    let page = objectflow_core::export::export(&world, source, text(&body, "cursor"))?;
-    Ok(Json(json!({
-        "lines": page.lines,
-        "cursor": page.cursor,
-        "refused": page.refused,
-    })))
+    tokio::task::block_in_place(move || {
+        let (Some(_actor), Some(source)) = (
+            body.get("actor").and_then(|a| text(a, "id")),
+            text(&body, "source"),
+        ) else {
+            return Err(Fault::Bad(
+                "export names its actor and the source".to_string(),
+            ));
+        };
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let world = s.snapshot()?;
+        let page = objectflow_core::export::export(&world, source, text(&body, "cursor"))?;
+        Ok(Json(json!({
+            "lines": page.lines,
+            "cursor": page.cursor,
+            "refused": page.refused,
+        })))
+    })
 }
 
 /// A subscription's progress moved, back as well as forward; a refusal is
 /// a value (`library-api.md` §6).
 async fn acknowledge(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let (Some(_actor), Some(subscription), Some(cursor)) = (
-        body.get("actor").and_then(|a| text(a, "id")),
-        text(&body, "subscription"),
-        cursor_of(&body)?,
-    ) else {
-        return Err(Fault::Bad(
-            "acknowledge names its actor, the subscription and a cursor".to_string(),
-        ));
-    };
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let refused = s.acknowledge(subscription, cursor)?;
-    Ok(Json(json!({ "refused": refused })))
+    tokio::task::block_in_place(move || {
+        let (Some(_actor), Some(subscription), Some(cursor)) = (
+            body.get("actor").and_then(|a| text(a, "id")),
+            text(&body, "subscription"),
+            cursor_of(&body)?,
+        ) else {
+            return Err(Fault::Bad(
+                "acknowledge names its actor, the subscription and a cursor".to_string(),
+            ));
+        };
+        let mut sandbox = locked(&shared)?;
+        let s = store(&mut sandbox)?;
+        let refused = s.acknowledge(subscription, cursor)?;
+        Ok(Json(json!({ "refused": refused })))
+    })
 }
 
 /// A request as the wire carries it (`library-api.md` §3).
@@ -1118,75 +1315,78 @@ fn report(r: &ImportReport) -> J {
 }
 
 async fn import_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let Some(actor) = body.get("actor").and_then(|a| text(a, "id")) else {
-        return Err(Fault::Bad("an import names its actor".to_string()));
-    };
-    let Some(b) = body.get("batch") else {
-        return Err(Fault::Bad("an import names its batch".to_string()));
-    };
-    // removed by ADR-0154: the file is the one way an import admits (C32)
-    if b.get("admitted").is_some_and(|v| !v.is_null()) {
-        return Err(Fault::Bad(
-            "a batch admits through its disposition file, not admitted (ADR-0154)".to_string(),
-        ));
-    }
-    let mut batch = ImportBatch::default();
-    for o in b.get("objects").and_then(J::as_array).into_iter().flatten() {
-        batch.objects.push(imported_object(o)?);
-    }
-    // each entry kind's fields kept through an erasure (ADR-0163 decision 3)
-    for (kind, fields) in b
-        .get("legacy_kinds")
-        .and_then(J::as_object)
-        .into_iter()
-        .flatten()
-    {
-        let fields = fields
-            .as_array()
-            .and_then(|a| {
-                a.iter()
-                    .map(|f| f.as_str().map(str::to_string))
-                    .collect::<Option<Vec<_>>>()
-            })
-            .ok_or_else(|| {
-                Fault::Bad(format!(
-                    "legacy_kinds.{kind} lists the field names it keeps"
-                ))
-            })?;
-        batch.legacy_kinds.insert(kind.clone(), fields);
-    }
-    for r in b
-        .get("sequences")
-        .and_then(J::as_array)
-        .into_iter()
-        .flatten()
-    {
-        let (Some(sequence), Some(last)) = (text(r, "sequence"), r.get("last").and_then(J::as_i64))
-        else {
-            return Err(Fault::Bad(
-                "a sequence names its sequence and the last value minted".to_string(),
-            ));
+    tokio::task::block_in_place(move || {
+        let Some(actor) = body.get("actor").and_then(|a| text(a, "id")) else {
+            return Err(Fault::Bad("an import names its actor".to_string()));
         };
-        batch.sequences.push(Raise {
-            sequence: sequence.to_string(),
-            scope: text(r, "scope").unwrap_or_default().to_string(),
-            last,
-        });
-    }
-    let mut file = Vec::new();
-    for c in body
-        .get("disposition")
-        .and_then(J::as_array)
-        .into_iter()
-        .flatten()
-    {
-        file.push(violation_class(c)?);
-    }
-    let dry_run = body.get("dry_run").and_then(J::as_bool) == Some(true);
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let r = import::import_batch(s, actor, &batch, &file, dry_run)??;
-    Ok(Json(report(&r)))
+        let Some(b) = body.get("batch") else {
+            return Err(Fault::Bad("an import names its batch".to_string()));
+        };
+        // removed by ADR-0154: the file is the one way an import admits (C32)
+        if b.get("admitted").is_some_and(|v| !v.is_null()) {
+            return Err(Fault::Bad(
+                "a batch admits through its disposition file, not admitted (ADR-0154)".to_string(),
+            ));
+        }
+        let mut batch = ImportBatch::default();
+        for o in b.get("objects").and_then(J::as_array).into_iter().flatten() {
+            batch.objects.push(imported_object(o)?);
+        }
+        // each entry kind's fields kept through an erasure (ADR-0163 decision 3)
+        for (kind, fields) in b
+            .get("legacy_kinds")
+            .and_then(J::as_object)
+            .into_iter()
+            .flatten()
+        {
+            let fields = fields
+                .as_array()
+                .and_then(|a| {
+                    a.iter()
+                        .map(|f| f.as_str().map(str::to_string))
+                        .collect::<Option<Vec<_>>>()
+                })
+                .ok_or_else(|| {
+                    Fault::Bad(format!(
+                        "legacy_kinds.{kind} lists the field names it keeps"
+                    ))
+                })?;
+            batch.legacy_kinds.insert(kind.clone(), fields);
+        }
+        for r in b
+            .get("sequences")
+            .and_then(J::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let (Some(sequence), Some(last)) =
+                (text(r, "sequence"), r.get("last").and_then(J::as_i64))
+            else {
+                return Err(Fault::Bad(
+                    "a sequence names its sequence and the last value minted".to_string(),
+                ));
+            };
+            batch.sequences.push(Raise {
+                sequence: sequence.to_string(),
+                scope: text(r, "scope").unwrap_or_default().to_string(),
+                last,
+            });
+        }
+        let mut file = Vec::new();
+        for c in body
+            .get("disposition")
+            .and_then(J::as_array)
+            .into_iter()
+            .flatten()
+        {
+            file.push(violation_class(c)?);
+        }
+        let dry_run = body.get("dry_run").and_then(J::as_bool) == Some(true);
+        let mut sandbox = locked(&shared)?;
+        let s = store(&mut sandbox)?;
+        let r = import::import_batch(s, actor, &batch, &file, dry_run)??;
+        Ok(Json(report(&r)))
+    })
 }
 
 /// An object as `get` reads it, or null where the store holds none.
@@ -1224,257 +1424,276 @@ fn object_json(s: &Store, id: &str) -> Answer {
 }
 
 async fn get(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    // the argument it needs, a fault and never an absent object (D570)
-    let id = text(&body, "id").ok_or_else(|| Fault::Bad("get names an object's id".to_string()))?;
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    object_json(s, id)
+    tokio::task::block_in_place(move || {
+        // the argument it needs, a fault and never an absent object (D570)
+        let id =
+            text(&body, "id").ok_or_else(|| Fault::Bad("get names an object's id".to_string()))?;
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        object_json(s, id)
+    })
 }
 
 /// A change's dry run, its report the impact a publish would have, or its
 /// approval, which installs it (`library-api.md` §6, ADR-0155).
 async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let (Some(actor), Some(change)) = (
-        body.get("actor").and_then(|a| text(a, "id")),
-        text(&body, "change"),
-    ) else {
-        return Err(Fault::Bad(
-            "publish names its actor and the change".to_string(),
-        ));
-    };
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    if body.get("dry_run").and_then(J::as_bool) != Some(true) {
-        // the version of the change the approver read, required (ADR-0101)
-        let Some(expected) = body.get("expected_version").and_then(J::as_i64) else {
+    tokio::task::block_in_place(move || {
+        let (Some(actor), Some(change)) = (
+            body.get("actor").and_then(|a| text(a, "id")),
+            text(&body, "change"),
+        ) else {
             return Err(Fault::Bad(
-                "a publish names the expected_version of the change it approves".to_string(),
+                "publish names its actor and the change".to_string(),
             ));
         };
-        let (v, report) = s.publish(actor, change, expected)??;
-        return Ok(Json(json!({
-            "verdict": verdict(&v),
-            "report": report.as_ref().map(objectflow_core::publish::report_json),
-        })));
-    }
-    let world = s.snapshot()?;
-    let Some(c) = world
-        .get(change)?
-        .filter(|c| c.type_ == objectflow_core::model::DECLARATION_CHANGE)
-    else {
-        return Err(Fault::Missing(format!("no change {change}")));
-    };
-    let attr = |a: &str| match c.attr(a) {
-        objectflow_core::value::Value::Text(t) => t,
-        _ => String::new(),
-    };
-    let source: Vec<(String, String)> = serde_json::from_str::<Map<String, J>>(&attr("source"))
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
-        .collect();
-    let report = objectflow_core::publish::dry_run(
-        &world,
-        &objectflow_core::publish::Draft {
-            change_id: Some(change),
-            source: &source,
-            source_ref: Some(&attr("source_ref")),
-            source_digest: Some(&attr("source_digest")),
-            actor,
-        },
-    )?;
-    Ok(Json(
-        json!({ "verdict": J::Null, "report": objectflow_core::publish::report_json(&report) }),
-    ))
+        let mut sandbox = locked(&shared)?;
+        let s = store(&mut sandbox)?;
+        if body.get("dry_run").and_then(J::as_bool) != Some(true) {
+            // the version of the change the approver read, required (ADR-0101)
+            let Some(expected) = body.get("expected_version").and_then(J::as_i64) else {
+                return Err(Fault::Bad(
+                    "a publish names the expected_version of the change it approves".to_string(),
+                ));
+            };
+            let (v, report) = s.publish(actor, change, expected)??;
+            return Ok(Json(json!({
+                "verdict": verdict(&v),
+                "report": report.as_ref().map(objectflow_core::publish::report_json),
+            })));
+        }
+        let world = s.snapshot()?;
+        let Some(c) = world
+            .get(change)?
+            .filter(|c| c.type_ == objectflow_core::model::DECLARATION_CHANGE)
+        else {
+            return Err(Fault::Missing(format!("no change {change}")));
+        };
+        let attr = |a: &str| match c.attr(a) {
+            objectflow_core::value::Value::Text(t) => t,
+            _ => String::new(),
+        };
+        let source: Vec<(String, String)> = serde_json::from_str::<Map<String, J>>(&attr("source"))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
+            .collect();
+        let report = objectflow_core::publish::dry_run(
+            &world,
+            &objectflow_core::publish::Draft {
+                change_id: Some(change),
+                source: &source,
+                source_ref: Some(&attr("source_ref")),
+                source_digest: Some(&attr("source_digest")),
+                actor,
+            },
+        )?;
+        Ok(Json(
+            json!({ "verdict": J::Null, "report": objectflow_core::publish::report_json(&report) }),
+        ))
+    })
 }
 
 /// The object whose external identifier for a source has a value, a legacy
 /// key among them (`library-api.md` §6, ADR-0154).
 async fn lookup(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let (Some(source), Some(value)) = (text(&body, "source"), text(&body, "value")) else {
-        return Err(Fault::Bad("lookup names a source and a value".to_string()));
-    };
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let world = s.snapshot()?;
-    match world.external_id(source, value)?.as_ref() {
-        Some(id) => object_json(s, &id.clone()),
-        None => Ok(Json(J::Null)),
-    }
+    tokio::task::block_in_place(move || {
+        let (Some(source), Some(value)) = (text(&body, "source"), text(&body, "value")) else {
+            return Err(Fault::Bad("lookup names a source and a value".to_string()));
+        };
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let world = s.snapshot()?;
+        match world.external_id(source, value)?.as_ref() {
+            Some(id) => object_json(s, &id.clone()),
+            None => Ok(Json(J::Null)),
+        }
+    })
 }
 
 async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let id =
-        text(&body, "id").ok_or_else(|| Fault::Bad("history names an object's id".to_string()))?;
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    // an object that does not exist has no history, null as get's (ADR-0173)
-    if reads::get(&s.snapshot()?, id)?.is_none() {
-        return Ok(Json(J::Null));
-    }
-    let events = s.history(id)?;
-    // its legacy entries first, which predate the store, then its events
-    // (library-api.md §6, ADR-0015)
-    let entries = s.legacy_entries(id)?.into_iter().map(|e| {
-        json!({"legacy": true, "object_id": id, "ordinal": e.ordinal, "kind": e.kind,
+    tokio::task::block_in_place(move || {
+        let id = text(&body, "id")
+            .ok_or_else(|| Fault::Bad("history names an object's id".to_string()))?;
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        // an object that does not exist has no history, null as get's (ADR-0173)
+        if reads::get(&s.snapshot()?, id)?.is_none() {
+            return Ok(Json(J::Null));
+        }
+        let events = s.history(id)?;
+        // its legacy entries first, which predate the store, then its events
+        // (library-api.md §6, ADR-0015)
+        let entries = s.legacy_entries(id)?.into_iter().map(|e| {
+            json!({"legacy": true, "object_id": id, "ordinal": e.ordinal, "kind": e.kind,
                "occurred_at": timestamp_text(e.occurred_at), "payload": e.payload})
-    });
-    Ok(Json(json!({
-        "events": entries.chain(events.iter().map(event)).collect::<Vec<_>>(),
-        "not_computed": EVENT_NOT_COMPUTED,
-    })))
+        });
+        Ok(Json(json!({
+            "events": entries.chain(events.iter().map(event)).collect::<Vec<_>>(),
+            "not_computed": EVENT_NOT_COMPUTED,
+        })))
+    })
 }
 
 async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let Some(positions) = body
-        .get("positions")
-        .and_then(J::as_array)
-        .and_then(|ps| ps.iter().map(J::as_i64).collect::<Option<Vec<i64>>>())
-    else {
-        return Err(Fault::Bad(
-            "events takes positions, a list of integers".to_string(),
-        ));
-    };
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let found = s.events(&positions)?;
-    Ok(Json(json!({
-        "events": found.iter().map(|e| e.as_ref().map_or(J::Null, event)).collect::<Vec<_>>(),
-        "not_computed": EVENT_NOT_COMPUTED,
-    })))
+    tokio::task::block_in_place(move || {
+        let Some(positions) = body
+            .get("positions")
+            .and_then(J::as_array)
+            .and_then(|ps| ps.iter().map(J::as_i64).collect::<Option<Vec<i64>>>())
+        else {
+            return Err(Fault::Bad(
+                "events takes positions, a list of integers".to_string(),
+            ));
+        };
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let found = s.events(&positions)?;
+        Ok(Json(json!({
+            "events": found.iter().map(|e| e.as_ref().map_or(J::Null, event)).collect::<Vec<_>>(),
+            "not_computed": EVENT_NOT_COMPUTED,
+        })))
+    })
 }
 
 /// The tool schemas an agent of a kind is handed, rendered from the
 /// installed version's declaration (`renderers.md` §3, ADR-0173 decision 10).
 async fn tools(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let kind = text(&body, "actor_kind")
-        .filter(|k| objectflow_core::tools::ACTOR_KINDS.contains(k))
-        .ok_or_else(|| {
-            Fault::Bad("tools names an actor_kind: human, agent or service".to_string())
-        })?
-        .to_string();
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    Ok(Json(
-        json!({"tools": objectflow_core::tools::tools(&s.lib, &kind)}),
-    ))
+    tokio::task::block_in_place(move || {
+        let kind = text(&body, "actor_kind")
+            .filter(|k| objectflow_core::tools::ACTOR_KINDS.contains(k))
+            .ok_or_else(|| {
+                Fault::Bad("tools names an actor_kind: human, agent or service".to_string())
+            })?
+            .to_string();
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        Ok(Json(
+            json!({"tools": objectflow_core::tools::tools(&s.lib, &kind)}),
+        ))
+    })
 }
 
 async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let name = text(&body, "type").unwrap_or_default();
-    // the version asked for, the installed one where none is
-    // (library-api.md §6)
-    let earlier = match body.get("version") {
-        None | Some(J::Null) => None,
-        Some(v) => {
-            let n = v.as_i64().ok_or_else(|| {
-                Fault::Bad("version takes a declaration version, an integer".to_string())
-            })?;
-            Some(
-                s.library_at(n)?
-                    .ok_or_else(|| Fault::Missing(format!("no version {n} was published")))?,
-            )
+    tokio::task::block_in_place(move || {
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let name = text(&body, "type").unwrap_or_default();
+        // the version asked for, the installed one where none is
+        // (library-api.md §6)
+        let earlier = match body.get("version") {
+            None | Some(J::Null) => None,
+            Some(v) => {
+                let n = v.as_i64().ok_or_else(|| {
+                    Fault::Bad("version takes a declaration version, an integer".to_string())
+                })?;
+                Some(
+                    s.library_at(n)?
+                        .ok_or_else(|| Fault::Missing(format!("no version {n} was published")))?,
+                )
+            }
+        };
+        let lib = earlier.as_ref().unwrap_or(&s.lib);
+        let Some(t) = lib.type_(name) else {
+            return Err(Fault::Missing(format!("no type {name} is declared")));
+        };
+        let mut out = t.source.clone();
+        // the members of each enumeration the type's attributes and inputs are of
+        let mut used = Map::new();
+        let decl = t.attributes.iter().map(|(_, a)| &a.declared).chain(
+            t.transitions
+                .iter()
+                .flat_map(|(_, x)| x.inputs.iter().map(|(_, i)| &i.declared)),
+        );
+        for d in decl {
+            if let Declared::Scalar(e) = d
+                && let Some(members) = lib.enumerations.get(e)
+            {
+                used.insert(e.clone(), json!(members));
+            }
         }
-    };
-    let lib = earlier.as_ref().unwrap_or(&s.lib);
-    let Some(t) = lib.type_(name) else {
-        return Err(Fault::Missing(format!("no type {name} is declared")));
-    };
-    let mut out = t.source.clone();
-    // the members of each enumeration the type's attributes and inputs are of
-    let mut used = Map::new();
-    let decl = t.attributes.iter().map(|(_, a)| &a.declared).chain(
-        t.transitions
-            .iter()
-            .flat_map(|(_, x)| x.inputs.iter().map(|(_, i)| &i.declared)),
-    );
-    for d in decl {
-        if let Declared::Scalar(e) = d
-            && let Some(members) = lib.enumerations.get(e)
-        {
-            used.insert(e.clone(), json!(members));
+        // the version read, where its source came from and its digest, neither
+        // for version 0 (ADR-0135), and the metric dimensions that name an
+        // actor, for an upper layer's door (library-api.md §6, D451)
+        let version = lib.version;
+        let (source_ref, source_digest) = if version == 0 {
+            (None, None)
+        } else {
+            s.declaration_source(version)?.unwrap_or((None, None))
+        };
+        let person = objectflow_core::metric::person_dimensions(lib, name)?;
+        if let Some(o) = out.as_object_mut() {
+            o.insert("enumerations".to_string(), J::Object(used));
+            o.insert("version".to_string(), json!(version));
+            o.insert("source_ref".to_string(), json!(source_ref));
+            o.insert("source_digest".to_string(), json!(source_digest));
+            o.insert("person_dimensions".to_string(), json!(person));
         }
-    }
-    // the version read, where its source came from and its digest, neither
-    // for version 0 (ADR-0135), and the metric dimensions that name an
-    // actor, for an upper layer's door (library-api.md §6, D451)
-    let version = lib.version;
-    let (source_ref, source_digest) = if version == 0 {
-        (None, None)
-    } else {
-        s.declaration_source(version)?.unwrap_or((None, None))
-    };
-    let person = objectflow_core::metric::person_dimensions(lib, name)?;
-    if let Some(o) = out.as_object_mut() {
-        o.insert("enumerations".to_string(), J::Object(used));
-        o.insert("version".to_string(), json!(version));
-        o.insert("source_ref".to_string(), json!(source_ref));
-        o.insert("source_digest".to_string(), json!(source_digest));
-        o.insert("person_dimensions".to_string(), json!(person));
-    }
-    Ok(Json(out))
+        Ok(Json(out))
+    })
 }
 
 async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let (Some(actor), Some(id)) = (
-        body.get("actor").and_then(|a| text(a, "id")),
-        text(&body, "id"),
-    ) else {
-        return Err(Fault::Bad(
-            "availability names its actor and an object's id".to_string(),
-        ));
-    };
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let decided = {
-        let world = s.snapshot()?;
-        let t = reads::get(&world, id)?.and_then(|v| s.lib.type_(&v.object.type_));
-        let dependent = |o: &Offer| {
-            o.creates.is_none()
-                && t.and_then(|t| t.transition(&o.transition).map(|x| (t, x)))
-                    .is_some_and(|(t, x)| objectflow_core::request::actor_dependent(&s.lib, t, x))
+    tokio::task::block_in_place(move || {
+        let (Some(actor), Some(id)) = (
+            body.get("actor").and_then(|a| text(a, "id")),
+            text(&body, "id"),
+        ) else {
+            return Err(Fault::Bad(
+                "availability names its actor and an object's id".to_string(),
+            ));
         };
-        reads::availability(&world, actor, id)?.map(|offers| {
-            offers
-                .into_iter()
-                .map(|o| {
-                    let d = dependent(&o);
-                    (o, d)
-                })
-                .collect::<Vec<_>>()
-        })
-    };
-    // an object that does not exist offers nothing, null as get's (ADR-0173)
-    let Some(decided) = decided else {
-        return Ok(Json(J::Null));
-    };
-    let mut out = Vec::new();
-    for (mut o, dependent) in decided {
-        // one that may be refused for who takes it is decided for who asks,
-        // where it takes no input and asks no evaluator: the request with no
-        // inputs simulated whole, as `check` does, every evaluator unasked,
-        // and a simulation that would ask one leaves it as decided (ADR-0176
-        // decision 2)
-        if dependent && o.availability == Availability::Available && o.unevaluated.is_empty() {
-            let req = request_of(
-                &json!({"transition": o.transition, "actor": {"id": actor}, "object_id": id}),
-            )?;
-            let given = std::mem::take(&mut s.answers);
-            let checked = request::check(s, &req);
-            s.answers = given;
-            if let Ok(c) = checked?
-                && !matches!(c.verdict, Verdict::Satisfied { .. })
-            {
-                o.availability = Availability::Unavailable;
-                o.verdict = Some(c.verdict);
-                o.flags = Vec::new();
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let decided = {
+            let world = s.snapshot()?;
+            let t = reads::get(&world, id)?.and_then(|v| s.lib.type_(&v.object.type_));
+            let dependent = |o: &Offer| {
+                o.creates.is_none()
+                    && t.and_then(|t| t.transition(&o.transition).map(|x| (t, x)))
+                        .is_some_and(|(t, x)| {
+                            objectflow_core::request::actor_dependent(&s.lib, t, x)
+                        })
+            };
+            reads::availability(&world, actor, id)?.map(|offers| {
+                offers
+                    .into_iter()
+                    .map(|o| {
+                        let d = dependent(&o);
+                        (o, d)
+                    })
+                    .collect::<Vec<_>>()
+            })
+        };
+        // an object that does not exist offers nothing, null as get's (ADR-0173)
+        let Some(decided) = decided else {
+            return Ok(Json(J::Null));
+        };
+        let mut out = Vec::new();
+        for (mut o, dependent) in decided {
+            // one that may be refused for who takes it is decided for who asks,
+            // where it takes no input and asks no evaluator: the request with no
+            // inputs simulated whole, as `check` does, every evaluator unasked,
+            // and a simulation that would ask one leaves it as decided (ADR-0176
+            // decision 2)
+            if dependent && o.availability == Availability::Available && o.unevaluated.is_empty() {
+                let req = request_of(
+                    &json!({"transition": o.transition, "actor": {"id": actor}, "object_id": id}),
+                )?;
+                let given = std::mem::take(&mut s.answers);
+                let checked = request::check(s, &req);
+                s.answers = given;
+                if let Ok(c) = checked?
+                    && !matches!(c.verdict, Verdict::Satisfied { .. })
+                {
+                    o.availability = Availability::Unavailable;
+                    o.verdict = Some(c.verdict);
+                    o.flags = Vec::new();
+                }
             }
+            out.push(offer(&o, dependent));
         }
-        out.push(offer(&o, dependent));
-    }
-    Ok(Json(J::Array(out)))
+        Ok(Json(J::Array(out)))
+    })
 }
 
 /// A reader's read of a metric: one page holding every group, so its
@@ -1483,136 +1702,168 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
 /// (`library-api.md` §6, ADR-0127): every object the filter holds for, on
 /// one page, so no cursor; a refusal is a value.
 async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let (Some(_actor), Some(type_)) = (
-        body.get("actor").and_then(|a| text(a, "id")),
-        text(&body, "type"),
-    ) else {
-        return Err(Fault::Bad("query names its actor and the type".to_string()));
-    };
-    if body.get("cursor").is_some_and(|c| !c.is_null()) {
-        return Err(Fault::Bad(
-            "a query's page holds every object, so it has no cursor to continue from".to_string(),
-        ));
-    }
-    let strings = |k: &str| -> Result<Option<Vec<String>>, Fault> {
-        match body.get(k) {
-            None | Some(J::Null) => Ok(None),
-            Some(J::String(one)) => Ok(Some(vec![one.clone()])),
-            Some(J::Array(items)) => items
-                .iter()
-                .map(|i| i.as_str().map(str::to_string))
-                .collect::<Option<Vec<_>>>()
-                .map(Some)
-                .ok_or_else(|| Fault::Bad(format!("{k} takes a name or a list of names"))),
-            Some(_) => Err(Fault::Bad(format!("{k} takes a name or a list of names"))),
+    tokio::task::block_in_place(move || {
+        let (Some(_actor), Some(type_)) = (
+            body.get("actor").and_then(|a| text(a, "id")),
+            text(&body, "type"),
+        ) else {
+            return Err(Fault::Bad("query names its actor and the type".to_string()));
+        };
+        if body.get("cursor").is_some_and(|c| !c.is_null()) {
+            return Err(Fault::Bad(
+                "a query's page holds every object, so it has no cursor to continue from"
+                    .to_string(),
+            ));
         }
-    };
-    let order = strings("order")?.unwrap_or_default();
-    let fields = strings("fields")?;
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let world = s.snapshot()?;
-    let page = reads::query(
-        &world,
-        type_,
-        text(&body, "filter"),
-        &order,
-        fields.as_deref(),
-    )?;
-    Ok(Json(json!({
-        "items": page.items.iter().map(|i| json!({
-            "id": i.id, "type": i.type_,
-            "fields": J::Object(i.fields.iter().map(|(f, v)| (f.clone(), encode(v))).collect()),
-        })).collect::<Vec<_>>(),
-        "cursor": J::Null,
-        "refused": page.refused,
-    })))
+        let strings = |k: &str| -> Result<Option<Vec<String>>, Fault> {
+            match body.get(k) {
+                None | Some(J::Null) => Ok(None),
+                Some(J::String(one)) => Ok(Some(vec![one.clone()])),
+                Some(J::Array(items)) => items
+                    .iter()
+                    .map(|i| i.as_str().map(str::to_string))
+                    .collect::<Option<Vec<_>>>()
+                    .map(Some)
+                    .ok_or_else(|| Fault::Bad(format!("{k} takes a name or a list of names"))),
+                Some(_) => Err(Fault::Bad(format!("{k} takes a name or a list of names"))),
+            }
+        };
+        let order = strings("order")?.unwrap_or_default();
+        let fields = strings("fields")?;
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let world = s.snapshot()?;
+        let page = reads::query(
+            &world,
+            type_,
+            text(&body, "filter"),
+            &order,
+            fields.as_deref(),
+        )?;
+        Ok(Json(json!({
+            "items": page.items.iter().map(|i| json!({
+                "id": i.id, "type": i.type_,
+                "fields": J::Object(i.fields.iter().map(|(f, v)| (f.clone(), encode(v))).collect()),
+            })).collect::<Vec<_>>(),
+            "cursor": J::Null,
+            "refused": page.refused,
+        })))
+    })
 }
 
 async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let (Some(_actor), Some(name)) = (
-        body.get("actor").and_then(|a| text(a, "id")),
-        text(&body, "name"),
-    ) else {
-        return Err(Fault::Bad(
-            "metric names its actor and the metric".to_string(),
-        ));
-    };
-    if body.get("cursor").is_some_and(|c| !c.is_null()) {
-        return Err(Fault::Bad(
-            "a metric's page holds every group, so it has no cursor to continue from".to_string(),
-        ));
-    }
-    let bind = body
-        .get("bind")
-        .and_then(J::as_object)
-        .map(|b| b.clone().into_iter().collect())
-        .unwrap_or_default();
-    let keep: Option<Vec<String>> = match body.get("keep") {
-        None | Some(J::Null) => None,
-        Some(J::Array(items)) => Some(
-            items
-                .iter()
-                .map(|d| d.as_str().map(str::to_string))
-                .collect::<Option<_>>()
-                .ok_or_else(|| Fault::Bad("keep takes dimension names".to_string()))?,
-        ),
-        Some(_) => return Err(Fault::Bad("keep takes dimension names".to_string())),
-    };
-    let over =
-        match text(&body, "over") {
+    tokio::task::block_in_place(move || {
+        let (Some(_actor), Some(name)) = (
+            body.get("actor").and_then(|a| text(a, "id")),
+            text(&body, "name"),
+        ) else {
+            return Err(Fault::Bad(
+                "metric names its actor and the metric".to_string(),
+            ));
+        };
+        if body.get("cursor").is_some_and(|c| !c.is_null()) {
+            return Err(Fault::Bad(
+                "a metric's page holds every group, so it has no cursor to continue from"
+                    .to_string(),
+            ));
+        }
+        let bind = body
+            .get("bind")
+            .and_then(J::as_object)
+            .map(|b| b.clone().into_iter().collect())
+            .unwrap_or_default();
+        let keep: Option<Vec<String>> = match body.get("keep") {
+            None | Some(J::Null) => None,
+            Some(J::Array(items)) => Some(
+                items
+                    .iter()
+                    .map(|d| d.as_str().map(str::to_string))
+                    .collect::<Option<_>>()
+                    .ok_or_else(|| Fault::Bad("keep takes dimension names".to_string()))?,
+            ),
+            Some(_) => return Err(Fault::Bad("keep takes dimension names".to_string())),
+        };
+        let over = match text(&body, "over") {
             None => None,
             Some(by) => Some(parse_duration(by).ok_or_else(|| {
                 Fault::Bad(format!("over takes a duration such as '30 days': {by}"))
             })?),
         };
-    let mut sandbox = locked(&shared)?;
-    let s = store(&mut sandbox)?;
-    let world = s.snapshot()?;
-    let page = objectflow_core::metric::page(
-        &world,
-        Some(&s.answers),
-        name,
-        &bind,
-        keep.as_deref(),
-        over,
-        text(&body, "filter"),
-    )?;
-    let mut out = objectflow_core::metric::page_json(&page);
-    if let Some(o) = out.as_object_mut() {
-        o.insert("cursor".to_string(), J::Null);
-    }
-    Ok(Json(out))
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let world = s.snapshot()?;
+        let page = objectflow_core::metric::page(
+            &world,
+            Some(&s.answers),
+            name,
+            &bind,
+            keep.as_deref(),
+            over,
+            text(&body, "filter"),
+        )?;
+        let mut out = objectflow_core::metric::page_json(&page);
+        if let Some(o) = out.as_object_mut() {
+            o.insert("cursor".to_string(), J::Null);
+        }
+        Ok(Json(out))
+    })
 }
 
 /// `GET /health`: the release, the store's version and its clock (ADR-0174
 /// decision 6).
 async fn health(State(shared): State<Shared>) -> Answer {
-    let mut sandbox = locked(&shared)?;
-    let shape = if sandbox.deployment {
-        "deployment"
-    } else {
-        "sandbox"
-    };
-    // a store due an upgrade answers both releases and nothing it holds
-    // (ADR-0177 decision 4)
-    if let Some(at) = &sandbox.due {
-        return Ok(Json(
-            json!({"release": BUILTINS, "shape": shape, "version": J::Null,
-                              "now": J::Null, "store_release": at, "upgrade_due": true}),
-        ));
-    }
-    let (version, now) = match sandbox.store {
-        Some(_) => {
-            let s = store(&mut sandbox)?;
-            (s.lib.version, J::from(timestamp_text(s.now)))
+    tokio::task::block_in_place(move || {
+        // a deployment's health is read beside its writes, never behind one
+        // (ADR-0178), from what the writer last held
+        if let Some(reads) = &shared.reads {
+            let seen = reads
+                .seen
+                .read()
+                .map_err(|_| Fault::Internal("a previous request panicked".to_string()))?
+                .clone();
+            if let Some(at) = seen.due {
+                return Ok(Json(
+                    json!({"release": BUILTINS, "shape": "deployment", "version": J::Null,
+                                  "now": J::Null, "store_release": at, "upgrade_due": true}),
+                ));
+            }
+            let version = seen.lib.as_ref().map_or(0, |(lib, _)| lib.version);
+            let now = reads
+                .floor
+                .fetch_max(wall_clock(), Ordering::SeqCst)
+                .max(wall_clock());
+            return Ok(Json(
+                json!({"release": BUILTINS, "shape": "deployment", "version": version,
+                              "now": timestamp_text(now), "store_release": BUILTINS,
+                              "upgrade_due": false}),
+            ));
         }
-        None => (0, J::Null),
-    };
-    Ok(Json(
-        json!({"release": BUILTINS, "shape": shape, "version": version, "now": now,
+        let mut sandbox = locked(&shared)?;
+        let shape = if sandbox.deployment {
+            "deployment"
+        } else {
+            "sandbox"
+        };
+        // a store due an upgrade answers both releases and nothing it holds
+        // (ADR-0177 decision 4)
+        if let Some(at) = &sandbox.due {
+            return Ok(Json(
+                json!({"release": BUILTINS, "shape": shape, "version": J::Null,
+                              "now": J::Null, "store_release": at, "upgrade_due": true}),
+            ));
+        }
+        let (version, now) = match sandbox.store {
+            Some(_) => {
+                let s = store(&mut sandbox)?;
+                (s.lib.version, J::from(timestamp_text(s.now)))
+            }
+            None => (0, J::Null),
+        };
+        Ok(Json(
+            json!({"release": BUILTINS, "shape": shape, "version": version, "now": now,
                "store_release": BUILTINS, "upgrade_due": false}),
-    ))
+        ))
+    })
 }
 
 /// `upgrade` (`storage-schema.md` §12, ADR-0177): a deployment's store
@@ -1621,45 +1872,48 @@ async fn health(State(shared): State<Shared>) -> Answer {
 /// opened and served. A store at this release already answers that
 /// nothing is due; a sandbox's store is always this release's.
 async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    let Some(actor) = body.get("actor").and_then(|a| text(a, "id")) else {
-        return Err(Fault::Bad(
-            "an upgrade names its actor, an operator of the store".to_string(),
-        ));
-    };
-    let dry_run = match body.get("dry_run") {
-        None | Some(J::Null) => false,
-        Some(J::Bool(b)) => *b,
-        Some(_) => return Err(Fault::Bad("dry_run takes true or false".to_string())),
-    };
-    let mut sandbox = locked(&shared)?;
-    let Some(path) = sandbox.path.clone().filter(|_| sandbox.deployment) else {
-        return Err(Fault::Bad(
-            "a sandbox's store is this release's; only a deployment's is upgraded".to_string(),
-        ));
-    };
-    if sandbox.due.is_none() {
-        return Ok(Json(json!({"from": BUILTINS, "to": BUILTINS, "steps": [],
+    tokio::task::block_in_place(move || {
+        let Some(actor) = body.get("actor").and_then(|a| text(a, "id")) else {
+            return Err(Fault::Bad(
+                "an upgrade names its actor, an operator of the store".to_string(),
+            ));
+        };
+        let dry_run = match body.get("dry_run") {
+            None | Some(J::Null) => false,
+            Some(J::Bool(b)) => *b,
+            Some(_) => return Err(Fault::Bad("dry_run takes true or false".to_string())),
+        };
+        let mut sandbox = locked(&shared)?;
+        let Some(path) = sandbox.path.clone().filter(|_| sandbox.deployment) else {
+            return Err(Fault::Bad(
+                "a sandbox's store is this release's; only a deployment's is upgraded".to_string(),
+            ));
+        };
+        if sandbox.due.is_none() {
+            return Ok(Json(json!({"from": BUILTINS, "to": BUILTINS, "steps": [],
                               "dry_run": dry_run, "upgraded": false})));
-    }
-    let report = match objectflow_core::release::upgrade(&path, wall_clock(), actor, dry_run)? {
-        Ok(r) => r,
-        Err(why) => return Err(Fault::Conflict(why)),
-    };
-    if report.upgraded {
-        let mut s = Store::open(&path, wall_clock())?;
-        (s.attempt_retention, s.idempotency_retention) = sandbox.retentions;
-        sandbox.store = Some(s);
-        sandbox.due = None;
-    }
-    let steps: Vec<J> = report
-        .steps
-        .iter()
-        .map(|(release, changes)| json!({"release": release, "changes": changes}))
-        .collect();
-    Ok(Json(
-        json!({"from": report.from, "to": report.to, "steps": steps,
+        }
+        let report = match objectflow_core::release::upgrade(&path, wall_clock(), actor, dry_run)? {
+            Ok(r) => r,
+            Err(why) => return Err(Fault::Conflict(why)),
+        };
+        if report.upgraded {
+            let mut s = Store::open(&path, wall_clock())?;
+            (s.attempt_retention, s.idempotency_retention) = sandbox.retentions;
+            s.set_busy_timeout(sandbox.busy_timeout)?;
+            sandbox.store = Some(s);
+            sandbox.due = None;
+        }
+        let steps: Vec<J> = report
+            .steps
+            .iter()
+            .map(|(release, changes)| json!({"release": release, "changes": changes}))
+            .collect();
+        Ok(Json(
+            json!({"from": report.from, "to": report.to, "steps": steps,
                    "dry_run": report.dry_run, "upgraded": report.upgraded}),
-    ))
+        ))
+    })
 }
 
 fn app(shared: Shared, deployment: bool) -> Router {
@@ -1713,7 +1967,8 @@ const USAGE: &str = "usage: objectflow-service [--port <n> | --bind <host:port>]
                           [--store <file> [--attempt-retention <duration>]
                                           [--idempotency-retention <duration>]
                                           [--evaluator <name>=<url> ...]
-                                          [--evaluator-timeout <duration>]]
+                                          [--evaluator-timeout <duration>]
+                                          [--busy-timeout <duration>]]
 
 Serves the engine's operations, POST /v1/<operation>, and GET /health, on
 127.0.0.1 at port n (8712 unless given; 0 takes a free one) or at the
@@ -1725,7 +1980,10 @@ named, created at version 0 where absent and its flow published through the
 wire, the wall clock, and no controls (ADR-0174). Each --evaluator names
 the endpoint a namespace's calls are posted to, answered within the timeout,
 5 s unless given, and an evaluator no endpoint answers is unknown
-(ADR-0175). It authenticates nothing: bind it beyond loopback only behind
+(ADR-0175). Its reads run beside its writes, each on a connection of its
+own, and its writes one at a time, each waiting out another process's
+write lock for the busy timeout, 5 s unless given, before it is retried
+and then refused stale (ADR-0178). It authenticates nothing: bind it beyond loopback only behind
 the application that does (core/README.md).";
 
 /// The command line: where to listen, and a deployment's store and
@@ -1736,6 +1994,7 @@ struct Args {
     retentions: (Option<i64>, Option<i64>),
     endpoints: std::collections::BTreeMap<String, String>,
     evaluator_timeout: Option<std::time::Duration>,
+    busy_timeout: Option<std::time::Duration>,
 }
 
 fn args() -> Result<Args, String> {
@@ -1745,6 +2004,7 @@ fn args() -> Result<Args, String> {
         retentions: (None, None),
         endpoints: std::collections::BTreeMap::new(),
         evaluator_timeout: None,
+        busy_timeout: None,
     };
     let mut retained = false;
     let mut args = std::env::args().skip(1);
@@ -1787,6 +2047,13 @@ fn args() -> Result<Args, String> {
                 })?;
                 out.evaluator_timeout = Some(std::time::Duration::from_secs(secs.unsigned_abs()));
             }
+            "--busy-timeout" => {
+                let d = value()?;
+                let secs = parse_duration(&d)
+                    .filter(|s| *s >= 0)
+                    .ok_or_else(|| format!("--busy-timeout takes a duration such as '5 s': {d}"))?;
+                out.busy_timeout = Some(std::time::Duration::from_secs(secs.unsigned_abs()));
+            }
             "--help" | "-h" => return Err(String::new()),
             // an argument it does not take is an error, never ignored (D558)
             other => return Err(format!("no argument {other}")),
@@ -1822,6 +2089,9 @@ async fn main() -> std::io::Result<()> {
         // there is no downgrade (ADR-0177 decision 4)
         let at = objectflow_core::release::store_release_at(path)
             .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
+        let busy = a
+            .busy_timeout
+            .unwrap_or(objectflow_core::store::BUSY_TIMEOUT);
         sandbox.deployment = true;
         sandbox.path = Some(path.clone());
         sandbox.retentions = a.retentions;
@@ -1841,9 +2111,12 @@ async fn main() -> std::io::Result<()> {
                 let mut s = Store::open(path, wall_clock())
                     .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
                 (s.attempt_retention, s.idempotency_retention) = a.retentions;
+                s.set_busy_timeout(busy)
+                    .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
                 sandbox.store = Some(s);
             }
         }
+        sandbox.busy_timeout = busy;
         sandbox.endpoints = a.endpoints.clone();
         sandbox.evaluator_timeout = a
             .evaluator_timeout
@@ -1887,7 +2160,24 @@ async fn main() -> std::io::Result<()> {
             eprintln!("the evaluator {name} asked at {url}");
         }
     }
-    axum::serve(listener, app(Arc::new(Mutex::new(sandbox)), deployment)).await
+    // a deployment's reads, beside its writer (ADR-0178)
+    let reads = a.store.as_ref().map(|path| Reads {
+        pool: Readers::new(
+            path,
+            a.busy_timeout
+                .unwrap_or(objectflow_core::store::BUSY_TIMEOUT),
+        ),
+        seen: std::sync::RwLock::new(Seen::of(&sandbox)),
+        floor: AtomicI64::new(sandbox.store.as_ref().map_or(0, |s| s.now)),
+    });
+    let service = Service {
+        endpoints: sandbox.endpoints.clone(),
+        evaluator_timeout: sandbox.evaluator_timeout,
+        deployment,
+        reads,
+        writer: Mutex::new(sandbox),
+    };
+    axum::serve(listener, app(Arc::new(service), deployment)).await
 }
 
 #[cfg(test)]

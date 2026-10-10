@@ -1,0 +1,68 @@
+module: ledger
+categories: [live, closed]
+
+types:
+  Account:
+    description: An account whose balance moves to another in one request.
+    tracking: record
+    attributes:
+      name:    { type: string }
+      balance: { type: int }
+    states:
+      OPEN:   { description: In use., category: live }
+      CLOSED: { description: Closed., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [name, balance] }
+      move_to:
+        kind: internal
+        from: OPEN
+        description: Moves an amount of this account's balance to another account.
+        inputs:
+          other:  { reference: Account }
+          amount: { type: int }
+        effect:
+          - assign: { location: balance, expr: balance - inputs.amount }
+          - call: { target: inputs.other, transition: receive, inputs: { amount: inputs.amount } }
+      receive:
+        kind: internal
+        from: OPEN
+        only_via: [Account.move_to]
+        inputs:
+          amount: { type: int }
+        effect:
+          - assign: { location: balance, expr: balance + inputs.amount }
+      close: { kind: external, from: OPEN, to: CLOSED }
+
+  Pair:
+    description: Two accounts whose balances together never change.
+    tracking: record
+    attributes:
+      left:  { reference: Account }
+      right: { reference: Account }
+    states:
+      HELD:    { description: Held., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    derived_attributes:
+      total:
+        description: The two balances together.
+        expression: left.balance + right.balance
+    transitions:
+      make: { kind: initial, to: HELD, required_inputs: [left, right] }
+      drop: { kind: external, from: HELD, to: DROPPED }
+
+  Tally:
+    description: A count every bump adds one to.
+    tracking: record
+    attributes:
+      count: { type: int }
+    states:
+      COUNTING: { description: Counting., category: live }
+      DONE:     { description: Done., category: closed, final: true }
+    transitions:
+      start: { kind: initial, to: COUNTING, required_inputs: [count] }
+      bump:
+        kind: internal
+        from: COUNTING
+        effect:
+          - assign: { location: count, expr: count + 1 }
+      finish: { kind: external, from: COUNTING, to: DONE }

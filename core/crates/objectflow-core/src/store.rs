@@ -11,6 +11,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::Arc;
 
 use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, Transaction, params};
@@ -46,6 +47,60 @@ impl StoreError {
     pub fn is_mismatch(&self) -> bool {
         self.0.starts_with(ENGINE_MISMATCH)
     }
+
+    /// Whether a write found the store's write lock held past the busy
+    /// timeout and its retries (ADR-0178 decision 2), which a request
+    /// answers `stale`, cause `retries_exhausted`.
+    pub fn is_busy(&self) -> bool {
+        self.0.starts_with(BUSY)
+    }
+}
+
+/// What a write that met the store's lock past its busy timeout and every
+/// retry is refused with, before its reason.
+pub const BUSY: &str = "busy";
+
+/// How many times a write transaction whose lock is held past the busy
+/// timeout is begun again before it is given up (ADR-0178 decision 2).
+pub const BUSY_RETRIES: i64 = 3;
+
+/// The busy timeout a store's connections wait out unless told another.
+pub const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn is_busy(e: &rusqlite::Error) -> bool {
+    matches!(e, rusqlite::Error::SqliteFailure(f, _)
+        if f.code == rusqlite::ErrorCode::DatabaseBusy || f.code == rusqlite::ErrorCode::DatabaseLocked)
+}
+
+/// A write transaction, begun `IMMEDIATE` so its reads and its writes are
+/// serialised with every other writer's, a second process's on the file
+/// included, its lock waited for up to the busy timeout and begun again up
+/// to `BUSY_RETRIES` times: the transaction, and the retries it took
+/// (`storage-schema.md` §7, ADR-0090, ADR-0178 decision 2). A macro, so
+/// the transaction borrows the connection only where it is begun.
+macro_rules! begin_write {
+    ($conn:expr) => {{
+        let mut retries = 0;
+        loop {
+            match $conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate) {
+                Ok(tx) => break (tx, retries),
+                Err(e) if is_busy(&e) && retries < BUSY_RETRIES => retries += 1,
+                Err(e) if is_busy(&e) => {
+                    return Err(StoreError(format!(
+                        "{BUSY}: the store's write lock was held past the busy timeout {} times",
+                        retries + 1
+                    ))
+                    .into());
+                }
+                Err(e) => return Err(StoreError::from(e).into()),
+            }
+        }
+    }};
+}
+
+/// The declaration version a store is at.
+fn declared_version(conn: &Connection) -> Stored<i64> {
+    Ok(conn.query_row("SELECT max(version) FROM of_declaration", [], |r| r.get(0))?)
 }
 
 /// Every operation reads the store's release in its transaction, and one at
@@ -152,6 +207,9 @@ pub struct Event {
     /// Why the request it came from was sent, the caller's reason
     /// (`DESIGN.md` §6); an approval's executed events record the proposer's.
     pub context: Option<String>,
+    /// The serialisation retries its request took (`DESIGN.md` §6 step 8,
+    /// ADR-0178 decision 2); none but a write's that met a busy lock.
+    pub retries: i64,
 }
 
 /// What a request writes: the objects it created or changed, each with its
@@ -159,6 +217,9 @@ pub struct Event {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Change {
     pub writes: Vec<(Object, bool, Event)>,
+    /// The serialisation retries its transaction took, which each event it
+    /// writes records (`DESIGN.md` §6 step 8, ADR-0178 decision 2).
+    pub retries: i64,
     /// The write index's rows the request sets: an object, what it wrote,
     /// and the event's position, written once every event is.
     pub index: Vec<(String, String, i64)>,
@@ -675,6 +736,7 @@ fn event_of(
     o.version += 1;
     Ok(Event {
         position,
+        retries: 0,
         object_id: o.id.clone(),
         object_seq: o.version,
         transition: transition.to_string(),
@@ -1352,7 +1414,9 @@ CREATE TABLE of_engine_release (
 #[derive(Debug)]
 pub struct Store {
     conn: Connection,
-    pub lib: Library,
+    /// The library its rules come from, shared with the reads that run
+    /// beside its writes (ADR-0178).
+    pub lib: Arc<Library>,
     /// The store's clock, in seconds since 1970: a sandbox's caller holds it
     /// (PRD F13).
     pub now: i64,
@@ -1369,7 +1433,62 @@ pub struct Store {
     /// Each earlier version's library, loaded once from the source it
     /// recorded, since a published version never changes: what an erasure
     /// reads was personal under (ADR-0146 decision 2).
-    earlier: BTreeMap<i64, Library>,
+    earlier: Arc<BTreeMap<i64, Library>>,
+}
+
+/// How many read connections a deployment keeps idle for the next reads;
+/// more are opened while more reads run at once (ADR-0178 decision 6).
+pub const IDLE_READERS: usize = 8;
+
+/// A deployment's read connections to its store's file (ADR-0178): a read
+/// takes one, idle or new, in a read transaction of its own, and gives it
+/// back when it ends.
+#[derive(Debug)]
+pub struct Readers {
+    path: std::path::PathBuf,
+    busy_timeout: std::time::Duration,
+    idle: std::sync::Mutex<Vec<Connection>>,
+}
+
+impl Readers {
+    pub fn new(path: &std::path::Path, busy_timeout: std::time::Duration) -> Readers {
+        Readers {
+            path: path.to_path_buf(),
+            busy_timeout,
+            idle: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// A read of the store as it stands, with the library, the earlier
+    /// versions', the clock and the evaluator answers the writer holds.
+    pub fn read(
+        &self,
+        lib: Arc<Library>,
+        earlier: Arc<BTreeMap<i64, Library>>,
+        now: i64,
+        answers: BTreeMap<String, String>,
+    ) -> Stored<Store> {
+        let idle = self.idle.lock().ok().and_then(|mut idle| idle.pop());
+        let conn = match idle {
+            Some(conn) => conn,
+            None => {
+                let conn = Store::read_connection(&self.path)?;
+                conn.busy_timeout(self.busy_timeout)?;
+                conn
+            }
+        };
+        Store::reading(conn, lib, earlier, now, answers)
+    }
+
+    /// A read ended: its connection kept for the next, up to `IDLE_READERS`.
+    pub fn give_back(&self, read: Store) {
+        let conn = read.into_connection();
+        if let Ok(mut idle) = self.idle.lock()
+            && idle.len() < IDLE_READERS
+        {
+            idle.push(conn);
+        }
+    }
 }
 
 /// What `maintain` was asked to do (`library-api.md` §5, ADR-0100,
@@ -1393,12 +1512,12 @@ impl Store {
         conn.execute_batch(SCHEMA)?;
         let mut store = Store {
             conn,
-            lib,
+            lib: Arc::new(lib),
             now,
             answers: BTreeMap::new(),
             attempt_retention: None,
             idempotency_retention: None,
-            earlier: BTreeMap::new(),
+            earlier: Arc::new(BTreeMap::new()),
         };
         for t in store.lib.types.values() {
             store.conn.execute_batch(&store.type_ddl(t))?;
@@ -1431,7 +1550,7 @@ impl Store {
                 OPERATOR
             ],
         )?;
-        store.lib.version = 1;
+        Arc::make_mut(&mut store.lib).version = 1;
         Ok(store)
     }
 
@@ -1448,6 +1567,9 @@ impl Store {
         conn.execute_batch(
             "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;",
         )?;
+        // another connection's write lock is waited for, not met at once
+        // (storage-schema.md §7, ADR-0178 decision 2)
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         let created: i64 = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'of_declaration'",
             [],
@@ -1456,12 +1578,12 @@ impl Store {
         let builtins = Library::load(&[]).map_err(|e| StoreError(format!("the built-ins: {e}")))?;
         let mut store = Store {
             conn,
-            lib: builtins,
+            lib: Arc::new(builtins),
             now,
             answers: BTreeMap::new(),
             attempt_retention: None,
             idempotency_retention: None,
-            earlier: BTreeMap::new(),
+            earlier: Arc::new(BTreeMap::new()),
         };
         if created == 0 {
             store.conn.execute_batch(SCHEMA)?;
@@ -1475,7 +1597,7 @@ impl Store {
                  VALUES (0, '', '{}', ?1, ?2, ?1, '{}')",
                 params![BUILTINS, timestamp_text(now)],
             )?;
-            store.lib.version = 0;
+            Arc::make_mut(&mut store.lib).version = 0;
             return Ok(store);
         }
         // a store at another release is upgraded first, by a core of this
@@ -1494,6 +1616,7 @@ impl Store {
                 .query_row("SELECT max(version) FROM of_declaration", [], |r| r.get(0))?;
         store.lib = store
             .library_at(latest)?
+            .map(Arc::new)
             .ok_or_else(|| StoreError(format!("version {latest} recorded no source")))?;
         // never earlier than the last time the store recorded (decision 4)
         let last: Option<String> =
@@ -1504,6 +1627,70 @@ impl Store {
             store.now = store.now.max(at);
         }
         Ok(store)
+    }
+
+    /// How long its connection waits out another's write lock before a
+    /// write meets it as busy (ADR-0178 decision 2).
+    pub fn set_busy_timeout(&self, wait: std::time::Duration) -> Stored<()> {
+        Ok(self.conn.busy_timeout(wait)?)
+    }
+
+    /// A read of a deployment's store beside its writes (ADR-0178): a
+    /// connection of its own to the store's file, in one read transaction,
+    /// so every statement of the read sees one committed state; the library
+    /// of the declaration version that state is at, the one given where they
+    /// agree, so a read racing a publish reads each row under the rules it
+    /// was written under; and the clock and evaluator answers given.
+    pub fn reading(
+        conn: Connection,
+        lib: Arc<Library>,
+        earlier: Arc<BTreeMap<i64, Library>>,
+        now: i64,
+        answers: BTreeMap<String, String>,
+    ) -> Stored<Store> {
+        conn.execute_batch("BEGIN")?;
+        let mut store = Store {
+            conn,
+            lib,
+            now,
+            answers,
+            attempt_retention: None,
+            idempotency_retention: None,
+            earlier,
+        };
+        // its first read takes the snapshot the rest of the read sees
+        let at = declared_version(&store.conn)?;
+        if at != store.lib.version {
+            store.lib = Arc::new(
+                store
+                    .library_at(at)?
+                    .ok_or_else(|| StoreError(format!("version {at} recorded no source")))?,
+            );
+        }
+        Ok(store)
+    }
+
+    /// A connection for reads of the store's file beside this store's
+    /// writes, waiting out a write lock as this one does (ADR-0178).
+    pub fn read_connection(path: &std::path::Path) -> Stored<Connection> {
+        let conn = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.busy_timeout(BUSY_TIMEOUT)?;
+        Ok(conn)
+    }
+
+    /// A read's connection back, its transaction ended, for the next read.
+    pub fn into_connection(self) -> Connection {
+        let _ = self.conn.execute_batch("ROLLBACK");
+        self.conn
+    }
+
+    /// What a read beside it shares of it: the library and the earlier
+    /// versions' (ADR-0178).
+    pub fn shared(&self) -> (Arc<Library>, Arc<BTreeMap<i64, Library>>) {
+        (Arc::clone(&self.lib), Arc::clone(&self.earlier))
     }
 
     /// The DDL of a type's table and its set tables (§3, §3.3).
@@ -1579,7 +1766,7 @@ impl Store {
             _ => return Ok(Ok(Err("inside_retention"))),
         }
         let before = timestamp_text(task.before);
-        let tx = self.conn.transaction()?;
+        let (tx, _) = begin_write!(self.conn);
         release_held(&tx)?;
         let moved = if task.name == "prune_attempts" {
             // each row's day, as the rollup keys it: its recorded time's UTC
@@ -1610,7 +1797,7 @@ impl Store {
     /// its own after the request's rolled back (`DESIGN.md` §6,
     /// `storage-schema.md` §6).
     pub fn record_attempt(&mut self, a: &Attempt) -> Stored<()> {
-        let tx = self.conn.transaction()?;
+        let (tx, _) = begin_write!(self.conn);
         release_held(&tx)?;
         next(&tx, "txn")?;
         insert_attempt(&tx, a, "(SELECT value FROM of_counter WHERE name = 'txn')")?;
@@ -1640,7 +1827,7 @@ impl Store {
                 continue;
             }
             if let Some(lib) = self.library_at(v)? {
-                self.earlier.insert(v, lib);
+                Arc::make_mut(&mut self.earlier).insert(v, lib);
             }
         }
         Ok(())
@@ -1655,11 +1842,14 @@ impl Store {
         &mut self,
         decide: impl FnOnce(&World<'_>, &mut Allocator) -> T,
     ) -> Result<T, StoreError> {
-        let tx = self.conn.transaction()?;
-        let world = snapshot(&tx, &self.lib, &self.earlier, self.now)?;
-        let mut alloc = Allocator::read(&tx)?;
+        // a savepoint, so it runs as well inside a read's transaction,
+        // where a read connection holds one (ADR-0178), and is undone
+        let sp = self.conn.savepoint()?;
+        let world = snapshot(&sp, &self.lib, &self.earlier, self.now)?;
+        let mut alloc = Allocator::read(&sp)?;
         let out = decide(&world, &mut alloc);
-        tx.rollback()?;
+        drop(world);
+        sp.finish()?;
         Ok(out)
     }
 
@@ -1694,12 +1884,30 @@ impl Store {
         &mut self,
         decide: impl FnOnce(&World<'_>, &mut Allocator) -> Result<(T, Option<Change>), E>,
     ) -> Result<Result<T, E>, StoreError> {
-        let tx = self.conn.transaction()?;
+        // the library of the version the store is at, inside the write's
+        // transaction, which another process may have published since this
+        // one read it (ADR-0178 decision 3)
+        let mut reloaded = false;
+        let (tx, retries) = loop {
+            let (tx, retries) = begin_write!(self.conn);
+            let at = declared_version(&tx)?;
+            if at == self.lib.version || reloaded {
+                break (tx, retries);
+            }
+            tx.rollback()?;
+            self.lib = Arc::new(
+                self.library_at(at)?
+                    .ok_or_else(|| StoreError(format!("version {at} recorded no source")))?,
+            );
+            reloaded = true;
+        };
         let world = snapshot(&tx, &self.lib, &self.earlier, self.now)?;
         let mut alloc = Allocator::read(&tx)?;
         let decided = decide(&world, &mut alloc);
+        drop(world);
         match decided {
-            Ok((answer, Some(change))) => {
+            Ok((answer, Some(mut change))) => {
+                change.retries = retries;
                 alloc.write(&tx)?;
                 alloc.write_sequences(&tx)?;
                 write(&tx, &self.lib, &self.earlier, &change)?;
@@ -1711,7 +1919,7 @@ impl Store {
                 // which are not reused (flow-format.md §4.12)
                 tx.rollback()?;
                 if !alloc.drawn.is_empty() {
-                    let tx = self.conn.transaction()?;
+                    let (tx, _) = begin_write!(self.conn);
                     alloc.write_sequences(&tx)?;
                     tx.commit()?;
                 }
@@ -1842,7 +2050,7 @@ impl Store {
         self.conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         let events = installed?;
         let version = change_obj.version + 1;
-        self.lib = new;
+        self.lib = Arc::new(new);
         Ok(Ok((
             Verdict::Satisfied {
                 object_id: change.to_string(),
@@ -1872,7 +2080,7 @@ impl Store {
     ) -> Stored<Vec<i64>> {
         let old = self.lib.clone();
         let now = self.now;
-        let tx = self.conn.transaction()?;
+        let (tx, _) = begin_write!(self.conn);
         release_held(&tx)?;
         let mut alloc = Allocator::read(&tx)?;
         let publish_position = alloc.position();
@@ -2449,7 +2657,7 @@ pub struct Allocator {
 }
 
 impl Allocator {
-    fn read(tx: &Transaction<'_>) -> Stored<Allocator> {
+    fn read(tx: &Connection) -> Stored<Allocator> {
         let get = |n: &str| -> Stored<i64> {
             Ok(tx.query_row(
                 "SELECT value FROM of_counter WHERE name = ?1",
@@ -2552,7 +2760,7 @@ fn next(tx: &Connection, name: &str) -> Stored<i64> {
 
 const EVENT_SELECT: &str = "SELECT position, object_id, object_seq, transition, from_state, to_state, changes_state, \
     source, actor_id, actor_kind, declaration_version, recorded_at, occurred_at, imported, payload, actor_principal, \
-    cause_position, reads, context FROM of_event";
+    cause_position, reads, context, retries FROM of_event";
 
 fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
     let position: i64 = r.get(0)?;
@@ -2586,6 +2794,7 @@ fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
             |o| serde_json::Value::Object(o.clone()),
         ),
         context: r.get(18)?,
+        retries: r.get(19)?,
     })
 }
 
@@ -3385,8 +3594,8 @@ fn write(
         tx.execute(
             "INSERT INTO of_event (position, txn, object_id, object_seq, transition, from_state, to_state, changes_state, \
              source, actor_id, actor_kind, declaration_version, taint_version, recorded_at, occurred_at, payload, reads, imported, \
-             actor_principal, cause_position, context) \
-             VALUES (?1, (SELECT value FROM of_counter WHERE name = 'txn'), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13, ?14, ?18, ?15, ?16, ?17, ?19)",
+             actor_principal, cause_position, context, retries) \
+             VALUES (?1, (SELECT value FROM of_counter WHERE name = 'txn'), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13, ?14, ?18, ?15, ?16, ?17, ?19, ?20)",
             params![
                 event.position,
                 event.object_id,
@@ -3407,6 +3616,7 @@ fn write(
                 event.cause,
                 event.reads.to_string(),
                 event.context,
+                change.retries,
             ],
         )?;
         let name = table(&o.type_);

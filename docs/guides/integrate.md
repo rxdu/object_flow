@@ -4,10 +4,10 @@ ObjectFlow holds your business objects and enforces their flow; your application
 
 ## 1. What runs today
 
-The engine's core runs as an HTTP service, one request at a time, over one of two stores ([`core/README.md`](../../core/README.md)):
+The engine's core runs as an HTTP service over one of two stores ([`core/README.md`](../../core/README.md)):
 
 - **a sandbox**, a store held in memory, a clock that moves only when told and evaluators answered by fixed answers: how flows are built and tested, and what the examples below run against;
-- **a deployment's store**, given `--store <file>`: one SQLite file that survives a restart, the wall clock, and no sandbox controls (ADR-0174). It is enough to pilot a flow on one machine, and a newer engine release takes over its store by an upgrade (§2); it serves one request at a time, which a production deployment outgrows.
+- **a deployment's store**, given `--store <file>`: one SQLite file that survives a restart, the wall clock, and no sandbox controls (ADR-0174). It is enough to pilot a flow on one machine, and a newer engine release takes over its store by an upgrade (§2). Its reads run beside its writes, so a dashboard or an agent reading is never held behind a publish, an import or a clerk's request; its writes run one at a time, as SQLite has one writer, which a deployment whose writes outgrow one machine's disk moves past with PostgreSQL, not yet built (ADR-0178).
 
 Everything below works against both, but for the sandbox's controls, which a deployment does not route.
 

@@ -1624,6 +1624,7 @@ fn take(
     }
     let event = Event {
         position,
+        retries: 0,
         object_id: id.clone(),
         object_seq: o.version,
         transition: xn.to_string(),
@@ -1946,6 +1947,7 @@ fn redact_others(
         p.version += 1;
         let event = Event {
             position,
+            retries: 0,
             object_id: id.clone(),
             object_seq: p.version,
             transition: "redact".into(),
@@ -2225,6 +2227,7 @@ fn invalidate_proposals(
         p.version += 1;
         let invalidated = Event {
             position,
+            retries: 0,
             object_id: id.clone(),
             object_seq: p.version,
             transition: "invalidate".into(),
@@ -2415,6 +2418,7 @@ fn file(
     o.version = 1;
     let event = Event {
         position,
+        retries: 0,
         object_id: id.clone(),
         object_seq: 1,
         transition: "propose".into(),
@@ -2472,6 +2476,7 @@ fn store_event(
     o.version += 1;
     Ok(Event {
         position,
+        retries: 0,
         object_id: o.id.clone(),
         object_seq: o.version,
         transition: transition.to_string(),
@@ -2959,6 +2964,7 @@ fn decide_proposal(
     decided.version += 1;
     let event = Event {
         position,
+        retries: 0,
         object_id: p.id.clone(),
         object_seq: decided.version,
         transition: req.transition.clone(),
@@ -4502,7 +4508,13 @@ pub fn request(
             (change, _) => change,
         };
         Ok(((v, r), change))
-    })?;
+    });
+    // the store's write lock held past the busy timeout and every retry: a
+    // race, answered as a verdict and logged as one (ADR-0090, ADR-0178)
+    let decided = match decided {
+        Err(e) if e.is_busy() => Ok((Verdict::RetriesExhausted, Refusal::default())),
+        other => other?,
+    };
     let (verdict, refusal) = match decided {
         Ok(decided) => decided,
         Err(NoVerdict::KeyReused { key }) => {
@@ -4535,7 +4547,12 @@ pub fn request(
             let world = store.snapshot()?;
             refused_attempt(&world, req, &verdict, &refusal)?
         };
-        store.record_attempt(&attempt)?;
+        match store.record_attempt(&attempt) {
+            // a lock still held keeps the race's own row from the log: the
+            // caller is answered all the same
+            Err(e) if e.is_busy() && verdict == Verdict::RetriesExhausted => {}
+            other => other?,
+        }
     }
     Ok(Ok(verdict))
 }
