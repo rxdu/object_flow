@@ -673,7 +673,7 @@ impl Player<'_> {
             return Ok(Some(format!("{tn} has no member {k} the wire reports")));
         };
         let same = match &spec {
-            None => loose_equal(expected, &got), // a derived attribute
+            None => derived_equal(expected, &got), // a derived attribute
             Some(spec) => self.same(expected, &got, spec)?,
         };
         Ok((!same).then(|| {
@@ -702,15 +702,50 @@ impl Player<'_> {
             return Ok(d.is_some() && d == got.as_str().and_then(parse_duration));
         }
         if typ.starts_with("decimal") || typ.starts_with("money") {
-            let amount = |v: &Json| py_str(v).split_whitespace().last().and_then(Rat::parse);
-            let a = amount(expected);
-            return Ok(a.is_some() && a == amount(got));
+            let currency = typ.strip_prefix("money(").and_then(|t| t.strip_suffix(')'));
+            return Ok(amounts_equal(expected, got, currency));
         }
         if typ == "date" {
             return Ok(Some(py_str(expected).as_str()) == got.as_str());
         }
         Ok(self.wire_value(expected, Some(spec))? == *got)
     }
+}
+
+/// An amount or a decimal written in an example, the same number as the
+/// value's at any scale, and of the attribute's currency where one is written
+/// (D548).
+fn amounts_equal(expected: &Json, got: &Json, currency: Option<&str>) -> bool {
+    let text = py_str(expected);
+    let written: Vec<&str> = text.split_whitespace().collect();
+    let code_ok = match written.as_slice() {
+        [_] => true,
+        [code, _] => Some(*code) == currency,
+        _ => false,
+    };
+    let amount = |v: &str| v.split_whitespace().last().and_then(Rat::parse);
+    let a = amount(&text);
+    code_ok && a.is_some() && a == amount(&py_str(got))
+}
+
+static MONEY_TEXT: LazyLock<Regex> = LazyLock::new(|| re(r"^([A-Z]{3}) -?[0-9]+(\.[0-9]+)?$"));
+static DECIMAL_TEXT: LazyLock<Regex> = LazyLock::new(|| re(r"^-?[0-9]+(\.[0-9]+)?$"));
+
+/// A derived attribute's value, typed by the wire's notation of it: an amount
+/// by its currency and number, a decimal by value at any scale, as a stored
+/// one is (D548).
+fn derived_equal(expected: &Json, got: &Json) -> bool {
+    if let Some(g) = got.as_str()
+        && !expected.is_boolean()
+    {
+        if let Some(m) = MONEY_TEXT.captures(g) {
+            return amounts_equal(expected, got, m.get(1).map(|c| c.as_str()));
+        }
+        if DECIMAL_TEXT.is_match(g) {
+            return amounts_equal(expected, got, None);
+        }
+    }
+    loose_equal(expected, got)
 }
 
 /// A derived attribute's value, which no declaration types: compared as the

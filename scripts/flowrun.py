@@ -1761,7 +1761,11 @@ class Runner:
             e, m = v.split(".", 1)
             return ("enum", e, m)
         if typ.startswith("money") and isinstance(v, str):
-            return Fraction(v.split()[-1])      # written as a money literal, SGD 12000.00 (§5)
+            # written as a money literal, SGD 12000.00 (§5), whose currency, where written, is the attribute's (D548)
+            code, _, amount = v.strip().rpartition(" ")
+            if code.strip() and code.strip() != typ[len("money("):-1]:
+                return ("another currency", code.strip(), amount)
+            return Fraction(amount)
         if typ == "timestamp":
             m = re.fullmatch(r"now(?: ([+-]) ([0-9]+) (\w+))?", v)
             if m:
@@ -3105,6 +3109,40 @@ BUILT_IN_MEMBERS = {"id": {"type": "string"}, "open": {"type": "bool"}, "created
                     "declaration_version": {"type": "int"}}
 
 
+def written(v, spec):
+    """A value as an example writes it, for a message: a number in decimal digits, an amount with its currency."""
+    if not isinstance(v, Fraction) or isinstance(v, bool):
+        return v
+    places = 0
+    while (v * 10 ** places).denominator != 1 and places < 18:
+        places += 1
+    n = v * 10 ** places
+    if n.denominator != 1:
+        text = str(v)
+    else:
+        digits = str(abs(n.numerator)).rjust(places + 1, "0")
+        text = ("-" if n < 0 else "") + (digits[:-places] + "." + digits[-places:] if places else digits)
+    typ = (spec or {}).get("type", "")
+    return f"{typ[len('money('):-1]} {text}" if typ.startswith("money(") else text
+
+
+def spec_of_kind(kind):
+    """The spec an example writes a value of an expression's kind as: money with its currency, a decimal, an object
+    or a set of them, or a scalar; None where the kind is not one a value is written as."""
+    k = (kind or ("unknown",))[0]
+    if k in ("decimal", "literal"):
+        return {"type": "decimal"}
+    if k == "money":
+        return {"type": f"money({kind[1]})"}
+    if k in ("int", "duration", "timestamp", "bool", "date", "string"):
+        return {"type": k}
+    if k == "object":
+        return {"reference": kind[1]}
+    if k == "objects":
+        return {"reference": f"{kind[1]}[]"}
+    return None
+
+
 def compare(runner, store, want, outcome, aliases):
     """What differs between an expectation and what the request did, or None."""
     if outcome[0] == "refused":
@@ -3127,13 +3165,17 @@ def compare(runner, store, want, outcome, aliases):
     attrs = (runner.kinds.get(o.type) or {}).get("attributes") or {}
     derived = (runner.kinds.get(o.type) or {}).get("derived_attributes") or {}
     for k, v in (want.get("values") or {}).items():
-        expected = runner.value_of(store, attrs.get(k) or BUILT_IN_MEMBERS.get(k), v, aliases)
+        spec = attrs.get(k) or BUILT_IN_MEMBERS.get(k)
+        if spec is None and k in derived:
+            # a derived attribute's value is written as one of the kind its expression has, as a stored one is (D548)
+            spec = spec_of_kind(Evaluator(store, o.type, o.id).kind(parsed(derived[k]["expression"]), {"this": ("object", o.type)}))
+        expected = runner.value_of(store, spec, v, aliases)
         # a derived attribute and a member every object has are read as a reader reads them, the others as stored
         got = Evaluator(store, o.type, o.id).member(o.id, k) if k in derived or (k in BUILT_IN_MEMBERS and k not in attrs) \
             else o.attrs.get(k, ABSENT)
         if got != expected:
             named = {oid: alias for alias, oid in aliases.items()}
-            return f"expected {k} to hold {v}, and it holds {named.get(got, got) if isinstance(got, str) else got}"
+            return f"expected {k} to hold {v}, and it holds {named.get(got, got) if isinstance(got, str) else written(got, spec)}"
     if "occurred_at" in want:
         expected = runner.value_of(store, {"type": "timestamp"}, want["occurred_at"], aliases)
         if outcome[5] != expected:

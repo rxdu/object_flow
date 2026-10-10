@@ -811,7 +811,10 @@ A `propose` files a request for approval instead of executing it, as a caller do
 - an `identity`, by the identity itself, such as `ana` or `acct-dev`, which the store compares as a string;
 - an `actor_kind`, bare, as `agent`;
 - a `date`, as `2026-03-01`;
+- an amount, as `SGD 12000.00`, whose currency, where written, is the attribute's, and which compares by value at any scale, as a decimal does;
 - anything else as its literal.
+
+A derived attribute's expected value is written as a value of the type its expression has, as a stored one of that type is: a sum of amounts as an amount, a product of decimals as a decimal, compared by value, so `0.75` and `0.7500` are one value (D548).
 
 **Recording.** A datapoint is recorded by requesting its kind's generated creation, `record`, with `subject`, the kind's fields and, for a correction, `corrects` as inputs, as any caller records one (§4.4, `declaration-syntax.md` §6.8).
 

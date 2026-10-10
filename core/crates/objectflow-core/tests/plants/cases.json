@@ -916,7 +916,7 @@
    ],
    [
     "reimbursement.examples.yaml",
-    "932516ddcabd9097"
+    "f7a1e0ccbb3fc2c4"
    ]
   ],
   "previous": {},
@@ -6871,7 +6871,7 @@
     45,
     "fatal",
     "example",
-    "a_claim_is_filed_with_its_amount: expected amount to hold SGD 42.05, and it holds 85/2"
+    "a_claim_is_filed_with_its_amount: expected amount to hold SGD 42.05, and it holds SGD 42.5"
    ]
   ],
   "analysed": {
@@ -10161,14 +10161,14 @@
    ],
    [
     "reimbursement.examples.yaml",
-    "625bb2a4615a0f18"
+    "5008feb4bba5a0be"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "reimbursement.examples.yaml",
-    178,
+    192,
     "fatal",
     "names",
     "'expense_date' is a date, written as 2026-03-01"

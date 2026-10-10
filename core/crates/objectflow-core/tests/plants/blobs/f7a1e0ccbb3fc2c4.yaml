@@ -127,6 +127,20 @@ examples:
       state: DRAFT
       warned: [ClaimLine.within_policy]
 
+  a_claim_totals_its_lines:
+    description: A claim's total is the sum of its lines' amounts, a derived amount an example writes in its currency.
+    given: drafted
+    request:
+      object: claim
+      transition: add_line
+      actor: alice
+      inputs: { amount: USD 95.00, category: meals, expense_date: 2025-12-31, receipt: dinner-receipt.pdf }
+    expect:
+      verdict: applied
+      state: DRAFT
+      values: { total: USD 140.00, over_policy_lines: 1 }
+      warned: [ClaimLine.within_policy]
+
   line_within_policy_is_not_flagged:
     description: A line within policy raises no warning.
     given: drafted

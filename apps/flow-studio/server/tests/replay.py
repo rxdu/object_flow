@@ -364,7 +364,7 @@ class Player:
         else:
             return f"{obj['type']} has no member {k} the wire reports"
         if spec is None:                        # a derived attribute
-            same = loose_equal(expected, got)
+            same = derived_equal(expected, got)
         else:
             same = self.same(expected, got, spec)
         return None if same else f"expected {k} to hold {expected}, and " \
@@ -381,11 +381,42 @@ class Player:
         if typ == "duration":
             return flowrun.seconds(expected) == flowrun.seconds(got)
         if typ.startswith(("decimal", "money")):
-            return Fraction(str(expected).split()[-1]) == Fraction(
-                str(got).split()[-1])
+            return amounts_equal(expected, got, typ[len("money("):-1]
+                                 if typ.startswith("money") else None)
         if typ == "date":
             return str(expected) == got
         return self.wire_value(expected, spec) == got
+
+
+MONEY = re.compile(r"([A-Z]{3}) (-?[0-9]+(?:\.[0-9]+)?)")
+DECIMAL = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
+
+
+def amounts_equal(expected: Any, got: Any, currency: str | None) -> bool:
+    """An amount or a decimal written in an example, the same number as the
+    value's at any scale, and of the attribute's currency where one is
+    written (D548)."""
+    written = str(expected).split()
+    if not written or len(written) > 2 or (
+            len(written) == 2 and written[0] != currency):
+        return False
+    try:
+        return Fraction(written[-1]) == Fraction(str(got).split()[-1])
+    except ValueError:
+        return False
+
+
+def derived_equal(expected: Any, got: Any) -> bool:
+    """A derived attribute's value, typed by the wire's notation of it: an
+    amount by its currency and number, a decimal by value at any scale, as a
+    stored one is (D548)."""
+    if isinstance(got, str) and not isinstance(expected, bool):
+        m = MONEY.fullmatch(got)
+        if m:
+            return amounts_equal(expected, got, m.group(1))
+        if DECIMAL.fullmatch(got):
+            return amounts_equal(expected, got, None)
+    return loose_equal(expected, got)
 
 
 def loose_equal(expected: Any, got: Any) -> bool:
