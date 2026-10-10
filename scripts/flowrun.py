@@ -2619,14 +2619,16 @@ class Runner:
 
     def invariant_remedy(self, work, x, obj, n, requested):
         """The remedy DESIGN.md §5.5 infers for an invariant that fails, a property of the transition requested:
-        `self_serviceable` where it takes an input it writes to a value the invariant reads, an attribute input writing
-        its attribute and an assertion's `to` the state; else `dependent` where the invariant reads another object,
-        through a relationship or a type scan; else `unreachable_from_here`. A uniqueness failing on another object of the
-        family reads the requested one through its scan. None where the runner cannot tell: any other invariant on
-        another object, which may read the requested one through a relationship, or one reading `this`."""
+        `delegable` where it writes a value from the actor that the invariant reads, since another actor taking it can
+        pass (ADR-0173); else `self_serviceable` where it takes an input it writes to a value the invariant reads, an
+        attribute input writing its attribute and an assertion's `to` the state; else `dependent` where the invariant
+        reads another object, through a relationship, a type scan or `this`; else `unreachable_from_here`. What it
+        writes to the requested object is its inputs and its effect's; to an object it creates or calls, one hop away,
+        that step's inputs and the effect of the transition the step takes (D547). A uniqueness failing on another
+        object of the family reads the requested one through its scan."""
         mine = work.objects[requested].type
-        if obj.id != requested and not (n.endswith("_unique") and work.is_a(mine, self.unique_scope(obj.type, n[:-len("_unique")]))):
-            return None
+        unique_other = obj.id != requested and n.endswith("_unique") and \
+            work.is_a(mine, self.unique_scope(obj.type, n[:-len("_unique")]))
         t = self.kinds.get(obj.type) or {}
         attrs = t.get("attributes") or {}
         if n.endswith("_unique"):
@@ -2643,7 +2645,8 @@ class Runner:
                     continue
                 seen.add(m)
                 if m == "this":
-                    return None
+                    other = True                # a scan relative to the object reads others
+                    continue
                 if m in (t.get("derived_attributes") or {}):
                     names |= names_read(parsed(t["derived_attributes"][m]["expression"]))
                     continue
@@ -2651,23 +2654,63 @@ class Runner:
                     reads.add(m)
                 other |= m in (t.get("observations") or {}) or "reference" in (attrs.get(m) or {}) \
                     or m == "referrers" or (m in self.kinds and m not in (t.get("states") or {}))
-        writes = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", []))
-        if x["kind"] == "assertion":
-            writes.add("state")
-
-        def from_inputs(steps):
-            # an effect's step that writes a value computed from an input writes that input to it (ADR-0122
-            # decisions 33 and 36, DESIGN.md §5.5)
-            for st in steps or []:
-                kind = next(iter(st))
-                if kind in ("assign", "add", "remove") and "inputs" in names_read(parsed(st[kind]["expr"])):
-                    writes.add(st[kind]["location"])
-                elif kind == "foreach":
-                    from_inputs(st["foreach"].get("steps"))
-        from_inputs(x.get("effect"))
+        writes, by_actor = self.writes_of(x, obj.type, obj.id == requested or unique_other)
+        if by_actor & reads:
+            return "delegable"
         if writes & reads:
             return "self_serviceable"
         return "dependent" if other else "unreachable_from_here"
+
+    def writes_of(self, x, tn, requested):
+        """What transition x writes to an object of type tn, from its inputs and from its actor: to the requested
+        object, its inputs and its effect's writes; to an object it creates or calls, one hop away, that step's inputs
+        and the effect of the transition the step takes (DESIGN.md §5.5, D547, ADR-0173)."""
+        writes, by_actor = set(), set()
+
+        def effect(steps):
+            # an effect's step that writes a value computed from an input writes that input to it (ADR-0122
+            # decisions 33 and 36), and one computed from the actor writes the actor to it
+            for st in steps or []:
+                kind = next(iter(st))
+                if kind in ("assign", "add", "remove"):
+                    read = names_read(parsed(st[kind]["expr"]))
+                    if "inputs" in read:
+                        writes.add(st[kind]["location"])
+                    if "actor" in read:
+                        by_actor.add(st[kind]["location"])
+                elif kind == "foreach":
+                    effect(st["foreach"].get("steps"))
+
+        def caused(steps):
+            for st in steps or []:
+                kind = next(iter(st))
+                if kind == "foreach":
+                    caused(st["foreach"].get("steps"))
+                    continue
+                if kind not in ("create", "call"):
+                    continue
+                body = st[kind]
+                taken = ((self.kinds.get(tn) or {}).get("transitions") or {}).get(body.get("transition"))
+                if taken is None or kind == "create" and body.get("type") != tn:
+                    continue
+                for name, e in (body.get("inputs") or {}).items():
+                    read = names_read(parsed(str(e)))
+                    if "inputs" in read:
+                        writes.add(name)
+                    if "actor" in read:
+                        by_actor.add(name)
+                for st2 in taken.get("effect") or []:
+                    k2 = next(iter(st2))
+                    if k2 in ("assign", "add", "remove") and "actor" in names_read(parsed(st2[k2]["expr"])):
+                        by_actor.add(st2[k2]["location"])
+        if requested:
+            writes |= set(x.get("required_inputs", [])) | set(x.get("optional_inputs", []))
+            if x["kind"] == "assertion":
+                writes.add("state")
+            effect(x.get("effect"))
+        else:
+            caused(x.get("effect"))
+        return writes, by_actor
 
     def erasure_broke(self, ctx, obj, n):
         """Whether invariant n fails on obj because this request erased what it reads: obj's own attribute, or, one hop
@@ -3151,8 +3194,6 @@ def compare(runner, store, want, outcome, aliases):
             return f"expected the request to apply, and it is refused as {got}"
         if got.verdict != want["verdict"]:
             return f"expected {want['verdict']}, and it is refused as {got}"
-        if "remedy" in want and got.verdict == "invariant_violated" and got.remedy is None:
-            raise NotRunnable("the remedy of an invariant that fails on an object other than the one requested, or reads `this`")
         for k in ("clause", "remedy"):
             if k in want and getattr(got, k) != want[k]:
                 return f"expected the {k} {want[k]}, and it is refused as {got}"
@@ -3538,6 +3579,27 @@ def self_test():
     check("an erasure redacts its labels' notes as no transition, and a label's own forget its note, the names kept",
           [(s.objects[x].attrs.get("note", ABSENT), s.objects[x].attrs["name"], s.objects[x].erased) for x in (tag, own)],
           [(ABSENT, "vip", False), (ABSENT, "vip", True)])
+    # an invariant failing on a part the request creates names a remedy, as one on the requested object does (D547):
+    # delegable where the creation writes the actor to a value it reads, since another actor can pass it (ADR-0173)
+    k2 = {"Operator": kinds["Operator"],
+          "Ask": {"attributes": {"by": {"type": "string", "optional": True}},
+                  "states": {"OPEN": {"category": "live"}},
+                  "transitions": {"raise": {"kind": "initial", "to": "OPEN", "effect": [{"assign": {"location": "by", "expr": "actor.id"}}]},
+                                  "approve": {"kind": "internal", "from": ["OPEN"], "effect": [
+                                      {"create": {"type": "Nod", "transition": "give", "inputs": {"ask": "this", "who": "actor.id"}}}]}}},
+          "Nod": {"attributes": {"ask": {"reference": "Ask"}, "who": {"type": "string"}},
+                  "states": {"GIVEN": {"category": "live"}},
+                  "invariants": {"not_own": {"expression": "who != ask.by"}},
+                  "transitions": {"give": {"kind": "initial", "to": "GIVEN", "required_inputs": ["ask", "who"], "only_via": ["Ask.approve"]}}}}
+    r2, s2 = Runner(k2, {}), Store(k2, {})
+    ask = r2.attempt(s2, "Ask", "raise", None, OPERATOR, {}, {}, {})[1]
+    try:
+        r2.attempt(s2, "Ask", "approve", ask, OPERATOR, {}, {}, {})
+        own = ("applied",)
+    except Refused as refusal:
+        own = (refusal.verdict, refusal.clause, refusal.remedy)
+    check("an invariant failing on a part the request creates, over a value written from the actor, is delegable",
+          own, ("invariant_violated", "Nod.not_own", "delegable"))
     # erasure (ADR-0147): its admission on the object the invariant fails on, one hop away; not_erased refusing an
     # assignment or an add to a personal attribute and passing a clear; a pending proposal on it invalidated
     k = {"Operator": kinds["Operator"],

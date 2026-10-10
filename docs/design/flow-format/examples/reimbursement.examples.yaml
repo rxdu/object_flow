@@ -106,7 +106,7 @@ examples:
     description: The agent may suggest a line's nature and may not confirm it, so its confirmation is refused, and the agent never commits a financial write (ADR-0145).
     given: submitted
     request: { object: lunch, transition: confirm_nature, actor: classifier, inputs: { nature: SpendNature.EXPENSE } }
-    expect: { verdict: invariant_violated, clause: confirmed_by_a_person }
+    expect: { verdict: invariant_violated, clause: confirmed_by_a_person, remedy: delegable }
 
   refuse_suggestion_after_confirmation:
     description: Once a person has confirmed the line's nature, the agent's later suggestion is refused, so it cannot overwrite a person's decision.

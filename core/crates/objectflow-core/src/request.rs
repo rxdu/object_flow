@@ -4209,11 +4209,13 @@ pub(crate) fn names_read(e: &Expr, out: &mut BTreeSet<String>) {
 }
 
 /// The remedy `DESIGN.md` §5.5 infers for an invariant that fails, as the
-/// runner infers it: `self_serviceable` where the transition takes an input
-/// it writes to a value the invariant reads, an attribute input writing its
-/// attribute and an assertion's `to` the state; else `dependent` where the
-/// invariant reads another object; else `unreachable_from_here`. `None` where
-/// it cannot be told: an invariant on another object, or one reading `this`.
+/// runner infers it: `delegable` where the transition writes a value from
+/// the actor that the invariant reads (ADR-0173); else `self_serviceable`
+/// where it takes an input it writes to a value the invariant reads, an
+/// attribute input writing its attribute and an assertion's `to` the state;
+/// else `dependent` where the invariant reads another object, or `this`; else
+/// `unreachable_from_here`. What it writes to an object it creates or calls is
+/// that step's inputs and the taken transition's effect, one hop away (D547).
 fn invariant_remedy(
     world: &World<'_>,
     x: &Transition,
@@ -4223,9 +4225,7 @@ fn invariant_remedy(
     mine: &str,
 ) -> Option<Remedy> {
     let lib: &Library = world.lib;
-    if obj.id != requested && !(n.ends_with("_unique") && mine == obj.type_) {
-        return None;
-    }
+    let unique_other = obj.id != requested && n.ends_with("_unique") && mine == obj.type_;
     let t = lib.type_(&obj.type_)?;
     let (reads, other): (BTreeSet<String>, bool) = if let Some(a) = n.strip_suffix("_unique") {
         let mut reads = BTreeSet::from([a.to_string()]);
@@ -4259,7 +4259,9 @@ fn invariant_remedy(
                 continue;
             }
             if m == "this" {
-                return None;
+                // a scan relative to the object reads others
+                other = true;
+                continue;
             }
             if let Some((_, d)) = t.derived.iter().find(|(name, _)| *name == m) {
                 let mut more = BTreeSet::new();
@@ -4277,15 +4279,33 @@ fn invariant_remedy(
         }
         (reads, other)
     };
-    let mut writes: BTreeSet<String> = x
-        .required_inputs
-        .iter()
-        .chain(&x.optional_inputs)
-        .cloned()
-        .collect();
+    let (writes, by_actor) = writes_of(lib, x, &obj.type_, obj.id == requested || unique_other);
+    if reads.iter().any(|r| by_actor.contains(r)) {
+        Some(Remedy::Delegable)
+    } else if reads.iter().any(|r| writes.contains(r)) {
+        Some(Remedy::SelfServiceable)
+    } else if other {
+        Some(Remedy::Dependent)
+    } else {
+        Some(Remedy::UnreachableFromHere)
+    }
+}
+
+/// What transition x writes to an object of type tn, from its inputs and
+/// from its actor: to the requested object, its inputs and its effect's
+/// writes; to an object it creates or calls, one hop away, that step's
+/// inputs and the effect of the transition the step takes (`DESIGN.md` §5.5,
+/// D547, ADR-0173; `flowrun.py`'s `writes_of`).
+fn writes_of(
+    lib: &Library,
+    x: &Transition,
+    tn: &str,
+    requested: bool,
+) -> (BTreeSet<String>, BTreeSet<String>) {
     // an effect's step that writes a value computed from an input writes
-    // that input to it (ADR-0122 decisions 33 and 36, DESIGN.md §5.5)
-    fn from_inputs(steps: &[Step], writes: &mut BTreeSet<String>) {
+    // that input to it (ADR-0122 decisions 33 and 36), and one computed from
+    // the actor writes the actor to it
+    fn effect(steps: &[Step], writes: &mut BTreeSet<String>, by_actor: &mut BTreeSet<String>) {
         for st in steps {
             match st {
                 Step::Assign { location, expr }
@@ -4296,23 +4316,80 @@ fn invariant_remedy(
                     if read.contains("inputs") {
                         writes.insert(location.clone());
                     }
+                    if read.contains("actor") {
+                        by_actor.insert(location.clone());
+                    }
                 }
-                Step::Foreach { steps, .. } => from_inputs(steps, writes),
+                Step::Foreach { steps, .. } => effect(steps, writes, by_actor),
                 _ => {}
             }
         }
     }
-    from_inputs(&x.effect, &mut writes);
-    if x.kind == Kind::Assertion {
-        writes.insert("state".into());
+    fn caused(
+        lib: &Library,
+        steps: &[Step],
+        tn: &str,
+        writes: &mut BTreeSet<String>,
+        by_actor: &mut BTreeSet<String>,
+    ) {
+        for st in steps {
+            let (created, transition, inputs) = match st {
+                Step::Foreach { steps, .. } => {
+                    caused(lib, steps, tn, writes, by_actor);
+                    continue;
+                }
+                Step::Create {
+                    type_,
+                    transition,
+                    inputs,
+                    ..
+                } => (Some(type_.as_str()), transition, inputs),
+                Step::Call {
+                    transition, inputs, ..
+                } => (None, transition, inputs),
+                _ => continue,
+            };
+            let Some(taken) = lib.type_(tn).and_then(|t| t.transition(transition)) else {
+                continue;
+            };
+            if created.is_some_and(|c| c != tn) {
+                continue;
+            }
+            for (name, e) in inputs {
+                let mut read = BTreeSet::new();
+                names_read(e, &mut read);
+                if read.contains("inputs") {
+                    writes.insert(name.clone());
+                }
+                if read.contains("actor") {
+                    by_actor.insert(name.clone());
+                }
+            }
+            for st2 in &taken.effect {
+                if let Step::Assign { location, expr }
+                | Step::Add { location, expr }
+                | Step::Remove { location, expr } = st2
+                {
+                    let mut read = BTreeSet::new();
+                    names_read(expr, &mut read);
+                    if read.contains("actor") {
+                        by_actor.insert(location.clone());
+                    }
+                }
+            }
+        }
     }
-    if reads.iter().any(|r| writes.contains(r)) {
-        Some(Remedy::SelfServiceable)
-    } else if other {
-        Some(Remedy::Dependent)
+    let (mut writes, mut by_actor) = (BTreeSet::new(), BTreeSet::new());
+    if requested {
+        writes.extend(x.required_inputs.iter().chain(&x.optional_inputs).cloned());
+        if x.kind == Kind::Assertion {
+            writes.insert("state".into());
+        }
+        effect(&x.effect, &mut writes, &mut by_actor);
     } else {
-        Some(Remedy::UnreachableFromHere)
+        caused(lib, &x.effect, tn, &mut writes, &mut by_actor);
     }
+    (writes, by_actor)
 }
 
 /// A request run against a store, in one transaction: its verdict, or that
@@ -4621,6 +4698,59 @@ types:
     fn created(v: &Verdict) -> String {
         match v {
             Verdict::Satisfied { object_id, .. } => object_id.clone(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// An invariant failing on a part the request creates names its remedy as
+    /// one on the requested object does (D547): `delegable` where the
+    /// creation writes the actor to a value the invariant reads, since another
+    /// actor taking it can pass (ADR-0173).
+    #[test]
+    fn an_invariant_on_a_created_part_names_a_remedy() {
+        const ASKS: &str = r#"
+module: asks
+categories: [live, closed]
+types:
+  User:
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states: { ACTIVE: { category: live } }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [login] }
+  Ask:
+    attributes:
+      by: { type: string, optional: true }
+    states: { OPEN: { category: live } }
+    transitions:
+      raise: { kind: initial, to: OPEN, effect: [ { assign: { location: by, expr: actor.id } } ] }
+      approve: { kind: internal, from: [OPEN], effect: [ { create: { type: Nod, transition: give, inputs: { ask: this, who: actor.id } } } ] }
+  Nod:
+    attributes:
+      ask: { reference: Ask }
+      who: { type: string }
+    states: { GIVEN: { category: live } }
+    invariants:
+      not_own: { expression: who != ask.by }
+    transitions:
+      give: { kind: initial, to: GIVEN, required_inputs: [ask, who], only_via: [Ask.approve] }
+"#;
+        let lib = Library::load(&[("asks.yaml".into(), ASKS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        );
+        let ask = created(&req(&mut s, "raise", "ana", ("Ask", true), json!({})));
+        match req(&mut s, "approve", "ana", (&ask, false), json!({})) {
+            Verdict::InvariantViolated { failures, remedy } => {
+                assert_eq!(remedy, Some(Remedy::Delegable));
+                assert_eq!(failures[0].invariant, "not_own");
+                assert_eq!(failures[0].remedy, Some(Remedy::Delegable));
+            }
             other => panic!("{other:?}"),
         }
     }

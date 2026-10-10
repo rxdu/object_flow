@@ -232,10 +232,12 @@ class InvariantFailure:
                                           # object the refused request would have created
                                           # (ADR-0151)
     invariant: str
-    remedy: Remedy                        # SELF_SERVICEABLE where the transition takes an input
-                                          # it writes to a value the invariant reads; else
-                                          # DEPENDENT where it reads another object; else
-                                          # UNREACHABLE_FROM_HERE (DESIGN.md §5.5, ADR-0122)
+    remedy: Remedy                        # DELEGABLE where the transition writes a value from the
+                                          # actor that the invariant reads (ADR-0173); else
+                                          # SELF_SERVICEABLE where it takes an input it writes to a
+                                          # value the invariant reads; else DEPENDENT where it reads
+                                          # another object; else UNREACHABLE_FROM_HERE, on any
+                                          # object it fails on (DESIGN.md §5.5, ADR-0122, D547)
 
 
 @dataclass(frozen=True)
