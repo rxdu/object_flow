@@ -23,7 +23,7 @@ use serde_json::{Value as Json, json};
 
 use super::doc::{list, obj, py_str, re, str_or};
 use super::logic::Rat;
-use crate::import::{ImportBatch, ImportedObject, import_batch};
+use crate::import::{ImportBatch, ImportedObject, Raise, import_batch};
 use crate::model::{DECLARATION_CHANGE, Library, OPERATOR};
 use crate::reads;
 use crate::request::{Request, request};
@@ -300,6 +300,25 @@ impl Player<'_> {
             };
             attributes.insert(k.clone(), value);
         }
+        // each sequence raised past the legacy system's last number, in the
+        // scope written as its attribute's value is, a reference by its alias
+        // (`flow-format.md` §11.3, ADR-0173 decision 6)
+        let mut sequences = Vec::new();
+        for rs in list(im, "sequences") {
+            let sequence = str_or(rs, "sequence", "");
+            let scope = match rs.get("scope") {
+                None => String::new(),
+                Some(v) => match self.wire_value(v, self.scope_spec(&sequence).as_ref())? {
+                    Json::String(s) => s,
+                    other => other.to_string(),
+                },
+            };
+            sequences.push(Raise {
+                sequence,
+                scope,
+                last: rs.get("last").and_then(Json::as_i64).unwrap_or_default(),
+            });
+        }
         let batch = ImportBatch {
             objects: vec![ImportedObject {
                 type_: tn.clone(),
@@ -308,7 +327,7 @@ impl Player<'_> {
                 attributes,
                 ..ImportedObject::default()
             }],
-            sequences: Vec::new(),
+            sequences,
             legacy_kinds: BTreeMap::new(),
         };
         let report = import_batch(&mut self.store, OPERATOR, &batch, &[], false)??;
@@ -325,6 +344,21 @@ impl Player<'_> {
         self.aliases.insert(key, id.clone());
         self.types.insert(id, t);
         Ok(())
+    }
+
+    /// The attribute a sequence is scoped by, where an identifier minted from
+    /// it is scoped (`flow-format.md` §4.12).
+    fn scope_spec(&self, sequence: &str) -> Option<Json> {
+        self.store.lib.types.values().find_map(|t| {
+            let attributes = obj(&t.source, "attributes");
+            attributes.values().find_map(|spec| {
+                let ident = spec.get("identifier")?;
+                let scope = str_or(ident, "scope", "");
+                (str_or(ident, "sequence", "") == sequence && !scope.is_empty())
+                    .then(|| attributes.get(&scope).cloned())
+                    .flatten()
+            })
+        })
     }
 
     /// A `publish` step: a change drafted with the files it names, each
@@ -461,6 +495,9 @@ impl Player<'_> {
                 self.aliases.insert(py_str(alias), object_id.clone());
                 self.types.insert(object_id.clone(), tn.clone());
             }
+            if let Some(Json::Object(named)) = r.get("creates") {
+                self.name_created_by_type(named, &v)?;
+            }
             let names: Vec<String> = list(r, "creates").iter().map(py_str).collect();
             if !names.is_empty() {
                 self.name_created(&names, &v)?;
@@ -481,14 +518,7 @@ impl Player<'_> {
     /// order it created them: its creation events after the first
     /// (`flow-format.md` §11.3).
     fn name_created(&mut self, names: &[String], v: &Verdict) -> Played<()> {
-        let made: Vec<String> = self
-            .appended(v)?
-            .into_iter()
-            .skip(1)
-            .flatten()
-            .filter(|e| e.from_state.is_none())
-            .map(|e| e.object_id)
-            .collect();
+        let made = self.created(v)?;
         if names.len() > made.len() {
             return failed(format!(
                 "a step names {} objects its request creates, and it creates {}",
@@ -507,6 +537,54 @@ impl Player<'_> {
         }
         for (alias, oid) in names.iter().zip(made) {
             self.aliases.insert(alias.clone(), oid);
+        }
+        Ok(())
+    }
+
+    /// The objects a request created, other than its own, in the order it
+    /// created them: its creation events after the first.
+    fn created(&self, v: &Verdict) -> Played<Vec<String>> {
+        Ok(self
+            .appended(v)?
+            .into_iter()
+            .skip(1)
+            .flatten()
+            .filter(|e| e.from_state.is_none())
+            .map(|e| e.object_id)
+            .collect())
+    }
+
+    /// Alias the objects of each type the request created, in the order it
+    /// created them (`flow-format.md` §11.3, ADR-0173 decision 6).
+    fn name_created_by_type(
+        &mut self,
+        named: &serde_json::Map<String, Json>,
+        v: &Verdict,
+    ) -> Played<()> {
+        let made = self.created(v)?;
+        for (ct, aliases) in named {
+            let mut of = Vec::new();
+            for m in &made {
+                if self.type_of(m)? == *ct {
+                    of.push(m.clone());
+                }
+            }
+            let names: Vec<String> = aliases
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(py_str)
+                .collect();
+            if names.len() > of.len() {
+                return failed(format!(
+                    "a step names {} objects of {ct} its request creates, and it creates {}",
+                    names.len(),
+                    of.len()
+                ));
+            }
+            for (alias, oid) in names.into_iter().zip(of) {
+                self.aliases.insert(alias, oid);
+            }
         }
         Ok(())
     }

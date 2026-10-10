@@ -172,6 +172,14 @@ examples:
     request: { object: story, transition: clone, inputs: { cloned_by: ben } }
     expect: { verdict: applied, state: IN_PROGRESS, cascaded: [WorkItem.create, WorkItemLink.link] }
 
+  a_clone_link_is_removed_on_its_own:
+    description: Unlinking a clone removes the link and leaves the copy, which a clone's step names with the link it creates.
+    given: a_story_in_progress
+    steps:
+      - request: { object: story, transition: clone, inputs: { cloned_by: ben }, creates: { WorkItem: [copy], WorkItemLink: [clone_link] } }
+    request: { object: clone_link, transition: unlink }
+    expect: { verdict: applied, state: REMOVED, values: { source: copy, target: story } }
+
   a_label_is_added_once:
     description: Adding a label the story has does not add it twice.
     given: a_story_in_progress

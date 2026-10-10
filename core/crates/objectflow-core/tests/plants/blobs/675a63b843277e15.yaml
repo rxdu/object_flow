@@ -26,7 +26,7 @@ setups:
           type: RegisteredService
           transition: register
           as: payments
-          inputs: { name: Payments, tier: one, responders: [oncall-1, oncall-2], change_approvers: [cab-1, cab-2] }
+          inputs: { name: Payments, tier: 1, responders: [oncall-1, oncall-2], change_approvers: [cab-1, cab-2] }
   an_incident_on_payments:
     description: An incident on the payments service, one responder on it, being worked on.
     given: the_payments_service
@@ -35,7 +35,7 @@ setups:
           type: Incident
           transition: open
           as: incident
-          inputs: { summary: Card payments fail, impact: Level.HIGH, urgency: Level.HIGH, major: false, responders: [oncall-1] }
+          inputs: { summary: Card payments fail, impact: Level.HIGH, urgency: Level.HIGH, major: maybe, responders: [oncall-1] }
       - request: { object: incident, transition: investigate }
   a_change_in_planning:
     description: A normal change to payments, approved by a peer and being planned.
@@ -295,6 +295,13 @@ examples:
       - request: { type: Laptop, transition: receive, inputs: { name: ThinkPad 14 } }
     request: { type: Server, transition: receive, inputs: { name: db-01 } }
     expect: { verdict: applied, state: IN_STOCK, values: { key: IT-2 } }
+
+  asset_keys_follow_the_legacy_register:
+    description: Once the import has raised the key sequence past the last key the legacy asset register gave, IT-41, the first asset received here is keyed IT-42.
+    steps:
+      - import: { type: Employee, as: dana, state: EMPLOYED, values: { employee_id: E-1001, name: Dana Lee, department: Finance }, sequences: [{ sequence: asset_key, last: 41 }] }
+    request: { type: Laptop, transition: receive, inputs: { name: ThinkPad 14 } }
+    expect: { verdict: applied, state: IN_STOCK, values: { key: IT-42 } }
 
   a_laptop_in_use_is_assigned:
     description: A laptop deployed is assigned to an employee the HR system knows.

@@ -32,7 +32,8 @@ export interface StepRequest {
   object?: string;
   transition?: string;
   as?: string;
-  creates?: string[];
+  /** a list of one type, or a list for each type (ADR-0173 decision 6) */
+  creates?: string[] | Record<string, string[]>;
   actor?: string;
   after?: string;
   occurred_at?: string;
@@ -41,6 +42,8 @@ export interface StepRequest {
   /** an import's: the state it arrives in, and its attribute values */
   state?: string;
   values?: Record<string, unknown>;
+  /** an import's: each sequence raised past a legacy system's last number */
+  sequences?: { sequence: string; last: number; scope?: unknown }[];
 }
 
 /** A `publish` step: the files of another version, beside the examples
@@ -422,9 +425,27 @@ export class Player {
           ? (v as WireValue)
           : this.wireValue(v, specs[k]);
     }
-    const report = await this.wire.importBatch(OPERATOR, [
-      { type, legacy_key: key, state: im.state ?? "", attributes },
-    ]);
+    // each sequence raised past the legacy system's last number, in its
+    // scope: an object by its alias, an enumeration member by its name, any
+    // other value as written (flow-format.md §11.3, ADR-0173 decision 6)
+    const sequences = (im.sequences ?? []).map((rs) => {
+      if (rs.scope === undefined)
+        return { sequence: rs.sequence, last: rs.last };
+      const v = rs.scope;
+      const scope =
+        typeof v === "string" && this.aliases.has(v)
+          ? this.alias(v)
+          : typeof v === "string" &&
+              /^[A-Z][A-Za-z0-9]*\.[A-Z][A-Z0-9_]*$/.test(v)
+            ? v.slice(v.indexOf(".") + 1)
+            : String(v);
+      return { sequence: rs.sequence, last: rs.last, scope };
+    });
+    const report = await this.wire.importBatch(
+      OPERATOR,
+      [{ type, legacy_key: key, state: im.state ?? "", attributes }],
+      sequences,
+    );
     if (report.refusal)
       throw new Failed(
         `the import of ${key} is refused: ${report.refusal.reason}`,
@@ -498,8 +519,10 @@ export class Player {
         this.types.set(v.object_id, type);
       }
       await this.note(v);
-      if (r.creates && r.creates.length > 0)
+      if (Array.isArray(r.creates) && r.creates.length > 0)
         await this.nameCreated(r.creates, v);
+      else if (r.creates && !Array.isArray(r.creates))
+        await this.nameCreatedByType(r.creates, v);
     }
     return v;
   }
@@ -689,6 +712,31 @@ export class Player {
       const id = made[i];
       if (id !== undefined) this.aliases.set(alias, id);
     });
+  }
+
+  /** Alias the objects of each type the request created, in the order it
+   * created them (flow-format.md §11.3, ADR-0173 decision 6). */
+  private async nameCreatedByType(
+    named: Record<string, string[]>,
+    v: Verdict & { kind: "satisfied" },
+  ): Promise<void> {
+    const made = (await this.appended(v))
+      .slice(1)
+      .filter((e) => e.from_state === null)
+      .map((e) => e.object_id);
+    for (const [type, names] of Object.entries(named)) {
+      const of: string[] = [];
+      for (const m of made) if ((await this.typeOf(m)) === type) of.push(m);
+      if (names.length > of.length) {
+        throw new Failed(
+          `a step names ${names.length} objects of ${type} its request creates, and it creates ${of.length}`,
+        );
+      }
+      names.forEach((alias, i) => {
+        const id = of[i];
+        if (id !== undefined) this.aliases.set(alias, id);
+      });
+    }
   }
 
   /** The transitions a request caused, in the order each began: its events

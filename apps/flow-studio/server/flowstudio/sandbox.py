@@ -494,8 +494,14 @@ class Sandbox:
                         ("disposition", "a disposition file")):
             if body.get(k):
                 raise not_run(what)
-        if batch.get("sequences"):
-            raise not_run("raising a sequence")
+        raises = []
+        for rs in batch.get("sequences") or []:
+            seq, last = rs.get("sequence"), rs.get("last")
+            if not isinstance(seq, str) or isinstance(last, bool) \
+                    or not isinstance(last, int):
+                raise Fault(400, "a sequence names its sequence and the last "
+                                 "value minted")
+            raises.append((seq, last, rs.get("scope") or ""))
         kinds = self.runner.kinds
         objects = batch.get("objects") or []
         report: dict[str, Any] = {"written": 0, "findings": [],
@@ -550,6 +556,15 @@ class Sandbox:
                 return refused(o, str(r))
             report["written"] += 1
         self.legacy.update(made)
+        # each sequence raised past the legacy system's last number, never
+        # lowered, keyed as a mint keys it: by the scope's value, a reference
+        # by its object's id (publish-and-import.md §4, ADR-0103)
+        for seq, last, scope in raises:
+            spec = flowrun.scope_spec(kinds, seq)
+            value = None if not scope else scope if spec is None \
+                or "reference" in spec \
+                else values.decode_input(scope, spec, self.runner.enums)
+            flowrun.raise_sequence(self.store, seq, last, value)
         return report
 
     def lookup(self, body: dict) -> dict | None:

@@ -155,15 +155,17 @@ export async function draftExample(
     } else if (e.verdict.kind === "satisfied") {
       if (b.type) r["as"] = await fresh(e.verdict.object_id);
       if (e.created.length > 0) {
-        // the objects its effect created, named in the order created, as
-        // far as they are of one type (flow-format.md §11.3)
-        const first = await p.typeOf(e.created[0] ?? "");
-        const same: string[] = [];
+        // the objects its effect created, named in the order created: a
+        // list where they are of one type, else a list for each type
+        // (flow-format.md §11.3, ADR-0173 decision 6)
+        const byType: Record<string, string[]> = {};
         for (const id of e.created) {
-          if ((await p.typeOf(id)) !== first) break;
-          same.push(await fresh(id));
+          const t = await p.typeOf(id);
+          (byType[t] ??= []).push(await fresh(id));
         }
-        r["creates"] = same;
+        const types = Object.keys(byType);
+        r["creates"] =
+          types.length === 1 ? (byType[types[0] ?? ""] ?? []) : byType;
       }
     }
     return [b.propose ? "propose" : "request", r];

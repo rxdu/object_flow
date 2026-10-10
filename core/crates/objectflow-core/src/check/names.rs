@@ -2448,7 +2448,7 @@ static CALL_INPUT: LazyLock<Regex> = LazyLock::new(|| re(r"^inputs\.([a-z][a-z0-
 /// The type of a call's target, read from an attribute, an input, or a path
 /// from either or from a loop's item, the loops' items typed by what they
 /// range over; none where it cannot be known, or is a set or no type known.
-fn call_target(
+pub(crate) fn call_target(
     library: &Obj,
     t: &Value,
     tn: &str,

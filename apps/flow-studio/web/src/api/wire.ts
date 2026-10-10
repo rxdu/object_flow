@@ -280,6 +280,15 @@ export interface ImportedObject {
   attributes: Record<string, WireValue>;
 }
 
+/** A sequence an import raises past the last number a legacy system minted
+ * from it, in a scope where it is scoped, `scope` empty otherwise
+ * (`library-api.md` §5 `SequenceValue`). */
+export interface RaisedSequence {
+  sequence: string;
+  last: number;
+  scope?: string;
+}
+
 /** What an import wrote, the classes it found, and why it was refused,
  * where it was (`library-api.md` §5, ADR-0154). */
 export interface ImportReport {
@@ -323,7 +332,11 @@ export interface Wire {
   ): Promise<{ events: (FlowEvent | null)[]; not_computed: string[] }>;
   declaration(type: string): Promise<Declaration>;
   /** a batch of a port, with an empty disposition file (ADR-0154) */
-  importBatch(actor: string, objects: ImportedObject[]): Promise<ImportReport>;
+  importBatch(
+    actor: string,
+    objects: ImportedObject[],
+    sequences?: RaisedSequence[],
+  ): Promise<ImportReport>;
   /** the object an external identifier names, a legacy key among them */
   lookup(
     actor: string,
@@ -408,10 +421,10 @@ export function httpWire(base = ""): Wire {
     history: (id) => post("/v1/history", { id }),
     events: (positions) => post("/v1/events", { positions }),
     declaration: (type) => post("/v1/declaration", { type }),
-    importBatch: (actor, objects) =>
+    importBatch: (actor, objects, sequences = []) =>
       post("/v1/import_batch", {
         actor: { id: actor },
-        batch: { objects },
+        batch: sequences.length > 0 ? { objects, sequences } : { objects },
         disposition: [],
         dry_run: false,
       }),

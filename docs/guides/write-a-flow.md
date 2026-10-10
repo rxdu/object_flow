@@ -79,7 +79,7 @@ apps/flow-studio/scripts/examples-on-core documents.yaml documents.examples.yaml
 
 The checker runs the publish checks, then every example on the reference runner: `0 fatal · 0 notices`, `examples: 3 run: 3 passed`. The second command runs the same examples on the core. Pass a module's imports before it, in import order, as `people.yaml service.yaml service.examples.yaml`; check a new version against the last with `--previous=old.yaml`.
 
-A **fatal** finding stops a publish, and names its line and how to fix it. A **notice** does not. `coverage` lists transitions no example requests as the request under test, even when a setup or a cascade takes them, and `unknown` a guard or filter that an absent optional value would make unknown, which is usually a bug.
+A **fatal** finding stops a publish, and names its line and how to fix it. A **notice** does not. `coverage` lists, first, the transitions no example takes at all, by its request, a step, a setup or a cascade it expects, and second, those only a setup, a step or an expected cascade takes, which no example tests as its request; `unknown` a guard or filter that an absent optional value would make unknown, which is usually a bug.
 
 The [Flow Studio](../../apps/flow-studio/README.md) is the same loop with a diagram, a simulator and a live offer.
 

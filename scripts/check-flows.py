@@ -4039,7 +4039,7 @@ def example_errors(doc, kinds, modules):
     can give, with the clause and remedy the rules declare (flow-format.md §11, ADR-0136)."""
     mod = doc["examples_for"]
     if mod not in modules:
-        return [(("examples_for",), "names", f"examples for {mod}, which is not among the modules checked")], {}
+        return [(("examples_for",), "names", f"examples for {mod}, which is not among the modules checked")], {}, set()
     # an observation kind is recorded by a request of its generated creation, `record`, taking each field and the
     # subject, and optionally the observation it corrects (declaration-syntax.md §6.8)
     kinds = dict(kinds)
@@ -4063,8 +4063,11 @@ def example_errors(doc, kinds, modules):
     functions = {f"{e}.{fn}" for m in modules.values() for e, ev in (m.get("evaluators") or {}).items()
                  for fn in (ev.get("functions") or {})}
     machines = {n for m in modules.values() for n in (m.get("machines") or {})}
+    sequences = {n for m in modules.values() for n in (m.get("sequences") or {})}
     setups = doc.get("setups") or {}
-    out, envs, requested = [], {}, {}
+    # each transition an example requests under test, by the examples that do, and each a setup's or an example's
+    # step takes or an expectation's `cascaded` names, which the coverage notice tells apart (ADR-0173 decision 6)
+    out, envs, requested, exercised = [], {}, {}, set()
     keys = [k for k in doc if k in EXAMPLES_ORDER]
     if keys != [k for k in EXAMPLES_ORDER if k in doc]:
         out.append(((keys[0],), "order", f"an examples file declares, in this order, {', '.join(EXAMPLES_ORDER)}"))
@@ -4148,23 +4151,44 @@ def example_errors(doc, kinds, modules):
         missing += ["to"] if x["kind"] == "assertion" and "to" not in given else []
         return errs, (tn, x), missing, unprovided
 
-    def created_types(x, seen):
-        """The types a transition's effect creates, through its loops and the creations it makes."""
-        out = set()
-
-        def walk(steps):
-            for st in steps or []:
-                kind = next(iter(st))
-                if kind == "create":
-                    ct, cx = st["create"]["type"], st["create"]["transition"]
-                    out.add(ct)
-                    if (ct, cx) not in seen:
-                        seen.add((ct, cx))
-                        out.update(created_types(((kinds.get(ct) or {}).get("transitions") or {}).get(cx) or {}, seen))
-                elif kind == "foreach":
-                    walk(st["foreach"].get("steps"))
-        walk(x.get("effect"))
+    def created_types(tn, x, seen):
+        """The types a transition's effect creates at any depth: through its loops, the creations it makes and the
+        transitions it calls, each of which may create in turn (§11.3, ADR-0173 decision 6)."""
+        out, t = set(), kinds.get(tn) or {}
+        for st, kind, path, _depth in walk(x.get("effect")):
+            if kind == "create":
+                nxt = st["create"]["type"], st["create"]["transition"]
+                out.add(nxt[0])
+            elif kind == "call":
+                k = call_target(kinds, t, tn, x, st["call"], binders(kinds, tn, x, path))
+                if k is None:
+                    continue
+                nxt = k, st["call"]["transition"]
+            else:
+                continue
+            if nxt not in seen:
+                seen.add(nxt)
+                out |= created_types(nxt[0], ((kinds.get(nxt[0]) or {}).get("transitions") or {}).get(nxt[1]) or {}, seen)
         return out
+
+    def raise_errors(rs, env, at):
+        """A sequence an import raises is one the modules declare, given the scope it was minted in where it is
+        scoped, and none where it is not (§11.3, publish-and-import.md §4)."""
+        seq = rs["sequence"]
+        if seq not in sequences:
+            return [(at + ("sequence",), "names", f"raises the sequence {seq}, which no module checked declares")]
+        scoped = sorted((tn, a, spec["identifier"]["scope"]) for tn, t in kinds.items()
+                        for a, spec in (t.get("attributes") or {}).items()
+                        if (spec.get("identifier") or {}).get("sequence") == seq and spec["identifier"].get("scope"))
+        if "scope" in rs and not scoped:
+            return [(at + ("scope",), "names", f"raises {seq} in a scope, and {seq} numbers one series, with no scope")]
+        if "scope" not in rs and scoped:
+            tn, a, scope = scoped[0]
+            return [(at, "names", f"raises {seq} with no scope, and {tn}.{a} numbers it in each value of {scope}")]
+        if scoped:
+            tn, _a, scope = scoped[0]
+            return value_errors(rs["scope"], (kinds[tn].get("attributes") or {}).get(scope), env, at + ("scope",), "scope")
+        return []
 
     def decision_errors(d, env, path):
         """A decision names a proposal an earlier step filed, as an actor the store holds (DESIGN.md §9)."""
@@ -4207,11 +4231,16 @@ def example_errors(doc, kinds, modules):
             verb = next((v for v in ("approve", "reject", "withdraw") if v in st), None)
             if verb:
                 errs += decision_errors(st[verb], env, here + (verb,))
+                filed = str(env.get(st[verb]["proposal"], ""))
+                if verb == "approve" and filed.startswith("Proposal:"):
+                    exercised.add(tuple(filed[len("Proposal:"):].split(".", 1)))
                 continue
             if "request" in st:
                 r = st["request"]
                 e, found, missing, unprovided = request_errors(r, env, here + ("request",), applies=True)
                 errs += e
+                if found:
+                    exercised.add((found[0], r["transition"]))
                 left = (missing or []) + (unprovided or [])
                 if found and left:
                     errs.append((here + ("request",), "names", f"a setup's step must apply, and it leaves out the required "
@@ -4221,17 +4250,28 @@ def example_errors(doc, kinds, modules):
                         errs.append((here + ("request", "as"), "names", f"'{r['as']}' is already an alias"))
                     env[r["as"]] = found[0]
                 if found and r.get("creates"):
-                    # the objects its effect creates, named in the order it creates them, all of one type (§11.3, ADR-0141)
-                    made = created_types(found[1], set())
-                    if len(made) != 1:
-                        errs.append((here + ("request", "creates"), "names",
-                                     f"names objects {found[0]}.{r['transition']} creates, and its effect creates "
-                                     + (f"objects of more than one type, {', '.join(sorted(made))}" if made else "none")))
-                    for alias in r["creates"]:
+                    # the objects its effect creates, named in the order it creates them: a list, all of one type, or a
+                    # mapping from each type to its objects (§11.3, ADR-0141, ADR-0173 decision 6)
+                    made, named = created_types(found[0], found[1], set()), r["creates"]
+                    if isinstance(named, dict):
+                        pairs = []
+                        for ct, aliases_of in named.items():
+                            if ct not in made:
+                                errs.append((here + ("request", "creates", ct), "names",
+                                             f"names objects of {ct} {found[0]}.{r['transition']} creates, and its effect creates "
+                                             + (f"only {', '.join(sorted(made))}" if made else "none")))
+                            pairs += [(alias, ct) for alias in aliases_of]
+                    else:
+                        if len(made) != 1:
+                            errs.append((here + ("request", "creates"), "names",
+                                         f"names objects {found[0]}.{r['transition']} creates, and its effect creates "
+                                         + (f"objects of more than one type, {', '.join(sorted(made))}" if made else "none")))
+                        pairs = [(alias, next(iter(made)) if len(made) == 1 else None) for alias in named]
+                    for alias, ct in pairs:
                         if alias in env or alias == "operator" or r.get("as") == alias:
                             errs.append((here + ("request", "creates"), "names", f"'{alias}' is already an alias"))
-                        if len(made) == 1:
-                            env[alias] = next(iter(made))
+                        if ct is not None:
+                            env[alias] = ct
             else:
                 im = st["import"]
                 tn = im["type"]
@@ -4247,6 +4287,8 @@ def example_errors(doc, kinds, modules):
                 if im["as"] in env or im["as"] == "operator":
                     errs.append((here + ("import", "as"), "names", f"'{im['as']}' is already an alias"))
                 env[im["as"]] = tn
+                for j, rs in enumerate(im.get("sequences") or []):
+                    errs += raise_errors(rs, env, here + ("import", "sequences", j))
         return errs
 
     def env_of(name, seen=()):
@@ -4349,6 +4391,8 @@ def example_errors(doc, kinds, modules):
                 ct, cx = c.split(".", 1)
                 if cx not in ((kinds.get(ct) or {}).get("transitions") or {}):
                     out.append((here + ("cascaded",), "names", f"{c} names no transition a module checked declares"))
+                else:
+                    exercised.add((ct, cx))
             for c in want.get("warned") or []:
                 # the transition's own warn guards by name, and a caused transition's qualified by its type
                 ct, _, cn = c.rpartition(".")
@@ -4405,14 +4449,31 @@ def example_errors(doc, kinds, modules):
                                                          "of a type, written <Type>.<clause>"))
         elif "clause" in want or ("remedy" in want and verdict != "call_refused"):
             out.append((here, "names", f"a request refused as {verdict} names no clause or remedy"))
-    return out, requested
+    return out, requested, exercised
 
 
-def uncovered(mdoc, kinds, requested):
-    """The transitions of the examined module's types that no example requests: reported, never required
-    (ADR-0131 decision 5). A bound machine's transitions count for each type that binds it."""
-    return sorted(f"{tn}.{xn}" for tn in (mdoc.get("types") or {}) if not (kinds.get(tn) or {}).get("abstract")
-                  for xn in ((kinds.get(tn) or {}).get("transitions") or {}) if (tn, xn) not in requested)
+def uncovered(mdoc, kinds, requested, exercised):
+    """The transitions of the examined module's types that no example requests under test, in two lists: those no
+    example takes at all, and those a setup, a step or an expected cascade takes; reported, never required
+    (ADR-0131 decision 5, ADR-0173 decision 6). A bound machine's transitions count for each type that binds it."""
+    left = [(tn, xn) for tn in (mdoc.get("types") or {}) if not (kinds.get(tn) or {}).get("abstract")
+            for xn in ((kinds.get(tn) or {}).get("transitions") or {}) if (tn, xn) not in requested]
+    return (sorted(f"{tn}.{xn}" for tn, xn in left if (tn, xn) not in exercised),
+            sorted(f"{tn}.{xn}" for tn, xn in left if (tn, xn) in exercised))
+
+
+def coverage_notices(module, untaken, untested):
+    """The coverage notice's two parts, each where it names a transition (flow-format.md §11.5)."""
+    def n(left):
+        return f"{len(left)} transition{'s' if len(left) != 1 else ''} of {module}"
+    out = []
+    if untaken:
+        out.append(f"no example takes {n(untaken)}, by its request, a step, a setup or a cascade it expects: "
+                   f"{', '.join(untaken)}")
+    if untested:
+        out.append(f"no example requests {n(untested)} as the request under test, which only a setup, a step or an "
+                   f"expected cascade takes: {', '.join(untested)}")
+    return out
 
 
 def check(files, previous=None, analysed=None, examples=None, read=None, forms=None, violators=None):
@@ -4525,16 +4586,14 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     for f, idx, doc in example_files:
         errors = examples_schema_errors(doc)
         if not errors:
-            errors, requested = example_errors(doc, library, modules)
+            errors, requested, exercised = example_errors(doc, library, modules)
             if examples is not None:
                 for (tn, xn), names in requested.items():
                     examples.setdefault(f"{tn}.{xn}", []).extend(names)
             if not errors:
-                left = uncovered(modules[doc["examples_for"]], library, requested)
-                if left:
-                    notes.append((f, line_of(idx, ("examples",)), "notice", "coverage",
-                                  f"no example requests {len(left)} transition{'s' if len(left) != 1 else ''} of "
-                                  f"{doc['examples_for']}: {', '.join(left)}"))
+                untaken, untested = uncovered(modules[doc["examples_for"]], library, requested, exercised)
+                notes += [(f, line_of(idx, ("examples",)), "notice", "coverage", m)
+                          for m in coverage_notices(doc["examples_for"], untaken, untested)]
         found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in errors]
     if not found and len(loaded) + len(example_files) == len(files):
         converted = [to_text(doc, library) for _f, _t, _i, doc in loaded]
@@ -5605,6 +5664,22 @@ def example_rule_plants():
          [("service.examples.yaml", "  two_engineers:\n    description:", "  two_engineers:\n    given: two_engineers\n    description:")]),
         ("a setup given one declared after it", "order", "declared after it", service,
          [("service.examples.yaml", "  two_engineers:\n    description:", "  two_engineers:\n    given: job_in_progress\n    description:")]),
+        ("a sequence raised that no module declares", "names", "raises the sequence asset_keys, which no module",
+         ["servicedesk.yaml", "servicedesk.examples.yaml"],
+         [("servicedesk.examples.yaml", "sequences: [{ sequence: asset_key, last: 41 }]", "sequences: [{ sequence: asset_keys, last: 41 }]")]),
+        ("a scope given to a sequence numbered in one series", "names", "numbers one series, with no scope",
+         ["servicedesk.yaml", "servicedesk.examples.yaml"],
+         [("servicedesk.examples.yaml", "sequences: [{ sequence: asset_key, last: 41 }]", "sequences: [{ sequence: asset_key, last: 41, scope: dana }]")]),
+        ("a scoped sequence raised with no scope", "names", "with no scope, and Asset.key numbers it in each value of service",
+         ["servicedesk.yaml", "servicedesk.examples.yaml"],
+         [("servicedesk.yaml", 'identifier: { sequence: asset_key, format: "IT-{n}" }', 'identifier: { sequence: asset_key, scope: service, format: "IT-{n}" }')]),
+        ("a sequence's scope that is not an alias of its reference", "names", "'scope' is a reference to RegisteredService",
+         ["servicedesk.yaml", "servicedesk.examples.yaml"],
+         [("servicedesk.yaml", 'identifier: { sequence: asset_key, format: "IT-{n}" }', 'identifier: { sequence: asset_key, scope: service, format: "IT-{n}" }'),
+          ("servicedesk.examples.yaml", "sequences: [{ sequence: asset_key, last: 41 }]", "sequences: [{ sequence: asset_key, last: 41, scope: nobody }]")]),
+        ("objects named of a type the request does not create", "names", "and its effect creates only WorkItem, WorkItemLink",
+         ["people.yaml", "issues.yaml", "issues.examples.yaml"],
+         [("issues.examples.yaml", "creates: { WorkItem: [copy], WorkItemLink: [clone_link] }", "creates: { WorkItem: [copy], Subtask: [clone_link] }")]),
         ("objects named as the request under test creates them", "names", "since no step follows it", service,
          [("service.examples.yaml", opens, opens.replace("inputs: { engineer: ana } }", "inputs: { engineer: ana }, creates: [extra] }"))]),
         ("a proposal's state expected of a request", "names", "only an approval leaves a proposal", service,

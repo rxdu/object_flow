@@ -2977,6 +2977,23 @@ class ImportRefused(ExampleError):
     """An object an import could not place, and why (ADR-0154)."""
 
 
+def scope_spec(kinds, sequence):
+    """The attribute a sequence is scoped by, where an identifier minted from it is scoped (flow-format.md §4.12)."""
+    for t in kinds.values():
+        for spec in (t.get("attributes") or {}).values():
+            ident = (spec or {}).get("identifier") or {}
+            if ident.get("sequence") == sequence and ident.get("scope"):
+                return (t.get("attributes") or {}).get(ident["scope"])
+    return None
+
+
+def raise_sequence(store, sequence, last, scope):
+    """An import raises a sequence past the last number a legacy system minted from it in a scope, never lowering it,
+    so the next number minted follows it (publish-and-import.md §4, ADR-0103)."""
+    key = (sequence, scope)
+    store.sequences[key] = max(store.sequences.get(key, 0), last)
+
+
 def import_object(runner, store, tn, state, given):
     """One new object of a mirror type, written through the built-in assertion as an import writes it, and returned
     by id (publish-and-import.md §4). An example's import admits nothing, so an object whose state its type does not
@@ -3036,6 +3053,10 @@ def step(runner, store, st, aliases, stubs, under_test=False, publishing=None):
         attrs = (runner.kinds.get(im["type"]) or {}).get("attributes") or {}
         given = {k: runner.value_of(store, attrs.get(k), v, aliases) for k, v in (im.get("values") or {}).items()}
         aliases[im["as"]] = import_object(runner, store, im["type"], im["state"], given)
+        for rs in im.get("sequences") or []:
+            raise_sequence(store, rs["sequence"], rs["last"],
+                           runner.value_of(store, scope_spec(runner.kinds, rs["sequence"]), rs["scope"], aliases)
+                           if "scope" in rs else None)
         return None
     if "propose" in st:
         r = st["propose"]
@@ -3203,8 +3224,17 @@ def decide_or_request(runner, store, st, aliases, stubs, under_test):
         raise
     if "as" in r:
         aliases[r["as"]] = result[1]
-    # the objects its effect and cascades create, named in the order it creates them (flow-format.md §11.3, ADR-0141)
+    # the objects its effect and cascades create, named in the order it creates them: a list, all of one type, or a
+    # mapping from each type to its objects (flow-format.md §11.3, ADR-0141, ADR-0173 decision 6)
     named, made = r.get("creates") or [], result[4]
+    if isinstance(named, dict):
+        for ct, aliases_of in named.items():
+            of = [m for m in made if store.type_of(m) == ct]
+            if len(aliases_of) > len(of):
+                raise ExampleError(f"a step names {len(aliases_of)} objects of {ct} its request creates, and it creates "
+                                   f"{len(of)}")
+            aliases.update(zip(aliases_of, of))
+        return result
     if len(named) > len(made):
         raise ExampleError(f"a step names {len(named)} objects its request creates, and it creates {len(made)}")
     if len({store.type_of(m) for m in made[:len(named)]}) > 1:

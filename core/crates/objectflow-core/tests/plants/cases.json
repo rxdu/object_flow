@@ -98,7 +98,14 @@
     17,
     "notice",
     "coverage",
-    "no example requests 9 transitions of inventory: InventoryItem.accept_return, InventoryItem.add, InventoryItem.cancel_delivery, InventoryItem.deliver_internally, InventoryItem.regrade, InventoryItem.release, InventoryItem.reserve, InventoryItem.retire, InventoryItem.return_to_stock"
+    "no example requests 3 transitions of inventory as the request under test, which only a setup, a step or an expected cascade takes: InventoryItem.add, InventoryItem.regrade, InventoryItem.reserve"
+   ],
+   [
+    "inventory-v2.examples.yaml",
+    17,
+    "notice",
+    "coverage",
+    "no example takes 6 transitions of inventory, by its request, a step, a setup or a cascade it expects: InventoryItem.accept_return, InventoryItem.cancel_delivery, InventoryItem.deliver_internally, InventoryItem.release, InventoryItem.retire, InventoryItem.return_to_stock"
    ],
    [
     "inventory-v2.yaml",
@@ -416,7 +423,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "service.yaml",
@@ -480,7 +494,14 @@
     20,
     "notice",
     "coverage",
-    "no example requests 4 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget, ServiceJob.start"
+    "no example requests 2 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.start"
+   ],
+   [
+    "service-v2.examples.yaml",
+    20,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "service-v2.yaml",
@@ -557,7 +578,14 @@
     43,
     "notice",
     "coverage",
-    "no example requests 8 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+    "no example requests 5 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, ChecklistItem.discard, Courier.register, Delivery.approve, Delivery.assign_courier"
+   ],
+   [
+    "delivery.examples.yaml",
+    43,
+    "notice",
+    "coverage",
+    "no example takes 3 transitions of delivery, by its request, a step, a setup or a cascade it expects: Approval.discard, Approval.record, Courier.retire"
    ],
    [
     "inventory.yaml",
@@ -670,7 +698,14 @@
     18,
     "notice",
     "coverage",
-    "no example requests 13 transitions of customers: Contact.add, Contact.discard, Contact.forget, Customer.activate, Customer.add_contact, Customer.lapse, Customer.link_xero, Customer.merged_into, Customer.register, Order.cancel, Order.fulfil, Order.invoice, Order.place"
+    "no example requests 5 transitions of customers as the request under test, which only a setup, a step or an expected cascade takes: Contact.forget, Customer.activate, Customer.add_contact, Customer.register, Order.place"
+   ],
+   [
+    "customers.examples.yaml",
+    18,
+    "notice",
+    "coverage",
+    "no example takes 8 transitions of customers, by its request, a step, a setup or a cascade it expects: Contact.add, Contact.discard, Customer.lapse, Customer.link_xero, Customer.merged_into, Order.cancel, Order.fulfil, Order.invoice"
    ]
   ],
   "analysed": {
@@ -715,7 +750,7 @@
    ],
    [
     "issues.examples.yaml",
-    "6ff9ba6b8df7bd50"
+    "fb22fcfe42d1cdd2"
    ]
   ],
   "previous": {},
@@ -725,7 +760,14 @@
     28,
     "notice",
     "coverage",
-    "no example requests 37 transitions of issues: Document.archive, Document.create, Document.revise, Document.submit, Epic.archive, Epic.done, Epic.start, Epic.to_do, Space.archive, Space.create, Sprint.complete_to_backlog, Sprint.create, Sprint.delete, Sprint.reopen, Subtask.archive, Subtask.create, Subtask.done, Subtask.start, Subtask.to_do, Version.archive, Version.create, Version.delete, Version.release, Version.release_moving_unresolved, Version.unarchive, Version.unrelease, WorkItem.add_subtask, WorkItem.assign_to_lead, WorkItem.assign_to_reporter, WorkItem.auto_resolve, WorkItem.edit, WorkItem.remove_label, WorkItem.set_fix_version, WorkItem.to_do, WorkItem.unplan, WorkItemLink.link, WorkItemLink.unlink"
+    "no example requests 9 transitions of issues as the request under test, which only a setup, a step or an expected cascade takes: Document.create, Document.revise, Document.submit, Space.create, Sprint.complete_to_backlog, Sprint.create, Subtask.archive, WorkItem.add_subtask, WorkItemLink.link"
+   ],
+   [
+    "issues.examples.yaml",
+    28,
+    "notice",
+    "coverage",
+    "no example takes 27 transitions of issues, by its request, a step, a setup or a cascade it expects: Document.archive, Epic.archive, Epic.done, Epic.start, Epic.to_do, Space.archive, Sprint.delete, Sprint.reopen, Subtask.create, Subtask.done, Subtask.start, Subtask.to_do, Version.archive, Version.create, Version.delete, Version.release, Version.release_moving_unresolved, Version.unarchive, Version.unrelease, WorkItem.assign_to_lead, WorkItem.assign_to_reporter, WorkItem.auto_resolve, WorkItem.edit, WorkItem.remove_label, WorkItem.set_fix_version, WorkItem.to_do, WorkItem.unplan"
    ],
    [
     "issues.yaml",
@@ -811,7 +853,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "55e539ce39fb2836"
+    "87ab1e62756368ae"
    ]
   ],
   "previous": {},
@@ -821,7 +863,14 @@
     59,
     "notice",
     "coverage",
-    "no example requests 60 transitions of servicedesk: Alert.acknowledge, Alert.close, Alert.delete, Alert.link_incident, Alert.reopen, Alert.unacknowledge, Change.approve_peer, Change.archive, Change.cancel, Change.complete, Change.decline, Change.implement, Change.request, Change.roll_back, Change.submit_to_cab, ChangeWindow.schedule, ChangeWindow.withdraw, Incident.cancel, Incident.close, Incident.escalate, Incident.investigate, Incident.link_problem, Incident.open, Incident.pend, Incident.reopen, Incident.resolve, Incident.resume, Laptop.deploy, Laptop.dispose, Laptop.receive, Laptop.retire, Organization.archive, Organization.create, PartStock.release, PartStock.set_reorder_level, PostIncidentReview.archive, PostIncidentReview.draft, PostIncidentReview.publish, Problem.archive, Problem.cancel, Problem.complete, Problem.investigate, Problem.open, Problem.review, RegisteredService.register, RegisteredService.retire, Request.cancel, Request.customer_replies, Request.escalate, Request.pend, Request.prioritise, Request.reopen, Request.respond_to_customer, Request.resume, Request.share, Request.start, Server.deploy, Server.dispose, Server.name_host, Server.retire"
+    "no example requests 15 transitions of servicedesk as the request under test, which only a setup, a step or an expected cascade takes: Alert.close, Change.approve_peer, Change.request, Change.submit_to_cab, ChangeWindow.schedule, Incident.investigate, Incident.open, Incident.resolve, Laptop.deploy, Organization.create, PostIncidentReview.draft, RegisteredService.register, Request.customer_replies, Request.respond_to_customer, Request.start"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    59,
+    "notice",
+    "coverage",
+    "no example takes 44 transitions of servicedesk, by its request, a step, a setup or a cascade it expects: Alert.acknowledge, Alert.delete, Alert.link_incident, Alert.reopen, Alert.unacknowledge, Change.archive, Change.cancel, Change.complete, Change.decline, Change.implement, Change.roll_back, ChangeWindow.withdraw, Incident.cancel, Incident.close, Incident.escalate, Incident.link_problem, Incident.pend, Incident.reopen, Incident.resume, Laptop.dispose, Laptop.retire, Organization.archive, PartStock.release, PartStock.set_reorder_level, PostIncidentReview.archive, PostIncidentReview.publish, Problem.archive, Problem.cancel, Problem.complete, Problem.investigate, Problem.open, Problem.review, RegisteredService.retire, Request.cancel, Request.escalate, Request.pend, Request.prioritise, Request.reopen, Request.resume, Request.share, Server.deploy, Server.dispose, Server.name_host, Server.retire"
    ]
   ],
   "analysed": {
@@ -926,7 +975,14 @@
     74,
     "notice",
     "coverage",
-    "no example requests 19 transitions of reimbursement: AssistantAgent.register, AssistantAgent.retire, BusinessFunction.dissolve, BusinessFunction.establish, Claim.correct_xero_bill_id, Claim.draft, Claim.record_in_xero, Claim.return_for_changes, ClaimLine.add, ClaimLine.close, ClaimLine.discard, ClaimLine.erase, Employee.forget, Employee.leave, Employee.link_xero_contact, Employee.onboard, ExpenseCategory.change_policy_amount, ExpenseCategory.define, ExpenseCategory.retire"
+    "no example requests 9 transitions of reimbursement as the request under test, which only a setup, a step or an expected cascade takes: AssistantAgent.register, BusinessFunction.establish, Claim.correct_xero_bill_id, Claim.draft, Claim.record_in_xero, Claim.return_for_changes, ClaimLine.close, Employee.onboard, ExpenseCategory.define"
+   ],
+   [
+    "reimbursement.examples.yaml",
+    74,
+    "notice",
+    "coverage",
+    "no example takes 10 transitions of reimbursement, by its request, a step, a setup or a cascade it expects: AssistantAgent.retire, BusinessFunction.dissolve, ClaimLine.add, ClaimLine.discard, ClaimLine.erase, Employee.forget, Employee.leave, Employee.link_xero_contact, ExpenseCategory.change_policy_amount, ExpenseCategory.retire"
    ],
    [
     "reimbursement.yaml",
@@ -4989,7 +5045,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "service.examples.yaml",
@@ -5068,7 +5131,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "service.examples.yaml",
@@ -5147,7 +5217,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "service.examples.yaml",
@@ -5310,7 +5387,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "service.examples.yaml",
@@ -5389,7 +5473,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "service.examples.yaml",
@@ -5531,7 +5622,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "service.examples.yaml",
@@ -6101,7 +6199,14 @@
     17,
     "notice",
     "coverage",
-    "no example requests 9 transitions of inventory: InventoryItem.accept_return, InventoryItem.add, InventoryItem.cancel_delivery, InventoryItem.deliver_internally, InventoryItem.regrade, InventoryItem.release, InventoryItem.reserve, InventoryItem.retire, InventoryItem.return_to_stock"
+    "no example requests 3 transitions of inventory as the request under test, which only a setup, a step or an expected cascade takes: InventoryItem.add, InventoryItem.regrade, InventoryItem.reserve"
+   ],
+   [
+    "module.examples.yaml",
+    17,
+    "notice",
+    "coverage",
+    "no example takes 6 transitions of inventory, by its request, a step, a setup or a cascade it expects: InventoryItem.accept_return, InventoryItem.cancel_delivery, InventoryItem.deliver_internally, InventoryItem.release, InventoryItem.retire, InventoryItem.return_to_stock"
    ],
    [
     "module.examples.yaml",
@@ -6162,7 +6267,14 @@
     17,
     "notice",
     "coverage",
-    "no example requests 9 transitions of inventory: InventoryItem.accept_return, InventoryItem.add, InventoryItem.cancel_delivery, InventoryItem.deliver_internally, InventoryItem.regrade, InventoryItem.release, InventoryItem.reserve, InventoryItem.retire, InventoryItem.return_to_stock"
+    "no example requests 3 transitions of inventory as the request under test, which only a setup, a step or an expected cascade takes: InventoryItem.add, InventoryItem.regrade, InventoryItem.reserve"
+   ],
+   [
+    "module.examples.yaml",
+    17,
+    "notice",
+    "coverage",
+    "no example takes 6 transitions of inventory, by its request, a step, a setup or a cascade it expects: InventoryItem.accept_return, InventoryItem.cancel_delivery, InventoryItem.deliver_internally, InventoryItem.release, InventoryItem.retire, InventoryItem.return_to_stock"
    ],
    [
     "module.examples.yaml",
@@ -6362,7 +6474,14 @@
     43,
     "notice",
     "coverage",
-    "no example requests 8 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+    "no example requests 5 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, ChecklistItem.discard, Courier.register, Delivery.approve, Delivery.assign_courier"
+   ],
+   [
+    "module.examples.yaml",
+    43,
+    "notice",
+    "coverage",
+    "no example takes 3 transitions of delivery, by its request, a step, a setup or a cascade it expects: Approval.discard, Approval.record, Courier.retire"
    ],
    [
     "module.examples.yaml",
@@ -6443,7 +6562,14 @@
     43,
     "notice",
     "coverage",
-    "no example requests 8 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+    "no example requests 5 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, ChecklistItem.discard, Courier.register, Delivery.approve, Delivery.assign_courier"
+   ],
+   [
+    "module.examples.yaml",
+    43,
+    "notice",
+    "coverage",
+    "no example takes 3 transitions of delivery, by its request, a step, a setup or a cascade it expects: Approval.discard, Approval.record, Courier.retire"
    ],
    [
     "module.examples.yaml",
@@ -6630,7 +6756,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "module.examples.yaml",
@@ -6720,7 +6853,14 @@
     43,
     "notice",
     "coverage",
-    "no example requests 8 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+    "no example requests 5 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, ChecklistItem.discard, Courier.register, Delivery.approve, Delivery.assign_courier"
+   ],
+   [
+    "module.examples.yaml",
+    43,
+    "notice",
+    "coverage",
+    "no example takes 3 transitions of delivery, by its request, a step, a setup or a cascade it expects: Approval.discard, Approval.record, Courier.retire"
    ],
    [
     "module.examples.yaml",
@@ -6801,7 +6941,14 @@
     43,
     "notice",
     "coverage",
-    "no example requests 8 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+    "no example requests 5 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, ChecklistItem.discard, Courier.register, Delivery.approve, Delivery.assign_courier"
+   ],
+   [
+    "module.examples.yaml",
+    43,
+    "notice",
+    "coverage",
+    "no example takes 3 transitions of delivery, by its request, a step, a setup or a cascade it expects: Approval.discard, Approval.record, Courier.retire"
    ],
    [
     "module.examples.yaml",
@@ -6922,7 +7069,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "module.examples.yaml",
@@ -7001,7 +7155,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "module.examples.yaml",
@@ -7080,7 +7241,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "module.examples.yaml",
@@ -7159,7 +7327,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "module.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "module.examples.yaml",
@@ -7238,7 +7413,14 @@
     18,
     "notice",
     "coverage",
-    "no example requests 13 transitions of customers: Contact.add, Contact.discard, Contact.forget, Customer.activate, Customer.add_contact, Customer.lapse, Customer.link_xero, Customer.merged_into, Customer.register, Order.cancel, Order.fulfil, Order.invoice, Order.place"
+    "no example requests 5 transitions of customers as the request under test, which only a setup, a step or an expected cascade takes: Contact.forget, Customer.activate, Customer.add_contact, Customer.register, Order.place"
+   ],
+   [
+    "module.examples.yaml",
+    18,
+    "notice",
+    "coverage",
+    "no example takes 8 transitions of customers, by its request, a step, a setup or a cascade it expects: Contact.add, Contact.discard, Customer.lapse, Customer.link_xero, Customer.merged_into, Order.cancel, Order.fulfil, Order.invoice"
    ],
    [
     "module.examples.yaml",
@@ -7341,7 +7523,7 @@
    ],
    [
     "module.examples.yaml",
-    "edda031972026593"
+    "e763b02a2ee1e408"
    ]
   ],
   "previous": {},
@@ -7351,7 +7533,14 @@
     28,
     "notice",
     "coverage",
-    "no example requests 37 transitions of issues: Document.archive, Document.create, Document.revise, Document.submit, Epic.archive, Epic.done, Epic.start, Epic.to_do, Space.archive, Space.create, Sprint.complete_to_backlog, Sprint.create, Sprint.delete, Sprint.reopen, Subtask.archive, Subtask.create, Subtask.done, Subtask.start, Subtask.to_do, Version.archive, Version.create, Version.delete, Version.release, Version.release_moving_unresolved, Version.unarchive, Version.unrelease, WorkItem.add_subtask, WorkItem.assign_to_lead, WorkItem.assign_to_reporter, WorkItem.auto_resolve, WorkItem.edit, WorkItem.remove_label, WorkItem.set_fix_version, WorkItem.to_do, WorkItem.unplan, WorkItemLink.link, WorkItemLink.unlink"
+    "no example requests 9 transitions of issues as the request under test, which only a setup, a step or an expected cascade takes: Document.create, Document.revise, Document.submit, Space.create, Sprint.complete_to_backlog, Sprint.create, Subtask.archive, WorkItem.add_subtask, WorkItemLink.link"
+   ],
+   [
+    "module.examples.yaml",
+    28,
+    "notice",
+    "coverage",
+    "no example takes 27 transitions of issues, by its request, a step, a setup or a cascade it expects: Document.archive, Epic.archive, Epic.done, Epic.start, Epic.to_do, Space.archive, Sprint.delete, Sprint.reopen, Subtask.create, Subtask.done, Subtask.start, Subtask.to_do, Version.archive, Version.create, Version.delete, Version.release, Version.release_moving_unresolved, Version.unarchive, Version.unrelease, WorkItem.assign_to_lead, WorkItem.assign_to_reporter, WorkItem.auto_resolve, WorkItem.edit, WorkItem.remove_label, WorkItem.set_fix_version, WorkItem.to_do, WorkItem.unplan"
    ],
    [
     "module.examples.yaml",
@@ -7444,7 +7633,7 @@
    ],
    [
     "module.examples.yaml",
-    "405eb5656d8beb62"
+    "76ce5b0473575779"
    ]
   ],
   "previous": {},
@@ -7454,11 +7643,18 @@
     59,
     "notice",
     "coverage",
-    "no example requests 60 transitions of servicedesk: Alert.acknowledge, Alert.close, Alert.delete, Alert.link_incident, Alert.reopen, Alert.unacknowledge, Change.approve_peer, Change.archive, Change.cancel, Change.complete, Change.decline, Change.implement, Change.request, Change.roll_back, Change.submit_to_cab, ChangeWindow.schedule, ChangeWindow.withdraw, Incident.cancel, Incident.close, Incident.escalate, Incident.investigate, Incident.link_problem, Incident.open, Incident.pend, Incident.reopen, Incident.resolve, Incident.resume, Laptop.deploy, Laptop.dispose, Laptop.receive, Laptop.retire, Organization.archive, Organization.create, PartStock.release, PartStock.set_reorder_level, PostIncidentReview.archive, PostIncidentReview.draft, PostIncidentReview.publish, Problem.archive, Problem.cancel, Problem.complete, Problem.investigate, Problem.open, Problem.review, RegisteredService.register, RegisteredService.retire, Request.cancel, Request.customer_replies, Request.escalate, Request.pend, Request.prioritise, Request.reopen, Request.respond_to_customer, Request.resume, Request.share, Request.start, Server.deploy, Server.dispose, Server.name_host, Server.retire"
+    "no example requests 15 transitions of servicedesk as the request under test, which only a setup, a step or an expected cascade takes: Alert.close, Change.approve_peer, Change.request, Change.submit_to_cab, ChangeWindow.schedule, Incident.investigate, Incident.open, Incident.resolve, Laptop.deploy, Organization.create, PostIncidentReview.draft, RegisteredService.register, Request.customer_replies, Request.respond_to_customer, Request.start"
    ],
    [
     "module.examples.yaml",
-    332,
+    59,
+    "notice",
+    "coverage",
+    "no example takes 44 transitions of servicedesk, by its request, a step, a setup or a cascade it expects: Alert.acknowledge, Alert.delete, Alert.link_incident, Alert.reopen, Alert.unacknowledge, Change.archive, Change.cancel, Change.complete, Change.decline, Change.implement, Change.roll_back, ChangeWindow.withdraw, Incident.cancel, Incident.close, Incident.escalate, Incident.link_problem, Incident.pend, Incident.reopen, Incident.resume, Laptop.dispose, Laptop.retire, Organization.archive, PartStock.release, PartStock.set_reorder_level, PostIncidentReview.archive, PostIncidentReview.publish, Problem.archive, Problem.cancel, Problem.complete, Problem.investigate, Problem.open, Problem.review, RegisteredService.retire, Request.cancel, Request.escalate, Request.pend, Request.prioritise, Request.reopen, Request.resume, Request.share, Server.deploy, Server.dispose, Server.name_host, Server.retire"
+   ],
+   [
+    "module.examples.yaml",
+    339,
     "fatal",
     "example",
     "a_negative_receipt_is_refused: expected the remedy unreachable_from_here, and it is refused as invariant_violated reserved_bounded self_serviceable"
@@ -7751,7 +7947,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "7efe9af5bb972074"
+    "675a63b843277e15"
    ]
   ],
   "previous": {},
@@ -7787,7 +7983,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "aa6f7e72b63a3116"
+    "467cfb87ce865a11"
    ]
   ],
   "previous": {},
@@ -7860,7 +8056,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "ea770a4cf3d57186"
+    "5cb1d0c1080b736e"
    ]
   ],
   "previous": {},
@@ -8110,6 +8306,236 @@
     "notice",
     "audit",
     "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "example_rule_plants: a sequence raised that no module declares",
+  "files": [
+   [
+    "servicedesk.yaml",
+    "19a8c571343e553e"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    "db2a99657ce9ef5f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.examples.yaml",
+    302,
+    "fatal",
+    "names",
+    "raises the sequence asset_keys, which no module checked declares"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
+  }
+ },
+ {
+  "label": "example_rule_plants: a scope given to a sequence numbered in one series",
+  "files": [
+   [
+    "servicedesk.yaml",
+    "19a8c571343e553e"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    "7d618fd1ef665faa"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.examples.yaml",
+    302,
+    "fatal",
+    "names",
+    "raises asset_key in a scope, and asset_key numbers one series, with no scope"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
+  }
+ },
+ {
+  "label": "example_rule_plants: a scoped sequence raised with no scope",
+  "files": [
+   [
+    "servicedesk.yaml",
+    "e7e110542147bd5b"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    "87ab1e62756368ae"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.examples.yaml",
+    302,
+    "fatal",
+    "names",
+    "raises asset_key with no scope, and Asset.key numbers it in each value of service"
+   ],
+   [
+    "servicedesk.yaml",
+    719,
+    "fatal",
+    "names",
+    "Laptop.key is scoped by 'service', which not every creation of Laptop writes"
+   ],
+   [
+    "servicedesk.yaml",
+    731,
+    "fatal",
+    "names",
+    "Server.key is scoped by 'service', which not every creation of Server writes"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
+  }
+ },
+ {
+  "label": "example_rule_plants: a sequence's scope that is not an alias of its reference",
+  "files": [
+   [
+    "servicedesk.yaml",
+    "e7e110542147bd5b"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    "3c0dc3562123ca2a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.examples.yaml",
+    302,
+    "fatal",
+    "names",
+    "'scope' is a reference to RegisteredService, and 'nobody' is not an alias an earlier step gave one"
+   ],
+   [
+    "servicedesk.yaml",
+    719,
+    "fatal",
+    "names",
+    "Laptop.key is scoped by 'service', which not every creation of Laptop writes"
+   ],
+   [
+    "servicedesk.yaml",
+    731,
+    "fatal",
+    "names",
+    "Server.key is scoped by 'service', which not every creation of Server writes"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
+  }
+ },
+ {
+  "label": "example_rule_plants: objects named of a type the request does not create",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "issues.yaml",
+    "2fd1ee78c5ef09cb"
+   ],
+   [
+    "issues.examples.yaml",
+    "c8bcd1fcc86ae065"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "issues.examples.yaml",
+    179,
+    "fatal",
+    "names",
+    "names objects of Subtask WorkItem.clone creates, and its effect creates only WorkItem, WorkItemLink"
+   ],
+   [
+    "issues.examples.yaml",
+    180,
+    "fatal",
+    "names",
+    "requests Subtask.unlink, which Subtask does not declare"
+   ],
+   [
+    "issues.yaml",
+    236,
+    "notice",
+    "warn",
+    "under_wip_limit warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "issues.yaml",
+    237,
+    "notice",
+    "warn",
+    "not_blocked warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "issues.yaml",
+    256,
+    "notice",
+    "warn",
+    "reviewed_twice warns: a failure is reported with the result and refuses nothing"
    ]
   ],
   "analysed": {},
@@ -8775,7 +9201,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "service.examples.yaml",
@@ -9905,7 +10338,14 @@
     18,
     "notice",
     "coverage",
-    "no example requests 12 transitions of customers: Contact.add, Contact.discard, Contact.forget, Customer.activate, Customer.add_contact, Customer.lapse, Customer.link_xero, Customer.register, Order.cancel, Order.fulfil, Order.invoice, Order.place"
+    "no example requests 5 transitions of customers as the request under test, which only a setup, a step or an expected cascade takes: Contact.forget, Customer.activate, Customer.add_contact, Customer.register, Order.place"
+   ],
+   [
+    "customers.examples.yaml",
+    18,
+    "notice",
+    "coverage",
+    "no example takes 7 transitions of customers, by its request, a step, a setup or a cascade it expects: Contact.add, Contact.discard, Customer.lapse, Customer.link_xero, Order.cancel, Order.fulfil, Order.invoice"
    ]
   ],
   "analysed": {
@@ -10094,7 +10534,14 @@
     43,
     "notice",
     "coverage",
-    "no example requests 8 transitions of delivery: Approval.discard, Approval.record, ChecklistItem.check, ChecklistItem.discard, Courier.register, Courier.retire, Delivery.approve, Delivery.assign_courier"
+    "no example requests 5 transitions of delivery as the request under test, which only a setup, a step or an expected cascade takes: ChecklistItem.check, ChecklistItem.discard, Courier.register, Delivery.approve, Delivery.assign_courier"
+   ],
+   [
+    "delivery.examples.yaml",
+    43,
+    "notice",
+    "coverage",
+    "no example takes 3 transitions of delivery, by its request, a step, a setup or a cascade it expects: Approval.discard, Approval.record, Courier.retire"
    ],
    [
     "delivery.examples.yaml",
@@ -11582,7 +12029,14 @@
     19,
     "notice",
     "coverage",
-    "no example requests 3 transitions of service: InspectionCheck.add, InspectionCheck.retire, ServiceJob.forget"
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
    ],
    [
     "service.examples.yaml",

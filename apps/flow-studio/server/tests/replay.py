@@ -75,6 +75,8 @@ class Player:
                  read: Callable[[str], str | None] | None = None,
                  examples: str = ""):
         self.wire, self.now = wire, seconds_of(now)
+        # the types the modules declare, which the sandbox's load reports
+        self.declared: list[str] = []
         self.aliases: dict[str, str] = {OPERATOR: OPERATOR}
         self.types: dict[str, str] = {}
         self.decls: dict[str, dict] = {}
@@ -132,6 +134,17 @@ class Player:
         return v
 
     # ── a step ────────────────────────────────────────────────────────────
+    def scope_spec(self, sequence: str) -> dict | None:
+        """The attribute a sequence is scoped by, where an identifier minted
+        from it is scoped (`flow-format.md` §4.12)."""
+        for tn in self.declared:
+            attrs = self.decl(tn).get("attributes") or {}
+            for spec in attrs.values():
+                ident = (spec or {}).get("identifier") or {}
+                if ident.get("sequence") == sequence and ident.get("scope"):
+                    return attrs.get(ident["scope"])
+        return None
+
     def root(self, tn: str) -> str:
         """The type a family's legacy keys are qualified by: its farthest
         base, or itself (ADR-0154, C23)."""
@@ -156,11 +169,24 @@ class Player:
             k: v if "reference" in (specs.get(k) or {})
             else self.wire_value(v, specs.get(k))
             for k, v in (im.get("values") or {}).items()}
+        # each sequence raised past the legacy system's last number, in the
+        # scope written as its attribute's value is, a reference by its alias
+        # (`flow-format.md` §11.3, ADR-0173 decision 6)
+        sequences = []
+        for rs in im.get("sequences") or []:
+            raised = {"sequence": rs["sequence"], "last": rs["last"]}
+            if "scope" in rs:
+                scope = self.wire_value(rs["scope"],
+                                        self.scope_spec(rs["sequence"]))
+                raised["scope"] = scope if isinstance(scope, str) \
+                    else str(scope)
+            sequences.append(raised)
         r = self.wire.post("/v1/import_batch", {
             "actor": {"id": OPERATOR},
             "batch": {"objects": [{"type": tn, "legacy_key": key,
                                    "state": im["state"],
-                                   "attributes": attributes}]},
+                                   "attributes": attributes}],
+                      **({"sequences": sequences} if sequences else {})},
             "disposition": [], "dry_run": False})
         if r["refusal"]:
             raise Failed(f"the import of {key} is refused: "
@@ -253,7 +279,9 @@ class Player:
             elif "as" in r:
                 self.aliases[r["as"]] = v["object_id"]
                 self.types[v["object_id"]] = r["type"]
-            if r.get("creates"):
+            if isinstance(r.get("creates"), dict):
+                self.name_created_by_type(r["creates"], v)
+            elif r.get("creates"):
                 self.name_created(r["creates"], v)
         return v
 
@@ -277,6 +305,19 @@ class Player:
                          "they are of more than one type")
         for alias, oid in zip(names, made):
             self.aliases[alias] = oid
+
+    def name_created_by_type(self, named: dict[str, list[str]],
+                             v: dict) -> None:
+        """Alias the objects of each type the request created, in the order
+        it created them (`flow-format.md` §11.3, ADR-0173 decision 6)."""
+        made = [e["object_id"] for e in self.appended(v)[1:]
+                if e is not None and e["from_state"] is None]
+        for ct, names in named.items():
+            of = [m for m in made if self.type_of(m) == ct]
+            if len(names) > len(of):
+                raise Failed(f"a step names {len(names)} objects of {ct} its "
+                             f"request creates, and it creates {len(of)}")
+            self.aliases.update(zip(names, of))
 
     def caused(self, v: dict) -> list[str]:
         """The transitions a request caused, in the order each began: its
@@ -474,6 +515,7 @@ def replay(wire: Wire, module_file: str,
         now = wire.post("/sandbox/reset", {})["now"]
         p = Player(wire, now, read, (bundle.get("examples") or {}).get(
             "name", module_file.replace(".yaml", ".examples.yaml")))
+        p.declared = loaded["types"]
         try:
             parts = (chain(setups, ex["given"]) if "given" in ex else []) \
                 + [ex]

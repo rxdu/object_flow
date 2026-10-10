@@ -416,7 +416,7 @@ pub fn checked_reading(
                 .map(|(path, message)| (path, "schema".to_string(), message))
                 .collect();
         if errors.is_empty() {
-            let (named, requested) = examples::example_errors(doc, &library, &by_name);
+            let (named, requested, exercised) = examples::example_errors(doc, &library, &by_name);
             for ((tn, xn), names) in &requested {
                 out.examples
                     .entry(format!("{tn}.{xn}"))
@@ -425,19 +425,15 @@ pub fn checked_reading(
             }
             if named.is_empty() {
                 let module = doc::str_or(doc, "examples_for", "");
-                let left = examples::uncovered(&by_name[&module], &library, &requested);
-                if !left.is_empty() {
+                let (untaken, untested) =
+                    examples::uncovered(&by_name[&module], &library, &requested, &exercised);
+                for message in examples::coverage_notices(&module, &untaken, &untested) {
                     found.push(Finding {
                         file: file.clone(),
                         line: node.line_at(&[crate::yaml::Seg::Key("examples".into())]),
                         severity: Severity::Notice,
                         code: "coverage".into(),
-                        message: format!(
-                            "no example requests {} transition{} of {module}: {}",
-                            left.len(),
-                            if left.len() == 1 { "" } else { "s" },
-                            left.join(", ")
-                        ),
+                        message,
                     });
                 }
             }

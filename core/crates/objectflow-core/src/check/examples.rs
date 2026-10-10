@@ -6,6 +6,7 @@
 //! actor the store holds, and each expectation names a verdict the request
 //! can give, with the clause and remedy the rules declare.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
@@ -22,6 +23,11 @@ use super::view::bases;
 /// Each transition an examples file's examples request, as its type and
 /// name, with the examples that request it, in the order written.
 pub type Requested = BTreeMap<(String, String), Vec<String>>;
+
+/// Each transition a setup's or an example's step takes, or an
+/// expectation's `cascaded` names, which the coverage notice tells apart
+/// from those requested under test (ADR-0173 decision 6).
+pub type Exercised = BTreeSet<(String, String)>;
 
 const EXAMPLES_ORDER: &[&str] = &["examples_for", "setups", "examples"];
 const GENERATED_GUARDS: &[&str] = &[
@@ -77,6 +83,8 @@ struct Checker {
     enums: BTreeMap<String, BTreeSet<String>>,
     functions: BTreeSet<String>,
     machines: BTreeSet<String>,
+    sequences: BTreeSet<String>,
+    exercised: RefCell<Exercised>,
     out: Found,
 }
 
@@ -342,42 +350,94 @@ impl Checker {
         )
     }
 
-    /// The types a transition's effect creates, through its loops and the
-    /// creations it makes.
-    fn created_types(&self, x: &Value, seen: &mut BTreeSet<(String, String)>) -> BTreeSet<String> {
+    /// The types a transition's effect creates at any depth: through its
+    /// loops, the creations it makes and the transitions it calls, each of
+    /// which may create in turn (`flow-format.md` §11.3, ADR-0173 decision
+    /// 6).
+    fn created_types(
+        &self,
+        tn: &str,
+        x: &Value,
+        seen: &mut BTreeSet<(String, String)>,
+    ) -> BTreeSet<String> {
         let mut out = BTreeSet::new();
-        fn walk(
-            c: &Checker,
-            steps: &[Value],
-            seen: &mut BTreeSet<(String, String)>,
-            out: &mut BTreeSet<String>,
-        ) {
-            for st in steps {
-                let first = super::doc::as_obj(st)
-                    .keys()
-                    .next()
-                    .cloned()
-                    .unwrap_or_default();
-                if first == "create" {
-                    let body = &st["create"];
-                    let (ct, cx) = (str_or(body, "type", ""), str_or(body, "transition", ""));
+        let t = self.kinds.get(tn).cloned().unwrap_or(Value::Null);
+        for step in super::steps::walk(x.get("effect")) {
+            let body = step.body();
+            let next = match step.kind {
+                "create" => {
+                    let ct = str_or(body, "type", "");
                     out.insert(ct.clone());
-                    if seen.insert((ct.clone(), cx.clone())) {
-                        let x = c
-                            .kinds
-                            .get(&ct)
-                            .and_then(|t| obj(t, "transitions").get(&cx))
-                            .cloned()
-                            .unwrap_or(Value::Null);
-                        out.extend(c.created_types(&x, seen));
-                    }
-                } else if first == "foreach" {
-                    walk(c, list(&st["foreach"], "steps"), seen, out);
+                    (ct, str_or(body, "transition", ""))
+                }
+                "call" => {
+                    let env = super::names::binders(&self.kinds, tn, x, &step.path);
+                    let Some(k) = super::names::call_target(&self.kinds, &t, tn, x, body, &env)
+                    else {
+                        continue;
+                    };
+                    (k, str_or(body, "transition", ""))
+                }
+                _ => continue,
+            };
+            if seen.insert(next.clone()) {
+                let called = self
+                    .kinds
+                    .get(&next.0)
+                    .and_then(|t| obj(t, "transitions").get(&next.1))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                out.extend(self.created_types(&next.0, &called, seen));
+            }
+        }
+        out
+    }
+
+    /// A sequence an import raises is one the modules declare, given the
+    /// scope it was minted in where it is scoped, and none where it is not
+    /// (`flow-format.md` §11.3, `publish-and-import.md` §4).
+    fn raise_errors(&self, rs: &Value, env: &BTreeMap<String, String>, at: &Path) -> Found {
+        let seq = str_or(rs, "sequence", "");
+        if !self.sequences.contains(&seq) {
+            return vec![finding(
+                ext(at, segs!["sequence"]),
+                "names",
+                format!("raises the sequence {seq}, which no module checked declares"),
+            )];
+        }
+        let mut scoped: Vec<(String, String, String)> = Vec::new();
+        for (tn, t) in &self.kinds {
+            for (a, spec) in obj(t, "attributes") {
+                let ident = spec.get("identifier").unwrap_or(&Value::Null);
+                let scope = str_or(ident, "scope", "");
+                if str_or(ident, "sequence", "") == seq && !scope.is_empty() {
+                    scoped.push((tn.clone(), a.clone(), scope));
                 }
             }
         }
-        walk(self, list(x, "effect"), seen, &mut out);
-        out
+        scoped.sort();
+        match (rs.get("scope"), scoped.first()) {
+            (Some(_), None) => vec![finding(
+                ext(at, segs!["scope"]),
+                "names",
+                format!("raises {seq} in a scope, and {seq} numbers one series, with no scope"),
+            )],
+            (None, Some((tn, a, scope))) => vec![finding(
+                at.clone(),
+                "names",
+                format!(
+                    "raises {seq} with no scope, and {tn}.{a} numbers it in each value of {scope}"
+                ),
+            )],
+            (Some(v), Some((tn, _, scope))) => {
+                let spec = self
+                    .kinds
+                    .get(tn)
+                    .and_then(|t| obj(t, "attributes").get(scope));
+                self.value_errors(v, spec, env, &ext(at, segs!["scope"]), "scope")
+            }
+            (None, None) => Vec::new(),
+        }
     }
 
     /// A decision names a proposal an earlier step filed, as an actor the
@@ -453,6 +513,19 @@ impl Checker {
                 .find(|v| st.get(*v).is_some())
             {
                 errs.extend(self.decision_errors(&st[verb], env, &ext(&here, segs![verb])));
+                let filed = env
+                    .get(&str_or(&st[verb], "proposal", ""))
+                    .cloned()
+                    .unwrap_or_default();
+                if verb == "approve"
+                    && let Some((tn, xn)) = filed
+                        .strip_prefix("Proposal:")
+                        .and_then(|l| l.split_once('.'))
+                {
+                    self.exercised
+                        .borrow_mut()
+                        .insert((tn.to_string(), xn.to_string()));
+                }
                 continue;
             }
             if let Some(r) = st.get("request") {
@@ -460,6 +533,9 @@ impl Checker {
                 let (e, found) = self.request_errors(r, env, &at_r, true);
                 errs.extend(e);
                 let Some(f) = found else { continue };
+                self.exercised
+                    .borrow_mut()
+                    .insert((f.tn.clone(), str_or(r, "transition", "")));
                 let left: Vec<String> = f.missing.iter().chain(&f.unprovided).cloned().collect();
                 if !left.is_empty() {
                     let plural = if left.len() > 1 { "s" } else { "" };
@@ -479,8 +555,46 @@ impl Checker {
                     }
                     env.insert(alias, f.tn.clone());
                 }
-                if flag(r, "creates") {
-                    let made = self.created_types(&f.x, &mut BTreeSet::new());
+                if let Some(Value::Object(named)) = r.get("creates") {
+                    // a mapping from each type to the aliases of its objects
+                    // (flow-format.md §11.3, ADR-0173 decision 6)
+                    let made = self.created_types(&f.tn, &f.x, &mut BTreeSet::new());
+                    for (ct, aliases) in named {
+                        if !made.contains(ct) {
+                            let what = if made.is_empty() {
+                                "none".to_string()
+                            } else {
+                                format!(
+                                    "only {}",
+                                    made.iter().cloned().collect::<Vec<_>>().join(", ")
+                                )
+                            };
+                            errs.push(finding(
+                                ext(&at_r, segs!["creates", ct]),
+                                "names",
+                                format!(
+                                    "names objects of {ct} {}.{} creates, and its effect creates {what}",
+                                    f.tn,
+                                    str_or(r, "transition", "")
+                                ),
+                            ));
+                        }
+                        for alias in aliases.as_array().into_iter().flatten().map(py_str) {
+                            if env.contains_key(&alias)
+                                || alias == "operator"
+                                || r.get("as").map(py_str).as_deref() == Some(alias.as_str())
+                            {
+                                errs.push(finding(
+                                    ext(&at_r, segs!["creates"]),
+                                    "names",
+                                    format!("'{alias}' is already an alias"),
+                                ));
+                            }
+                            env.insert(alias, ct.clone());
+                        }
+                    }
+                } else if flag(r, "creates") {
+                    let made = self.created_types(&f.tn, &f.x, &mut BTreeSet::new());
                     if made.len() != 1 {
                         let what = if made.is_empty() {
                             "none".to_string()
@@ -564,6 +678,9 @@ impl Checker {
                 ));
             }
             env.insert(alias, tn);
+            for (j, rs) in list(im, "sequences").iter().enumerate() {
+                errs.extend(self.raise_errors(rs, env, &ext(&ai, segs!["sequences", j])));
+            }
         }
         errs
     }
@@ -594,7 +711,7 @@ pub fn example_errors(
     doc: &Value,
     library: &Obj,
     modules: &BTreeMap<String, Value>,
-) -> (Found, Requested) {
+) -> (Found, Requested, Exercised) {
     let module = str_or(doc, "examples_for", "");
     if !modules.contains_key(&module) {
         return (
@@ -604,6 +721,7 @@ pub fn example_errors(
                 format!("examples for {module}, which is not among the modules checked"),
             )],
             Requested::new(),
+            Exercised::new(),
         );
     }
     // an observation kind is recorded by its generated creation, `record`
@@ -683,11 +801,17 @@ pub fn example_errors(
         })
         .collect();
     let machines: BTreeSet<String> = modules.values().flat_map(|m| keys(m, "machines")).collect();
+    let sequences: BTreeSet<String> = modules
+        .values()
+        .flat_map(|m| keys(m, "sequences"))
+        .collect();
     let mut c = Checker {
         kinds,
         enums,
         functions,
         machines,
+        sequences,
+        exercised: RefCell::new(Exercised::new()),
         out: Found::new(),
     };
     let setups = obj(doc, "setups").clone();
@@ -884,7 +1008,8 @@ pub fn example_errors(
             &ext(&at, segs!["expect"]),
         );
     }
-    (c.out, requested)
+    let exercised = c.exercised.take();
+    (c.out, requested, exercised)
 }
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -992,6 +1117,10 @@ fn expect_errors(
                     "names",
                     format!("{cc} names no transition a module checked declares"),
                 ));
+            } else {
+                c.exercised
+                    .borrow_mut()
+                    .insert((ct.to_string(), cx.to_string()));
             }
         }
         for w in strings(want, "warned") {
@@ -1167,21 +1296,60 @@ fn expect_errors(
     }
 }
 
-/// The transitions of the examined module's types that no example requests,
+/// The transitions of the examined module's types that no example requests
+/// under test, in two lists: those no example takes at all, and those a
+/// setup, a step or an expected cascade takes (ADR-0173 decision 6);
 /// a bound machine's counted for each type that binds it.
-pub fn uncovered(mdoc: &Value, kinds: &Obj, requested: &Requested) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
+pub fn uncovered(
+    mdoc: &Value,
+    kinds: &Obj,
+    requested: &Requested,
+    exercised: &Exercised,
+) -> (Vec<String>, Vec<String>) {
+    let (mut untaken, mut untested) = (Vec::new(), Vec::new());
     for tn in keys(mdoc, "types") {
         let Some(t) = kinds.get(&tn) else { continue };
         if flag(t, "abstract") {
             continue;
         }
         for xn in keys(t, "transitions") {
-            if !requested.contains_key(&(tn.clone(), xn.clone())) {
-                out.push(format!("{tn}.{xn}"));
+            let key = (tn.clone(), xn.clone());
+            if requested.contains_key(&key) {
+                continue;
+            }
+            if exercised.contains(&key) {
+                untested.push(format!("{tn}.{xn}"));
+            } else {
+                untaken.push(format!("{tn}.{xn}"));
             }
         }
     }
-    out.sort();
+    untaken.sort();
+    untested.sort();
+    (untaken, untested)
+}
+
+/// The coverage notice's two parts, each where it names a transition
+/// (`flow-format.md` §11.5).
+pub fn coverage_notices(module: &str, untaken: &[String], untested: &[String]) -> Vec<String> {
+    let n = |left: &[String]| {
+        let s = if left.len() == 1 { "" } else { "s" };
+        format!("{} transition{s} of {module}", left.len())
+    };
+    let mut out = Vec::new();
+    if !untaken.is_empty() {
+        out.push(format!(
+            "no example takes {}, by its request, a step, a setup or a cascade it expects: {}",
+            n(untaken),
+            untaken.join(", ")
+        ));
+    }
+    if !untested.is_empty() {
+        out.push(format!(
+            "no example requests {} as the request under test, which only a setup, a step or an expected cascade takes: {}",
+            n(untested),
+            untested.join(", ")
+        ));
+    }
     out
 }
