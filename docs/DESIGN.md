@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 560 entries and five cosmetics; 556 are closed and 4 are open. The PRD is at revision 21, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 560 entries and five cosmetics; 557 are closed and 3 are open. The PRD is at revision 21, with no revision awaiting the author.
 
 **Every ADR is accepted or superseded.** In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
@@ -314,7 +314,7 @@ Not in the language of guards, invariants and derived attributes: grouped aggreg
 Every request names an **actor**, and optionally the principal it acts for, as the upper layer's authentication has decided (ADR-0025, ADR-0110). ObjectFlow authenticates nothing and **evaluates no actor**: no guard, invariant, derivation, filter or metric reads who is asking. Who may make a request, and what a read may return to whom, are decided by upper-layer applications (PRD N7, T5, ADR-0114).
 
 The engine records who acted:
-- **An actor's kind is declared, not sent.** A type that holds actors marks one `identity` attribute `actor human`, `actor agent` or `actor service`, and a request's actor is the object whose actor identity the request names, with its type's kind (ADR-0110).
+- **An actor's kind is declared, not sent.** A type that holds actors marks one `identity` attribute `actor human`, `actor agent` or `actor service`, and a request's actor is the object whose actor identity the request names, or the object whose id it names, the id resolved first, with its type's kind (ADR-0110, ADR-0173).
 - **An unknown actor is refused.** A request whose actor, or principal, names no such object is refused, naming the generated clause `actor_known`, remedy `dependent`, and no object, since the one it needs does not exist (§5.5), so every event names someone the record can resolve (§6). Whether the actor's object is in a closed or final state is not checked: revoking a departed user's session is the upper layer's, and the record shows who acted if it was not revoked. Its attempt is logged with the identity the request named, under the actor's kind where only the principal is unknown and otherwise under `unknown`, so a caller naming actors the store does not know shows in the refusal counts (ADR-0125).
 - **One identity, one actor.** An actor identity names one actor across every such type and is never reused, so history's attribution stays unambiguous.
 - **No roles.** A declaration holds no role, the requester's or anyone else's: who may be assigned which work, like who may act, is the upper layer's, and a type holding actors records only who they are and their kind (ADR-0114 §9).

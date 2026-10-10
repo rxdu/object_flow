@@ -261,7 +261,7 @@ class Sandbox:
         for k in UNSUPPORTED:
             if body.get(k) is not None:
                 raise not_run(f"a request's {k}")
-        actor = (body.get("actor") or {}).get("id")
+        actor = self.who(body)
         xn = body.get("transition")
         if not actor or not xn:
             raise Fault(400, "a request names its transition and its actor")
@@ -345,7 +345,7 @@ class Sandbox:
         if change not in s.objects or \
                 s.objects[change].type != flowrun.DECLARATION_CHANGE:
             raise Fault(404, f"no change {change}")
-        actor = body["actor"]["id"]
+        actor = self.who(body)
         if body.get("dry_run") is True:
             try:
                 report = flowpublish.dry_run(s, change, flows, actor)
@@ -377,6 +377,21 @@ class Sandbox:
             self.written = written(modules)
             verdict = self.satisfied(("applied", change, [], []), tn, before)
         return {"verdict": verdict, "report": report}
+
+    def who(self, body: dict) -> str | None:
+        """The wire's actor as the runner names actors, by object id: an
+        object's id taken as it is, else the object holding it as its actor
+        identity, the earliest on a tie, as the core resolves one (ADR-0173
+        decision 13, `DESIGN.md` §5.8); a name neither resolves is passed on,
+        for the runner to refuse as actor_known."""
+        named = (body.get("actor") or {}).get("id")
+        s = self.store
+        if not named or named in s.objects:
+            return named
+        held = [o for o in s.objects.values()
+                if (s.actor_attr(o.type) or (None,))[0] is not None
+                and o.attrs.get(s.actor_attr(o.type)[0]) == named]
+        return min(held, key=lambda o: o.id_order).id if held else named
 
     def inputs(self, tn: str | None, xn: str, given: dict | None) -> dict:
         """A request's inputs from the wire, as the runner reads an
@@ -621,7 +636,7 @@ class Sandbox:
         """What each requestable transition of an object offers its actor
         now (`library-api.md` §5, ADR-0152)."""
         self.loaded()
-        actor = (body.get("actor") or {}).get("id")
+        actor = self.who(body)
         oid = body.get("id")
         if not actor or not oid:
             raise Fault(400, "availability names its actor and an object's id")

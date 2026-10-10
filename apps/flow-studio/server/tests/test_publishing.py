@@ -1281,6 +1281,30 @@ def test_an_offer_says_it_depends_on_who_takes_it_alike(tee):
     alike(tee)
 
 
+def test_an_actor_is_named_by_identity_or_id_alike(tee):
+    """A request names its actor by the object's id or by the actor
+    identity it holds, the id resolved first, through both backends alike
+    (ADR-0173 decision 13, D560): the runner's wire refused an identity
+    as actor_known, which the core took."""
+    loaded(tee, "reimbursement.yaml")
+    tee.found.clear()
+    emp = tee.post("/v1/request", {"type": "Employee", "transition": "onboard",
+                                   "actor": OP, "inputs": {"user_id": "alice@corp"}})
+    for who in ("alice@corp", emp["object_id"]):
+        v = tee.post("/v1/request", {"type": "Claim", "transition": "draft",
+                                     "actor": {"id": who},
+                                     "inputs": {"claimant": emp["object_id"],
+                                                "title": "Taxis"}})
+        assert v["kind"] == "satisfied", (who, v)
+    nobody = tee.post("/v1/request", {"type": "Claim", "transition": "draft",
+                                      "actor": {"id": "bob@corp"},
+                                      "inputs": {"claimant": emp["object_id"],
+                                                 "title": "Taxis"}})
+    assert (nobody["kind"], nobody.get("clause")) == ("unsatisfied",
+                                                      "actor_known"), nobody
+    alike(tee)
+
+
 def test_a_derived_amount_summed_over_nothing_is_its_currencys_zero(tee):
     """A claim with no lines has a total summed over nothing, which is the
     zero of the amount its lines would sum, at the currency's minor unit,

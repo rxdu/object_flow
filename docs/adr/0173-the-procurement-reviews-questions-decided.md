@@ -23,7 +23,7 @@ Two agents new to ObjectFlow built a procurement flow and an application against
 10. **Agent tools are generated.** An operation renders `renderers.md` §3's tool schemas from the declaration, for an actor kind, leaving out the transitions an invariant over the recorded kind refuses it (decision 1); the README speaks of it in the present tense only once it exists.
 11. **A file's wire form is an object**, `{"hash": "sha256:<hex>", "size": <bytes>, "media_type": "<type>"}`, as `DESIGN.md` §5.2 describes a file attribute; its provenance is its event's, and a string is refused (D559).
 12. **A read of an object that does not exist answers `null`**, on `get`, `history` and `availability` alike, as `library-api.md` §5 types `get` (`Object | None`), and a request for one is the verdict `not_found`; every `4xx` and `5xx` carries a JSON `fault`, and a key an operation does not take is a `400` fault (D555).
-13. **A request names its actor by its actor identity or by its object's id**, the identity resolved first, as both backends' callers already do with ids and `DESIGN.md` §5.8 does with identities (D560); a reference input names an object by its id.
+13. **A request names its actor by its actor identity or by its object's id**, as both backends' callers already do with ids and `DESIGN.md` §5.8 does with identities (D560); a reference input names an object by its id. *Amended 2026-10-10 while building it:* the object's id is resolved first, then the identity, as the core already did: an id is found directly and an identity only by the actor types' identities, and the two collide only where an identity is written as an object's id is.
 
 ## Alternatives rejected
 
