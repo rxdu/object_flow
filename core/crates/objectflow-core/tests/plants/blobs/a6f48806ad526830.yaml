@@ -1,0 +1,23 @@
+examples_for: supply
+
+setups:
+  a_quote:
+    description: A supplier the ERP sent, and its quote.
+    steps:
+      - import: { type: Supplier, as: acme, state: ACTIVE, values: { code: S-1, name: Acme } }
+      - request: { type: Quote, transition: receive, as: quote, inputs: { supplier: acme, amount: 100 } }
+
+examples:
+  a_trading_suppliers_quote_is_accepted:
+    description: The supplier may trade, so its quote is accepted.
+    given: a_quote
+    request: { object: quote, transition: accept }
+    expect: { verdict: applied, state: ACCEPTED }
+
+  a_supplier_the_erp_blocks_after_it_quoted:
+    description: The ERP blocks the supplier after it quoted; the next import refreshes this store's copy, and the quote is no longer accepted.
+    given: a_quote
+    steps:
+      - import: { type: Carrier, as: acme, state: ACTIVE, values: { code: C-1 } }
+    request: { object: quote, transition: accept }
+    expect: { verdict: unsatisfied, clause: supplier_trading, remedy: dependent }

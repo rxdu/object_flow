@@ -4336,9 +4336,14 @@ def example_errors(doc, kinds, modules):
                 for k, v in (im.get("values") or {}).items():
                     errs += ([(here + ("import", "values", k), "names", f"{tn} declares no attribute '{k}'")] if k not in attrs
                              else value_errors(v, attrs[k], env, here + ("import", "values", k), k))
-                if im["as"] in env or im["as"] == "operator":
+                given = env.get(IMPORTED + im["as"])
+                if given is not None and given != tn:
+                    errs.append((here + ("import", "as"), "names", f"'{im['as']}' is an alias an import gave a {given}, "
+                                                                   f"and a refresh imports its object as its own type"))
+                elif given is None and (im["as"] in env or im["as"] == "operator"):
                     errs.append((here + ("import", "as"), "names", f"'{im['as']}' is already an alias"))
-                env[im["as"]] = tn
+                # an alias an import gives may be imported again, a refresh of its object (ADR-0176 decision 4)
+                env[im["as"]] = env[IMPORTED + im["as"]] = tn
                 for j, rs in enumerate(im.get("sequences") or []):
                     errs += raise_errors(rs, env, here + ("import", "sequences", j))
         return errs
@@ -6264,6 +6269,101 @@ def taken_by_plants():
     return ok
 
 
+SUPPLY_FLOW = """module: supply
+categories: [live, closed]
+
+types:
+  Supplier:
+    description: A supplier as the ERP records it; only the import writes it.
+    mirror: true
+    tracking: record
+    attributes:
+      code: { type: string, external: erp }
+      name: { type: string, optional: true }
+    states:
+      ACTIVE:  { description: Trading., category: live }
+      BLOCKED: { description: Blocked by the ERP., category: live }
+      CLOSED:  { description: No longer a supplier., category: closed, final: true }
+
+  Quote:
+    description: A supplier's quote, accepted while the supplier may trade.
+    tracking: record
+    attributes:
+      supplier: { reference: Supplier }
+      amount:   { type: int }
+    states:
+      OPEN:     { description: Received., category: live }
+      ACCEPTED: { description: Accepted., category: closed, final: true }
+    conditions:
+      supplier_trading:
+        description: The ERP has not blocked the supplier.
+        expression: supplier.state == Supplier.ACTIVE
+        remedy: dependent
+    transitions:
+      receive: { kind: initial, to: OPEN, required_inputs: [supplier, amount] }
+      accept:  { kind: external, from: OPEN, to: ACCEPTED, guards: { supplier_trading: deny } }
+"""
+
+SUPPLY_EXAMPLES = """examples_for: supply
+
+setups:
+  a_quote:
+    description: A supplier the ERP sent, and its quote.
+    steps:
+      - import: { type: Supplier, as: acme, state: ACTIVE, values: { code: S-1, name: Acme } }
+      - request: { type: Quote, transition: receive, as: quote, inputs: { supplier: acme, amount: 100 } }
+
+examples:
+  a_trading_suppliers_quote_is_accepted:
+    description: The supplier may trade, so its quote is accepted.
+    given: a_quote
+    request: { object: quote, transition: accept }
+    expect: { verdict: applied, state: ACCEPTED }
+
+  a_supplier_the_erp_blocks_after_it_quoted:
+    description: The ERP blocks the supplier after it quoted; the next import refreshes this store's copy, and the quote is no longer accepted.
+    given: a_quote
+    steps:
+      - import: { type: Supplier, as: acme, state: BLOCKED, values: { name: Acme Ltd }, after: 1 day }
+    request: { object: quote, transition: accept }
+    expect: { verdict: unsatisfied, clause: supplier_trading, remedy: dependent }
+"""
+
+
+def refresh_plants():
+    """An example's import naming an alias an earlier import gave refreshes that object, as import_batch refreshes an
+    object it holds by its legacy key: clean, the refresh blocking a supplier's quote; an import naming an alias a
+    request gave, one refreshing an imported alias as another type, and an example expecting the quote accepted after
+    the refresh, each caught (ADR-0176 decision 4)."""
+    ok = True
+    found, _notes = check([("supply.yaml", SUPPLY_FLOW), ("supply.examples.yaml", SUPPLY_EXAMPLES)])
+    ok &= not found
+    print(f"  an import refreshing what an earlier one gave: {'clean' if not found else [x[4][:80] for x in found]}")
+    carrier = SUPPLY_FLOW.replace("  Quote:\n", "  Carrier:\n    description: A carrier as the ERP records it.\n"
+                                  "    mirror: true\n    tracking: record\n    attributes:\n"
+                                  "      code: { type: string, external: erp }\n    states:\n"
+                                  "      ACTIVE: { description: Trading., category: live }\n"
+                                  "      CLOSED: { description: Gone., category: closed, final: true }\n\n  Quote:\n")
+    cases = [
+        ("an import naming an alias a request gave", SUPPLY_FLOW, SUPPLY_EXAMPLES.replace(
+            "      - import: { type: Supplier, as: acme, state: BLOCKED, values: { name: Acme Ltd }, after: 1 day }",
+            "      - import: { type: Supplier, as: quote, state: BLOCKED, values: { code: S-2 } }"), "names"),
+        ("an imported alias refreshed as another type", carrier, SUPPLY_EXAMPLES.replace(
+            "      - import: { type: Supplier, as: acme, state: BLOCKED, values: { name: Acme Ltd }, after: 1 day }",
+            "      - import: { type: Carrier, as: acme, state: ACTIVE, values: { code: C-1 } }"), "names"),
+        ("the quote expected accepted after the refresh", SUPPLY_FLOW, SUPPLY_EXAMPLES.replace(
+            "    expect: { verdict: unsatisfied, clause: supplier_trading, remedy: dependent }",
+            "    expect: { verdict: applied, state: ACCEPTED }"), "example"),
+    ]
+    for name, text, examples, code in cases:
+        assert examples != SUPPLY_EXAMPLES and (code != "names" or name.startswith("an import") or text != SUPPLY_FLOW), name
+        found, _notes = check([("supply.yaml", text), ("supply.examples.yaml", examples)])
+        hit = [x for x in found if x[3] == code]
+        ok &= bool(hit)
+        print(f"  planted {name}: {'caught by ' + code if hit else 'MISSED ' + str(found[:2])}")
+    return ok
+
+
 def identity_plants():
     """An approval recorded from who acts sets what a state requires, and a metric by the identity it records reads
     in an example by that identity, where it is also an alias, clean and passing; one expecting another approver
@@ -7262,6 +7362,7 @@ def digest_self_test():
 
 # ── the checks the self-test makes, exported for the core (ADR-0156 decision 4) ──
 PLANTS = ROOT / "core/crates/objectflow-core/tests/plants"
+IMPORTED = " imported "   # before an alias: the type the import that gave it wrote, so a later import may refresh it
 PUBLISHED = " published"   # the aliases' mark of a `publish` step, after which nothing is checked here: no alias
                            # has a space
 RECORDED = []      # each check the run makes: its label, files, previous versions, findings, step 5's counts and the files
@@ -7457,6 +7558,7 @@ def main():
     ok &= present_path_plants()
     ok &= identity_plants()
     ok &= taken_by_plants()
+    ok &= refresh_plants()
     ok &= conversion_self_test()
     ok &= decimal_plant(people)
     ok &= cutover_plant(people)

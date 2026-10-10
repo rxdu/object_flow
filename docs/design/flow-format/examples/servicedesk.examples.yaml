@@ -319,6 +319,14 @@ examples:
     request: { object: dana, transition: forget, inputs: { reason: Asked to be forgotten } }
     expect: { verdict: applied, state: LEFT, values: { name: null, department: Finance } }
 
+  the_hr_system_moves_an_employee:
+    description: The HR system moves Dana to Operations, and the next import refreshes this store's copy of her, so erasing her name keeps the department she is in now.
+    steps:
+      - import: { type: Employee, as: dana, state: EMPLOYED, values: { employee_id: E-1001, name: Dana Lee, department: Finance } }
+      - import: { type: Employee, as: dana, state: EMPLOYED, values: { department: Operations }, after: 1 day }
+    request: { object: dana, transition: forget, inputs: { reason: Asked to be forgotten } }
+    expect: { verdict: applied, state: EMPLOYED, values: { name: null, department: Operations } }
+
   a_stock_opens_empty:
     description: A new stock has none on hand, none reserved, and reorders at five.
     request: { type: PartStock, transition: open, inputs: { part_number: PSU-500 } }

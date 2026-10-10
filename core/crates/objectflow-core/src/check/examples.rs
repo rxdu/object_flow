@@ -670,13 +670,25 @@ impl Checker {
                 }
             }
             let alias = str_or(im, "as", "");
-            if env.contains_key(&alias) || alias == "operator" {
-                errs.push(finding(
+            match env.get(&format!("{IMPORTED}{alias}")) {
+                Some(given) if *given != tn => errs.push(finding(
+                    ext(&ai, segs!["as"]),
+                    "names",
+                    format!(
+                        "'{alias}' is an alias an import gave a {given}, and a refresh imports its object as its own type"
+                    ),
+                )),
+                Some(_) => {}
+                None if env.contains_key(&alias) || alias == "operator" => errs.push(finding(
                     ext(&ai, segs!["as"]),
                     "names",
                     format!("'{alias}' is already an alias"),
-                ));
+                )),
+                None => {}
             }
+            // an alias an import gives may be imported again, a refresh of
+            // its object (ADR-0176 decision 4)
+            env.insert(format!("{IMPORTED}{alias}"), tn.clone());
             env.insert(alias, tn);
             for (j, rs) in list(im, "sequences").iter().enumerate() {
                 errs.extend(self.raise_errors(rs, env, &ext(&ai, segs!["sequences", j])));
@@ -706,6 +718,9 @@ impl Checker {
 /// The aliases' mark of a `publish` step, after which nothing is checked
 /// here; no alias has a space.
 const PUBLISHED: &str = " published";
+/// Before an alias: the type the import that gave it wrote, so a later
+/// import may refresh it (ADR-0176 decision 4).
+const IMPORTED: &str = " imported ";
 
 pub fn example_errors(
     doc: &Value,

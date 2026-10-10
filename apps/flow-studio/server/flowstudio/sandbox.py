@@ -480,9 +480,10 @@ class Sandbox:
         return tn
 
     def import_batch(self, body: dict) -> dict:
-        """New objects of mirror types with an empty disposition file, which
-        is all an example's import is; the rest of the import, its classes,
-        refreshes and legacy history, is the core's (ADR-0154 decision 8)."""
+        """Objects of mirror types with an empty disposition file, new or
+        refreshed by their legacy keys, which is all an example's import is
+        (ADR-0176 decision 4); the rest of the import, its classes and legacy
+        history, is the core's (ADR-0154 decision 8)."""
         self.loaded()
         batch = body.get("batch") or {}
         if not (body.get("actor") or {}).get("id"):
@@ -511,7 +512,7 @@ class Sandbox:
             if tn in kinds and not kinds[tn].get("mirror") \
                     and tn not in report["refused_types"]:
                 report["refused_types"].append(tn)
-        backup, made = copy.deepcopy(self.store), {}
+        backup, made, seen = copy.deepcopy(self.store), {}, set()
 
         def refused(o: dict, why: str) -> dict:
             self.store = backup
@@ -528,10 +529,9 @@ class Sandbox:
                 if o.get(k):
                     raise not_run(f"an import's {k}")
             qualified = ("legacy", f"{self.root(tn)}:{key}")
-            if qualified in self.legacy:
-                raise not_run("a refresh of an object already imported")
-            if qualified in made:
+            if qualified in seen:
                 return refused(o, "its legacy key appears twice in the batch")
+            seen.add(qualified)
             specs = (kinds.get(tn) or {}).get("attributes") or {}
             given: dict[str, Any] = {}
             for k, v in (o.get("attributes") or {}).items():
@@ -551,12 +551,21 @@ class Sandbox:
                 else:
                     given[k] = values.decode_input(v, spec, self.runner.enums) \
                         if spec else v
+            held = self.legacy.get(qualified)
+            position = self.store.position
             try:
-                made[qualified] = flowrun.import_object(
-                    self.runner, self.store, tn, o.get("state"), given)
+                if held is not None:
+                    # an object the store holds by its legacy key is
+                    # refreshed, and counted only where it changes (§4)
+                    flowrun.refresh_object(self.runner, self.store, held, tn,
+                                           o.get("state"), given)
+                else:
+                    made[qualified] = flowrun.import_object(
+                        self.runner, self.store, tn, o.get("state"), given)
             except flowrun.ImportRefused as r:
                 return refused(o, str(r))
-            report["written"] += 1
+            if self.store.position != position:
+                report["written"] += 1
         self.legacy.update(made)
         # each sequence raised past the legacy system's last number, never
         # lowered, keyed as a mint keys it: by the scope's value, a reference

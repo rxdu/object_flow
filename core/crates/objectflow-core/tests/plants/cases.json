@@ -853,7 +853,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "87ab1e62756368ae"
+    "5cd3cb6a242a06ab"
    ]
   ],
   "previous": {},
@@ -7912,7 +7912,7 @@
    ],
    [
     "module.examples.yaml",
-    "76ce5b0473575779"
+    "b8aa1325bac41b59"
    ]
   ],
   "previous": {},
@@ -7933,7 +7933,7 @@
    ],
    [
     "module.examples.yaml",
-    339,
+    347,
     "fatal",
     "example",
     "a_negative_receipt_is_refused: expected the remedy unreachable_from_here, and it is refused as invariant_violated reserved_bounded self_serviceable"
@@ -8226,7 +8226,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "675a63b843277e15"
+    "fe442ab30c8b6b1d"
    ]
   ],
   "previous": {},
@@ -8262,7 +8262,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "467cfb87ce865a11"
+    "5c34843f680bf976"
    ]
   ],
   "previous": {},
@@ -8335,7 +8335,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "5cb1d0c1080b736e"
+    "33e948441e5f60f9"
    ]
   ],
   "previous": {},
@@ -8607,7 +8607,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "db2a99657ce9ef5f"
+    "b17c8aad0c3f5d37"
    ]
   ],
   "previous": {},
@@ -8643,7 +8643,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "7d618fd1ef665faa"
+    "a0afc48922d47c5d"
    ]
   ],
   "previous": {},
@@ -8679,7 +8679,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "87ab1e62756368ae"
+    "5cd3cb6a242a06ab"
    ]
   ],
   "previous": {},
@@ -8729,7 +8729,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "3c0dc3562123ca2a"
+    "abcd5a138836f97e"
    ]
   ],
   "previous": {},
@@ -10705,6 +10705,142 @@
     "Request.reject"
    ]
   }
+ },
+ {
+  "label": "refresh_plants",
+  "files": [
+   [
+    "supply.yaml",
+    "e2d3c830bb3a7c55"
+   ],
+   [
+    "supply.examples.yaml",
+    "28e81bdd72eb0109"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "supply.examples.yaml",
+    10,
+    "notice",
+    "coverage",
+    "no example requests 1 transition of supply as the request under test, which only a setup, a step or an expected cascade takes: Quote.receive"
+   ]
+  ],
+  "analysed": {
+   "Quote": [
+    0,
+    1
+   ],
+   "Supplier": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "refresh_plants: an import naming an alias a request gave",
+  "files": [
+   [
+    "supply.yaml",
+    "e2d3c830bb3a7c55"
+   ],
+   [
+    "supply.examples.yaml",
+    "a269ae95a9635b25"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "supply.examples.yaml",
+    21,
+    "fatal",
+    "names",
+    "'quote' is already an alias"
+   ],
+   [
+    "supply.examples.yaml",
+    22,
+    "fatal",
+    "names",
+    "requests Supplier.accept, which Supplier does not declare"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "refresh_plants: an imported alias refreshed as another type",
+  "files": [
+   [
+    "supply.yaml",
+    "7e386a60b0cc7448"
+   ],
+   [
+    "supply.examples.yaml",
+    "a6f48806ad526830"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "supply.examples.yaml",
+    21,
+    "fatal",
+    "names",
+    "'acme' is an alias an import gave a Supplier, and a refresh imports its object as its own type"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "refresh_plants: the quote expected accepted after the refresh",
+  "files": [
+   [
+    "supply.yaml",
+    "e2d3c830bb3a7c55"
+   ],
+   [
+    "supply.examples.yaml",
+    "65f9b73094b28af9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "supply.examples.yaml",
+    10,
+    "notice",
+    "coverage",
+    "no example requests 1 transition of supply as the request under test, which only a setup, a step or an expected cascade takes: Quote.receive"
+   ],
+   [
+    "supply.examples.yaml",
+    17,
+    "fatal",
+    "example",
+    "a_supplier_the_erp_blocks_after_it_quoted: expected the request to apply, and it is refused as unsatisfied supplier_trading dependent"
+   ]
+  ],
+  "analysed": {
+   "Quote": [
+    0,
+    1
+   ],
+   "Supplier": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "decimal_plant",

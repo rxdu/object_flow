@@ -35,7 +35,7 @@ setups:
           type: Incident
           transition: open
           as: incident
-          inputs: { summary: Card payments fail, impact: Level.HIGH, urgency: Level.HIGH, major: false, responders: [oncall-1] }
+          inputs: { summary: Card payments fail, impact: Level.HIGH, urgency: Level.HIGH, major: maybe, responders: [oncall-1] }
       - request: { object: incident, transition: investigate }
   a_change_in_planning:
     description: A normal change to payments, approved by a peer and being planned.
@@ -299,7 +299,7 @@ examples:
   asset_keys_follow_the_legacy_register:
     description: Once the import has raised the key sequence past the last key the legacy asset register gave, IT-41, the first asset received here is keyed IT-42.
     steps:
-      - import: { type: Employee, as: dana, state: EMPLOYED, values: { employee_id: E-1001, name: Dana Lee, department: Finance }, sequences: [{ sequence: asset_keys, last: 41 }] }
+      - import: { type: Employee, as: dana, state: EMPLOYED, values: { employee_id: E-1001, name: Dana Lee, department: Finance }, sequences: [{ sequence: asset_key, last: 41 }] }
     request: { type: Laptop, transition: receive, inputs: { name: ThinkPad 14 } }
     expect: { verdict: applied, state: IN_STOCK, values: { key: IT-42 } }
 
@@ -318,6 +318,14 @@ examples:
       - import: { type: Employee, as: dana, state: LEFT, values: { employee_id: E-1001, name: Dana Lee, department: Finance } }
     request: { object: dana, transition: forget, inputs: { reason: Asked to be forgotten } }
     expect: { verdict: applied, state: LEFT, values: { name: null, department: Finance } }
+
+  the_hr_system_moves_an_employee:
+    description: The HR system moves Dana to Operations, and the next import refreshes this store's copy of her, so erasing her name keeps the department she is in now.
+    steps:
+      - import: { type: Employee, as: dana, state: EMPLOYED, values: { employee_id: E-1001, name: Dana Lee, department: Finance } }
+      - import: { type: Employee, as: dana, state: EMPLOYED, values: { department: Operations }, after: 1 day }
+    request: { object: dana, transition: forget, inputs: { reason: Asked to be forgotten } }
+    expect: { verdict: applied, state: EMPLOYED, values: { name: null, department: Operations } }
 
   a_stock_opens_empty:
     description: A new stock has none on hand, none reserved, and reorders at five.

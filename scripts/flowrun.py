@@ -3116,6 +3116,57 @@ def import_object(runner, store, tn, state, given):
     return o.id
 
 
+def refresh_object(runner, store, oid, tn, state, given):
+    """An object an earlier import gave, refreshed as import_batch refreshes an object whose legacy key the store holds
+    (publish-and-import.md §4, ADR-0176 decision 4): its state and the values given written through the built-in
+    assertion, the rest, and a value given as null, left as they are; each tracked value it changes closes its interval
+    and opens the next at the import, by a changer of kind `unknown`. One that changes nothing writes nothing, and one
+    leaving an invariant failing is refused, an example's import admitting nothing (ADR-0154, D526)."""
+    o = store.objects[oid]
+    if tn != o.type:
+        raise ImportRefused(f"its legacy key names a {o.type}")
+    kind = runner.kinds.get(tn) or {}
+    if state not in (kind.get("states") or {}):
+        raise ImportRefused(f"{tn} declares no state {state}")
+    attrs = kind.get("attributes") or {}
+    for k in given:
+        if k not in attrs:
+            raise ImportRefused(f"{tn} declares no attribute {k}")
+    changes = {k: v for k, v in given.items() if v is not ABSENT and o.attrs.get(k, ABSENT) != v}
+    if state == o.state and not changes:
+        return oid
+    kept = copy.deepcopy(o)
+    before = runner.tracked_values(o)
+    from_state = o.state
+    o.state = state
+    o.attrs.update(changes)
+    failing = runner.failing_invariants(store, o)
+    if failing:
+        store.objects[oid] = kept
+        raise ImportRefused(f"the refreshed {tn} fails {failing[0]}, and an example's import admits nothing")
+    store.position += 1
+    values = runner.tracked_values(o)
+    for m, v in values.items():
+        spans = o.spans.setdefault(m, [])
+        if before.get(m, ABSENT) != v:
+            if spans and spans[-1]["left_at"] is ABSENT:
+                spans[-1]["left_at"] = store.now
+            spans.append(span_row(store.position, {"object": o.id, "state" if m == "state" else "value": v,
+                                                   "entered_at": store.now, "left_at": ABSENT, "entered_by_kind": "unknown",
+                                                   "declaration_version": store.version, "legacy": False,
+                                                   "migrated": False, "held": dict(values)}))
+    for a in changes:
+        o.writes[a] = store.position
+    store.events.append({"position": store.position, "object": o.id, "type": o.type, "transition": "import",
+                         "from_state": ("state", o.type, from_state), "to_state": ("state", o.type, o.state),
+                         "completes": False, "returns": False, "occurred_at": store.now, "recorded_at": store.now,
+                         "actor_id": OPERATOR, "actor_kind": "human", "asserted": True, "overrides": False,
+                         "imported": True, "migrated": False, "redacted": False, "reason": ABSENT,
+                         "declaration_version": store.version, "held": {}})
+    o.version += 1
+    return oid
+
+
 def step(runner, store, st, aliases, stubs, under_test=False, publishing=None):
     """One step of a setup or the request under test; a setup's refusal propagates, the tested one is returned."""
     if "publish" in st:
@@ -3128,7 +3179,11 @@ def step(runner, store, st, aliases, stubs, under_test=False, publishing=None):
             store.now += Fraction(int(n)) * SECONDS[unit]
         attrs = (runner.kinds.get(im["type"]) or {}).get("attributes") or {}
         given = {k: runner.value_of(store, attrs.get(k), v, aliases) for k, v in (im.get("values") or {}).items()}
-        aliases[im["as"]] = import_object(runner, store, im["type"], im["state"], given)
+        if im["as"] in aliases:
+            # an alias an earlier import gave: the other system's later record of the same object (ADR-0176 decision 4)
+            refresh_object(runner, store, aliases[im["as"]], im["type"], im["state"], given)
+        else:
+            aliases[im["as"]] = import_object(runner, store, im["type"], im["state"], given)
         for rs in im.get("sequences") or []:
             raise_sequence(store, rs["sequence"], rs["last"],
                            runner.value_of(store, scope_spec(runner.kinds, rs["sequence"]), rs["scope"], aliases)

@@ -1,0 +1,33 @@
+module: supply
+categories: [live, closed]
+
+types:
+  Supplier:
+    description: A supplier as the ERP records it; only the import writes it.
+    mirror: true
+    tracking: record
+    attributes:
+      code: { type: string, external: erp }
+      name: { type: string, optional: true }
+    states:
+      ACTIVE:  { description: Trading., category: live }
+      BLOCKED: { description: Blocked by the ERP., category: live }
+      CLOSED:  { description: No longer a supplier., category: closed, final: true }
+
+  Quote:
+    description: A supplier's quote, accepted while the supplier may trade.
+    tracking: record
+    attributes:
+      supplier: { reference: Supplier }
+      amount:   { type: int }
+    states:
+      OPEN:     { description: Received., category: live }
+      ACCEPTED: { description: Accepted., category: closed, final: true }
+    conditions:
+      supplier_trading:
+        description: The ERP has not blocked the supplier.
+        expression: supplier.state == Supplier.ACTIVE
+        remedy: dependent
+    transitions:
+      receive: { kind: initial, to: OPEN, required_inputs: [supplier, amount] }
+      accept:  { kind: external, from: OPEN, to: ACCEPTED, guards: { supplier_trading: deny } }
