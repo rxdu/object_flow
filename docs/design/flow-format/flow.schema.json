@@ -593,6 +593,19 @@
           "type": "boolean",
           "description": "true if a request for this transition may be filed as a proposal, executed as its approver when approved (ADR-0036)."
         },
+        "taken_by": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "human",
+              "agent",
+              "service"
+            ]
+          },
+          "description": "The kinds of actor that may take this transition: sugar for an attribute <transition>_by_kind recording the kind that took it and an invariant <transition>_taken_by holding it to these (ADR-0176)."
+        },
         "corrects": {
           "type": "array",
           "minItems": 1,

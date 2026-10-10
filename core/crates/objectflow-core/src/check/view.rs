@@ -5,7 +5,7 @@
 
 use serde_json::{Map, Value, json};
 
-use super::doc::{Obj, Path, as_obj, flag, obj, text};
+use super::doc::{Found, Obj, Path, as_obj, flag, obj, py_str, text};
 use crate::yaml::Seg;
 
 /// What a subtype inherits: these members of its bases.
@@ -83,6 +83,127 @@ fn resolve_any(x: &Value, states: Option<&Value>) -> Value {
     let mut out = as_obj(x).clone();
     out.insert("from".into(), Value::Array(from));
     Value::Object(out)
+}
+
+/// On a member a transition's `taken_by` generates: the transition
+/// (ADR-0176).
+const TAKEN: &str = "_taken_by";
+
+/// A transition's `taken_by`, its kinds of actor, where it has one.
+fn taken_kinds(x: &Value) -> Option<Vec<String>> {
+    let kinds: Vec<String> = x.get("taken_by")?.as_array()?.iter().map(py_str).collect();
+    (!kinds.is_empty()).then_some(kinds)
+}
+
+/// A type with what its transitions' `taken_by` generate (ADR-0176 decision
+/// 1), as `check-flows.py`'s `with_taken_by`: for each, an optional
+/// attribute of type `actor_kind` that its effect first assigns
+/// `actor.kind`, and an invariant holding that attribute absent or one of
+/// the kinds named, each after the type's own. A name the type declares
+/// itself is left as it is declared, which `taken_by_errors` reports.
+fn with_taken_by(t: Value) -> Value {
+    let marked: Vec<(String, Vec<String>)> = obj(&t, "transitions")
+        .iter()
+        .filter_map(|(xn, x)| taken_kinds(x).map(|k| (xn.clone(), k)))
+        .collect();
+    if marked.is_empty() {
+        return t;
+    }
+    let mut attributes = obj(&t, "attributes").clone();
+    let mut invariants = obj(&t, "invariants").clone();
+    let mut transitions = obj(&t, "transitions").clone();
+    for (xn, kinds) in marked {
+        let (a, i) = crate::model::taken_by_names(&xn);
+        if !attributes.contains_key(&a) {
+            let mut spec = Map::new();
+            spec.insert("type".into(), json!("actor_kind"));
+            spec.insert("optional".into(), json!(true));
+            spec.insert(TAKEN.into(), json!(xn));
+            spec.insert(
+                "description".into(),
+                json!(format!(
+                    "The kind of actor that took {xn}, recorded as it was taken."
+                )),
+            );
+            attributes.insert(a.clone(), Value::Object(spec));
+        }
+        if !invariants.contains_key(&i) {
+            let expression = std::iter::once(format!("{a} is null"))
+                .chain(kinds.iter().map(|k| format!("{a} == {k}")))
+                .collect::<Vec<_>>()
+                .join(" or ");
+            let mut spec = Map::new();
+            spec.insert("expression".into(), json!(expression));
+            spec.insert(TAKEN.into(), json!(xn));
+            spec.insert(
+                "description".into(),
+                json!(format!("{xn} is taken by {} only.", kinds.join(" or "))),
+            );
+            invariants.insert(i, Value::Object(spec));
+        }
+        if let Some(x) = transitions.get_mut(&xn).and_then(Value::as_object_mut) {
+            let mut effect = vec![json!({"assign": {"location": a, "expr": "actor.kind"}})];
+            effect.extend(
+                x.get("effect")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+            x.insert("effect".into(), Value::Array(effect));
+        }
+    }
+    let mut out = as_obj(&t).clone();
+    out.insert("attributes".into(), Value::Object(attributes));
+    out.insert("invariants".into(), Value::Object(invariants));
+    out.insert("transitions".into(), Value::Object(transitions));
+    Value::Object(out)
+}
+
+/// A transition marked `taken_by` is one a request takes, with an effect:
+/// an initial, external or internal one; and what it generates is not a
+/// name its type declares (ADR-0176 decision 1). Over the view.
+pub fn taken_by_errors(doc: &Value) -> Found {
+    let mut out = Found::new();
+    for (tn, t) in types(doc) {
+        for (xn, x) in obj(t, "transitions") {
+            if taken_kinds(x).is_none() {
+                continue;
+            }
+            let at: Path = ["types", tn.as_str(), "transitions", xn.as_str(), "taken_by"]
+                .iter()
+                .map(|k| Seg::Key((*k).to_string()))
+                .collect();
+            let kind = text(x, "kind").unwrap_or("None");
+            if !["initial", "external", "internal"].contains(&kind) {
+                out.push((
+                    at.clone(),
+                    "names".into(),
+                    format!(
+                        "{tn}.{xn} is an {kind} transition, which taken_by does not mark; it marks an initial, external or internal one (ADR-0176)"
+                    ),
+                ));
+            }
+            let (a, i) = crate::model::taken_by_names(xn);
+            for (section, n, what) in [
+                ("attributes", a, "attribute"),
+                ("invariants", i, "invariant"),
+            ] {
+                if let Some(spec) = obj(t, section).get(&n)
+                    && spec.is_object()
+                    && spec.get(TAKEN).and_then(Value::as_str) != Some(xn.as_str())
+                {
+                    out.push((
+                        at.clone(),
+                        "names".into(),
+                        format!(
+                            "{tn}.{xn}'s taken_by generates the {what} {n}, which {tn} declares itself (ADR-0176)"
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The bases a type extends, nearest first; the walk stops at an unknown
@@ -176,7 +297,7 @@ impl View {
                     .collect();
                 let mut t = as_obj(&t).clone();
                 t.insert("transitions".into(), Value::Object(transitions));
-                (tn, Value::Object(t))
+                (tn, with_taken_by(Value::Object(t)))
             })
             .collect();
         let mut everything = library.clone();

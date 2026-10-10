@@ -49,6 +49,10 @@ const ASSIGNMENT: [&str; 11] = [
     "returns_by_object",
 ];
 const AVAILABILITY: &str = "Call object_availability first: it evaluates the real guards against the real data, and says whether this transition is available now, which rule refuses it if not, and what can be done about it.";
+/// A proposable transition a rule over who acted refuses this kind of actor:
+/// it may only propose it (ADR-0176 decision 1).
+const PROPOSING: &str =
+    "You may only propose this: a person approves the proposal, which takes it as theirs.";
 const RETRY: &str = "the same key on a retry answers the first result";
 const BACKDATED: &str =
     "when it happened, if earlier than now; how far back is a rule the store checks";
@@ -340,6 +344,7 @@ fn transition_tool(
     t: &Type,
     x: &Transition,
     enums: &BTreeMap<String, Vec<String>>,
+    proposing: bool,
 ) -> Json {
     let creation = x.kind == Kind::Initial;
     let mut props = Map::new();
@@ -363,7 +368,12 @@ fn transition_tool(
             json!({"type": "string", "format": "date-time", "description": BACKDATED}),
         );
     }
-    if x.proposable {
+    if proposing {
+        props.insert(
+            "propose".into(),
+            json!({"const": true, "description": "file the request as a proposal a person approves"}),
+        );
+    } else if x.proposable {
         props.insert(
             "propose".into(),
             json!({"type": "boolean", "description": "file the request as a proposal a person approves, instead of taking it"}),
@@ -378,16 +388,21 @@ fn transition_tool(
     } else {
         format!("Takes {tn}.{xn}.")
     };
-    let description = if creation {
-        lead
+    let mut description = lead;
+    if proposing {
+        description = format!("{description} {PROPOSING}");
+    }
+    if !creation {
+        description = format!("{description} {AVAILABILITY}");
+    }
+    let mut required = if creation {
+        vec!["inputs"]
     } else {
-        format!("{lead} {AVAILABILITY}")
+        vec!["inputs", "object_id"]
     };
-    let required = if creation {
-        json!(["inputs"])
-    } else {
-        json!(["inputs", "object_id"])
-    };
+    if proposing {
+        required.push("propose");
+    }
     json!({"name": format!("{}_{xn}", snake(tn)), "description": description,
            "input_schema": {"type": "object", "properties": props, "required": required,
                             "additionalProperties": false}})
@@ -483,10 +498,18 @@ pub fn tools(lib: &Library, actor_kind: &str) -> Vec<Json> {
     for tn in &lib.declared {
         let Some(t) = lib.types.get(tn) else { continue };
         for (xn, x) in &t.transitions {
-            if !x.only_via.is_empty() || refuses(t, x, actor_kind) {
+            if !x.only_via.is_empty() {
                 continue;
             }
-            out.push(transition_tool(tn, xn, t, x, &lib.enumerations));
+            if refuses(t, x, actor_kind) {
+                // refused, it is offered for proposing where it may be
+                // proposed (ADR-0176 decision 1)
+                if x.proposable {
+                    out.push(transition_tool(tn, xn, t, x, &lib.enumerations, true));
+                }
+                continue;
+            }
+            out.push(transition_tool(tn, xn, t, x, &lib.enumerations, false));
         }
         if let Some(obs) = t.source.get("observations").and_then(Json::as_object) {
             for ob in obs.values() {

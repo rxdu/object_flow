@@ -585,6 +585,7 @@ Markings follow the states and precede the body:
 ```text
 do   sell RESERVED -> SOLD only via Delivery.complete_sale, Lease.convert { }
 do   approve SUBMITTED -> APPROVED proposable { … }
+do   approve SUBMITTED -> APPROVED proposable taken by human { … }
 do   receive PROCUREMENT -> INTAKE backdatable within 2 days { … }
 ```
 
@@ -597,6 +598,8 @@ A transition a machine supplies is named `<Binder>.<transition>`, not `<Machine>
 Iteration 2 offered an unlisted variant instead, and iteration 4 kept it. Both deleted the guarantee: with no declared list, every call site becomes an authorised parent by construction, so a new module could write `call unit.sell()` and grant itself the power to sell a unit with no delivery, and no publish could refuse it. There is now no unlisted form. A transition either names the transitions that may cause it, or it is requestable, and then who may request it is the upper layer's (ADR-0114).
 
 An `only via` transition may not be `proposable` (check 14), since an unrequestable transition can never yield the verdict that makes a proposal meaningful.
+
+**`taken by <kind>, …`** names the kinds of actor that may take the transition. It is sugar for what an author would otherwise write by hand (ADR-0176): an attribute `<transition>_by_kind : actor_kind?` that the transition's first step sets to `actor.kind`, and an invariant `<transition>_taken_by` that it is null or one of the kinds. The engine evaluates no condition over the actor (ADR-0114): it judges the record, so an actor of another kind is refused `invariant_violated` with the remedy `delegable`, and the marking with `proposable` is "an agent proposes, a person decides", since an approver executing a proposal takes it as themself. It is legal on a `create`, a `do` or an `act`, and neither generated name may be declared by the type.
 
 `terminal` means no `do` may leave the state and no `act` may be declared at one, since a disposed object admits no further transitions. A **terminal transition** is a `do` whose to-state is terminal; a creation into a terminal state is not one. The coverage rule of §3.2 is about **the whole's** terminal transitions, so a type whose objects are born final has none of its own and asks nothing of anything it owns.
 
@@ -611,7 +614,7 @@ It says nothing about being *owned*. A whole with a terminal transition whose pa
 ### 5.1 Inputs and guards
 
 ```text
-<kind> <name> <states> [only via …] [accepts <attribute>, …] [proposable] [backdatable within <duration>] {   # the head
+<kind> <name> <states> [only via …] [accepts <attribute>, …] [proposable] [taken by <kind>, …] [backdatable within <duration>] {   # the head
   input     <name> : <type>[?|[]] [personal]
   input     <name> : <type> default <expr>
   require   <name>: <expression> [observe|flag] [because <remedy class>]
@@ -1456,7 +1459,7 @@ Where a grammar line and an example disagree, the example is authoritative and t
 
 ### 9.5 The reserved words
 
-`module use capability category enum sequence evaluator machine type version inputs survives tracking serial quantity record states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable terminal superseding supersede input accepts require because set clear add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh stored with string bool int decimal money timestamp duration event file identity verdict on observation field unit recorded occurred within labels metric window value flag over last backdatable observe assignee entered_at time_in held combine distinct backfill member mirror as avg median percentile day week month quarter year requests key length`
+`module use capability category enum sequence evaluator machine type version inputs survives tracking serial quantity record states state abstract requires provides attr counter ref part owner inverse cascade derive invariant unique scope where from scoped by format default external personal indexed identifier summary visible when extends create do act assert erase removed renamed only via proposable taken terminal superseding supersede input accepts require because set clear add remove call for limit corrects may admit in at is null not and or implies if then else true false any all none count sum min max now actor this this_event referrers changed_since fn fresh stored with string bool int decimal money timestamp duration event file identity verdict on observation field unit recorded occurred within labels metric window value flag over last backdatable observe assignee entered_at time_in held combine distinct backfill member mirror as avg median percentile day week month quarter year requests key length`
 
 `s`, `min`, `h`, `days` and `weeks` are duration units only directly after a numeric literal, which is the one position the aggregate `min` cannot occupy.
 

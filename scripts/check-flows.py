@@ -232,6 +232,58 @@ def inherited(t, key, name):
     return (key, name) in (t.get("_from") or {})
 
 
+TAKEN = "_taken_by"     # on a member a transition's taken_by generates: the transition (ADR-0176)
+
+
+def taken_by_names(xn):
+    """The attribute and the invariant a transition's taken_by generates (ADR-0176 decision 1)."""
+    return f"{xn}_by_kind", f"{xn}_taken_by"
+
+
+def with_taken_by(t):
+    """A type with what its transitions' taken_by generate (ADR-0176 decision 1): for each, an optional attribute
+    of type actor_kind that its effect first assigns actor.kind, and an invariant holding that attribute absent or
+    one of the kinds named, each after the type's own. A name the type declares itself is left as it is declared,
+    which taken_by_errors reports."""
+    marked = [(xn, x) for xn, x in (t.get("transitions") or {}).items() if isinstance(x, dict) and x.get("taken_by")]
+    if not marked:
+        return t
+    attributes, invariants = dict(t.get("attributes") or {}), dict(t.get("invariants") or {})
+    transitions = dict(t["transitions"])
+    for xn, x in marked:
+        a, i = taken_by_names(xn)
+        kinds = [str(k) for k in x["taken_by"]]
+        if a not in attributes:
+            attributes[a] = {"type": "actor_kind", "optional": True, TAKEN: xn,
+                             "description": f"The kind of actor that took {xn}, recorded as it was taken."}
+        if i not in invariants:
+            invariants[i] = {"expression": " or ".join([f"{a} is null"] + [f"{a} == {k}" for k in kinds]), TAKEN: xn,
+                             "description": f"{xn} is taken by {' or '.join(kinds)} only."}
+        transitions[xn] = dict(x, effect=[{"assign": {"location": a, "expr": "actor.kind"}}] + list(x.get("effect") or []))
+    return dict(t, attributes=attributes, invariants=invariants, transitions=transitions)
+
+
+def taken_by_errors(doc):
+    """A transition marked taken_by is one a request takes, with an effect: an initial, external or internal one;
+    and what it generates is not a name its type declares (ADR-0176 decision 1). Over the view."""
+    out = []
+    for tn, t in types(doc):
+        for xn, x in (t.get("transitions") or {}).items():
+            if not (isinstance(x, dict) and x.get("taken_by")):
+                continue
+            where = ("types", tn, "transitions", xn, "taken_by")
+            if x.get("kind") not in ("initial", "external", "internal"):
+                out.append((where, "names", f"{tn}.{xn} is an {x.get('kind')} transition, which taken_by does not "
+                                            f"mark; it marks an initial, external or internal one (ADR-0176)"))
+            a, i = taken_by_names(xn)
+            for section, n, what in (("attributes", a, "attribute"), ("invariants", i, "invariant")):
+                spec = (t.get(section) or {}).get(n)
+                if isinstance(spec, dict) and spec.get(TAKEN) != xn:
+                    out.append((where, "names", f"{tn}.{xn}'s taken_by generates the {what} {n}, which {tn} "
+                                                f"declares itself (ADR-0176)"))
+    return out
+
+
 def view(doc, library=None):
     """The module as the checks see it: each machine as a type, each binder
     merged with its machine, each subtype with its bases; and a map back from
@@ -239,7 +291,8 @@ def view(doc, library=None):
     machines = doc.get("machines") or {}
     kinds = {mn: machine_as_type(m) for mn, m in machines.items()}
     kinds.update({tn: bound(t, machines) for tn, t in (doc.get("types") or {}).items()})
-    kinds = {tn: dict(t, transitions={xn: resolve_any(x, t.get("states")) for xn, x in (t.get("transitions") or {}).items()})
+    kinds = {tn: with_taken_by(dict(t, transitions={xn: resolve_any(x, t.get("states"))
+                                                    for xn, x in (t.get("transitions") or {}).items()}))
              for tn, t in kinds.items()}
     everything = dict(library or {})
     everything.update(kinds)
@@ -4561,7 +4614,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
             pair, pair_notes = migration_pair_errors(load(previous[f]), doc, library)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
         for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc)
-                        + name_errors(v, library, ordered=False) + migration_errors(doc, v) + pair):
+                        + name_errors(v, library, ordered=False) + taken_by_errors(v) + migration_errors(doc, v) + pair):
             p = back(p)
             if p is not None and p[0] == "machines" and "'" in m:
                 # a machine's attributes, always quoted, are the ones it requires of its binders
@@ -6095,6 +6148,122 @@ examples:
 """
 
 
+TAKEN_FLOW = """module: taken
+categories: [live, closed]
+
+types:
+  User:
+    description: A person who may act.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { description: Working., category: live }
+      LEFT:   { description: Gone., category: closed, final: true }
+    transitions:
+      add:   { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: ACTIVE, to: LEFT }
+
+  Agent:
+    description: An agent that drafts and proposes.
+    tracking: record
+    attributes:
+      key: { type: identity, actor_kind: agent, unique: true }
+    states:
+      ACTIVE:  { description: Working., category: live }
+      RETIRED: { description: Retired., category: closed, final: true }
+    transitions:
+      issue:  { kind: initial, to: ACTIVE, required_inputs: [key] }
+      retire: { kind: external, from: ACTIVE, to: RETIRED }
+
+  Request:
+    description: A request a person decides.
+    tracking: record
+    attributes:
+      title: { type: string }
+    states:
+      OPEN:     { description: Waiting., category: live }
+      APPROVED: { description: Approved., category: closed, final: true }
+      REJECTED: { description: Rejected., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title] }
+      retitle: { kind: internal, from: OPEN, required_inputs: [title] }
+      approve: { kind: external, from: OPEN, to: APPROVED, taken_by: [human], proposable: true }
+      reject:  { kind: external, from: OPEN, to: REJECTED, taken_by: [human, service] }
+"""
+
+TAKEN_EXAMPLES = """examples_for: taken
+
+setups:
+  a_request:
+    description: Ana, a person, the scout, an agent, and an open request.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: ana } }
+      - request: { type: Agent, transition: issue, as: scout, inputs: { key: scout } }
+      - request: { type: Request, transition: open, as: request, inputs: { title: Laptop } }
+
+examples:
+  a_person_approves:
+    description: Ana approves the request, and the kind that took it is recorded.
+    given: a_request
+    request: { object: request, transition: approve, actor: ana }
+    expect: { verdict: applied, state: APPROVED, values: { approve_by_kind: human } }
+
+  the_agent_may_not_approve:
+    description: The scout approving is refused by what taken_by generates, and told a person may.
+    given: a_request
+    request: { object: request, transition: approve, actor: scout }
+    expect: { verdict: invariant_violated, clause: approve_taken_by, remedy: delegable }
+
+  the_agent_proposes_and_a_person_approves:
+    description: The scout proposes the approval, and Ana's approval executes it as hers.
+    given: a_request
+    steps:
+      - propose: { object: request, transition: approve, actor: scout, proposal: decision }
+    approve: { proposal: decision, actor: ana }
+    expect: { verdict: applied, state: APPROVED, values: { approve_by_kind: human }, proposal: executed }
+
+  the_agent_may_retitle:
+    description: A transition with no taken_by is anyone's.
+    given: a_request
+    request: { object: request, transition: retitle, actor: scout, inputs: { title: Desk } }
+    expect: { verdict: applied, state: OPEN }
+"""
+
+
+def taken_by_plants():
+    """A transition taken_by kinds of actor generates the record of who took it and the invariant over it: clean,
+    with a person approving, the agent refused as delegable, and the agent's proposal executed as the approver's;
+    an assertion marked, a generated name declared, and an example expecting the agent's approval to apply, each
+    caught (ADR-0176 decision 1)."""
+    ok = True
+    found, _notes = check([("taken.yaml", TAKEN_FLOW), ("taken.examples.yaml", TAKEN_EXAMPLES)])
+    ok &= not found
+    print(f"  taken_by, a person approving and the agent refused or proposing: "
+          f"{'clean' if not found else [x[4][:80] for x in found]}")
+    cases = [
+        ("an assertion marked taken_by", TAKEN_FLOW.replace(
+            "      retitle: { kind: internal, from: OPEN, required_inputs: [title] }",
+            "      retitle: { kind: internal, from: OPEN, required_inputs: [title] }\n"
+            "      force: { kind: assertion, to: [APPROVED], taken_by: [human], inputs: { reason: { type: string } } }"),
+         None, "names"),
+        ("a generated name declared", TAKEN_FLOW.replace(
+            "      title: { type: string }", "      title: { type: string }\n      approve_by_kind: { type: actor_kind, optional: true }"),
+         None, "names"),
+        ("the agent's approval expected to apply", TAKEN_FLOW, TAKEN_EXAMPLES.replace(
+            "expect: { verdict: invariant_violated, clause: approve_taken_by, remedy: delegable }",
+            "expect: { verdict: applied, state: APPROVED }"), "example"),
+    ]
+    for name, text, examples, code in cases:
+        assert text != TAKEN_FLOW or examples != TAKEN_EXAMPLES, name
+        files = [("taken.yaml", text)] + ([("taken.examples.yaml", examples)] if examples else [])
+        found, _notes = check(files)
+        hit = [x for x in found if x[3] == code]
+        ok &= bool(hit)
+        print(f"  planted {name}: {'caught by ' + code if hit else 'MISSED ' + str(found[:2])}")
+    return ok
+
+
 def identity_plants():
     """An approval recorded from who acts sets what a state requires, and a metric by the identity it records reads
     in an example by that identity, where it is also an alias, clean and passing; one expecting another approver
@@ -7287,6 +7456,7 @@ def main():
     ok &= held_plants(people)
     ok &= present_path_plants()
     ok &= identity_plants()
+    ok &= taken_by_plants()
     ok &= conversion_self_test()
     ok &= decimal_plant(people)
     ok &= cutover_plant(people)

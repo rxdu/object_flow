@@ -21,6 +21,8 @@ STANDARD = ("time_in_state", "time_in_state_p80", "throughput", "work_in_progres
 ASSIGNMENT = ("open_work", "time_unassigned", "time_to_first_assignment", "time_with_assignee",
               "cycle_time_by_assignee", "time_in_state_by_holder", "handoffs", "reassigned_back",
               "acted_by_non_assignee", "handoffs_by_object", "returns_by_object")
+# a proposable transition a rule over who acted refuses this kind of actor: it may only propose it (ADR-0176)
+PROPOSING = ("You may only propose this: a person approves the proposal, which takes it as theirs.")
 AVAILABILITY = ("Call object_availability first: it evaluates the real guards against the real data, and says "
                 "whether this transition is available now, which rule refuses it if not, and what can be done about it.")
 
@@ -179,7 +181,7 @@ def flowexpr_names(e):
 
 
 # ── the tools ───────────────────────────────────────────────────────────────────────────────────────────────────
-def transition_tool(tn, xn, t, x, enums):
+def transition_tool(tn, xn, t, x, enums, proposing=False):
     creation = x.get("kind") == "initial"
     props = {} if creation else {"object_id": {"type": "string", "description": f"the {tn}, by its id"},
                                  "expected_version": {"type": "integer",
@@ -188,16 +190,18 @@ def transition_tool(tn, xn, t, x, enums):
     if x.get("backdating_limit"):
         props["occurred_at"] = {"type": "string", "format": "date-time",
                                 "description": "when it happened, if earlier than now; how far back is a rule the store checks"}
-    if x.get("proposable"):
+    if proposing:
+        props["propose"] = {"const": True, "description": "file the request as a proposal a person approves"}
+    elif x.get("proposable"):
         props["propose"] = {"type": "boolean",
                             "description": "file the request as a proposal a person approves, instead of taking it"}
     props["inputs"] = inputs_schema(t, x, enums)
     lead = f"Creates a new {tn} by {xn}." if creation else f"Takes {tn}.{xn}."
     own = (x.get("description") or "").strip()
-    text = " ".join(p for p in (own or lead, "" if creation else AVAILABILITY) if p)
+    text = " ".join(p for p in (own or lead, PROPOSING if proposing else "", "" if creation else AVAILABILITY) if p)
+    required = (["inputs"] if creation else ["inputs", "object_id"]) + (["propose"] if proposing else [])
     return {"name": f"{snake(tn)}_{xn}", "description": text,
-            "input_schema": {"type": "object", "properties": props,
-                             "required": ["inputs"] if creation else ["inputs", "object_id"],
+            "input_schema": {"type": "object", "properties": props, "required": required,
                              "additionalProperties": False}}
 
 
@@ -274,7 +278,12 @@ def render(kinds, enums, declared, metrics, actor_kind):
     for tn in declared:
         t = kinds.get(tn) or {}
         for xn, x in (t.get("transitions") or {}).items():
-            if x.get("only_via") or refuses(t, x, actor_kind):
+            if x.get("only_via"):
+                continue
+            if refuses(t, x, actor_kind):
+                # refused, it is offered for proposing where it may be proposed (ADR-0176 decision 1)
+                if x.get("proposable"):
+                    tools.append(transition_tool(tn, xn, t, x, enums, proposing=True))
                 continue
             tools.append(transition_tool(tn, xn, t, x, enums))
         for ob in (t.get("observations") or {}).values():

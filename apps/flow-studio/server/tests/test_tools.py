@@ -71,6 +71,80 @@ def test_an_agent_is_not_handed_a_persons_confirmation(tee):
     assert "claim_line_add" not in for_person
 
 
+# a person decides a request, which the agent may only propose to approve
+TAKEN = """module: taken
+categories: [live, closed]
+
+types:
+  User:
+    description: A person who may act.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { description: Working., category: live }
+      LEFT:   { description: Gone., category: closed, final: true }
+    transitions:
+      add:   { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: ACTIVE, to: LEFT }
+
+  Agent:
+    description: An agent that drafts and proposes.
+    tracking: record
+    attributes:
+      key: { type: identity, actor_kind: agent, unique: true }
+    states:
+      ACTIVE:  { description: Working., category: live }
+      RETIRED: { description: Retired., category: closed, final: true }
+    transitions:
+      issue:  { kind: initial, to: ACTIVE, required_inputs: [key] }
+      retire: { kind: external, from: ACTIVE, to: RETIRED }
+
+  Request:
+    description: A request a person decides.
+    tracking: record
+    attributes:
+      title: { type: string }
+    states:
+      OPEN:     { description: Waiting., category: live }
+      APPROVED: { description: Approved., category: closed, final: true }
+      REJECTED: { description: Rejected., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title] }
+      retitle: { kind: internal, from: OPEN, required_inputs: [title] }
+      approve: { kind: external, from: OPEN, to: APPROVED, taken_by: [human], proposable: true }
+      reject:  { kind: external, from: OPEN, to: REJECTED, taken_by: [human, service] }
+"""
+
+
+def test_an_agent_may_only_propose_what_a_person_takes(tee):
+    """A transition `taken_by: [human]` is left out for an agent, unless it
+    is proposable, when the agent is handed it for proposing only; a person
+    takes it as before (ADR-0176 decision 1)."""
+    tee.found.clear()
+    assert tee.post("/sandbox/load",
+                    {"files": [{"name": "taken.yaml", "text": TAKEN}]})["loaded"]
+    kinds = {kind: {t["name"]: t for t in
+                    tee.post("/v1/tools", {"actor_kind": kind})["tools"]}
+             for kind in ("human", "agent", "service")}
+    alike(tee)
+    approve = kinds["agent"]["request_approve"]
+    assert approve["input_schema"]["properties"]["propose"]["const"] is True
+    assert "propose" in approve["input_schema"]["required"]
+    assert "only propose" in approve["description"]
+    call = {"object_id": "request-3", "inputs": {}}
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(call, approve["input_schema"])
+    jsonschema.validate(dict(call, propose=True), approve["input_schema"])
+    # not proposable, so not the agent's at all; the service's, as a person's
+    assert "request_reject" not in kinds["agent"]
+    assert "request_reject" in kinds["service"]
+    assert "request_retitle" in kinds["agent"]
+    mine = kinds["human"]["request_approve"]["input_schema"]
+    assert mine["properties"]["propose"]["type"] == "boolean"
+    assert "propose" not in mine["required"]
+
+
 def test_a_tool_takes_the_calls_the_wire_takes(tee):
     t = tools(tee, "reimbursement.yaml", "human")
     schema = t["claim_add_line"]["input_schema"]

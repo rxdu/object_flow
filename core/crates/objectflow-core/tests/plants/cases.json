@@ -10504,6 +10504,209 @@
   "could_violate": {}
  },
  {
+  "label": "taken_by_plants",
+  "files": [
+   [
+    "taken.yaml",
+    "7e1893369380add5"
+   ],
+   [
+    "taken.examples.yaml",
+    "2d6ac80dade94899"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.examples.yaml",
+    11,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of taken as the request under test, which only a setup, a step or an expected cascade takes: Agent.issue, Request.open, User.add"
+   ],
+   [
+    "taken.examples.yaml",
+    11,
+    "notice",
+    "coverage",
+    "no example takes 3 transitions of taken, by its request, a step, a setup or a cascade it expects: Agent.retire, Request.reject, User.leave"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Request": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "taken_by_plants: an assertion marked taken_by",
+  "files": [
+   [
+    "taken.yaml",
+    "052715b52a5b1bfa"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    41,
+    "fatal",
+    "names",
+    "Request.force is an assertion transition, which taken_by does not mark; it marks an initial, external or internal one (ADR-0176)"
+   ],
+   [
+    "taken.yaml",
+    41,
+    "fatal",
+    "names",
+    "Request.force's reason is not an enumeration; an assertion's reasons are counted, so they are declared values"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.force_taken_by": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.force_taken_by": [
+    "Request.force",
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "taken_by_plants: a generated name declared",
+  "files": [
+   [
+    "taken.yaml",
+    "80d9237d46166b92"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    42,
+    "fatal",
+    "names",
+    "Request.approve's taken_by generates the attribute approve_by_kind, which Request declares itself (ADR-0176)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "taken_by_plants: the agent's approval expected to apply",
+  "files": [
+   [
+    "taken.yaml",
+    "7e1893369380add5"
+   ],
+   [
+    "taken.examples.yaml",
+    "144cb1ed0914fd43"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.examples.yaml",
+    11,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of taken as the request under test, which only a setup, a step or an expected cascade takes: Agent.issue, Request.open, User.add"
+   ],
+   [
+    "taken.examples.yaml",
+    11,
+    "notice",
+    "coverage",
+    "no example takes 3 transitions of taken, by its request, a step, a setup or a cascade it expects: Agent.retire, Request.reject, User.leave"
+   ],
+   [
+    "taken.examples.yaml",
+    18,
+    "fatal",
+    "example",
+    "the_agent_may_not_approve: expected the request to apply, and it is refused as invariant_violated approve_taken_by delegable"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Request": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
   "label": "decimal_plant",
   "files": [
    [

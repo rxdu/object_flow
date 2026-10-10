@@ -239,6 +239,9 @@ pub struct Transition {
     /// On a correction, the attributes it corrects, whose events carry the
     /// `corrected` provenance (§4.13).
     pub corrects: Vec<String>,
+    /// The kinds of actor that may take it, from which the load generates
+    /// the record of who took it and the invariant over it (ADR-0176).
+    pub taken_by: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -706,6 +709,7 @@ impl Reader<'_> {
                 .transpose()?,
             may_admit: self.names(node.get("may_admit"))?,
             corrects: self.names(node.get("corrects"))?,
+            taken_by: self.names(node.get("taken_by"))?,
         })
     }
 
@@ -908,6 +912,7 @@ impl Reader<'_> {
                 backdating_limit: limit.clone(),
                 may_admit: Vec::new(),
                 corrects: Vec::new(),
+                taken_by: Vec::new(),
             },
         )];
         let mut source_transitions = serde_json::json!({
@@ -944,6 +949,7 @@ impl Reader<'_> {
                     backdating_limit: None,
                     may_admit: Vec::new(),
                     corrects: Vec::new(),
+                    taken_by: Vec::new(),
                 },
             ));
             source_transitions["forget"] = serde_json::json!({ "kind": "erasure", "inputs": { "reason": { "type": "string" } } });
@@ -1184,6 +1190,77 @@ fn declared_line(text: &str, name: &str) -> usize {
         .map_or(1, |i| i + 1)
 }
 
+/// The attribute and the invariant a transition's `taken_by` generates.
+pub fn taken_by_names(transition: &str) -> (String, String) {
+    (
+        format!("{transition}_by_kind"),
+        format!("{transition}_taken_by"),
+    )
+}
+
+/// A type with what its transitions' `taken_by` generate (ADR-0176 decision
+/// 1), as `check-flows.py`'s `with_taken_by`: for each, an optional
+/// attribute of type `actor_kind` that its effect first assigns `actor.kind`,
+/// and an invariant holding it absent or one of the kinds named, each after
+/// the type's own. A name the type declares itself refuses the load.
+fn taken_by(t: &mut Type) -> Result<(), String> {
+    let marked: Vec<(String, Vec<String>)> = t
+        .transitions
+        .iter()
+        .filter(|(_, x)| !x.taken_by.is_empty())
+        .map(|(n, x)| (n.clone(), x.taken_by.clone()))
+        .collect();
+    for (xn, kinds) in marked {
+        let (a, i) = taken_by_names(&xn);
+        if t.attribute(&a).is_some() || t.invariants.iter().any(|(n, _)| *n == i) {
+            return Err(format!(
+                "{}.{xn}'s taken_by generates the attribute {a} and the invariant {i}, which {} declares itself (ADR-0176)",
+                t.name, t.name
+            ));
+        }
+        let text = std::iter::once(format!("{a} is null"))
+            .chain(kinds.iter().map(|k| format!("{a} == {k}")))
+            .collect::<Vec<_>>()
+            .join(" or ");
+        let (Ok(holds), Ok(kind)) = (expr::parse(&text), expr::parse("actor.kind")) else {
+            return Err(format!(
+                "{}.{xn}'s taken_by names a kind of actor that is not human, agent or service",
+                t.name
+            ));
+        };
+        t.attributes.push((
+            a.clone(),
+            Attribute {
+                declared: Declared::Scalar("actor_kind".into()),
+                many: false,
+                optional: true,
+                default: None,
+                unique: Unique::No,
+                assignee: false,
+                personal: false,
+                actor_kind: None,
+                identifier: None,
+                opposite: None,
+                composite: false,
+                cascade: Vec::new(),
+                external: None,
+                survives_always: false,
+            },
+        ));
+        t.invariants.push((i, holds));
+        if let Some((_, x)) = t.transitions.iter_mut().find(|(n, _)| *n == xn) {
+            x.effect.insert(
+                0,
+                Step::Assign {
+                    location: a,
+                    expr: kind,
+                },
+            );
+        }
+    }
+    Ok(())
+}
+
 /// The bases a type extends, nearest first; the walk stops at an unknown
 /// name or where it would come back to a type it has passed.
 fn bases(name: &str, types: &BTreeMap<String, Type>) -> Vec<String> {
@@ -1350,6 +1427,7 @@ fn operator_transition(kind: Kind, from: Option<From>, to: &str) -> Transition {
         backdating_limit: None,
         may_admit: Vec::new(),
         corrects: Vec::new(),
+        taken_by: Vec::new(),
     }
 }
 
@@ -1663,6 +1741,7 @@ fn label_type() -> Type {
             backdating_limit: None,
             may_admit: Vec::new(),
             corrects: Vec::new(),
+            taken_by: Vec::new(),
         }
     };
     let reason = Input {
@@ -1803,6 +1882,7 @@ fn subscription_type() -> Type {
                 backdating_limit: None,
                 may_admit: Vec::new(),
                 corrects: Vec::new(),
+                taken_by: Vec::new(),
             }
         };
     Type {
@@ -1985,6 +2065,26 @@ impl Library {
                 }
             }
         }
+        // what each transition's taken_by generates, once each binder holds
+        // its machine's transitions and before a subtype inherits it
+        // (ADR-0176 decision 1)
+        for t in lib.types.values_mut() {
+            if let Err(message) = taken_by(t) {
+                let (file, line) = files
+                    .iter()
+                    .find(|(_, text)| {
+                        crate::source::name_of(text).as_deref() == Some(t.module.as_str())
+                    })
+                    .map_or((String::new(), 1), |(f, text)| {
+                        (f.clone(), declared_line(text, &t.name))
+                    });
+                return Err(LoadError {
+                    file,
+                    line,
+                    message,
+                });
+            }
+        }
         // each subtype with what its bases give it, each base as declared
         let declared = lib.types.clone();
         for t in lib.types.values_mut() {
@@ -2136,6 +2236,39 @@ types:
     /// A store holds one type, enumeration or machine of a name (ADR-0163):
     /// a load refuses a name a second module declares, naming both and the
     /// line, as two modules each declaring `Service` once did (D529).
+    #[test]
+    fn taken_by_generates_the_record_and_the_invariant_over_it() {
+        let desk = "module: desk\ncategories: [live, closed]\ntypes:\n  Ticket:\n    attributes:\n      title: { type: string }\n    states: { OPEN: { category: live }, DONE: { category: closed, final: true } }\n    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [title] }\n      close: { kind: external, from: OPEN, to: DONE, taken_by: [human, service], effect: [ { clear: [title] } ] }\n";
+        let lib = Library::load(&[("desk.yaml".into(), desk.into())]).unwrap();
+        let t = lib.type_("Ticket").unwrap();
+        let a = t.attribute("close_by_kind").unwrap();
+        assert!(a.optional && a.declared == Declared::Scalar("actor_kind".into()));
+        let (name, _) = t.invariants.last().unwrap();
+        assert_eq!(name, "close_taken_by");
+        let close = &t.transitions.iter().find(|(n, _)| n == "close").unwrap().1;
+        assert!(
+            matches!(&close.effect[..], [Step::Assign { location, .. }, Step::Clear(_)] if location == "close_by_kind")
+        );
+        // the opening, unmarked, is untouched, and the declaration served is
+        // the one written
+        let open = &t.transitions.iter().find(|(n, _)| n == "open").unwrap().1;
+        assert!(open.effect.is_empty());
+        assert!(t.source["attributes"].get("close_by_kind").is_none());
+        // a name it generates that the type declares refuses the load
+        let mine = desk.replace(
+            "      title: { type: string }\n",
+            "      title: { type: string }\n      close_by_kind: { type: string, optional: true }\n",
+        );
+        let err = Library::load(&[("desk.yaml".into(), mine)]).unwrap_err();
+        assert!(
+            err.message
+                .contains("Ticket.close's taken_by generates the attribute close_by_kind"),
+            "{}",
+            err.message
+        );
+        assert_eq!((err.file.as_str(), err.line), ("desk.yaml", 4));
+    }
+
     #[test]
     fn a_load_refuses_a_name_two_modules_declare() {
         let people = "module: people\ncategories: [live]\ntypes:\n  Service:\n    attributes:\n      name: { type: identity, actor_kind: service }\n    states: { ACTIVE: { category: live } }\n";

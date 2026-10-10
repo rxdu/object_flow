@@ -1,0 +1,36 @@
+examples_for: taken
+
+setups:
+  a_request:
+    description: Ana, a person, the scout, an agent, and an open request.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: ana } }
+      - request: { type: Agent, transition: issue, as: scout, inputs: { key: scout } }
+      - request: { type: Request, transition: open, as: request, inputs: { title: Laptop } }
+
+examples:
+  a_person_approves:
+    description: Ana approves the request, and the kind that took it is recorded.
+    given: a_request
+    request: { object: request, transition: approve, actor: ana }
+    expect: { verdict: applied, state: APPROVED, values: { approve_by_kind: human } }
+
+  the_agent_may_not_approve:
+    description: The scout approving is refused by what taken_by generates, and told a person may.
+    given: a_request
+    request: { object: request, transition: approve, actor: scout }
+    expect: { verdict: invariant_violated, clause: approve_taken_by, remedy: delegable }
+
+  the_agent_proposes_and_a_person_approves:
+    description: The scout proposes the approval, and Ana's approval executes it as hers.
+    given: a_request
+    steps:
+      - propose: { object: request, transition: approve, actor: scout, proposal: decision }
+    approve: { proposal: decision, actor: ana }
+    expect: { verdict: applied, state: APPROVED, values: { approve_by_kind: human }, proposal: executed }
+
+  the_agent_may_retitle:
+    description: A transition with no taken_by is anyone's.
+    given: a_request
+    request: { object: request, transition: retitle, actor: scout, inputs: { title: Desk } }
+    expect: { verdict: applied, state: OPEN }
