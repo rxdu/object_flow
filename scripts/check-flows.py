@@ -1994,7 +1994,9 @@ class Typing:
         loops' and aggregates' bound names in env; each rule it breaks noted in self.broken, in evaluation order."""
         k = e[0]
         if k == "num":
-            return ("number",)
+            # a literal's scale is its digits after the point, which a product adds (§8.3); in a sum or a
+            # comparison it takes the other operand's type
+            return ("number", 0 if isinstance(e[1], int) else len(e[1].split(".", 1)[1]))
         if k == "str":
             return ("string",)
         if k == "bool":
@@ -2179,13 +2181,15 @@ class Typing:
             return None
         # * and /
         if numeric(l) and numeric(r):
-            if l[0] == "number":
-                return r
-            if r[0] == "number":
-                return l
-            if l[0] == r[0] == "int":
-                return l
-            return ("decimal", None)
+            if op == "/":
+                return l                        # / yields its left operand's type
+            if l[0] == r[0] == "number":
+                return ("number", l[1] + r[1])
+            if all(v[0] == "int" or v[0] == "number" and v[1] == 0 for v in (l, r)):
+                return ("int",)
+            # decimal(p1,s1) * decimal(p2,s2) is of scale s1+s2, and an int's scale is 0
+            sl, sr = (0 if v[0] == "int" else v[1] for v in (l, r))
+            return ("decimal", None if sl is None or sr is None else sl + sr)
         if op == "/" and l[0] == r[0] and l[0] in ("money", "duration"):
             if l[0] == "money" and l[1] != r[1]:
                 self.fail(f"it divides money of two currencies, {l[1]} and {r[1]}")
@@ -6199,8 +6203,8 @@ def expression_type_plants(people):
     the types it combines are known (the model's check 24): money of two currencies, decimals of two scales, an int and
     a decimal, two timestamps added, money times money, a duration times a duration, an int over money, money of two
     currencies divided, a timestamp compared with a duration, a string with an int, a string asked of an enumeration,
-    a connective and a `not` on what is no bool, a conditional of two types, `length` of an int, and an invariant and a
-    condition that are no bool; and what types is accepted."""
+    a connective and a `not` on what is no bool, a conditional of two types, `length` of an int, an invariant and a
+    condition that are no bool, and a scale a product or a quotient gives (D549); and what types is accepted."""
     probe = "usd + usd"
 
     def ledger(expr, invariant=None, condition=None):
@@ -6236,6 +6240,14 @@ def expression_type_plants(people):
         ("length of an int", ledger("length(count) > 0"), [wrong("derived attribute probe", "length takes a string, and is given an int")]),
         ("an invariant that is no bool", ledger(probe, invariant="count + 1"), [wrong("invariant check", "it is an int, not a bool")]),
         ("a condition that is no bool", ledger(probe, condition="label"), [wrong("condition ready", "it is a string, not a bool")]),
+        ("a product's scale", ledger("rate * rate - rate"), [wrong("derived attribute probe", "it subtracts decimals of two scales, 4 and 2")]),
+        ("a literal's scale in a product", ledger("rate * 1.0 - rate"),
+         [wrong("derived attribute probe", "it subtracts decimals of two scales, 3 and 2")]),
+        ("a quotient of its left operand's type", ledger("rate / fine + fine"),
+         [wrong("derived attribute probe", "it adds decimals of two scales, 2 and 3")]),
+        ("a sum of products", ledger("sum(a in Account: a.rate * a.rate) - rate"),
+         [wrong("derived attribute probe", "it subtracts decimals of two scales, 4 and 2")]),
+        ("products and quotients that type", ledger("rate * fine - fine * rate > fine / rate and rate * 2 + rate > rate"), []),
         ("what types", ledger("if vip then usd / count + usd * 2 else usd - usd"), []),
         ("a duration of timestamps, a quotient of like amounts and a tier", ledger(
             "since - since < span and usd / usd > 1 and tier == Tier.GOLD and tier in Tier and label in {\\\"a\\\", \\\"b\\\"} and rate * count > rate"), []),

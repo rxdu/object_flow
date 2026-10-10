@@ -14116,6 +14116,145 @@
   "could_violate": {}
  },
  {
+  "label": "expression_type_plants: a product's scale",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "b4e586d497da58e4"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it subtracts decimals of two scales, 4 and 2 (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "expression_type_plants: a literal's scale in a product",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "074441b4b0b4d49a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it subtracts decimals of two scales, 3 and 2 (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "expression_type_plants: a quotient of its left operand's type",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "6f0136a0159691bf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it adds decimals of two scales, 2 and 3 (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "expression_type_plants: a sum of products",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "f624e7627420d252"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it subtracts decimals of two scales, 4 and 2 (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "expression_type_plants: products and quotients that type",
+  "files": [
+   [
+    "people.yaml",
+    "cc897d91cab7f987"
+   ],
+   [
+    "ledger.yaml",
+    "4fbb97c0f81862e5"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Account": [
+    0,
+    0
+   ],
+   "Agent": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "expression_type_plants: what types",
   "files": [
    [

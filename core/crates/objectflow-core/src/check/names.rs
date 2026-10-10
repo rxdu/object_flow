@@ -2812,8 +2812,9 @@ fn fits(target: &[String], value: &[String], library: &Obj) -> bool {
 /// A type as check 24 infers it (`declaration-syntax.md` §8.1, §8.3).
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Ty {
-    /// A number literal, which takes the type of what it meets.
-    Number,
+    /// A number literal, with its written scale, which a product adds
+    /// (§8.3); in a sum or a comparison it takes the other operand's type.
+    Number(u32),
     Int,
     /// A decimal, with its scale where it is known.
     Decimal(Option<u32>),
@@ -2838,7 +2839,7 @@ impl Ty {
     /// The type's name as `check-flows.py`'s tuples spell it.
     fn tag(&self) -> &'static str {
         match self {
-            Ty::Number => "number",
+            Ty::Number(_) => "number",
             Ty::Int => "int",
             Ty::Decimal(_) => "decimal",
             Ty::Money(_) => "money",
@@ -2860,7 +2861,7 @@ impl Ty {
     }
 
     fn scalar(&self) -> bool {
-        matches!(self, Ty::Int | Ty::Decimal(_) | Ty::Number)
+        matches!(self, Ty::Int | Ty::Decimal(_) | Ty::Number(_))
     }
 
     /// A type as a finding names it (`check-flows.py`'s `type_text`).
@@ -2988,7 +2989,10 @@ impl Typing<'_> {
         seen: &BTreeSet<(String, String)>,
     ) -> Option<Ty> {
         match e {
-            Expr::Num(_) => Some(Ty::Number),
+            Expr::Num(n) => Some(Ty::Number(match n {
+                Number::Int(_) => 0,
+                Number::Decimal(t) => t.split_once('.').map_or(0, |(_, f)| f.len() as u32),
+            })),
             Expr::Str(_) => Some(Ty::Str),
             Expr::Bool(_) => Some(Ty::Bool),
             Expr::Money(c, _) => Some(Ty::Money(c.clone())),
@@ -3159,7 +3163,7 @@ impl Typing<'_> {
                         Some(Ty::Bool)
                     }
                     "sum" | "min" | "max" if b.is_some() => {
-                        let b = b.unwrap_or(Ty::Number);
+                        let b = b.unwrap_or(Ty::Number(0));
                         if kind == "sum"
                             && !(b.scalar() || matches!(b, Ty::Money(_) | Ty::Duration))
                         {
@@ -3225,7 +3229,7 @@ impl Typing<'_> {
                     return None;
                 }
                 match a {
-                    Some(a) if a != Ty::Number => Some(a),
+                    Some(a) if !matches!(a, Ty::Number(_)) => Some(a),
                     _ => b,
                 }
             }
@@ -3274,8 +3278,9 @@ impl Typing<'_> {
     /// Whether two types are one for a comparison or a conditional's
     /// branches (`check-flows.py`'s `alike`).
     fn alike(&self, a: &Ty, b: &Ty) -> bool {
-        let numeric = |t: &Ty| matches!(t, Ty::Number | Ty::Int | Ty::Decimal(_));
-        if a == b || (numeric(a) && numeric(b) && (*a == Ty::Number || *b == Ty::Number)) {
+        let numeric = |t: &Ty| matches!(t, Ty::Number(_) | Ty::Int | Ty::Decimal(_));
+        let literal = |t: &Ty| matches!(t, Ty::Number(_));
+        if a == b || (numeric(a) && numeric(b) && (literal(a) || literal(b))) {
             return true;
         }
         match (a, b) {
@@ -3300,10 +3305,10 @@ impl Typing<'_> {
         };
         if matches!(op, BinOp::Add | BinOp::Sub) {
             if l.scalar() && r.scalar() {
-                if l == Ty::Number {
+                if matches!(l, Ty::Number(_)) {
                     return Some(r);
                 }
-                if r == Ty::Number {
+                if matches!(r, Ty::Number(_)) {
                     return Some(l);
                 }
                 if l.tag() != r.tag() {
@@ -3349,16 +3354,26 @@ impl Typing<'_> {
         }
         // * and /
         if l.scalar() && r.scalar() {
-            if l == Ty::Number {
-                return Some(r);
-            }
-            if r == Ty::Number {
+            if op == BinOp::Div {
+                // / yields its left operand's type
                 return Some(l);
             }
-            if l == Ty::Int && r == Ty::Int {
-                return Some(l);
+            if let (Ty::Number(a), Ty::Number(b)) = (&l, &r) {
+                return Some(Ty::Number(a + b));
             }
-            return Some(Ty::Decimal(None));
+            let whole = |t: &Ty| matches!(t, Ty::Int | Ty::Number(0));
+            if whole(&l) && whole(&r) {
+                return Some(Ty::Int);
+            }
+            // decimal(p1,s1) * decimal(p2,s2) is of scale s1+s2, and an
+            // int's scale is 0
+            let scale = |t: &Ty| match t {
+                Ty::Int => Some(0),
+                Ty::Number(s) => Some(*s),
+                Ty::Decimal(s) => *s,
+                _ => None,
+            };
+            return Some(Ty::Decimal(scale(&l).zip(scale(&r)).map(|(a, b)| a + b)));
         }
         let quantity = |t: &Ty| matches!(t, Ty::Money(_) | Ty::Duration);
         if op == BinOp::Div && l.tag() == r.tag() && quantity(&l) {
