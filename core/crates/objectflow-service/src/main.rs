@@ -25,7 +25,7 @@ use objectflow_core::import::{
     ViolationClass, ViolationKind,
 };
 use objectflow_core::model::{Declared, Library};
-use objectflow_core::reads::{self, Offer};
+use objectflow_core::reads::{self, Availability, Offer};
 use objectflow_core::request::{self, Request};
 use objectflow_core::store::{BUILTINS, Event, Store};
 use objectflow_core::value::{parse_duration, parse_timestamp, timestamp_text};
@@ -693,9 +693,17 @@ async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
     let world = s.snapshot()?;
-    Ok(Json(page_json(&reads::available(
-        &world, actor, type_, transition,
-    )?)))
+    let mut page = page_json(&reads::available(&world, actor, type_, transition)?);
+    // a row is swept on the state and the guards, so one the transition may
+    // refuse for who takes it says so, rather than each row simulated
+    // (ADR-0176 decision 2)
+    let dependent = s
+        .lib
+        .type_(type_)
+        .and_then(|t| t.transition(transition).map(|x| (t, x)))
+        .is_some_and(|(t, x)| objectflow_core::request::actor_dependent(&s.lib, t, x));
+    page["actor_dependent"] = json!(dependent);
+    Ok(Json(page))
 }
 
 /// Where a type's flow and reality disagree, over a window (`DESIGN.md`
@@ -1401,20 +1409,53 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
     };
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
-    let world = s.snapshot()?;
-    let t = reads::get(&world, id)?.and_then(|v| s.lib.type_(&v.object.type_));
-    let dependent = |o: &Offer| {
-        o.creates.is_none()
-            && t.and_then(|t| t.transition(&o.transition).map(|x| (t, x)))
-                .is_some_and(|(t, x)| objectflow_core::request::actor_dependent(&s.lib, t, x))
+    let decided = {
+        let world = s.snapshot()?;
+        let t = reads::get(&world, id)?.and_then(|v| s.lib.type_(&v.object.type_));
+        let dependent = |o: &Offer| {
+            o.creates.is_none()
+                && t.and_then(|t| t.transition(&o.transition).map(|x| (t, x)))
+                    .is_some_and(|(t, x)| objectflow_core::request::actor_dependent(&s.lib, t, x))
+        };
+        reads::availability(&world, actor, id)?.map(|offers| {
+            offers
+                .into_iter()
+                .map(|o| {
+                    let d = dependent(&o);
+                    (o, d)
+                })
+                .collect::<Vec<_>>()
+        })
     };
-    match reads::availability(&world, actor, id)? {
-        Some(offers) => Ok(Json(J::Array(
-            offers.iter().map(|o| offer(o, dependent(o))).collect(),
-        ))),
-        // an object that does not exist offers nothing, null as get's (ADR-0173)
-        None => Ok(Json(J::Null)),
+    // an object that does not exist offers nothing, null as get's (ADR-0173)
+    let Some(decided) = decided else {
+        return Ok(Json(J::Null));
+    };
+    let mut out = Vec::new();
+    for (mut o, dependent) in decided {
+        // one that may be refused for who takes it is decided for who asks,
+        // where it takes no input and asks no evaluator: the request with no
+        // inputs simulated whole, as `check` does, every evaluator unasked,
+        // and a simulation that would ask one leaves it as decided (ADR-0176
+        // decision 2)
+        if dependent && o.availability == Availability::Available && o.unevaluated.is_empty() {
+            let req = request_of(
+                &json!({"transition": o.transition, "actor": {"id": actor}, "object_id": id}),
+            )?;
+            let given = std::mem::take(&mut s.answers);
+            let checked = request::check(s, &req);
+            s.answers = given;
+            if let Ok(c) = checked?
+                && !matches!(c.verdict, Verdict::Satisfied { .. })
+            {
+                o.availability = Availability::Unavailable;
+                o.verdict = Some(c.verdict);
+                o.flags = Vec::new();
+            }
+        }
+        out.push(offer(&o, dependent));
     }
+    Ok(Json(J::Array(out)))
 }
 
 /// A reader's read of a metric: one page holding every group, so its

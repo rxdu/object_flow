@@ -302,8 +302,12 @@ class TransitionOffer:
     unevaluated: Sequence[str]
     flags: Sequence[Flag] = ()            # the flags taking it would raise, as it stands (ADR-0111)
     actor_dependent: bool = False         # it writes who takes it into what an invariant
-                                          # reads, so it may be refused for who takes it,
-                                          # which an offer cannot evaluate (ADR-0173)
+                                          # reads, so it may be refused for who takes it
+                                          # (ADR-0173); one available, taking no input and
+                                          # asking no evaluator is simulated for who asks,
+                                          # as check does, and unavailable where refused;
+                                          # a simulation that would ask one leaves it
+                                          # (ADR-0176 decision 2)
 
 
 @dataclass(frozen=True)
@@ -325,6 +329,9 @@ class Object:
 class Page:
     items: Sequence[Any]
     cursor: str | None
+    actor_dependent: bool = False         # available's: rows may be refused for who takes
+                                          # the transition, which a sweep does not simulate
+                                          # (ADR-0176 decision 2)
     refused: str | None = None            # a query it cannot answer, a value: unknown_type,
                                           # malformed_filter, unknown_order_key, unknown_field
                                           # malformed_filter too where a filter compares a

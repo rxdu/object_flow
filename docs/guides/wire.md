@@ -141,7 +141,7 @@ An **offer**, one per transition, its inputs as types to build a form from (whic
  "unevaluated": [], "flags": [], "actor_dependent": false}
 ```
 
-`availability` is `available`, `available_with_input` or `unavailable`, with the refusal it would meet; `flags` are the warnings taking it would raise; `unevaluated`, the evaluators it would ask. **`actor_dependent: true`** says the transition writes who takes it into what an invariant reads, so it may be refused for who takes it, which an offer cannot tell: a person's confirmation an agent is offered, say.
+`availability` is `available`, `available_with_input` or `unavailable`, with the refusal it would meet; `flags` are the warnings taking it would raise; `unevaluated`, the evaluators it would ask. **`actor_dependent: true`** says the transition writes who takes it into what an invariant reads, so it may be refused for who takes it. One that takes no input and asks no evaluator is decided for who asks: the request is simulated with no inputs, as `check` would, so an agent is offered no approval marked `taken_by: [human]` and sees why, `unavailable` with the `invariant_violated` it would meet (ADR-0176). One awaiting inputs cannot be decided until they are given, so an application `check`s it with them, or lets the request answer. `available`'s page carries `actor_dependent` for its transition, since a sweep is not simulated row by row.
 
 Every offer of an object carries the built-in `record` with `"creates": "label"`: a label, a name a person or an agent puts on any object, which a metric reads (`flow-format.md` §4.9). A form for it takes `name` and an optional `note`.
 

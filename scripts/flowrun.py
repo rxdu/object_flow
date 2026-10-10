@@ -1608,6 +1608,19 @@ class _NeverAsked(dict):
 NEVER_ASKED = _NeverAsked()
 
 
+class Probe(_NeverAsked):
+    """An offer's simulation's answers: none, as an offer's, noting whether any evaluator was asked, so a simulation
+    that would ask one leaves its offer as availability decided it (ADR-0176 decision 2)."""
+
+    def __init__(self):
+        super().__init__()
+        self.asked = False
+
+    def __getitem__(self, key):
+        self.asked = True
+        return "unanswered"
+
+
 class _DryRun(_NeverAsked):
     """The answers a dry run gives: no evaluator asked, and no metric consulted, each read left unanswered
     (publish-and-import.md §1 step 3, D537)."""
@@ -1952,6 +1965,20 @@ class Runner:
         if x["kind"] == "assertion":
             out.update({"to": "state", "admits": "invariant[]"})
         return out
+
+    def decided_for(self, store, actor, oid, xn, aliases):
+        """An offer that may be refused for who takes it, decided for who asks (ADR-0176 decision 2): the request
+        with no inputs simulated whole on a copy of the store, as `check` simulates it, no evaluator asked. Its refusal,
+        or None where it applies, or where the simulation would ask an evaluator or reaches what the runner does not
+        run, which leaves the offer as availability decided it."""
+        probe = Probe()
+        try:
+            self.attempted(copy.deepcopy(store), store.type_of(oid), xn, oid, actor, {}, aliases, probe)
+        except Refused as r:
+            return None if probe.asked else r
+        except NotRunnable:
+            return None
+        return None
 
     def offer(self, store, o, t, xn, x, who):
         attrs = t.get("attributes") or {}

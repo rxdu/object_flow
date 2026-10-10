@@ -672,15 +672,22 @@ class Sandbox:
         out = []
         for xn, creates, how, refusal, schema, unevaluated, flags in offers:
             tn = creates or s.objects[oid].type
+            # it may be refused for who takes it (ADR-0173 decision 1)
+            dependent = creates is None and self.runner.actor_dependent(tn, xn)
+            if dependent and how == "available" and not unevaluated:
+                # so it is decided for who asks, where it takes no input and
+                # asks no evaluator (ADR-0176 decision 2)
+                refused = self.runner.decided_for(s, actor, oid, xn,
+                                                  self.aliases())
+                if refused is not None:
+                    how, refusal, flags = "unavailable", refused, []
             out.append({
                 "transition": xn, "creates": creates, "availability": how,
                 "verdict": self.refusal(refusal, tn, oid, {}, xn)
                 if refusal else None,
                 "inputs": schema, "unevaluated": unevaluated,
                 "flags": [{"clause": c, "remedy": rem} for c, rem in flags],
-                # it may be refused for who takes it (ADR-0173 decision 1)
-                "actor_dependent": creates is None
-                and self.runner.actor_dependent(tn, xn),
+                "actor_dependent": dependent,
             })
         return out
 

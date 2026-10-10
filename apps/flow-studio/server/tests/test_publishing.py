@@ -1287,6 +1287,89 @@ def test_an_offer_says_it_depends_on_who_takes_it_alike(tee):
     alike(tee)
 
 
+# a person decides a request, which the agent may only propose to approve
+TAKEN = """module: taken
+categories: [live, closed]
+
+types:
+  User:
+    description: A person who may act.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { description: Working., category: live }
+      LEFT:   { description: Gone., category: closed, final: true }
+    transitions:
+      add:   { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: ACTIVE, to: LEFT }
+
+  Agent:
+    description: An agent that drafts and proposes.
+    tracking: record
+    attributes:
+      key: { type: identity, actor_kind: agent, unique: true }
+    states:
+      ACTIVE:  { description: Working., category: live }
+      RETIRED: { description: Retired., category: closed, final: true }
+    transitions:
+      issue:  { kind: initial, to: ACTIVE, required_inputs: [key] }
+      retire: { kind: external, from: ACTIVE, to: RETIRED }
+
+  Request:
+    description: A request a person decides.
+    tracking: record
+    attributes:
+      title: { type: string }
+    states:
+      OPEN:     { description: Waiting., category: live }
+      APPROVED: { description: Approved., category: closed, final: true }
+      REJECTED: { description: Rejected., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title] }
+      retitle: { kind: internal, from: OPEN, required_inputs: [title] }
+      approve: { kind: external, from: OPEN, to: APPROVED, taken_by: [human], proposable: true }
+      reject:  { kind: external, from: OPEN, to: REJECTED, taken_by: [human, service] }
+"""
+
+
+def test_an_offer_is_decided_for_who_asks_alike(tee):
+    """An offer that may be refused for who takes it, takes no input and asks
+    no evaluator is simulated for who asks, so the agent is offered no
+    approval it would be refused, and a person is (ADR-0176 decision 2);
+    one awaiting inputs is left to them, marked, through both backends."""
+    tee.found.clear()
+    assert tee.post("/sandbox/load",
+                    {"files": [{"name": "taken.yaml", "text": TAKEN}]})["loaded"]
+    ana = tee.post("/v1/request", {"type": "User", "transition": "add",
+                                   "actor": OP, "inputs": {"login": "ana"}})
+    scout = tee.post("/v1/request", {"type": "Agent", "transition": "issue",
+                                     "actor": OP, "inputs": {"key": "scout"}})
+    req = tee.post("/v1/request", {"type": "Request", "transition": "open",
+                                   "actor": OP,
+                                   "inputs": {"title": "Laptop"}})["object_id"]
+
+    def offers(actor: str) -> dict:
+        return {o["transition"]: o for o in tee.post(
+            "/v1/availability", {"actor": {"id": actor}, "id": req})
+            if not o["creates"]}
+
+    agent, person = offers(scout["object_id"]), offers(ana["object_id"])
+    alike(tee)
+    for xn in ("approve", "reject"):
+        assert agent[xn]["availability"] == "unavailable", agent[xn]
+        assert agent[xn]["verdict"]["kind"] == "invariant_violated"
+        assert agent[xn]["verdict"]["failures"][0]["invariant"] == f"{xn}_taken_by"
+        assert agent[xn]["verdict"]["remedy"] == "delegable"
+        assert person[xn]["availability"] == "available", person[xn]
+        assert agent[xn]["actor_dependent"] and person[xn]["actor_dependent"]
+    # awaiting its title, a retitle is anyone's, and nothing was written
+    assert agent["retitle"]["availability"] == "available_with_input"
+    assert tee.post("/v1/get", {"id": req})["state"] == "OPEN"
+    assert tee.post("/v1/history", {"id": req})["events"][-1]["transition"] == "open"
+    alike(tee)
+
+
 def test_an_actor_is_named_by_identity_or_id_alike(tee):
     """A request names its actor by the object's id or by the actor
     identity it holds, the id resolved first, through both backends alike
