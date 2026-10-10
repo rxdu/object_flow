@@ -124,6 +124,10 @@ describe("the sentence under a verdict", () => {
         "Only Order.add_line or Order.copy may take it: nothing done from here will change that.",
       ],
       [
+        { kind: "not_proposable", remedy: "self_serviceable" },
+        "It cannot be filed as a proposal; it may be requested directly.",
+      ],
+      [
         { kind: "stale", remedy: "temporal" },
         "The object changed since it was read: wait, and try again later.",
       ],

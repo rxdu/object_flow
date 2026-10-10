@@ -3028,9 +3028,11 @@ def file_proposal(runner, store, st, aliases):
         advance(store, r)
         oid = aliases[r["object"]] if "object" in r else None
         tn = store.type_of(oid) if oid else r["type"]
-        x = ((runner.kinds.get(tn) or {}).get("transitions") or {}).get(r["transition"], {})
+        x = ((runner.kinds.get(tn) or {}).get("transitions") or {}).get(r["transition"])
+        if x is None:
+            raise Refused("unknown_transition", remedy="self_serviceable")
         if not x.get("proposable"):
-            raise ExampleError(f"{tn}.{r['transition']} is not proposable, so no proposal of it can be filed")
+            raise Refused("not_proposable", remedy="self_serviceable")    # send it as a request instead (ADR-0173)
         # filing checks the inputs as a request would, and leaves the object's state and the guards to approval (ADR-0146)
         attrs, declared = (runner.kinds.get(tn) or {}).get("attributes") or {}, x.get("inputs") or {}
         for k, v in (r.get("inputs") or {}).items():

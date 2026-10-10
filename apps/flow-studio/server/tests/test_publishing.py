@@ -1113,6 +1113,36 @@ def test_a_report_states_each_invariants_form(tee):
     alike(tee)
 
 
+def test_a_proposal_of_what_is_not_proposable_is_refused_alike(tee):
+    """Filing a proposal of a transition not marked proposable is refused
+    not_proposable through both backends, its remedy to send it as a
+    request instead (ADR-0173 decision 3, D553): the runner raised a fault
+    and the core answered not_requestable, the verdict of an only-via
+    transition. A proposal of a transition the type does not have is still
+    unknown_transition."""
+    loaded(tee, "service.yaml")
+    tee.found.clear()
+    ana = tee.post("/v1/request", {"transition": "add", "actor": OP,
+                                   "type": "User",
+                                   "inputs": {"login": "ana", "name": "Ana"}})
+    job = tee.post("/v1/request", {"transition": "open",
+                                   "actor": {"id": ana["object_id"]},
+                                   "type": "ServiceJob",
+                                   "inputs": {"engineer": ana["object_id"]}})
+    v = tee.post("/v1/request", {"transition": "start",
+                                 "actor": {"id": ana["object_id"]},
+                                 "object_id": job["object_id"],
+                                 "propose": True})
+    assert (v["kind"], v["remedy"]) == ("not_proposable",
+                                        "self_serviceable"), v
+    unknown = tee.post("/v1/request", {"transition": "fly",
+                                       "actor": {"id": ana["object_id"]},
+                                       "object_id": job["object_id"],
+                                       "propose": True})
+    assert unknown["kind"] == "unknown_transition", unknown
+    alike(tee)
+
+
 def test_a_derived_amount_summed_over_nothing_is_its_currencys_zero(tee):
     """A claim with no lines has a total summed over nothing, which is the
     zero of the amount its lines would sum, at the currency's minor unit,

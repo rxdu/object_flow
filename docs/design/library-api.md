@@ -201,6 +201,12 @@ class NotRequestable:
 
 
 @dataclass(frozen=True)
+class NotProposable:
+    """A request filed as a proposal of a transition not marked proposable (ADR-0173)."""
+    remedy: Remedy = Remedy.SELF_SERVICEABLE        # send it as a request instead
+
+
+@dataclass(frozen=True)
 class OverLimit:
     loop: str
     bound: int
@@ -258,7 +264,7 @@ class CallRefused:
 
 Verdict = (
     Satisfied | Unsatisfied | Stale | NotFound | Unavailable | UnknownTransition
-    | InvalidInput | NotRequestable | OverLimit | InvariantViolated | CallRefused
+    | InvalidInput | NotRequestable | NotProposable | OverLimit | InvariantViolated | CallRefused
 )
 
 

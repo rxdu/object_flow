@@ -53,6 +53,8 @@ pub enum Verdict {
     InvalidInput {
         inputs: Vec<String>,
     },
+    /// A proposal of a transition not marked proposable (ADR-0173).
+    NotProposable,
     NotRequestable {
         parents: Vec<String>,
     },
@@ -92,6 +94,7 @@ impl Verdict {
             Verdict::UnknownTransition { .. } => "unknown_transition",
             Verdict::InvalidInput { .. } => "invalid_input",
             Verdict::NotRequestable { .. } => "not_requestable",
+            Verdict::NotProposable => "not_proposable",
             Verdict::InvariantViolated { .. } => "invariant_violated",
             Verdict::CallRefused { .. } => "call_refused",
             Verdict::OverLimit { .. } => "over_limit",
@@ -123,8 +126,11 @@ impl Verdict {
             | Verdict::NotRequestable { .. }
             | Verdict::OverLimit { .. } => Some(Remedy::UnreachableFromHere),
             // a moved version: re-read and send again (ADR-0105)
+            // a transition not proposable: send it as a request, if its
+            // caller may (ADR-0173)
             Verdict::UnknownTransition { .. }
             | Verdict::InvalidInput { .. }
+            | Verdict::NotProposable
             | Verdict::Stale { .. } => Some(Remedy::SelfServiceable),
         }
     }

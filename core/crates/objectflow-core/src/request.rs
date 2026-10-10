@@ -2282,9 +2282,7 @@ fn file(
     };
     stale(world, req)?;
     if !x.proposable {
-        return refused(Verdict::NotRequestable {
-            parents: x.only_via.clone(),
-        });
+        return refused(Verdict::NotProposable);
     }
     // its inputs as a request checks them: taken, of their type, naming
     // what exists, and none left out
@@ -6829,12 +6827,11 @@ types:
             };
             request(s, &r).unwrap().unwrap()
         };
-        // filing checks the transition and the inputs, not the state
+        // filing checks the transition and the inputs, not the state; a
+        // transition not proposable is refused as such (ADR-0173)
         assert_eq!(
             propose(&mut s, "start", json!({}), None),
-            Verdict::NotRequestable {
-                parents: Vec::new()
-            }
+            Verdict::NotProposable
         );
         assert_eq!(
             propose(&mut s, "finish", json!({"bogus": 1}), None),

@@ -57,6 +57,7 @@ export type Verdict = Reported &
     | { kind: "unknown_transition"; transition: string; remedy: Remedy }
     | { kind: "invalid_input"; inputs: string[]; remedy: Remedy }
     | { kind: "not_requestable"; parents: string[]; remedy: Remedy }
+    | { kind: "not_proposable"; remedy: Remedy }
     | { kind: "over_limit"; remedy: Remedy }
     | { kind: "not_found"; remedy: Remedy }
     | { kind: "stale"; remedy: Remedy }

@@ -86,6 +86,8 @@ export function explain(v: Verdict): string {
       return v.parents.length === 0
         ? `Only another transition may take it${next(v.remedy)}`
         : `Only ${listed(v.parents, "or")} may take it${next(v.remedy)}`;
+    case "not_proposable":
+      return "It cannot be filed as a proposal; it may be requested directly.";
     case "over_limit":
       return `It would pass a declared limit${next(v.remedy)}`;
     case "not_found":

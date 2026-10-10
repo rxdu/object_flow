@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 560 entries and five cosmetics; 551 are closed and 9 are open. The PRD is at revision 21, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 560 entries and five cosmetics; 552 are closed and 8 are open. The PRD is at revision 21, with no revision awaiting the author.
 
 **Every ADR is accepted or superseded.** In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
@@ -234,6 +234,7 @@ Evaluating a request yields one **verdict**, and every refusal names a remedy cl
 | `stale` | The caller's `expected_version` is out of date, or the transaction exhausted its serialisation retries; the verdict says which (ADR-0023, ADR-0039, ADR-0092) | `self_serviceable` for a moved version; `temporal` for exhausted retries |
 | `not found` | No object has the id named (ADR-0114 withdrew the case of an object hidden from its reader) | `unreachable_from_here` |
 | `not requestable` | The transition is only via named parents, which are named in the verdict (ADR-0020, ADR-0041) | `unreachable_from_here` |
+| `not proposable` | The request is filed as a proposal, and the transition is not marked proposable (ADR-0173) | `self_serviceable`: send it as a request, if its caller may |
 | `over-limit` | A loop or cascade would exceed its declared limit, which is named; the limit counts the elements a loop's `where` selects and the parts a cascade drives (ADR-0041, ADR-0122) | `unreachable_from_here` |
 | `unavailable` | The object is not in a state the transition may be taken in; names the state it is in (ADR-0122) | `unreachable_from_here` |
 | `unknown transition` | The type declares no transition of that name the request can take: an initial one for a creation, any other for an object (ADR-0122) | `self_serviceable` |
@@ -717,7 +718,7 @@ PRD §5 defines the product's terms and this table uses them: **engine**, the go
 | **Observing clause** | A guard clause marked `observe`: evaluated, never enforced, its would-be refusals recorded in the attempt log. |
 | **Flag** | A guard clause marked `flag`: evaluated on every request and never enforced; where it fails the request proceeds, the caller is told, and it is recorded and counted (ADR-0111). |
 | **Approval** | A recorded part of the approved object; "needs approval" is a guard counting approvals still valid under `changed_since` (ADR-0035). |
-| **Verdict** | The result of evaluating a request: satisfied, unsatisfied, `unavailable`, `unknown transition`, `invalid input`, `stale`, `not found`, `not requestable`, `over-limit`, `call refused`, or invariant violated; every refusal carries a remedy class, and a request whose call or creation is refused carries that refusal's (ADR-0122). |
+| **Verdict** | The result of evaluating a request: satisfied, unsatisfied, `unavailable`, `unknown transition`, `invalid input`, `stale`, `not found`, `not requestable`, `not proposable`, `over-limit`, `call refused`, or invariant violated; every refusal carries a remedy class, and a request whose call or creation is refused carries that refusal's (ADR-0122). |
 | **Remedy class** | What a refusal tells the caller to do: supply, ask, wait, work elsewhere, or take another path. |
 | **Invariant** | A type-level property, checked after every request against the objects it wrote. |
 | **Admission** | A recorded decision to tolerate one invariant violation on one object, discharged when the invariant holds again; made by an assertion, an erasure or a publish's `admit`, and always an override. |

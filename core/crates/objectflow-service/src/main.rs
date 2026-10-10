@@ -158,6 +158,7 @@ fn verdict(v: &Verdict) -> J {
         Verdict::UnknownTransition { transition } => json!({ "transition": transition }),
         Verdict::InvalidInput { inputs } => json!({ "inputs": inputs }),
         Verdict::NotRequestable { parents } => json!({ "parents": parents }),
+        Verdict::NotProposable => json!({}),
         Verdict::CallRefused {
             step,
             object_id,
