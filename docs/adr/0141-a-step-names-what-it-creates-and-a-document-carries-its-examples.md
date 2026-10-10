@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-29: "accept", on the report of the runner's fifth slice, which also asked the author to confirm that a sign-off given before the checklist is ticked goes stale, so the approval comes last; accepted in advance earlier the same day under the standing direction "for all similar items that you have confidence in an recommendation, just accept".
 - **Date:** 2026-09-29
+- **Refined by:** ADR-0176 decision 4 — an example's `import` naming an alias an earlier import gave refreshes that object.
 - **Refines:** ADR-0136 (examples, built by requests from an empty store), ADR-0140 decision 3 (the design's own examples all run), ADR-0121 (the design's YAML is checked where it stands)
 - **Relates to:** `flow-format.md` §11.3; `scripts/check-flow-docs.py`; `jira-flows.md`; `flow-format/examples/delivery.examples.yaml`
 

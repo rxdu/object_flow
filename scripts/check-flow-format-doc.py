@@ -90,10 +90,13 @@ def main():
             findings.append(f"§10 {label.lower()} lists `{w}`, which neither examples.schema.json nor the checker defines")
 
     # a finding is (path, code, message): the code is the lower-case literal just before the message
+    # a code before its message, or after the severity where the message is a name (`"notice", "coverage", m`)
     reported = set(re.findall(r'"([a-z]+)",\s*f"', source)) | {"yaml", "schema"}
+    reported |= set(re.findall(r'"(?:fatal|notice)",\s*"([a-z]+)"', source))
     section7 = doc[doc.index("## 7. Validity"):doc.index("## 8.")]
     stated = {c for c in re.findall(r"^\|[^|]*\| `([a-z]+)`", section7, re.M) if c != "check"}
-    notice = re.search(r"reports \w+ notices[^.]*\.", section7)
+    # the sentence ends at a full stop, not one inside a section number such as §11.5
+    notice = re.search(r"reports \w+ notices(?:[^.]|\.\d)*\.", section7)
     stated |= set(re.findall(r"`([a-z]+)`", notice.group(0))) if notice else set()
     for c in sorted(reported - stated):
         findings.append(f"§7 does not state the finding code `{c}`, which the checker reports")

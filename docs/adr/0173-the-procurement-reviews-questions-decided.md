@@ -2,6 +2,7 @@
 
 - **Status:** Decided by the author, 2026-10-10 ("now address the issues"), on the recommendations stated with each question.
 - **Date:** 2026-10-10
+- **Refined by:** ADR-0176 — decision 1's rejected declared kind of actor becomes sugar for its record and invariant, `taken_by`; decision 6's import step may refresh an alias an earlier import gave.
 - **Refines:** ADR-0114 (who acted, recorded and never evaluated), ADR-0145 (a recorded kind constrained by an invariant), ADR-0150 decisions 1 and 2 (the wire's faults and notation)
 - **Relates to:** `design/procurement-cold-draft.md` §5 and its defects D547 to D560; `DESIGN.md` §2, §5.5, §5.8; `design/library-api.md` §3, §4; `design/flow-format.md` §4.5, §11; `TODO.md`
 

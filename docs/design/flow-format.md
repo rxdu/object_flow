@@ -750,7 +750,7 @@ These words are reserved by the format. `scripts/check-flow-format-doc.py` holds
 
 **In expressions:** the reserved words of the text language, `declaration-syntax.md` §9.5.
 
-**Example keys:** `examples_for`, `setups`, `examples`, `description`, `given`, `evaluators`, `steps`, `request`, `import`, `publish`, `source`, `type`, `object`, `transition`, `as`, `creates`, `actor`, `after`, `occurred_at`, `inputs`, `state`, `values`, `expect`, `verdict`, `clause`, `remedy`, `cascaded`, `warned`, `approve`, `proposal`, `propose`, `reject`, `withdraw`.
+**Example keys:** `examples_for`, `setups`, `examples`, `description`, `given`, `evaluators`, `steps`, `request`, `import`, `publish`, `source`, `type`, `object`, `transition`, `as`, `creates`, `sequences`, `sequence`, `last`, `scope`, `actor`, `after`, `occurred_at`, `inputs`, `state`, `values`, `expect`, `verdict`, `clause`, `remedy`, `cascaded`, `warned`, `metrics`, `approve`, `proposal`, `propose`, `reject`, `withdraw`.
 
 **Example values:** `operator`, `now`, `satisfied`, `unsatisfied`, `unanswered`, `applied`, `unavailable`, `invalid_input`, `not_requestable`, `over_limit`, `invariant_violated`, `call_refused`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `executed`, `pending`, `rejected`, `withdrawn`, `invalidated`.
 
