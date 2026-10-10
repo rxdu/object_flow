@@ -63,7 +63,8 @@ TAKES = {
     "/v1/import_batch": ("actor", "batch", "disposition", "dry_run"),
     "/v1/maintain": ("actor", "task"),
     "/v1/publish": ("actor", "change", "expected_version", "dry_run"),
-    "/sandbox/load": ("files",), "/sandbox/reset": (),
+    "/sandbox/load": ("files", "attempt_retention", "idempotency_retention"),
+    "/sandbox/reset": (),
     "/sandbox/clock": ("advance", "set"),
     "/sandbox/evaluators": ("answers",),
 }

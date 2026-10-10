@@ -142,7 +142,10 @@ const TAKES: &[(&str, &[&str])] = &[
         "/v1/publish",
         &["actor", "change", "expected_version", "dry_run"],
     ),
-    ("/sandbox/load", &["files"]),
+    (
+        "/sandbox/load",
+        &["files", "attempt_retention", "idempotency_retention"],
+    ),
     ("/sandbox/reset", &[]),
     ("/sandbox/clock", &["advance", "set"]),
     ("/sandbox/evaluators", &["answers"]),
@@ -297,7 +300,7 @@ const EVENT_NOT_COMPUTED: [&str; 6] = [
     "flags",
 ];
 
-fn offer(o: &Offer) -> J {
+fn offer(o: &Offer, actor_dependent: bool) -> J {
     let inputs: Map<String, J> = o
         .inputs
         .iter()
@@ -307,6 +310,8 @@ fn offer(o: &Offer) -> J {
         "transition": o.transition, "creates": o.creates, "availability": o.availability.text(),
         "verdict": o.verdict.as_ref().map(verdict), "inputs": inputs,
         "unevaluated": o.unevaluated, "flags": flags(&o.flags),
+        // it may be refused for who takes it (ADR-0173 decision 1)
+        "actor_dependent": actor_dependent,
     })
 }
 
@@ -1220,8 +1225,16 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
     let mut sandbox = locked(&shared)?;
     let s = store(&mut sandbox)?;
     let world = s.snapshot()?;
+    let t = reads::get(&world, id)?.and_then(|v| s.lib.type_(&v.object.type_));
+    let dependent = |o: &Offer| {
+        o.creates.is_none()
+            && t.and_then(|t| t.transition(&o.transition).map(|x| (t, x)))
+                .is_some_and(|(t, x)| objectflow_core::request::actor_dependent(&s.lib, t, x))
+    };
     match reads::availability(&world, actor, id)? {
-        Some(offers) => Ok(Json(J::Array(offers.iter().map(offer).collect()))),
+        Some(offers) => Ok(Json(J::Array(
+            offers.iter().map(|o| offer(o, dependent(o))).collect(),
+        ))),
         // an object that does not exist offers nothing, null as get's (ADR-0173)
         None => Ok(Json(J::Null)),
     }

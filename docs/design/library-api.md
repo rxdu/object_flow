@@ -301,6 +301,9 @@ class TransitionOffer:
     inputs: Mapping[str, str]
     unevaluated: Sequence[str]
     flags: Sequence[Flag] = ()            # the flags taking it would raise, as it stands (ADR-0111)
+    actor_dependent: bool = False         # it writes who takes it into what an invariant
+                                          # reads, so it may be refused for who takes it,
+                                          # which an offer cannot evaluate (ADR-0173)
 
 
 @dataclass(frozen=True)

@@ -643,6 +643,9 @@ class Sandbox:
                 if refusal else None,
                 "inputs": schema, "unevaluated": unevaluated,
                 "flags": [{"clause": c, "remedy": rem} for c, rem in flags],
+                # it may be refused for who takes it (ADR-0173 decision 1)
+                "actor_dependent": creates is None
+                and self.runner.actor_dependent(tn, xn),
             })
         return out
 

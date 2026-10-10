@@ -2686,6 +2686,39 @@ class Runner:
             return "self_serviceable"
         return "dependent" if other else "unreachable_from_here"
 
+    def actor_dependent(self, tn, xn):
+        """Whether an offer of tn's transition xn may be refused for who takes it: xn writes a value from the actor
+        that an invariant of tn reads, or of a type it creates, one hop away; availability runs no effects, so it
+        cannot tell, and says so (ADR-0173 decision 1)."""
+        def read_by(t):
+            names = set()
+            for spec in (t.get("invariants") or {}).values():
+                names |= names_read(parsed(spec["expression"]))
+            todo = list(names)
+            while todo:                         # a derived attribute an invariant reads reads what it reads
+                d = (t.get("derived_attributes") or {}).get(todo.pop())
+                if d:
+                    more = names_read(parsed(d["expression"])) - names
+                    names |= more
+                    todo += list(more)
+            return names
+        t = self.kinds.get(tn) or {}
+        x = (t.get("transitions") or {}).get(xn)
+        if x is None:
+            return False
+        if self.writes_of(x, tn, True)[1] & read_by(t):
+            return True
+
+        def created(steps):
+            for st in steps or []:
+                kind = next(iter(st))
+                if kind == "create":
+                    yield st["create"].get("type")
+                elif kind == "foreach":
+                    yield from created(st["foreach"].get("steps"))
+        return any(self.writes_of(x, k, False)[1] & read_by(self.kinds.get(k) or {})
+                   for k in set(created(x.get("effect"))) if k in self.kinds)
+
     def writes_of(self, x, tn, requested):
         """What transition x writes to an object of type tn, from its inputs and from its actor: to the requested
         object, its inputs and its effect's writes; to an object it creates or calls, one hop away, that step's inputs

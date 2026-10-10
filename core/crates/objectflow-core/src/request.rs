@@ -4306,6 +4306,54 @@ fn invariant_remedy(
     }
 }
 
+/// Whether an offer of transition x on type t may be refused for who takes
+/// it: x writes a value from the actor that an invariant of t reads, or of a
+/// type it creates, one hop away; `availability` runs no effects, so it
+/// cannot tell, and says so (ADR-0173 decision 1).
+pub fn actor_dependent(lib: &Library, t: &Type, x: &Transition) -> bool {
+    let read_by = |t: &Type| {
+        let mut names = BTreeSet::new();
+        for (_, e) in &t.invariants {
+            names_read(e, &mut names);
+        }
+        // a derived attribute an invariant reads reads what it reads
+        let mut todo: Vec<String> = names.iter().cloned().collect();
+        while let Some(m) = todo.pop() {
+            if let Some((_, d)) = t.derived.iter().find(|(n, _)| *n == m) {
+                let mut more = BTreeSet::new();
+                names_read(d, &mut more);
+                for n in more {
+                    if names.insert(n.clone()) {
+                        todo.push(n);
+                    }
+                }
+            }
+        }
+        names
+    };
+    let (_, own) = writes_of(lib, x, &t.name, true);
+    if own.iter().any(|w| read_by(t).contains(w)) {
+        return true;
+    }
+    fn created(steps: &[Step], out: &mut BTreeSet<String>) {
+        for st in steps {
+            match st {
+                Step::Create { type_, .. } => {
+                    out.insert(type_.clone());
+                }
+                Step::Foreach { steps, .. } => created(steps, out),
+                _ => {}
+            }
+        }
+    }
+    let mut kinds = BTreeSet::new();
+    created(&x.effect, &mut kinds);
+    kinds.iter().filter_map(|k| lib.type_(k)).any(|t2| {
+        let (_, by) = writes_of(lib, x, &t2.name, false);
+        by.iter().any(|w| read_by(t2).contains(w))
+    })
+}
+
 /// What transition x writes to an object of type tn, from its inputs and
 /// from its actor: to the requested object, its inputs and its effect's
 /// writes; to an object it creates or calls, one hop away, that step's

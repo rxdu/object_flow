@@ -139,6 +139,11 @@ export function Offers({
               )}
             </div>
           )}
+          {o.actor_dependent && (
+            <div className="mt-1 text-xs text-slate-600">
+              whether it applies depends on who takes it
+            </div>
+          )}
           {o.unevaluated.length > 0 && (
             <div className="mt-1 text-xs text-violet-800">
               not evaluated, an evaluator would be asked:{" "}

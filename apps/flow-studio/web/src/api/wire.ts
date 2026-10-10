@@ -161,6 +161,9 @@ export interface TransitionOffer {
   inputs: Record<string, string>;
   unevaluated: string[];
   flags: Flag[];
+  /** it writes who takes it into what an invariant reads, so it may be
+   * refused for who takes it, which no offer can tell (ADR-0173) */
+  actor_dependent?: boolean;
 }
 
 export interface MetricPage extends Reported {

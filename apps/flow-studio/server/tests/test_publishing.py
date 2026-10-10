@@ -1248,6 +1248,39 @@ def test_a_set_reference_is_read_by_its_members_alike(tee):
     alike(tee)
 
 
+def test_an_offer_says_it_depends_on_who_takes_it_alike(tee):
+    """An offer of a transition that writes who takes it into what an
+    invariant reads says so, since availability runs no effects and so no
+    invariants, through both backends alike (ADR-0173 decision 1): a line's
+    confirm_nature writes the actor's kind that confirmed_by_a_person
+    reads, and suggest_nature writes nothing of the actor."""
+    loaded(tee, "reimbursement.yaml")
+    tee.found.clear()
+    emp = tee.post("/v1/request", {"type": "Employee", "transition": "onboard",
+                                   "actor": OP, "inputs": {"user_id": "alice"}})
+    cat = tee.post("/v1/request", {"type": "ExpenseCategory",
+                                   "transition": "define", "actor": OP,
+                                   "inputs": {"name": "Travel",
+                                              "policy_amount": "USD 500.00"}})
+    claim = tee.post("/v1/request", {"type": "Claim", "transition": "draft",
+                                     "actor": OP,
+                                     "inputs": {"claimant": emp["object_id"],
+                                                "title": "Taxis"}})["object_id"]
+    added = tee.post("/v1/request", {"object_id": claim,
+                                     "transition": "add_line", "actor": OP,
+                                     "inputs": {"amount": "USD 20.00",
+                                                "category": cat["object_id"],
+                                                "expense_date": "2025-12-30",
+                                                "receipt": "taxi.pdf"}})
+    line = tee.post("/v1/get", {"id": claim})["attributes"]["lines"][0]
+    assert added["kind"] == "satisfied", added
+    offers = {o["transition"]: o for o in tee.post(
+        "/v1/availability", {"actor": OP, "id": line}) if not o["creates"]}
+    assert offers["confirm_nature"]["actor_dependent"] is True
+    assert offers["suggest_nature"]["actor_dependent"] is False
+    alike(tee)
+
+
 def test_a_derived_amount_summed_over_nothing_is_its_currencys_zero(tee):
     """A claim with no lines has a total summed over nothing, which is the
     zero of the amount its lines would sum, at the currency's minor unit,
