@@ -15,6 +15,7 @@ A **fault** is a `4xx` or `5xx` whose body is `{"fault": "<what is wrong>"}`, ev
 | `405` | an operation asked by anything but `POST`, or `/health` by anything but `GET` |
 | `409` | the sandbox has no module loaded; an idempotency key reused for a different request (`key_reused: …`) |
 | `501` | a construct the core does not yet run (`not run: …`) |
+| `503` | `engine_mismatch: …`: the store is at another engine release than this copy of the service, an upgrade due or made by another copy (ADR-0177) |
 | `500` | the service's own fault |
 
 **Unknown keys are refused**, so a misspelt key is never read as absent. The keys each operation takes are in §4.
@@ -203,6 +204,17 @@ A **batch** (`publish-and-import.md` §4), each object of a mirror type, its ref
 `type`, `legacy_key` and `state` are required; the rest is what the legacy record can say: when the object was created and by what kind of actor, when it took its current state or a tracked member its value and who changed it (`entered`), its earlier values (`legacy_intervals`), its audit rows (`legacy_entries`, each kind's fields kept through an erasure in `legacy_kinds`), the spans the record is silent over, and each sequence's last number. A mirror's external identifier, `legacy_key` above, holds the key in `attributes` too. The **disposition file** is the dry run's `findings`, each with `disposition` set: `clean_upstream`, `admit` (an invariant), `exclude` or `drop` (a reference or a field), and optionally `decided_by` and `reason` (§6 there). A reference to a legacy key neither the batch nor the store has is a finding too, `"<Type>.<reference>: names nothing"`, so one dry run lists them all (ADR-0176).
 
 A **deployment's evaluator endpoint** (ADR-0175) is posted each call as `{"evaluator": "xero", "function": "bill_paid", "arguments": ["BILL-0042"]}`, the arguments in the order the function declares them, each in this page's notation, and answers `{"verdict": "satisfied"}` or `{"verdict": "unsatisfied"}` with a `200`; anything else, or no answer within `--evaluator-timeout`, is the evaluator's unknown, so its guard is refused `temporal`, and the service writes why on its standard error, which is where an integration's fault shows.
+
+### A deployment's upgrade
+
+`GET /health` answers `release`, this copy's engine release, `store_release`, the store's, and `upgrade_due`. A copy started on a store an earlier release made answers every operation but one `503 engine_mismatch`, and that one is **`POST /v1/upgrade`** `{"actor": {"id": "operator"}, "dry_run": true}`: the store's operator carries the store through each release between, or with `dry_run` runs every step and rolls it back, answering
+
+```json
+{"from": "objectflow-core 0.1.0", "to": "objectflow-core 0.2.0", "dry_run": false, "upgraded": true,
+ "steps": [{"release": "objectflow-core 0.2.0", "changes": "the store records its engine release in of_engine_release, …"}]}
+```
+
+after which the copy serves the store. An actor that is not the store's operator is a `409`; a store at this release already answers `upgraded: false` with no steps; a store of a release this copy does not upgrade from, a later one's among them, does not start (`storage-schema.md` §12, ADR-0177).
 
 ### The sandbox's controls
 

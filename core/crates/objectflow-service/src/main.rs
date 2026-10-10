@@ -27,7 +27,7 @@ use objectflow_core::import::{
 use objectflow_core::model::{Declared, Library};
 use objectflow_core::reads::{self, Availability, Offer};
 use objectflow_core::request::{self, Request};
-use objectflow_core::store::{BUILTINS, Event, Store};
+use objectflow_core::store::{BUILTINS, ENGINE_MISMATCH, Event, Store};
 use objectflow_core::value::{parse_duration, parse_timestamp, timestamp_text};
 use objectflow_core::verdict::{Flag, Verdict};
 use objectflow_core::wire::encode;
@@ -53,6 +53,12 @@ struct Sandbox {
     /// answer is waited for (ADR-0175 decision 5).
     endpoints: std::collections::BTreeMap<String, String>,
     evaluator_timeout: std::time::Duration,
+    /// A deployment's store file, which an upgrade opens.
+    path: Option<std::path::PathBuf>,
+    /// The release a deployment's store is at where it is due an upgrade to
+    /// this one: every operation but the upgrade is refused until it runs
+    /// (ADR-0177 decision 4).
+    due: Option<String>,
 }
 
 /// The most calls one request asks its endpoints, after which a call is
@@ -173,6 +179,9 @@ enum Fault {
     Conflict(String),
     NotRun(String),
     Internal(String),
+    /// `EngineMismatch`: the store is at another engine release
+    /// (`library-api.md` §7, ADR-0177).
+    Mismatch(String),
 }
 
 impl IntoResponse for Fault {
@@ -184,6 +193,7 @@ impl IntoResponse for Fault {
             Fault::Conflict(m) => (StatusCode::CONFLICT, m),
             Fault::NotRun(m) => (StatusCode::NOT_IMPLEMENTED, format!("not run: {m}")),
             Fault::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m),
+            Fault::Mismatch(m) => (StatusCode::SERVICE_UNAVAILABLE, m),
         };
         (status, Json(json!({ "fault": message }))).into_response()
     }
@@ -217,6 +227,9 @@ impl From<request::NoVerdict> for Fault {
 
 impl From<objectflow_core::store::StoreError> for Fault {
     fn from(e: objectflow_core::store::StoreError) -> Fault {
+        if e.is_mismatch() {
+            return Fault::Mismatch(e.0);
+        }
         Fault::Internal(e.to_string())
     }
 }
@@ -256,6 +269,7 @@ const TAKES: &[(&str, &[&str])] = &[
         &["actor", "batch", "disposition", "dry_run"],
     ),
     ("/v1/maintain", &["actor", "task"]),
+    ("/v1/upgrade", &["actor", "dry_run"]),
     (
         "/v1/publish",
         &["actor", "change", "expected_version", "dry_run"],
@@ -314,6 +328,11 @@ fn locked(shared: &Shared) -> Result<std::sync::MutexGuard<'_, Sandbox>, Fault> 
 }
 
 fn store(sandbox: &mut Sandbox) -> Result<&mut Store, Fault> {
+    if let Some(at) = &sandbox.due {
+        return Err(Fault::Mismatch(format!(
+            "{ENGINE_MISMATCH}: the store is at {at}, and this core is {BUILTINS}: upgrade it with POST /v1/upgrade"
+        )));
+    }
     let deployment = sandbox.deployment;
     let endpoints = &sandbox.endpoints;
     let s = sandbox
@@ -1575,6 +1594,14 @@ async fn health(State(shared): State<Shared>) -> Answer {
     } else {
         "sandbox"
     };
+    // a store due an upgrade answers both releases and nothing it holds
+    // (ADR-0177 decision 4)
+    if let Some(at) = &sandbox.due {
+        return Ok(Json(
+            json!({"release": BUILTINS, "shape": shape, "version": J::Null,
+                              "now": J::Null, "store_release": at, "upgrade_due": true}),
+        ));
+    }
     let (version, now) = match sandbox.store {
         Some(_) => {
             let s = store(&mut sandbox)?;
@@ -1583,7 +1610,55 @@ async fn health(State(shared): State<Shared>) -> Answer {
         None => (0, J::Null),
     };
     Ok(Json(
-        json!({"release": BUILTINS, "shape": shape, "version": version, "now": now}),
+        json!({"release": BUILTINS, "shape": shape, "version": version, "now": now,
+               "store_release": BUILTINS, "upgrade_due": false}),
+    ))
+}
+
+/// `upgrade` (`storage-schema.md` §12, ADR-0177): a deployment's store
+/// carried from its release to this core's, the operator's act, or with
+/// `dry_run` every step run and rolled back; once upgraded the store is
+/// opened and served. A store at this release already answers that
+/// nothing is due; a sandbox's store is always this release's.
+async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
+    let Some(actor) = body.get("actor").and_then(|a| text(a, "id")) else {
+        return Err(Fault::Bad(
+            "an upgrade names its actor, an operator of the store".to_string(),
+        ));
+    };
+    let dry_run = match body.get("dry_run") {
+        None | Some(J::Null) => false,
+        Some(J::Bool(b)) => *b,
+        Some(_) => return Err(Fault::Bad("dry_run takes true or false".to_string())),
+    };
+    let mut sandbox = locked(&shared)?;
+    let Some(path) = sandbox.path.clone().filter(|_| sandbox.deployment) else {
+        return Err(Fault::Bad(
+            "a sandbox's store is this release's; only a deployment's is upgraded".to_string(),
+        ));
+    };
+    if sandbox.due.is_none() {
+        return Ok(Json(json!({"from": BUILTINS, "to": BUILTINS, "steps": [],
+                              "dry_run": dry_run, "upgraded": false})));
+    }
+    let report = match objectflow_core::release::upgrade(&path, wall_clock(), actor, dry_run)? {
+        Ok(r) => r,
+        Err(why) => return Err(Fault::Conflict(why)),
+    };
+    if report.upgraded {
+        let mut s = Store::open(&path, wall_clock())?;
+        (s.attempt_retention, s.idempotency_retention) = sandbox.retentions;
+        sandbox.store = Some(s);
+        sandbox.due = None;
+    }
+    let steps: Vec<J> = report
+        .steps
+        .iter()
+        .map(|(release, changes)| json!({"release": release, "changes": changes}))
+        .collect();
+    Ok(Json(
+        json!({"from": report.from, "to": report.to, "steps": steps,
+                   "dry_run": report.dry_run, "upgraded": report.upgraded}),
     ))
 }
 
@@ -1609,6 +1684,7 @@ fn app(shared: Shared, deployment: bool) -> Router {
         .route("/v1/import_batch", post(import_op))
         .route("/v1/lookup", post(lookup))
         .route("/v1/publish", post(publish))
+        .route("/v1/upgrade", post(upgrade))
         .route("/health", axum::routing::get(health));
     // a deployment's service routes none of the sandbox's controls, so no
     // caller can load, reset or move its clock (ADR-0174 decision 1)
@@ -1740,12 +1816,34 @@ async fn main() -> std::io::Result<()> {
     };
     let mut sandbox = Sandbox::default();
     if let Some(path) = &a.store {
-        // a deployment's store, opened before anything is served (ADR-0174)
-        let mut s = Store::open(path, wall_clock())
+        // a deployment's store, opened before anything is served (ADR-0174);
+        // one at a release this core upgrades from is served only the
+        // upgrade until it runs, and one at any other refuses to start, so
+        // there is no downgrade (ADR-0177 decision 4)
+        let at = objectflow_core::release::store_release_at(path)
             .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
-        (s.attempt_retention, s.idempotency_retention) = a.retentions;
         sandbox.deployment = true;
-        sandbox.store = Some(s);
+        sandbox.path = Some(path.clone());
+        sandbox.retentions = a.retentions;
+        match at {
+            Some(r) if r != BUILTINS => {
+                if objectflow_core::release::steps_from(&r, objectflow_core::release::RELEASES)
+                    .is_none()
+                {
+                    return Err(std::io::Error::other(format!(
+                        "{} is at {r}, which {BUILTINS} does not upgrade from",
+                        path.display()
+                    )));
+                }
+                sandbox.due = Some(r);
+            }
+            _ => {
+                let mut s = Store::open(path, wall_clock())
+                    .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
+                (s.attempt_retention, s.idempotency_retention) = a.retentions;
+                sandbox.store = Some(s);
+            }
+        }
         sandbox.endpoints = a.endpoints.clone();
         sandbox.evaluator_timeout = a
             .evaluator_timeout
@@ -1754,6 +1852,12 @@ async fn main() -> std::io::Result<()> {
     let deployment = sandbox.deployment;
     let listener = tokio::net::TcpListener::bind(&a.bind).await?;
     eprintln!("listening on http://{}", listener.local_addr()?);
+    if let (Some(path), Some(at)) = (&a.store, &sandbox.due) {
+        eprintln!(
+            "the store {} is at {at}, and this core is {BUILTINS}: every operation is refused until POST /v1/upgrade runs (ADR-0177)",
+            path.display()
+        );
+    }
     if let (Some(path), Some(s)) = (&a.store, &sandbox.store) {
         eprintln!(
             "the store {} at version {}, under {BUILTINS}",

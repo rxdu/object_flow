@@ -7,7 +7,7 @@ ObjectFlow holds your business objects and enforces their flow; your application
 The engine's core runs as an HTTP service, one request at a time, over one of two stores ([`core/README.md`](../../core/README.md)):
 
 - **a sandbox**, a store held in memory, a clock that moves only when told and evaluators answered by fixed answers: how flows are built and tested, and what the examples below run against;
-- **a deployment's store**, given `--store <file>`: one SQLite file that survives a restart, the wall clock, and no sandbox controls (ADR-0174). Its first slice is enough to pilot a flow on one machine, and lacks two things a production deployment needs: a new engine release cannot yet take over a store an older one created, and it serves one request at a time.
+- **a deployment's store**, given `--store <file>`: one SQLite file that survives a restart, the wall clock, and no sandbox controls (ADR-0174). It is enough to pilot a flow on one machine, and a newer engine release takes over its store by an upgrade (§2); it serves one request at a time, which a production deployment outgrows.
 
 Everything below works against both, but for the sandbox's controls, which a deployment does not route.
 
@@ -31,6 +31,8 @@ POST /sandbox/load
 Files go in import order. `/sandbox/reset` empties the store and keeps the modules; `/sandbox/clock` with `{"advance": "2 h"}` moves time; `/sandbox/evaluators` fixes what an external evaluator answers.
 
 A deployment's store starts at version 0, with no flow, and is given one the way every later version is: a `DeclarationChange` drafted with the modules' text, submitted, and published (§7). Its flow is checked as it is published.
+
+**A new engine release takes over a store by an upgrade** (ADR-0177). Stop the service, copy the store's file (with its `-wal` file, if one is beside it) as the backup, start the new release on it, which answers every operation `503 engine_mismatch` until it is upgraded, and as the operator `POST /v1/upgrade` with `"dry_run": true` to see the steps, then without it. There is no downgrade: a release that fails in service is replaced by restoring the backup. From release 0.2.0 on, a copy of the old release still running is refused from the moment the upgrade commits; one of 0.1.0 is not, so stop it first.
 
 ## 3. Actors
 

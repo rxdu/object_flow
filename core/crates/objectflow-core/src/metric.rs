@@ -2369,7 +2369,7 @@ pub fn page(
 
 /// The standard metrics over a type, as `declaration-syntax.md` §6.11's
 /// first table gives them.
-const STANDARD_NAMES: [&str; 11] = [
+pub(crate) const STANDARD_NAMES: [&str; 11] = [
     "time_in_state",
     "time_in_state_p80",
     "throughput",

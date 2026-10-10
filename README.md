@@ -4,7 +4,7 @@
 
 Governed flows for business objects. People and agents move objects only along declared transitions; every change is checked, recorded and measured.
 
-> **Status: in design, with a running core.** The design is complete and under its author's review: the requirements, the model, the language flows are declared in, every decision with the alternatives it rejected, and the checkers that hold it together. The engine's core runs, in Rust, held to a Python reference runner: as a sandbox's service, on which the Flow Studio is built, and as a deployment's, whose store is one SQLite file that survives a restart, on the wall clock, asking external systems over HTTP. It is ready to pilot a flow on one machine, and not yet for production: it serves one request at a time, does not page reads, and cannot yet carry a store to a newer engine release. See [getting started](#getting-started) and [where it stands](#where-it-stands).
+> **Status: in design, with a running core.** The design is complete and under its author's review: the requirements, the model, the language flows are declared in, every decision with the alternatives it rejected, and the checkers that hold it together. The engine's core runs, in Rust, held to a Python reference runner: as a sandbox's service, on which the Flow Studio is built, and as a deployment's, whose store is one SQLite file that survives a restart, on the wall clock, asking external systems over HTTP. It is ready to pilot a flow on one machine, a newer engine release taking over a store by an upgrade, and not yet for production: it serves one request at a time and does not page reads. See [getting started](#getting-started) and [where it stands](#where-it-stands).
 
 ## The problem
 

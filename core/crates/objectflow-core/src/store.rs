@@ -37,6 +37,75 @@ impl fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
+/// What a store at another engine release is refused with, before its
+/// reason (`library-api.md` §7, `EngineMismatch`).
+pub const ENGINE_MISMATCH: &str = "engine_mismatch";
+
+impl StoreError {
+    /// Whether it is `EngineMismatch`: the store is at another release.
+    pub fn is_mismatch(&self) -> bool {
+        self.0.starts_with(ENGINE_MISMATCH)
+    }
+}
+
+/// Every operation reads the store's release in its transaction, and one at
+/// another release refuses, so no copy of an earlier release serves a
+/// store once it is upgraded (`storage-schema.md` §12, ADR-0177 decision 3).
+fn release_held(conn: &Connection) -> Stored<()> {
+    let at: Option<String> = conn
+        .query_row(
+            "SELECT release FROM of_engine_release ORDER BY seq DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            e => Err(e),
+        })?;
+    match at {
+        Some(r) if r == BUILTINS => Ok(()),
+        other => Err(StoreError(format!(
+            "{ENGINE_MISMATCH}: the store is at {}, and this core is {BUILTINS}",
+            other.as_deref().unwrap_or("no release")
+        ))),
+    }
+}
+
+/// The store's own schema and the built-ins, as this release creates them:
+/// the tables of §6, each built-in type's table, states, transitions and
+/// invariants, and the standard metrics, digested; its release records it
+/// (ADR-0177 decision 1).
+pub fn release_fingerprint() -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(SCHEMA.as_bytes());
+    if let Ok(lib) = Library::load(&[]) {
+        for (name, t) in &lib.types {
+            h.update(format!("\ntype {name}\n").as_bytes());
+            h.update(
+                table_parts(&lib, t, false)
+                    .create(&table(name), &[])
+                    .as_bytes(),
+            );
+            for (s, st) in &t.states {
+                h.update(format!("state {s} {} {}\n", st.category, st.is_final).as_bytes());
+            }
+            for (x, tr) in &t.transitions {
+                h.update(format!("transition {x} {:?}\n", tr.kind).as_bytes());
+            }
+            for (i, _) in &t.invariants {
+                h.update(format!("invariant {i}\n").as_bytes());
+            }
+        }
+    }
+    for m in crate::metric::STANDARD_NAMES {
+        h.update(format!("metric {m}\n").as_bytes());
+    }
+    let hex: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    format!("sha256:{hex}")
+}
+
 impl From<rusqlite::Error> for StoreError {
     fn from(e: rusqlite::Error) -> StoreError {
         StoreError(e.to_string())
@@ -1269,6 +1338,14 @@ CREATE TABLE of_sequence (
   next_value INTEGER NOT NULL,                      -- the next number it draws
   PRIMARY KEY (name, scope_key)
 );
+-- The engine release the store is at, and every upgrade (storage-schema.md
+-- §6, §12, ADR-0177): every operation reads the last row.
+CREATE TABLE of_engine_release (
+  seq           INTEGER PRIMARY KEY,
+  release       TEXT    NOT NULL,
+  installed_at  TEXT    NOT NULL,
+  installed_by  TEXT    NOT NULL
+);
 ";
 
 /// A store and the library its rules come from.
@@ -1327,6 +1404,7 @@ impl Store {
             store.conn.execute_batch(&store.type_ddl(t))?;
         }
         store.create_operator()?;
+        store.record_release()?;
         // version 0, the built-ins the store is created with, and version 1,
         // the modules a sandbox's load installs directly (ADR-0155 decision 4)
         let at = timestamp_text(now);
@@ -1391,6 +1469,7 @@ impl Store {
                 store.conn.execute_batch(&store.type_ddl(t))?;
             }
             store.create_operator()?;
+            store.record_release()?;
             store.conn.execute(
                 "INSERT INTO of_declaration (version, module, source, builtins, published_at, published_by, report) \
                  VALUES (0, '', '{}', ?1, ?2, ?1, '{}')",
@@ -1399,15 +1478,14 @@ impl Store {
             store.lib.version = 0;
             return Ok(store);
         }
-        let release: String = store.conn.query_row(
-            "SELECT builtins FROM of_declaration WHERE version = 0",
-            [],
-            |r| r.get(0),
-        )?;
-        if release != BUILTINS {
+        // a store at another release is upgraded first, by a core of this
+        // one (storage-schema.md §12, ADR-0177)
+        let release = crate::release::store_release(&store.conn)?;
+        if release.as_deref() != Some(BUILTINS) {
             return Err(StoreError(format!(
-                "{} was created by {release}, and this is {BUILTINS}: a store moves to another release only by an upgrade, which is not yet built",
-                path.display()
+                "{ENGINE_MISMATCH}: {} is at {}, and this core is {BUILTINS}",
+                path.display(),
+                release.as_deref().unwrap_or("no release")
             )));
         }
         let latest: i64 =
@@ -1432,6 +1510,16 @@ impl Store {
     fn type_ddl(&self, t: &Type) -> String {
         let parts = table_parts(&self.lib, t, false);
         parts.create(&table(&t.name), &[])
+    }
+
+    /// The release that creates the store, its first row of the release
+    /// table, installed by its operator (`storage-schema.md` §6).
+    fn record_release(&self) -> Stored<()> {
+        self.conn.execute(
+            "INSERT INTO of_engine_release (seq, release, installed_at, installed_by) VALUES (1, ?1, ?2, ?3)",
+            params![BUILTINS, timestamp_text(self.now), OPERATOR],
+        )?;
+        Ok(())
     }
 
     /// The store's first actor, the operator (ADR-0126).
@@ -1492,6 +1580,7 @@ impl Store {
         }
         let before = timestamp_text(task.before);
         let tx = self.conn.transaction()?;
+        release_held(&tx)?;
         let moved = if task.name == "prune_attempts" {
             // each row's day, as the rollup keys it: its recorded time's UTC
             // calendar day
@@ -1522,6 +1611,7 @@ impl Store {
     /// `storage-schema.md` §6).
     pub fn record_attempt(&mut self, a: &Attempt) -> Stored<()> {
         let tx = self.conn.transaction()?;
+        release_held(&tx)?;
         next(&tx, "txn")?;
         insert_attempt(&tx, a, "(SELECT value FROM of_counter WHERE name = 'txn')")?;
         tx.commit()?;
@@ -1783,6 +1873,7 @@ impl Store {
         let old = self.lib.clone();
         let now = self.now;
         let tx = self.conn.transaction()?;
+        release_held(&tx)?;
         let mut alloc = Allocator::read(&tx)?;
         let publish_position = alloc.position();
         alloc.txn();
@@ -2442,6 +2533,11 @@ impl Allocator {
     }
 }
 
+/// A counter's next value, for the upgrade's record (`crate::release`).
+pub(crate) fn next_counter(tx: &Connection, name: &str) -> Stored<i64> {
+    next(tx, name)
+}
+
 fn next(tx: &Connection, name: &str) -> Stored<i64> {
     tx.execute(
         "UPDATE of_counter SET value = value + 1 WHERE name = ?1",
@@ -2499,6 +2595,7 @@ fn snapshot<'l>(
     earlier: &'l BTreeMap<i64, Library>,
     now: i64,
 ) -> Stored<World<'l>> {
+    release_held(conn)?;
     // the objects, and the log, are read where an operation reads them
     // (ADR-0162 steps 1 and 2)
     let mut world = World::new(lib, now).reading_from(conn);
@@ -3800,6 +3897,42 @@ types:
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn a_store_upgraded_past_this_release_is_served_no_more() {
+        let lib = Library::load(&[]).unwrap();
+        let mut store = Store::sandbox(lib, 1_767_225_600).unwrap();
+        // created at this release, its first row
+        let first: (i64, String) = store
+            .conn
+            .query_row("SELECT seq, release FROM of_engine_release", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(first, (1, BUILTINS.to_string()));
+        assert!(store.snapshot().is_ok());
+        // a later release's upgrade commits from another copy
+        store
+            .conn
+            .execute(
+                "INSERT INTO of_engine_release (seq, release, installed_at, installed_by) \
+                 VALUES (2, 'objectflow-core 9.0.0', '2026-01-01T00:00:00Z', 'operator')",
+                [],
+            )
+            .unwrap();
+        // a read, a request, an attempt's row and a maintenance task each
+        // refuse with EngineMismatch
+        assert!(store.snapshot().err().unwrap().is_mismatch());
+        let tried = store.transact(|_, _| Ok::<_, ()>(((), None)));
+        assert!(tried.err().unwrap().is_mismatch());
+        assert!(store.simulate(|_, _| ()).err().unwrap().is_mismatch());
+        store.attempt_retention = Some(0);
+        let pruned = store.maintain(&MaintenanceTask {
+            name: "prune_attempts".into(),
+            before: 1_767_225_600,
+        });
+        assert!(pruned.err().unwrap().is_mismatch());
     }
 
     #[test]

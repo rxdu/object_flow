@@ -256,25 +256,31 @@ fn a_deployments_store_survives_a_restart_on_the_wall_clock() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
+/// A store at a release this one does not upgrade from, a later one's or
+/// one it does not know, does not start, so there is no downgrade
+/// (ADR-0174 decision 3, ADR-0177 decision 4).
 #[test]
-fn a_store_another_release_created_is_refused() {
-    let file = fresh_store("release");
-    let path = file.to_str().expect("a path");
-    drop(start(&["--store", path, "--port", "0"]));
-    let conn = rusqlite::Connection::open(&file).expect("the file");
-    conn.execute(
-        "UPDATE of_declaration SET builtins = 'objectflow-core 0.0.0' WHERE version = 0",
-        [],
-    )
-    .expect("the release rewritten");
-    drop(conn);
-    let (code, said) = refused(&["--store", path, "--port", "0"]);
-    assert_ne!(code, Some(0));
-    assert!(
-        said.contains("was created by objectflow-core 0.0.0"),
-        "{said}"
-    );
-    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+fn a_store_of_a_release_this_one_does_not_upgrade_from_is_refused() {
+    for release in ["objectflow-core 9.0.0", "objectflow-core 0.0.0"] {
+        let file = fresh_store("release");
+        let path = file.to_str().expect("a path");
+        drop(start(&["--store", path, "--port", "0"]));
+        let conn = rusqlite::Connection::open(&file).expect("the file");
+        conn.execute(
+            "INSERT INTO of_engine_release (seq, release, installed_at, installed_by) \
+             VALUES (2, ?1, '2026-01-01T00:00:00Z', 'operator')",
+            [release],
+        )
+        .expect("the release written");
+        drop(conn);
+        let (code, said) = refused(&["--store", path, "--port", "0"]);
+        assert_ne!(code, Some(0));
+        assert!(
+            said.contains(&format!("is at {release}, which objectflow-core")),
+            "{said}"
+        );
+        let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+    }
 }
 
 #[test]
@@ -505,3 +511,151 @@ fn an_endpoint_is_a_deployments() {
     let (code, said) = refused(&["--store", "/nonexistent/x.sqlite", "--evaluator", "bank"]);
     assert_eq!(code, Some(2), "{said}");
 }
+
+/// The stores release 0.1.0's own service made, kept with what it answered
+/// of them (`fixtures/make-release-store.py`, at commit f6ee6d6).
+fn release_fixture(name: &str) -> (PathBuf, Value) {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/release-0.1.0");
+    let path = fresh_store(&format!("upgrade-{name}"));
+    std::fs::copy(dir.join(format!("{name}.sqlite")), &path).expect("the fixture copied");
+    let reads = std::fs::read_to_string(dir.join(format!("{name}.reads.json")))
+        .expect("what release 0.1.0 answered");
+    (path, serde_json::from_str(&reads).expect("its reads"))
+}
+
+/// The exported log, every page of it.
+fn exported_log(s: &Service) -> Vec<Value> {
+    let (mut lines, mut cursor) = (Vec::new(), Value::Null);
+    loop {
+        let page = post(
+            s,
+            "/v1/export",
+            &json!({"actor": {"id": "operator"}, "source": "log", "cursor": cursor}),
+        );
+        lines.extend(page["lines"].as_array().cloned().unwrap_or_default());
+        if page["cursor"].is_null() || page["cursor"] == cursor {
+            return lines;
+        }
+        cursor = page["cursor"].clone();
+    }
+}
+
+/// A store release 0.1.0 made is served only the upgrade until it runs; a
+/// dry run changes nothing; and once upgraded every object reads as 0.1.0
+/// read it, its history whole, the log the same with the operator's
+/// `upgrade` after it, and a restart opens the store at this release
+/// (ADR-0177).
+#[test]
+fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
+    let op = json!({"id": "operator"});
+    for name in ["reimbursement", "servicedesk"] {
+        let (path, recorded) = release_fixture(name);
+        assert_eq!(recorded["release"], "objectflow-core 0.1.0");
+        let args = ["--store", path.to_str().expect("a path"), "--port", "0"];
+        let s = start(&args);
+        let (_, health) = call(&s, "GET", "/health", None);
+        assert_eq!(
+            (&health["upgrade_due"], &health["store_release"]),
+            (&json!(true), &recorded["release"])
+        );
+        let (status, refused) = call(
+            &s,
+            "POST",
+            "/v1/get",
+            Some(&json!({"actor": op, "id": "operator"})),
+        );
+        assert_eq!(status, 503, "{refused}");
+        assert!(
+            refused["fault"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("engine_mismatch")
+        );
+        // a dry run reports the step and leaves the store as it was
+        let dry = post(&s, "/v1/upgrade", &json!({"actor": op, "dry_run": true}));
+        assert_eq!(
+            (
+                &dry["from"],
+                &dry["to"],
+                &dry["upgraded"],
+                dry["steps"].as_array().map(Vec::len)
+            ),
+            (
+                &recorded["release"],
+                &json!(BUILTINS_RELEASE),
+                &json!(false),
+                Some(1)
+            )
+        );
+        assert_eq!(
+            call(&s, "GET", "/health", None).1["upgrade_due"],
+            json!(true)
+        );
+        let done = post(&s, "/v1/upgrade", &json!({"actor": op}));
+        assert_eq!(done["upgraded"], json!(true), "{done}");
+        // what 0.1.0 answered, object by object
+        let objects = recorded["objects"].as_object().expect("its objects");
+        assert!(objects.len() > 10, "{name}: {}", objects.len());
+        for (id, was) in objects {
+            let got = post(&s, "/v1/get", &json!({"actor": op, "id": id}));
+            let history = post(&s, "/v1/history", &json!({"actor": op, "id": id}));
+            assert_eq!(got["state"], was["state"], "{name} {id}");
+            for (k, v) in was["attributes"].as_object().expect("its attributes") {
+                assert_eq!(&got["attributes"][k], v, "{name} {id}.{k}");
+            }
+            let before = was["history"]["events"].as_array().expect("its events");
+            let now = history["events"].as_array().expect("its events");
+            if id == "operator" {
+                // the operator's act naming the release, after what it did
+                assert_eq!(&now[..before.len()], &before[..], "{name}");
+                assert_eq!(now.len(), before.len() + 1);
+                assert_eq!(now[before.len()]["transition"], "upgrade");
+                assert_eq!(
+                    got["version"],
+                    json!(was["version"].as_i64().unwrap_or(0) + 1)
+                );
+            } else {
+                assert_eq!(history, was["history"], "{name} {id}");
+                assert_eq!(got["version"], was["version"], "{name} {id}");
+            }
+        }
+        let log = exported_log(&s);
+        let was = recorded["log"].as_array().expect("its log");
+        assert_eq!(&log[..was.len()], &was[..], "{name}");
+        assert_eq!(log.len(), was.len() + 1, "{name}");
+        // a second upgrade has nothing to do
+        let again = post(&s, "/v1/upgrade", &json!({"actor": op}));
+        assert_eq!(again["upgraded"], json!(false));
+        drop(s);
+        // restarted, the store opens at this release and serves
+        let s = start(&args);
+        let (_, health) = call(&s, "GET", "/health", None);
+        assert_eq!(
+            (&health["upgrade_due"], &health["store_release"]),
+            (&json!(false), &json!(BUILTINS_RELEASE))
+        );
+        let got = post(&s, "/v1/get", &json!({"actor": op, "id": "operator"}));
+        assert_eq!(got["state"], "ACTIVE");
+    }
+}
+
+/// An upgrade is the operator's, and refused to anyone else.
+#[test]
+fn only_an_operator_upgrades() {
+    let (path, _) = release_fixture("reimbursement");
+    let s = start(&["--store", path.to_str().expect("a path"), "--port", "0"]);
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/upgrade",
+        Some(&json!({"actor": {"id": "alice"}})),
+    );
+    assert_eq!(status, 409, "{said}");
+    assert_eq!(
+        call(&s, "GET", "/health", None).1["upgrade_due"],
+        json!(true)
+    );
+}
+
+/// This release, as a store records it.
+const BUILTINS_RELEASE: &str = concat!("objectflow-core ", env!("CARGO_PKG_VERSION"));
