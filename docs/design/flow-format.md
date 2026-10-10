@@ -807,7 +807,7 @@ A `propose` files a request for approval instead of executing it, as a caller do
 - a reference, by the alias of an object of that type or a subtype, and a set of references as a list of aliases;
 - an enumeration value, qualified, as `ReassignmentReason.WORKLOAD`;
 - a timestamp, in UTC, as `2026-01-01T09:00Z`, seconds optional, `2026-01-01T09:00:30Z`, and no other form, or as `now`, `now + <duration>` or `now - <duration>`, the clock at that step (ADR-0147);
-- a file, by a file name, for which the example supplies a file whose content is that name;
+- a file, by a file name, for which the example supplies a file whose content is that name: its reference, `{hash, size, media_type}`, is the name's SHA-256, its length in UTF-8 bytes and `application/octet-stream`; or as the wire writes a file, that object (ADR-0173 decision 11);
 - an `identity`, by the identity itself, such as `ana` or `acct-dev`, which the store compares as a string;
 - an `actor_kind`, bare, as `agent`;
 - a `date`, as `2026-03-01`;

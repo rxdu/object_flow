@@ -237,6 +237,13 @@ impl Player<'_> {
         if typ == "timestamp" {
             return self.instant(v).map(Json::from);
         }
+        // a file written by its name is a file whose content is the name
+        // (`flow-format.md` §11.3, ADR-0173 decision 11)
+        if typ == "file"
+            && let Some(name) = v.as_str()
+        {
+            return Ok(named_file(name));
+        }
         // a decimal is a string on the wire
         if typ.starts_with("decimal") && v.is_number() {
             return Ok(json!(py_str(v)));
@@ -883,6 +890,15 @@ impl Player<'_> {
         }
         Ok(self.wire_value(expected, Some(spec))? == *got)
     }
+}
+
+/// The file an example names: its content the name's UTF-8 bytes, of
+/// media type `application/octet-stream` (`flow-format.md` §11.3).
+pub fn named_file(name: &str) -> Json {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(name.as_bytes());
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    json!({"hash": format!("sha256:{hex}"), "size": name.len(), "media_type": "application/octet-stream"})
 }
 
 /// An amount or a decimal written in an example, the same number as the

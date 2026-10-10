@@ -62,6 +62,13 @@ def schema_of(spec, enums):
         out = {"type": "string", "format": "date"}
     elif typ == "duration":
         out = {"type": "string", "pattern": "^[0-9]+ (s|min|h|day|days|week|weeks)$"}
+    elif typ == "file":
+        # a file by its reference, never a name (ADR-0173 decision 11)
+        out = {"type": "object", "properties": {
+            "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "size": {"type": "integer", "minimum": 0},
+            "media_type": {"type": "string", "pattern": "^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$"}},
+            "required": ["hash", "media_type", "size"], "additionalProperties": False}
     else:
         out = {"type": "string"}
     if spec.get("unit"):

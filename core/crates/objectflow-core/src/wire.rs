@@ -154,7 +154,12 @@ pub fn decode(
                 "duration" => parse_duration(v.as_str().ok_or_else(wrong)?)
                     .map(Value::Duration)
                     .ok_or_else(malformed),
-                "string" | "text" | "identity" | "actor_kind" | "file" => {
+                // a file is its reference, never a name (ADR-0173 decision 11)
+                "file" => file_of(v).map_err(|why| match why {
+                    Some(why) => NotOfType(why, InputReason::Malformed),
+                    None => wrong(),
+                }),
+                "string" | "text" | "identity" | "actor_kind" => {
                     let s = v.as_str().ok_or_else(wrong)?;
                     if s.contains('\0') {
                         return Err(NotOfType(
@@ -211,6 +216,57 @@ pub fn decode(
 }
 
 /// A value as the wire carries it.
+/// A file's wire form, `{"hash": "sha256:<hex>", "size": <bytes>,
+/// "media_type": "<type>/<subtype>"}`, read as a value: none where it is not
+/// an object, and why it is malformed where it is one (ADR-0173 decision 11).
+pub fn file_of(v: &Json) -> Result<Value, Option<String>> {
+    let o = v.as_object().ok_or(None)?;
+    if let Some(k) = o
+        .keys()
+        .find(|k| !["hash", "size", "media_type"].contains(&k.as_str()))
+    {
+        return Err(Some(format!("a file has no {k}")));
+    }
+    let hash = o.get("hash").and_then(Json::as_str).unwrap_or_default();
+    let hex = hash.strip_prefix("sha256:").unwrap_or_default();
+    if hex.len() != 64
+        || !hex
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(Some(format!(
+            "a file's hash is sha256:<64 lowercase hex digits>, not {hash}"
+        )));
+    }
+    let size = o
+        .get("size")
+        .and_then(Json::as_i64)
+        .filter(|n| (0..=SAFE_INT).contains(n))
+        .ok_or_else(|| Some("a file's size is a count of bytes".to_string()))?;
+    let media_type = o
+        .get("media_type")
+        .and_then(Json::as_str)
+        .unwrap_or_default();
+    let token = |t: &str| {
+        !t.is_empty()
+            && t.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"!#$&^_.+-".contains(&b))
+    };
+    match media_type.split_once('/') {
+        Some((kind, sub)) if token(kind) && token(sub) => {}
+        _ => {
+            return Err(Some(format!(
+                "a file's media_type is <type>/<subtype>, not {media_type}"
+            )));
+        }
+    }
+    Ok(Value::File {
+        hash: hash.to_string(),
+        size,
+        media_type: media_type.to_ascii_lowercase(),
+    })
+}
+
 pub fn encode(v: &Value) -> Json {
     match v {
         Value::Absent => Json::Null,
@@ -225,6 +281,11 @@ pub fn encode(v: &Value) -> Json {
         Value::Text(s) | Value::Object(s) => json!(s),
         Value::State { name, .. } => json!(name),
         Value::Member { member, .. } => json!(member),
+        Value::File {
+            hash,
+            size,
+            media_type,
+        } => json!({"hash": hash, "size": size, "media_type": media_type}),
         Value::Set(items) => Json::Array(items.iter().map(encode).collect()),
         Value::Row(fields) => {
             Json::Object(fields.iter().map(|(k, v)| (k.clone(), encode(v))).collect())

@@ -18,6 +18,7 @@ set is a tuple of values.
 import copy
 import datetime
 import functools
+import hashlib
 import json
 import math
 import re
@@ -56,7 +57,7 @@ MINOR_UNITS = {"USD": 2, "EUR": 2, "GBP": 2, "SGD": 2, "AUD": 2, "CAD": 2, "CHF"
                "MYR": 2, "INR": 2, "THB": 2, "JPY": 0, "KRW": 0, "BHD": 3, "KWD": 3, "OMR": 3, "JOD": 3, "TND": 3}
 # the tags of the values a tuple holds that are not sets: a state, an enumeration member, a category, a type named in
 # an expression, the markers `inputs` and `actor`, and an event
-TAGS = {"state", "enum", "category", "typeref", "marker", "event"}
+TAGS = {"state", "enum", "category", "typeref", "marker", "event", "file"}
 parsed = functools.lru_cache(maxsize=None)(flowexpr.parse)
 
 
@@ -136,9 +137,9 @@ class Shared:
 
 
 def is_set(v):
-    """Whether a value is a set: a tuple, but not one of the tagged tuples a state or an enumeration member is. A set
-    of strings whose first is one of the tags would be misread, and no example writes one."""
-    return isinstance(v, tuple) and not (len(v) in (2, 3) and v[0] in TAGS)
+    """Whether a value is a set: a tuple, but not one of the tagged tuples a state, an enumeration member or a file
+    is. A set of strings whose first is one of the tags would be misread, and no example writes one."""
+    return isinstance(v, tuple) and not (len(v) in (2, 3, 4) and v[0] in TAGS)
 
 
 def is_set_attribute(spec):
@@ -1767,6 +1768,8 @@ class Runner:
             if code.strip() and code.strip() != typ[len("money("):-1]:
                 return ("another currency", code.strip(), amount)
             return Fraction(amount)
+        if typ == "file":
+            return file_value(v)
         if typ == "timestamp":
             m = re.fullmatch(r"now(?: ([+-]) ([0-9]+) (\w+))?", v)
             if m:
@@ -3253,7 +3256,10 @@ BUILT_IN_MEMBERS = {"id": {"type": "string"}, "open": {"type": "bool"}, "created
 
 
 def written(v, spec):
-    """A value as an example writes it, for a message: a number in decimal digits, an amount with its currency."""
+    """A value as an example writes it, for a message: a number in decimal digits, an amount with its currency, a file
+    by its hash, its size and its media type."""
+    if isinstance(v, tuple) and len(v) == 4 and v[0] == "file":
+        return f"the file {v[1][:19]}…, {v[2]} bytes of {v[3]}"
     if not isinstance(v, Fraction) or isinstance(v, bool):
         return v
     places = 0
@@ -3287,6 +3293,33 @@ def held_fault(amount, scale):
     if units.denominator != 1:
         return "malformed"
     return "out_of_range" if abs(units) > INPUT_UNITS else None
+
+
+FILE_HASH = re.compile(r"sha256:[0-9a-f]{64}")
+MEDIA_TOKEN = r"[A-Za-z0-9!#$&^_.+-]+"
+
+
+def file_value(v):
+    """A file as the runner holds it, `("file", hash, size, media type)`: from its wire form, `{hash, size,
+    media_type}`, or from the name an example writes it by, a file whose content is that name's UTF-8 bytes, of media
+    type application/octet-stream (flow-format.md §11.3, ADR-0173 decision 11)."""
+    if isinstance(v, dict):
+        return ("file", v.get("hash"), v.get("size"), str(v.get("media_type", "")).lower())
+    data = str(v).encode("utf-8")
+    return ("file", "sha256:" + hashlib.sha256(data).hexdigest(), len(data), "application/octet-stream")
+
+
+def file_fault(v):
+    """Why a file's wire form is malformed, or None (ADR-0173 decision 11)."""
+    if set(v) != {"hash", "size", "media_type"}:
+        return "malformed"
+    if not (isinstance(v["hash"], str) and FILE_HASH.fullmatch(v["hash"])):
+        return "malformed"
+    if isinstance(v["size"], bool) or not isinstance(v["size"], int) or not 0 <= v["size"] <= 2 ** 53 - 1:
+        return "malformed"
+    if not (isinstance(v["media_type"], str) and re.fullmatch(f"{MEDIA_TOKEN}/{MEDIA_TOKEN}", v["media_type"])):
+        return "malformed"
+    return None
 
 
 def input_fault(spec, v, enums):
@@ -3359,7 +3392,10 @@ def input_fault(spec, v, enums):
         if not NUMBER.fullmatch(text):
             return "malformed"
         return held_fault(text, int(typ.rstrip(")").rsplit(",", 1)[1]))
-    if typ in ("string", "text", "identity", "actor_kind", "file"):
+    if typ == "file":
+        # its wire form, or the name an example writes it by (flow-format.md §11.3)
+        return file_fault(v) if isinstance(v, dict) else (None if isinstance(v, str) else "wrong_type")
+    if typ in ("string", "text", "identity", "actor_kind"):
         if not isinstance(v, str):
             return "wrong_type"
         return "malformed" if "\0" in v else None

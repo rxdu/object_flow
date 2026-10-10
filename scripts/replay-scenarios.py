@@ -39,6 +39,7 @@ operation the runner's sandbox does not serve is not run there; its reads would 
 """
 import copy
 import datetime
+import hashlib
 import importlib.util
 import json
 import pathlib
@@ -254,12 +255,17 @@ class Driver:
 
     def typed(self, tn, xn, inputs):
         """The inputs with each amount of money written as the wire takes it, `SGD 420.00`, its currency the one its
-        declaration names."""
+        declaration names, and each file by its reference, the file whose content is the name the history gives it
+        (flow-format.md §11.3, ADR-0173 decision 11)."""
         decl = self.core.call("/v1/declaration", {"type": tn})
         declared = ((decl.get("transitions") or {}).get(xn) or {}).get("inputs") or {}
         out = {}
         for k, v in inputs.items():
             spec_ = declared.get(k) or (decl.get("attributes") or {}).get(k) or {}
+            if spec_.get("type") == "file" and isinstance(v, str):
+                data = v.encode("utf-8")
+                v = {"hash": "sha256:" + hashlib.sha256(data).hexdigest(), "size": len(data),
+                     "media_type": "application/octet-stream"}
             m = re.fullmatch(r"money\((\w+)\)", str(spec_.get("type", "")))
             if m and isinstance(v, (int, float)):
                 places = MINOR.get(m.group(1))

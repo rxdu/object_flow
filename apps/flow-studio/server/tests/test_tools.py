@@ -77,11 +77,14 @@ def test_a_tool_takes_the_calls_the_wire_takes(tee):
     good = {"object_id": "claim-4", "expected_version": 1,
             "idempotency_key": "k-1",
             "inputs": {"amount": "USD 120.00", "category": "expensecategory-3",
-                       "expense_date": "2025-12-30", "receipt": "taxi.pdf",
+                       "expense_date": "2025-12-30",
+                       "receipt": {"hash": "sha256:" + "0" * 64, "size": 8,
+                                   "media_type": "application/pdf"},
                        "purpose": "Airport taxi", "merchant": "Comfort"}}
     jsonschema.validate(good, schema)
     for wrong in ({"amount": "SGD 120.00"}, {"amount": 120},
-                  {"expense_date": "30/12/2025"}, {"nonsense": 1}):
+                  {"expense_date": "30/12/2025"}, {"nonsense": 1},
+                  {"receipt": "taxi.pdf"}):
         bad = dict(good, inputs=dict(good["inputs"], **wrong))
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(

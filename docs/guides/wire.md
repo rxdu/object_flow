@@ -39,7 +39,7 @@ A value is JSON's own where JSON keeps it exactly, and otherwise a string in the
 | enumeration member, state | its name | `"NEW"` |
 | reference | the object's id | `"employee-1"` |
 | set | an array, no element repeated | `["a-1", "a-2"]` |
-| `file` | today a string, its name; its object form is to come (D559) | `"taxi.pdf"` |
+| `file` | an object: its content's SHA-256, its size in bytes and its media type; a name is refused `wrong_type` | `{"hash": "sha256:9f86…", "size": 48213, "media_type": "application/pdf"}` |
 
 A duration a reader is given back is written in whichever unit reads best (`"15 days"`, `"1431 h"`); parse the count and the unit. An object's id is `<type in lower case>-<n>`.
 

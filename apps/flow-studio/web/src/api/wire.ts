@@ -21,7 +21,16 @@ export type Remedy =
   | "dependent"
   | "unreachable_from_here";
 
-export type WireValue = null | boolean | number | string | WireValue[];
+/** A file's wire form: its content's hash, its size and its media type
+ * (ADR-0173 decision 11). */
+export interface FileValue {
+  hash: string;
+  size: number;
+  media_type: string;
+}
+
+export type WireValue =
+  null | boolean | number | string | FileValue | WireValue[];
 
 interface Reported {
   not_computed?: string[];

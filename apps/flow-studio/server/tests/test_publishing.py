@@ -21,6 +21,9 @@ from test_backends_agree import started
 EXAMPLES = pathlib.Path(__file__).resolve().parents[4] / \
     "docs/design/flow-format/examples"
 OP = {"id": "operator"}
+# a receipt as the wire carries a file, by its reference (ADR-0173 decision 11)
+TAXI = {"hash": "sha256:" + "ab" * 32, "size": 48213,
+        "media_type": "application/pdf"}
 
 
 @pytest.fixture(scope="module")
@@ -1163,7 +1166,7 @@ def test_an_invalid_input_says_why_alike(tee):
                                      "inputs": {"claimant": emp["object_id"],
                                                 "title": "Taxis"}})
     line = {"amount": "USD 20.00", "category": cat["object_id"],
-            "expense_date": "2025-12-30", "receipt": "taxi.pdf"}
+            "expense_date": "2025-12-30", "receipt": TAXI}
 
     def why(**change):
         given = {k: v for k, v in {**line, **change}.items() if v is not None}
@@ -1242,7 +1245,7 @@ def test_a_set_reference_is_read_by_its_members_alike(tee):
                              "inputs": {"amount": "USD 20.00",
                                         "category": cat["object_id"],
                                         "expense_date": "2025-12-30",
-                                        "receipt": "taxi.pdf"}})
+                                        "receipt": TAXI}})
     lines = tee.post("/v1/get", {"id": claim})["attributes"]["lines"]
     assert len(lines) == 1 and lines[0].startswith("claimline-"), lines
     alike(tee)
@@ -1271,7 +1274,7 @@ def test_an_offer_says_it_depends_on_who_takes_it_alike(tee):
                                      "inputs": {"amount": "USD 20.00",
                                                 "category": cat["object_id"],
                                                 "expense_date": "2025-12-30",
-                                                "receipt": "taxi.pdf"}})
+                                                "receipt": TAXI}})
     line = tee.post("/v1/get", {"id": claim})["attributes"]["lines"][0]
     assert added["kind"] == "satisfied", added
     offers = {o["transition"]: o for o in tee.post(
@@ -1384,4 +1387,37 @@ def test_a_report_names_the_transitions_that_could_violate_each_invariant(tee):
                                       "dry_run": True})["report"]
     assert report["could_violate"] == {"ServiceJob.photo_when_done": [
         "ServiceJob.finish", "ServiceJob.open", "ServiceJob.start"]}
+    alike(tee)
+
+
+def test_a_file_is_its_reference_alike(tee):
+    """A file travels as its reference, `{hash, size, media_type}`, which
+    `get` reads back as it was given; a name, a key it lacks or one it does
+    not take, a hash not SHA-256's and a media type with no subtype are each
+    refused, alike through both backends (ADR-0173 decision 11, D559)."""
+    loaded(tee, "approvals.yaml")
+    tee.found.clear()
+    claim = tee.post("/v1/request", {"type": "ExpenseClaim",
+                                     "transition": "file_claim", "actor": OP,
+                                     "inputs": {"amount": "SGD 42.50"}})
+    receipt = {"hash": "sha256:" + "ab" * 32, "size": 48213,
+               "media_type": "application/pdf"}
+    v = tee.post("/v1/request", {"object_id": claim["object_id"],
+                                 "transition": "attach_receipt", "actor": OP,
+                                 "inputs": {"receipt": receipt}})
+    assert v["kind"] == "satisfied", v
+    got = tee.post("/v1/get", {"id": claim["object_id"]})
+    assert got["attributes"]["receipt"] == receipt
+    for wrong, why in (("taxi.pdf", "wrong_type"),
+                       ({"hash": receipt["hash"], "size": 1}, "malformed"),
+                       (dict(receipt, name="taxi.pdf"), "malformed"),
+                       (dict(receipt, hash="md5:abc"), "malformed"),
+                       (dict(receipt, size=-1), "malformed"),
+                       (dict(receipt, media_type="pdf"), "malformed")):
+        v = tee.post("/v1/request", {"object_id": claim["object_id"],
+                                     "transition": "attach_receipt",
+                                     "actor": OP,
+                                     "inputs": {"receipt": wrong}})
+        assert (v["kind"], v.get("reasons")) == (
+            "invalid_input", {"receipt": why}), (wrong, v)
     alike(tee)

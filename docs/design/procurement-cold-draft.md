@@ -1,6 +1,6 @@
 # Procurement on ObjectFlow: a cold draft, a cold integration, and what they found
 
-Status: **open**, 2026-10-10: fourteen defects (D547 to D560), being repaired, and ten questions for the author (§5), decided as recommended by ADR-0173. The author asked for a review of the design and the samples "as a potential developer who will use it to implement a procurement tracking system", for the sharp edges that make using it difficult or unpleasant. Two agents new to ObjectFlow did the two jobs such a developer has: one wrote a procurement flow, the other built an application against the engine. Each kept a log of what hurt; every claim framed as a defect was reproduced or corrected before it was classified (§3).
+Status: **repaired**, 2026-10-10: fourteen defects (D547 to D560), each resolved, and ten questions for the author (§5), decided as recommended by ADR-0173 and each built, the evaluators' transport with the client the author chose (ADR-0175); a second cold review, against the repaired state, is to follow. The author asked for a review of the design and the samples "as a potential developer who will use it to implement a procurement tracking system", for the sharp edges that make using it difficult or unpleasant. Two agents new to ObjectFlow did the two jobs such a developer has: one wrote a procurement flow, the other built an application against the engine. Each kept a log of what hurt; every claim framed as a defect was reproduced or corrected before it was classified (§3).
 
 ## 1. How it was run
 

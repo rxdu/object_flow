@@ -43,6 +43,8 @@ def type_of_spec(spec: dict | None, enums: dict) -> tuple:
     m = re.fullmatch(r"money\((\w+)\)", typ)
     if m:
         return ("money", m.group(1))
+    if typ == "file":
+        return ("file",)
     if typ in ("int", "counter"):
         return ("int",)
     if typ in ("timestamp", "date", "duration", "bool"):
@@ -118,6 +120,8 @@ def encode(v: Any, typ: tuple) -> Any:
         return v[2]
     if isinstance(v, tuple) and v and v[0] == "enum":
         return v[2]
+    if isinstance(v, tuple) and v and v[0] == "file":
+        return {"hash": v[1], "size": v[2], "media_type": v[3]}
     if isinstance(v, tuple):
         inner = typ[1] if typ[0] == "set" else ("unknown",)
         return [encode(x, inner) for x in v]
@@ -163,7 +167,7 @@ def decode_input(v: Any, spec: dict | None, enums: dict) -> Any:
     kinds = {"ref": (str,), "enum": (str,), "money": (str,),
              "decimal": (str, int), "int": (int, str), "bool": (bool,),
              "timestamp": (str,), "date": (str,), "duration": (str,),
-             "text": (str,)}.get(typ[0])
+             "text": (str,), "file": (dict,)}.get(typ[0])
     if kinds and (not isinstance(v, kinds)
                   or isinstance(v, bool) and bool not in kinds):
         return flowrun.WrongKind(v)

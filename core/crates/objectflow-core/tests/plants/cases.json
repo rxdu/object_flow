@@ -7761,7 +7761,7 @@
     50,
     "fatal",
     "example",
-    "a_receipt_is_attached_to_a_draft: expected receipt to hold other.pdf, and it holds taxi.pdf"
+    "a_receipt_is_attached_to_a_draft: expected receipt to hold other.pdf, and it holds the file sha256:253e452cbb63…, 8 bytes of application/octet-stream"
    ]
   ],
   "analysed": {

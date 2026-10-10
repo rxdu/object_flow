@@ -7,6 +7,7 @@
 import {
   type AttributeSpec,
   type Declaration,
+  type FileValue,
   type FlowEvent,
   type ModuleFile,
   NotRun,
@@ -24,6 +25,7 @@ import {
   resolveInstant,
   sameDecimal,
 } from "./notation";
+import { sha256Hex } from "./sha256";
 
 export const OPERATOR = "operator";
 
@@ -369,6 +371,9 @@ export class Player {
       );
     }
     if (typ === "timestamp") return resolveInstant(String(v), this.now);
+    // a file written by its name: a file whose content is the name
+    // (flow-format.md §11.3, ADR-0173 decision 11)
+    if (typ === "file" && typeof v === "string") return namedFile(v);
     // a decimal is a string on the wire, never a binary float (ADR-0150)
     if (typ.startsWith("decimal") && typeof v === "number") return String(v);
     if (typeof v === "string" && /^[A-Z]/.test(typ) && v.includes(".")) {
@@ -962,6 +967,16 @@ export class Player {
       return sameDecimal(String(expected), String(got));
     }
     if (typ === "date") return String(expected) === got;
+    if (typ === "file") {
+      const want = this.wireValue(expected, spec) as FileValue | null;
+      const have = got as unknown as FileValue;
+      return (
+        want !== null &&
+        want.hash === have.hash &&
+        want.size === have.size &&
+        want.media_type === have.media_type
+      );
+    }
     return this.wireValue(expected, spec) === got;
   }
 }
@@ -974,6 +989,16 @@ function sameDecimalOrNot(a: string, b: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** The file an example names: its content the name's UTF-8 bytes, of media
+ * type application/octet-stream (flow-format.md §11.3). */
+export function namedFile(name: string): FileValue {
+  return {
+    hash: `sha256:${sha256Hex(name)}`,
+    size: new TextEncoder().encode(name).length,
+    media_type: "application/octet-stream",
+  };
 }
 
 /** A derived attribute's value, which no declaration types: a number

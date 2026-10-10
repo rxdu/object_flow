@@ -104,6 +104,19 @@ fn scalar(typ: &str, enums: &BTreeMap<String, Vec<String>>) -> Map<String, Json>
             "pattern".into(),
             json!("^[0-9]+ (s|min|h|day|days|week|weeks)$"),
         );
+    } else if typ == "file" {
+        // a file by its reference, never a name (ADR-0173 decision 11)
+        out.insert("type".into(), json!("object"));
+        out.insert(
+            "properties".into(),
+            json!({
+                "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                "size": {"type": "integer", "minimum": 0},
+                "media_type": {"type": "string", "pattern": "^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$"},
+            }),
+        );
+        out.insert("required".into(), json!(["hash", "media_type", "size"]));
+        out.insert("additionalProperties".into(), json!(false));
     }
     out
 }

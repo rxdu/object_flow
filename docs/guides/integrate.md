@@ -52,12 +52,13 @@ An actor the store does not know is refused `unsatisfied`, clause `actor_known`,
 
 ## 4. Requests and refusals
 
-A request creates an object (`type`) or takes a transition on one (`object_id`), with inputs in the wire's notation (`wire.md` §2: money `"USD 120.00"`, a date `"2025-12-30"`, a reference by its id).
+A request creates an object (`type`) or takes a transition on one (`object_id`), with inputs in the wire's notation (`wire.md` §2: money `"USD 120.00"`, a date `"2025-12-30"`, a reference by its id, a file by its reference, its content's hash, size and media type, the bytes kept by your application).
 
 ```json
 POST /v1/request
 {"actor": {"id": "operator"}, "object_id": "claim-4", "transition": "add_line",
- "inputs": {"amount": "USD 120.00", "category": "expensecategory-3", "expense_date": "2025-12-30", "receipt": "taxi.pdf"},
+ "inputs": {"amount": "USD 120.00", "category": "expensecategory-3", "expense_date": "2025-12-30",
+            "receipt": {"hash": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", "size": 48213, "media_type": "application/pdf"}},
  "expected_version": 1, "idempotency_key": "line-7f3a"}
 ```
 
@@ -108,6 +109,6 @@ A new version is published as a `DeclarationChange`: draft it with the new modul
 | Notifications | gives events through subscriptions | sends the email, the chat message, the push |
 | External systems | consults an evaluator a rule names, posting the call to the endpoint a deployment configures; in a sandbox, a fixed answer | answers it there, `{"verdict": "satisfied"}` or `"unsatisfied"` (ADR-0175); writes to the other system itself |
 | Search | filters by members, with indexes the flow declares | full-text search, over an export or the event feed |
-| Files | records a reference to a file | stores, serves and deletes the bytes |
+| Files | records a reference to a file, `{hash, size, media_type}` | stores, serves and deletes the bytes, and computes the hash it sends |
 | Reporting | computes declared metrics, exports rows | dashboards and analysis beyond them |
 | Personal data | marks what is personal, erases it on request, labels person-naming metrics | who may see it |

@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 560 entries and five cosmetics; 558 are closed and 2 are open. The PRD is at revision 21, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 560 entries and five cosmetics; 559 are closed and 1 is open. The PRD is at revision 21, with no revision awaiting the author.
 
 **Every ADR is accepted or superseded, but ADR-0174 and ADR-0175**, a deployment's service and its evaluators' transport, built at the author's direction on 2026-10-10 and awaiting the author's review. In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
@@ -188,7 +188,7 @@ An attribute has a declared type: string, boolean, integer, decimal with scale, 
 - **A derived datapoint.** A derived attribute for one object is what the PRD calls a derived datapoint. It may read the object's own intervals and transitions (§5.7), so the handoffs on one job are a derivation of that job (ADR-0106).
 - **One value wherever it is read.** One that aggregates over other objects counts every object it reads, in `get`, `query`, a metric row and a guard alike, since no read is filtered by who asks (ADR-0096, ADR-0114).
 
-A **file** attribute holds a content-addressed reference to a blob in external storage with its hash, size, media type and provenance. ObjectFlow never reads, streams or serves the bytes; its one byte-level operation is deleting them during erasure (ADR-0017, ADR-0041). A deployment must disable its blob store's own lifecycle expiry, since the log is permanent and a reference outlives any expiry policy.
+A **file** attribute holds a content-addressed reference to a blob in external storage with its hash, size, media type and provenance. The wire writes it `{"hash": "sha256:<hex>", "size": <bytes>, "media_type": "<type>/<subtype>"}`, its provenance the event that wrote it, and refuses a name in its place (ADR-0173 decision 11). ObjectFlow never reads, streams or serves the bytes; its one byte-level operation is deleting them during erasure (ADR-0017, ADR-0041). A deployment must disable its blob store's own lifecycle expiry, since the log is permanent and a reference outlives any expiry policy.
 
 Every **enum** attribute, like every singular stored reference (§5.3), is **tracked**: how long an object held each value is kept in the interval index (§7) without its author declaring which (ADR-0083, ADR-0086). Numbers, free text and sets are not tracked, a set of enum values included; their changes remain in the events (§13). Every tracked member has an interval from its object's creation, absence included, so an object never assigned counts as unassigned from the start; one tracked from a later publish has one from that publish (§7). A write that leaves a tracked value unchanged opens no interval, so counting a member's intervals counts its changes (ADR-0106). A personal enum is tracked like any other, and erasure redacts its values in the interval index as it does in the events the index is rebuilt from (ADR-0096, ADR-0101).
 

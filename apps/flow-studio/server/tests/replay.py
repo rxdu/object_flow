@@ -126,6 +126,10 @@ class Player:
             return [self.wire_value(x, dict(spec, type=typ[:-2])) for x in v]
         if typ == "timestamp":
             return self.instant(v)
+        if typ == "file" and isinstance(v, str):
+            # the file an example names: its content the name (§11.3)
+            f = flowrun.file_value(v)
+            return {"hash": f[1], "size": f[2], "media_type": f[3]}
         if typ.startswith("decimal") and isinstance(v, (int, float)) \
                 and not isinstance(v, bool):
             return str(v)               # a decimal is a string on the wire

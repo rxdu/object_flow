@@ -393,6 +393,14 @@ pub enum Value {
     },
     /// An object, by its id.
     Object(String),
+    /// A file: a content-addressed reference to bytes the store never
+    /// holds, by their hash, their size and their media type (`DESIGN.md`
+    /// §5.2, ADR-0173 decision 11).
+    File {
+        hash: String,
+        size: i64,
+        media_type: String,
+    },
     /// A set, in the order its elements were added.
     Set(Vec<Value>),
     /// A row of an object's own flow data: a span of `intervals` (§6.9).

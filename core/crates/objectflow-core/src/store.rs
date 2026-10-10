@@ -990,6 +990,8 @@ fn to_sql(v: &Value) -> Stored<Sql> {
         Value::Text(s) | Value::Object(s) => Sql::Text(s.clone()),
         Value::State { name, .. } => Sql::Text(name.clone()),
         Value::Member { member, .. } => Sql::Text(member.clone()),
+        // a file as its wire form, which a column of `file` reads back
+        file @ Value::File { .. } => Sql::Text(crate::wire::encode(file).to_string()),
         Value::Set(_) => return Err(StoreError("a set in a column".to_string())),
         Value::Row(_) => return Err(StoreError("a row of flow data in a column".to_string())),
     })
@@ -1066,6 +1068,10 @@ fn from_sql(v: Sql, declared: &Declared, lib: &Library) -> Stored<Value> {
                         })
                         .ok_or_else(bad)
                 }
+                ("file", Sql::Text(s)) => serde_json::from_str(s)
+                    .ok()
+                    .and_then(|j| crate::wire::file_of(&j).ok())
+                    .ok_or_else(bad),
                 (_, Sql::Text(s)) => Ok(Value::Text(s.clone())),
                 _ => Err(bad()),
             }
