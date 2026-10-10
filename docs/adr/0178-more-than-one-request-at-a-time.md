@@ -24,7 +24,7 @@ Industrial practice for a server on one SQLite file is settled: write-ahead logg
 3. **A read uses the rules its snapshot was written under.** Each read transaction reads the store's declaration version and uses that version's library, the writer's where they are the same, so a read racing a publish never applies one version's rules to another's rows; a write reads it in its transaction too, and reloads the library where another process published since.
 4. **The clock never moves backwards across them**: a read's `now` is the wall clock or the last time the store recorded, the later, as the writer's is (ADR-0174 decision 4).
 5. **No operation's store work holds a thread another needs**: each runs where the asynchronous runtime replaces the thread it blocks, so writes queued on the lock cannot starve reads of threads.
-6. **Read connections are pooled in the service**, a few kept idle and more opened on demand, with no new dependency.
+6. **Read connections are pooled**, by the core's `store::Readers`, a few kept idle and more opened on demand, with no new dependency.
 7. **Concurrency is held by tests and measured, not argued**: reads answer within a bound while a long write holds the writer; concurrent writers on one object, with and without `expected_version`, lose no update and leave every version and position distinct; a read sees one committed state while writes commit around it; a held lock from another process meets the busy timeout and then `stale`; and a load probe reports reads and writes a second with and without the other running, as measured on the machine it ran on.
 
 ## Alternatives rejected
@@ -32,7 +32,7 @@ Industrial practice for a server on one SQLite file is settled: write-ahead logg
 - **A connection per write, each beginning `IMMEDIATE` and waiting out the busy handler**, the shape of some web frameworks' SQLite defaults: the busy handler polls with sleeps, so writers in one process are served unfairly and late; a lock in the process queues them at no cost, and the file lock still guards against another process.
 - **A writer thread fed by a queue.** The same serialisation as a lock, with more code, and a request's consultation of its evaluators already takes and releases the writer per attempt (D563).
 - **PostgreSQL now.** It is the backend that runs writes in parallel, and a second storage backend and a new dependency; reads are what a pilot's dashboards and agents need to run beside its writes, and `TODO.md` keeps PostgreSQL for a consumer that outgrows one file.
-- **A connection-pool crate.** About forty lines of the service do what a pilot needs, without a dependency to approve and pin.
+- **A connection-pool crate.** About forty lines of the core do what a pilot needs, without a dependency to approve and pin.
 - **A shared-cache in-memory database for the sandbox.** It locks whole tables rather than giving readers snapshots, and a sandbox serves one author.
 
 ## Consequences
