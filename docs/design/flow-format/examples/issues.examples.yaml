@@ -111,6 +111,14 @@ examples:
     request: { object: tests, transition: begin }
     expect: { verdict: applied, state: TO_DO, values: { number: WEB-2 } }
 
+  a_subtask_is_assigned:
+    description: A subtask is assigned to someone, as a standard work item is.
+    given: a_story_in_progress
+    steps:
+      - request: { object: story, transition: add_subtask, creates: [tests], inputs: { title: Write the tests } }
+    request: { object: tests, transition: assign, inputs: { assignee: ben } }
+    expect: { verdict: applied, state: TO_DO, values: { assignee: ben } }
+
   a_subtask_waits_for_its_parent:
     description: A subtask of a story in review is not begun until the story is back in progress.
     given: a_story_in_review

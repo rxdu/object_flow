@@ -388,6 +388,11 @@ types:
         kind: internal
         from: any
         required_inputs: [problem]
+      link_asset:
+        kind: internal
+        from: any
+        description: Names the asset the incident affects, a configuration item of the asset schema.
+        required_inputs: [asset]
       resolve:
         kind: external
         from: [WORK_IN_PROGRESS, ESCALATED, PENDING]

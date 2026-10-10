@@ -8,6 +8,7 @@ setups:
     description: A purchase request for a monitor, drafted and submitted.
     steps:
       - request: { type: PurchaseRequest, transition: start, as: purchase }
+      - request: { object: purchase, transition: describe, inputs: { item: Monitor } }
       - request: { object: purchase, transition: submit, after: 1 h }
   a_drafted_claim:
     description: An expense claim for a taxi, filed and not yet submitted.
@@ -67,6 +68,13 @@ examples:
       - request: { object: claim, transition: submit, after: 2 days }
     request: { object: claim, transition: approve }
     expect: { verdict: applied, state: APPROVED, values: { submitted_at: now } }
+
+  a_draft_purchase_names_its_item:
+    description: A purchase request names what it buys while it is a draft.
+    steps:
+      - request: { type: PurchaseRequest, transition: start, as: purchase }
+    request: { object: purchase, transition: describe, inputs: { item: Monitor } }
+    expect: { verdict: applied, state: DRAFT, values: { item: Monitor } }
 
   a_purchase_is_started_in_draft:
     description: A purchase request, which declares no creation of its own, begins by the machine's.

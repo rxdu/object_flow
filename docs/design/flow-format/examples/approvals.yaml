@@ -54,6 +54,13 @@ types:
       submitted_at: { type: timestamp, optional: true }
       item:         { type: string, optional: true }
 
+    transitions:
+      describe:
+        kind: internal
+        from: DRAFT
+        description: Names the item to buy while the request is a draft; the request begins by the machine's start, having no creation of its own.
+        required_inputs: [item]
+
   ExpenseClaim:
     description: A claim for an expense already paid, approved before it is reimbursed.
     tracking: record

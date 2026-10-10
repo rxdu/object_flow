@@ -424,6 +424,11 @@ types:
         to: TO_DO
         only_via: [WorkItem.add_subtask]
         required_inputs: [parent, space, summary]
+      assign:
+        kind: internal
+        from: [TO_DO, IN_PROGRESS]
+        description: Assigns the subtask to someone, as a standard work item is assigned.
+        required_inputs: [assignee]
 
   WorkItemLink:
     description: A typed, directed link between two work items, such as one blocking another.

@@ -176,6 +176,14 @@ examples:
     request: { object: incident, transition: set_affected_service, inputs: { affected_service: payments } }
     expect: { verdict: applied, state: WORK_IN_PROGRESS, values: { responders: [oncall-1, oncall-2] } }
 
+  an_incident_names_the_asset_it_affects:
+    description: An incident names the asset it affects, a laptop of the asset schema.
+    given: an_incident_on_payments
+    steps:
+      - request: { type: Laptop, transition: receive, as: laptop, inputs: { name: ThinkPad 14 } }
+    request: { object: incident, transition: link_asset, inputs: { asset: laptop } }
+    expect: { verdict: applied, state: WORK_IN_PROGRESS, values: { asset: laptop } }
+
   a_resolved_incident_is_reviewed:
     description: A post-incident review is drafted for a resolved incident.
     given: an_incident_on_payments

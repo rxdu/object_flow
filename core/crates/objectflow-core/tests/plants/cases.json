@@ -613,11 +613,11 @@
    ],
    [
     "approvals.yaml",
-    "cd210742b23c0f68"
+    "7b6c50b3dcd10f83"
    ],
    [
     "approvals.examples.yaml",
-    "94d5cfbde9bfbe12"
+    "d594e484641fe49e"
    ]
   ],
   "previous": {},
@@ -711,11 +711,11 @@
    ],
    [
     "issues.yaml",
-    "421d357341a99dc0"
+    "2fd1ee78c5ef09cb"
    ],
    [
     "issues.examples.yaml",
-    "7db10bc5d45331ed"
+    "6ff9ba6b8df7bd50"
    ]
   ],
   "previous": {},
@@ -807,11 +807,11 @@
    ],
    [
     "servicedesk.yaml",
-    "a910e23b7e2f7baa"
+    "19a8c571343e553e"
    ],
    [
     "servicedesk.examples.yaml",
-    "3ee9e0300e2d128a"
+    "55e539ce39fb2836"
    ]
   ],
   "previous": {},
@@ -1420,7 +1420,7 @@
    ],
    [
     "approvals.yaml",
-    "4a9611a0292cd413"
+    "2555c43ffa65b0c1"
    ]
   ],
   "previous": {},
@@ -2250,28 +2250,28 @@
    ],
    [
     "servicedesk.yaml",
-    "a90636f7c29d3eea"
+    "e53bbd6b6d3c896e"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    716,
+    721,
     "fatal",
     "names",
     "Laptop extends Alert, which is not abstract; a base has no objects of its own"
    ],
    [
     "servicedesk.yaml",
-    717,
+    722,
     "fatal",
     "names",
     "Laptop binds AssetLifecycle, which requires the attribute 'name', and Laptop does not declare it"
    ],
    [
     "servicedesk.yaml",
-    717,
+    722,
     "fatal",
     "names",
     "Laptop binds AssetLifecycle, which requires the attribute 'service', and Laptop does not declare it"
@@ -2300,14 +2300,14 @@
    ],
    [
     "servicedesk.yaml",
-    "f0a684d85984a1ad"
+    "bd31e81dbb45c37c"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    720,
+    725,
     "fatal",
     "names",
     "Laptop declares 'name', which it inherits from Asset; a member has one declaration"
@@ -2336,21 +2336,21 @@
    ],
    [
     "servicedesk.yaml",
-    "60f9cde1d248c5ac"
+    "c2559330a48de075"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    704,
+    709,
     "fatal",
     "names",
     "Asset extends Hardware, and following its bases comes back to Asset"
    ],
    [
     "servicedesk.yaml",
-    718,
+    723,
     "fatal",
     "names",
     "Hardware extends Asset, and following its bases comes back to Hardware"
@@ -2379,21 +2379,21 @@
    ],
    [
     "servicedesk.yaml",
-    "2f158eb14a3c5642"
+    "e7e110542147bd5b"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    714,
+    719,
     "fatal",
     "names",
     "Laptop.key is scoped by 'service', which not every creation of Laptop writes"
    ],
    [
     "servicedesk.yaml",
-    726,
+    731,
     "fatal",
     "names",
     "Server.key is scoped by 'service', which not every creation of Server writes"
@@ -2422,14 +2422,14 @@
    ],
    [
     "servicedesk.yaml",
-    "058bfc63235de233"
+    "a26e9b3728248080"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    738,
+    743,
     "fatal",
     "names",
     "Employee is a mirror and declares no external identifier, by which the import matches its objects"
@@ -2458,14 +2458,14 @@
    ],
    [
     "servicedesk.yaml",
-    "daee9936769e92db"
+    "b7d47d096b0d4967"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    719,
+    724,
     "fatal",
     "names",
     "Laptop.assigned_to is a reference; an external identifier is a value the other system gives"
@@ -2494,14 +2494,14 @@
    ],
    [
     "servicedesk.yaml",
-    "7b0628e56d5c8d62"
+    "9a340486e2f78b45"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    738,
+    743,
     "fatal",
     "check 53",
     "Employee is a mirror and declares 1 transition(s) other than erase"
@@ -2794,7 +2794,7 @@
    ],
    [
     "servicedesk.yaml",
-    "842e0f4d16a00f4b"
+    "47725e0fb41f2f0a"
    ]
   ],
   "previous": {},
@@ -2830,7 +2830,7 @@
    ],
    [
     "servicedesk.yaml",
-    "2e4b8f01d2eaac37"
+    "6cd3024c968bb958"
    ]
   ],
   "previous": {},
@@ -2866,28 +2866,28 @@
    ],
    [
     "servicedesk.yaml",
-    "4a8131c536951de2"
+    "3497e951b9f6194d"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    761,
+    766,
     "fatal",
     "names",
     "PartStock.on_hand is a counter, which is never absent, so it is not optional"
    ],
    [
     "servicedesk.yaml",
-    814,
+    819,
     "notice",
     "unknown",
     "enough_available can be unknown when reserve is requested, through on_hand (PartStock.on_hand is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ],
    [
     "servicedesk.yaml",
-    842,
+    847,
     "notice",
     "unknown",
     "empty can be unknown when withdraw is requested, through on_hand (PartStock.on_hand is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
@@ -2916,14 +2916,14 @@
    ],
    [
     "servicedesk.yaml",
-    "01754c81502716a3"
+    "13a758b1937e65e2"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    763,
+    768,
     "fatal",
     "names",
     "PartStock.reorder_level's default reads 'on_hand'; a default is written before anything else, so it is a literal, a qualified value or now"
@@ -2952,14 +2952,14 @@
    ],
    [
     "servicedesk.yaml",
-    "30ead1fc1c86b433"
+    "aa5b8872503f8d61"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    756,
+    761,
     "fatal",
     "check 31",
     "PartStock is tracking record with a counter"
@@ -2988,7 +2988,7 @@
    ],
    [
     "servicedesk.yaml",
-    "d15d7bce80ebb667"
+    "147644f7f66dd6c5"
    ]
   ],
   "previous": {},
@@ -3586,21 +3586,21 @@
    ],
    [
     "servicedesk.yaml",
-    "8908105a7c3d6cbf"
+    "3d2c1190d8a9178b"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    482,
+    487,
     "fatal",
     "names",
     "the metric incidents_opened is declared by both Incident and Problem; a module's metrics share one namespace"
    ],
    [
     "servicedesk.yaml",
-    848,
+    853,
     "fatal",
     "names",
     "metric problems_per_incident combines Problem.problems_opened, which is not a metric of Problem"
@@ -3629,14 +3629,14 @@
    ],
    [
     "servicedesk.yaml",
-    "047ddcc00fef1496"
+    "c3a787e7bfb54605"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    848,
+    853,
     "fatal",
     "order",
     "metric problems_per_incident combines problems_per_incident, which is itself or declared after it; a combined metric combines those above it"
@@ -3665,14 +3665,14 @@
    ],
    [
     "servicedesk.yaml",
-    "d007d8e2923511b5"
+    "46c5d7d09c448e34"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    850,
+    855,
     "fatal",
     "names",
     "metric problems_per_incident groups by 'week', which none of the metrics it combines has as a dimension"
@@ -3701,14 +3701,14 @@
    ],
    [
     "servicedesk.yaml",
-    "a6a1659be3dbb45c"
+    "10fd08c1b4132f6d"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    851,
+    856,
     "fatal",
     "names",
     "metric problems_per_incident aggregates, and a combined metric has no rows: its value combines the values of the metrics it names"
@@ -3737,7 +3737,7 @@
    ],
    [
     "servicedesk.yaml",
-    "d8520ffcd44f6763"
+    "429c930ed6f72884"
    ]
   ],
   "previous": {},
@@ -3773,7 +3773,7 @@
    ],
    [
     "approvals.yaml",
-    "434ea2d5b1cbd1f5"
+    "d7c1bd35e38ee2cf"
    ]
   ],
   "previous": {},
@@ -3799,7 +3799,7 @@
    ],
    [
     "approvals.yaml",
-    "5aa309f7da3c1f26"
+    "58ae5ec6532b06dc"
    ]
   ],
   "previous": {},
@@ -3825,14 +3825,14 @@
    ],
    [
     "approvals.yaml",
-    "6a81e70dfd14e872"
+    "32ba459589e6cb3c"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "approvals.yaml",
-    73,
+    80,
     "fatal",
     "names",
     "ExpenseClaim declares the transition 'reject', which its machine ApprovalFlow also declares"
@@ -4306,7 +4306,7 @@
    ],
    [
     "servicedesk.yaml",
-    "06c5cf76b97cd3c4"
+    "bd995791c8a8303e"
    ]
   ],
   "previous": {},
@@ -4379,7 +4379,7 @@
    ],
    [
     "servicedesk.yaml",
-    "98a13afd9b780714"
+    "f9d32b75668f5ac2"
    ]
   ],
   "previous": {},
@@ -6857,18 +6857,18 @@
    ],
    [
     "module.yaml",
-    "cd210742b23c0f68"
+    "7b6c50b3dcd10f83"
    ],
    [
     "module.examples.yaml",
-    "a556b54147e4ae1a"
+    "5ade9d9fd1f6040b"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "module.examples.yaml",
-    44,
+    45,
     "fatal",
     "example",
     "a_claim_is_filed_with_its_amount: expected amount to hold SGD 42.05, and it holds 85/2"
@@ -7286,18 +7286,18 @@
    ],
    [
     "module.yaml",
-    "cd210742b23c0f68"
+    "7b6c50b3dcd10f83"
    ],
    [
     "module.examples.yaml",
-    "87647a6e88af2b6b"
+    "8bf02b45df7a5fda"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "module.examples.yaml",
-    49,
+    50,
     "fatal",
     "example",
     "a_receipt_is_attached_to_a_draft: expected receipt to hold other.pdf, and it holds taxi.pdf"
@@ -7337,11 +7337,11 @@
    ],
    [
     "module.yaml",
-    "421d357341a99dc0"
+    "2fd1ee78c5ef09cb"
    ],
    [
     "module.examples.yaml",
-    "aae2994e934dcf99"
+    "edda031972026593"
    ]
   ],
   "previous": {},
@@ -7355,7 +7355,7 @@
    ],
    [
     "module.examples.yaml",
-    122,
+    130,
     "fatal",
     "example",
     "starting_blocked_work_warns: expected the request to warn of nothing, and it warns of ['not_blocked']"
@@ -7440,11 +7440,11 @@
    ],
    [
     "module.yaml",
-    "a910e23b7e2f7baa"
+    "19a8c571343e553e"
    ],
    [
     "module.examples.yaml",
-    "a05e2525eea78fb5"
+    "405eb5656d8beb62"
    ]
   ],
   "previous": {},
@@ -7458,7 +7458,7 @@
    ],
    [
     "module.examples.yaml",
-    324,
+    332,
     "fatal",
     "example",
     "a_negative_receipt_is_refused: expected the remedy unreachable_from_here, and it is refused as invariant_violated reserved_bounded self_serviceable"
@@ -7747,11 +7747,11 @@
   "files": [
    [
     "servicedesk.yaml",
-    "a910e23b7e2f7baa"
+    "19a8c571343e553e"
    ],
    [
     "servicedesk.examples.yaml",
-    "2e4cc8c9597ee466"
+    "7efe9af5bb972074"
    ]
   ],
   "previous": {},
@@ -7783,11 +7783,11 @@
   "files": [
    [
     "servicedesk.yaml",
-    "a910e23b7e2f7baa"
+    "19a8c571343e553e"
    ],
    [
     "servicedesk.examples.yaml",
-    "a6f3e7d40212fd1a"
+    "aa6f7e72b63a3116"
    ]
   ],
   "previous": {},
@@ -7856,18 +7856,18 @@
   "files": [
    [
     "servicedesk.yaml",
-    "a910e23b7e2f7baa"
+    "19a8c571343e553e"
    ],
    [
     "servicedesk.examples.yaml",
-    "0f878c755a77f6f6"
+    "ea770a4cf3d57186"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.examples.yaml",
-    288,
+    296,
     "fatal",
     "names",
     "creates a Asset, which is abstract and has no objects"
@@ -8837,7 +8837,7 @@
    ],
    [
     "module.yaml",
-    "0b1b937f33c61210"
+    "72576dee723c4cc3"
    ]
   ],
   "previous": {},
@@ -8929,7 +8929,7 @@
    ],
    [
     "module.yaml",
-    "cccdee07da9e5e28"
+    "c9f4f6687f2f3674"
    ]
   ],
   "previous": {},
@@ -9215,7 +9215,7 @@
    ],
    [
     "module.yaml",
-    "e9a54187f5023bdf"
+    "a9f082e63c85ecf1"
    ]
   ],
   "previous": {},
@@ -9243,7 +9243,7 @@
    ],
    [
     "module.yaml",
-    501,
+    506,
     "fatal",
     "names",
     "Sprint.complete_to_sprint calls WorkItem.plan without the input 'sprint', which it requires"
@@ -9262,7 +9262,7 @@
    ],
    [
     "module.yaml",
-    "a0e4fa10e9597c76"
+    "6eb02e385de7d35f"
    ]
   ],
   "previous": {},
@@ -9290,7 +9290,7 @@
    ],
    [
     "module.yaml",
-    501,
+    506,
     "fatal",
     "names",
     "Sprint.complete_to_sprint calls Epic.plan, which is not a transition of Epic"
@@ -9755,21 +9755,21 @@
    ],
    [
     "servicedesk.yaml",
-    "8ea7b639171fa5d3"
+    "faf2d2c23f77deb4"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    746,
+    751,
     "fatal",
     "names",
     "Employee references Service, which is neither declared in this module nor imported"
    ],
    [
     "servicedesk.yaml",
-    746,
+    751,
     "fatal",
     "names",
     "Employee.team is a mirror's reference to Service, which this store owns: a type is cut over only after every type that references it (ADR-0075), so a mirror references only mirrors"
@@ -9798,7 +9798,7 @@
    ],
    [
     "servicedesk.yaml",
-    "a910e23b7e2f7baa"
+    "19a8c571343e553e"
    ]
   ],
   "previous": {},
@@ -10226,14 +10226,14 @@
    ],
    [
     "servicedesk.yaml",
-    "055e870b5fccdc2c"
+    "90e18058ccc9e74d"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    560,
+    565,
     "fatal",
     "names",
     "condition outside_freeze scans every ChangeWindow and reads w.kind, which is not indexed: a type scan reads only indexed or unique attributes, references, the state and indexed derived attributes (the model's check 7)"
@@ -10262,7 +10262,7 @@
    ],
    [
     "servicedesk.yaml",
-    "a910e23b7e2f7baa"
+    "19a8c571343e553e"
    ]
   ],
   "previous": {},
@@ -10475,14 +10475,14 @@
    ],
    [
     "servicedesk.yaml",
-    "e84bf76afad531f0"
+    "e669f3f90d361113"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    701,
+    706,
     "fatal",
     "schema",
     "a type declares its own states and transitions, binds a state_machine, is abstract, or is a mirror with states, and only one of them; an abstract type has no lifecycle, conditions, observations or metrics"
@@ -10501,7 +10501,7 @@
    ],
    [
     "servicedesk.yaml",
-    "a910e23b7e2f7baa"
+    "19a8c571343e553e"
    ]
   ],
   "previous": {},
@@ -11413,14 +11413,14 @@
    ],
    [
     "servicedesk.yaml",
-    "9644f9e0e37a3fa2"
+    "01686a74bfb878a3"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    852,
+    857,
     "fatal",
     "names",
     "metric problems_per_incident groups by day, year, which no one of the metrics it combines has all of; one input has every dimension the combination names (the model's check 56, ADR-0147)"
@@ -11518,28 +11518,28 @@
    ],
    [
     "servicedesk.yaml",
-    "604cf4d26e1d2998"
+    "7e56c809b8b2645f"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.yaml",
-    712,
+    717,
     "fatal",
     "names",
     "Asset.service is a mirror's reference to RegisteredService, which this store owns: a type is cut over only after every type that references it (ADR-0075), so a mirror references only mirrors"
    ],
    [
     "servicedesk.yaml",
-    715,
+    720,
     "fatal",
     "names",
     "Laptop is not a mirror and extends Asset, which is; a family is ported together, every type of it a mirror or none (ADR-0148)"
    ],
    [
     "servicedesk.yaml",
-    727,
+    732,
     "fatal",
     "names",
     "Server is not a mirror and extends Asset, which is; a family is ported together, every type of it a mirror or none (ADR-0148)"
