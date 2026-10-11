@@ -1,0 +1,173 @@
+# yaml-language-server: $schema=../examples.schema.json
+# What the inventory flow's rules do, as examples the engine runs at every publish (flow-format.md §11, ADR-0136).
+examples_for: inventory
+
+setups:
+  an_item_in_stock:
+    description: A new Scout robot, added to stock at its list price.
+    steps:
+      - request:
+          type: InventoryItem
+          transition: add
+          as: robot
+          inputs: { serial: WR-0001, model: Scout, list_price: SGD 12000.00, condition: Condition.NEW }
+  an_item_reserved_for_acme:
+    description: The robot, held for Acme for a week.
+    given: an_item_in_stock
+    steps:
+      - request: { object: robot, transition: reserve, inputs: { recipient: Acme, reserved_until: now + 7 days } }
+  an_item_sold_to_acme:
+    description: The robot, delivered to Acme below its list price.
+    given: an_item_reserved_for_acme
+    steps:
+      - request: { object: robot, transition: deliver_externally, inputs: { sale_price: SGD 11500.00 } }
+  an_item_in_the_lab:
+    description: The robot, reserved for the robotics lab and delivered to it for demonstrations.
+    given: an_item_in_stock
+    steps:
+      - request: { object: robot, transition: reserve, inputs: { recipient: Robotics lab, reserved_until: now + 3 days } }
+      - request: { object: robot, transition: deliver_internally, inputs: { development_use: DevelopmentUse.DEMO } }
+
+examples:
+  adding_puts_an_item_in_stock:
+    description: A received robot is added to stock, free to be reserved.
+    request:
+      type: InventoryItem
+      transition: add
+      inputs: { serial: WR-0001, model: Scout, list_price: SGD 12000.00, condition: Condition.NEW }
+    expect: { verdict: applied, state: AVAILABLE, values: { serial: WR-0001, recipient: null } }
+
+  a_serial_is_in_stock_once:
+    description: A second robot with a serial already in stock is refused, and the caller, who gave the serial, corrects it.
+    given: an_item_in_stock
+    request:
+      type: InventoryItem
+      transition: add
+      inputs: { serial: WR-0001, model: Scout, list_price: SGD 12000.00, condition: Condition.NEW }
+    expect: { verdict: invariant_violated, clause: serial_unique, remedy: self_serviceable }
+
+  reserving_holds_the_item:
+    description: Reserving holds the robot for Acme until the time given.
+    given: an_item_in_stock
+    request: { object: robot, transition: reserve, inputs: { recipient: Acme, reserved_until: now + 7 days } }
+    expect: { verdict: applied, state: RESERVED, values: { recipient: Acme, reserved_until: now + 7 days } }
+
+  a_reservation_ends_after_now:
+    description: A reservation ending now is refused, and the caller gives a later time.
+    given: an_item_in_stock
+    request: { object: robot, transition: reserve, inputs: { recipient: Acme, reserved_until: now } }
+    expect: { verdict: unsatisfied, clause: reservation_ends_in_future, remedy: self_serviceable }
+
+  a_reservation_names_its_recipient:
+    description: The recipient is optional on the item and required to reserve it, so leaving it out is refused by its generated guard.
+    given: an_item_in_stock
+    request: { object: robot, transition: reserve, inputs: { reserved_until: now + 7 days } }
+    expect: { verdict: unsatisfied, clause: recipient_provided, remedy: self_serviceable }
+
+  a_damaged_item_is_not_reserved:
+    description: A robot graded damaged is not reserved; only another grading, a different transition, makes it reservable.
+    given: an_item_in_stock
+    steps:
+      - request: { object: robot, transition: regrade, inputs: { condition: Condition.DAMAGED } }
+    request: { object: robot, transition: reserve, inputs: { recipient: Acme, reserved_until: now + 7 days } }
+    expect: { verdict: unsatisfied, clause: not_damaged, remedy: unreachable_from_here }
+
+  a_regraded_item_is_reserved:
+    description: Once the damaged robot is refurbished and graded again, it is reserved.
+    given: an_item_in_stock
+    steps:
+      - request: { object: robot, transition: regrade, inputs: { condition: Condition.DAMAGED } }
+      - request: { object: robot, transition: regrade, inputs: { condition: Condition.REFURBISHED }, after: 2 days }
+    request: { object: robot, transition: reserve, inputs: { recipient: Acme, reserved_until: now + 7 days } }
+    expect: { verdict: applied, state: RESERVED, values: { condition: Condition.REFURBISHED } }
+
+  grading_records_the_condition:
+    description: Grading a reserved robot records its condition and keeps the reservation.
+    given: an_item_reserved_for_acme
+    request: { object: robot, transition: regrade, inputs: { condition: Condition.REFURBISHED } }
+    expect: { verdict: applied, state: RESERVED, values: { condition: Condition.REFURBISHED, recipient: Acme } }
+
+  releasing_frees_the_item:
+    description: Releasing a reservation frees the robot and forgets whom it was held for.
+    given: an_item_reserved_for_acme
+    request: { object: robot, transition: release }
+    expect: { verdict: applied, state: AVAILABLE, values: { recipient: null, reserved_until: null } }
+
+  an_item_in_stock_is_not_released:
+    description: A robot that is not reserved has no reservation to release.
+    given: an_item_in_stock
+    request: { object: robot, transition: release }
+    expect: { verdict: unavailable }
+
+  a_sale_delivers_to_the_recipient:
+    description: Delivering externally sells the robot to Acme at the price given, and its reservation ends.
+    given: an_item_reserved_for_acme
+    request: { object: robot, transition: deliver_externally, inputs: { sale_price: SGD 11500.00 } }
+    expect: { verdict: applied, state: SOLD, values: { recipient: Acme, sale_price: SGD 11500.00, reserved_until: null } }
+
+  a_lapsed_reservation_is_still_delivered:
+    description: No transition ends a reservation when its time passes, so a robot is still sold to Acme a day after its hold lapsed.
+    given: an_item_reserved_for_acme
+    request: { object: robot, transition: deliver_externally, after: 8 days, inputs: { sale_price: SGD 11500.00 } }
+    expect: { verdict: applied, state: SOLD }
+
+  a_sale_names_its_price:
+    description: The sale price is optional on the item and required to sell it, so leaving it out is refused by its generated guard.
+    given: an_item_reserved_for_acme
+    request: { object: robot, transition: deliver_externally }
+    expect: { verdict: unsatisfied, clause: sale_price_provided, remedy: self_serviceable }
+
+  an_item_damaged_while_reserved_is_not_sold:
+    description: A reserved robot damaged before its delivery is not sold until it is graded again.
+    given: an_item_reserved_for_acme
+    steps:
+      - request: { object: robot, transition: regrade, inputs: { condition: Condition.DAMAGED } }
+    request: { object: robot, transition: deliver_externally, inputs: { sale_price: SGD 11500.00 } }
+    expect: { verdict: unsatisfied, clause: not_damaged, remedy: unreachable_from_here }
+
+  a_cancelled_sale_reserves_the_item_again:
+    description: Cancelling the sale holds the robot for Acme again, and forgets the price.
+    given: an_item_sold_to_acme
+    request: { object: robot, transition: cancel_delivery, inputs: { reserved_until: now + 3 days } }
+    expect: { verdict: applied, state: RESERVED, values: { recipient: Acme, sale_price: null } }
+
+  a_cancellation_holds_the_item_into_the_future:
+    description: Cancelling the sale with a hold that has already ended is refused.
+    given: an_item_sold_to_acme
+    request: { object: robot, transition: cancel_delivery, inputs: { reserved_until: now - 1 h } }
+    expect: { verdict: unsatisfied, clause: reservation_ends_in_future, remedy: self_serviceable }
+
+  a_returned_item_is_back_in_stock:
+    description: Acme sends the robot back; graded refurbished, it is in stock again, and neither the buyer nor the price is kept.
+    given: an_item_sold_to_acme
+    request: { object: robot, transition: accept_return, inputs: { condition: Condition.REFURBISHED } }
+    expect: { verdict: applied, state: AVAILABLE, values: { condition: Condition.REFURBISHED, recipient: null, sale_price: null } }
+
+  a_delivery_to_the_lab:
+    description: Delivering internally puts the robot to use in the project it was reserved for, and its reservation ends.
+    given: an_item_in_stock
+    steps:
+      - request: { object: robot, transition: reserve, inputs: { recipient: Robotics lab, reserved_until: now + 3 days } }
+    request: { object: robot, transition: deliver_internally, inputs: { development_use: DevelopmentUse.TESTING } }
+    expect:
+      verdict: applied
+      state: DEVELOPMENT
+      values: { recipient: Robotics lab, development_use: DevelopmentUse.TESTING, reserved_until: null }
+
+  an_item_back_from_the_lab_is_in_stock:
+    description: The lab returns the robot, which goes back to stock and is no longer in any use.
+    given: an_item_in_the_lab
+    request: { object: robot, transition: return_to_stock, inputs: { condition: Condition.NEW } }
+    expect: { verdict: applied, state: AVAILABLE, values: { recipient: null, development_use: null } }
+
+  an_item_in_the_lab_is_retired:
+    description: A robot used up in the lab is retired, with the reason recorded.
+    given: an_item_in_the_lab
+    request: { object: robot, transition: retire, inputs: { retirement_reason: Parts harvested } }
+    expect: { verdict: applied, state: RETIRED, values: { retirement_reason: Parts harvested, recipient: null, development_use: null } }
+
+  a_sold_item_is_not_retired:
+    description: Only a robot delivered internally is retired; one sold is not.
+    given: an_item_sold_to_acme
+    request: { object: robot, transition: retire, inputs: { retirement_reason: Obsolete } }
+    expect: { verdict: unavailable }

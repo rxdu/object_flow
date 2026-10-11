@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=../examples.schema.json
+# The service flow's examples, updated in the same change as version 2, which requires a site to open a job
+# and a completion photo to finish one (flow-format.md §11, ADR-0136).
+examples_for: service
+
+setups:
+  two_engineers:
+    description: Two active engineers, Ana and Ben, and one entry of the inspection checklist.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: ana, name: Ana } }
+      - request: { type: User, transition: add, as: ben, inputs: { login: ben, name: Ben } }
+      - request: { type: InspectionCheck, transition: add, as: battery, inputs: { title: Battery voltage } }
+  job_in_progress:
+    description: A job Ana opened for herself at the Tuas depot and started an hour later.
+    given: two_engineers
+    steps:
+      - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana, site: Tuas depot } }
+      - request: { object: job, transition: start, actor: ana, after: 1 h }
+
+examples:
+  a_job_opens_at_a_site:
+    description: Opening a job for an active engineer at a site applies, and the job is open.
+    given: two_engineers
+    request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana, site: Tuas depot } }
+    expect: { verdict: applied, state: OPEN }
+
+  a_job_needs_its_site:
+    description: Version 2 requires the site, so opening a job without one is refused as invalid input.
+    given: two_engineers
+    request: { type: ServiceJob, transition: open, actor: ana, inputs: { engineer: ana } }
+    expect: { verdict: invalid_input }
+
+  a_job_is_not_given_to_an_engineer_who_left:
+    description: Once Ben has left, a job cannot be reassigned to him, and the caller can name another engineer.
+    given: job_in_progress
+    steps:
+      - request: { object: ben, transition: leave }
+    request:
+      object: job
+      transition: reassign
+      actor: ana
+      inputs: { engineer: ben, reason: ReassignmentReason.WORKLOAD }
+    expect: { verdict: unsatisfied, clause: engineer_active, remedy: self_serviceable }
+
+  a_job_does_not_finish_without_its_photo:
+    description: In version 2 the photo is required, so finishing without one is refused, and the caller can attach it.
+    given: job_in_progress
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana } }
+    expect: { verdict: unsatisfied, clause: photo_attached, remedy: self_serviceable }
+
+  a_passed_check_and_a_photo_let_the_job_finish:
+    description: With a passed inspection and a completion photo, the job finishes, signed off by Ana.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+    request:
+      object: job
+      transition: finish
+      actor: ana
+      inputs: { signed_off_by: ana, completion_photo: finished-job.jpg }
+    expect: { verdict: applied, state: DONE, values: { signed_off_by_user: ana } }

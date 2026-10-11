@@ -1,0 +1,121 @@
+{
+  "about": "Format 1's corpus (ADR-0180 decision 7): the design's sample modules and their examples as they stood on 2026-10-11, never edited. scripts/check-compat.py and objectflow-core's format_1 test hold every release to them; a release that needs them edited breaks format 1.",
+  "bundles": [
+    {
+      "module": "people.yaml",
+      "files": [
+        "people.yaml"
+      ]
+    },
+    {
+      "module": "inventory.yaml",
+      "files": [
+        "people.yaml",
+        "inventory.yaml",
+        "inventory.examples.yaml"
+      ]
+    },
+    {
+      "module": "inventory-v2.yaml",
+      "files": [
+        "people.yaml",
+        "inventory-v2.yaml",
+        "inventory-v2.examples.yaml"
+      ],
+      "previous": {
+        "inventory-v2.yaml": "inventory.yaml"
+      }
+    },
+    {
+      "module": "service.yaml",
+      "files": [
+        "people.yaml",
+        "service.yaml",
+        "service.examples.yaml"
+      ]
+    },
+    {
+      "module": "service-v2.yaml",
+      "files": [
+        "people.yaml",
+        "service-v2.yaml",
+        "service-v2.examples.yaml"
+      ],
+      "previous": {
+        "service-v2.yaml": "service.yaml"
+      }
+    },
+    {
+      "module": "delivery.yaml",
+      "files": [
+        "people.yaml",
+        "inventory.yaml",
+        "delivery.yaml",
+        "delivery.examples.yaml"
+      ]
+    },
+    {
+      "module": "approvals.yaml",
+      "files": [
+        "people.yaml",
+        "approvals.yaml",
+        "approvals.examples.yaml"
+      ]
+    },
+    {
+      "module": "customers.yaml",
+      "files": [
+        "people.yaml",
+        "customers.yaml",
+        "customers.examples.yaml"
+      ]
+    },
+    {
+      "module": "issues.yaml",
+      "files": [
+        "people.yaml",
+        "issues.yaml",
+        "issues.examples.yaml"
+      ]
+    },
+    {
+      "module": "servicedesk.yaml",
+      "files": [
+        "people.yaml",
+        "servicedesk.yaml",
+        "servicedesk.examples.yaml"
+      ]
+    },
+    {
+      "module": "reimbursement.yaml",
+      "files": [
+        "people.yaml",
+        "reimbursement.yaml",
+        "reimbursement.examples.yaml"
+      ]
+    }
+  ],
+  "digests": {
+    "approvals.examples.yaml": "sha256:d594e484641fe49e451cd8f453a71ec342b78e39e8cda8333569d397dceb32b6",
+    "approvals.yaml": "sha256:7b6c50b3dcd10f837e606927001a5e3e6a0a8703d49356da496aec7a5bcd0028",
+    "customers.examples.yaml": "sha256:bde62328f243983e5ad0d75ff0ee394e9031fb0bd1acb183bf147e5f4e915ab7",
+    "customers.yaml": "sha256:03ff7e8dd386a6be989354690b2a30b745ef4a87dfbfc6d17ccdabdedb4bf00f",
+    "delivery.examples.yaml": "sha256:328d686e77fe22c9ab7c2bf667e938b66af48ab4602b2bb18c148d86a7dc6939",
+    "delivery.yaml": "sha256:1841ab5c17e6f077280178afd3558107b05aa10e1f0128d52d396a07bf8882df",
+    "inventory-v2.examples.yaml": "sha256:afc2b3826126b4b2274b603b6324937a33b69ad1b5827c48d6445e593c869989",
+    "inventory-v2.yaml": "sha256:68700ad2974c261707593f33a1a49808ce52a1ab2da11b1a79e0e372c445a90f",
+    "inventory.examples.yaml": "sha256:4180d9600f10ba6688c0015e92802cfae0360a4f2980896c59622617aaf17db7",
+    "inventory.yaml": "sha256:65ecd13f6aa3d6a83ba52751ee978672bb72b97c1e64713a7ea334e7d2157751",
+    "issues.examples.yaml": "sha256:fb22fcfe42d1cdd28c2808768a3c11731c25cf70078836036269268098612e84",
+    "issues.yaml": "sha256:2fd1ee78c5ef09cbb1d02fd89b7f04ce178cd6b91f5c9ad236bb7182ebace56e",
+    "people.yaml": "sha256:cc897d91cab7f987649e615f940605f935fb01ba65179dcc473894544a31e089",
+    "reimbursement.examples.yaml": "sha256:2cbd207f0577c79118e58a54ed84be222bf64c43110583571a546be0a4d3f397",
+    "reimbursement.yaml": "sha256:d174506d9b5bf43a6addd089554b64f487d36568d3f08096336cc84643ef8720",
+    "service-v2.examples.yaml": "sha256:1b6e0d85533e07dab0f1c9c94dc80db7ea3bd05d27923077df7fd8f9452d5ece",
+    "service-v2.yaml": "sha256:518220b4397faa50dc85e16ce36bfd10a2e9d6ef0083b159b86e49a59323a331",
+    "service.examples.yaml": "sha256:b5b6bd173d23b7795f768dc9257c154ef837d6b5ec530ec843f3f18a44d8c777",
+    "service.yaml": "sha256:9bd716ed3bc7b72878033a5db85937b5b5083dc14b3229d21c544a2549901fbe",
+    "servicedesk.examples.yaml": "sha256:5cd3cb6a242a06ab205a77120b21230870060b858cec5e919a0ceff736676618",
+    "servicedesk.yaml": "sha256:19a8c571343e553e5491839b2f5140a4422a5018d3f431c5ea9ac42dff3c19a4"
+  }
+}

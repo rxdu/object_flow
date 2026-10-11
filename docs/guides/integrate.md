@@ -11,6 +11,8 @@ The engine's core runs as an HTTP service over one of two stores ([`core/README.
 
 Everything below works against both, but for the sandbox's controls, which a deployment does not route.
 
+**What a later release may change** (ADR-0180, proposed; binding from 1.0.0): within `/v1` a release only adds operations, keys, fields, verdict kinds and reasons, so write your client to ignore fields it does not know and to handle a refusal of an unknown `kind` by its `remedy`; a breaking change is `/v2`, served beside `/v1`; and a newer release upgrades your store (§2). `wire.md` states the rule in full.
+
 Use the core's service. The Python reference runner is the oracle the core is held to; it is reachable only through the Flow Studio's server and does not answer every operation.
 
 ## 2. Start the engine and load a flow

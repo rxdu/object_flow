@@ -2256,6 +2256,57 @@ async fn main() -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    /// `/v1` takes what `guides/wire-v1.json` promises (ADR-0180 decision
+    /// 7): an operation or a key the baseline lists and the service no
+    /// longer takes breaks `/v1`; one the service takes and the baseline
+    /// does not list is an addition to promise there, deliberately.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn v1_takes_what_it_promised() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../docs/guides/wire-v1.json");
+        let baseline: J =
+            serde_json::from_str(&std::fs::read_to_string(path).expect("wire-v1.json"))
+                .expect("the baseline");
+        let promised = baseline["operations"].as_object().expect("its operations");
+        let taken: std::collections::BTreeMap<&str, &[&str]> = TAKES
+            .iter()
+            .filter(|(p, _)| p.starts_with("/v1/"))
+            .map(|(p, k)| (*p, *k))
+            .collect();
+        let mut wrong = Vec::new();
+        for (op, keys) in promised {
+            let Some(takes) = taken.get(op.as_str()) else {
+                wrong.push(format!(
+                    "{op} is promised and no longer served: a break of /v1"
+                ));
+                continue;
+            };
+            for k in keys.as_array().expect("its keys") {
+                let k = k.as_str().expect("a key");
+                if !takes.contains(&k) {
+                    wrong.push(format!("{op} no longer takes {k}: a break of /v1"));
+                }
+            }
+        }
+        for (op, takes) in &taken {
+            let listed = promised.get(*op).and_then(J::as_array);
+            for k in *takes {
+                if !listed.is_some_and(|l| l.iter().any(|x| x == k)) {
+                    wrong.push(format!(
+                        "{op} takes {k}, which wire-v1.json does not promise"
+                    ));
+                }
+            }
+            if listed.is_none() && takes.is_empty() {
+                wrong.push(format!(
+                    "{op} is served, and wire-v1.json does not promise it"
+                ));
+            }
+        }
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
+
     #[test]
     fn a_failed_read_is_unavailable_storage_and_a_construct_not_run_is_501() {
         let status = |f: Fault| f.into_response().status();

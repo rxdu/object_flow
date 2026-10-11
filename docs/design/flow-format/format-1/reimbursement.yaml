@@ -1,0 +1,642 @@
+# yaml-language-server: $schema=../flow.schema.json
+# Staff reimbursement, the first consumer's first workflow, drafted on 2026-09-30 by an agent that had read only
+# flow-format.md and the sections it cites, as authoring-flows.md §6 prescribes; kept as that agent wrote it, and
+# judged by the defects it found (reimbursement-cold-draft.md), except where ADR-0145 answered what it asked: who
+# confirmed a line's nature is recorded, and must be a person, and the day of an expense is a date.
+#
+# Assumptions the business has not decided:
+# - A claim is recorded in Xero as a bill, and the bill is paid separately, so "paid" is a step of its own after
+#   the Xero record is read back.
+# - Which function reviews, records and pays is undecided. The flow names no person and no fixed function:
+#   approval is recorded against a BusinessFunction the approver names, and who may take each step is the
+#   application's (ADR-0114).
+# - Amounts are in one home currency, assumed USD here; a line spent in another currency is entered at the amount
+#   charged in the home currency.
+module: reimbursement
+
+categories: [to_do, in_progress, in_service, closed]
+
+enumerations:
+  SpendNature: [EXPENSE, PURCHASE]
+  ReturnReason: [MISSING_RECEIPT, WRONG_AMOUNT, WRONG_CATEGORY, NEEDS_DETAIL, OTHER]
+  RejectionReason: [NOT_BUSINESS_SPEND, DUPLICATE, SHOULD_BE_PROCUREMENT, OTHER]
+  CorrectionReason: [TYPING_ERROR, WRONG_BILL]
+
+sequences:
+  claim_number:
+    description: Numbers the company's reimbursement claims.
+
+evaluators:
+  xero:
+    description: Xero, the company's accounting system, which owns the bills claims are recorded as and their payment.
+    functions:
+      bill_matches:
+        description: Whether Xero holds a bill with this id that carries this claim number as its reference and totals this amount.
+        arguments:
+          bill_id: { type: string }
+          claim_number: { type: string }
+          amount: { type: money(USD) }
+        fresh: 10 min
+      bill_paid:
+        description: Whether the bill with this id is paid in full in Xero.
+        arguments:
+          bill_id: { type: string }
+        fresh: 10 min
+
+types:
+  Employee:
+    description: A person employed by the company, who may claim expenses and act on claims.
+    tracking: record
+    attributes:
+      user_id: { type: identity, actor_kind: human, unique: true }
+      name: { type: string, optional: true, personal: true }
+      xero_contact_id:
+        type: string
+        external: xero
+        optional: true
+        description: The Xero contact the employee's bills are raised against.
+    states:
+      ACTIVE:
+        category: in_service
+        description: Employed, and may claim and act on claims.
+      LEFT:
+        category: closed
+        final: true
+        description: No longer employed.
+    transitions:
+      onboard:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [user_id]
+        optional_inputs: [name]
+      link_xero_contact:
+        kind: internal
+        from: ACTIVE
+        description: Records the Xero contact the employee's bills are raised against.
+        required_inputs: [xero_contact_id]
+      leave:
+        kind: external
+        from: ACTIVE
+        to: LEFT
+      forget:
+        kind: erasure
+        description: Erases this store's copy of the employee's name.
+        inputs:
+          reason: { type: string }
+
+  AssistantAgent:
+    description: An AI agent that makes requests of its own, such as suggesting whether a claim line is an expense or a purchase; it never commits a financial write.
+    tracking: record
+    attributes:
+      agent_id: { type: identity, actor_kind: agent, unique: true }
+      name: { type: string }
+    states:
+      ENABLED: { category: in_service }
+      RETIRED: { category: closed, final: true }
+    transitions:
+      register:
+        kind: initial
+        to: ENABLED
+        required_inputs: [agent_id, name]
+      retire:
+        kind: external
+        from: ENABLED
+        to: RETIRED
+
+  BusinessFunction:
+    description: A function of the company, a role or team such as finance or management, under whose authority claims are approved; never a named person.
+    tracking: record
+    attributes:
+      name: { type: string, unique: true }
+    states:
+      ACTIVE: { category: in_service }
+      DISSOLVED: { category: closed, final: true }
+    transitions:
+      establish:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [name]
+      dissolve:
+        kind: external
+        from: ACTIVE
+        to: DISSOLVED
+
+  ExpenseCategory:
+    description: A category of spending a claim line is filed under, such as travel, meals, equipment or other, with the policy amount above which a line is flagged.
+    tracking: record
+    attributes:
+      name: { type: string, unique: true }
+      policy_amount:
+        type: money(USD)
+        description: The most a single line of this category claims within policy; a line above it is allowed, and flagged.
+    states:
+      IN_USE: { category: in_service }
+      RETIRED: { category: closed, final: true }
+    conditions:
+      policy_amount_positive:
+        description: The policy amount given is above zero.
+        expression: inputs.policy_amount > USD 0.00
+        remedy: self_serviceable
+    transitions:
+      define:
+        kind: initial
+        to: IN_USE
+        required_inputs: [name, policy_amount]
+        guards:
+          policy_amount_positive: deny
+      change_policy_amount:
+        kind: internal
+        from: IN_USE
+        required_inputs: [policy_amount]
+        guards:
+          policy_amount_positive: deny
+      retire:
+        kind: external
+        from: IN_USE
+        to: RETIRED
+
+  Claim:
+    description: A staff reimbursement claim, one employee's request to be paid back for business spending, made of line items; it is recorded in Xero as a bill and paid separately.
+    tracking: record
+    attributes:
+      number:
+        type: string
+        identifier: { sequence: claim_number, format: "EXP-{n:5}" }
+        unique: true
+      claimant:
+        reference: Employee
+        description: The employee who spent the money and is paid back.
+      title:
+        type: string
+        optional: true
+        personal: true
+        description: What the claim is for, in the claimant's words; free text may name someone, so it is personal, and optional only so that erasure can remove it.
+      lines:
+        reference: "ClaimLine[]"
+        aggregation: composite
+        opposite: claim
+        cascade:
+          - { on: [pay, reject, withdraw], transition: close, limit: 200 }
+      first_submitted_at: { type: timestamp, optional: true }
+      submitted_at: { type: timestamp, optional: true }
+      return_reason: { type: ReturnReason, optional: true }
+      approving_function:
+        reference: BusinessFunction
+        optional: true
+        description: The function under whose authority the claim was approved.
+      approved_at: { type: timestamp, optional: true }
+      xero_bill_id:
+        type: string
+        external: xero
+        optional: true
+        description: The id of the bill the claim is recorded as in Xero.
+      recorded_at: { type: timestamp, optional: true }
+      verified_at: { type: timestamp, optional: true }
+      paid_at: { type: timestamp, optional: true }
+      rejection_reason: { type: RejectionReason, optional: true }
+    states:
+      DRAFT:
+        category: to_do
+        description: Being written by the claimant, and seen by no one else.
+      SUBMITTED:
+        category: in_progress
+        description: Submitted, and under review, when a person confirms each line's nature.
+        required_attributes: [first_submitted_at, submitted_at]
+      RETURNED:
+        category: to_do
+        description: Sent back to the claimant for changes.
+        required_attributes: [first_submitted_at, return_reason]
+      REVIEWED:
+        category: in_progress
+        description: Reviewed, with every line's nature confirmed, and waiting for approval by a function.
+        required_attributes: [first_submitted_at, submitted_at]
+      APPROVED:
+        category: in_progress
+        description: Approved by a function, and waiting for a person to record it in Xero.
+        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at]
+      RECORDED:
+        category: in_progress
+        description: Recorded in Xero as a bill by a person, and waiting for the record to be read back.
+        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at]
+      VERIFIED:
+        category: in_progress
+        description: Its Xero bill read back and found to match, and waiting for payment.
+        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at, verified_at]
+      PAID:
+        category: closed
+        final: true
+        description: Paid to the claimant.
+        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at, verified_at, paid_at]
+      REJECTED:
+        category: closed
+        final: true
+        description: Refused, and will not be paid.
+        required_attributes: [first_submitted_at, rejection_reason]
+      WITHDRAWN:
+        category: closed
+        final: true
+        description: Withdrawn by the claimant before approval.
+    derived_attributes:
+      total:
+        description: The sum of the amounts of the claim's lines, those removed from it left out.
+        expression: "sum(l in lines where l.state != ClaimLine.REMOVED: l.amount)"
+      over_policy_lines:
+        description: The number of the claim's lines above their category's policy amount, shown to everyone acting on the claim.
+        expression: count(l in lines where l.state != ClaimLine.REMOVED and l.over_policy)
+    summary: [number, state, claimant, total, over_policy_lines]
+    invariants:
+      has_title:
+        description: Every claim has a title, until erasure removes it.
+        expression: title is not null
+    conditions:
+      has_lines:
+        description: The claim has at least one line not removed.
+        expression: count(l in lines where l.state != ClaimLine.REMOVED) > 0
+        remedy: unreachable_from_here
+      lines_classified:
+        description: Every line of the claim not removed has its nature, expense or purchase, confirmed by a person.
+        expression: "all(l in lines where l.state != ClaimLine.REMOVED: l.nature is not null)"
+        remedy: dependent
+      lines_within_policy:
+        description: No line of the claim is above its category's policy amount.
+        expression: over_policy_lines == 0
+        remedy: unreachable_from_here
+      function_active:
+        description: The function named as approving the claim is active.
+        expression: inputs.approving_function.state == BusinessFunction.ACTIVE
+        remedy: self_serviceable
+      bill_matches_xero:
+        description: Xero holds a bill with the recorded id that carries the claim's number and totals the claim.
+        expression: xero.bill_matches(xero_bill_id, number, total)
+        remedy: delegable
+      bill_paid_in_xero:
+        description: Xero shows the claim's bill paid in full.
+        expression: xero.bill_paid(xero_bill_id)
+        remedy: delegable
+      payment_not_in_future:
+        description: The payment date given is not in the future.
+        expression: inputs.paid_at <= now
+        remedy: self_serviceable
+    transitions:
+      draft:
+        kind: initial
+        to: DRAFT
+        description: The claimant starts a claim.
+        required_inputs: [claimant, title]
+      add_line:
+        kind: internal
+        from: [DRAFT, RETURNED]
+        description: Adds a line item to the claim.
+        inputs:
+          amount: { type: money(USD) }
+          category: { reference: ExpenseCategory }
+          expense_date: { type: date }
+          receipt: { type: file }
+          purpose: { type: string, optional: true, personal: true }
+          merchant: { type: string, optional: true }
+          original_amount: { type: "decimal(12,2)", optional: true }
+          original_currency: { type: string, optional: true }
+        effect:
+          - create:
+              type: ClaimLine
+              transition: add
+              inputs:
+                claim: this
+                amount: inputs.amount
+                category: inputs.category
+                expense_date: inputs.expense_date
+                receipt: inputs.receipt
+                purpose: inputs.purpose
+                merchant: inputs.merchant
+                original_amount: inputs.original_amount
+                original_currency: inputs.original_currency
+      submit:
+        kind: external
+        from: DRAFT
+        to: SUBMITTED
+        description: The claimant submits the claim for review.
+        guards:
+          has_lines: deny
+        effect:
+          - assign: { location: first_submitted_at, expr: now }
+          - assign: { location: submitted_at, expr: now }
+      resubmit:
+        kind: external
+        from: RETURNED
+        to: SUBMITTED
+        description: The claimant submits the claim again after changing it.
+        guards:
+          has_lines: deny
+        effect:
+          - assign: { location: submitted_at, expr: now }
+      return_for_changes:
+        kind: external
+        from: [SUBMITTED, REVIEWED]
+        to: RETURNED
+        description: A reviewer or approver sends the claim back to the claimant for changes.
+        required_inputs: [return_reason]
+        inputs:
+          note:
+            type: string
+            personal: true
+            description: What the claimant should change.
+      complete_review:
+        kind: external
+        from: SUBMITTED
+        to: REVIEWED
+        description: The reviewer finishes the review, every line's nature confirmed.
+        guards:
+          lines_classified: deny
+      approve:
+        kind: external
+        from: REVIEWED
+        to: APPROVED
+        description: A person approves the claim under the authority of a function.
+        required_inputs: [approving_function]
+        guards:
+          function_active: deny
+          lines_within_policy: warn
+        effect:
+          - assign: { location: approved_at, expr: now }
+      reject:
+        kind: external
+        from: [SUBMITTED, REVIEWED]
+        to: REJECTED
+        description: A reviewer or approver refuses the claim.
+        required_inputs: [rejection_reason]
+        inputs:
+          note:
+            type: string
+            optional: true
+            personal: true
+            description: Why the claim was refused, in words.
+      withdraw:
+        kind: external
+        from: [DRAFT, SUBMITTED, RETURNED, REVIEWED]
+        to: WITHDRAWN
+        description: The claimant withdraws the claim before it is approved.
+      record_in_xero:
+        kind: external
+        from: APPROVED
+        to: RECORDED
+        description: A person records the claim in Xero as a bill and gives the bill's id.
+        required_inputs: [xero_bill_id]
+        effect:
+          - assign: { location: recorded_at, expr: now }
+      correct_xero_bill_id:
+        kind: internal
+        from: RECORDED
+        description: Corrects the Xero bill id recorded, when the read-back shows it was wrong.
+        corrects: [xero_bill_id]
+        required_inputs: [xero_bill_id]
+        inputs:
+          reason: { type: CorrectionReason }
+      verify_xero_record:
+        kind: external
+        from: RECORDED
+        to: VERIFIED
+        description: Reads the Xero bill back and confirms it matches the claim.
+        guards:
+          bill_matches_xero: deny
+        effect:
+          - assign: { location: verified_at, expr: now }
+      pay:
+        kind: external
+        from: VERIFIED
+        to: PAID
+        description: Records that the bill was paid to the claimant, as Xero shows.
+        required_inputs: [paid_at]
+        guards:
+          payment_not_in_future: deny
+          bill_paid_in_xero: deny
+      erase_personal_data:
+        kind: erasure
+        description: Erases the claim's personal data and that of its lines.
+        inputs:
+          reason: { type: string }
+        effect:
+          - foreach:
+              item: l
+              array: lines
+              limit: 200
+              steps:
+                - call: { target: l, transition: erase, inputs: { reason: inputs.reason } }
+    metrics:
+      submission_to_payment:
+        description: The median time from a claim's first submission to its payment, by the month it was paid.
+        source: objects
+        item: c
+        filter: c.paid_at is not null
+        dimensions:
+          paid_month: month(c.paid_at)
+        time_dimension: c.paid_at
+        expression: median(c.paid_at - c.first_submitted_at)
+        flag_when: { slow: "value > 14 days" }
+      claimant_amount_claimed:
+        description: The amount each claimant claimed, by the month of first submission, over claims submitted and not withdrawn; it names a person.
+        source: objects
+        item: c
+        filter: c.first_submitted_at is not null and c.state != Claim.WITHDRAWN
+        dimensions:
+          claimant: c.claimant
+          submitted_month: month(c.first_submitted_at)
+        time_dimension: c.first_submitted_at
+        expression: sum(c.total)
+      claimant_over_policy_lines:
+        description: The number of lines above policy on each claimant's claims, by the month of first submission, over claims submitted and not withdrawn; it names a person.
+        source: objects
+        item: c
+        filter: c.first_submitted_at is not null and c.state != Claim.WITHDRAWN
+        dimensions:
+          claimant: c.claimant
+          submitted_month: month(c.first_submitted_at)
+        time_dimension: c.first_submitted_at
+        expression: sum(c.over_policy_lines)
+      approval_policy_flags:
+        description: How many times a claim was approved with a line above its category's policy amount, by rule and month.
+        source: attempt_counts
+        item: a
+        filter: a.flagged
+        dimensions:
+          rule: a.clause
+          flagged_month: month(a.day)
+        time_dimension: a.day
+        expression: sum(a.count)
+
+  ClaimLine:
+    description: One item of a claim, a single amount spent on one date in one category, with its receipt.
+    tracking: record
+    attributes:
+      claim: { reference: Claim, opposite: lines }
+      amount: { type: money(USD) }
+      original_amount:
+        type: decimal(12,2)
+        optional: true
+        description: The amount spent, in the currency it was spent in, where that is not the home currency; recorded, and never computed with (ADR-0145).
+      original_currency:
+        type: string
+        optional: true
+        description: The ISO 4217 code of the currency the amount was spent in, beside original_amount.
+      category: { reference: ExpenseCategory }
+      expense_date:
+        type: date
+        description: The day the money was spent, a calendar day with no time and no zone (ADR-0145).
+      receipt: { type: file }
+      purpose:
+        type: string
+        optional: true
+        personal: true
+        description: What the money was spent on, in the claimant's words.
+      merchant: { type: string, optional: true }
+      suggested_nature:
+        type: SpendNature
+        optional: true
+        description: The agent's suggestion of whether the line is an expense or a purchase, which commits nothing.
+      suggestion_rationale:
+        type: string
+        optional: true
+        personal: true
+        description: The agent's reasons for its suggestion, shown to the person who confirms it.
+      nature:
+        type: SpendNature
+        optional: true
+        description: Whether the line is an expense or a purchase, as a person confirmed it.
+      nature_confirmed_by:
+        type: actor_kind
+        optional: true
+        description: The kind of actor that confirmed the line's nature, recorded as it was confirmed (ADR-0145).
+    states:
+      LISTED:
+        category: in_progress
+        description: On its claim.
+      REMOVED:
+        category: closed
+        final: true
+        description: Taken off its claim by the claimant before approval.
+      CLOSED:
+        category: closed
+        final: true
+        description: Its claim was paid, rejected or withdrawn.
+    derived_attributes:
+      over_policy:
+        description: The line's amount is above its category's policy amount.
+        expression: amount > category.policy_amount
+    invariants:
+      spent_amount_has_its_currency:
+        description: An amount spent in another currency names that currency.
+        expression: original_amount is null or original_currency is not null
+      confirmed_by_a_person:
+        description: A line's nature is confirmed by a person, never by the agent, which only suggests it, so the agent never commits a financial write.
+        expression: nature is null or (nature_confirmed_by is not null and nature_confirmed_by == human)
+    conditions:
+      amount_positive:
+        description: The amount given is above zero.
+        expression: inputs.amount > USD 0.00
+        remedy: self_serviceable
+      spent_in_past:
+        description: The day of the expense is not in the future, allowing a day, since the claimant's today is a day ahead of UTC's east of it for part of each day.
+        expression: inputs.expense_date <= date(now) + 1 day
+        remedy: self_serviceable
+      category_in_use:
+        description: The category given is in use.
+        expression: inputs.category.state == ExpenseCategory.IN_USE
+        remedy: self_serviceable
+      within_policy:
+        description: The amount given is no more than its category's policy amount.
+        expression: inputs.amount <= inputs.category.policy_amount
+        remedy: self_serviceable
+      claim_editable:
+        description: The line's claim is a draft or has been sent back for changes.
+        expression: claim.state == Claim.DRAFT or claim.state == Claim.RETURNED
+        remedy: dependent
+      claim_under_review:
+        description: The line's claim is under review.
+        expression: claim.state == Claim.SUBMITTED
+        remedy: dependent
+      nature_unconfirmed:
+        description: No person has yet confirmed the line's nature.
+        expression: nature is null
+        remedy: unreachable_from_here
+    transitions:
+      add:
+        kind: initial
+        to: LISTED
+        description: A line is added to its claim.
+        only_via: [Claim.add_line]
+        required_inputs: [claim, amount, category, expense_date, receipt]
+        optional_inputs: [purpose, merchant, original_amount, original_currency]
+        guards:
+          amount_positive: deny
+          spent_in_past: deny
+          category_in_use: deny
+          within_policy: warn
+      amend:
+        kind: internal
+        from: LISTED
+        description: The claimant replaces the line's details, which undoes any suggestion or confirmation of its nature.
+        required_inputs: [amount, category, expense_date, receipt]
+        optional_inputs: [purpose, merchant, original_amount, original_currency]
+        guards:
+          claim_editable: deny
+          amount_positive: deny
+          spent_in_past: deny
+          category_in_use: deny
+          within_policy: warn
+        effect:
+          - clear: [suggested_nature, suggestion_rationale, nature, nature_confirmed_by]
+      discard:
+        kind: external
+        from: LISTED
+        to: REMOVED
+        description: The claimant takes the line off the claim.
+        guards:
+          claim_editable: deny
+      suggest_nature:
+        kind: internal
+        from: LISTED
+        description: The agent suggests whether the line is an expense or a purchase; the suggestion commits nothing.
+        required_inputs: [suggested_nature]
+        optional_inputs: [suggestion_rationale]
+        guards:
+          nature_unconfirmed: deny
+      confirm_nature:
+        kind: internal
+        from: LISTED
+        description: A person confirms the line's nature, accepting or overriding the agent's suggestion.
+        required_inputs: [nature]
+        guards:
+          claim_under_review: deny
+        effect:
+          - assign: { location: nature_confirmed_by, expr: actor.kind }
+      close:
+        kind: external
+        from: LISTED
+        to: CLOSED
+        description: The line closes with its claim.
+        only_via: [Claim.pay, Claim.reject, Claim.withdraw]
+      erase:
+        kind: erasure
+        description: Erases the line's personal data.
+        inputs:
+          reason: { type: string }
+    metrics:
+      amount_claimed_by_category:
+        description: The amount claimed in each category, by the month the money was spent, over the lines of every claim submitted and not withdrawn.
+        source: objects
+        item: l
+        filter: l.state != ClaimLine.REMOVED and l.claim.first_submitted_at is not null and l.claim.state != Claim.WITHDRAWN
+        dimensions:
+          expense_category: l.category
+          spent_month: month(l.expense_date)
+        time_dimension: l.expense_date
+        expression: sum(l.amount)
+      line_policy_flags:
+        description: How many times a line was entered or amended above its category's policy amount, by rule and month.
+        source: attempt_counts
+        item: a
+        filter: a.flagged
+        dimensions:
+          rule: a.clause
+          flagged_month: month(a.day)
+        time_dimension: a.day
+        expression: sum(a.count)

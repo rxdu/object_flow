@@ -181,3 +181,4 @@
 | [0177](0177-an-engine-releases-upgrade-as-built.md) | An engine release's upgrade, as built | Built at the author's direction, for review |
 | [0178](0178-more-than-one-request-at-a-time.md) | More than one request at a time | Built at the author's direction, for review |
 | [0179](0179-what-an-application-acts-on-a-refusals-detail-and-pages.md) | What an application acts on: a refusal's detail, and pages | Built at the author's direction, for review |
+| [0180](0180-what-a-release-promises.md) | What a release promises | Proposed, its checks built, for the author's decision |

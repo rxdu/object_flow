@@ -131,8 +131,9 @@ ObjectFlow's case study, called the first consumer, is the author's robotics ope
 
 ## Getting started
 
-- **Write a flow**: [`docs/guides/write-a-flow.md`](docs/guides/write-a-flow.md), from an empty file to examples passing on both of the engine's implementations.
+- **Write a flow**: [`docs/guides/write-a-flow.md`](docs/guides/write-a-flow.md), from an empty file to examples passing on both of the engine's implementations, and every key on one page, [`docs/guides/flow-format-card.md`](docs/guides/flow-format-card.md).
 - **Build an application on it**: [`docs/guides/integrate.md`](docs/guides/integrate.md), and the wire's reference, [`docs/guides/wire.md`](docs/guides/wire.md).
+- **What a later release may change**: within the wire's `/v1` and the flow format, a release only adds; a check that would refuse a flow it accepted arrives as a notice first; a store is upgraded, never stranded ([ADR-0180](docs/adr/0180-what-a-release-promises.md), proposed, binding from release 1.0.0).
 - **Run the engine**: [`core/README.md`](core/README.md).
 - **See a flow run**: the [Flow Studio](apps/flow-studio/README.md), an editor and simulator of flows.
 
