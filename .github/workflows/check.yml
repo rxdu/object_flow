@@ -1,0 +1,67 @@
+# Every gate on every push and pull request (ADR-0183 decision 2): the one
+# command a change is checked by locally, scripts/check-all, so CI and a
+# local run cannot drift; and the core's dependencies against the RustSec
+# advisory database.
+name: check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check-all:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      # a compiler warning fails CI, as clippy's do everywhere; set for the
+      # whole job, so every build in it shares one cache
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+      - name: The pinned Rust toolchain
+        # the version core/rust-toolchain.toml pins, read from it
+        working-directory: core
+        run: |
+          channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('core/Cargo.lock', 'core/rust-toolchain.toml') }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: The scripts' Python environment
+        run: scripts/setup/python-env
+      - name: The Flow Studio server's environment
+        working-directory: apps/flow-studio/server
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet -r requirements-dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: The Flow Studio web app's packages
+        working-directory: apps/flow-studio/web
+        run: |
+          corepack enable
+          corepack pnpm install --frozen-lockfile
+      - name: Every gate
+        run: scripts/check-all
+
+  advisories:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: The core's dependencies against the RustSec advisory database
+        working-directory: core
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit

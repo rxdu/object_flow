@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Every gate the repository holds itself to, the one command CI runs and a
+# change is checked by before it is committed: the core's (format, clippy,
+# tests), the Flow Studio's server and web app, the design's checks, and the
+# scenarios' replay on the core and on the reference runner. Each runs to its
+# end; the script fails if any failed, and says which.
+#
+# Usage: scripts/check-all
+# CI sets RUSTFLAGS="-D warnings" for the whole job, so a compiler warning
+# fails there as clippy's do everywhere (ADR-0183 decision 2).
+#
+# Needs: ~/.cargo/bin/cargo (the pinned toolchain), scripts/.venv
+# (scripts/setup/python-env), apps/flow-studio/server/.venv, and node with
+# corepack for the web app.
+set -uo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
+PY="$ROOT/scripts/.venv/bin/python"
+# each gate bounded, so one that hangs fails naming itself rather than
+# holding the run: a full pipe once stopped the core under the Studio's tests
+GATE_TIMEOUT="${GATE_TIMEOUT:-1800}"
+failed=()
+run() {
+  local name="$1"; shift
+  local log; log="$(mktemp)"
+  timeout "$GATE_TIMEOUT" "$@" > "$log" 2>&1
+  local rc=$?
+  if [ "$rc" -eq 0 ]; then
+    printf 'ok      %s | %s\n' "$name" "$(tail -1 "$log" | cut -c1-120)"
+  else
+    if [ "$rc" -eq 124 ]; then
+      printf 'FAILED  %s | timed out after %s s\n' "$name" "$GATE_TIMEOUT"
+    else
+      printf 'FAILED  %s | exit %s | %s\n' "$name" "$rc" "$(tail -1 "$log" | cut -c1-120)"
+    fi
+    tail -40 "$log" | sed 's/^/        /'
+    failed+=("$name")
+  fi
+  rm -f "$log"
+}
+run "core" env CARGO="$CARGO" "$ROOT/core/scripts/check"
+run "studio" bash -c "cd '$ROOT/apps/flow-studio/server' && .venv/bin/python -m pytest -q"
+run "web" bash -c "cd '$ROOT/apps/flow-studio/web' && corepack pnpm check"
+for c in "$ROOT"/scripts/check-*.py; do
+  run "$(basename "$c" .py)" "$PY" "$c"
+done
+run "replay" "$PY" "$ROOT/scripts/replay-scenarios.py"
+run "runner replay" "$PY" "$ROOT/scripts/replay-scenarios.py" --runner
+if ((${#failed[@]})); then
+  echo "check-all: ${#failed[@]} failed: ${failed[*]}"
+  exit 1
+fi
+echo "check-all: every gate passed"

@@ -1,0 +1,52 @@
+# A release, from its tag (ADR-0183 decision 2): the service built from the
+# tagged commit, its version checked against the tag, and published with its
+# SHA-256 checksum as the tag's GitHub release. Tag only a commit whose
+# check has passed; the release is the author's act (core/README.md,
+# "Releases").
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # the oldest Ubuntu supported, so the binary runs on it and later ones
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: The pinned Rust toolchain
+        working-directory: core
+        run: |
+          channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$channel" --profile minimal
+      - name: The service, built from the tag
+        working-directory: core
+        run: cargo build --release --locked -p objectflow-service
+      - name: Its version is the tag's
+        run: |
+          said=$(core/target/release/objectflow-service --version)
+          echo "$said"
+          case "$said" in
+            "objectflow-service ${GITHUB_REF_NAME#v},"*) ;;
+            *) echo "the tag ${GITHUB_REF_NAME} names another version than the service's"; exit 1 ;;
+          esac
+      - name: The archive and its checksum
+        run: |
+          name="objectflow-service-${GITHUB_REF_NAME#v}-x86_64-linux"
+          mkdir "$name"
+          cp core/target/release/objectflow-service CHANGELOG.md SECURITY.md LICENSE "$name"/
+          tar czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          cat "$name.tar.gz.sha256"
+      - name: The GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes "What it changed is in CHANGELOG.md; verify the archive with sha256sum -c." \
+            objectflow-service-*.tar.gz objectflow-service-*.tar.gz.sha256
