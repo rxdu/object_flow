@@ -72,13 +72,18 @@ pub fn vetoes(doc: &Value, library: &Obj) -> Found {
     out
 }
 
-/// A guard marked `audit` or `warn`, and a `self_serviceable` guard on a
-/// transition that takes no input.
+/// A guard marked `audit` or `warn`, a `self_serviceable` guard on a
+/// transition that takes no input, and a correction's free-text reason on
+/// a type an erasure reaches.
 pub fn notices(doc: &Value) -> Found {
     let mut out = Found::new();
     for (tn, t) in types(doc) {
         let conds = obj(t, "conditions");
-        for (xn, x) in obj(t, "transitions") {
+        let transitions = obj(t, "transitions");
+        let erasable = transitions
+            .values()
+            .any(|x| str_or(x, "kind", "") == "erasure");
+        for (xn, x) in transitions {
             let takes =
                 flag(x, "required_inputs") || flag(x, "optional_inputs") || flag(x, "inputs");
             for (g, mode) in obj(x, "guards") {
@@ -109,6 +114,20 @@ pub fn notices(doc: &Value) -> Found {
                         format!("{g}'s remedy is self_serviceable, 'supply it', and {xn} takes no input a caller could supply"),
                     ));
                 }
+            }
+            // a correction's reason is kept with its event, which an erasure
+            // of the object does not reach unless the reason is personal:
+            // free text there keeps what a clerk typed (production review F7)
+            let reason = obj(x, "inputs").get("reason");
+            if erasable
+                && flag(x, "corrects")
+                && reason.is_some_and(|r| str_or(r, "type", "") == "string" && !flag(r, "personal"))
+            {
+                out.push(finding(
+                    segs!["types", &tn, "transitions", xn, "inputs", "reason"],
+                    "reason_kept",
+                    format!("{tn}.{xn}'s reason is free text, which its event keeps through an erasure of the {tn}: mark it personal, which keeps it off the record, or make it an enumeration, as an override's is"),
+                ));
             }
         }
     }

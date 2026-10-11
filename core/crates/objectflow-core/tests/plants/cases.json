@@ -1048,7 +1048,7 @@
    ],
    [
     "customers.yaml",
-    "d68beae9bc31b9f5"
+    "29abde7824f0693a"
    ],
    [
     "customers.examples.yaml",
@@ -3548,14 +3548,14 @@
    ],
    [
     "customers.yaml",
-    "d7510459c06c5e73"
+    "4fdd9a0a70b769bf"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    151,
+    153,
     "fatal",
     "names",
     "Customer.correct_state's reason is not an enumeration; an assertion's reasons are counted, so they are declared values"
@@ -3613,14 +3613,14 @@
    ],
    [
     "customers.yaml",
-    "bab16c9ef833e333"
+    "c2795b492d33026c"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    153,
+    155,
     "fatal",
     "names",
     "Customer.correct_state may admit 'active_rule', which is not an invariant of Customer"
@@ -3678,14 +3678,14 @@
    ],
    [
     "customers.yaml",
-    "5989b786ec43a4d8"
+    "ad976a17bd268516"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    154,
+    156,
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
@@ -3743,7 +3743,7 @@
    ],
    [
     "customers.yaml",
-    "f4017447a61cc6dd"
+    "f4a7d361791b6ed9"
    ]
   ],
   "previous": {},
@@ -3808,7 +3808,7 @@
    ],
    [
     "customers.yaml",
-    "c188daa78db897b8"
+    "a68364f5322ad08c"
    ]
   ],
   "previous": {},
@@ -3873,14 +3873,14 @@
    ],
    [
     "customers.yaml",
-    "fcaa2c6fae975f18"
+    "d0da12a6ed4cf824"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    154,
+    156,
     "fatal",
     "schema",
     "an erasure declares neither `from` nor `to`: it runs at any state"
@@ -4004,7 +4004,7 @@
    ],
    [
     "customers.yaml",
-    "722cfb8c470b4457"
+    "55668d89bb6fb76f"
    ]
   ],
   "previous": {},
@@ -5474,7 +5474,7 @@
    ],
    [
     "customers.yaml",
-    "dd85108be11be10a"
+    "1f529a8308df66b3"
    ]
   ],
   "previous": {},
@@ -5539,7 +5539,7 @@
    ],
    [
     "customers.yaml",
-    "82aa5a9c81463e56"
+    "0b24cf94e3c8b782"
    ]
   ],
   "previous": {},
@@ -5604,7 +5604,7 @@
    ],
    [
     "customers.yaml",
-    "a68024b93756ac10"
+    "71f373a9c205f589"
    ]
   ],
   "previous": {},
@@ -5669,7 +5669,7 @@
    ],
    [
     "customers.yaml",
-    "08fceb291d213030"
+    "be0545a343a0b978"
    ]
   ],
   "previous": {},
@@ -5734,7 +5734,7 @@
    ],
    [
     "customers.yaml",
-    "24c0a7332e7974da"
+    "25c7687b2463cc03"
    ]
   ],
   "previous": {},
@@ -5799,14 +5799,14 @@
    ],
    [
     "customers.yaml",
-    "0f048e9a9f6bc775"
+    "89c313827270d9e0"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    174,
+    176,
     "fatal",
     "names",
     "metric overrides compares t.transition with \"corect_state\", which is not a transition of Customer"
@@ -5864,7 +5864,7 @@
    ],
    [
     "customers.yaml",
-    "75c588f19ab8f4cb"
+    "1e6a70137c780781"
    ]
   ],
   "previous": {},
@@ -5929,7 +5929,7 @@
    ],
    [
     "customers.yaml",
-    "09d1558840819ae5"
+    "c0b19afffc092ddb"
    ]
   ],
   "previous": {},
@@ -5994,7 +5994,7 @@
    ],
    [
     "customers.yaml",
-    "5ac0cbeca84b5cd9"
+    "ddb7d0cb92a6d906"
    ]
   ],
   "previous": {},
@@ -6130,7 +6130,7 @@
    ],
    [
     "customers.yaml",
-    "cd5095e504946d24"
+    "af7026e973a4cd9d"
    ]
   ],
   "previous": {},
@@ -6195,7 +6195,7 @@
    ],
    [
     "customers.yaml",
-    "50305e98f485c446"
+    "f1c2bb13ead2c828"
    ]
   ],
   "previous": {},
@@ -6260,7 +6260,7 @@
    ],
    [
     "customers.yaml",
-    "3f737362b8cff64e"
+    "f96e949217c3eba0"
    ]
   ],
   "previous": {},
@@ -6325,7 +6325,7 @@
    ],
    [
     "customers.yaml",
-    "94de7a7f5988fd39"
+    "79a96fc509edea26"
    ]
   ],
   "previous": {},
@@ -6390,7 +6390,7 @@
    ],
    [
     "customers.yaml",
-    "f31ef9a3758235b4"
+    "fa916c905642b6b0"
    ]
   ],
   "previous": {},
@@ -6455,7 +6455,7 @@
    ],
    [
     "customers.yaml",
-    "29b1ec9b2d1def6e"
+    "86e29776541fe1b7"
    ]
   ],
   "previous": {},
@@ -6527,7 +6527,7 @@
    ],
    [
     "customers.yaml",
-    "7d46897b765200dd"
+    "53c9b990330a955d"
    ]
   ],
   "previous": {},
@@ -6592,7 +6592,7 @@
    ],
    [
     "customers.yaml",
-    "bf903580742fc0b4"
+    "0381e448dbf8c496"
    ]
   ],
   "previous": {},
@@ -8099,7 +8099,7 @@
    ],
    [
     "customers.yaml",
-    "a9dd837a325b0505"
+    "dda91b31bbc6ca28"
    ]
   ],
   "previous": {},
@@ -8164,7 +8164,7 @@
    ],
    [
     "customers.yaml",
-    "dbd98fe6604dc1df"
+    "01c1c73509d7f399"
    ]
   ],
   "previous": {},
@@ -9088,6 +9088,71 @@
    "T": [
     1,
     1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<listcomp>: kept",
+  "files": [
+   [
+    "kept.yaml",
+    "1bb1f4c28c4ffa36"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "kept.yaml",
+    12,
+    "notice",
+    "reason_kept",
+    "T.fix's reason is free text, which its event keeps through an erasure of the T: mark it personal, which keeps it off the record, or make it an enumeration, as an override's is"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<listcomp>: marked",
+  "files": [
+   [
+    "marked.yaml",
+    "69030625fa3a8506"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<listcomp>: unerased",
+  "files": [
+   [
+    "unerased.yaml",
+    "033137756400079b"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
    ]
   },
   "forms": {},
@@ -13277,7 +13342,7 @@
    ],
    [
     "module.yaml",
-    "d68beae9bc31b9f5"
+    "29abde7824f0693a"
    ],
    [
     "module.examples.yaml",
@@ -14455,7 +14520,7 @@
    ],
    [
     "customers.yaml",
-    "d68beae9bc31b9f5"
+    "29abde7824f0693a"
    ],
    [
     "customers.examples.yaml",
@@ -18899,7 +18964,7 @@
    ],
    [
     "customers.yaml",
-    "9696fa4976c01d40"
+    "886dab61345d139e"
    ],
    [
     "customers.examples.yaml",
@@ -19648,7 +19713,7 @@
    ],
    [
     "customers.yaml",
-    "c664af792c29d3ab"
+    "30ae8ea125a627a1"
    ]
   ],
   "previous": {},
@@ -19669,7 +19734,7 @@
    ],
    [
     "customers.yaml",
-    161,
+    163,
     "fatal",
     "names",
     "Customer.forget calls Contact.forget without the input 'ticket', which it requires"
@@ -19727,7 +19792,7 @@
    ],
    [
     "customers.yaml",
-    "212fec915de66451"
+    "76587f1ba0555c60"
    ]
   ],
   "previous": {},
@@ -19748,7 +19813,7 @@
    ],
    [
     "customers.yaml",
-    161,
+    163,
     "fatal",
     "names",
     "Customer.forget passes inputs.reason, string, to Contact.forget's input 'reason', which takes enumeration OverrideReason: an argument must fit its input (the model's check 2)"
@@ -19806,28 +19871,28 @@
    ],
    [
     "customers.yaml",
-    "395a29d3240c0046"
+    "d9b51d967b739ba5"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    154,
+    156,
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ],
    [
     "customers.yaml",
-    161,
+    163,
     "fatal",
     "names",
     "Customer.forget binds 'email', which is a member of Customer; a bound name shares no name with a member"
    ],
    [
     "customers.yaml",
-    161,
+    163,
     "fatal",
     "names",
     "forget reads 'c', which Customer does not declare"
@@ -20152,14 +20217,14 @@
    ],
    [
     "customers.yaml",
-    "3402c12af2d3c4b0"
+    "9c9aacbcd378f1e5"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    260,
+    262,
     "fatal",
     "names",
     "the migration moves Customer.LAPSED to MERGED, a superseding state, which would leave its objects superseded by nothing (ADR-0146)"
@@ -20588,28 +20653,28 @@
    ],
    [
     "customers.yaml",
-    "f32e9fa9ecba9237"
+    "f731ebd7a3372be8"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    154,
+    156,
     "fatal",
     "names",
     "Customer.purge erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ],
    [
     "customers.yaml",
-    154,
+    156,
     "fatal",
     "names",
     "Customer.purge is an erasure, and declares no input 'reason'"
    ],
    [
     "customers.yaml",
-    157,
+    159,
     "fatal",
     "names",
     "Customer declares the erasures purge, forget; a type declares at most one, which a group's erasure takes (ADR-0147)"
@@ -20667,7 +20732,7 @@
    ],
    [
     "customers.yaml",
-    "a13348a2f8ed62f9"
+    "f7db96876ff9ce5b"
    ]
   ],
   "previous": {},
@@ -20681,7 +20746,7 @@
    ],
    [
     "customers.yaml",
-    148,
+    150,
     "fatal",
     "names",
     "Customer.correct_state asserts a superseding state, which would name no successor; a merge is a declared transition (the model's check 26, ADR-0147)"
@@ -20763,28 +20828,28 @@
    ],
    [
     "customers.yaml",
-    "cf6dc22fe712f791"
+    "6553a504c618f60b"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    154,
+    156,
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ],
    [
     "customers.yaml",
-    161,
+    163,
     "fatal",
     "names",
     "Customer.forget binds 'now', a word an expression resolves first or every object has (ADR-0147)"
    ],
    [
     "customers.yaml",
-    161,
+    163,
     "fatal",
     "names",
     "forget reads 'c', which Customer does not declare"
@@ -21577,7 +21642,7 @@
    ],
    [
     "customers.yaml",
-    "6269207a9d3dbc9a"
+    "9179dd0c7b4c8ae8"
    ]
   ],
   "previous": {},
@@ -21659,7 +21724,7 @@
    ],
    [
     "customers.yaml",
-    "32b5f7406132f219"
+    "33d352b01c18c5e4"
    ]
   ],
   "previous": {},

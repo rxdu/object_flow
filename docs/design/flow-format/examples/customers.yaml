@@ -142,7 +142,9 @@ types:
         corrects: [email]
         required_inputs: [email]
         inputs:
-          reason: { type: string }
+          # a clerk's words may name the customer, and an erasure leaves a
+          # correction's reason unless it is personal (production review F7)
+          reason: { type: string, personal: true }
       correct_state:
         kind: assertion
         to: [PROSPECT, ACTIVE, DORMANT]

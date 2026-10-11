@@ -1,0 +1,14 @@
+module: m
+categories: [live]
+types:
+  T:
+    description: A person on record.
+    tracking: record
+    attributes:
+      email: { type: string, personal: true, optional: true }
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
+    transitions:
+      t: { kind: initial, to: S, required_inputs: [email] }
+      fix: { kind: internal, from: S, corrects: [email], required_inputs: [email], inputs: { reason: { type: string } } }
+      e: { kind: external, from: S, to: E }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }

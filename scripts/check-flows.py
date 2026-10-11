@@ -3368,7 +3368,9 @@ def notices(doc):
     out = []
     for tn, t in types(doc):
         conds = t.get("conditions") or {}
-        for xn, x in (t.get("transitions") or {}).items():
+        transitions = t.get("transitions") or {}
+        erasable = any((x or {}).get("kind") == "erasure" for x in transitions.values())
+        for xn, x in transitions.items():
             takes = x.get("required_inputs") or x.get("optional_inputs") or x.get("inputs")
             for g, mode in (x.get("guards") or {}).items():
                 path = ("types", tn, "transitions", xn, "guards", g)
@@ -3380,6 +3382,12 @@ def notices(doc):
                 if not takes and (conds.get(g) or {}).get("remedy") == "self_serviceable":
                     out.append((path, "self_serviceable", f"{g}'s remedy is self_serviceable, 'supply it', "
                                 f"and {xn} takes no input a caller could supply"))
+            # a correction's reason is kept with its event, which an erasure of the object does not reach unless the
+            # reason is personal: free text there keeps what a clerk typed (production review F7)
+            reason = (x.get("inputs") or {}).get("reason") or {}
+            if erasable and x.get("corrects") and reason.get("type") == "string" and not reason.get("personal"):
+                out.append((("types", tn, "transitions", xn, "inputs", "reason"), "reason_kept",
+                            f"{tn}.{xn}'s reason is free text, which its event keeps through an erasure of the {tn}: mark it personal, which keeps it off the record, or make it an enumeration, as an override's is"))
     return out
 
 
@@ -5074,6 +5082,25 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
             if x[3] == "self_serviceable"]
     ok &= len(bare) == 1
     print(f"  planted a self_serviceable guard on a transition with no input: {'noticed' if len(bare) == 1 else 'MISSED'}")
+    # a correction's free-text reason on a type an erasure reaches is noticed; marked personal, or on a type no erasure
+    # reaches, it is not (production review F7)
+    corrected = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A person on record.\n    tracking: record\n"
+                 "    attributes:\n      email: { type: string, personal: true, optional: true }\n"
+                 "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
+                 "    transitions:\n      t: { kind: initial, to: S, required_inputs: [email] }\n"
+                 "      fix: { kind: internal, from: S, corrects: [email], required_inputs: [email], inputs: { reason: { type: string } } }\n"
+                 "      e: { kind: external, from: S, to: E }\n"
+                 "      forget: { kind: erasure, inputs: { reason: { type: string } } }\n")
+    marked = corrected.replace("required_inputs: [email], inputs: { reason: { type: string } } }",
+                               "required_inputs: [email], inputs: { reason: { type: string, personal: true } } }")
+    unerased = (corrected.replace("      forget: { kind: erasure, inputs: { reason: { type: string } } }\n", "")
+                .replace("email: { type: string, personal: true, optional: true }", "email: { type: string, optional: true }"))
+    kept = [[x for x in check([(f"{name}.yaml", text)])[1] if x[3] == "reason_kept"]
+            for name, text in (("kept", corrected), ("marked", marked), ("unerased", unerased))]
+    hit = [len(k) for k in kept] == [1, 0, 0]
+    ok &= hit
+    print(f"  planted a correction's free-text reason on a type an erasure reaches: "
+          f"{'noticed, and neither marked personal nor without an erasure' if hit else 'MISSED ' + str(kept)}")
     end = "    states:\n      S: { category: live, description: Open. }\n      E: { category: live, final: true, description: Done. }\n"
     ring = [x for x in check([("ring.yaml", "module: m\ncategories: [live]\ntypes:\n"
                                             "  A:\n    description: One end.\n    tracking: record\n"

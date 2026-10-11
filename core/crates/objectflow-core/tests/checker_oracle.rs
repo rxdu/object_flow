@@ -29,6 +29,8 @@ const COVERED: &[&str] = &[
     "audit",
     "warn",
     "self_serviceable",
+    // a correction's free-text reason an erasure leaves (production review F7)
+    "reason_kept",
     "unknown",
     "before",
     // an invariant that can only refuse others' changes (ADR-0176)
