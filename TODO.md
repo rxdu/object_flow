@@ -218,7 +218,22 @@ The author's fifteen decisions of 2026-10-11 (ADR-0182, "go with your recommenda
 - [x] A query's filter on any member, promised; `DESIGN.md` §5.2 and §13 say so.
 - [x] The built-in attributes holding JSON answered as JSON, on both backends.
 - [x] Draft 2 named format 1; `flow-format.md` §9's questions 2 and 3 left open; what a major version is maintained for; no engine timers before 1.0.0.
-- [ ] **Cut release 1.0.0**: a release entry upgrading from 0.2.0, stores the 0.2.0 binary made as its fixtures, and the workspace's version.
+- [ ] **Cut release 1.0.0**: a release entry upgrading from 0.2.0, stores the 0.2.0 binary made as its fixtures, and the workspace's version. **Held** by the production review of 2026-10-11, NO-GO, until "Production readiness" below is done.
+
+## Production readiness
+
+The review before 1.0.0, 2026-10-11 ([`production-review.md`](docs/design/production-review.md)): **NO-GO**; 1.0.0 is not cut. Blockers first:
+
+- [ ] **F1** a depth bound on every expression a request or a module gives: a deep or long filter aborts the process (`expr.rs` parse, the evaluator and the tree's drop recurse).
+- [ ] **F4** a product or quotient written to a decimal rounds half to even to the target's scale (`declaration-syntax.md` §8.3), on both backends: the core stores unscaled units (`store.rs` `to_sql`), the runner keeps every place.
+- [ ] **PERF-SCAN** a one-to-many end read by its index (`eval.rs:801`, `opposite_end`), and a size test: request, read, publish and import times on a store of 36.7k objects.
+- [ ] **PUBLISH-FREEZE** a publish's dry run and an import measured again after PERF-SCAN; neither holds every write for minutes, and the import is not quadratic (`import.rs:768-799`).
+- [ ] **F3** publishing and retiring the operator refused to an agent; **F2** the samples' actor types `taken_by: [human]`; **F6** `dry_run` and `propose` refused unless a boolean; **MAINTAIN** `maintain` the operator's only.
+- [ ] **RESTORE-WAL** the restore guide clears `-wal` and `-shm`, or restores into a clean directory; **STORE-CREATE** a store created only when asked; **SIGTERM** a graceful shutdown; **CLOCK-PIN** the clock's lead over the wall clock in `/health`, and a warning.
+- [ ] **OBSERVE** a request log with time, operation, status and duration, and metrics; `/health` reads the store.
+- [ ] **RELEASE** CI in the repository, a CHANGELOG, a security policy, tags and checksums, advisory scanning.
+- [ ] **F7** an erasure's unmarked `reason` noticed by the checker, `context` said never to hold personal data; **F8** the agent's reads of personal attributes said in the guides; the minor items of `production-review.md` §3.
+- [ ] A second production review on the same store, before 1.0.0 is cut.
 
 ## Flow Studio
 
