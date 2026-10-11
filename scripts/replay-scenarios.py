@@ -283,6 +283,34 @@ class Driver:
             out["principal"] = self.ids.get(principal, principal)
         return out
 
+    # pages of three, so every read the scenarios compare also follows cursors (ADR-0179)
+    PAGE = 3
+
+    def pages(self, path, body):
+        """A paged read whole: `query` and `available` by their cursors, `pull` by its settled cursor, each page held
+        to the limit asked."""
+        out, cursor = None, None
+        while True:
+            asked = dict(body, limit=self.PAGE, **({"cursor": cursor} if cursor is not None else {}))
+            page = self.core.call(path, asked)
+            if page.get("refused"):
+                return page
+            got = page["events"] if path == "/v1/pull" else page["items"]
+            if len(got) > self.PAGE:
+                raise Differs(f"{path} answered {len(got)} on a page of {self.PAGE}")
+            if out is None:
+                out = page
+            else:
+                (out["events"] if path == "/v1/pull" else out["items"]).extend(got)
+            if path == "/v1/pull":
+                if len(got) < self.PAGE:
+                    return out
+                cursor = page["settled"]
+            elif page.get("cursor") is None:
+                return out
+            else:
+                cursor = page["cursor"]
+
     def oid(self, alias):
         """The core's object an alias names; one no step the replay took made is a gap's consequence."""
         if alias not in self.ids:
@@ -693,7 +721,7 @@ class Driver:
         m = re.fullmatch(r"pull\(([\w-]+)\)", spec_)
         if m:
             # the events its filter selects after its acknowledged cursor (DESIGN.md §7)
-            page = self.core.call("/v1/pull", {"actor": {"id": OPERATOR}, "subscription": self.oid(m.group(1))})
+            page = self.pages("/v1/pull", {"actor": {"id": OPERATOR}, "subscription": self.oid(m.group(1))})
             if page.get("refused"):
                 raise Differs(f"the pull is refused as {page['refused']}")
             return [(self.show(e["object_id"]), self.show(e["transition"]), self.show(e["occurred_at"]))
@@ -712,8 +740,8 @@ class Driver:
             if m.group(1):
                 page = self.core.call("/v1/exceptions", {"actor": {"id": OPERATOR}, "type": m.group(1)})
             else:
-                page = self.core.call("/v1/available", {"actor": {"id": OPERATOR}, "type": m.group(2),
-                                                        "transition": m.group(3)})
+                page = self.pages("/v1/available", {"actor": {"id": OPERATOR}, "type": m.group(2),
+                                                    "transition": m.group(3)})
             if page.get("refused"):
                 raise NotRun(f"{spec_}: {page['refused']}")
             if m.group(1):
@@ -796,8 +824,8 @@ class Driver:
                     ["occurred_at", "min_health", "samples"]
                 by = "recorded_at" if what == "results" else "occurred_at"
             asked = fields + ["corrects"] + ([by] if by and by not in fields else [])
-            page = self.core.call("/v1/query", {"actor": {"id": OPERATOR}, "type": kind,
-                                                "filter": f'subject.id == "{subject}"', "fields": asked})
+            page = self.pages("/v1/query", {"actor": {"id": OPERATOR}, "type": kind,
+                                            "filter": f'subject.id == "{subject}"', "fields": asked})
             if page.get("refused"):
                 raise Differs(f"the query of its {kind} is refused as {page['refused']}")
             # the observations nothing has corrected, which every read of a kind sees (declaration-syntax.md §6.8)
@@ -833,7 +861,7 @@ class Driver:
             body["filter"] = self.labelled(m.group(2))
         if m.group(3):
             body["order"] = [k.strip() for k in m.group(3).split(",")]
-        page = self.core.call("/v1/query", body)
+        page = self.pages("/v1/query", body)
         if page.get("refused"):
             raise Differs(f"the query is refused as {page['refused']}")
         rows = [tuple([self.show(i["id"])] + [self.show(i["fields"].get(f)) for f in fields]) for i in page["items"]]

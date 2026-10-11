@@ -75,7 +75,7 @@ class Refused(Exception):
     refusal (library-api.md §4), which the Flow Studio's server reports (ADR-0150)."""
 
     def __init__(self, verdict, clause=None, remedy=None, detail="", object_id=None, object_type=None, step=None,
-                 inner=None, unknown=False, inputs=None, parents=None, reasons=None):
+                 inner=None, unknown=False, inputs=None, parents=None, reasons=None, objects=None, failures=None):
         super().__init__(f"{verdict} {clause or ''} {remedy or ''} {detail}".strip())
         self.verdict, self.clause, self.remedy, self.detail = verdict, clause, remedy, detail
         self.object_id, self.object_type, self.step, self.inner = object_id, object_type, step, inner
@@ -83,6 +83,9 @@ class Refused(Exception):
         # the inputs an `invalid_input` names, and the parents a `not_requestable` names, where the runner knows them
         self.inputs, self.parents = inputs, parents
         self.reasons = reasons                  # why each of `inputs` is at fault (ADR-0173 decision 9)
+        # the objects the remedy points at, in ascending id order, and an invariant violation's every failure as
+        # (object, type, invariant, remedy) (DESIGN.md §5.5, library-api.md §4)
+        self.objects, self.failures = list(objects or ()), failures
 
 
 def seconds(duration):
@@ -668,6 +671,24 @@ class Evaluator:
         self.committed = committed              # the store as the request found it, which a metric guard reads (ADR-0084)
         self.unanswered = False                 # an evaluator it asked did not answer (ADR-0138)
         self.t = store.kinds.get(tn) or {}
+        self.naming = None                      # where the objects a refusing clause names are noted (DESIGN.md §5.5)
+
+    def noting(self, exclude):
+        """Noting the objects the clause names, but the object it is evaluated on: every object a reference evaluates
+        to, both sides of `and`, `or` and `implies` and the derived attributes it reads included; of a collection,
+        the elements the outermost aggregate's `where` selects, a nested aggregate and a name it binds adding none."""
+        self.naming = {"objects": set(), "depth": 0, "exclude": exclude}
+        return self
+
+    def note(self, v):
+        n = self.naming
+        if n is not None and n["depth"] == 0 and isinstance(v, str) and v in self.s.objects and v != n["exclude"]:
+            n["objects"].add(v)
+        return v
+
+    def named(self):
+        """The objects noted, in ascending id order, which is creation order (DESIGN.md §5.1)."""
+        return sorted((self.naming or {}).get("objects", ()), key=lambda i: self.s.objects[i].id_order)
 
     # ── names ────────────────────────────────────────────────────────────────
     def name(self, n, env):
@@ -762,8 +783,9 @@ class Evaluator:
                 return self.opposite_end(o, spec)
             return ABSENT
         if m in (t.get("derived_attributes") or {}):
-            return Evaluator(self.s, o.type, o.id, stubs=self.stubs).value(
-                flowexpr.parse(t["derived_attributes"][m]["expression"]), {})
+            derived = Evaluator(self.s, o.type, o.id, stubs=self.stubs)
+            derived.naming = self.naming        # what it reads, the clause reads (DESIGN.md §5.5)
+            return derived.value(flowexpr.parse(t["derived_attributes"][m]["expression"]), {})
         if m in (t.get("observations") or {}):
             kind = t["observations"][m]["kind"]
             corrected = {x.attrs.get("corrects") for x in self.s.objects.values() if x.type == kind}
@@ -873,9 +895,10 @@ class Evaluator:
         if k == "money":
             return Fraction(e[2])
         if k == "name":
-            return self.name(e[1], env)
+            v = self.name(e[1], env)
+            return v if e[1] in env else self.note(v)       # a name an aggregate binds is no reference
         if k == "path":
-            return self.member(self.value(e[1], env), e[2])
+            return self.note(self.member(self.value(e[1], env), e[2]))
         if k == "set":
             return tuple(self.value(i, env) for i in e[1])
         if k == "not":
@@ -922,6 +945,13 @@ class Evaluator:
                 a = ABSENT if a is ABSENT else not a
             short = op == "and" and a is False or op != "and" and a is True
             if short:
+                if self.naming is not None:
+                    # the side that does not decide names its objects too, evaluated in full, as the core evaluates
+                    # it for the record
+                    try:
+                        self.value(e[3], env)
+                    except (NotRunnable, Refused):
+                        pass
                 return a if op != "implies" else True
             b = truth(self.value(e[3], env))
             if op == "and":
@@ -982,6 +1012,20 @@ class Evaluator:
             items = tuple(o.id for o in sorted(self.s.objects.values(), key=lambda o: o.id_order) if self.s.is_a(o.type, items[1]))
         if not isinstance(items, tuple):
             raise NotRunnable("an aggregate over a value that is not a collection")
+        if self.naming is None:
+            return self.aggregated(kind, distinct, var, items, where, body, env)
+        # within it, what an element's where and body read names nothing; the outermost names what its where selects
+        self.naming["depth"] += 1
+        try:
+            chosen = []
+            v = self.aggregated(kind, distinct, var, items, where, body, env, chosen)
+        finally:
+            self.naming["depth"] -= 1
+        for it in chosen:
+            self.note(it)
+        return v
+
+    def aggregated(self, kind, distinct, var, items, where, body, env, chosen=None):
         selected, undecided = [], False
         for it in items:
             inner = dict(env, **{var: it})
@@ -992,6 +1036,8 @@ class Evaluator:
                 undecided = True
             elif f:
                 selected.append(inner)
+                if chosen is not None:
+                    chosen.append(it)
         if kind in ("any", "none", "all"):
             if kind == "all":
                 results = [truth(self.value(body, i)) if body is not None else True for i in selected]
@@ -1740,6 +1786,7 @@ class Ctx:
         self.written = []           # object ids, in the order first written
         self.taken = []             # "Type.transition" of every transition taken, the requested one first
         self.flags = []             # the audit and warn guards that failed, at any depth
+        self.flag_told = {}         # a flag's clause -> (whether it was unknown, the objects it names)
         self.observed = []          # their attempt rows, each linked to the event of the transition whose clause failed
         self.asserted, self.admits = None, set()    # the object an assertion set, and what it admits
         self.erased = {}            # object id -> the personal attributes this request erased on it
@@ -1888,12 +1935,14 @@ class Runner:
             # a violation an admission lets stand, which is discharged once the invariant holds again (ADR-0054)
             requested = oid if oid is not None else root
             written = {e["object"] for e in work.events[len(store.events):]}
+            # every object an invariant fails on, in ascending id order, every invariant that fails on it, and the
+            # objects in conflict with them (DESIGN.md §5.5, library-api.md §4)
+            failures, conflicting = [], set()
             for obj in sorted(work.objects.values(), key=lambda o: o.id_order):
                 if (self.kinds.get(obj.type) or {}).get("_observation_on") and obj.id not in written:
                     continue                    # a kind's invariants hold of a recording as written, and bind none older (D539)
                 failing = self.failing_invariants(work, obj)
                 obj.admissions &= set(failing)
-                refused = []
                 for n in failing:
                     if n in obj.admissions:
                         continue
@@ -1902,18 +1951,22 @@ class Runner:
                     elif self.erasure_broke(ctx, obj, n):
                         obj.admissions.add(n)           # an erasure admits what it leaves violated, on that object (§4.13)
                     else:
-                        refused.append(n if obj.type == tn else f"{obj.type}.{n}")
-                if refused:
-                    first = refused[0].rpartition(".")[2]
-                    raise Refused("invariant_violated", refused[0], self.invariant_remedy(work, x, obj, first, requested),
-                                  detail=", ".join(refused[1:]) and "and " + ", ".join(refused[1:]), object_id=obj.id,
-                                  object_type=obj.type)
+                        failures.append((obj, n, self.invariant_remedy(work, x, obj, n, requested)))
+                        conflicting |= self.invariant_objects(work, obj, n)
+            if failures:
+                obj, first, remedy = failures[0]
+                rest = [n if o.type == tn else f"{o.type}.{n}" for o, n, _ in failures[1:]]
+                raise Refused("invariant_violated", first if obj.type == tn else f"{obj.type}.{first}", remedy,
+                              detail=", ".join(rest) and "and " + ", ".join(rest), object_id=obj.id,
+                              object_type=obj.type,
+                              objects=sorted(conflicting, key=lambda i: work.objects[i].id_order),
+                              failures=[(o.id, o.type, n, r) for o, n, r in failures])
         except Refused:
             store.sequences = work.sequences    # a number minted by a refused request stays used: the gap
             raise
         work.attempts.extend(ctx.observed)
         store.__dict__.update(work.__dict__)
-        return ("applied", root, ctx.flags, ctx.taken[1:], ctx.created, ctx.at)
+        return ("applied", root, ctx.flags, ctx.taken[1:], ctx.created, ctx.at, ctx.flag_told)
 
     def availability(self, store, actor, oid):
         """What each requestable transition of an object offers an actor now, and for a subject the recording of each
@@ -2005,16 +2058,17 @@ class Runner:
                 if "inputs" in names_read(expr):
                     needs = True                # decided when the inputs are given
                     continue
-                asking = Evaluator(store, o.type, o.id, {}, who, self.unasked, committed=store)
+                asking = Evaluator(store, o.type, o.id, {}, who, self.unasked, committed=store).noting(o.id)
                 ok = truth(asking.value(expr, {}))
                 if asking.unanswered:
                     unevaluated.append(g)
                     continue
                 if ok is not True:
                     if mode == "deny":
-                        raise Refused("unsatisfied", g, conditions[g].get("remedy"))
+                        raise Refused("unsatisfied", g, conditions[g].get("remedy"), unknown=ok is ABSENT,
+                                      objects=asking.named())
                     if mode == "warn":
-                        flags.append((g, conditions[g].get("remedy")))
+                        flags.append((g, conditions[g].get("remedy"), ok is ABSENT, asking.named()))
         except Refused as r:
             return (xn, None, "unavailable", r, schema, unevaluated, [])
         return (xn, None, "available_with_input" if needs else "available", None, schema, unevaluated, flags)
@@ -2028,9 +2082,9 @@ class Runner:
             if who is None:
                 raise Refused("unsatisfied", "actor_known", GENERATED_REMEDY["actor_known"])
             if store.final(o):
-                raise Refused("unsatisfied", "subject_open", GENERATED_REMEDY["subject_open"])
+                raise Refused("unsatisfied", "subject_open", GENERATED_REMEDY["subject_open"], objects=[o.id])
             if (self.kinds.get(o.type) or {}).get("mirror"):
-                raise Refused("unsatisfied", "subject_owned", GENERATED_REMEDY["subject_owned"])
+                raise Refused("unsatisfied", "subject_owned", GENERATED_REMEDY["subject_owned"], objects=[o.id])
         except Refused as r:
             return ("record", kn, "unavailable", r, schema, [], [])
         needs = any(i != "subject" for i in x.get("required_inputs", []))
@@ -2152,7 +2206,7 @@ class Runner:
             if self.owner_end(attrs.get(k)):
                 if oid is not None and work.objects[oid].attrs.get(k) != inputs[k]:
                     if work.final(work.objects[inputs[k]]):
-                        raise Refused("unsatisfied", "whole_open", GENERATED_REMEDY["whole_open"])
+                        raise Refused("unsatisfied", "whole_open", GENERATED_REMEDY["whole_open"], objects=[inputs[k]])
                     wholes.append(work.objects[oid].attrs.get(k))
                 wholes.append(inputs[k])
         personal = {a for a, sp in attrs.items() if (sp or {}).get("personal")}
@@ -2169,7 +2223,8 @@ class Runner:
             m = re.fullmatch(r"inputs\.([a-z][a-z0-9_]*)", " ".join(str(st.get("supersede", "")).split()))
             successor = inputs.get(m.group(1)) if m else None
             if successor is not None and (successor == oid or work.superseded(work.objects[successor])):
-                raise Refused("unsatisfied", "successor_not_superseded", GENERATED_REMEDY["successor_not_superseded"])
+                raise Refused("unsatisfied", "successor_not_superseded", GENERATED_REMEDY["successor_not_superseded"],
+                              objects=[successor])
         if xn == "record" and "subject" in inputs:
             subject = work.objects[inputs["subject"]]
             if "corrects" in inputs:
@@ -2177,15 +2232,17 @@ class Runner:
                 if corrected.attrs.get("subject") != subject.id:
                     # a correction's subject is the corrected observation's (ADR-0146)
                     raise Refused("invalid_input", remedy="self_serviceable", inputs=["corrects"], reasons=["not_allowed"])
-                if any(other.attrs.get("corrects") == corrected.id for other in work.objects.values()):
-                    raise Refused("unsatisfied", "corrects_current", GENERATED_REMEDY["corrects_current"])
+                recorded = [other.id for other in sorted(work.objects.values(), key=lambda o: o.id_order)
+                            if other.attrs.get("corrects") == corrected.id]
+                if recorded:
+                    raise Refused("unsatisfied", "corrects_current", GENERATED_REMEDY["corrects_current"], objects=recorded[:1])
             elif work.final((ctx.before.objects.get(subject.id) if ctx.before else None) or subject) \
                     and (not ctx.before or subject.id in ctx.before.objects):
                 # a correction may be recorded after the subject is finished (DESIGN.md §5.11); otherwise the subject is read
                 # as the request found it, so an outcome may record on its own object as it enters a final state (ADR-0146)
-                raise Refused("unsatisfied", "subject_open", GENERATED_REMEDY["subject_open"])
+                raise Refused("unsatisfied", "subject_open", GENERATED_REMEDY["subject_open"], objects=[subject.id])
             if (self.kinds.get(subject.type) or {}).get("mirror"):
-                raise Refused("unsatisfied", "subject_owned", GENERATED_REMEDY["subject_owned"])
+                raise Refused("unsatisfied", "subject_owned", GENERATED_REMEDY["subject_owned"], objects=[subject.id])
         for k in x.get("required_inputs", []):
             spec = attrs.get(k) or {}
             if k not in inputs and (spec.get("optional") or "default" in spec):
@@ -2199,14 +2256,15 @@ class Runner:
         conditions = t.get("conditions") or {}
         failed = []
         for g, mode in (x.get("guards") or {}).items():
-            asking = Evaluator(work, tn, oid, inputs, ctx.who, ctx.stubs, committed=ctx.before)
+            asking = Evaluator(work, tn, oid, inputs, ctx.who, ctx.stubs, committed=ctx.before).noting(oid)
             ok = truth(asking.value(flowexpr.parse(conditions[g]["expression"]), {}))
             if ok is not True:
                 remedy = "temporal" if asking.unanswered else conditions[g].get("remedy")
                 if mode == "deny":
                     # an evaluator that did not answer leaves the guard unknown, and the caller may try again (ADR-0138)
-                    raise Refused("unsatisfied", g, remedy, unknown=ok is ABSENT)
+                    raise Refused("unsatisfied", g, remedy, unknown=ok is ABSENT, objects=asking.named())
                 ctx.flags.append((f"{tn}.{g}", mode))
+                ctx.flag_told[f"{tn}.{g}"] = (ok is ABSENT, asking.named())
                 failed.append((g, mode, remedy, ok is ABSENT))
         # 5. the outcome: its event's position allocated as it begins applying, so this_event is known to it (§7)
         work.position += 1
@@ -2829,6 +2887,52 @@ class Runner:
         inv = (t.get("invariants") or {}).get(n)
         return names_read(flowexpr.parse(inv["expression"])) if inv else set()
 
+    def invariant_objects(self, store, o, n):
+        """The objects in conflict where an invariant fails on an object, chosen as an unsatisfied clause's are, the
+        object excluded: what a declared invariant's references evaluate to, and the other holders of a value a
+        uniqueness requires be one's own (DESIGN.md §5.5, ADR-0122)."""
+        t = self.kinds.get(o.type) or {}
+        invariants = t.get("invariants") or {}
+        if n in invariants:
+            e = Evaluator(store, o.type, o.id).noting(o.id)
+            e.value(flowexpr.parse(invariants[n]["expression"]), {})
+            return set(e.naming["objects"])
+        if n.endswith("_unique"):
+            return {x.id for x in self.unique_holders(store, o, n[:-len("_unique")])}
+        return set()
+
+    def unique_holders(self, store, o, a):
+        """The other objects holding the value, or values, a uniqueness of the attribute requires be the object's own;
+        none where it does not apply, or holds."""
+        t = self.kinds.get(o.type) or {}
+        spec = (t.get("attributes") or {}).get(a) or {}
+        unique = spec.get("unique")
+        if unique is None and "reference" in spec and "opposite" in spec and not spec["reference"].endswith("[]"):
+            back = ((self.kinds.get(spec["reference"]) or {}).get("attributes") or {}).get(spec["opposite"]) or {}
+            unique = True if back.get("reference") and not back["reference"].endswith("[]") else None
+        if unique is None:
+            return []
+        # together with: the attribute and those listed; in scope: and the identifier's scope; where: among
+        # the objects the condition holds for (flow-format.md §4.12). An absent part never collides.
+        with_ = [a] + (unique.get("with", []) if isinstance(unique, dict) else [])
+        if unique == "in_scope":
+            with_.append(spec["identifier"]["scope"])
+        where = flowexpr.parse(unique["where"]) if isinstance(unique, dict) and "where" in unique else None
+
+        def key(obj):
+            values = tuple(obj.attrs.get(w, ABSENT) for w in with_)
+            if ABSENT in values:
+                return None
+            if where is not None and truth(Evaluator(store, obj.type, obj.id, filter_mode=True).value(where, {})) is not True:
+                return None
+            return values
+        mine = key(o)
+        scope = self.unique_scope(o.type, a)
+        if mine is None:
+            return []
+        return [x for x in sorted(store.objects.values(), key=lambda x: x.id_order)
+                if x.id != o.id and store.is_a(x.type, scope) and key(x) == mine]
+
     def failing_invariants(self, store, o):
         """An object's failing invariants in the order its type declares them: its own declared invariants as written,
         then inherited ones, then the generated, each state's requirement and then each attribute's uniqueness by
@@ -2843,32 +2947,8 @@ class Runner:
         st = (t.get("states") or {}).get(o.state) or {}
         if any(a not in o.attrs for a in st.get("required_attributes") or []):
             out.append(f"{o.state.lower()}_invariant")
-        for a, spec in (t.get("attributes") or {}).items():
-            spec = spec or {}
-            unique = spec.get("unique")
-            if unique is None and "reference" in spec and "opposite" in spec and not spec["reference"].endswith("[]"):
-                back = ((self.kinds.get(spec["reference"]) or {}).get("attributes") or {}).get(spec["opposite"]) or {}
-                unique = True if back.get("reference") and not back["reference"].endswith("[]") else None
-            if unique is None:
-                continue
-            # together with: the attribute and those listed; in scope: and the identifier's scope; where: among
-            # the objects the condition holds for (flow-format.md §4.12). An absent part never collides.
-            with_ = [a] + (unique.get("with", []) if isinstance(unique, dict) else [])
-            if unique == "in_scope":
-                with_.append(spec["identifier"]["scope"])
-            where = flowexpr.parse(unique["where"]) if isinstance(unique, dict) and "where" in unique else None
-
-            def key(obj):
-                values = tuple(obj.attrs.get(w, ABSENT) for w in with_)
-                if ABSENT in values:
-                    return None
-                if where is not None and truth(Evaluator(store, obj.type, obj.id, filter_mode=True).value(where, {})) is not True:
-                    return None
-                return values
-            mine = key(o)
-            scope = self.unique_scope(o.type, a)
-            if mine is not None and any(x.id != o.id and store.is_a(x.type, scope) and key(x) == mine
-                                        for x in store.objects.values()):
+        for a in (t.get("attributes") or {}):
+            if self.unique_holders(store, o, a):
                 out.append(f"{a}_unique")
         return out
 
@@ -4514,7 +4594,8 @@ def metrics_self_test(operator):
     jw = r.attempt(s, "Job", "open", None, OPERATOR, {}, {}, {})[1]
     r.attempt(s, "Job", "start", jw, OPERATOR, {}, {}, {})
     check("a warning guard that would fail is a flag on an available offer, never a refusal",
-          offered(jw)[("finish", None)], ("available", None, [], [("good", "dependent")]))
+          # its clause unknown, reading a value nobody has yet, and naming no object (ADR-0179)
+          offered(jw)[("finish", None)], ("available", None, [], [("good", "dependent", True, [])]))
     print(f"  metrics: a rate windowed and bound, a combined one, rounding half to even, medians and percentiles, time held "
           f"by who held the job, counts, set dimensions, and the standard ones, as guards read them: {'yes' if ok else 'NO'}")
     return ok

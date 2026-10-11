@@ -7,7 +7,7 @@
 //! is answered as [`NotRun`], naming it, and never guessed.
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::expr::{BinOp, Expr, Number};
@@ -123,6 +123,51 @@ pub struct Who {
     pub principal: Option<String>,
 }
 
+/// The objects a refusing clause names (`DESIGN.md` §5.5, `library-api.md`
+/// §4): every object a reference in it evaluates to, evaluated in full,
+/// both sides of `and`, `or` and `implies` and the derived attributes it
+/// reads included, but the object it is evaluated on; of a collection, the
+/// elements the outermost aggregate's `where` selects, a nested aggregate
+/// and a name an aggregate binds adding none.
+#[derive(Debug, Default)]
+pub struct Named {
+    pub objects: BTreeSet<String>,
+    /// How deep inside an aggregate the evaluation is.
+    depth: usize,
+    /// The object the clause is evaluated on.
+    exclude: Option<String>,
+}
+
+impl Named {
+    pub fn on(object: Option<&str>) -> std::cell::RefCell<Named> {
+        std::cell::RefCell::new(Named {
+            exclude: object.map(str::to_string),
+            ..Named::default()
+        })
+    }
+}
+
+/// Inside an aggregate, for as long as it is held.
+struct Deeper<'a>(Option<&'a std::cell::RefCell<Named>>);
+
+impl<'a> Deeper<'a> {
+    fn new(named: Option<&'a std::cell::RefCell<Named>>) -> Deeper<'a> {
+        if let Some(n) = named {
+            n.borrow_mut().depth += 1;
+        }
+        Deeper(named)
+    }
+}
+
+impl Drop for Deeper<'_> {
+    fn drop(&mut self) {
+        if let Some(n) = self.0 {
+            let mut n = n.borrow_mut();
+            n.depth = n.depth.saturating_sub(1);
+        }
+    }
+}
+
 /// An evaluation of expressions for one object, or none, and one request.
 #[derive(Debug)]
 pub struct Evaluator<'a> {
@@ -164,6 +209,9 @@ pub struct Evaluator<'a> {
     /// evaluator the sandbox gives no answer for is set aside rather than
     /// stopping a request its verdict does not decide.
     aside: std::cell::Cell<usize>,
+    /// Where the objects a clause names are noted, for its refusal; none
+    /// where nothing notes them.
+    naming: Option<&'a std::cell::RefCell<Named>>,
 }
 
 /// What the rules evaluated for an event read and consulted (`DESIGN.md`
@@ -270,11 +318,29 @@ impl<'a> Evaluator<'a> {
             reading: None,
             quiet: std::cell::Cell::new(0),
             aside: std::cell::Cell::new(0),
+            naming: None,
         }
     }
 
     /// Recording what a rule's evaluation reads and consults, under the
     /// rule's name (ADR-0088, ADR-0158).
+    /// Noting the objects the clause names, for its refusal.
+    pub fn with_naming(mut self, named: &'a std::cell::RefCell<Named>) -> Evaluator<'a> {
+        self.naming = Some(named);
+        self
+    }
+
+    /// An object a reference evaluated to, noted where it is named: outside
+    /// every aggregate, and not the object the clause is evaluated on.
+    fn name_object(&self, t: &Term) {
+        if let (Some(n), Term::Value(Value::Object(id))) = (self.naming, t) {
+            let mut n = n.borrow_mut();
+            if n.depth == 0 && n.exclude.as_deref() != Some(id.as_str()) {
+                n.objects.insert(id.clone());
+            }
+        }
+    }
+
     pub fn with_reading(
         mut self,
         reading: &'a std::cell::RefCell<Reading>,
@@ -305,7 +371,7 @@ impl<'a> Evaluator<'a> {
     /// it read is read. Its verdict, and any evaluator it leaves unanswered,
     /// are set aside, so the rule decides as it would stopping early.
     fn aside(&self, e: &Expr, env: &BTreeMap<String, Value>) -> Result<(), NotRun> {
-        if self.reading.is_some() {
+        if self.reading.is_some() || self.naming.is_some() {
             let asked = self.unanswered.get();
             self.aside.set(self.aside.get() + 1);
             let read = self.value(e, env);
@@ -435,10 +501,19 @@ impl<'a> Evaluator<'a> {
                     None => return not_run(format!("an amount in {currency}")),
                 }
             }
-            Expr::Name(n) => self.name(n, env)?,
+            Expr::Name(n) => {
+                let t = self.name(n, env)?;
+                // a name an aggregate binds is no reference
+                if !env.contains_key(n) {
+                    self.name_object(&t);
+                }
+                t
+            }
             Expr::Path(base, member) => {
                 let base = self.term(base, env)?;
-                self.member(&base, member)?
+                let t = self.member(&base, member)?;
+                self.name_object(&t);
+                t
             }
             Expr::Set(items) => {
                 let mut out = Vec::new();
@@ -692,6 +767,8 @@ impl<'a> Evaluator<'a> {
                     derived.answers = self.answers;
                     derived.metrics = self.metrics;
                     derived.reading = self.reading;
+                    // what it reads, the clause reads (DESIGN.md §5.5)
+                    derived.naming = self.naming;
                     crate::metric::typed_derived(self.world, t, e, derived.eval(e)?)
                 } else {
                     return not_run(format!("the member `{}.{m}`", o.type_));
@@ -951,6 +1028,7 @@ impl<'a> Evaluator<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn aggregate(
         &self,
         kind: &str,
@@ -960,6 +1038,43 @@ impl<'a> Evaluator<'a> {
         filter: Option<&Expr>,
         body: Option<&Expr>,
         env: &BTreeMap<String, Value>,
+    ) -> Result<Value, NotRun> {
+        let mut chosen = Vec::new();
+        let v = self.aggregate_choosing(
+            kind,
+            distinct,
+            var,
+            collection,
+            filter,
+            body,
+            env,
+            &mut chosen,
+        )?;
+        // the elements the outermost aggregate's where selects are named
+        if let Some(n) = self.naming {
+            let mut n = n.borrow_mut();
+            if n.depth == 0 {
+                for id in chosen {
+                    if n.exclude.as_deref() != Some(id.as_str()) {
+                        n.objects.insert(id);
+                    }
+                }
+            }
+        }
+        Ok(v)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn aggregate_choosing(
+        &self,
+        kind: &str,
+        distinct: bool,
+        var: Option<&str>,
+        collection: Option<&Expr>,
+        filter: Option<&Expr>,
+        body: Option<&Expr>,
+        env: &BTreeMap<String, Value>,
+        chosen: &mut Vec<String>,
     ) -> Result<Value, NotRun> {
         let (Some(var), Some(collection)) = (var, collection) else {
             return not_run(format!("a metric's own `{kind}`"));
@@ -998,6 +1113,8 @@ impl<'a> Evaluator<'a> {
             }
             other => return not_run(format!("an aggregate over {other:?}")),
         };
+        // within it, what an element's where and body read names nothing
+        let _deeper = Deeper::new(self.naming);
         let mut selected = Vec::new();
         let mut undecided = false;
         for item in items {
@@ -1019,7 +1136,12 @@ impl<'a> Evaluator<'a> {
             match keep {
                 None if self.filter_mode => {}
                 None => undecided = true,
-                Some(true) => selected.push(inner),
+                Some(true) => {
+                    if let Some(Value::Object(id)) = inner.get(var) {
+                        chosen.push(id.clone());
+                    }
+                    selected.push(inner)
+                }
                 Some(false) => {}
             }
         }

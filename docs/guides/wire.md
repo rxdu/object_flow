@@ -59,8 +59,8 @@ A request's answer, and each refusal inside an offer. Every refusal carries `rem
 | `kind` | Fields beside `kind` and `remedy` |
 |---|---|
 | `satisfied` | `object_id`, `version`, `events` (positions, the request's own first), `replayed`, `flags` |
-| `unsatisfied` | `clause`, the guard that failed |
-| `invariant_violated` | `failures`: each `object_id`, `type`, `invariant`, `remedy` |
+| `unsatisfied` | `clause`, the guard that failed; `unknown`, whether it read something absent rather than was false; `objects`, what its remedy points at, the objects the clause names in ascending id order; `proposable`, whether filing the request as a proposal would be accepted; `consulted`, the evaluator verdicts and metric values it was decided on (ADR-0179) |
+| `invariant_violated` | `failures`: each `object_id`, `type`, `invariant`, `remedy`, on every object an invariant fails on; `objects`, the objects in conflict, such as the other holder of a unique value |
 | `invalid_input` | `inputs`, the names at fault, and `reasons`, each's why: `unknown_input`, `missing`, `wrong_type`, `malformed`, `wrong_currency`, `no_such_object`, `out_of_range`, `not_allowed` |
 | `unavailable` | `state`, the object's, which the transition is not taken from |
 | `unknown_transition` | `transition` |
@@ -69,14 +69,14 @@ A request's answer, and each refusal inside an offer. Every refusal carries `rem
 | `stale` | `cause`: `expected_version`, with `expected` and `actual`, the version read and the one it is at; or `retries_exhausted`, remedy `temporal`, where the store's write lock was held past the busy timeout and every retry, by another process (ADR-0178) |
 | `not_found` | none |
 | `over_limit` | `loop`, `bound` |
-| `call_refused` | `step`, `object_id`, and `verdict`, the caused transition's own |
+| `call_refused` | `step`, `object_id`, and `verdict`, the caused transition's own, whole, its `proposable` false |
 
 ```json
 {"kind": "invalid_input", "remedy": "self_serviceable", "inputs": ["amount", "expense_date"],
  "reasons": {"amount": "wrong_currency", "expense_date": "malformed"}}
 ```
 
-**`not_computed`.** A field the design names that the core does not yet compute is listed in the answer's `not_computed` rather than given a value that would mislead: today an `unsatisfied` verdict's `unknown`, `objects`, `proposable` and `consulted`, a flag's, and an event's `object_seq`, `source`, `taint_version`, `txn`, `retries` and `flags`. Read a field only where it is not listed.
+**`not_computed`.** A field the design names that the core does not yet compute is listed in the answer's `not_computed` rather than given a value that would mislead: today an offer's `consulted`, since an offer asks no evaluator, and an event's `object_seq`, `source`, `taint_version`, `txn` and `flags`. Read a field only where it is not listed. A flag carries `clause`, `remedy`, `unknown` and `objects`, as an unsatisfied clause does.
 
 ## 4. Operations
 
@@ -94,8 +94,7 @@ POST /v1/request
 {"actor": {"id": "alice@corp"}, "type": "Claim", "transition": "draft",
  "inputs": {"claimant": "employee-1", "title": "Taxis"}, "idempotency_key": "draft-1"}
 
-{"kind": "satisfied", "object_id": "claim-4", "version": 1, "events": [5], "replayed": false, "flags": [],
- "not_computed": ["flags[].unknown", "flags[].objects"]}
+{"kind": "satisfied", "object_id": "claim-4", "version": 1, "events": [5], "replayed": false, "flags": []}
 ```
 
 - `expected_version`, the version the caller read, refuses the request `stale` if the object has moved (ADR-0023).
@@ -111,14 +110,14 @@ POST /v1/request
 | `history` | `id`, `follow` | `{"events": [...], "not_computed": [...]}`, its legacy entries first, or `null`; no `id` is a `400` |
 | `events` | `positions` | `{"events": [...]}`, each position's event or `null` |
 | `availability` | `actor`, `id` | each transition's offer to the actor, or `null` |
-| `query` | `actor`, `type`, `filter`, `order`, `fields`, `cursor` | `{"items": [...], "cursor": null, "refused": null}` |
-| `available` | `actor`, `type`, `transition`, `cursor` | a page of the objects the transition is available to |
+| `query` | `actor`, `type`, `filter`, `order`, `fields`, `cursor`, `limit` | `{"items": [...], "cursor": "<next page>" or null, "refused": null}` |
+| `available` | `actor`, `type`, `transition`, `cursor`, `limit` | a page of the objects the transition is available to |
 | `exceptions` | `actor`, `type`, `cursor` | a page of the objects holding an admitted violation |
 | `declaration` | `type`, `version` | the type as declared, with its enumerations, `version`, `source_ref`, `source_digest` and `person_dimensions` |
 | `tools` | `actor_kind` | `{"tools": [...]}`: each `{name, description, input_schema}` an agent of that kind is handed, sorted by name (`renderers.md` §3) |
 | `metric` | `actor`, `name`, `bind`, `keep`, `over`, `filter`, `cursor` | `{"rows": [{"dimensions": …, "value": …}], "flags": [...], "history_complete": …, "refused": null}` |
 | `lookup` | `actor`, `source`, `value` | the object an external identifier names (`source` an external system, or `legacy` with `"<Type>:<key>"`), or `null` |
-| `export` | `actor`, `source`, `cursor` | `{"lines": [...], "cursor": …}`: JSON lines of `events`, an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, personal values left out |
+| `export` | `actor`, `source`, `cursor`, `limit` | `{"lines": [...], "cursor": …}`: JSON lines of `events`, an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, personal values left out |
 | `diagnostics` | `actor`, `type`, `window` | `{"diagnostics": [...]}`: where the flow and its record disagree |
 
 An **object**:
@@ -162,7 +161,7 @@ An **event**, as `history`, `events` and `pull` answer it:
 
 A **query filter** is an expression over the type's members (`declaration-syntax.md` §8): `amount > USD 100.00`, `state == ClaimLine.LISTED`, `claim.number == "EXP-00001"`. A reference is compared by its id, `claim.id == "claim-4"`: a filter comparing a reference with a string, or computing with one, is refused `malformed_filter`. A query's refusal is `refused`, a code: `unknown_type`, `malformed_filter`, `unknown_order_key`, `unknown_field`. A **metric's filter** reads its rows through the metric's item, `i.state == Claim.SUBMITTED` for `time_in_state`; one naming anything else is refused `malformed_filter`, as are `unknown_metric`, `unknown_dimension`, `filter_on_combined`, `no_window` and `personal` (`library-api.md` §5).
 
-**Pages hold everything today**: `query`, `available` and `metric` answer every row on one page with `cursor: null`, and a cursor sent to `query` or `metric` is a fault. Page in the client until the core pages.
+**Pages** (ADR-0179): `query`, `available`, `pull` and `export` answer at most `limit` items, 1 to 1000, **100 unless asked**, with the `cursor` of the next page, `null` where it is the last; send the cursor back, with the same read, until it is `null`. A cursor continues only the read it came from: another `query` or `available` refuses it `malformed_cursor`. A page goes on after the last object given, in the read's order, so an object created between pages is met once and none twice, unless an object's order key changes between pages. `pull` pages by its settled cursor, `export` by its own; a metric's read and `exceptions` answer one page.
 
 ### Subscriptions
 
@@ -170,7 +169,7 @@ A subscription is an object: `{"actor": …, "type": "Subscription", "transition
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `pull` | `actor`, `subscription`, `cursor` | `{"events": [...], "settled": "<cursor>", "refused": null}` |
+| `pull` | `actor`, `subscription`, `cursor`, `limit` | `{"events": [...], "settled": "<cursor>", "refused": null}` |
 | `acknowledge` | `actor`, `subscription`, `cursor` | `{"refused": null}`: everything up to the settled cursor is handled |
 
 There is no push: a consumer polls `pull` and acknowledges what it has handled.

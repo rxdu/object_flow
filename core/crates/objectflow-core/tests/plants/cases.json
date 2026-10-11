@@ -5231,112 +5231,112 @@
     20,
     "fatal",
     "example",
-    "a_job_opens_for_an_active_engineer: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_job_opens_for_an_active_engineer: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     26,
     "fatal",
     "example",
-    "a_reassignment_is_measured_as_a_handoff: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_reassignment_is_measured_as_a_handoff: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     40,
     "fatal",
     "example",
-    "a_job_is_not_given_to_an_engineer_who_left: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_job_is_not_given_to_an_engineer_who_left: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     52,
     "fatal",
     "example",
-    "a_failed_check_holds_the_job_open: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_failed_check_holds_the_job_open: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     64,
     "fatal",
     "example",
-    "a_repeated_check_lets_the_job_finish: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_repeated_check_lets_the_job_finish: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     82,
     "fatal",
     "example",
-    "a_corrected_result_replaces_the_mistake: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_corrected_result_replaces_the_mistake: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     100,
     "fatal",
     "example",
-    "a_result_is_corrected_once: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_result_is_corrected_once: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     122,
     "fatal",
     "example",
-    "a_late_start_is_dated_when_it_happened: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_late_start_is_dated_when_it_happened: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     130,
     "fatal",
     "example",
-    "a_start_is_not_dated_further_back_than_two_days: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_start_is_not_dated_further_back_than_two_days: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     138,
     "fatal",
     "example",
-    "a_start_is_not_dated_before_the_job_opened: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_start_is_not_dated_before_the_job_opened: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     146,
     "fatal",
     "example",
-    "a_finish_says_no_time_of_its_own: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_finish_says_no_time_of_its_own: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     152,
     "fatal",
     "example",
-    "an_inspection_is_dated_when_it_was_done: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "an_inspection_is_dated_when_it_was_done: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     164,
     "fatal",
     "example",
-    "an_inspection_more_than_a_week_late_is_refused: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "an_inspection_more_than_a_week_late_is_refused: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     176,
     "fatal",
     "example",
-    "a_correction_takes_the_time_of_what_it_corrects: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_correction_takes_the_time_of_what_it_corrects: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     195,
     "fatal",
     "example",
-    "a_job_from_before_version_2_needs_its_completion_photo: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_job_from_before_version_2_needs_its_completion_photo: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.examples.yaml",
     210,
     "fatal",
     "example",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable"
+    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
     "service.yaml",
@@ -6393,7 +6393,7 @@
     40,
     "fatal",
     "example",
-    "a_serial_is_in_stock_once: expected the remedy dependent, and it is refused as invariant_violated serial_unique self_serviceable"
+    "a_serial_is_in_stock_once: expected the remedy dependent, and it is refused as invariant_violated serial_unique self_serviceable and serial_unique"
    ],
    [
     "module.yaml",

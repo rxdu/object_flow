@@ -328,12 +328,16 @@ class Object:
 @dataclass(frozen=True)
 class Page:
     items: Sequence[Any]
-    cursor: str | None
+    cursor: str | None                    # the next page's, none where this is the last; at most
+                                          # `limit` items a page, 1 to 1000, 100 unless asked,
+                                          # after the last object given in the read's order
+                                          # (ADR-0179)
     actor_dependent: bool = False         # available's: rows may be refused for who takes
                                           # the transition, which a sweep does not simulate
                                           # (ADR-0176 decision 2)
     refused: str | None = None            # a query it cannot answer, a value: unknown_type,
-                                          # malformed_filter, unknown_order_key, unknown_field
+                                          # malformed_filter, unknown_order_key, unknown_field,
+                                          # malformed_cursor, a cursor of another read (ADR-0179)
                                           # malformed_filter too where a filter compares a
                                           # reference with a string or computes with one;
                                           # a reference is compared by its .id (D556)

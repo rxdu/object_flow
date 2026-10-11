@@ -11,7 +11,7 @@ use crate::expr::{BinOp, Expr};
 use crate::model::{Declared, Enforce, Kind, Library, Remedy, Transition, Type};
 use crate::request::{names_read, resolve_actor, takes_from};
 use crate::value::Value;
-use crate::verdict::{Flag, Verdict};
+use crate::verdict::{Flag, Told, Verdict};
 use crate::world::{Object, World};
 
 /// An object as `get` returns it: its row, its derived attributes evaluated,
@@ -96,6 +96,50 @@ pub struct Item {
 pub struct QueryPage {
     pub items: Vec<Item>,
     pub refused: Option<String>,
+    /// Where the next page continues, none where this is the last
+    /// (ADR-0179).
+    pub cursor: Option<String>,
+}
+
+/// The largest page a read answers, and the one it answers unless asked
+/// for another (ADR-0179).
+pub const PAGE_LIMIT: usize = 1000;
+pub const PAGE_DEFAULT: usize = 100;
+
+/// A read, digested, which its cursors carry, so a cursor continues only
+/// the read it came from.
+fn read_digest(read: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(read.as_bytes());
+    h.finalize()
+        .iter()
+        .take(6)
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// A page's cursor: the read it continues and the last object it gave,
+/// opaque to its caller (`library-api.md` §5, ADR-0179).
+fn cursor_of(read: &str, last: &str) -> String {
+    format!("{}.{last}", read_digest(read))
+}
+
+/// The object a cursor continues after, where it is one of this read's;
+/// none for a cursor of another read or naming no object.
+fn continued<'w>(
+    world: &'w World<'w>,
+    read: &str,
+    type_: &str,
+    cursor: &str,
+) -> Result<Option<&'w Object>, NotRun> {
+    let Some((digest, id)) = cursor.split_once('.') else {
+        return Ok(None);
+    };
+    if digest != read_digest(read) {
+        return Ok(None);
+    }
+    Ok(world.get(id)?.filter(|o| world.lib.is_a(&o.type_, type_)))
 }
 
 /// `exceptions(type)` (`DESIGN.md` §10): the objects of the type or its
@@ -107,12 +151,14 @@ pub fn exceptions(world: &World<'_>, type_: &str) -> Result<QueryPage, NotRun> {
         return Ok(QueryPage {
             items: Vec::new(),
             refused: Some("unknown_type".into()),
+            cursor: None,
         });
     }
     let items = world.excepted(type_)?.into_iter().map(state_item).collect();
     Ok(QueryPage {
         items,
         refused: None,
+        cursor: None,
     })
 }
 
@@ -144,10 +190,25 @@ pub fn available(
     type_: &str,
     transition: &str,
 ) -> Result<QueryPage, NotRun> {
+    available_page(world, actor, type_, transition, None, usize::MAX)
+}
+
+/// A page of `available` (ADR-0179): at most `limit` objects in id order,
+/// after the one the cursor names, and the cursor of a further page.
+pub fn available_page(
+    world: &World<'_>,
+    actor: &str,
+    type_: &str,
+    transition: &str,
+    after: Option<&str>,
+    limit: usize,
+) -> Result<QueryPage, NotRun> {
+    let read = format!("available\u{1f}{actor}\u{1f}{type_}\u{1f}{transition}");
     let refuse = |why: &str| {
         Ok(QueryPage {
             items: Vec::new(),
             refused: Some(why.to_string()),
+            cursor: None,
         })
     };
     let Some(t) = world.lib.type_(type_) else {
@@ -159,8 +220,23 @@ pub fn available(
     if !x.only_via.is_empty() {
         return refuse("not_requestable");
     }
+    let from = match after {
+        None => None,
+        Some(c) => match continued(world, &read, type_, c)? {
+            Some(o) => Some(o.order),
+            None => return refuse("malformed_cursor"),
+        },
+    };
     let mut items = Vec::new();
+    let mut more = false;
     for o in world.of_type(type_)? {
+        if from.is_some_and(|f| o.order <= f) {
+            continue;
+        }
+        if items.len() == limit {
+            more = true;
+            break;
+        }
         let offers = availability(world, actor, &o.id)?.unwrap_or_default();
         let Some(offer) = offers.iter().find(|f| f.transition == transition) else {
             continue;
@@ -177,9 +253,13 @@ pub fn available(
         }
         items.push(item);
     }
+    let cursor = more
+        .then(|| items.last().map(|i: &Item| cursor_of(&read, &i.id)))
+        .flatten();
     Ok(QueryPage {
         items,
         refused: None,
+        cursor,
     })
 }
 
@@ -258,14 +338,44 @@ pub fn query(
     order: &[String],
     fields: Option<&[String]>,
 ) -> Result<QueryPage, NotRun> {
+    query_page(world, type_, filter, order, fields, None, usize::MAX)
+}
+
+/// A page of a query (ADR-0179): at most `limit` objects, after the one
+/// the cursor names in the query's order, which is the next page's place
+/// whatever was written since; the cursor of a further page, none where
+/// this is the last; a cursor of another read refused `malformed_cursor`.
+pub fn query_page(
+    world: &World<'_>,
+    type_: &str,
+    filter: Option<&str>,
+    order: &[String],
+    fields: Option<&[String]>,
+    after: Option<&str>,
+    limit: usize,
+) -> Result<QueryPage, NotRun> {
+    let read = format!(
+        "query\u{1f}{type_}\u{1f}{}\u{1f}{}\u{1f}{}",
+        filter.unwrap_or_default(),
+        order.join(","),
+        fields.map(|f| f.join(",")).unwrap_or_default()
+    );
     let refuse = |why: &str| {
         Ok(QueryPage {
             items: Vec::new(),
             refused: Some(why.to_string()),
+            cursor: None,
         })
     };
     let Some(t) = world.lib.type_(type_) else {
         return refuse("unknown_type");
+    };
+    let from = match after {
+        None => None,
+        Some(c) => match continued(world, &read, type_, c)? {
+            Some(o) => Some(o),
+            None => return refuse("malformed_cursor"),
+        },
     };
     let filter = match filter.map(crate::expr::parse) {
         None => None,
@@ -347,11 +457,14 @@ pub fn query(
                 .map(|m| m.trim().to_string())
         }))
         .collect();
+    // the cursor's object is ordered as the chosen are, held or not
+    let mut keyed = chosen.clone();
+    keyed.extend(from);
     if !members.is_empty() {
-        world.with_parts(&chosen)?;
+        world.with_parts(&keyed)?;
     }
     for m in &members {
-        for o in &chosen {
+        for o in &keyed {
             let v = world
                 .parts(o)?
                 .spans
@@ -376,7 +489,7 @@ pub fn query(
     // the place in creation order of each object a key's value names, read
     // before sorting, since a comparison cannot stop the read
     let mut placed: BTreeMap<String, i64> = BTreeMap::new();
-    for o in &chosen {
+    for o in &keyed {
         for (key, _) in &keys {
             if let Value::Object(id) = value(o, key)
                 && !placed.contains_key(&id)
@@ -411,7 +524,7 @@ pub fn query(
             _ => v.compare(w).unwrap_or(Ordering::Equal),
         }
     };
-    chosen.sort_by(|a, b| {
+    let ordered = |a: &Object, b: &Object| -> std::cmp::Ordering {
         for (key, desc) in &keys {
             let (x, y) = (value(a, key), value(b, key));
             // an absent value last, whichever way the key runs
@@ -427,7 +540,17 @@ pub fn query(
             }
         }
         a.order.cmp(&b.order)
-    });
+    };
+    chosen.sort_by(|a, b| ordered(a, b));
+    // after the cursor's object, as many as a page holds
+    if let Some(f) = from {
+        chosen.retain(|o| ordered(o, f) == std::cmp::Ordering::Greater);
+    }
+    let more = chosen.len() > limit;
+    chosen.truncate(limit);
+    let cursor = more
+        .then(|| chosen.last().map(|o| cursor_of(&read, &o.id)))
+        .flatten();
     let mut items = Vec::new();
     for o in chosen {
         let Some(ot) = lib.type_(&o.type_) else {
@@ -476,6 +599,7 @@ pub fn query(
     Ok(QueryPage {
         items,
         refused: None,
+        cursor,
     })
 }
 
@@ -509,6 +633,21 @@ pub struct Offer {
     pub inputs: Vec<(String, String)>,
     pub unevaluated: Vec<String>,
     pub flags: Vec<Flag>,
+    /// What its refusal tells beside it: the objects its clause names,
+    /// whether it was unknown, and whether the transition takes a
+    /// proposal; an offer consults no evaluator, so nothing consulted.
+    pub told: Told,
+}
+
+/// An offer's refusal told: the objects named, its clause unknown or
+/// false, and whether the transition takes a proposal.
+fn offer_told(objects: Vec<String>, unknown: bool, proposable: bool) -> Told {
+    Told {
+        unknown,
+        objects,
+        proposable,
+        consulted: None,
+    }
 }
 
 fn written(declared: &Declared, many: bool) -> String {
@@ -646,7 +785,10 @@ pub(crate) fn offers(
                 .any(|(_, s)| !s.optional && s.default.is_none());
         let mut unevaluated = Vec::new();
         let mut flags = Vec::new();
-        let refused = |v: Verdict, inputs: Vec<(String, String)>, unevaluated: Vec<String>| Offer {
+        let refused = |v: Verdict,
+                       inputs: Vec<(String, String)>,
+                       unevaluated: Vec<String>,
+                       told: Told| Offer {
             transition: xn.clone(),
             creates: None,
             availability: Availability::Unavailable,
@@ -654,6 +796,7 @@ pub(crate) fn offers(
             inputs,
             unevaluated,
             flags: Vec::new(),
+            told,
         };
         let Some(who) = &who else {
             offers.push(refused(
@@ -663,6 +806,7 @@ pub(crate) fn offers(
                 },
                 inputs,
                 unevaluated,
+                offer_told(Vec::new(), false, x.proposable),
             ));
             continue;
         };
@@ -678,6 +822,7 @@ pub(crate) fn offers(
                 },
                 inputs,
                 unevaluated,
+                Told::default(),
             ));
             continue;
         }
@@ -699,6 +844,7 @@ pub(crate) fn offers(
                     },
                     inputs,
                     unevaluated,
+                    offer_told(Vec::new(), false, x.proposable),
                 ));
                 continue;
             }
@@ -717,13 +863,16 @@ pub(crate) fn offers(
                 needs = true; // decided when the inputs are given
                 continue;
             }
+            let named = crate::eval::Named::on(Some(id));
             let mut asking = Evaluator::new(world, Some(t), Some(id))
                 .with_inputs(&no_inputs)
-                .with_actor(who);
+                .with_actor(who)
+                .with_naming(&named);
             if !metrics {
                 asking = asking.consulting_no_metric();
             }
             let ok = truth(&asking.eval(&c.expression)?)?;
+            let objects = crate::request::in_id_order(world, named.borrow().objects.clone())?;
             // an evaluator is never asked by an offer (ADR-0048)
             if asking.unanswered.get() {
                 unevaluated.push(g.clone());
@@ -732,22 +881,28 @@ pub(crate) fn offers(
             if ok != Some(true) {
                 match mode {
                     Enforce::Deny => {
-                        denied = Some(Verdict::Unsatisfied {
-                            clause: g.clone(),
-                            remedy: c.remedy,
-                        });
+                        denied = Some((
+                            Verdict::Unsatisfied {
+                                clause: g.clone(),
+                                remedy: c.remedy,
+                            },
+                            offer_told(objects, ok.is_none(), x.proposable),
+                        ));
                         break;
                     }
                     Enforce::Warn => flags.push(Flag {
                         clause: g.clone(),
                         remedy: c.remedy,
+                        unknown: ok.is_none(),
+                        objects,
                     }),
                     Enforce::Audit => {}
                 }
             }
         }
         if let Some(v) = denied {
-            offers.push(refused(v, inputs, unevaluated));
+            let (v, told) = v;
+            offers.push(refused(v, inputs, unevaluated, told));
             continue;
         }
         offers.push(Offer {
@@ -762,6 +917,7 @@ pub(crate) fn offers(
             inputs,
             unevaluated,
             flags,
+            told: Told::default(),
         });
     }
     // a proposal's decisions, which its declared lifecycle names and a
@@ -795,6 +951,7 @@ pub(crate) fn offers(
                 inputs: Vec::new(),
                 unevaluated: Vec::new(),
                 flags: Vec::new(),
+                told: Told::default(),
             });
         }
     }
@@ -840,6 +997,19 @@ pub(crate) fn offers(
                 (None, true) => Availability::AvailableWithInput,
                 (None, false) => Availability::Available,
             },
+            // the subject a generated guard states (DESIGN.md §5.5)
+            told: offer_told(
+                match &refusal {
+                    Some(Verdict::Unsatisfied { clause, .. })
+                        if clause == "subject_open" || clause == "subject_owned" =>
+                    {
+                        vec![o.id.clone()]
+                    }
+                    _ => Vec::new(),
+                },
+                false,
+                false,
+            ),
             verdict: refusal,
             inputs,
             unevaluated: Vec::new(),

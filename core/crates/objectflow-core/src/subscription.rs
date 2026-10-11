@@ -30,6 +30,18 @@ pub fn pull(
     subscription: &str,
     cursor: Option<i64>,
 ) -> Result<EventPage, NotRun> {
+    pull_page(world, subscription, cursor, usize::MAX)
+}
+
+/// A page of `pull` (ADR-0179): at most `limit` events, and, where more
+/// remain, the last one's position as the settled cursor to continue from
+/// and acknowledge, which on SQLite, whose writers are serial, is settled.
+pub fn pull_page(
+    world: &World<'_>,
+    subscription: &str,
+    cursor: Option<i64>,
+    limit: usize,
+) -> Result<EventPage, NotRun> {
     let settled = world.log()?.map(|e| e.position).max().unwrap_or(0);
     let refuse = |why: &str| EventPage {
         events: Vec::new(),
@@ -53,6 +65,12 @@ pub fn pull(
         .cloned()
         .collect();
     events.sort_by_key(|e| e.position);
+    let settled = if events.len() > limit {
+        events.truncate(limit);
+        events.last().map_or(settled, |e| e.position)
+    } else {
+        settled
+    };
     Ok(EventPage {
         events,
         settled,

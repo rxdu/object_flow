@@ -503,7 +503,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** A new code a check reports joins `COVERED` (or `COVERED_IN_EXAMPLES`) in the same change that ports it, and the port is mutated away once to see the oracle fail.
 - **Context:** The Rust core's checker held to `scripts/check-flows.py` by exported plants, ObjectFlow; 2026-10-10.
 
+### A test that follows a server's cursor bounds its loop
+- **Pattern:** A paging test looped `while cursor is not null`; with the keyset mutated away, every page named a further cursor, and the test ran until the harness killed it, a hang rather than a failure that names the fault.
+- **Correction:** A loop over pages, retries or any answer the server controls asserts a bound beyond which the server is wrong, and prints the last answer.
+- **Context:** Tests of paged reads and other server-driven loops, ObjectFlow's deployment tests; 2026-10-11.
+
 ### Tests that run at once name their scratch files apart
 - **Pattern:** Two deployment tests copied the same release fixture to `fresh_store("upgrade-reimbursement")`, a name the process id alone made unique; cargo runs a test binary's tests on threads of one process, so both wrote one file, and one test's upgrade met the other's half-copied or already-upgraded store. It passed in every gate run from the upgrade's commit until one run under load, where it failed as a 503 `engine_mismatch` that looked like an upgrade fault.
 - **Correction:** A scratch path is unique per test, not per process: the test's own name or tag in it, never a name derived only from the fixture being copied.
 - **Context:** Rust integration tests with temporary files, ObjectFlow's `deployment.rs`; 2026-10-11.
+

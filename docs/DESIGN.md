@@ -2,7 +2,7 @@
 
 **Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 577 entries and five cosmetics; 576 are closed and 1 is open. The PRD is at revision 21, with no revision awaiting the author.
 
-**Every ADR is accepted or superseded, but ADR-0174, ADR-0175, ADR-0177 and ADR-0178**, a deployment's service, its evaluators' transport, an engine release's upgrade and requests at once, built at the author's direction on 2026-10-10 and awaiting the author's review. In the order the author accepted them:
+**Every ADR is accepted or superseded, but ADR-0174, ADR-0175, ADR-0177, ADR-0178 and ADR-0179**, a deployment's service, its evaluators' transport, an engine release's upgrade, requests at once, and a refusal's detail and pages, built at the author's direction on 2026-10-10 and awaiting the author's review. In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
 - ADR-0065 to ADR-0073, on 2026-09-08: the author's rulings on the thirteen language questions, ADR-0073 confirmed the same day.
 - ADR-0081 to ADR-0096, on 2026-09-23. ADR-0087 to ADR-0096 were decided at the author's direction to cover every PRD requirement ([`design/traceability.md`](design/traceability.md)), and accepted after each was checked against this design.
@@ -15,7 +15,7 @@
 - ADR-0139 to ADR-0142, on 2026-09-29: four metric rules, accepted in advance; the examples asserting warnings and an invariant's remedy, and naming what a request creates, each accepted in advance and then by the author; and a span split across the periods it covers.
 - ADR-0143 and ADR-0144, on 2026-09-30: the core's YAML parser and decimal type, and a successor neither the object nor one already superseded.
 
-**Awaiting review:** ADR-0174, ADR-0175, ADR-0177 and ADR-0178, this document and the declaration syntax read whole, the flow format specification, and the six implementation documents of 2026-09-09 (`../TODO.md`).
+**Awaiting review:** ADR-0174, ADR-0175, ADR-0177, ADR-0178 and ADR-0179, this document and the declaration syntax read whole, the flow format specification, and the six implementation documents of 2026-09-09 (`../TODO.md`).
 
 **[`PRD.md`](PRD.md) is the baseline.** It states what the product must do; this document states the model that does it. A design choice here is justified by the PRD requirement or use case it serves and is checked against the PRD, never the reverse: where the two disagree, the design changes, or the author revises the PRD first (the author, 2026-09-23). [`design/data-driven-engine.md`](design/data-driven-engine.md) records how each choice of ADR-0081 to ADR-0086 was tested against the PRD's use cases, and this document incorporates them. [`design/traceability.md`](design/traceability.md) maps every PRD requirement and use case to the sections and decisions that meet it, and `scripts/check-traceability.py` holds the map against the PRD.
 

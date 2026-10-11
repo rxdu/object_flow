@@ -1370,6 +1370,169 @@ def test_an_offer_is_decided_for_who_asks_alike(tee):
     alike(tee)
 
 
+# a refusal's clause, unknown or false, what it names and whether it takes a
+# proposal (library-api.md §4)
+TOLD = """module: told
+categories: [live, closed]
+
+types:
+  Team:
+    description: A team, its lead and its tasks.
+    tracking: record
+    attributes:
+      name:  { type: string, unique: true }
+      lead:  { reference: Person, optional: true }
+      tasks: { reference: "Task[]", opposite: team }
+    states:
+      ACTIVE: { description: Working., category: live }
+      GONE:   { description: Disbanded., category: closed, final: true }
+    conditions:
+      no_open_tasks:
+        description: None of its tasks is open.
+        expression: none(t in tasks where t.state == Task.OPEN)
+        remedy: dependent
+      led_by_a_senior:
+        description: Its lead is senior.
+        expression: lead.seniority >= 3
+        remedy: dependent
+    transitions:
+      form:   { kind: initial, to: ACTIVE, required_inputs: [name], optional_inputs: [lead] }
+      disband: { kind: external, from: ACTIVE, to: GONE, guards: { no_open_tasks: deny } }
+      promote: { kind: internal, from: ACTIVE, guards: { led_by_a_senior: deny } }
+      retire:
+        kind: internal
+        from: ACTIVE
+        only_via: [Task.close_team]
+        guards: { no_open_tasks: deny }
+
+  Person:
+    description: A person who may lead a team.
+    tracking: record
+    attributes:
+      login:     { type: identity, actor_kind: human, unique: true }
+      seniority: { type: int, optional: true }
+    states:
+      ACTIVE: { description: Working., category: live }
+      LEFT:   { description: Gone., category: closed, final: true }
+    transitions:
+      join:  { kind: initial, to: ACTIVE, required_inputs: [login], optional_inputs: [seniority] }
+      leave: { kind: external, from: ACTIVE, to: LEFT }
+
+  Task:
+    description: A task of a team.
+    tracking: record
+    attributes:
+      title: { type: string }
+      team:  { reference: Team, opposite: tasks }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    conditions:
+      team_active:
+        description: Its team is active.
+        expression: team.state == Team.ACTIVE
+        remedy: dependent
+      team_led:
+        description: Its team has a lead.
+        expression: team.lead is not null
+        remedy: dependent
+      lead_senior:
+        description: Its team's lead is senior.
+        expression: team.lead.seniority >= 3
+        remedy: dependent
+    transitions:
+      open:  { kind: initial, to: OPEN, required_inputs: [title, team] }
+      finish:
+        kind: external
+        from: OPEN
+        to: DONE
+        proposable: true
+        guards: { team_active: deny, team_led: warn }
+      escalate: { kind: internal, from: OPEN, guards: { lead_senior: deny } }
+      close_team:
+        kind: internal
+        from: OPEN
+        effect:
+          - call: { target: team, transition: retire, inputs: {} }
+"""
+
+
+def test_a_refusal_tells_what_it_names_alike(tee):
+    """A refusal tells, beside its clause and remedy, whether the clause was
+    unknown rather than false, the objects its remedy points at, and
+    whether the transition would take a proposal; a flag names its objects;
+    an invariant violation names the objects in conflict; and a refused
+    call's verdict comes whole, through both backends alike (DESIGN.md
+    §5.5, library-api.md §4)."""
+    tee.found.clear()
+    assert tee.post("/sandbox/load",
+                    {"files": [{"name": "told.yaml", "text": TOLD}]})["loaded"]
+
+    def made(tn: str, xn: str, **inputs) -> str:
+        v = tee.post("/v1/request", {"type": tn, "transition": xn,
+                                     "actor": OP, "inputs": inputs})
+        assert v["kind"] == "satisfied", v
+        return v["object_id"]
+
+    def asked(oid: str, xn: str) -> dict:
+        return tee.post("/v1/request", {"object_id": oid, "transition": xn,
+                                        "actor": OP})
+
+    made("Person", "join", login="ana", seniority=5)
+    bo = made("Person", "join", login="bo")
+    ops = made("Team", "form", name="ops", lead=bo)
+    dev = made("Team", "form", name="dev")
+    qa = made("Team", "form", name="qa")
+    t1 = made("Task", "open", title="deploy", team=ops)
+    t2 = made("Task", "open", title="review", team=dev)
+    assert asked(qa, "disband")["kind"] == "satisfied"
+    t3 = made("Task", "open", title="audit", team=qa)
+    # a dependent guard names what it read through, false
+    v = asked(t3, "finish")
+    assert (v["kind"], v["clause"], v["remedy"]) == (
+        "unsatisfied", "team_active", "dependent"), v
+    assert (v["unknown"], v["objects"], v["proposable"]) == (
+        False, [qa], True), v
+    # an aggregate names the elements its where selects
+    v = asked(ops, "disband")
+    assert (v["clause"], v["objects"], v["proposable"]) == (
+        "no_open_tasks", [t1], False), v
+    # a clause reading an absent value is unknown, naming what it read
+    v = asked(ops, "promote")
+    assert (v["clause"], v["unknown"], v["objects"]) == (
+        "led_by_a_senior", True, [bo]), v
+    # a path names each object it passes through: the team and its lead
+    v = asked(t1, "escalate")
+    assert (v["clause"], v["unknown"], v["objects"]) == (
+        "lead_senior", True, [bo, ops]), v
+    # a flag names its objects, false
+    v = asked(t2, "finish")
+    assert v["kind"] == "satisfied", v
+    assert v["flags"] == [{"clause": "team_led", "remedy": "dependent",
+                           "unknown": False, "objects": [dev]}], v
+    # an invariant violation names the objects in conflict, each failure's
+    # but the object it fails on: the team holding the name and the one
+    # that would have
+    v = tee.post("/v1/request", {"type": "Team", "transition": "form",
+                                 "actor": OP, "inputs": {"name": "ops"}})
+    assert v["kind"] == "invariant_violated", v
+    held = [f["object_id"] for f in v["failures"]]
+    assert [f["invariant"] for f in v["failures"]] == ["name_unique"] * 2, v
+    assert held[0] == ops and v["objects"] == held, v
+    # a refused call's verdict comes whole, taking no proposal
+    v = asked(t1, "close_team")
+    assert v["kind"] == "call_refused", v
+    called = v["verdict"]
+    assert (called["clause"], called["objects"], called["unknown"],
+            called["proposable"]) == ("Team.no_open_tasks", [t1], False,
+                                      False), v
+    # an offer's refusal tells as much
+    offers = {o["transition"]: o for o in tee.post(
+        "/v1/availability", {"actor": OP, "id": ops}) if not o["creates"]}
+    assert offers["disband"]["verdict"]["objects"] == [t1], offers["disband"]
+    alike(tee)
+
+
 def test_an_actor_is_named_by_identity_or_id_alike(tee):
     """A request names its actor by the object's id or by the actor
     identity it holds, the id resolved first, through both backends alike

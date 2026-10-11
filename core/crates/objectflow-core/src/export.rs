@@ -32,6 +32,18 @@ pub struct ExportPage {
 /// store declares, or a cursor that is not one, is refused as a value; a
 /// source the slice does not serve yet is not run.
 pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<ExportPage, NotRun> {
+    export_page(world, source, cursor, usize::MAX)
+}
+
+/// A page of `export` (ADR-0179): rows after the cursor up to `limit`, and
+/// every further row sharing the last one's cursor, so a page never ends
+/// inside a cursor's rows, which the next page would pass over.
+pub fn export_page(
+    world: &World<'_>,
+    source: &str,
+    cursor: Option<&str>,
+    limit: usize,
+) -> Result<ExportPage, NotRun> {
     let refuse = |why: &str| {
         Ok(ExportPage {
             lines: Vec::new(),
@@ -111,6 +123,10 @@ pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<E
     };
     // in cursor order; rows sharing a cursor in the order written
     rows.sort_by_key(|(c, _)| *c);
+    if rows.len() > limit && limit > 0 {
+        let cut = rows[limit - 1].0;
+        rows.retain(|(c, _)| *c <= cut);
+    }
     let next = rows.last().map_or(after, |(c, _)| *c);
     Ok(ExportPage {
         lines: rows.iter().map(|(_, r)| r.to_string()).collect(),

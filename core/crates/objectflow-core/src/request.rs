@@ -29,7 +29,7 @@ use crate::model::{
 };
 use crate::store::{Allocator, Change, Event};
 use crate::value::{Value, parse_duration};
-use crate::verdict::{Flag, InputReason, InvariantFailure, Verdict};
+use crate::verdict::{Flag, InputReason, InvariantFailure, Told, Verdict};
 use crate::wire;
 use crate::world::{Object, Span, World};
 
@@ -122,6 +122,8 @@ fn recorded_verdict(v: &Verdict) -> Json {
             "flags": flags.iter().map(|f| json!({
                 "clause": f.clause,
                 "remedy": f.remedy.map(|r| r.text()),
+                "unknown": f.unknown,
+                "objects": f.objects,
             })).collect::<Vec<_>>(),
         }),
         _ => Json::Null,
@@ -149,6 +151,15 @@ fn replayed_verdict(recorded: &Json) -> Result<Verdict, NotRun> {
             .map(|f| Flag {
                 clause: f["clause"].as_str().unwrap_or_default().to_string(),
                 remedy: f["remedy"].as_str().and_then(Remedy::parse),
+                unknown: f["unknown"].as_bool().unwrap_or(false),
+                objects: f["objects"]
+                    .as_array()
+                    .map(|o| {
+                        o.iter()
+                            .filter_map(|i| i.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             })
             .collect(),
         replayed: true,
@@ -226,6 +237,10 @@ pub struct Refusal {
     /// consulted (`DESIGN.md` §7, ADR-0088): null where it read nothing.
     pub reads: Json,
     pub consulted: Json,
+    /// The objects its remedy points at: those its failing clause names, a
+    /// generated guard's stated ones, or an invariant violation's
+    /// conflicting objects, in ascending id order (`DESIGN.md` §5.5).
+    pub objects: Vec<String>,
 }
 
 /// Why a request stops before it applies: a refusal, or a construct the
@@ -244,6 +259,69 @@ impl std::convert::From<NotRun> for Stop {
 
 fn refused<T>(v: Verdict) -> Result<T, Stop> {
     Err(Stop::Refused(v, Box::default()))
+}
+
+/// A generated guard's refusal, naming the objects it states (`DESIGN.md`
+/// §5.5): its subject, the correction already recorded, its successor or
+/// the destination whole.
+fn refused_naming<T>(v: Verdict, object: &str) -> Result<T, Stop> {
+    Err(Stop::Refused(
+        v,
+        Box::new(Refusal {
+            objects: vec![object.to_string()],
+            ..Refusal::default()
+        }),
+    ))
+}
+
+/// Objects by id, in ascending id order, which is creation order
+/// (`DESIGN.md` §5.1).
+pub(crate) fn in_id_order(
+    world: &World<'_>,
+    ids: impl IntoIterator<Item = String>,
+) -> Result<Vec<String>, NotRun> {
+    let mut out = Vec::new();
+    for id in ids {
+        let order = world.get(&id)?.map_or(i64::MAX, |o| o.order);
+        out.push((order, id));
+    }
+    out.sort();
+    Ok(out.into_iter().map(|(_, id)| id).collect())
+}
+
+/// The objects in conflict where an invariant fails on an object, as an
+/// unsatisfied clause's are chosen, the object excluded: what a declared
+/// invariant's references evaluate to, and the other holders of a value a
+/// uniqueness requires be one's own (`DESIGN.md` §5.5, ADR-0122).
+fn invariant_objects(world: &World<'_>, o: &Object, n: &str) -> Result<BTreeSet<String>, NotRun> {
+    let Some(t) = world.lib.type_(&o.type_) else {
+        return Ok(BTreeSet::new());
+    };
+    if let Some((_, e)) = t.invariants.iter().find(|(i, _)| i == n) {
+        let named = crate::eval::Named::on(Some(&o.id));
+        Evaluator::new(world, Some(t), Some(&o.id))
+            .with_naming(&named)
+            .eval(e)?;
+        return Ok(named.into_inner().objects);
+    }
+    if n.ends_with("_unique") {
+        let reading = std::cell::RefCell::new(Reading::default());
+        failing_invariants_reading(world, o, Some(&reading))?;
+        return Ok(reading
+            .into_inner()
+            .scans
+            .get(n)
+            .map(|by_type| {
+                by_type
+                    .values()
+                    .flatten()
+                    .filter(|id| **id != o.id)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default());
+    }
+    Ok(BTreeSet::new())
 }
 
 /// Who a request acts as: its actor, and the principal it names, each an
@@ -684,6 +762,14 @@ fn decide_or_stop(
     }
     if !violated.is_empty() {
         let remedy = violated.first().and_then(|f| f.remedy);
+        // each failure's conflicting objects, the object it fails on
+        // excluded (DESIGN.md §5.5)
+        let mut conflicting = BTreeSet::new();
+        for f in &violated {
+            if let Some(o) = ctx.work.get(&f.object_id)? {
+                conflicting.extend(invariant_objects(&ctx.work, o, &f.invariant)?);
+            }
+        }
         return Err(Stop::Refused(
             Verdict::InvariantViolated {
                 failures: violated,
@@ -691,6 +777,7 @@ fn decide_or_stop(
             },
             Box::new(Refusal {
                 reads: refused_reads(&ctx)?,
+                objects: in_id_order(&ctx.work, conflicting)?,
                 ..Refusal::default()
             }),
         ));
@@ -986,10 +1073,13 @@ fn take(
                     .is_some_and(|s| s.is_final)
             });
             if owner && moved && finished {
-                return refused(Verdict::Unsatisfied {
-                    clause: "whole_open".into(),
-                    remedy: Some(Remedy::SelfServiceable),
-                });
+                return refused_naming(
+                    Verdict::Unsatisfied {
+                        clause: "whole_open".into(),
+                        remedy: Some(Remedy::SelfServiceable),
+                    },
+                    whole,
+                );
             }
         }
     }
@@ -1032,10 +1122,13 @@ fn take(
                     .is_some_and(|state| state.superseding)
             });
             if Some(successor.as_str()) == oid.as_deref() || superseded {
-                return refused(Verdict::Unsatisfied {
-                    clause: "successor_not_superseded".into(),
-                    remedy: Some(Remedy::SelfServiceable),
-                });
+                return refused_naming(
+                    Verdict::Unsatisfied {
+                        clause: "successor_not_superseded".into(),
+                        remedy: Some(Remedy::SelfServiceable),
+                    },
+                    successor,
+                );
             }
         }
     }
@@ -1056,22 +1149,27 @@ fn take(
                     InputReason::NotAllowed,
                 )]));
             }
-            // the observations that correct another, of the types that can
-            let mut current = false;
+            // the observations that correct another, of the types that can:
+            // the correction already recorded
+            let mut current: Option<String> = None;
             for (kn, k) in &lib.types {
-                if k.attribute("corrects").is_some() {
-                    current |= ctx
+                if current.is_none() && k.attribute("corrects").is_some() {
+                    current = ctx
                         .work
                         .of_type(kn)?
                         .iter()
-                        .any(|other| other.attr("corrects") == named);
+                        .find(|other| other.attr("corrects") == named)
+                        .map(|other| other.id.clone());
                 }
             }
-            if current {
-                return refused(Verdict::Unsatisfied {
-                    clause: "corrects_current".into(),
-                    remedy: Some(Remedy::SelfServiceable),
-                });
+            if let Some(recorded) = current {
+                return refused_naming(
+                    Verdict::Unsatisfied {
+                        clause: "corrects_current".into(),
+                        remedy: Some(Remedy::SelfServiceable),
+                    },
+                    &recorded,
+                );
             }
         } else if let Some(s) = ctx.before.get(subject)?
             && lib
@@ -1079,10 +1177,13 @@ fn take(
                 .and_then(|st| st.state(&s.state))
                 .is_some_and(|state| state.is_final)
         {
-            return refused(Verdict::Unsatisfied {
-                clause: "subject_open".into(),
-                remedy: Some(Remedy::UnreachableFromHere),
-            });
+            return refused_naming(
+                Verdict::Unsatisfied {
+                    clause: "subject_open".into(),
+                    remedy: Some(Remedy::UnreachableFromHere),
+                },
+                subject,
+            );
         }
         // a mirror's observations are the import's to write (ADR-0101)
         if ctx
@@ -1091,10 +1192,13 @@ fn take(
             .and_then(|s| lib.type_(&s.type_))
             .is_some_and(|st| st.mirror)
         {
-            return refused(Verdict::Unsatisfied {
-                clause: "subject_owned".into(),
-                remedy: Some(Remedy::UnreachableFromHere),
-            });
+            return refused_naming(
+                Verdict::Unsatisfied {
+                    clause: "subject_owned".into(),
+                    remedy: Some(Remedy::UnreachableFromHere),
+                },
+                subject,
+            );
         }
     }
     for k in &x.required_inputs {
@@ -1127,12 +1231,14 @@ fn take(
             return stop_not_run(format!("the guard {g}, which {tn} does not declare"));
         };
         let reading = std::cell::RefCell::new(Reading::default());
+        let named = crate::eval::Named::on(oid.as_deref());
         let (ok, unanswered) = {
             let asking = Evaluator::new(&ctx.work, Some(t), oid.as_deref())
                 .with_committed(&ctx.before)
                 .with_inputs(&inputs)
                 .with_actor(&ctx.who)
-                .with_reading(&reading, g);
+                .with_reading(&reading, g)
+                .with_naming(&named);
             // a check asks no evaluator: a guard left unanswered is named,
             // and decides nothing (ADR-0054)
             let asking = if ctx.checking.is_some() {
@@ -1177,6 +1283,7 @@ fn take(
                             consulted: guard_read
                                 .consulted_record(ctx.work.now)
                                 .unwrap_or(Json::Null),
+                            objects: in_id_order(&ctx.work, named.into_inner().objects)?,
                             ..Refusal::default()
                         }),
                     ));
@@ -1190,6 +1297,8 @@ fn take(
                     ctx.flags.push(Flag {
                         clause,
                         remedy: c.remedy,
+                        unknown: ok.is_none(),
+                        objects: in_id_order(&ctx.work, named.into_inner().objects)?,
                     });
                     ctx.failed
                         .push((g.clone(), true, c.remedy, ok.is_none(), guard_read));
@@ -4467,6 +4576,40 @@ pub fn request(
     store: &mut crate::store::Store,
     req: &Request,
 ) -> Result<Result<Verdict, NoVerdict>, crate::store::StoreError> {
+    Ok(request_told(store, req)?.map(|(v, _)| v))
+}
+
+/// What a refusal tells its caller beside its verdict (`library-api.md`
+/// §4): its clause unknown or false, the objects its remedy points at,
+/// whether the transition requested would take a proposal, which a
+/// refusal of a guard of its own, a generated one included, may, and what
+/// the clause consulted.
+fn told(lib: &Library, world: &World<'_>, req: &Request, v: &Verdict, r: &Refusal) -> Told {
+    let requested = match (&req.object_id, &req.type_) {
+        (Some(id), _) => world.get(id).ok().flatten().map(|o| o.type_.clone()),
+        (None, Some(tn)) => Some(tn.clone()),
+        _ => None,
+    };
+    let proposable = matches!(v, Verdict::Unsatisfied { .. })
+        && requested
+            .and_then(|tn| lib.type_(&tn).and_then(|t| t.transition(&req.transition)))
+            .is_some_and(|x| x.proposable);
+    Told {
+        unknown: r.unknown,
+        objects: r.objects.clone(),
+        proposable,
+        consulted: Some(match &r.consulted {
+            Json::Null => Json::Object(serde_json::Map::new()),
+            c => c.clone(),
+        }),
+    }
+}
+
+/// A request, its verdict and what its caller is told beside it.
+pub fn request_told(
+    store: &mut crate::store::Store,
+    req: &Request,
+) -> Result<Result<(Verdict, Told), NoVerdict>, crate::store::StoreError> {
     let answers = store.answers.clone();
     // what an erasure reads was personal under each earlier version
     store.load_earlier()?;
@@ -4554,7 +4697,11 @@ pub fn request(
             other => other?,
         }
     }
-    Ok(Ok(verdict))
+    let told = {
+        let world = store.snapshot()?;
+        told(world.lib, &world, req, &verdict, &refusal)
+    };
+    Ok(Ok((verdict, told)))
 }
 
 /// What `check` answers (`library-api.md` §4): the verdict the request
@@ -4564,6 +4711,8 @@ pub fn request(
 pub struct Checked {
     pub verdict: Verdict,
     pub unevaluated: Vec<String>,
+    /// What its refusal would tell beside it (`library-api.md` §4).
+    pub told: Told,
 }
 
 /// The verdict a request would receive (`DESIGN.md` §10, ADR-0054),
@@ -4577,11 +4726,16 @@ pub fn check(
 ) -> Result<Result<Checked, NotRun>, crate::store::StoreError> {
     let named = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let checking = Some(named.clone());
-    let decided =
-        store.simulate(|world, alloc| decide_as(world, alloc, req, &BTreeMap::new(), &checking))?;
-    Ok(decided.map(|(verdict, _, _)| Checked {
+    let decided = store.simulate(|world, alloc| {
+        decide_as(world, alloc, req, &BTreeMap::new(), &checking).map(|(v, _, r)| {
+            let t = told(world.lib, world, req, &v, &r);
+            (v, t)
+        })
+    })?;
+    Ok(decided.map(|(verdict, told)| Checked {
         verdict,
         unevaluated: named.borrow().clone(),
+        told,
     }))
 }
 
@@ -5463,7 +5617,11 @@ types:
                     flags,
                     vec![Flag {
                         clause: "prioritised".into(),
-                        remedy: Some(Remedy::SelfServiceable)
+                        remedy: Some(Remedy::SelfServiceable),
+                        // `is not null` is false of an absent value, never
+                        // unknown (§8.2)
+                        unknown: false,
+                        objects: Vec::new(),
                     }]
                 );
             }

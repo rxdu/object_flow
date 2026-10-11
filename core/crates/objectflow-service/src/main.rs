@@ -30,7 +30,7 @@ use objectflow_core::reads::{self, Availability, Offer};
 use objectflow_core::request::{self, Request};
 use objectflow_core::store::{BUILTINS, ENGINE_MISMATCH, Event, Readers, Store};
 use objectflow_core::value::{parse_duration, parse_timestamp, timestamp_text};
-use objectflow_core::verdict::{Flag, Verdict};
+use objectflow_core::verdict::{Flag, Told, Verdict};
 use objectflow_core::wire::encode;
 use serde_json::{Map, Value as J, json};
 
@@ -414,23 +414,28 @@ const TAKES: &[(&str, &[&str])] = &[
     ("/v1/get", &["actor", "id", "follow"]),
     (
         "/v1/query",
-        &["actor", "type", "filter", "order", "cursor", "fields"],
+        &[
+            "actor", "type", "filter", "order", "cursor", "fields", "limit",
+        ],
     ),
     ("/v1/lookup", &["actor", "source", "value"]),
     ("/v1/availability", &["actor", "id"]),
-    ("/v1/available", &["actor", "type", "transition", "cursor"]),
+    (
+        "/v1/available",
+        &["actor", "type", "transition", "cursor", "limit"],
+    ),
     ("/v1/history", &["actor", "id", "follow"]),
     ("/v1/events", &["actor", "positions"]),
     ("/v1/exceptions", &["actor", "type", "cursor"]),
     ("/v1/declaration", &["actor", "type", "version"]),
     ("/v1/tools", &["actor", "actor_kind"]),
-    ("/v1/pull", &["actor", "subscription", "cursor"]),
+    ("/v1/pull", &["actor", "subscription", "cursor", "limit"]),
     ("/v1/acknowledge", &["actor", "subscription", "cursor"]),
     (
         "/v1/metric",
         &["actor", "name", "bind", "keep", "over", "filter", "cursor"],
     ),
-    ("/v1/export", &["actor", "source", "cursor"]),
+    ("/v1/export", &["actor", "source", "cursor", "limit"]),
     ("/v1/diagnostics", &["actor", "type", "window"]),
     (
         "/v1/import_batch",
@@ -537,12 +542,19 @@ fn remedy(r: Option<objectflow_core::model::Remedy>) -> J {
 fn flags(fs: &[Flag]) -> J {
     J::Array(
         fs.iter()
-            .map(|f| json!({"clause": f.clause, "remedy": remedy(f.remedy)}))
+            .map(|f| {
+                json!({"clause": f.clause, "remedy": remedy(f.remedy),
+                            "unknown": f.unknown, "objects": f.objects})
+            })
             .collect(),
     )
 }
 
-fn verdict(v: &Verdict) -> J {
+/// A verdict on the wire with what its refusal tells beside it, where it
+/// is known (`library-api.md` §4): an unsatisfied clause unknown or false,
+/// the objects its remedy points at, whether a proposal would be accepted
+/// and what it consulted; an invariant violation's conflicting objects.
+fn verdict_told(v: &Verdict, told: Option<&Told>) -> J {
     let mut out = json!({ "kind": v.kind(), "remedy": remedy(v.remedy()) });
     let fields = match v {
         Verdict::Satisfied {
@@ -552,12 +564,22 @@ fn verdict(v: &Verdict) -> J {
             flags: fs,
             replayed,
         } => {
-            json!({"object_id": object_id, "version": version, "events": events, "replayed": replayed, "flags": flags(fs),
-                    "not_computed": ["flags[].unknown", "flags[].objects"]})
+            json!({"object_id": object_id, "version": version, "events": events, "replayed": replayed, "flags": flags(fs)})
         }
-        Verdict::Unsatisfied { clause, .. } => {
-            json!({"clause": clause, "not_computed": ["unknown", "objects", "proposable", "consulted"]})
-        }
+        Verdict::Unsatisfied { clause, .. } => match told {
+            Some(t) => {
+                let mut f = json!({"clause": clause, "unknown": t.unknown, "objects": t.objects,
+                                   "proposable": t.proposable});
+                match &t.consulted {
+                    Some(c) => f["consulted"] = c.clone(),
+                    None => f["not_computed"] = json!(["consulted"]),
+                }
+                f
+            }
+            None => {
+                json!({"clause": clause, "not_computed": ["unknown", "objects", "proposable", "consulted"]})
+            }
+        },
         Verdict::NotFound => json!({}),
         Verdict::Stale { expected, actual } => {
             json!({ "cause": "expected_version", "expected": expected, "actual": actual })
@@ -580,19 +602,38 @@ fn verdict(v: &Verdict) -> J {
             object_id,
             verdict: inner,
             clause,
-        } => json!({
-            "step": step, "object_id": object_id,
-            // the call's own refusal, its clause qualified by the type it
-            // targeted, as an expectation names it (flow-format.md §11.4)
-            "verdict": {"kind": inner.kind(), "clause": clause, "remedy": remedy(inner.remedy())},
-            "not_computed": ["the call's verdict beyond its clause"],
-        }),
+        } => match told {
+            // the call's own refusal whole, its clause qualified by the type
+            // it targeted, as an expectation names it (flow-format.md §11.4)
+            Some(t) => {
+                let mut called = verdict_told(inner, Some(t));
+                if let Some(o) = called.as_object_mut() {
+                    o.insert("clause".into(), json!(clause));
+                    // a call is no request a caller files a proposal of
+                    if o.contains_key("proposable") {
+                        o.insert("proposable".into(), json!(false));
+                    }
+                }
+                json!({"step": step, "object_id": object_id, "verdict": called})
+            }
+            None => json!({
+                "step": step, "object_id": object_id,
+                "verdict": {"kind": inner.kind(), "clause": clause, "remedy": remedy(inner.remedy())},
+                "not_computed": ["the call's verdict beyond its clause"],
+            }),
+        },
         Verdict::OverLimit { loop_, bound } => json!({ "loop": loop_, "bound": bound }),
-        Verdict::InvariantViolated { failures, .. } => json!({
-            "failures": failures.iter().map(|f| json!({"object_id": f.object_id, "type": f.type_,
-                "invariant": f.invariant, "remedy": remedy(f.remedy)})).collect::<Vec<_>>(),
-            "not_computed": ["objects"],
-        }),
+        Verdict::InvariantViolated { failures, .. } => {
+            let mut f = json!({
+                "failures": failures.iter().map(|f| json!({"object_id": f.object_id, "type": f.type_,
+                    "invariant": f.invariant, "remedy": remedy(f.remedy)})).collect::<Vec<_>>(),
+            });
+            match told {
+                Some(t) => f["objects"] = json!(t.objects),
+                None => f["not_computed"] = json!(["objects"]),
+            }
+            f
+        }
     };
     if let (Some(o), J::Object(f)) = (out.as_object_mut(), fields) {
         o.extend(f);
@@ -643,7 +684,7 @@ fn offer(o: &Offer, actor_dependent: bool) -> J {
         .collect();
     json!({
         "transition": o.transition, "creates": o.creates, "availability": o.availability.text(),
-        "verdict": o.verdict.as_ref().map(verdict), "inputs": inputs,
+        "verdict": o.verdict.as_ref().map(|v| verdict_told(v, Some(&o.told))), "inputs": inputs,
         "unevaluated": o.unevaluated, "flags": flags(&o.flags),
         // it may be refused for who takes it (ADR-0173 decision 1)
         "actor_dependent": actor_dependent,
@@ -773,16 +814,16 @@ async fn evaluators(State(shared): State<Shared>, Body(body): Body) -> Answer {
 async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
         let req = request_of(&body)?;
-        let v = consulting(
+        let (v, told) = consulting(
             &shared,
             false,
-            |s| Ok(request::request(s, &req)?),
+            |s| Ok(request::request_told(s, &req)?),
             |out| match out {
                 Err(request::NoVerdict::NotRun(NotRun::Unanswered(c))) => Some((**c).clone()),
                 _ => None,
             },
         )??;
-        Ok(Json(verdict(&v)))
+        Ok(Json(verdict_told(&v, Some(&told))))
     })
 }
 
@@ -806,7 +847,7 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
             },
         )??;
         Ok(Json(
-            json!({ "verdict": verdict(&c.verdict), "unevaluated": c.unevaluated }),
+            json!({ "verdict": verdict_told(&c.verdict, Some(&c.told)), "unevaluated": c.unevaluated }),
         ))
     })
 }
@@ -839,10 +880,11 @@ async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
             ));
         };
         let cursor = cursor_of(&body)?;
+        let limit = limit_of(&body)?;
         let mut r = reading(&shared)?;
         let s = r.store()?;
         let world = s.snapshot()?;
-        let page = objectflow_core::subscription::pull(&world, subscription, cursor)?;
+        let page = objectflow_core::subscription::pull_page(&world, subscription, cursor, limit)?;
         Ok(Json(json!({
             "events": page.events.iter().map(event).collect::<Vec<_>>(),
             "settled": page.settled.to_string(),
@@ -853,16 +895,35 @@ async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
 }
 
 /// A page of objects as the wire gives it: each object's id, type and
-/// fields, or a refusal, a value.
+/// fields, the cursor of the next page, none where this is the last, or a
+/// refusal, a value.
 fn page_json(page: &reads::QueryPage) -> J {
     json!({
         "items": page.items.iter().map(|i| json!({
             "id": i.id, "type": i.type_,
             "fields": J::Object(i.fields.iter().map(|(f, v)| (f.clone(), encode(v))).collect()),
         })).collect::<Vec<_>>(),
-        "cursor": J::Null,
+        "cursor": page.cursor,
         "refused": page.refused,
     })
+}
+
+/// A page's size as a read is asked for it: 1 to `PAGE_LIMIT`, and
+/// `PAGE_DEFAULT` where none is given (ADR-0179).
+fn limit_of(body: &J) -> Result<usize, Fault> {
+    match body.get("limit") {
+        None | Some(J::Null) => Ok(reads::PAGE_DEFAULT),
+        Some(v) => v
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .filter(|n| (1..=reads::PAGE_LIMIT).contains(n))
+            .ok_or_else(|| {
+                Fault::Bad(format!(
+                    "limit takes a page size, 1 to {}",
+                    reads::PAGE_LIMIT
+                ))
+            }),
+    }
 }
 
 /// The objects an assertion put in their state, the import's excepted, and
@@ -900,7 +961,14 @@ async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let mut r = reading(&shared)?;
         let s = r.store()?;
         let world = s.snapshot()?;
-        let mut page = page_json(&reads::available(&world, actor, type_, transition)?);
+        let mut page = page_json(&reads::available_page(
+            &world,
+            actor,
+            type_,
+            transition,
+            text(&body, "cursor"),
+            limit_of(&body)?,
+        )?);
         // a row is swept on the state and the guards, so one the transition may
         // refuse for who takes it says so, rather than each row simulated
         // (ADR-0176 decision 2)
@@ -992,7 +1060,12 @@ async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let mut r = reading(&shared)?;
         let s = r.store()?;
         let world = s.snapshot()?;
-        let page = objectflow_core::export::export(&world, source, text(&body, "cursor"))?;
+        let page = objectflow_core::export::export_page(
+            &world,
+            source,
+            text(&body, "cursor"),
+            limit_of(&body)?,
+        )?;
         Ok(Json(json!({
             "lines": page.lines,
             "cursor": page.cursor,
@@ -1456,8 +1529,11 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 ));
             };
             let (v, report) = s.publish(actor, change, expected)??;
+            // a publish's own refusal, current, fatal, impact_unchanged or
+            // decision_unresolved, names no object and takes no proposal
+            let told = Told::default();
             return Ok(Json(json!({
-                "verdict": verdict(&v),
+                "verdict": verdict_told(&v, Some(&told)),
                 "report": report.as_ref().map(objectflow_core::publish::report_json),
             })));
         }
@@ -1687,6 +1763,12 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
                 {
                     o.availability = Availability::Unavailable;
                     o.verdict = Some(c.verdict);
+                    // what it tells, but nothing consulted, which an offer
+                    // never reports (ADR-0048)
+                    o.told = Told {
+                        consulted: None,
+                        ..c.told
+                    };
                     o.flags = Vec::new();
                 }
             }
@@ -1709,12 +1791,7 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
         ) else {
             return Err(Fault::Bad("query names its actor and the type".to_string()));
         };
-        if body.get("cursor").is_some_and(|c| !c.is_null()) {
-            return Err(Fault::Bad(
-                "a query's page holds every object, so it has no cursor to continue from"
-                    .to_string(),
-            ));
-        }
+        let limit = limit_of(&body)?;
         let strings = |k: &str| -> Result<Option<Vec<String>>, Fault> {
             match body.get(k) {
                 None | Some(J::Null) => Ok(None),
@@ -1733,21 +1810,16 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let mut r = reading(&shared)?;
         let s = r.store()?;
         let world = s.snapshot()?;
-        let page = reads::query(
+        let page = reads::query_page(
             &world,
             type_,
             text(&body, "filter"),
             &order,
             fields.as_deref(),
+            text(&body, "cursor"),
+            limit,
         )?;
-        Ok(Json(json!({
-            "items": page.items.iter().map(|i| json!({
-                "id": i.id, "type": i.type_,
-                "fields": J::Object(i.fields.iter().map(|(f, v)| (f.clone(), encode(v))).collect()),
-            })).collect::<Vec<_>>(),
-            "cursor": J::Null,
-            "refused": page.refused,
-        })))
+        Ok(Json(page_json(&page)))
     })
 }
 

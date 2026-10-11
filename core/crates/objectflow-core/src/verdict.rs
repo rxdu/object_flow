@@ -9,6 +9,26 @@ use crate::model::Remedy;
 pub struct Flag {
     pub clause: String,
     pub remedy: Option<Remedy>,
+    /// Its clause read something absent, rather than was false (§8.2).
+    pub unknown: bool,
+    /// What a dependent remedy points at, as an unsatisfied clause names
+    /// them (`library-api.md` §4).
+    pub objects: Vec<String>,
+}
+
+/// What a refusal tells its caller beside its verdict (`library-api.md`
+/// §4, `Unsatisfied`, `InvariantViolated`): whether its clause was unknown
+/// rather than false, the objects its remedy points at, whether a proposal
+/// would be accepted, and what the clause consulted; an invariant
+/// violation's conflicting objects.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Told {
+    pub unknown: bool,
+    pub objects: Vec<String>,
+    pub proposable: bool,
+    /// What the clause consulted, by rule; none where it is not computed,
+    /// an offer's, which consults no evaluator (ADR-0048).
+    pub consulted: Option<serde_json::Value>,
 }
 
 /// An invariant that fails, on the object it fails on (ADR-0151).

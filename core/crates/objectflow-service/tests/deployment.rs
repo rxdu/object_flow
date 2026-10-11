@@ -1111,3 +1111,189 @@ fn reads_and_writes_a_second_measured() {
     );
     assert!(beside > 0 && writes > 0, "{beside} reads, {writes} writes");
 }
+
+// ── pages (ADR-0179) ────────────────────────────────────────────────────────
+
+/// A query read in pages: each holds at most its limit, in the query's
+/// order, the last naming no cursor; the pages together are the whole
+/// read; a page after a write goes on from where the last stopped, the new
+/// object met once in its place; a cursor of another read is refused, a
+/// value; and a limit outside 1 to 1000 is a fault.
+#[test]
+fn a_query_is_read_in_pages() {
+    let file = fresh_store("pages");
+    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    ledger(&s);
+    let op = json!({"id": "operator"});
+    for (i, balance) in [5, 40, 15, 40, 25, 10].iter().enumerate() {
+        let v = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Account", "transition": "open",
+            "inputs": {"name": format!("n{i}"), "balance": balance}}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+    }
+    let read = |cursor: &Value, limit: i64| {
+        post(
+            &s,
+            "/v1/query",
+            &json!({"actor": op, "type": "Account", "order": "balance desc",
+            "fields": ["balance"], "limit": limit, "cursor": cursor}),
+        )
+    };
+    let whole = read(&Value::Null, 1000);
+    let all: Vec<Value> = whole["items"].as_array().expect("its items").clone();
+    assert_eq!(all.len(), 8, "{whole}");
+    assert!(whole["cursor"].is_null());
+    let (mut paged, mut cursor, mut pages) = (Vec::new(), Value::Null, 0);
+    loop {
+        let page = read(&cursor, 3);
+        let items = page["items"].as_array().expect("its items");
+        assert!(items.len() <= 3, "{page}");
+        paged.extend(items.iter().cloned());
+        pages += 1;
+        assert!(pages <= 10, "a cursor that never ends: {page}");
+        if page["cursor"].is_null() {
+            break;
+        }
+        cursor = page["cursor"].clone();
+    }
+    assert_eq!((pages, &paged), (3, &all));
+    // a write between pages: the next page goes on after the last given
+    let first = read(&Value::Null, 3);
+    let after = first["items"][2]["fields"]["balance"]
+        .as_i64()
+        .expect("a balance");
+    let made = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Account", "transition": "open",
+        "inputs": {"name": "late", "balance": 1}}),
+    );
+    let late = made["object_id"].clone();
+    let (mut rest, mut cursor) = (Vec::new(), first["cursor"].clone());
+    while !cursor.is_null() {
+        let page = read(&cursor, 3);
+        rest.extend(page["items"].as_array().expect("its items").iter().cloned());
+        assert!(rest.len() <= 30, "a cursor that never ends: {page}");
+        cursor = page["cursor"].clone();
+    }
+    assert!(
+        rest.iter()
+            .all(|i| i["fields"]["balance"].as_i64() <= Some(after)),
+        "{rest:?}"
+    );
+    assert_eq!(
+        rest.iter().filter(|i| i["id"] == late).count(),
+        1,
+        "{rest:?}"
+    );
+    assert_eq!(rest.len(), 6, "{rest:?}");
+    // a cursor continues only its own read
+    let other = post(
+        &s,
+        "/v1/query",
+        &json!({"actor": op, "type": "Account", "limit": 3,
+        "cursor": first["cursor"]}),
+    );
+    assert_eq!(other["refused"], "malformed_cursor", "{other}");
+    for bad in [json!(0), json!(1001), json!("ten")] {
+        let (status, said) = call(
+            &s,
+            "POST",
+            "/v1/query",
+            Some(&json!({"actor": op, "type": "Account", "limit": bad})),
+        );
+        assert_eq!(status, 400, "{said}");
+    }
+}
+
+/// `available`, `pull` and `export` page as well: available by its cursor,
+/// pull by its settled cursor, export by its own, never ending a page
+/// inside one cursor's rows.
+#[test]
+fn available_pull_and_export_are_read_in_pages() {
+    let file = fresh_store("more-pages");
+    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let (tally, ..) = ledger(&s);
+    let op = json!({"id": "operator"});
+    let sub = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Subscription", "transition": "subscribe",
+        "inputs": {"target_type": "Tally"}}),
+    );
+    let sub = sub["object_id"].clone();
+    for _ in 0..7 {
+        assert_eq!(bump(&s, &tally, None)["kind"], "satisfied");
+    }
+    for i in 0..5 {
+        post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Tally", "transition": "start", "inputs": {"count": i}}),
+        );
+    }
+    // available: every counting tally, in pages of two
+    let (mut seen, mut cursor) = (Vec::new(), Value::Null);
+    loop {
+        let page = post(
+            &s,
+            "/v1/available",
+            &json!({"actor": op, "type": "Tally", "transition": "bump",
+            "limit": 2, "cursor": cursor}),
+        );
+        let items = page["items"].as_array().expect("its items");
+        assert!(items.len() <= 2, "{page}");
+        seen.extend(items.iter().map(|i| i["id"].clone()));
+        assert!(seen.len() <= 30, "a cursor that never ends: {page}");
+        if page["cursor"].is_null() {
+            break;
+        }
+        cursor = page["cursor"].clone();
+    }
+    assert_eq!(seen.len(), 6, "{seen:?}");
+    // pull: the bumps after the subscription, three at a time
+    let (mut events, mut cursor) = (Vec::new(), Value::Null);
+    loop {
+        let mut body = json!({"actor": op, "subscription": sub, "limit": 3});
+        if !cursor.is_null() {
+            body["cursor"] = cursor.clone();
+        }
+        let page = post(&s, "/v1/pull", &body);
+        let got = page["events"].as_array().expect("its events").clone();
+        assert!(got.len() <= 3, "{page}");
+        events.extend(got.iter().cloned());
+        assert!(events.len() <= 60, "a cursor that never ends: {page}");
+        if got.len() < 3 {
+            break;
+        }
+        cursor = page["settled"].clone();
+    }
+    let bumps = events.iter().filter(|e| e["transition"] == "bump").count();
+    assert_eq!(bumps, 7, "{events:?}");
+    // export: the log in pages of four, together the whole of it
+    let whole = post(
+        &s,
+        "/v1/export",
+        &json!({"actor": op, "source": "log", "limit": 1000}),
+    );
+    let whole = whole["lines"].as_array().expect("its lines").len();
+    let (mut lines, mut cursor) = (0, Value::Null);
+    loop {
+        let page = post(
+            &s,
+            "/v1/export",
+            &json!({"actor": op, "source": "log", "limit": 4, "cursor": cursor}),
+        );
+        let got = page["lines"].as_array().expect("its lines").len();
+        if got == 0 {
+            break;
+        }
+        lines += got;
+        assert!(lines <= 10 * whole, "a cursor that never ends: {page}");
+        cursor = page["cursor"].clone();
+    }
+    assert_eq!(lines, whole);
+}

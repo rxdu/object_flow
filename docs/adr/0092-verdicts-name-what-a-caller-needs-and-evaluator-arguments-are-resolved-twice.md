@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-23, after a check of every decision against the design — decided at the author's direction, against `docs/PRD.md` F4, F3, L5 and T1; repairs D214 and D215
 - **Date:** 2026-09-23
-- **Refined by:** ADR-0096 — `Unsatisfied` also carries `consulted`, the metric values and evaluator verdicts the failing clause was decided on, under the reader's visibility. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
+- **Refined by:** ADR-0096 — `Unsatisfied` also carries `consulted`, the metric values and evaluator verdicts the failing clause was decided on, under the reader's visibility. ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand. ADR-0179 — a refusal's `objects`, `unknown`, `proposable` and `consulted` computed on both backends, as a clause's evaluation notes them.
 - **Refines:** ADR-0049, ADR-0077
 
 ## Context

@@ -67,10 +67,12 @@ POST /v1/request
 **A refusal is an answer, never an error.** Branch on `kind`, then on `remedy`, which says what can be done (`wire.md` §3):
 
 - `self_serviceable`: show the person what to correct. An `invalid_input` names each input and why (`"reasons": {"amount": "wrong_currency"}`), so a form marks the field; a `stale` means re-read the object and send again. A required input left out arrives in one of two shapes: `invalid_input` with the reason `missing`, or, where the attribute it writes is optional elsewhere in the type, `unsatisfied` with the clause `<attribute>_provided`; a form maps both to the field (`flow-format.md` §6).
-- `delegable`: someone else must act. An agent hands it to a person, or files it as a proposal.
+- `delegable`: someone else must act. An agent hands it to a person, or, where the refusal says `proposable: true`, files it as a proposal.
 - `temporal`: retry later.
-- `dependent`: another object must change first.
+- `dependent`: another object must change first; `objects` names which, in ascending id order, so a screen links to them and an agent works on them first.
 - `unreachable_from_here`: nothing the caller can do; do not retry.
+
+An `unsatisfied` refusal also says whether its clause was `unknown`, a value nobody has yet, rather than false, and what it `consulted`; an `invariant_violated` names every object an invariant fails on and the `objects` in conflict, such as the other holder of a unique value (`wire.md` §3, ADR-0179).
 
 **Send the version you read** (`expected_version`), so a decision made on what the person saw cannot overwrite a change they did not see. **Send an idempotency key** on every write, so a retry after a timeout answers the first result (`"replayed": true`) rather than applying twice.
 
@@ -85,7 +87,7 @@ POST /v1/request
 - `metric` a declared metric, whole or by its dimensions. A metric that names a person is listed in its type's `declaration` under `person_dimensions`; your application decides who sees those.
 - `subscribe`, then poll `pull` and `acknowledge` to react to events: notifications, timers, integrations.
 
-Pages hold everything today; page in your client. There is no text search: index what `export` or `pull` gives you.
+**Reads come in pages** (ADR-0179): `query`, `available`, `pull` and `export` answer at most `limit` items, 100 unless you ask for up to 1000, and the `cursor` of the next page; send it back until it is `null`. A page goes on after the last object it gave, so a worklist read while clerks work meets each new object once. There is no text search: index what `export` or `pull` gives you.
 
 ## 6. Agents
 

@@ -694,10 +694,15 @@ class Sandbox:
                     how, refusal, flags = "unavailable", refused, []
             out.append({
                 "transition": xn, "creates": creates, "availability": how,
-                "verdict": self.refusal(refusal, tn, oid, {}, xn)
+                "verdict": self.refusal(
+                    refusal, tn, oid,
+                    ((self.runner.kinds.get(tn) or {}).get("transitions")
+                     or {}).get(xn) or {}, xn)
                 if refusal else None,
                 "inputs": schema, "unevaluated": unevaluated,
-                "flags": [{"clause": c, "remedy": rem} for c, rem in flags],
+                "flags": [{"clause": c, "remedy": rem, "unknown": u,
+                           "objects": list(objs)}
+                          for c, rem, u, objs in flags],
                 "actor_dependent": dependent,
             })
         return out
@@ -847,14 +852,17 @@ class Sandbox:
         s = self.store
         root = result[1]
         flags = []
+        told = result[6] if len(result) > 6 else {}
         for clause, mode in result[2]:
             if mode != "warn":
                 continue            # an audit is recorded, not told
             owner, _, name = clause.rpartition(".")
             cond = ((self.runner.kinds.get(owner) or {}).get("conditions")
                     or {}).get(name) or {}
+            unknown, objects = told.get(clause, (False, []))
             flags.append({"clause": name if owner == tn else clause,
-                          "remedy": cond.get("remedy")})
+                          "remedy": cond.get("remedy"), "unknown": unknown,
+                          "objects": list(objects)})
         return {"kind": "satisfied", "object_id": root,
                 "version": s.objects[root].version if root in s.objects
                 else None,
@@ -863,8 +871,7 @@ class Sandbox:
                 # (`library-api.md` §4)
                 "events": sorted(e["position"] for e in s.events
                                  if e["position"] > before),
-                "replayed": False, "flags": flags,
-                "not_computed": ["flags[].unknown", "flags[].objects"]}
+                "replayed": False, "flags": flags}
 
     def refusal(self, r, tn, oid, x, xn) -> dict:
         """A refusal as the library's verdict (`library-api.md` §4), its
@@ -872,26 +879,36 @@ class Sandbox:
         v = r.verdict
         out: dict[str, Any] = {"kind": v, "remedy": r.remedy}
         if v == "unsatisfied":
-            out.update(clause=r.clause, not_computed=[
-                "unknown", "objects", "proposable", "consulted"])
+            # unknown or false, the objects its remedy points at, and
+            # whether the transition takes a proposal; the runner records
+            # nothing consulted (`library-api.md` §4)
+            out.update(clause=r.clause, unknown=bool(r.unknown),
+                       objects=list(r.objects),
+                       proposable=bool((x or {}).get("proposable")),
+                       not_computed=["consulted"])
         elif v == "invariant_violated":
-            out["failures"] = [{"object_id": r.object_id,
-                                "type": r.object_type,
-                                "invariant": (r.clause or "").rpartition(
-                                    ".")[2],
-                                "remedy": r.remedy}]
-            out["not_computed"] = ["failures[1:]", "objects"]
+            out["failures"] = [
+                {"object_id": o, "type": t, "invariant": n, "remedy": rem}
+                for o, t, n, rem in (r.failures or [(
+                    r.object_id, r.object_type,
+                    (r.clause or "").rpartition(".")[2], r.remedy)])]
+            out["objects"] = list(r.objects)
             if r.remedy is None:
-                out["not_computed"].append("remedy")
+                out["not_computed"] = ["remedy"]
         elif v == "call_refused":
             inner = r.inner
-            # the call's own refusal, its clause qualified by the type the
-            # call targets, as an expectation names it (`flow-format.md`
-            # §11.4)
-            out.update(step=r.step, object_id=r.object_id, verdict={
-                "kind": inner.verdict if inner else None,
-                "clause": r.clause, "remedy": r.remedy})
-            out["not_computed"] = ["the call's verdict beyond its clause"]
+            # the call's own refusal whole, its clause qualified by the type
+            # the call targets, as an expectation names it
+            # (`flow-format.md` §11.4); a call is no request a caller files
+            # a proposal of
+            called = self.refusal(inner, tn, oid, {}, xn) if inner else {
+                "kind": None, "remedy": r.remedy}
+            called["clause"] = r.clause
+            if "proposable" in called:
+                called["proposable"] = False
+            out.update(step=r.step, object_id=r.object_id, verdict=called)
+            if "not_computed" in called:
+                out["not_computed"] = list(called["not_computed"])
         elif v == "stale":
             # what was stale, the version the caller named (`library-api.md`
             # §4, StaleCause)
