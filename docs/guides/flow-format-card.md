@@ -205,7 +205,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 | `default` | a literal, a qualified value or `now`, given at creation when not an input | 4.17 |
 | `identifier` | minted at creation: `sequence`, `format` (`{n}`, `{n:5}`, `{<attribute>}`, `[ … ]` around an optional segment) and `scope` | 4.12 |
 | `external` | the system owning the value, such as `xero`; unique per source, may be absent | 4.15 |
-| `unique` | `true`, `in_scope`, or `{ with: [<attribute>], where: <expression> }` | 4.12 |
+| `unique` | one of four forms: `true`, `in_scope`, `{ with: [<attribute>] }` or `{ where: <expression> }`; `with` and `where` do not combine, and "one live per" is an invariant | 4.12 |
 | `indexed` | queries may filter and order on it | 4.3 |
 | `personal` | erased by the type's `erasure`; so `optional` | 4.13 |
 | `actor_kind` | `human`, `agent` or `service`, on the `identity` attribute of a type whose objects act | 4.3 |
@@ -227,7 +227,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 |---|---|---|
 | `only_via` | the `Type.transition`s that alone take it, by `call`, `create` or cascade; no caller requests it | 4.8 |
 | `proposable` | `true`: a request may be filed as a proposal, executed as its approver | 4.8 |
-| `taken_by` | the kinds that may take it, `[human]`; records `<transition>_by_kind` and holds `<transition>_taken_by` | 4.8 |
+| `taken_by` | the kinds that may take it, `[human]`, on any transition, an erasure and an assertion included; records `<transition>_by_kind` and holds `<transition>_taken_by`, which no `may_admit` admits | 4.8 |
 | `corrects` | the attributes a correction writes, exactly | 4.13 |
 | `may_admit` | on an assertion, the invariants a request may admit breaking | 4.13 |
 | `required_inputs`, `optional_inputs` | attributes the caller supplies, each written to its name | 4.8 |

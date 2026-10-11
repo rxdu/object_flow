@@ -34,7 +34,10 @@ pub struct Told {
 /// An invariant that fails, on the object it fails on (ADR-0151).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InvariantFailure {
-    pub object_id: String,
+    /// The object it fails on, none where that is an object the refused
+    /// request was creating, which does not exist and whose id a later
+    /// object may take (D581).
+    pub object_id: Option<String>,
     pub type_: String,
     pub invariant: String,
     /// `None` where the core cannot tell, as the runner cannot.

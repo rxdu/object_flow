@@ -4,7 +4,7 @@
 
 Governed flows for business objects. People and agents move objects only along declared transitions; every change is checked, recorded and measured.
 
-> **Status: in design, with a running core.** The design is complete and under its author's review: the requirements, the model, the language flows are declared in, every decision with the alternatives it rejected, and the checkers that hold it together. The engine's core runs, in Rust, held to a Python reference runner: as a sandbox's service, on which the Flow Studio is built, and as a deployment's, whose store is one SQLite file that survives a restart, on the wall clock, asking external systems over HTTP. It is ready to pilot a flow on one machine, a newer engine release taking over a store by an upgrade, its reads running beside its writes, and not yet for production: its writes run one at a time on one SQLite file, and it does not page reads. See [getting started](#getting-started) and [where it stands](#where-it-stands).
+> **Status: in design, with a running core.** The design is complete and under its author's review: the requirements, the model, the language flows are declared in, every decision with the alternatives it rejected, and the checkers that hold it together. The engine's core runs, in Rust, held to a Python reference runner: as a sandbox's service, on which the Flow Studio is built, and as a deployment's, whose store is one SQLite file that survives a restart, on the wall clock, asking external systems over HTTP. It is ready to pilot a flow on one machine, a newer engine release taking over a store by an upgrade, its reads running beside its writes and answered in pages, and not yet for production: its writes run one at a time on one SQLite file, it authenticates nobody, leaving that to the application in front of it, and what a release promises binds only from 1.0.0 ([ADR-0180](docs/adr/0180-what-a-release-promises.md)). See [getting started](#getting-started) and [where it stands](#where-it-stands).
 
 ## The problem
 
@@ -108,7 +108,7 @@ flowchart TB
         integ["Integrations"]
     end
     apps -->|"one interface · your applications authenticate and authorise"| core["ObjectFlow service<br/>declared flows · enforced rules · the record · metrics"]
-    core --> db[("PostgreSQL")]
+    core --> db[("one SQLite file today<br/>PostgreSQL when a deployment outgrows it")]
 ```
 
 ObjectFlow runs as an internal service beside your applications, one per store, and it is the only thing that writes the store. Your applications authenticate their users and decide what each may do and see. ObjectFlow enforces the flow's rules on every request and records who made it ([ADR-0114](docs/adr/0114-objectflow-records-who-acted-and-never-evaluates-it.md)).

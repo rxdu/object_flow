@@ -1343,9 +1343,11 @@ fn intermediate_spans(
         let mut fresh = Vec::new();
         for l in given {
             let value = earlier_value(lib, t, d, &l.value, resolve, "an intermediate value")?;
+            // one a first import gave as a legacy interval is held too, so
+            // a batch sent again unchanged writes nothing (D585)
             let holds = spans
                 .iter()
-                .any(|sp| !sp.legacy && sp.entered_at == l.entered_at && sp.value == value);
+                .any(|sp| sp.entered_at == l.entered_at && sp.value == value);
             if !holds {
                 fresh.push((l, value));
             }
@@ -2047,6 +2049,38 @@ types:
     /// from each source the rule names; a ported span's `.held` read by time
     /// from the index, legacy intervals included; and a span reaching back
     /// before its record a gap in a metric.
+    #[test]
+    fn a_batch_sent_again_unchanged_writes_nothing() {
+        // a go-live resumed after a timeout sends its batch again, legacy
+        // intervals and all: what the first run wrote is held, so nothing
+        // is written and nothing refused (publish-and-import.md §4, D585)
+        let mut s = store();
+        let port = s.now;
+        let day = 86_400;
+        let batch = || {
+            let mut e1 = employee("E-1", "EMPLOYED", json!({"employee_id": "1"}));
+            e1.created_at = Some(port - 100 * day);
+            e1.entered
+                .insert("state".into(), entered_at(port - 60 * day));
+            e1.legacy_intervals = vec![earlier(
+                "state",
+                json!("LEFT"),
+                port - 100 * day,
+                Some(port - 60 * day),
+            )];
+            vec![e1]
+        };
+        let first = run(&mut s, batch(), &[], false);
+        assert!(first.refusal.is_none() && first.written == 1, "{first:?}");
+        let again = run(&mut s, batch(), &[], false);
+        assert!(again.refusal.is_none(), "{again:?}");
+        assert_eq!(again.written, 0, "{again:?}");
+        let id = id_of(&s, "E-1");
+        let w = s.snapshot().unwrap();
+        let o = w.whole(&id).unwrap().unwrap();
+        assert_eq!(o.held_parts().unwrap().spans["state"].len(), 2);
+    }
+
     #[test]
     fn legacy_intervals_reach_back_and_silent_spans_bound_the_record() {
         let mut s = store();

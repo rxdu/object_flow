@@ -487,7 +487,11 @@ fn read_tools(lib: &Library) -> Vec<Json> {
                    "filter": {"type": "string"},
                    "order": {"type": "string", "description": "a member to order by, then desc to descend"},
                    "fields": {"type": "array", "items": {"type": "string"},
-                              "description": "the members to answer, every one by default"}},
+                              "description": "the members to answer, every one by default"},
+                   "cursor": {"type": "string",
+                              "description": "the cursor a page answered, to read the page after it (D583)"},
+                   "limit": {"type": "integer", "minimum": 1, "maximum": crate::reads::PAGE_LIMIT,
+                             "description": format!("the most objects a page answers, {} by default", crate::reads::PAGE_DEFAULT)}},
                    "required": ["type"], "additionalProperties": false}}),
     ]
 }

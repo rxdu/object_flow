@@ -20,7 +20,7 @@ use super::steps::{
     Step, assigns, body_text, cleared, input_reads, kind, required_input_names, sources,
     step_expressions, step_kind, taken, targets, walk,
 };
-use super::view::{bases, inherited, types};
+use super::view::{TAKEN, bases, inherited, types};
 use crate::expr::{BinOp, Expr, Number, parse};
 use crate::yaml::Seg;
 
@@ -5071,6 +5071,28 @@ fn override_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
             ));
         }
         for inv in strings(x, "may_admit") {
+            // who may take a transition is never admitted (D579)
+            let (on, name) = inv.rsplit_once('.').unwrap_or(("", inv.as_str()));
+            let declaring = if on.is_empty() {
+                Some(t)
+            } else {
+                types(doc)
+                    .into_iter()
+                    .find(|(n, _)| n == on)
+                    .map(|(_, d)| d)
+                    .or_else(|| library.get(on))
+            };
+            if declaring
+                .and_then(|d| obj(d, "invariants").get(name))
+                .is_some_and(|spec| spec.get(TAKEN).is_some())
+            {
+                out.push(finding(
+                    ext(&base, segs!["may_admit"]),
+                    "names",
+                    format!("{tn}.{xn} may admit {inv}, which taken_by generates: who may take a transition is never admitted (D579)"),
+                ));
+                continue;
+            }
             if let Some((on, name)) = inv.split_once('.') {
                 if !reach.contains(on) {
                     out.push(finding(

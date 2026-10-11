@@ -701,10 +701,19 @@ fn decide_or_stop(
         .map(|o| o.type_.clone())
         .unwrap_or_default();
     let ids = affected_by_writes(&ctx.work, &ctx.before)?;
+    // the objects this request is creating, which a refusal names by no id,
+    // since none exists and a later object may take it (D581)
+    let mut creating = BTreeSet::new();
+    // each failure's object, which its conflicting objects are read from
+    let mut failing_on: Vec<(String, String)> = Vec::new();
     for id in ids {
         let Some(obj) = ctx.work.get(&id)? else {
             continue;
         };
+        let existed = ctx.before.get(&id)?.is_some();
+        if !existed {
+            creating.insert(id.clone());
+        }
         // what an object's invariants read is recorded on its last event,
         // for an object the request wrote
         let last = ctx
@@ -740,8 +749,9 @@ fn decide_or_stop(
             if named { &mut admit } else { &mut refusing }.push(n);
         }
         if !refusing.is_empty() {
+            failing_on.extend(refusing.iter().map(|n| (obj.id.clone(), n.clone())));
             violated.extend(refusing.iter().map(|n| InvariantFailure {
-                object_id: obj.id.clone(),
+                object_id: existed.then(|| obj.id.clone()),
                 type_: obj.type_.clone(),
                 invariant: n.clone(),
                 remedy: invariant_remedy(&ctx.work, x, obj, n, &root, &requested_type),
@@ -765,11 +775,12 @@ fn decide_or_stop(
         // each failure's conflicting objects, the object it fails on
         // excluded (DESIGN.md §5.5)
         let mut conflicting = BTreeSet::new();
-        for f in &violated {
-            if let Some(o) = ctx.work.get(&f.object_id)? {
-                conflicting.extend(invariant_objects(&ctx.work, o, &f.invariant)?);
+        for (id, n) in &failing_on {
+            if let Some(o) = ctx.work.get(id)? {
+                conflicting.extend(invariant_objects(&ctx.work, o, n)?);
             }
         }
+        conflicting.retain(|id| !creating.contains(id));
         return Err(Stop::Refused(
             Verdict::InvariantViolated {
                 failures: violated,
@@ -4590,13 +4601,25 @@ fn told(lib: &Library, world: &World<'_>, req: &Request, v: &Verdict, r: &Refusa
         (None, Some(tn)) => Some(tn.clone()),
         _ => None,
     };
-    let proposable = matches!(v, Verdict::Unsatisfied { .. })
-        && requested
-            .and_then(|tn| lib.type_(&tn).and_then(|t| t.transition(&req.transition)))
-            .is_some_and(|x| x.proposable);
+    // whether the transition accepts a proposal, told where a guard or an
+    // invariant refuses it, as `taken_by`'s does (DESIGN.md §5.5, D582)
+    let proposable = matches!(
+        v,
+        Verdict::Unsatisfied { .. } | Verdict::InvariantViolated { .. }
+    ) && requested
+        .and_then(|tn| lib.type_(&tn).and_then(|t| t.transition(&req.transition)))
+        .is_some_and(|x| x.proposable);
+    // only objects the store holds: one the refused request was creating
+    // does not exist, and a later object may take its id (D581)
+    let objects = r
+        .objects
+        .iter()
+        .filter(|id| world.get(id).ok().flatten().is_some())
+        .cloned()
+        .collect();
     Told {
         unknown: r.unknown,
-        objects: r.objects.clone(),
+        objects,
         proposable,
         consulted: Some(match &r.consulted {
             Json::Null => Json::Object(serde_json::Map::new()),
@@ -4632,7 +4655,7 @@ pub fn request_told(
                 return Err(NoVerdict::KeyReused { key: key.clone() });
             }
             let v = replayed_verdict(recorded)?;
-            return Ok(((v, Refusal::default()), None));
+            return Ok(((v, Refusal::default(), false), None));
         }
         let (v, change, r) = decide(world, alloc, req, &answers)?;
         // what a key applied is recorded with it, so only what commits replays
@@ -4650,15 +4673,25 @@ pub fn request_told(
             }
             (change, _) => change,
         };
-        Ok(((v, r), change))
+        // whether it erases, which the store's log is truncated after (D584)
+        let erasing = change.as_ref().is_some_and(|c| {
+            c.writes.iter().any(|(o, _, e)| {
+                world
+                    .lib
+                    .type_(&o.type_)
+                    .and_then(|t| t.transition(&e.transition))
+                    .is_some_and(|x| x.kind == crate::model::Kind::Erasure)
+            })
+        });
+        Ok(((v, r, erasing), change))
     });
     // the store's write lock held past the busy timeout and every retry: a
     // race, answered as a verdict and logged as one (ADR-0090, ADR-0178)
     let decided = match decided {
-        Err(e) if e.is_busy() => Ok((Verdict::RetriesExhausted, Refusal::default())),
+        Err(e) if e.is_busy() => Ok((Verdict::RetriesExhausted, Refusal::default(), false)),
         other => other?,
     };
-    let (verdict, refusal) = match decided {
+    let (verdict, refusal, erasing) = match decided {
         Ok(decided) => decided,
         Err(NoVerdict::KeyReused { key }) => {
             // a fault, logged with the remedy a fresh key corrects
@@ -4697,6 +4730,8 @@ pub fn request_told(
             other => other?,
         }
     }
+    // an erasure's values leave the write-ahead log too (D584)
+    store.after_erasure(erasing)?;
     let told = {
         let world = store.snapshot()?;
         told(world.lib, &world, req, &verdict, &refusal)
@@ -6283,7 +6318,7 @@ types:
             json!({"order": &a}),
         ));
         let failure = |id: &str, type_: &str, invariant: &str| InvariantFailure {
-            object_id: id.into(),
+            object_id: Some(id.into()),
             type_: type_.into(),
             invariant: invariant.into(),
             remedy: None,
@@ -6318,6 +6353,25 @@ types:
             vec![
                 failure(&a, "Order", "ref_unique"),
                 failure(&b, "Order", "ref_unique")
+            ]
+        );
+        // a creation taking a key breaks the uniqueness of the order holding
+        // it and its own, which is named by no id, since the object does not
+        // exist and a later one takes its id (D581)
+        assert_eq!(
+            failures(req(
+                &mut s,
+                "place",
+                OPERATOR,
+                ("Order", true),
+                json!({"ref": "X", "cap": 1})
+            )),
+            vec![
+                failure(&a, "Order", "ref_unique"),
+                InvariantFailure {
+                    object_id: None,
+                    ..failure("", "Order", "ref_unique")
+                }
             ]
         );
         // what reads nothing written is not read

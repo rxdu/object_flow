@@ -1363,6 +1363,14 @@ def test_an_offer_is_decided_for_who_asks_alike(tee):
         assert agent[xn]["verdict"]["remedy"] == "delegable"
         assert person[xn]["availability"] == "available", person[xn]
         assert agent[xn]["actor_dependent"] and person[xn]["actor_dependent"]
+    # the agent's request is refused for who takes it, and told whether the
+    # transition takes a proposal, which approve does and reject does not
+    # (D582)
+    for xn, proposable in (("approve", True), ("reject", False)):
+        v = tee.post("/v1/request", {"object_id": req, "transition": xn,
+                                     "actor": {"id": scout["object_id"]}})
+        assert (v["kind"], v["remedy"], v["proposable"]) == (
+            "invariant_violated", "delegable", proposable), v
     # awaiting its title, a retitle is anyone's, and nothing was written
     assert agent["retitle"]["availability"] == "available_with_input"
     assert tee.post("/v1/get", {"id": req})["state"] == "OPEN"
@@ -1511,14 +1519,18 @@ def test_a_refusal_tells_what_it_names_alike(tee):
     assert v["flags"] == [{"clause": "team_led", "remedy": "dependent",
                            "unknown": False, "objects": [dev]}], v
     # an invariant violation names the objects in conflict, each failure's
-    # but the object it fails on: the team holding the name and the one
-    # that would have
+    # but the object it fails on: the team holding the name; the team the
+    # refused request was creating is named by no id, since it does not
+    # exist and the next team takes its id (D581)
     v = tee.post("/v1/request", {"type": "Team", "transition": "form",
                                  "actor": OP, "inputs": {"name": "ops"}})
     assert v["kind"] == "invariant_violated", v
-    held = [f["object_id"] for f in v["failures"]]
     assert [f["invariant"] for f in v["failures"]] == ["name_unique"] * 2, v
-    assert held[0] == ops and v["objects"] == held, v
+    assert [f["object_id"] for f in v["failures"]] == [ops, None], v
+    assert v["objects"] == [ops] and v["proposable"] is False, v
+    later = tee.post("/v1/request", {"type": "Team", "transition": "form",
+                                     "actor": OP, "inputs": {"name": "qa2"}})
+    assert later["kind"] == "satisfied", later
     # a refused call's verdict comes whole, taking no proposal
     v = asked(t1, "close_team")
     assert v["kind"] == "call_refused", v

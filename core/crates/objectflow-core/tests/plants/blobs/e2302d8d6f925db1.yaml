@@ -1,6 +1,9 @@
 module: taken
 categories: [live, closed]
 
+enumerations:
+  Why: [ERROR]
+
 types:
   User:
     description: A person who may act.
@@ -31,13 +34,16 @@ types:
     tracking: record
     attributes:
       title: { type: string }
+      requester: { type: string, personal: true, optional: true }
     states:
       OPEN:     { description: Waiting., category: live }
       APPROVED: { description: Approved., category: closed, final: true }
       REJECTED: { description: Rejected., category: closed, final: true }
     transitions:
-      open: { kind: initial, to: OPEN, required_inputs: [title] }
+      open: { kind: initial, to: OPEN, required_inputs: [title], optional_inputs: [requester] }
       retitle: { kind: internal, from: OPEN, required_inputs: [title] }
-      force: { kind: assertion, to: [APPROVED], taken_by: [human], inputs: { reason: { type: string } } }
       approve: { kind: external, from: OPEN, to: APPROVED, taken_by: [human], proposable: true }
       reject:  { kind: external, from: OPEN, to: REJECTED, taken_by: [human, service] }
+      forget: { kind: erasure, taken_by: [human], inputs: { reason: { type: string } } }
+      force: { kind: assertion, to: [APPROVED], taken_by: [human], inputs: { reason: { type: Why } } }
+      lax: { kind: assertion, to: [APPROVED], may_admit: [approve_taken_by], inputs: { reason: { type: Why } } }

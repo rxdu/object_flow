@@ -1,0 +1,60 @@
+examples_for: taken
+
+setups:
+  a_request:
+    description: Ana, a person, the scout, an agent, and an open request.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: ana } }
+      - request: { type: Agent, transition: issue, as: scout, inputs: { key: scout } }
+      - request: { type: Request, transition: open, as: request, inputs: { title: Laptop, requester: Zed } }
+
+examples:
+  a_person_approves:
+    description: Ana approves the request, and the kind that took it is recorded.
+    given: a_request
+    request: { object: request, transition: approve, actor: ana }
+    expect: { verdict: applied, state: APPROVED, values: { approve_by_kind: human } }
+
+  the_agent_may_not_approve:
+    description: The scout approving is refused by what taken_by generates, and told a person may.
+    given: a_request
+    request: { object: request, transition: approve, actor: scout }
+    expect: { verdict: invariant_violated, clause: approve_taken_by, remedy: delegable }
+
+  the_agent_proposes_and_a_person_approves:
+    description: The scout proposes the approval, and Ana's approval executes it as hers.
+    given: a_request
+    steps:
+      - propose: { object: request, transition: approve, actor: scout, proposal: decision }
+    approve: { proposal: decision, actor: ana }
+    expect: { verdict: applied, state: APPROVED, values: { approve_by_kind: human }, proposal: executed }
+
+  the_agent_may_retitle:
+    description: A transition with no taken_by is anyone's.
+    given: a_request
+    request: { object: request, transition: retitle, actor: scout, inputs: { title: Desk } }
+    expect: { verdict: applied, state: OPEN }
+
+  the_agent_may_not_erase:
+    description: The scout erasing the requester is refused, as only a person erases (D579).
+    given: a_request
+    request: { object: request, transition: forget, actor: scout, inputs: { reason: asked } }
+    expect: { verdict: invariant_violated, clause: forget_taken_by, remedy: delegable }
+
+  a_person_erases:
+    description: Ana erases the requester, and the kind that erased is recorded.
+    given: a_request
+    request: { object: request, transition: forget, actor: ana, inputs: { reason: asked } }
+    expect: { verdict: applied, state: OPEN, values: { requester: null, forget_by_kind: human } }
+
+  the_agent_may_not_force:
+    description: The scout's override is refused, as only a person overrides.
+    given: a_request
+    request: { object: request, transition: force, actor: scout, inputs: { reason: Why.ERROR, to: APPROVED } }
+    expect: { verdict: invariant_violated, clause: force_taken_by, remedy: delegable }
+
+  a_person_forces:
+    description: Ana's override applies.
+    given: a_request
+    request: { object: request, transition: force, actor: ana, inputs: { reason: Why.ERROR, to: APPROVED } }
+    expect: { verdict: applied, state: APPROVED }

@@ -589,6 +589,21 @@ Findings from every review of this design. It began as the implementation-readin
 | [D575](#d575) | The go-live's constraints on the model are found only by trying | Resolved |
 | [D576](#d576) | The built-in label offer on every object is unmentioned in the guides | Resolved |
 | [D577](#d577) | A required input left out arrives in two shapes, unsaid to an application | Resolved |
+| [D578](#d578) | An attribute named `<reference>_id` beside the reference cannot be stored | Resolved |
+| [D579](#d579) | `taken_by` could not mark an erasure or an assertion | Resolved |
+| [D580](#d580) | A query's filter was not typed | Resolved |
+| [D581](#d581) | A refusal named the would-be id of an object its request was creating | Resolved |
+| [D582](#d582) | A `taken_by` refusal did not tell `proposable` | Resolved |
+| [D583](#d583) | The agent's `query_objects` tool could not page | Resolved |
+| [D584](#d584) | An erasure left what it erased in the store's files | Resolved |
+| [D585](#d585) | An import batch sent again unchanged was refused | Resolved |
+| [D586](#d586) | `mirror-version.py` wrote a go-live version the checker refused | Resolved |
+| [D587](#d587) | The format card wrote `unique`'s `with` and `where` as one form | Resolved |
+| [D588](#d588) | The README said reads do not page, and drew PostgreSQL | Resolved |
+| [D589](#d589) | That the store never reads an actor's state was unsaid | Resolved |
+| [D590](#d590) | Running a deployment was unsaid | Resolved |
+| [D591](#d591) | A deadline was copied into the application's scheduler | Resolved |
+| [D592](#d592) | The wire left unsaid what an application relies on | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3761,3 +3776,78 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **A required input left out arrives in two shapes, unsaid to an application.** `invalid_input` with the reason `missing`, or, where the attribute is optional elsewhere in the type, `unsatisfied <attribute>_provided` (`flow-format.md` §6); documented for authors, not for a client. Found 2026-10-10 by the second procurement review (drafter).
 
 **Resolved** 2026-10-10: `integrate.md` §4 says so.
+
+### D578
+**An attribute named `<reference>_id` beside a single reference passes the checker and cannot be stored.** The store keeps a reference in the column `<name>_id` (`store.rs` `column`), so the drafter's `interviewer_id` beside `interviewer` loaded as `500 duplicate column name`, and the examples-on-core script printed a traceback. Found 2026-10-11 by the third cold review (drafter); reproduced on both checkers and the core's sandbox.
+
+**Resolved** 2026-10-11 (ADR-0181 decision 5): both checkers refuse it (`names`, `column_errors`) and the core's load refuses it as a finding, `loaded: false`; `flow-format.md` §3 reserves the name; the oracle holds the core to the plant.
+
+### D579
+**`taken_by` could not mark an erasure or an assertion, so an agent was handed both.** ADR-0176 limited it to initial, external and internal transitions; the agent's tools included `candidate_forget`, and an assertion could also admit the invariant `taken_by` generates. Found 2026-10-11 by the third cold review (drafter; the integrator's E30 beside it); reproduced on both checkers.
+
+**Resolved** 2026-10-11 (ADR-0181 decision 1): `taken_by` marks an erasure and an assertion, an agent's refused `delegable` and a person's applied on both backends, the agent's tools leaving both out; no `may_admit` admits a generated invariant. Plants in `check-flows.py`'s `taken_by_plants`, exported and held by the oracle.
+
+### D580
+**A query's filter was not typed.** A member compared with a literal its type cannot hold answered `200` and nothing, `name == 3` and `state == "OPEN"`, or `501 not run: comparing Timestamp with Text` where an ordering was evaluated; the drafter's claim that `rejected_at <= "2026-01-01T00:00:00Z"` answered nothing was wrong as stated, its client having read an empty field of the `501`'s fault. Found 2026-10-11 by the third cold review (drafter's entry 8, the integrator's E13); reproduced on the core.
+
+**Resolved** 2026-10-11 (ADR-0181 decision 3): such a filter is refused `malformed_filter`, statically from the library's declared types and when a comparison fails; `wire.md` and `integrate.md` say how a time is compared, against `now`. Deployment test `a_filter_that_does_not_type_is_refused`, mutation-checked.
+
+### D581
+**A refusal named the would-be id of an object its own request was creating**, which the next object created then took: a duplicate's refusal named `staff-21`, a creation never made, and a later refusal's `interview-31` was another interview by then. Found 2026-10-11 by the third cold review (integrator, E5 and E8); reproduced on both backends.
+
+**Resolved** 2026-10-11 (ADR-0181 decision 2): such a failure's `object_id` is `null` and a refusal's `objects` holds only objects the store holds, on both backends alike (`test_a_refusal_tells_what_it_names_alike`); each backend's fix mutation-checked.
+
+### D582
+**A `taken_by` refusal did not tell `proposable`**, which ADR-0179 told only on an unsatisfied verdict, while `integrate.md` told an agent to propose where a refusal says so. Found 2026-10-11 by the third cold review (integrator, E9).
+
+**Resolved** 2026-10-11 (ADR-0181 decision 2): an invariant refusal tells `proposable` on both backends, `approve` true and `reject` false in `test_an_offer_is_decided_for_who_asks_alike`.
+
+### D583
+**The agent's `query_objects` tool could not page**: its schema took no `cursor` or `limit`, so an agent read only the first 100 objects of anything. Found 2026-10-11 by the third cold review (integrator, E29); read in both renderers.
+
+**Resolved** 2026-10-11: the tool takes both, in the core's renderer and the reference's alike, and `renderers.md` §3 says so.
+
+### D584
+**An erasure left what it erased in the store's files**: the name and the email of an erased candidate stayed in the write-ahead log, and in the free space of the store's file after a checkpoint. Found 2026-10-11 by the third cold review (integrator, E35); reproduced on a deployment's store.
+
+**Resolved** 2026-10-11 (ADR-0181 decision 4): the deployment's connection runs with `secure_delete`, and the log is truncated after an erasure commits; deployment test `an_erasure_leaves_no_erased_bytes_in_the_stores_files`, each half mutation-checked; `integrate.md` §9 says what a backup taken before still holds.
+
+### D585
+**An import batch sent again unchanged was refused** where it carried `legacy_intervals`, `an intermediate value of state entered before the latest interval the store holds`, though `publish-and-import.md` §4 says a resumed run sends the batch again: a refresh held only intervals a refresh made, never those a first import gave. Found 2026-10-11 by the third cold review (integrator, E23); reproduced on a deployment's store with the integrator's own batch.
+
+**Resolved** 2026-10-11: a legacy interval the store holds is held; core test `a_batch_sent_again_unchanged_writes_nothing`, mutation-checked.
+
+### D586
+**`mirror-version.py` wrote a go-live version the checker refused**: it kept a mirror's metrics counting transitions it dropped. Found 2026-10-11 by the third cold review (both agents); reproduced on both agents' modules.
+
+**Resolved** 2026-10-11: such a metric, and a combined metric reading it, is left out and said on stderr; both agents' modules give go-live versions that check clean; `test_a_go_live_version_leaves_out_metrics_over_dropped_transitions`, failing on the script as it was.
+
+### D587
+**The format card wrote `unique`'s `with` and `where` as one form**, which the checker refuses. Found 2026-10-11 by the third cold review (integrator, E1).
+
+**Resolved** 2026-10-11: the card lists the four forms, and "one live per" as an invariant.
+
+### D588
+**The README said the core does not page reads, and drew the service over PostgreSQL.** ADR-0179's documentation missed the status line. Found 2026-10-11 by the third cold review (both agents).
+
+**Resolved** 2026-10-11: the README says reads page, that the core authenticates nobody, that a release's promise binds from 1.0.0, and draws one SQLite file; `LESSONS.md` records the search a feature's documentation needs.
+
+### D589
+**That the store never reads an actor's state was unsaid to an application.** A person who left and an agent retired in the store still act, by design (`DESIGN.md` §5.8), which only the design says. Found 2026-10-11 by the third cold review (integrator, E6 and E31).
+
+**Resolved** 2026-10-11 in `integrate.md` §3; whether to refuse such an actor is put to the author (`before-1.0.md` §4).
+
+### D590
+**Running a deployment was unsaid**: online backup, restore, health, what grows, `maintain`'s task shape, and what an erasure leaves in a backup. Found 2026-10-11 by the third cold review (integrator, E34 and E36).
+
+**Resolved** 2026-10-11: `integrate.md` §9, its backup methods each verified on a store written to while copied, and `wire.md`'s `maintain` row.
+
+### D591
+**A deadline written in a flow was copied into the application's scheduler**, so a version changing the period made the copy wrong. Found 2026-10-11 by the third cold review (integrator, E19; the drafter's timers).
+
+**Resolved** 2026-10-11 in the guides: `write-a-flow.md` §5 and `integrate.md` §8 keep a deadline as an attribute the flow writes, which the scheduler queries; engine-owned timers are put to the author.
+
+### D592
+**The wire left unsaid what an application relies on**: idempotency keys are the actor's, the `order` grammar, a label's `corrects`, a pending evaluator, a subscription's start, the per-assignee standard metrics' names, two built-in attributes holding JSON as text, a change's examples, an effect's created objects, and that reads check no actor. Found 2026-10-11 by the third cold review (integrator, E4, E7, E14, E16, E17, E18, E20, E25, E26, E28, E32).
+
+**Resolved** 2026-10-11 in `wire.md` and `integrate.md` §3 to §7; the JSON held as text is put to the author.

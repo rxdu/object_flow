@@ -2425,7 +2425,7 @@ types:
                 json!({"subject": &sample, "grade": "OLD"})
             ),
             Verdict::InvariantViolated { failures, .. }
-                if failures.len() == 1 && failures[0].invariant == "graded_a" && failures[0].object_id != check
+                if failures.len() == 1 && failures[0].invariant == "graded_a" && failures[0].object_id.as_deref() != Some(check.as_str())
         ));
     }
 

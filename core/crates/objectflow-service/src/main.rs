@@ -629,8 +629,13 @@ fn verdict_told(v: &Verdict, told: Option<&Told>) -> J {
                     "invariant": f.invariant, "remedy": remedy(f.remedy)})).collect::<Vec<_>>(),
             });
             match told {
-                Some(t) => f["objects"] = json!(t.objects),
-                None => f["not_computed"] = json!(["objects"]),
+                Some(t) => {
+                    f["objects"] = json!(t.objects);
+                    // whether the transition accepts a proposal, as a
+                    // `taken_by` refusal's does (D582)
+                    f["proposable"] = json!(t.proposable);
+                }
+                None => f["not_computed"] = json!(["objects", "proposable"]),
             }
             f
         }
@@ -2256,10 +2261,11 @@ async fn main() -> std::io::Result<()> {
 mod tests {
     use super::*;
 
-    /// `/v1` takes what `guides/wire-v1.json` promises (ADR-0180 decision
-    /// 7): an operation or a key the baseline lists and the service no
-    /// longer takes breaks `/v1`; one the service takes and the baseline
-    /// does not list is an addition to promise there, deliberately.
+    /// `/v1`, and a sandbox's controls, take what `guides/wire-v1.json`
+    /// promises (ADR-0180 decision 7, ADR-0181 decision 6): an operation or
+    /// a key the baseline lists and the service no longer takes is a
+    /// break; one the service takes and the baseline does not list is an
+    /// addition to promise there, deliberately.
     #[test]
     #[allow(clippy::expect_used)]
     fn v1_takes_what_it_promised() {
@@ -2271,7 +2277,7 @@ mod tests {
         let promised = baseline["operations"].as_object().expect("its operations");
         let taken: std::collections::BTreeMap<&str, &[&str]> = TAKES
             .iter()
-            .filter(|(p, _)| p.starts_with("/v1/"))
+            .filter(|(p, _)| p.starts_with("/v1/") || p.starts_with("/sandbox/"))
             .map(|(p, k)| (*p, *k))
             .collect();
         let mut wrong = Vec::new();

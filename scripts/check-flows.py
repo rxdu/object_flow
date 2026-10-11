@@ -264,23 +264,41 @@ def with_taken_by(t):
 
 
 def taken_by_errors(doc):
-    """A transition marked taken_by is one a request takes, with an effect: an initial, external or internal one;
-    and what it generates is not a name its type declares (ADR-0176 decision 1). Over the view."""
+    """A transition marked taken_by is one a request takes, with an effect: any but a machine's own; an erasure
+    and an assertion included, since a request takes each and an agent must be kept from the erasure of a person
+    (D579); and what it generates is not a name its type declares (ADR-0176 decision 1). Over the view."""
     out = []
     for tn, t in types(doc):
         for xn, x in (t.get("transitions") or {}).items():
             if not (isinstance(x, dict) and x.get("taken_by")):
                 continue
             where = ("types", tn, "transitions", xn, "taken_by")
-            if x.get("kind") not in ("initial", "external", "internal"):
+            if x.get("kind") not in ("initial", "external", "internal", "assertion", "erasure"):
                 out.append((where, "names", f"{tn}.{xn} is an {x.get('kind')} transition, which taken_by does not "
-                                            f"mark; it marks an initial, external or internal one (ADR-0176)"))
+                                            f"mark; it marks an initial, external, internal, assertion or erasure "
+                                            f"one (ADR-0176, D579)"))
             a, i = taken_by_names(xn)
             for section, n, what in (("attributes", a, "attribute"), ("invariants", i, "invariant")):
                 spec = (t.get(section) or {}).get(n)
                 if isinstance(spec, dict) and spec.get(TAKEN) != xn:
                     out.append((where, "names", f"{tn}.{xn}'s taken_by generates the {what} {n}, which {tn} "
                                                 f"declares itself (ADR-0176)"))
+    return out
+
+
+def column_errors(doc):
+    """No attribute of a type is named `<reference>_id` beside a single reference of that name, its own or inherited:
+    the store keeps the reference in a column of that name, so it could not store the type (storage-schema.md §3.2,
+    D578). Over the view."""
+    out = []
+    for tn, t in types(doc):
+        attrs = t.get("attributes") or {}
+        for a in attrs:
+            ref = attrs.get(a[:-len("_id")]) if a.endswith("_id") else None
+            if isinstance(ref, dict) and isinstance(ref.get("reference"), str) and not ref["reference"].endswith("[]"):
+                out.append((("types", tn, "attributes", a), "names",
+                            f"{tn}.{a} is the column the store keeps the reference {a[:-len('_id')]} in; name the "
+                            f"attribute otherwise (storage-schema.md §3.2, D578)"))
     return out
 
 
@@ -3037,6 +3055,12 @@ def override_errors(doc, tn, t, library):
         if x.get("may_admit") and kind != "assertion":
             out.append((base + ("may_admit",), "names", f"{tn}.{xn} may admit invariants, which only an assertion may"))
         for inv in x.get("may_admit") or []:
+            on, _, name = inv.rpartition(".")
+            spec = ((dict(types(doc)).get(on) or library.get(on) or {}) if on else t).get("invariants") or {}
+            if isinstance(spec.get(name), dict) and spec[name].get(TAKEN):
+                out.append((base + ("may_admit",), "names", f"{tn}.{xn} may admit {inv}, which taken_by generates: "
+                                                            f"who may take a transition is never admitted (D579)"))
+                continue
             if "." in inv:
                 on, name = inv.split(".")
                 if on not in reach:
@@ -4655,7 +4679,8 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
             pair, pair_notes = migration_pair_errors(load(previous[f]), doc, library)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
         for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc)
-                        + name_errors(v, library, ordered=False) + taken_by_errors(v) + migration_errors(doc, v) + pair):
+                        + name_errors(v, library, ordered=False) + taken_by_errors(v) + column_errors(v)
+                        + migration_errors(doc, v) + pair):
             p = back(p)
             if p is not None and p[0] == "machines" and "'" in m:
                 # a machine's attributes, always quoted, are the ones it requires of its binders
@@ -6234,6 +6259,17 @@ types:
       reject:  { kind: external, from: OPEN, to: REJECTED, taken_by: [human, service] }
 """
 
+# TAKEN_FLOW with an erasure and an assertion a person takes (D579)
+WHO_FLOW = TAKEN_FLOW.replace("categories: [live, closed]\n", "categories: [live, closed]\n\nenumerations:\n  Why: [ERROR]\n").replace(
+    "      title: { type: string }",
+    "      title: { type: string }\n      requester: { type: string, personal: true, optional: true }").replace(
+    "      open: { kind: initial, to: OPEN, required_inputs: [title] }",
+    "      open: { kind: initial, to: OPEN, required_inputs: [title], optional_inputs: [requester] }").replace(
+    "      reject:  { kind: external, from: OPEN, to: REJECTED, taken_by: [human, service] }",
+    "      reject:  { kind: external, from: OPEN, to: REJECTED, taken_by: [human, service] }\n"
+    "      forget: { kind: erasure, taken_by: [human], inputs: { reason: { type: string } } }\n"
+    "      force: { kind: assertion, to: [APPROVED], taken_by: [human], inputs: { reason: { type: Why } } }")
+
 TAKEN_EXAMPLES = """examples_for: taken
 
 setups:
@@ -6272,22 +6308,59 @@ examples:
     expect: { verdict: applied, state: OPEN }
 """
 
+WHO_EXAMPLES = TAKEN_EXAMPLES.replace("inputs: { title: Laptop } }", "inputs: { title: Laptop, requester: Zed } }") + """
+  the_agent_may_not_erase:
+    description: The scout erasing the requester is refused, as only a person erases (D579).
+    given: a_request
+    request: { object: request, transition: forget, actor: scout, inputs: { reason: asked } }
+    expect: { verdict: invariant_violated, clause: forget_taken_by, remedy: delegable }
+
+  a_person_erases:
+    description: Ana erases the requester, and the kind that erased is recorded.
+    given: a_request
+    request: { object: request, transition: forget, actor: ana, inputs: { reason: asked } }
+    expect: { verdict: applied, state: OPEN, values: { requester: null, forget_by_kind: human } }
+
+  the_agent_may_not_force:
+    description: The scout's override is refused, as only a person overrides.
+    given: a_request
+    request: { object: request, transition: force, actor: scout, inputs: { reason: Why.ERROR, to: APPROVED } }
+    expect: { verdict: invariant_violated, clause: force_taken_by, remedy: delegable }
+
+  a_person_forces:
+    description: Ana's override applies.
+    given: a_request
+    request: { object: request, transition: force, actor: ana, inputs: { reason: Why.ERROR, to: APPROVED } }
+    expect: { verdict: applied, state: APPROVED }
+"""
+
 
 def taken_by_plants():
     """A transition taken_by kinds of actor generates the record of who took it and the invariant over it: clean,
-    with a person approving, the agent refused as delegable, and the agent's proposal executed as the approver's;
-    an assertion marked, a generated name declared, and an example expecting the agent's approval to apply, each
-    caught (ADR-0176 decision 1)."""
+    with a person approving, the agent refused as delegable, and the agent's proposal executed as the approver's; an
+    erasure and an assertion marked too, the agent's refused and a person's applied (D579); an assertion admitting
+    what taken_by generates, a generated name declared, a reference's column declared (D578), and an example
+    expecting the agent's approval to apply, each caught (ADR-0176 decision 1)."""
     ok = True
     found, _notes = check([("taken.yaml", TAKEN_FLOW), ("taken.examples.yaml", TAKEN_EXAMPLES)])
     ok &= not found
     print(f"  taken_by, a person approving and the agent refused or proposing: "
           f"{'clean' if not found else [x[4][:80] for x in found]}")
+    found, _notes = check([("taken.yaml", WHO_FLOW), ("taken.examples.yaml", WHO_EXAMPLES)])
+    ok &= not found
+    print(f"  taken_by on an erasure and an assertion, the agent's refused and a person's applied: "
+          f"{'clean' if not found else [x[4][:80] for x in found]}")
     cases = [
-        ("an assertion marked taken_by", TAKEN_FLOW.replace(
-            "      retitle: { kind: internal, from: OPEN, required_inputs: [title] }",
-            "      retitle: { kind: internal, from: OPEN, required_inputs: [title] }\n"
-            "      force: { kind: assertion, to: [APPROVED], taken_by: [human], inputs: { reason: { type: string } } }"),
+        ("an assertion admitting what taken_by generates", WHO_FLOW.replace(
+            "      force: { kind: assertion, to: [APPROVED], taken_by: [human], inputs: { reason: { type: Why } } }",
+            "      force: { kind: assertion, to: [APPROVED], taken_by: [human], inputs: { reason: { type: Why } } }\n"
+            "      lax: { kind: assertion, to: [APPROVED], may_admit: [approve_taken_by], "
+            "inputs: { reason: { type: Why } } }"),
+         None, "names"),
+        ("a reference's column declared", TAKEN_FLOW.replace(
+            "      title: { type: string }",
+            "      title: { type: string }\n      owner: { reference: User }\n"
+            "      owner_id: { type: string, optional: true }"),
          None, "names"),
         ("a generated name declared", TAKEN_FLOW.replace(
             "      title: { type: string }", "      title: { type: string }\n      approve_by_kind: { type: actor_kind, optional: true }"),

@@ -893,6 +893,9 @@ class Sandbox:
                     r.object_id, r.object_type,
                     (r.clause or "").rpartition(".")[2], r.remedy)])]
             out["objects"] = list(r.objects)
+            # whether the transition accepts a proposal, as a `taken_by`
+            # refusal's does (DESIGN.md §5.5, D582)
+            out["proposable"] = bool((x or {}).get("proposable"))
             if r.remedy is None:
                 out["not_computed"] = ["remedy"]
         elif v == "call_refused":

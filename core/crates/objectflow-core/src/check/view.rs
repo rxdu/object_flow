@@ -87,7 +87,7 @@ fn resolve_any(x: &Value, states: Option<&Value>) -> Value {
 
 /// On a member a transition's `taken_by` generates: the transition
 /// (ADR-0176).
-const TAKEN: &str = "_taken_by";
+pub(super) const TAKEN: &str = "_taken_by";
 
 /// A transition's `taken_by`, its kinds of actor, where it has one.
 fn taken_kinds(x: &Value) -> Option<Vec<String>> {
@@ -162,6 +162,40 @@ fn with_taken_by(t: Value) -> Value {
 /// A transition marked `taken_by` is one a request takes, with an effect:
 /// an initial, external or internal one; and what it generates is not a
 /// name its type declares (ADR-0176 decision 1). Over the view.
+/// No attribute of a type is named `<reference>_id` beside a single
+/// reference of that name, its own or inherited: the store keeps the
+/// reference in a column of that name, so it could not store the type
+/// (`storage-schema.md` §3.2, D578; `check-flows.py`'s `column_errors`).
+pub fn column_errors(doc: &Value) -> Found {
+    let mut out = Found::new();
+    for (tn, t) in types(doc) {
+        let attrs = obj(t, "attributes");
+        for a in attrs.keys() {
+            let Some(base) = a.strip_suffix("_id") else {
+                continue;
+            };
+            let single = attrs
+                .get(base)
+                .and_then(|r| r.get("reference"))
+                .and_then(Value::as_str)
+                .is_some_and(|r| !r.ends_with("[]"));
+            if single {
+                out.push((
+                    ["types", tn.as_str(), "attributes", a.as_str()]
+                        .iter()
+                        .map(|k| Seg::Key((*k).to_string()))
+                        .collect(),
+                    "names".into(),
+                    format!(
+                        "{tn}.{a} is the column the store keeps the reference {base} in; name the attribute otherwise (storage-schema.md §3.2, D578)"
+                    ),
+                ));
+            }
+        }
+    }
+    out
+}
+
 pub fn taken_by_errors(doc: &Value) -> Found {
     let mut out = Found::new();
     for (tn, t) in types(doc) {
@@ -174,12 +208,12 @@ pub fn taken_by_errors(doc: &Value) -> Found {
                 .map(|k| Seg::Key((*k).to_string()))
                 .collect();
             let kind = text(x, "kind").unwrap_or("None");
-            if !["initial", "external", "internal"].contains(&kind) {
+            if !["initial", "external", "internal", "assertion", "erasure"].contains(&kind) {
                 out.push((
                     at.clone(),
                     "names".into(),
                     format!(
-                        "{tn}.{xn} is an {kind} transition, which taken_by does not mark; it marks an initial, external or internal one (ADR-0176)"
+                        "{tn}.{xn} is an {kind} transition, which taken_by does not mark; it marks an initial, external, internal, assertion or erasure one (ADR-0176, D579)"
                     ),
                 ));
             }

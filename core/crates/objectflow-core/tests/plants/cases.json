@@ -10562,34 +10562,52 @@
   }
  },
  {
-  "label": "taken_by_plants: an assertion marked taken_by",
+  "label": "taken_by_plants",
   "files": [
    [
     "taken.yaml",
-    "052715b52a5b1bfa"
+    "a7f975acec4d5619"
+   ],
+   [
+    "taken.examples.yaml",
+    "e0325d5c7138a7f7"
    ]
   ],
   "previous": {},
   "findings": [
    [
-    "taken.yaml",
-    41,
-    "fatal",
-    "names",
-    "Request.force is an assertion transition, which taken_by does not mark; it marks an initial, external or internal one (ADR-0176)"
+    "taken.examples.yaml",
+    11,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of taken as the request under test, which only a setup, a step or an expected cascade takes: Agent.issue, Request.open, User.add"
    ],
    [
-    "taken.yaml",
-    41,
-    "fatal",
-    "names",
-    "Request.force's reason is not an enumeration; an assertion's reasons are counted, so they are declared values"
+    "taken.examples.yaml",
+    11,
+    "notice",
+    "coverage",
+    "no example takes 3 transitions of taken, by its request, a step, a setup or a cascade it expects: Agent.retire, Request.reject, User.leave"
    ]
   ],
-  "analysed": {},
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Request": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
   "forms": {
    "Request.approve_taken_by": "local",
    "Request.force_taken_by": "local",
+   "Request.forget_taken_by": "local",
    "Request.reject_taken_by": "local"
   },
   "could_violate": {
@@ -10599,6 +10617,88 @@
    ],
    "Request.force_taken_by": [
     "Request.force",
+    "Request.open"
+   ],
+   "Request.forget_taken_by": [
+    "Request.forget",
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "taken_by_plants: an assertion admitting what taken_by generates",
+  "files": [
+   [
+    "taken.yaml",
+    "e2302d8d6f925db1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    49,
+    "fatal",
+    "names",
+    "Request.lax may admit approve_taken_by, which taken_by generates: who may take a transition is never admitted (D579)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.force_taken_by": "local",
+   "Request.forget_taken_by": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.force_taken_by": [
+    "Request.force",
+    "Request.open"
+   ],
+   "Request.forget_taken_by": [
+    "Request.forget",
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "taken_by_plants: a reference's column declared",
+  "files": [
+   [
+    "taken.yaml",
+    "f1d67bc22019b6d0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    35,
+    "fatal",
+    "names",
+    "Request.owner_id is the column the store keeps the reference owner in; name the attribute otherwise (storage-schema.md §3.2, D578)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
     "Request.open"
    ],
    "Request.reject_taken_by": [

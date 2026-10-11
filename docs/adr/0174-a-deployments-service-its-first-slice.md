@@ -2,7 +2,7 @@
 
 - **Status:** Built at the author's direction, 2026-10-10 ("continue with your recommendation", on a plan naming "the deployment service: an ADR, then a first slice"), for the author's review. Decision 7's transport waits on a dependency the author approves.
 - **Date:** 2026-10-10
-- **Refined by:** ADR-0177 — a store an earlier release made starts, serving only the upgrade until it runs; one of a release this core does not upgrade from still does not. ADR-0178 — reads beside the writer, on read connections of their own; writes begun `IMMEDIATE` with a busy timeout.
+- **Refined by:** ADR-0177 — a store an earlier release made starts, serving only the upgrade until it runs; one of a release this core does not upgrade from still does not. ADR-0178 — reads beside the writer, on read connections of their own; writes begun `IMMEDIATE` with a busy timeout. ADR-0181 — the store's file holds nothing an erasure erased: `secure_delete` and a truncated log.
 - **Builds:** `DESIGN.md` §2's deployment shape (ADR-0110, ADR-0132), ADR-0173 decision 2
 - **Relates to:** `design/procurement-cold-draft.md` (I2, I16), `design/storage-schema.md` §6, `docs/guides/integrate.md`, `core/README.md`, `TODO.md`
 

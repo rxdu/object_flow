@@ -331,6 +331,75 @@ fn misread_reference(lib: &Library, t: &Type, e: &Expr) -> bool {
     }
 }
 
+/// Whether a filter compares a member with a literal its type cannot hold
+/// (D580): a timestamp, a date, a state or an enumeration member with any
+/// literal, since none is written as one (a time is read against `now`, a
+/// state and a member by name); text with a number; a number with text; a
+/// truth with anything but a truth. Such a comparison is never true, or
+/// cannot be made, so the filter is refused rather than answered empty.
+fn mistyped_literal(lib: &Library, t: &Type, e: &Expr) -> bool {
+    // the declared type of the member a name or a path reads, where it is
+    // a stored scalar or the state
+    fn member<'a>(lib: &'a Library, t: &'a Type, e: &Expr) -> Option<String> {
+        let (owner, m) = match e {
+            Expr::Name(m) => (t, m),
+            Expr::Path(base, m) => {
+                let Expr::Name(r) = &**base else {
+                    return None;
+                };
+                match t.attribute(r).map(|a| &a.declared) {
+                    Some(Declared::Reference(target)) => (lib.type_(target)?, m),
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        };
+        match m.as_str() {
+            "state" => return Some("state".to_string()),
+            "created_at" => return Some("timestamp".to_string()),
+            _ => {}
+        }
+        match owner.attribute(m) {
+            Some(a) if !a.many => match &a.declared {
+                Declared::Scalar(ty) => Some(ty.clone()),
+                Declared::Reference(_) => None,
+            },
+            _ => None,
+        }
+    }
+    let wrong = |ty: &str, literal: &Expr| -> bool {
+        let base = ty.split('(').next().unwrap_or(ty);
+        match literal {
+            Expr::Str(_) => !matches!(base, "string" | "identity"),
+            Expr::Num(_) => !matches!(base, "int" | "decimal" | "money"),
+            Expr::Bool(_) => base != "bool",
+            Expr::Dur(..) => base != "duration",
+            Expr::Money(..) => base != "money",
+            _ => false,
+        }
+    };
+    match e {
+        Expr::Bin(op, a, b) => {
+            let compared = matches!(
+                op,
+                BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+            );
+            (compared
+                && (member(lib, t, a).is_some_and(|ty| wrong(&ty, b))
+                    || member(lib, t, b).is_some_and(|ty| wrong(&ty, a))))
+                || mistyped_literal(lib, t, a)
+                || mistyped_literal(lib, t, b)
+        }
+        Expr::Not(x) | Expr::Neg(x) | Expr::IsNull(x, _) => mistyped_literal(lib, t, x),
+        Expr::If(c, a, b) => {
+            mistyped_literal(lib, t, c)
+                || mistyped_literal(lib, t, a)
+                || mistyped_literal(lib, t, b)
+        }
+        _ => false,
+    }
+}
+
 pub fn query(
     world: &World<'_>,
     type_: &str,
@@ -380,6 +449,7 @@ pub fn query_page(
     let filter = match filter.map(crate::expr::parse) {
         None => None,
         Some(Ok(e)) if misread_reference(world.lib, t, &e) => return refuse("malformed_filter"),
+        Some(Ok(e)) if mistyped_literal(world.lib, t, &e) => return refuse("malformed_filter"),
         Some(Ok(e)) => Some(e),
         Some(Err(_)) => return refuse("malformed_filter"),
     };
@@ -434,7 +504,15 @@ pub fn query_page(
         };
         let held = match &filter {
             None => true,
-            Some(e) => truth(&Evaluator::new(world, Some(ot), Some(&o.id)).eval(e)?)? == Some(true),
+            // a comparison the values cannot make, such as a derived time
+            // with text, refuses the filter as malformed rather than the
+            // read as not run (D580)
+            Some(e) => match Evaluator::new(world, Some(ot), Some(&o.id)).eval(e) {
+                Err(NotRun::Unsupported(what)) if what.starts_with("comparing ") => {
+                    return refuse("malformed_filter");
+                }
+                v => truth(&v?)? == Some(true),
+            },
         };
         if held {
             chosen.push(o);

@@ -513,3 +513,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** A scratch path is unique per test, not per process: the test's own name or tag in it, never a name derived only from the fixture being copied.
 - **Context:** Rust integration tests with temporary files, ObjectFlow's `deployment.rs`; 2026-10-11.
 
+### A process started after `cd` in the background is a subshell's child
+- **Pattern:** Probes started a service as `cd $P && service --port 0 & echo $! > svc.pid` and stopped it by that pid; `cd … && cmd &` backgrounds the whole list as a subshell, so `$!` named the subshell, the kill reached it, and five services stayed running until a `ps` before the next probe found them.
+- **Correction:** Start a background process with no `cd` in its list (absolute paths, or `(cd "$P" && exec cmd) &`, whose `exec` makes the subshell the process), and after stopping it check `ps` for what the probe started.
+- **Context:** Shell probes of the engine's service, ObjectFlow; 2026-10-11.
+
+### A feature's documentation commit searches every document for its absence
+- **Pattern:** ADR-0179 built paging and its commit updated `wire.md` and `integrate.md`, which said "pages hold everything today"; the README's status line, "it does not page reads", stayed, and both third-review agents read it as current.
+- **Correction:** When a change ends a stated limitation, search the whole repository for the limitation's wording and its negations (`not page`, `pages hold`, `not yet`) before committing, the README and the guides first.
+- **Context:** Documentation of shipped features, ObjectFlow; 2026-10-11.
+

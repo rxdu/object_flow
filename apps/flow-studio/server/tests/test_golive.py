@@ -152,3 +152,55 @@ def test_the_worked_go_live(deployment):
                                     "currency": "USD"}}]},
         "disposition": []})
     assert late["refused_types"] == ["Order"]
+
+
+POSTING = """module: posting
+categories: [live, closed]
+types:
+  Opening:
+    description: A position to fill.
+    tracking: record
+    attributes:
+      title: { type: string }
+    states:
+      DRAFT: { description: Drafted., category: live }
+      POSTED: { description: Posted., category: live }
+      CLOSED: { description: Closed., category: closed, final: true }
+    transitions:
+      draft: { kind: initial, to: DRAFT, required_inputs: [title] }
+      post: { kind: external, from: DRAFT, to: POSTED }
+      close: { kind: external, from: POSTED, to: CLOSED }
+    metrics:
+      posted:
+        description: Openings posted, by month.
+        measure: transition_count
+        transition: post
+        group_by: [month]
+metrics:
+  posted_again:
+    description: The openings posted, as a combined metric reads them.
+    input_metrics: { p: Opening.posted }
+    expression: p
+"""
+
+
+def test_a_go_live_version_leaves_out_metrics_over_dropped_transitions():
+    """A mirror keeps no transition but its erasure, so a metric counting
+    one of its transitions, and a combined metric reading that, would be
+    refused by the checker: the go-live version leaves both out, saying so
+    (D586), and checks clean."""
+    made = subprocess.run(
+        [str(ROOT / "scripts/.venv/bin/python"),
+         str(ROOT / "scripts/mirror-version.py"), "-", "Opening"],
+        input=POSTING, capture_output=True, text=True, check=True)
+    assert "Opening.posted counts a transition" in made.stderr, made.stderr
+    assert "posted_again reads one left out" in made.stderr, made.stderr
+    with tempfile.TemporaryDirectory() as tmp:
+        golive = pathlib.Path(tmp) / "posting-golive.yaml"
+        golive.write_text(made.stdout)
+        checked = subprocess.run(
+            [str(ROOT / "scripts/.venv/bin/python"),
+             str(ROOT / "scripts/check-flows.py"), str(golive)],
+            capture_output=True, text=True)
+        assert checked.returncode == 0, checked.stdout
+

@@ -1,6 +1,19 @@
 {
-  "about": "What /v1 takes, operation by operation (ADR-0180 decision 7): a key listed here is promised for every release of this major version, and the service's test fails where one is gone or where the service takes one not listed, so each addition is promised deliberately. guides/wire.md says what each means.",
+  "about": "What /v1 takes, operation by operation, and a sandbox's controls (ADR-0181 decision 6) (ADR-0180 decision 7): a key listed here is promised for every release of this major version, and the service's test fails where one is gone or where the service takes one not listed, so each addition is promised deliberately. guides/wire.md says what each means.",
   "operations": {
+    "/sandbox/clock": [
+      "advance",
+      "set"
+    ],
+    "/sandbox/evaluators": [
+      "answers"
+    ],
+    "/sandbox/load": [
+      "files",
+      "attempt_retention",
+      "idempotency_retention"
+    ],
+    "/sandbox/reset": [],
     "/v1/acknowledge": [
       "actor",
       "subscription",

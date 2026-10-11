@@ -15,6 +15,7 @@ import flowexpr
 from flowrun import MINOR_UNITS
 
 ACTOR_KINDS = ("human", "agent", "service")
+PAGE_DEFAULT, PAGE_LIMIT = 100, 1000     # a page of objects as the wire answers it (ADR-0179)
 # the standard metrics every type has, and those each assignee reference adds (declaration-syntax.md §6.11)
 STANDARD = ("time_in_state", "time_in_state_p80", "throughput", "work_in_progress", "oldest_open", "transition_counts",
             "refusals", "flags_raised", "refusal_rate", "override_counts", "rework")
@@ -266,7 +267,11 @@ def read_tools(declared, kinds):
              "filter": {"type": "string"},
              "order": {"type": "string", "description": "a member to order by, then desc to descend"},
              "fields": {"type": "array", "items": {"type": "string"},
-                        "description": "the members to answer, every one by default"}},
+                        "description": "the members to answer, every one by default"},
+             "cursor": {"type": "string",
+                        "description": "the cursor a page answered, to read the page after it (D583)"},
+             "limit": {"type": "integer", "minimum": 1, "maximum": PAGE_LIMIT,
+                       "description": f"the most objects a page answers, {PAGE_DEFAULT} by default"}},
              "required": ["type"], "additionalProperties": False}},
     ]
 

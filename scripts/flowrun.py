@@ -1961,8 +1961,17 @@ class Runner:
                               object_type=obj.type,
                               objects=sorted(conflicting, key=lambda i: work.objects[i].id_order),
                               failures=[(o.id, o.type, n, r) for o, n, r in failures])
-        except Refused:
+        except Refused as r:
             store.sequences = work.sequences    # a number minted by a refused request stays used: the gap
+            # a refusal names only objects the store holds: one the refused request was creating does not exist,
+            # and a later object takes its id (D581)
+            refused = r
+            while refused is not None:
+                refused.objects = [i for i in refused.objects if i in store.objects]
+                if refused.failures:
+                    refused.failures = [(o if o in store.objects else None, t, n, rem)
+                                        for o, t, n, rem in refused.failures]
+                refused = refused.inner
             raise
         work.attempts.extend(ctx.observed)
         store.__dict__.update(work.__dict__)

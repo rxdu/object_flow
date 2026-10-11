@@ -1434,6 +1434,10 @@ pub struct Store {
     /// recorded, since a published version never changes: what an erasure
     /// reads was personal under (ADR-0146 decision 2).
     earlier: Arc<BTreeMap<i64, Library>>,
+    /// Whether an erasure committed since the write-ahead log was last
+    /// truncated, so the log's earlier frames still hold what it erased
+    /// (D584).
+    checkpoint_due: bool,
 }
 
 /// How many read connections a deployment keeps idle for the next reads;
@@ -1516,6 +1520,7 @@ impl Store {
             now,
             answers: BTreeMap::new(),
             attempt_retention: None,
+            checkpoint_due: false,
             idempotency_retention: None,
             earlier: Arc::new(BTreeMap::new()),
         };
@@ -1567,6 +1572,10 @@ impl Store {
         conn.execute_batch(
             "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;",
         )?;
+        // what a write deletes or overwrites, an erasure's personal values
+        // among it, is zeroed in the file rather than left in free space
+        // (D584)
+        conn.execute_batch("PRAGMA secure_delete = ON;")?;
         // another connection's write lock is waited for, not met at once
         // (storage-schema.md §7, ADR-0178 decision 2)
         conn.busy_timeout(BUSY_TIMEOUT)?;
@@ -1582,6 +1591,7 @@ impl Store {
             now,
             answers: BTreeMap::new(),
             attempt_retention: None,
+            checkpoint_due: false,
             idempotency_retention: None,
             earlier: Arc::new(BTreeMap::new()),
         };
@@ -1655,6 +1665,7 @@ impl Store {
             now,
             answers,
             attempt_retention: None,
+            checkpoint_due: false,
             idempotency_retention: None,
             earlier,
         };
@@ -1672,6 +1683,23 @@ impl Store {
 
     /// A connection for reads of the store's file beside this store's
     /// writes, waiting out a write lock as this one does (ADR-0178).
+    /// After an erasure commits, the write-ahead log truncated into the
+    /// store's file, so the log's earlier frames, which held what it erased,
+    /// leave the files as the pages `secure_delete` zeroed do (D584). A
+    /// reader holding the log keeps it: the truncation is due again after
+    /// the next write, until it completes. Whether it completed.
+    pub fn after_erasure(&mut self, erased: bool) -> Stored<bool> {
+        self.checkpoint_due |= erased;
+        if !self.checkpoint_due {
+            return Ok(true);
+        }
+        let busy: i64 = self
+            .conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
+        self.checkpoint_due = busy != 0;
+        Ok(busy == 0)
+    }
+
     pub fn read_connection(path: &std::path::Path) -> Stored<Connection> {
         let conn = Connection::open_with_flags(
             path,

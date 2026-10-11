@@ -54,6 +54,8 @@ A fresh store knows one actor, `operator`. **Mirror your users into the store**:
 
 An actor the store does not know is refused `unsatisfied`, clause `actor_known`, remedy `dependent`: onboard them first. Whether an actor is a person, an agent or a service is its type's, so every event and metric says truthfully which kind acted.
 
+**The store never reads an actor's state** (`DESIGN.md` §5.8): a person who has left, or an agent retired in the store, still acts if your application lets its request through, since revoking a session or a key is your gateway's. Record a departure in the store for the record, and refuse the person or the key at the gateway. A read checks no actor at all: who may read what is your application's.
+
 ## 4. Requests and refusals
 
 A request creates an object (`type`) or takes a transition on one (`object_id`), with inputs in the wire's notation (`wire.md` §2: money `"USD 120.00"`, a date `"2025-12-30"`, a reference by its id, a file by its reference, its content's hash, size and media type, the bytes kept by your application).
@@ -76,6 +78,8 @@ POST /v1/request
 
 An `unsatisfied` refusal also says whether its clause was `unknown`, a value nobody has yet, rather than false, and what it `consulted`; an `invariant_violated` names every object an invariant fails on and the `objects` in conflict, such as the other holder of a unique value (`wire.md` §3, ADR-0179).
 
+A refusal names only objects that exist: where a rule fails on the object the refused request was creating, its failure's `object_id` is `null`, since no such object exists and the next one created takes the id it would have had (D581). A satisfied request answers its own object's id; an object its effect created is found by its creation event among the positions it answers, `POST /v1/events {"positions": […]}`, each naming its object and transition.
+
 **Send the version you read** (`expected_version`), so a decision made on what the person saw cannot overwrite a change they did not see. **Send an idempotency key** on every write, so a retry after a timeout answers the first result (`"replayed": true`) rather than applying twice.
 
 `/v1/check` answers the verdict a request would get without writing anything, for a confirmation step.
@@ -85,9 +89,11 @@ An `unsatisfied` refusal also says whether its clause was `unknown`, a value nob
 - `get` an object: every attribute, derived ones too, a set by its members' ids; `null` if it does not exist.
 - `history`: its events, each with who, when, what was sent and why (`context`).
 - `availability`: what it offers an actor now, each transition available, available with input, or unavailable with the refusal it would meet. Render the buttons from it; build a form from each offer's input types and `declaration`. An offer marked `actor_dependent` may still be refused for who takes it, as an agent offered a person's confirmation is.
-- `query` a type with a filter (`state == Claim.SUBMITTED`, `claim.id == "claim-4"`) for a worklist; `available` lists the objects a transition is available to.
+- `query` a type with a filter (`state == Claim.SUBMITTED`, `claim.id == "claim-4"`) for a worklist, ordered by `order` (`wire.md` §4); `available` lists the objects a transition is available to. A filter compares a member with a value of its own type: a state or an enumeration's member by name, never as text, and a time against `now`, `rejected_at <= now - 180 days`, since there is no timestamp literal; one that compares a member with a literal its type cannot hold is refused `malformed_filter` (D580).
 - `metric` a declared metric, whole or by its dimensions. A metric that names a person is listed in its type's `declaration` under `person_dimensions`; your application decides who sees those.
-- `subscribe`, then poll `pull` and `acknowledge` to react to events: notifications, timers, integrations.
+- `subscribe`, then poll `pull` and `acknowledge` to react to events: notifications, timers, integrations. A subscription starts at its own creation, with nothing older (`DESIGN.md` §7): to catch up first, read what you need, then subscribe, or read the log with `export`.
+- The standard metrics per assignee are named `<Type>.<metric>.<reference>`, the reference marked `assignee`, such as `Interview.open_work.interviewer`, open interviews per interviewer; `declaration` lists them with the person dimensions.
+- Two built-in attributes hold JSON as text, `DeclarationChange.report` and `Proposal.inputs`: parse them (`publish` answers the report as an object).
 
 **Reads come in pages** (ADR-0179): `query`, `available`, `pull` and `export` answer at most `limit` items, 100 unless you ask for up to 1000, and the `cursor` of the next page; send it back until it is `null`. A page goes on after the last object it gave, so a worklist read while clerks work meets each new object once. There is no text search: index what `export` or `pull` gives you.
 
@@ -102,7 +108,7 @@ An agent acts through the same requests as a person, as an actor of an agent typ
 
 ## 7. Changing a flow, and bringing in existing data
 
-A new version is published as a `DeclarationChange`: draft it with the new modules' text, `submit` it to run its dry run, read the report (what it migrates, what it would newly refuse, the objects each reaches), and approve it with `publish` at the version you read. Existing data comes in through `import_batch` into types the version declares `mirror`, which `scripts/mirror-version.py` writes from the flow's module, then a publish of the module that makes them the flow's own; `docs/design/publish-and-import.md` §7 works a go-live through, on a deployment's store. Both are `docs/design/publish-and-import.md`.
+A new version is published as a `DeclarationChange`: draft it with the new modules' text, and each module's examples as `<module>.examples` beside it, which the dry run runs, a failing one refusing the submit `dry_run_clean`; `submit` it to run its dry run, read the report (what it migrates, what it would newly refuse, the objects each reaches), and approve it with `publish` at the version you read. Existing data comes in through `import_batch` into types the version declares `mirror`, which `scripts/mirror-version.py` writes from the flow's module, then a publish of the module that makes them the flow's own; `docs/design/publish-and-import.md` §7 works a go-live through, on a deployment's store. Both are `docs/design/publish-and-import.md`.
 
 ## 8. What the engine does, and what your application does
 
@@ -111,10 +117,20 @@ A new version is published as a `DeclarationChange`: draft it with the new modul
 | Who someone is | records the actor named, with its declared kind | authenticates them, and names them |
 | Who may do what | enforces the flow's rules, including rules over who acted that the flow states | decides permissions, roles and segregation of duties beyond what the flow records |
 | What happens next | answers what each object offers, and why not | renders it; starts every transition: nothing runs by itself |
-| Time | records when, and evaluates time in rules | schedules: timers, reminders and escalations request transitions or read `available` |
+| Time | records when, and evaluates time in rules | schedules: timers, reminders and escalations request transitions or read `available`. Keep each deadline as an attribute the flow writes, `expires_at` assigned `now + 7 days` and guarded `now >= expires_at`, and let the scheduler query `expires_at <= now`: a version that changes the period changes the attribute, never a copy in the scheduler (`write-a-flow.md` §5) |
 | Notifications | gives events through subscriptions | sends the email, the chat message, the push |
 | External systems | consults an evaluator a rule names, posting the call to the endpoint a deployment configures; in a sandbox, a fixed answer | answers it there, `{"verdict": "satisfied"}` or `"unsatisfied"` (ADR-0175); writes to the other system itself |
 | Search | filters by members, with indexes the flow declares | full-text search, over an export or the event feed |
 | Files | records a reference to a file, `{hash, size, media_type}` | stores, serves and deletes the bytes, and computes the hash it sends |
 | Reporting | computes declared metrics, exports rows | dashboards and analysis beyond them |
 | Personal data | marks what is personal, erases it on request, labels person-naming metrics | who may see it |
+
+## 9. Running a deployment
+
+- **Its address**: the service binds loopback unless `--bind` says otherwise and authenticates nobody (ADR-0114); put it behind the application that authenticates, never on a network your users reach.
+- **Health**: `GET /health` answers the release, the store's version, its clock, the store's release and whether an upgrade is due; the service writes each fault it meets, an evaluator's endpoint unreachable among them, on its standard error, one line each.
+- **Backups of a running store**: SQLite's online backup copies a consistent store while the service writes, as Python's `sqlite3.connect(store).backup(sqlite3.connect(copy))` does, and so does `VACUUM INTO '<copy>'` on a connection of your own; each copy, taken while writes ran, passed `PRAGMA integrity_check` on 2026-10-11. Copying the file alone is safe only with the service stopped, its `-wal` file beside it. Restore by stopping the service and putting the copy in the store's place.
+- **Erasure and the bytes on disk**: an erasure overwrites what it erased in the store's file and truncates the write-ahead log after it commits, so neither file holds an erased value (D584); a backup taken before it does, so expire backups within the period your privacy rules allow, or encrypt them.
+- **What grows**: the attempt log and the idempotency records are pruned by `POST /v1/maintain {"actor": …, "task": {"name": "prune_attempts" or "prune_idempotency", "before": "<timestamp>"}}`, within the retention the service was started with (`--attempt-retention`, `--idempotency-retention`), a prune inside it refused `inside_retention`; the event log is kept whole, since archiving it is not built on one SQLite file (`archive_events` answers `501`).
+- **Load**: writes are one at a time, each a durable commit; ADR-0178 states what was measured on one machine, which a deployment measures again on its own.
+

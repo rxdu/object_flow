@@ -26,6 +26,7 @@ with scripts/check-flows.py, and the module against it with
 
 import importlib.util
 import pathlib
+import re
 import sys
 
 import yaml
@@ -55,6 +56,17 @@ def joined(types, tn):
     return {n for n in out if n in types}
 
 
+def counts_dropped(m, dropped):
+    """Whether a metric counts a transition the mirror no longer has: a measure over one, or a formula over the
+    transitions naming one; the checker refuses either (D586)."""
+    if m.get("transition") in dropped:
+        return True
+    if m.get("source") == "transitions":
+        text = " ".join(str(m.get(k) or "") for k in ("filter", "dimensions", "expression"))
+        return bool(set(re.findall(r'"([a-z_][a-z0-9_]*)"', text)) & dropped)
+    return False
+
+
 def main(argv):
     if len(argv) < 2 or argv[1] in ("-h", "--help"):
         print(__doc__.strip(), file=sys.stdout if len(argv) >= 2 else sys.stderr)
@@ -82,6 +94,38 @@ def main(argv):
     out["types"] = {tn: (ported["types"][tn] if tn in mirrored else t) for tn, t in types.items()}
     if not any(tn not in mirrored for tn in types):
         out.pop("machines", None)
+    # a mirror's metrics over a transition it no longer has are left out, and the combined metrics reading them
+    gone = set()
+    for tn in sorted(mirrored):
+        t = dict(out["types"][tn])
+        dropped = set(types[tn].get("transitions") or {}) - set(t.get("transitions") or {})
+        kept = {}
+        for mn, m in (t.get("metrics") or {}).items():
+            if isinstance(m, dict) and counts_dropped(m, dropped):
+                gone.add(f"{tn}.{mn}")
+                print(f"mirror-version: {tn}.{mn} counts a transition {tn} does not have as a mirror, and is left "
+                      f"out of this version", file=sys.stderr)
+            else:
+                kept[mn] = m
+        if "metrics" in t:
+            t["metrics"] = kept
+            if not kept:
+                t.pop("metrics")
+            out["types"][tn] = t
+    combined = dict(out.get("metrics") or {})
+    while True:
+        reading = [mn for mn, m in combined.items()
+                   if any(str(v) in gone for v in (m.get("input_metrics") or {}).values())]
+        if not reading:
+            break
+        for mn in reading:
+            gone.add(mn)
+            combined.pop(mn)
+            print(f"mirror-version: the combined metric {mn} reads one left out, and is left out too", file=sys.stderr)
+    if "metrics" in out:
+        out["metrics"] = combined
+        if not combined:
+            out.pop("metrics")
     # an owned type's transition may not write a mirror (flow-format.md §4.15, check 53)
     for tn, t in types.items():
         if tn in mirrored:

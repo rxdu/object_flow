@@ -236,7 +236,9 @@ class InvalidInput:
 
 @dataclass(frozen=True)
 class InvariantFailure:
-    object_id: str
+    object_id: str | None                 # none for the object the refused request was creating,
+                                          # which does not exist, and whose id a later object
+                                          # takes (D581)
     type: str                             # the object's type, which no read gives for an
                                           # object the refused request would have created
                                           # (ADR-0151)
@@ -252,8 +254,10 @@ class InvariantFailure:
 @dataclass(frozen=True)
 class InvariantViolated:
     failures: Sequence[InvariantFailure]  # by object id, then in the order the type declares them
-    objects: Sequence[str]                # every object in the conflict
+    objects: Sequence[str]                # every object in the conflict the store holds
     remedy: Remedy                        # the first failure's (ADR-0122)
+    proposable: bool                      # whether the transition takes a proposal, as a
+                                          # `taken_by` refusal's does (D582)
 
 
 @dataclass(frozen=True)
@@ -336,7 +340,9 @@ class Page:
                                           # the transition, which a sweep does not simulate
                                           # (ADR-0176 decision 2)
     refused: str | None = None            # a query it cannot answer, a value: unknown_type,
-                                          # malformed_filter, unknown_order_key, unknown_field,
+                                          # malformed_filter, one that does not parse, reads a
+                                          # reference as text or compares a member with a literal
+                                          # its type cannot hold (D580), unknown_order_key, unknown_field,
                                           # malformed_cursor, a cursor of another read (ADR-0179)
                                           # malformed_filter too where a filter compares a
                                           # reference with a string or computes with one;

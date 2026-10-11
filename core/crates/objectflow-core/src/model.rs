@@ -2093,6 +2093,36 @@ impl Library {
                 inherit(t, &chain, &declared);
             }
         }
+        // no attribute is the column a single reference is kept in, which
+        // the store could not create, refused as the checker refuses it
+        // (`storage-schema.md` §3.2, D578)
+        for t in lib.types.values() {
+            for (a, _) in &t.attributes {
+                let clash = a
+                    .strip_suffix("_id")
+                    .and_then(|base| t.attribute(base))
+                    .is_some_and(|r| matches!(r.declared, Declared::Reference(_)) && !r.many);
+                if clash {
+                    let (file, line) = files
+                        .iter()
+                        .find(|(_, text)| {
+                            crate::source::name_of(text).as_deref() == Some(t.module.as_str())
+                        })
+                        .map_or((String::new(), 1), |(f, text)| {
+                            (f.clone(), declared_line(text, &t.name))
+                        });
+                    return Err(LoadError {
+                        file,
+                        line,
+                        message: format!(
+                            "{}.{a} is the column the store keeps the reference {} in; name the attribute otherwise (storage-schema.md §3.2, D578)",
+                            t.name,
+                            a.trim_end_matches("_id")
+                        ),
+                    });
+                }
+            }
+        }
         Ok(lib)
     }
 

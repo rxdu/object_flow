@@ -1297,3 +1297,104 @@ fn available_pull_and_export_are_read_in_pages() {
     }
     assert_eq!(lines, whole);
 }
+
+/// A filter comparing a member with a literal its type cannot hold is
+/// refused `malformed_filter`, never answered empty or `501` (D580): a
+/// creation time with text, a name with a number, the state with text;
+/// each written as its type is, it is answered.
+#[test]
+fn a_filter_that_does_not_type_is_refused() {
+    let file = fresh_store("typed-filters");
+    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    ledger(&s);
+    let op = json!({"id": "operator"});
+    let read = |filter: &str| {
+        post(
+            &s,
+            "/v1/query",
+            &json!({"actor": op, "type": "Account", "filter": filter}),
+        )
+    };
+    for wrong in [
+        r#"created_at <= "2026-01-01T00:00:00Z""#,
+        "name == 3",
+        r#"state == "OPEN""#,
+        "balance == true",
+    ] {
+        let page = read(wrong);
+        assert_eq!(page["refused"], "malformed_filter", "{wrong}: {page}");
+    }
+    for right in [
+        "created_at <= now",
+        r#"name == "a""#,
+        "state == OPEN",
+        "balance >= 0",
+    ] {
+        let page = read(right);
+        assert!(page["refused"].is_null(), "{right}: {page}");
+    }
+}
+
+/// An erasure leaves nothing it erased in the store's files (D584): the
+/// pages it rewrote are zeroed by `secure_delete`, and the write-ahead
+/// log, whose earlier frames held the values, is truncated after it
+/// commits; another person's values stay.
+#[test]
+fn an_erasure_leaves_no_erased_bytes_in_the_stores_files() {
+    let file = fresh_store("erasure-bytes");
+    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let module = "module: erase
+categories: [live, closed]
+types:
+  Candidate:
+    description: Someone who applied.
+    tracking: record
+    attributes:
+      name: { type: string, personal: true, optional: true }
+      email: { type: string, personal: true, optional: true, unique: true, indexed: true }
+    states:
+      NEW: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      apply: { kind: initial, to: NEW, optional_inputs: [name, email] }
+      close: { kind: external, from: NEW, to: DONE }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+";
+    publish(&s, &json!({ "erase": module }));
+    let op = json!({"id": "operator"});
+    let apply = |name: &str, email: &str| {
+        let v = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Candidate", "transition": "apply",
+            "inputs": {"name": name, "email": email}}),
+        );
+        v["object_id"].as_str().expect("a candidate").to_string()
+    };
+    let gone = apply("Zebulon Quaxworth", "zebulon@quax.example");
+    for i in 0..20 {
+        apply(&format!("Other {i}"), &format!("other{i}@kept.example"));
+    }
+    let v = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": gone, "transition": "forget",
+        "inputs": {"reason": "asked to be forgotten"}}),
+    );
+    assert_eq!(v["kind"], "satisfied", "{v}");
+    let held = |needle: &str| {
+        let mut found = Vec::new();
+        for suffix in ["", "-wal"] {
+            let path = PathBuf::from(format!("{}{suffix}", file.display()));
+            if let Ok(bytes) = std::fs::read(&path)
+                && bytes.windows(needle.len()).any(|w| w == needle.as_bytes())
+            {
+                found.push(path.display().to_string());
+            }
+        }
+        found
+    };
+    assert_eq!(held("Quaxworth"), Vec::<String>::new());
+    assert_eq!(held("zebulon@quax"), Vec::<String>::new());
+    assert!(!held("other19@kept").is_empty(), "the others' values stay");
+}
