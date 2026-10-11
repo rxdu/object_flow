@@ -1,0 +1,28 @@
+examples_for: taken
+
+setups:
+  a_request:
+    description: Ana, a person, the scout, an agent, and an open request.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: ana } }
+      - request: { type: Agent, transition: issue, as: scout, inputs: { key: scout } }
+      - request: { type: Request, transition: open, as: request, inputs: { title: Laptop } }
+
+examples:
+  the_agent_may_not_open_one:
+    description: Opening a request declares no taken_by, so it takes the type's, a person's only.
+    given: a_request
+    request: { type: Request, transition: open, actor: scout, inputs: { title: Desk } }
+    expect: { verdict: invariant_violated, clause: open_taken_by, remedy: delegable }
+
+  the_agent_may_retitle:
+    description: Retitling is opened to agents by its own taken_by.
+    given: a_request
+    request: { object: request, transition: retitle, actor: scout, inputs: { title: Desk } }
+    expect: { verdict: applied, state: OPEN, values: { retitle_by_kind: agent } }
+
+  a_service_rejects:
+    description: Reject keeps its own taken_by, which a service may take; a person may too.
+    given: a_request
+    request: { object: request, transition: reject, actor: ana }
+    expect: { verdict: applied, state: REJECTED, values: { reject_by_kind: human } }

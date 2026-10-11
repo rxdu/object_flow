@@ -1978,11 +1978,9 @@ impl Store {
             clause: clause.into(),
             remedy: Some(Remedy::UnreachableFromHere),
         };
-        let Some(who) = resolve_actor(&world, actor)? else {
-            return refusal(Verdict::Unsatisfied {
-                clause: "actor_known".into(),
-                remedy: Some(Remedy::Dependent),
-            });
+        let who = match crate::request::active(resolve_actor(&world, actor)?) {
+            Ok(who) => who,
+            Err(v) => return refusal(v),
         };
         let Some(c) = world.get(change)?.filter(|c| c.type_ == DECLARATION_CHANGE) else {
             return refusal(Verdict::NotFound);

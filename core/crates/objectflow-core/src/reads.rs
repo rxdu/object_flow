@@ -848,7 +848,8 @@ pub(crate) fn offers(
     if let Some(what) = t.beyond.first() {
         return Err(NotRun::Unsupported(what.clone()));
     }
-    let who = resolve_actor(world, actor)?;
+    // the actor, or what refuses every offer to it (ADR-0182 decision 6)
+    let who = crate::request::active(resolve_actor(world, actor)?);
     let no_inputs = BTreeMap::new();
     let mut offers = Vec::new();
     for (xn, x) in &t.transitions {
@@ -876,17 +877,17 @@ pub(crate) fn offers(
             flags: Vec::new(),
             told,
         };
-        let Some(who) = &who else {
-            offers.push(refused(
-                Verdict::Unsatisfied {
-                    clause: "actor_known".into(),
-                    remedy: Some(Remedy::Dependent),
-                },
-                inputs,
-                unevaluated,
-                offer_told(Vec::new(), false, x.proposable),
-            ));
-            continue;
+        let who = match &who {
+            Ok(who) => who,
+            Err(v) => {
+                offers.push(refused(
+                    v.clone(),
+                    inputs,
+                    unevaluated,
+                    offer_told(Vec::new(), false, x.proposable),
+                ));
+                continue;
+            }
         };
         let state_allows = match x.kind {
             Kind::Erasure => true,
@@ -1005,11 +1006,8 @@ pub(crate) fn offers(
     // only via a publish or an erasure (DESIGN.md §9, D535)
     if o.type_ == crate::model::PROPOSAL {
         for xn in ["approve", "reject", "withdraw"] {
-            let verdict = if who.is_none() {
-                Some(Verdict::Unsatisfied {
-                    clause: "actor_known".into(),
-                    remedy: Some(Remedy::Dependent),
-                })
+            let verdict = if let Err(v) = &who {
+                Some(v.clone())
             } else if o.state != "PENDING" {
                 Some(Verdict::Unavailable {
                     state: o.state.clone(),
@@ -1048,11 +1046,8 @@ pub(crate) fn offers(
             .into_iter()
             .filter(|(n, _)| n != "subject")
             .collect();
-        let refusal = if who.is_none() {
-            Some(Verdict::Unsatisfied {
-                clause: "actor_known".into(),
-                remedy: Some(Remedy::Dependent),
-            })
+        let refusal = if let Err(v) = &who {
+            Some(v.clone())
         } else if t.state(&o.state).is_some_and(|s| s.is_final) {
             Some(Verdict::Unsatisfied {
                 clause: "subject_open".into(),

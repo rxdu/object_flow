@@ -1,6 +1,6 @@
 # ADR-0178: More than one request at a time
 
-- **Status:** Built at the author's direction ("go ahead with the concurrency ADR and go according to your recommendations based on the design requirements and industrial practices", 2026-10-10), for the author's review.
+- **Status:** **Accepted** by the author, 2026-10-11, by ADR-0182 ("go with your recommendations on the fifteen questions"). Before: Built at the author's direction ("go ahead with the concurrency ADR and go according to your recommendations based on the design requirements and industrial practices", 2026-10-10), for the author's review.
 - **Date:** 2026-10-10
 - **Refines:** ADR-0174 (a deployment's service), ADR-0090 (contention on each backend), ADR-0175 decision 2 (a request's calls asked outside its transaction)
 - **Relates to:** `DESIGN.md` §2, §6; `design/storage-schema.md` §7; `design/library-api.md` §4, §7; `design/procurement-second-review.md` §2

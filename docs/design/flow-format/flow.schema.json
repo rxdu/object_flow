@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "objectflow-flow-description-draft-2.schema.json",
-  "title": "ObjectFlow flow description (draft 2)",
+  "$id": "objectflow-flow-format-1.schema.json",
+  "title": "ObjectFlow flow description (format 1)",
   "description": "The structure of a flow description, the one written form of an ObjectFlow flow (ADR-0116). Normative for structure only: the rules this schema cannot express, and the meaning of every key, are in docs/design/flow-format.md, and scripts/check-flows.py checks them all.",
   "type": "object",
   "required": [
@@ -203,6 +203,13 @@
         "state_machine": {
           "$ref": "#/definitions/typeName",
           "description": "The shared state machine this type binds, declared in the module or imported (UML classifierBehavior); a binder declares no states of its own."
+        },
+        "taken_by": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["human", "agent", "service"] },
+          "description": "The kinds of actor that may take every transition of this type that declares no taken_by of its own, a bound machine's included; a subtype does not inherit it (ADR-0182 decision 5)."
         },
         "states": {
           "type": "object",

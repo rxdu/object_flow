@@ -150,7 +150,7 @@ examples:
 | Where | Keys, in the order they are written |
 |---|---|
 | module (§4.1) | `module`, `imports`, `categories`, `enumerations`, `sequences`, `evaluators`, `machines`, `types`, `metrics`, `migration` |
-| type (§4.2) | `description`, `abstract`, `extends`, `mirror`, `tracking`, `state_machine`, `attributes`, `inherited_parts`, `observations`, `states`, `derived_attributes`, `summary`, `invariants`, `conditions`, `transitions`, `metrics` |
+| type (§4.2) | `description`, `abstract`, `extends`, `mirror`, `tracking`, `state_machine`, `taken_by`, `attributes`, `inherited_parts`, `observations`, `states`, `derived_attributes`, `summary`, `invariants`, `conditions`, `transitions`, `metrics` |
 | machine (§4.10) | `description`, `requires`, `states`, `conditions`, `transitions` |
 | metric (§4.9) | `description`, `measure`, `state`, `transition`, `source`, `item`, `split_by`, `filter`, `dimensions`, `group_by`, `time_dimension`, `expression`, `flag_when` |
 
@@ -178,6 +178,7 @@ Required: a module's `module`, `categories` and `types`; a type's `description` 
 | `abstract`, `extends` | `abstract: true` on a base with no objects; `extends: <Base>` inherits its attributes, derived attributes, invariants and tracking, never its transitions | 4.14 |
 | `mirror` | `true` for a type another system owns: only an import writes it | 4.15 |
 | `state_machine` | the shared machine the type binds, declaring no states of its own; the machine's `requires` lists what a binder declares | 4.10 |
+| `taken_by` | the kinds that may take every transition of the type declaring none, `[human]`; a subtype does not inherit it | 4.2 |
 | `inherited_parts` | on a subtype, how the parts of a composite end it inherits go with its final transitions | 4.14 |
 | `observations` | datapoints recorded about an object, never changed: each a `kind`, `description`, `attributes`, `max_recording_delay` and `invariants` | 4.4 |
 | `states` | each a `category`, and `description`, `final`, `required_attributes`, `superseding` | 4.5 |

@@ -906,7 +906,7 @@ fn page_json(page: &reads::QueryPage) -> J {
     json!({
         "items": page.items.iter().map(|i| json!({
             "id": i.id, "type": i.type_,
-            "fields": J::Object(i.fields.iter().map(|(f, v)| (f.clone(), encode(v))).collect()),
+            "fields": J::Object(i.fields.iter().map(|(f, v)| (f.clone(), as_held(&i.type_, f, encode(v)))).collect()),
         })).collect::<Vec<_>>(),
         "cursor": page.cursor,
         "refused": page.refused,
@@ -1468,6 +1468,27 @@ async fn import_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
 }
 
 /// An object as `get` reads it, or null where the store holds none.
+/// The built-in attributes that hold JSON, kept as text: the wire answers
+/// each as the JSON it holds, as its input was written (ADR-0182 decision
+/// 9).
+const HELD_AS_JSON: &[(&str, &str)] = &[
+    ("DeclarationChange", "source"),
+    ("DeclarationChange", "report"),
+    ("DeclarationChange", "evidence"),
+    ("Proposal", "inputs"),
+];
+
+/// An attribute's value as the wire answers it: one `HELD_AS_JSON` names
+/// as the JSON its text holds, any other as encoded.
+fn as_held(type_: &str, name: &str, encoded: J) -> J {
+    match encoded {
+        J::String(text) if HELD_AS_JSON.contains(&(type_, name)) => {
+            serde_json::from_str(&text).unwrap_or(J::String(text))
+        }
+        other => other,
+    }
+}
+
 fn object_json(s: &Store, id: &str) -> Answer {
     let world = s.snapshot()?;
     let Some(view) = reads::get(&world, id)? else {
@@ -1488,7 +1509,10 @@ fn object_json(s: &Store, id: &str) -> Answer {
     // members, so a set is never null (`flow-format.md` §4.3, D552)
     let reader = objectflow_core::eval::Evaluator::new(&world, Some(t), Some(&o.id));
     for (n, _) in &t.attributes {
-        attributes.insert(n.clone(), encode(&reader.attribute(o, n)?));
+        attributes.insert(
+            n.clone(),
+            as_held(&o.type_, n, encode(&reader.attribute(o, n)?)),
+        );
     }
     for (n, v) in &view.derived {
         attributes.insert(n.clone(), encode(v));

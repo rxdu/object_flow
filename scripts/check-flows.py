@@ -93,7 +93,7 @@ ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "e
                  "survives"}
 METRIC_ORDER = ["description", "measure", "state", "transition", "source", "item", "split_by", "filter", "dimensions",
                 "group_by", "time_dimension", "expression", "flag_when"]
-TYPE_ORDER = ["description", "abstract", "extends", "mirror", "tracking", "state_machine", "attributes", "inherited_parts", "observations", "states",
+TYPE_ORDER = ["description", "abstract", "extends", "mirror", "tracking", "state_machine", "taken_by", "attributes", "inherited_parts", "observations", "states",
               "derived_attributes", "summary", "invariants", "conditions", "transitions", "metrics"]
 
 
@@ -245,7 +245,10 @@ def with_taken_by(t):
     of type actor_kind that its effect first assigns actor.kind, and an invariant holding that attribute absent or
     one of the kinds named, each after the type's own. A name the type declares itself is left as it is declared,
     which taken_by_errors reports."""
-    marked = [(xn, x) for xn, x in (t.get("transitions") or {}).items() if isinstance(x, dict) and x.get("taken_by")]
+    # a transition declaring none takes its type's, a bound machine's among them (ADR-0182 decision 5)
+    own = t.get("taken_by") or []
+    marked = [(xn, dict(x, taken_by=x.get("taken_by") or own)) for xn, x in (t.get("transitions") or {}).items()
+              if isinstance(x, dict) and (x.get("taken_by") or own)]
     if not marked:
         return t
     attributes, invariants = dict(t.get("attributes") or {}), dict(t.get("invariants") or {})
@@ -4115,7 +4118,7 @@ def literals(doc):
 EXAMPLE_CLOCK = "2026-01-01T00:00:00Z"   # the instant every example's clock starts at
 EXAMPLES_ORDER = ["examples_for", "setups", "examples"]
 # the guards the engine generates, which an example may expect to refuse (DESIGN.md §6)
-GENERATED_GUARDS = {"actor_known", "occurred_within", "whole_open", "not_erased", "subject_open", "corrects_current",
+GENERATED_GUARDS = {"actor_known", "actor_active", "occurred_within", "whole_open", "not_erased", "subject_open", "corrects_current",
                     "subject_owned", "successor_not_superseded"}
 DATE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")   # a date as an example writes it (ADR-0145)
 BUILT_IN_MEMBERS = {"id", "open", "created_at", "created_by_kind", "recorded_from", "declaration_version"}
@@ -4477,7 +4480,7 @@ def example_errors(doc, kinds, modules):
         here = path + ("expect",)
         # a left-out input is refused as invalid_input, unless a refusal DESIGN.md §6 orders before it decides the request
         # first: the actor, a transition only via others, or a state the transition does not leave (D517)
-        earlier = verdict in ("unavailable", "not_requestable") or (verdict == "unsatisfied" and want.get("clause") == "actor_known")
+        earlier = verdict in ("unavailable", "not_requestable") or (verdict == "unsatisfied" and want.get("clause") in ("actor_known", "actor_active"))
         if missing and verdict != "invalid_input" and not earlier:
             out.append((here + ("verdict",), "names", f"the request leaves out {', '.join(missing)}, which is refused as invalid_input, "
                                                       f"and the example expects {verdict}"))
@@ -6270,6 +6273,44 @@ WHO_FLOW = TAKEN_FLOW.replace("categories: [live, closed]\n", "categories: [live
     "      forget: { kind: erasure, taken_by: [human], inputs: { reason: { type: string } } }\n"
     "      force: { kind: assertion, to: [APPROVED], taken_by: [human], inputs: { reason: { type: Why } } }")
 
+# TAKEN_FLOW with the request's transitions a person's unless one says otherwise: the type's taken_by, which retitle
+# opens to agents and reject keeps its own (ADR-0182 decision 5)
+TYPE_TAKEN_FLOW = TAKEN_FLOW.replace(
+    "    description: A request a person decides.\n    tracking: record\n",
+    "    description: A request a person decides.\n    tracking: record\n    taken_by: [human]\n").replace(
+    "      retitle: { kind: internal, from: OPEN, required_inputs: [title] }",
+    "      retitle: { kind: internal, from: OPEN, required_inputs: [title], taken_by: [human, agent] }")
+
+TYPE_TAKEN_EXAMPLES = """examples_for: taken
+
+setups:
+  a_request:
+    description: Ana, a person, the scout, an agent, and an open request.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: ana } }
+      - request: { type: Agent, transition: issue, as: scout, inputs: { key: scout } }
+      - request: { type: Request, transition: open, as: request, inputs: { title: Laptop } }
+
+examples:
+  the_agent_may_not_open_one:
+    description: Opening a request declares no taken_by, so it takes the type's, a person's only.
+    given: a_request
+    request: { type: Request, transition: open, actor: scout, inputs: { title: Desk } }
+    expect: { verdict: invariant_violated, clause: open_taken_by, remedy: delegable }
+
+  the_agent_may_retitle:
+    description: Retitling is opened to agents by its own taken_by.
+    given: a_request
+    request: { object: request, transition: retitle, actor: scout, inputs: { title: Desk } }
+    expect: { verdict: applied, state: OPEN, values: { retitle_by_kind: agent } }
+
+  a_service_rejects:
+    description: Reject keeps its own taken_by, which a service may take; a person may too.
+    given: a_request
+    request: { object: request, transition: reject, actor: ana }
+    expect: { verdict: applied, state: REJECTED, values: { reject_by_kind: human } }
+"""
+
 TAKEN_EXAMPLES = """examples_for: taken
 
 setups:
@@ -6332,6 +6373,14 @@ WHO_EXAMPLES = TAKEN_EXAMPLES.replace("inputs: { title: Laptop } }", "inputs: { 
     given: a_request
     request: { object: request, transition: force, actor: ana, inputs: { reason: Why.ERROR, to: APPROVED } }
     expect: { verdict: applied, state: APPROVED }
+
+  a_retired_agent_does_not_act:
+    description: The scout, retired in the store, is refused what it could take before (ADR-0182 decision 6).
+    given: a_request
+    steps:
+      - request: { object: scout, transition: retire }
+    request: { object: request, transition: retitle, actor: scout, inputs: { title: Desk } }
+    expect: { verdict: unsatisfied, clause: actor_active, remedy: dependent }
 """
 
 
@@ -6350,6 +6399,10 @@ def taken_by_plants():
     ok &= not found
     print(f"  taken_by on an erasure and an assertion, the agent's refused and a person's applied: "
           f"{'clean' if not found else [x[4][:80] for x in found]}")
+    found, _notes = check([("taken.yaml", TYPE_TAKEN_FLOW), ("taken.examples.yaml", TYPE_TAKEN_EXAMPLES)])
+    ok &= not found
+    print(f"  a type's taken_by, which a transition declaring none takes: "
+          f"{'clean' if not found else [x[4][:80] for x in found]}")
     cases = [
         ("an assertion admitting what taken_by generates", WHO_FLOW.replace(
             "      force: { kind: assertion, to: [APPROVED], taken_by: [human], inputs: { reason: { type: Why } } }",
@@ -6357,6 +6410,12 @@ def taken_by_plants():
             "      lax: { kind: assertion, to: [APPROVED], may_admit: [approve_taken_by], "
             "inputs: { reason: { type: Why } } }"),
          None, "names"),
+        ("a type's taken_by generating a name it declares", TYPE_TAKEN_FLOW.replace(
+            "      title: { type: string }", "      title: { type: string }\n      open_by_kind: { type: actor_kind, optional: true }"),
+         None, "names"),
+        ("a type's taken_by out of its place", TYPE_TAKEN_FLOW.replace(
+            "    tracking: record\n    taken_by: [human]\n", "    taken_by: [human]\n    tracking: record\n"),
+         None, "order"),
         ("a reference's column declared", TAKEN_FLOW.replace(
             "      title: { type: string }",
             "      title: { type: string }\n      owner: { reference: User }\n"

@@ -327,15 +327,23 @@ fn decide(
         report.refusal = Some(r);
         Ok((report, None))
     };
-    let Some(who) = resolve_actor(world, actor)? else {
-        return refused(
-            report,
-            ImportRefusal {
-                type_: String::new(),
-                legacy_key: String::new(),
-                reason: format!("actor_known: the store holds no actor {actor}"),
-            },
-        );
+    let who = match resolve_actor(world, actor)? {
+        Some(who) if !who.ended => who,
+        found => {
+            let reason = if found.is_some() {
+                format!("actor_active: the actor {actor} is in a final state")
+            } else {
+                format!("actor_known: the store holds no actor {actor}")
+            };
+            return refused(
+                report,
+                ImportRefusal {
+                    type_: String::new(),
+                    legacy_key: String::new(),
+                    reason,
+                },
+            );
+        }
     };
     // owned types, which the import may not write (C33); an observation or
     // a label it writes on a mirror's object (publish-and-import.md §4)

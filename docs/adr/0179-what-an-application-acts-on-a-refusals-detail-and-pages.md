@@ -1,6 +1,6 @@
 # ADR-0179: What an application acts on: a refusal's detail, and pages
 
-- **Status:** Built at the author's direction ("go ahead with your recommendations, /loop until it's ready", 2026-10-11), for the author's review.
+- **Status:** **Accepted** by the author, 2026-10-11, by ADR-0182 ("go with your recommendations on the fifteen questions"). Before: Built at the author's direction ("go ahead with your recommendations, /loop until it's ready", 2026-10-11), for the author's review.
 - **Date:** 2026-10-11
 - **Refined by:** ADR-0181 — a refusal names no object that does not exist, an invariant refusal tells `proposable`, and a filter is typed against its literals.
 - **Refines:** ADR-0092 (what a remedy points at), ADR-0150 decision 2 (the wire's notation), ADR-0122 (a refusal's objects)

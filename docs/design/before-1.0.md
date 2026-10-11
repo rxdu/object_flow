@@ -1,6 +1,6 @@
 # Before 1.0.0: the author's review
 
-Status: **prepared 2026-10-11** for the author, at their direction ("go ahead and address all of them", on a plan naming "a review packet for the flow format and ADRs 0174 to 0179"). It holds what the author reviews before the engine's release is numbered 1.0.0 and ADR-0180's promise binds: six ADRs built at the author's direction and not yet reviewed, and the flow format as format 1 would freeze it. Each item says what was decided, how it is held, what would be hard to change once promised, and a question with a recommendation; §4 gathers the questions.
+Status: **decided 2026-10-11** by the author, every question as recommended ("go with your recommendations on the fifteen questions"), and recorded in ADR-0182; prepared the same day for the author, at their direction ("go ahead and address all of them", on a plan naming "a review packet for the flow format and ADRs 0174 to 0179"). It holds what the author reviews before the engine's release is numbered 1.0.0 and ADR-0180's promise binds: six ADRs built at the author's direction and not yet reviewed, and the flow format as format 1 would freeze it. Each item says what was decided, how it is held, what would be hard to change once promised, and a question with a recommendation; §4 gathers the questions.
 
 ## 1. What to read, in order
 

@@ -102,9 +102,16 @@ fn taken_kinds(x: &Value) -> Option<Vec<String>> {
 /// the kinds named, each after the type's own. A name the type declares
 /// itself is left as it is declared, which `taken_by_errors` reports.
 fn with_taken_by(t: Value) -> Value {
+    // a transition declaring none takes its type's, a bound machine's among
+    // them (ADR-0182 decision 5)
+    let own = taken_kinds(&t);
     let marked: Vec<(String, Vec<String>)> = obj(&t, "transitions")
         .iter()
-        .filter_map(|(xn, x)| taken_kinds(x).map(|k| (xn.clone(), k)))
+        .filter_map(|(xn, x)| {
+            taken_kinds(x)
+                .or_else(|| own.clone())
+                .map(|k| (xn.clone(), k))
+        })
         .collect();
     if marked.is_empty() {
         return t;
@@ -142,6 +149,7 @@ fn with_taken_by(t: Value) -> Value {
             invariants.insert(i, Value::Object(spec));
         }
         if let Some(x) = transitions.get_mut(&xn).and_then(Value::as_object_mut) {
+            x.insert("taken_by".into(), json!(kinds));
             let mut effect = vec![json!({"assign": {"location": a, "expr": "actor.kind"}})];
             effect.extend(
                 x.get("effect")

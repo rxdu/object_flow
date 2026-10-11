@@ -1376,6 +1376,21 @@ def test_an_offer_is_decided_for_who_asks_alike(tee):
     assert tee.post("/v1/get", {"id": req})["state"] == "OPEN"
     assert tee.post("/v1/history", {"id": req})["events"][-1]["transition"] == "open"
     alike(tee)
+    # retired in the store, the agent is refused every offer and request,
+    # as a person who left is (ADR-0182 decision 6)
+    for gone, xn in ((scout, "retire"), (ana, "leave")):
+        assert tee.post("/v1/request", {"object_id": gone["object_id"],
+                                        "transition": xn, "actor": OP}
+                        )["kind"] == "satisfied"
+        offered = offers(gone["object_id"])
+        assert {(o["verdict"] or {}).get("clause") for o in offered.values()} \
+            == {"actor_active"}, offered
+        v = tee.post("/v1/request", {"object_id": req, "transition": "retitle",
+                                     "actor": {"id": gone["object_id"]},
+                                     "inputs": {"title": "Desk"}})
+        assert (v["kind"], v["clause"], v["remedy"]) == (
+            "unsatisfied", "actor_active", "dependent"), v
+    alike(tee)
 
 
 # a refusal's clause, unknown or false, what it names and whether it takes a
@@ -1715,3 +1730,26 @@ def test_a_metric_filter_reads_its_rows_through_the_item_alike(tee):
         assert read(wrong)["refused"] == "malformed_filter", wrong
     assert read("i.state == Employee.ACTIVE")["refused"] is None
     alike(tee)
+
+
+def test_a_proposals_inputs_are_answered_as_json_alike(tee):
+    """A built-in attribute holding JSON is answered as JSON, never as the
+    text it is kept as: a proposal's inputs, as a request's are written
+    (ADR-0182 decision 9), through both backends."""
+    tee.found.clear()
+    assert tee.post("/sandbox/load",
+                    {"files": [{"name": "taken.yaml", "text": TAKEN}]})["loaded"]
+    scout = tee.post("/v1/request", {"type": "Agent", "transition": "issue",
+                                     "actor": OP, "inputs": {"key": "scout"}})
+    req = tee.post("/v1/request", {"type": "Request", "transition": "open",
+                                   "actor": OP,
+                                   "inputs": {"title": "Laptop"}})["object_id"]
+    filed = tee.post("/v1/request", {"object_id": req, "transition": "approve",
+                                     "actor": {"id": scout["object_id"]},
+                                     "propose": True})
+    assert filed["kind"] == "satisfied", filed
+    proposal = tee.post("/v1/get", {"id": filed["object_id"]})
+    assert proposal["type"] == "Proposal", proposal
+    assert proposal["attributes"]["inputs"] == {}, proposal["attributes"]
+    alike(tee)
+

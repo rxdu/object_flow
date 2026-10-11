@@ -689,7 +689,8 @@ class Driver:
         if m:
             # what each reference read at submission, as the change keeps it (ADR-0097 §5, ADR-0159)
             o = self.core.call("/v1/get", {"id": self.changes[m.group(1)]})
-            evidence = json.loads(o["attributes"].get("evidence") or "{}")
+            # answered as the JSON it holds (ADR-0182 decision 9)
+            evidence = o["attributes"].get("evidence") or {}
             rows = []
             for read in evidence.get("read") or []:
                 if read.get("refused"):

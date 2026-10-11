@@ -2480,7 +2480,7 @@ The history continues from `now` of §38. The reads of §41 are taken at `2027-0
 - **Diya leaves** on 22 March. Ana records it through the backend, as the sync of people from the first consumer's user system would.
 - **J5.** Ana opens a repair for Chen on R20, which Boreal bought with D06.
 - **Scout, through the gateway, working for Ben**, asks to be named J3's engineer, and then starts J4, Ben's maintenance job.
-- **Diya's session.** Nobody revoked the floor application's session Diya was signed in to, and on the 26th Diya starts J3 through it.
+- **Diya's session.** Nobody revoked the floor application's session Diya was signed in to, and on the 26th Diya tries to start J3 through it. The store refuses it, `actor_active`, `dependent`: Diya left on the 22nd, and an actor in a final state acts no more (`DESIGN.md` §5.8, ADR-0182 decision 6). Ben, whose job J3 is, starts it an hour later. *(Revised 2026-10-11, with PRD revision 24: until ADR-0182 the store did not read an actor's state, and Diya started J3.)*
 - **An agent the store does not know.** On the 29th the gateway sends a request from `helper`, an agent Ben set up in the gateway and nobody issued in the store, to finish J4.
 
 ```yaml scenario
@@ -2491,13 +2491,14 @@ requests:
   - { at: 2027-03-23T09:00Z, actor: U-ANA, create: ServiceJob, object: J5, transition: open, inputs: { kind: REPAIR, robot: R20, customer: C-BOREAL, engineer: U-CHEN } }
   - { at: 2027-03-24T10:00Z, actor: A-SCOUT, principal: U-BEN, object: J3, transition: reassign, inputs: { engineer: A-SCOUT }, refused: { verdict: invalid input, remedy: self_serviceable } }
   - { at: 2027-03-24T10:05Z, actor: A-SCOUT, principal: U-BEN, object: J4, transition: start }
-  - { at: 2027-03-26T09:00Z, actor: U-DIYA, object: J3, transition: start }
+  - { at: 2027-03-26T09:00Z, actor: U-DIYA, object: J3, transition: start, refused: { verdict: unsatisfied, clause: actor_active, remedy: dependent } }
+  - { at: 2027-03-26T10:00Z, actor: U-BEN, object: J3, transition: start }
   - { at: 2027-03-29T09:00Z, actor: helper, principal: U-BEN, object: J4, transition: finish, refused: { verdict: unsatisfied, clause: actor_known, remedy: dependent } }
 ```
 
 ## 41. UC-22: one door, and a kind nobody can claim
 
-> The first consumer's backend, the operations application and an agent gateway all call the engine's service, and none holds the store's database credentials. The gateway has a bug: it lets each agent do whatever the person it works for may do. An agent then asks to be named engineer-of-record of a service job, and later a user who has left the company acts through a session nobody revoked. *Acceptance:* every request reaches the store through the service and is recorded with the actor it named; each actor's kind is the one its declared type gives, whatever the gateway sent, so the agent's requests are counted as an agent's; the agent is never engineer-of-record, because that reference names a person's type and an agent is not one; the departed user's request is recorded as theirs, so the record shows the session nobody revoked, whose revocation is the upper layer's; a request naming an actor the engine does not know is refused; and changing the kind of a type's actors is a publish. (PRD §7)
+> The first consumer's backend, the operations application and an agent gateway all call the engine's service, and none holds the store's database credentials. The gateway has a bug: it lets each agent do whatever the person it works for may do. An agent then asks to be named engineer-of-record of a service job, and later a user who has left the company acts through a session nobody revoked. *Acceptance:* every request reaches the store through the service and is recorded with the actor it named; each actor's kind is the one its declared type gives, whatever the gateway sent, so the agent's requests are counted as an agent's; the agent is never engineer-of-record, because that reference names a person's type and an agent is not one; the departed user's request is refused, `actor_active`, and its attempt is recorded as theirs, so the record shows the session nobody revoked, whose revocation stays the upper layer's; a request naming an actor the engine does not know is refused; and changing the kind of a type's actors is a publish. (PRD §7)
 
 **Each actor's kind is the one its declared type gives.** The kinds are in the declaration, one per type that holds actors, beside the identity a request names them by, as the rule set prints them (`renderers.md` §2). A request carries an actor and a principal and no kind (`library-api.md` §3), so there is nothing for a gateway to send:
 
@@ -2533,6 +2534,7 @@ Read: `attempts(J3)`
 | transition | actor_kind | verdict | clause | remedy | call |
 |---|---|---|---|---|---|
 | reassign | agent | invalid input | absent | self_serviceable | absent |
+| start | human | unsatisfied | actor_active | dependent | absent |
 
 Read: `intervals(J3.engineer)`
 
@@ -2540,7 +2542,7 @@ Read: `intervals(J3.engineer)`
 |---|---|---|---|
 | U-BEN | 2027-01-13T10:00Z | human | false |
 
-**The departed user's request is recorded as theirs.** The engine does not ask whether an actor's object is in a closed state (`DESIGN.md` §5.8), so Diya's start of J3 applied and is Diya's. The record shows the session nobody revoked: Diya left on 22 March and acted on the 26th. Revoking the session was the floor application's to do:
+**The departed user's request is refused, and recorded as theirs.** An actor whose object is in a final state is refused, `actor_active`, `dependent` (`DESIGN.md` §5.8, PRD revision 24), so Diya's start of J3 did not apply; its attempt is Diya's, the second row of J3's attempts above, and the record shows the session nobody revoked: Diya left on 22 March and tried to act on the 26th. Revoking the session was still the floor application's to do. Ben started J3 an hour later:
 
 Read: `history(U-DIYA)`
 
@@ -2554,7 +2556,7 @@ Read: `provenance(J3)`
 | transition | actor | actor_kind | principal |
 |---|---|---|---|
 | open | ana | human | absent |
-| start | diya | human | absent |
+| start | ben | human | absent |
 
 **A request naming an actor the engine does not know is refused.** No actor holds the identity `helper`, so the request is refused by the generated guard `actor_known`, with the remedy `dependent`, before anything else is checked (`DESIGN.md` §6 step 1). Its attempt records the identity as the request named it, under the kind `unknown`, which ADR-0125 decides (§44):
 
@@ -2570,6 +2572,7 @@ Read: `metric(ServiceJob.refusals, keep: [transition, clause, remedy, actor_kind
 |---|---|---|---|---|---|
 | reassign | absent | self_serviceable | agent | 1 | |
 | finish | actor_known | dependent | unknown | 1 | |
+| start | actor_active | dependent | human | 1 | |
 
 **Changing the kind of a type's actors is a publish.** A kind is a marking on a type's actor identity, and only a published version changes a type (ADR-0110 §3). The `actor kinds` above are read from the version in force. A change to one would appear in the rule-set diff an approver reads, and nothing a caller sends can make it.
 

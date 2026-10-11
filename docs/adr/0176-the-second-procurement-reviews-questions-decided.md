@@ -2,7 +2,7 @@
 
 - **Status:** Decided by the author, 2026-10-10 ("go with your recommendations on the seven questions"), on the recommendation stated with each question.
 - **Date:** 2026-10-10
-- **Refined by:** ADR-0181 — `taken_by` marks an erasure and an assertion too, and no `may_admit` admits what it generates.
+- **Refined by:** ADR-0181 — `taken_by` marks an erasure and an assertion too, and no `may_admit` admits what it generates. ADR-0182 — a type's `taken_by`, which a transition declaring none takes.
 - **Refines:** ADR-0114 and ADR-0173 decision 1 (who acted, recorded and never evaluated), ADR-0152 (what an offer decides), ADR-0154 (the import's classes), ADR-0141 and ADR-0173 decision 6 (the examples format)
 - **Relates to:** `design/procurement-second-review.md` §5; `DESIGN.md` §5.5, §10; `design/flow-format.md` §4.6, §4.8, §11.3; `design/publish-and-import.md` §4, §6; `design/renderers.md` §3; `TODO.md`
 

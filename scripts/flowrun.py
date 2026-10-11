@@ -1675,7 +1675,7 @@ class _DryRun(_NeverAsked):
 
 DRY_RUN = _DryRun()
 
-GENERATED_REMEDY = {"actor_known": "dependent", "occurred_within": "self_serviceable", "whole_open": "self_serviceable",
+GENERATED_REMEDY = {"actor_known": "dependent", "actor_active": "dependent", "occurred_within": "self_serviceable", "whole_open": "self_serviceable",
                     "not_erased": "unreachable_from_here", "subject_open": "unreachable_from_here",
                     "corrects_current": "self_serviceable", "subject_owned": "unreachable_from_here",
                     "successor_not_superseded": "self_serviceable"}
@@ -1878,9 +1878,12 @@ class Runner:
 
     def attempted(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred=None, filed_at=None):
         work = copy.deepcopy(store)
-        # 1. the actor: an object of a type that marks an actor identity (DESIGN.md §6 step 1)
+        # 1. the actor: an object of a type that marks an actor identity, in a state that is not final (DESIGN.md §6
+        # step 1, ADR-0182 decision 6)
         if actor not in work.objects or work.actor_attr(work.type_of(actor)) is None:
             raise Refused("unsatisfied", "actor_known", "dependent")
+        if work.final(work.objects[actor]):
+            raise Refused("unsatisfied", "actor_active", "dependent")
         attr, akind = work.actor_attr(work.type_of(actor))
         ctx = Ctx(work, {"id": work.objects[actor].attrs.get(attr, ABSENT), "kind": akind}, stubs, tn)
         ctx.before = store
@@ -1992,7 +1995,9 @@ class Runner:
         who = None
         if actor in store.objects and store.actor_attr(store.type_of(actor)) is not None:
             attr, akind = store.actor_attr(store.type_of(actor))
-            who = {"id": store.objects[actor].attrs.get(attr, ABSENT), "kind": akind}
+            # an actor in a final state is refused every offer (ADR-0182 decision 6)
+            who = {"id": store.objects[actor].attrs.get(attr, ABSENT), "kind": akind,
+                   "ended": store.final(store.objects[actor])}
         offers = []
         for xn, x in (t.get("transitions") or {}).items():
             if x["kind"] == "initial" or x.get("only_via"):
@@ -2005,6 +2010,8 @@ class Runner:
             for xn in ("approve", "reject", "withdraw"):
                 if who is None:
                     r = Refused("unsatisfied", "actor_known", GENERATED_REMEDY["actor_known"])
+                elif who["ended"]:
+                    r = Refused("unsatisfied", "actor_active", GENERATED_REMEDY["actor_active"])
                 elif o.state != "PENDING":
                     r = Refused("unavailable", remedy="unreachable_from_here", detail=f"it is in {o.state}")
                 else:
@@ -2051,6 +2058,8 @@ class Runner:
         try:
             if who is None:
                 raise Refused("unsatisfied", "actor_known", GENERATED_REMEDY["actor_known"])
+            if who["ended"]:
+                raise Refused("unsatisfied", "actor_active", GENERATED_REMEDY["actor_active"])
             self.check_state(store, x, o.id)
             personal = {a for a, sp in attrs.items() if (sp or {}).get("personal")}
             if x["kind"] != "erasure" and o.erased:
@@ -2090,6 +2099,8 @@ class Runner:
         try:
             if who is None:
                 raise Refused("unsatisfied", "actor_known", GENERATED_REMEDY["actor_known"])
+            if who["ended"]:
+                raise Refused("unsatisfied", "actor_active", GENERATED_REMEDY["actor_active"])
             if store.final(o):
                 raise Refused("unsatisfied", "subject_open", GENERATED_REMEDY["subject_open"], objects=[o.id])
             if (self.kinds.get(o.type) or {}).get("mirror"):
@@ -3394,6 +3405,8 @@ def decide_or_request(runner, store, st, aliases, stubs, under_test):
             try:
                 if actor not in store.objects or store.actor_attr(store.type_of(actor)) is None:
                     raise Refused("unsatisfied", "actor_known", "dependent")
+                if store.final(store.objects[actor]):
+                    raise Refused("unsatisfied", "actor_active", "dependent")
                 if store.proposals[key]["state"] != "pending":
                     decided = Refused("unavailable", remedy="unreachable_from_here",
                                       detail=f"the proposal is {store.proposals[key]['state']}")

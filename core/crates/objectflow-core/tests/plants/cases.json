@@ -10570,7 +10570,7 @@
    ],
    [
     "taken.examples.yaml",
-    "e0325d5c7138a7f7"
+    "d7237346997b3543"
    ]
   ],
   "previous": {},
@@ -10580,14 +10580,14 @@
     11,
     "notice",
     "coverage",
-    "no example requests 3 transitions of taken as the request under test, which only a setup, a step or an expected cascade takes: Agent.issue, Request.open, User.add"
+    "no example requests 4 transitions of taken as the request under test, which only a setup, a step or an expected cascade takes: Agent.issue, Agent.retire, Request.open, User.add"
    ],
    [
     "taken.examples.yaml",
     11,
     "notice",
     "coverage",
-    "no example takes 3 transitions of taken, by its request, a step, a setup or a cascade it expects: Agent.retire, Request.reject, User.leave"
+    "no example takes 2 transitions of taken, by its request, a step, a setup or a cascade it expects: Request.reject, User.leave"
    ]
   ],
   "analysed": {
@@ -10626,6 +10626,73 @@
    "Request.reject_taken_by": [
     "Request.open",
     "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "taken_by_plants",
+  "files": [
+   [
+    "taken.yaml",
+    "34cf95000aaa2943"
+   ],
+   [
+    "taken.examples.yaml",
+    "2cfdc6957add85b5"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.examples.yaml",
+    11,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of taken as the request under test, which only a setup, a step or an expected cascade takes: Agent.issue, User.add"
+   ],
+   [
+    "taken.examples.yaml",
+    11,
+    "notice",
+    "coverage",
+    "no example takes 3 transitions of taken, by its request, a step, a setup or a cascade it expects: Agent.retire, Request.approve, User.leave"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Request": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.open_taken_by": "local",
+   "Request.reject_taken_by": "local",
+   "Request.retitle_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.open_taken_by": [
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ],
+   "Request.retitle_taken_by": [
+    "Request.open",
+    "Request.retitle"
    ]
   }
  },
@@ -10670,6 +10737,92 @@
    "Request.reject_taken_by": [
     "Request.open",
     "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "taken_by_plants: a type's taken_by generating a name it declares",
+  "files": [
+   [
+    "taken.yaml",
+    "3770cad5103175fc"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    41,
+    "fatal",
+    "names",
+    "Request.open's taken_by generates the attribute open_by_kind, which Request declares itself (ADR-0176)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.open_taken_by": "local",
+   "Request.reject_taken_by": "local",
+   "Request.retitle_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.open_taken_by": [
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ],
+   "Request.retitle_taken_by": [
+    "Request.open",
+    "Request.retitle"
+   ]
+  }
+ },
+ {
+  "label": "taken_by_plants: a type's taken_by out of its place",
+  "files": [
+   [
+    "taken.yaml",
+    "8b1c909d162c6247"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    32,
+    "fatal",
+    "order",
+    "in Request, 'tracking' comes after 'taken_by'; declare description, tracking, taken_by, attributes, states, transitions in that order"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.open_taken_by": "local",
+   "Request.reject_taken_by": "local",
+   "Request.retitle_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.open_taken_by": [
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ],
+   "Request.retitle_taken_by": [
+    "Request.open",
+    "Request.retitle"
    ]
   }
  },

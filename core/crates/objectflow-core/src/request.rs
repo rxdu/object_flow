@@ -186,6 +186,7 @@ pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Result<Option<Who
             id,
             kind: kind.to_string(),
             principal: None,
+            ended: t.state(&o.state).is_some_and(|s| s.is_final),
         })
     };
     if let Some(o) = world.get(actor)? {
@@ -324,24 +325,37 @@ fn invariant_objects(world: &World<'_>, o: &Object, n: &str) -> Result<BTreeSet<
     Ok(BTreeSet::new())
 }
 
+/// What refuses an actor, resolved or not: one the store holds no actor
+/// for, as `actor_known`, and one whose object is in a final state, a
+/// person who left or an agent retired, as `actor_active`, each `dependent`
+/// (`DESIGN.md` §5.8, §6 step 1, ADR-0182 decision 6).
+pub(crate) fn active(who: Option<Who>) -> Result<Who, Verdict> {
+    let clause = match who {
+        None => "actor_known",
+        Some(w) if w.ended => "actor_active",
+        Some(w) => return Ok(w),
+    };
+    Err(Verdict::Unsatisfied {
+        clause: clause.into(),
+        remedy: Some(Remedy::Dependent),
+    })
+}
+
 /// Who a request acts as: its actor, and the principal it names, each an
 /// object of a type that marks an actor identity, or the request is refused
-/// as `actor_known` (`DESIGN.md` §6 step 1). The kind is the actor's.
+/// as `actor_known`, and each in a state that is not final, or it is
+/// refused as `actor_active` (`DESIGN.md` §6 step 1). The kind is the
+/// actor's.
 fn request_who(world: &World<'_>, req: &Request) -> Result<Who, Stop> {
-    let unknown = || {
-        refused(Verdict::Unsatisfied {
-            clause: "actor_known".into(),
-            remedy: Some(Remedy::Dependent),
-        })
-    };
-    let Some(mut who) = resolve_actor(world, &req.actor)? else {
-        return unknown();
+    let mut who = match active(resolve_actor(world, &req.actor)?) {
+        Ok(who) => who,
+        Err(v) => return refused(v),
     };
     if let Some(p) = &req.principal {
-        let Some(principal) = resolve_actor(world, p)? else {
-            return unknown();
-        };
-        who.principal = Some(principal.id);
+        match active(resolve_actor(world, p)?) {
+            Ok(principal) => who.principal = Some(principal.id),
+            Err(v) => return refused(v),
+        }
     }
     Ok(who)
 }

@@ -523,3 +523,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** When a change ends a stated limitation, search the whole repository for the limitation's wording and its negations (`not page`, `pages hold`, `not yet`) before committing, the README and the guides first.
 - **Context:** Documentation of shipped features, ObjectFlow; 2026-10-11.
 
+### A recommendation that reverses a design sentence is checked against the PRD first
+- **Pattern:** Asked to recommend on the third review's questions, I recommended refusing an actor in a final state, reversing `DESIGN.md` §5.8, and the author accepted it; implementing it, the scenarios' replay failed on §40, which the PRD's UC-22 requires: "the departed user's request is recorded as theirs", with revision 10's rationale "a departed one is recorded". The recommendation contradicted the baseline, unchecked.
+- **Correction:** Before recommending a decision that reverses or narrows a design statement, search the PRD for the requirement and the use case behind that statement, and put any conflict to the author with the recommendation, as a PRD revision to approve, not after the decision is taken.
+- **Context:** Design recommendations in ObjectFlow, whose PRD is the baseline every design choice is checked against; 2026-10-11.
+

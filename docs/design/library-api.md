@@ -65,8 +65,9 @@ class Actor:
     actor may do and see (ADR-0114). The store validates its shape, never its
     truth (ADR-0025), and carries no kind: it resolves `id` to the object holding
     that actor identity and takes the kind that object's type declares, refusing
-    an actor it does not know as `actor_known` (ADR-0110, ADR-0114). The store
-    records the actor and never evaluates it."""
+    an actor it does not know as `actor_known` (ADR-0110, ADR-0114), and one
+    whose object is in a final state as `actor_active` (ADR-0182). The store
+    records the actor and evaluates nothing else of it."""
 
     id: str
     principal: str | None = None

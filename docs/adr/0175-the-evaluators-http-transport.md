@@ -1,6 +1,6 @@
 # ADR-0175: The evaluators' HTTP transport
 
-- **Status:** Built at the author's direction, 2026-10-10 ("go with ureq for the evaluator transport", on `TODO.md`'s recommendation), for the author's review.
+- **Status:** **Accepted** by the author, 2026-10-11, by ADR-0182 ("go with your recommendations on the fifteen questions"). Before: Built at the author's direction, 2026-10-10 ("go with ureq for the evaluator transport", on `TODO.md`'s recommendation), for the author's review.
 - **Date:** 2026-10-10
 - **Refined by:** ADR-0178 — a check's calls are asked from a read of its own, a request's from the writer between attempts.
 - **Builds:** ADR-0173 decision 2, ADR-0174 decision 7

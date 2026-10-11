@@ -1,6 +1,6 @@
 # ADR-0181: The hiring review's findings decided
 
-- **Status:** Built at the author's direction ("go ahead and address all of them", 2026-10-11, on a plan whose last step was the third cold review), for the author's review; the questions that reverse an accepted decision are put to the author in `design/before-1.0.md` §4.
+- **Status:** **Accepted** by the author, 2026-10-11, by ADR-0182 ("go with your recommendations on the fifteen questions"). Before: Built at the author's direction ("go ahead and address all of them", 2026-10-11, on a plan whose last step was the third cold review), for the author's review; the questions that reverse an accepted decision are put to the author in `design/before-1.0.md` §4.
 - **Date:** 2026-10-11
 - **Refines:** ADR-0176 decision 1 (`taken_by`), ADR-0179 decisions 1 and 3 (a refusal's objects, a query's filter), ADR-0180 decision 1 (what is promised), ADR-0174 decision 2 (the store's file)
 - **Relates to:** `design/hiring-third-review.md`; `design/defects.md` D578 to D592; `DESIGN.md` §5.5, §10; `design/flow-format.md` §3, §4.8; `guides/wire.md`; `guides/integrate.md` §9

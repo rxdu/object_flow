@@ -2067,8 +2067,28 @@ impl Library {
         }
         // what each transition's taken_by generates, once each binder holds
         // its machine's transitions and before a subtype inherits it
-        // (ADR-0176 decision 1)
+        // (ADR-0176 decision 1); a transition declaring none takes its
+        // type's, a machine's bound by the type among them, which a subtype
+        // does not inherit, as it inherits no transition (ADR-0182 decision 5)
         for t in lib.types.values_mut() {
+            let own: Vec<String> = t
+                .source
+                .get("taken_by")
+                .and_then(serde_json::Value::as_array)
+                .map(|kinds| {
+                    kinds
+                        .iter()
+                        .filter_map(|k| k.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !own.is_empty() {
+                for (_, x) in &mut t.transitions {
+                    if x.taken_by.is_empty() {
+                        x.taken_by = own.clone();
+                    }
+                }
+            }
             if let Err(message) = taken_by(t) {
                 let (file, line) = files
                     .iter()

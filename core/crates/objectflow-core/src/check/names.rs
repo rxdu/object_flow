@@ -64,6 +64,7 @@ const ONLY_ON_TYPES: &[&str] = &[
 ];
 const GENERATED_GUARDS: &[&str] = &[
     "actor_known",
+    "actor_active",
     "occurred_within",
     "whole_open",
     "not_erased",

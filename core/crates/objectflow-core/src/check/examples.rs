@@ -32,6 +32,7 @@ pub type Exercised = BTreeSet<(String, String)>;
 const EXAMPLES_ORDER: &[&str] = &["examples_for", "setups", "examples"];
 const GENERATED_GUARDS: &[&str] = &[
     "actor_known",
+    "actor_active",
     "occurred_within",
     "whole_open",
     "not_erased",
@@ -1042,7 +1043,11 @@ fn expect_errors(
     // a left-out input is refused as invalid input, unless a refusal ordered
     // before it decides the request first (D517)
     let earlier = matches!(verdict, "unavailable" | "not_requestable")
-        || (verdict == "unsatisfied" && str_or(want, "clause", "") == "actor_known");
+        || (verdict == "unsatisfied"
+            && matches!(
+                str_or(want, "clause", "").as_str(),
+                "actor_known" | "actor_active"
+            ));
     if !resolved.missing.is_empty() && verdict != "invalid_input" && !earlier {
         c.out.push(finding(
             ext(here, segs!["verdict"]),

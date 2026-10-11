@@ -818,6 +818,10 @@ class Store:
                 self.kind = "unknown"
                 raise Fails("unsatisfied", "actor_known", "dependent")
         self.kind = self.kind_of(r["actor"])
+        # an actor, or a principal, in a final state is refused too (DESIGN.md §5.8, ADR-0182 decision 6)
+        for who in (r["actor"], r.get("principal")):
+            if who is not None and self.final(self.objects[who].type, self.objects[who].state):
+                raise Fails("unsatisfied", "actor_active", "dependent")
         self.principal = r.get("principal")
         occ = when(r["occurred_at"]) if r.get("occurred_at") else at
         inputs = {k: value(v) for k, v in (r.get("inputs") or {}).items()}
@@ -1645,8 +1649,9 @@ PLANTS = [
      "actor: U-ANA, object: U-BEN, transition: leave }"),
     ("an agent named engineer-of-record", "inputs: { engineer: A-SCOUT }, refused: { verdict: invalid input, remedy: self_serviceable } }",
      "inputs: { engineer: A-SCOUT } }"),
-    ("a departed user's request said to be refused", "actor: U-DIYA, object: J3, transition: start }",
-     "actor: U-DIYA, object: J3, transition: start, refused: { verdict: unsatisfied, clause: actor_known, remedy: dependent } }"),
+    ("a departed user's request said to apply",
+     "actor: U-DIYA, object: J3, transition: start, refused: { verdict: unsatisfied, clause: actor_active, remedy: dependent } }",
+     "actor: U-DIYA, object: J3, transition: start }"),
     ("a ported delivery leaving out a value its guard reads, which no engine defaults",
      "attributes: { customer: C-ACME, internal: false } }\n  - { object: D07", "attributes: { customer: C-ACME } }\n  - { object: D07"),
     ("a flag said to refuse", "inputs: { category: CAT-TRAVEL, amount: 420.00 }, creates: [CL1], answer: AN1 }",

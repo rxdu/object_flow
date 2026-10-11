@@ -603,7 +603,15 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
             let history = post(&s, "/v1/history", &json!({"actor": op, "id": id}));
             assert_eq!(got["state"], was["state"], "{name} {id}");
             for (k, v) in was["attributes"].as_object().expect("its attributes") {
-                assert_eq!(&got["attributes"][k], v, "{name} {id}.{k}");
+                // a built-in attribute holding JSON, which 0.1.0 answered as
+                // its text, is answered as the JSON (ADR-0182 decision 9)
+                let held = match (v, &got["attributes"][k]) {
+                    (Value::String(text), got) if !got.is_string() && !got.is_null() => {
+                        serde_json::from_str(text).unwrap_or_else(|_| v.clone())
+                    }
+                    _ => v.clone(),
+                };
+                assert_eq!(got["attributes"][k], held, "{name} {id}.{k}");
             }
             let before = was["history"]["events"].as_array().expect("its events");
             let now = history["events"].as_array().expect("its events");
@@ -1397,4 +1405,26 @@ types:
     assert_eq!(held("Quaxworth"), Vec::<String>::new());
     assert_eq!(held("zebulon@quax"), Vec::<String>::new());
     assert!(!held("other19@kept").is_empty(), "the others' values stay");
+}
+
+/// A change's source and report are answered as the JSON they hold, as
+/// its source was written, never as text holding it (ADR-0182 decision 9).
+#[test]
+fn a_changes_source_and_report_are_answered_as_json() {
+    let file = fresh_store("held-json");
+    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    publish_service(&s);
+    let op = json!({"id": "operator"});
+    let page = post(
+        &s,
+        "/v1/query",
+        &json!({"actor": op, "type": "DeclarationChange",
+        "fields": ["source", "report"]}),
+    );
+    let change = page["items"][0]["id"].clone();
+    assert!(page["items"][0]["fields"]["source"].is_object(), "{page}");
+    let got = post(&s, "/v1/get", &json!({"actor": op, "id": change}));
+    let attributes = &got["attributes"];
+    assert!(attributes["source"]["service"].is_string(), "{got}");
+    assert_eq!(attributes["report"]["accepted"], true, "{got}");
 }

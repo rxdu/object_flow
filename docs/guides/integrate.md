@@ -11,7 +11,7 @@ The engine's core runs as an HTTP service over one of two stores ([`core/README.
 
 Everything below works against both, but for the sandbox's controls, which a deployment does not route.
 
-**What a later release may change** (ADR-0180, proposed; binding from 1.0.0): within `/v1` a release only adds operations, keys, fields, verdict kinds and reasons, so write your client to ignore fields it does not know and to handle a refusal of an unknown `kind` by its `remedy`; a breaking change is `/v2`, served beside `/v1`; and a newer release upgrades your store (§2). `wire.md` states the rule in full.
+**What a later release may change** (ADR-0180, binding from release 1.0.0): within `/v1` a release only adds operations, keys, fields, verdict kinds and reasons, so write your client to ignore fields it does not know and to handle a refusal of an unknown `kind` by its `remedy`; a breaking change is `/v2`, served beside `/v1`; and a newer release upgrades your store (§2). `wire.md` states the rule in full.
 
 Use the core's service. The Python reference runner is the oracle the core is held to; it is reachable only through the Flow Studio's server and does not answer every operation.
 
@@ -54,7 +54,7 @@ A fresh store knows one actor, `operator`. **Mirror your users into the store**:
 
 An actor the store does not know is refused `unsatisfied`, clause `actor_known`, remedy `dependent`: onboard them first. Whether an actor is a person, an agent or a service is its type's, so every event and metric says truthfully which kind acted.
 
-**The store never reads an actor's state** (`DESIGN.md` §5.8): a person who has left, or an agent retired in the store, still acts if your application lets its request through, since revoking a session or a key is your gateway's. Record a departure in the store for the record, and refuse the person or the key at the gateway. A read checks no actor at all: who may read what is your application's.
+**An actor in a final state is refused** (`DESIGN.md` §5.8, ADR-0182): a person who has left, or an agent retired in the store, is refused every request, `unsatisfied`, clause `actor_active`, remedy `dependent`, and offered nothing. Record a departure in the store, and refuse the session or the key at your gateway too, which stays yours. A read checks no actor at all: who may read what is your application's.
 
 ## 4. Requests and refusals
 
@@ -93,7 +93,7 @@ A refusal names only objects that exist: where a rule fails on the object the re
 - `metric` a declared metric, whole or by its dimensions. A metric that names a person is listed in its type's `declaration` under `person_dimensions`; your application decides who sees those.
 - `subscribe`, then poll `pull` and `acknowledge` to react to events: notifications, timers, integrations. A subscription starts at its own creation, with nothing older (`DESIGN.md` §7): to catch up first, read what you need, then subscribe, or read the log with `export`.
 - The standard metrics per assignee are named `<Type>.<metric>.<reference>`, the reference marked `assignee`, such as `Interview.open_work.interviewer`, open interviews per interviewer; `declaration` lists them with the person dimensions.
-- Two built-in attributes hold JSON as text, `DeclarationChange.report` and `Proposal.inputs`: parse them (`publish` answers the report as an object).
+- The built-in attributes that hold JSON, a `DeclarationChange`'s `source`, `report` and `evidence` and a `Proposal`'s `inputs`, are answered as JSON, as their inputs are written (ADR-0182).
 
 **Reads come in pages** (ADR-0179): `query`, `available`, `pull` and `export` answer at most `limit` items, 100 unless you ask for up to 1000, and the `cursor` of the next page; send it back until it is `null`. A page goes on after the last object it gave, so a worklist read while clerks work meets each new object once. There is no text search: index what `export` or `pull` gives you.
 
@@ -103,7 +103,7 @@ An agent acts through the same requests as a person, as an actor of an agent typ
 
 - `availability` says what it may do now, and why not, decided for the agent where a transition taking no input may be refused for who takes it (ADR-0176); `actor_dependent` marks one awaiting inputs that may still be.
 - Every refusal's `remedy` is its next move, `delegable` among them where a person must act.
-- **"Agents draft, people approve"** is a rule a flow states: a transition marked `taken_by: [human]` records the kind of actor that took it and refuses another kind `delegable` (`flow-format.md` §4.8, ADR-0176), and one also marked `proposable` lets the agent file the request for a person to approve, whose approval takes it as theirs. A rule over a value rather than a transition records who acted by hand and constrains it with an invariant, as `reimbursement.yaml`'s `confirmed_by_a_person` does. **Nothing an agent may take is forbidden unless the flow says so**: state it on every transition a person must take, approvals, overrides and payments among them, and keep an allowlist of the agent's tools in your application until you have.
+- **"Agents draft, people approve"** is a rule a flow states: a transition marked `taken_by: [human]` records the kind of actor that took it and refuses another kind `delegable` (`flow-format.md` §4.8, ADR-0176), and one also marked `proposable` lets the agent file the request for a person to approve, whose approval takes it as theirs. A rule over a value rather than a transition records who acted by hand and constrains it with an invariant, as `reimbursement.yaml`'s `confirmed_by_a_person` does. **Nothing an agent may take is forbidden unless the flow says so**: mark a type `taken_by: [human]`, which every transition of it declaring none takes, and open to agents what they may take with `taken_by: [human, agent]` (ADR-0182); or state it on every transition a person must take, approvals, overrides, erasures and payments among them; and keep an allowlist of the agent's tools in your application until you have.
 - `tools` gives an agent's tool definitions, rendered from the flow for its actor kind: one per transition it may request, but those a rule over who acted refuses it, which it is handed for proposing only where they are proposable, one per observation kind, one reading any metric, and three reads it plans with, `get_object`, `object_availability` and `query_objects`, each a JSON Schema in the wire's notation (`docs/design/renderers.md` §3). Hand them to the model, send each write as a request in the agent's name, and each read as the operation it names. The tools are what the flow allows an agent, not what your application permits it: filter them by your own rules.
 
 ## 7. Changing a flow, and bringing in existing data
@@ -132,5 +132,6 @@ A new version is published as a `DeclarationChange`: draft it with the new modul
 - **Backups of a running store**: SQLite's online backup copies a consistent store while the service writes, as Python's `sqlite3.connect(store).backup(sqlite3.connect(copy))` does, and so does `VACUUM INTO '<copy>'` on a connection of your own; each copy, taken while writes ran, passed `PRAGMA integrity_check` on 2026-10-11. Copying the file alone is safe only with the service stopped, its `-wal` file beside it. Restore by stopping the service and putting the copy in the store's place.
 - **Erasure and the bytes on disk**: an erasure overwrites what it erased in the store's file and truncates the write-ahead log after it commits, so neither file holds an erased value (D584); a backup taken before it does, so expire backups within the period your privacy rules allow, or encrypt them.
 - **What grows**: the attempt log and the idempotency records are pruned by `POST /v1/maintain {"actor": …, "task": {"name": "prune_attempts" or "prune_idempotency", "before": "<timestamp>"}}`, within the retention the service was started with (`--attempt-retention`, `--idempotency-retention`), a prune inside it refused `inside_retention`; the event log is kept whole, since archiving it is not built on one SQLite file (`archive_events` answers `501`).
+- **What a release maintains** (ADR-0182): a major version is maintained for 12 months after the next major's first release, with security fixes in a release of its latest minor version, and `/v1` is served throughout beside any `/v2`.
 - **Load**: writes are one at a time, each a durable commit; ADR-0178 states what was measured on one machine, which a deployment measures again on its own.
 

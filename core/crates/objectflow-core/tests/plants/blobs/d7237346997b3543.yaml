@@ -58,3 +58,11 @@ examples:
     given: a_request
     request: { object: request, transition: force, actor: ana, inputs: { reason: Why.ERROR, to: APPROVED } }
     expect: { verdict: applied, state: APPROVED }
+
+  a_retired_agent_does_not_act:
+    description: The scout, retired in the store, is refused what it could take before (ADR-0182 decision 6).
+    given: a_request
+    steps:
+      - request: { object: scout, transition: retire }
+    request: { object: request, transition: retitle, actor: scout, inputs: { title: Desk } }
+    expect: { verdict: unsatisfied, clause: actor_active, remedy: dependent }

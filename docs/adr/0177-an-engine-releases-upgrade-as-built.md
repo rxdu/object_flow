@@ -1,6 +1,6 @@
 # ADR-0177: An engine release's upgrade, as built
 
-- **Status:** Built at the author's direction ("go ahead with the upgrade", 2026-10-10), for the author's review.
+- **Status:** **Accepted** by the author, 2026-10-11, by ADR-0182 ("go with your recommendations on the fifteen questions"). Before: Built at the author's direction ("go ahead with the upgrade", 2026-10-10), for the author's review.
 - **Date:** 2026-10-10
 - **Refined by:** ADR-0180 — a store is upgraded from every earlier release of its major version and the last of the one before; semantic versioning, binding from 1.0.0.
 - **Refines:** ADR-0110 §4 (an upgrade between releases), ADR-0174 decision 3 (a store of another release refused)

@@ -1,8 +1,8 @@
 # ADR-0180: What a release promises
 
-- **Status:** Proposed, 2026-10-11, at the author's direction ("go ahead and address all of them"): its checks are built; the promise binds from the release the author names 1.0.0 (decision 6).
+- **Status:** **Accepted** by the author, 2026-10-11, by ADR-0182 ("go with your recommendations on the fifteen questions"), its promise binding from release 1.0.0. Before: Proposed, 2026-10-11, at the author's direction ("go ahead and address all of them"): its checks are built; the promise binds from the release the author names 1.0.0 (decision 6).
 - **Date:** 2026-10-11
-- **Refined by:** ADR-0181 — a sandbox's controls and the tools' names promised too.
+- **Refined by:** ADR-0181 — a sandbox's controls and the tools' names promised too. ADR-0182 — accepted; what a major version is maintained for.
 - **Refines:** ADR-0177 (an engine release's upgrade), ADR-0150 decision 2 (the wire), ADR-0116 (the flow format)
 - **Relates to:** `guides/wire.md`; `design/flow-format.md`; `guides/integrate.md`; `guides/write-a-flow.md`; ADR-0179
 

@@ -175,11 +175,12 @@
 | [0171](0171-a-traversal-invariant-reads-through-any-relationship-end.md) | A traversal invariant reads through any relationship end | Decided by the author |
 | [0172](0172-the-internal-form-stays-as-the-reference-checkers-path.md) | The internal form stays as the reference checker's path | Decided by the author |
 | [0173](0173-the-procurement-reviews-questions-decided.md) | The procurement review's questions, decided | Decided by the author |
-| [0174](0174-a-deployments-service-its-first-slice.md) | A deployment's service, its first slice | Built at the author's direction, for review; decision 7 replaced by ADR-0175 |
-| [0175](0175-the-evaluators-http-transport.md) | The evaluators' HTTP transport | Built at the author's direction, for review |
+| [0174](0174-a-deployments-service-its-first-slice.md) | A deployment's service, its first slice | Accepted (ADR-0182); decision 7 replaced by ADR-0175 |
+| [0175](0175-the-evaluators-http-transport.md) | The evaluators' HTTP transport | Accepted (ADR-0182) |
 | [0176](0176-the-second-procurement-reviews-questions-decided.md) | The second procurement review's questions, decided | Decided by the author |
-| [0177](0177-an-engine-releases-upgrade-as-built.md) | An engine release's upgrade, as built | Built at the author's direction, for review |
-| [0178](0178-more-than-one-request-at-a-time.md) | More than one request at a time | Built at the author's direction, for review |
-| [0179](0179-what-an-application-acts-on-a-refusals-detail-and-pages.md) | What an application acts on: a refusal's detail, and pages | Built at the author's direction, for review |
-| [0180](0180-what-a-release-promises.md) | What a release promises | Proposed, its checks built, for the author's decision |
-| [0181](0181-the-hiring-reviews-findings-decided.md) | The hiring review's findings decided | Built at the author's direction, for review |
+| [0177](0177-an-engine-releases-upgrade-as-built.md) | An engine release's upgrade, as built | Accepted (ADR-0182) |
+| [0178](0178-more-than-one-request-at-a-time.md) | More than one request at a time | Accepted (ADR-0182) |
+| [0179](0179-what-an-application-acts-on-a-refusals-detail-and-pages.md) | What an application acts on: a refusal's detail, and pages | Accepted (ADR-0182) |
+| [0180](0180-what-a-release-promises.md) | What a release promises | Accepted (ADR-0182), binding from release 1.0.0 |
+| [0181](0181-the-hiring-reviews-findings-decided.md) | The hiring review's findings decided | Accepted (ADR-0182) |
+| [0182](0182-before-1-0-the-authors-decisions.md) | Before 1.0.0, the author's decisions | Decided by the author |

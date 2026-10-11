@@ -26,6 +26,11 @@ from .scripts import flowexpr, flowpublish, flowrun, flows, flowtools
 
 PROPOSAL_VERBS = ("approve", "reject", "withdraw")
 UNSUPPORTED = ("expected_version", "idempotency_key", "expires_at")
+# the built-in attributes that hold JSON, kept as text, which the wire
+# answers as the JSON they hold (ADR-0182 decision 9)
+HELD_AS_JSON = {("DeclarationChange", "source"), ("DeclarationChange", "report"),
+                ("DeclarationChange", "evidence"), ("Proposal", "inputs")}
+
 BUILT_IN = {
     "id": ("text",),
     "open": ("bool",),
@@ -618,6 +623,13 @@ class Sandbox:
                     # is never null (`flow-format.md` §4.3, D552)
                     v = ev.member(o.id, k)
                 attrs[k] = values.encode(v, typ)
+                if (o.type, k) in HELD_AS_JSON and isinstance(attrs[k], str):
+                    # a built-in attribute holding JSON, answered as the JSON
+                    # it holds (ADR-0182 decision 9)
+                    try:
+                        attrs[k] = json.loads(attrs[k])
+                    except ValueError:
+                        pass
             for k, spec in (t.get("derived_attributes") or {}).items():
                 expr = flowexpr.parse(spec["expression"])
                 # typed as the runner types it, a bare name read on `this`

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "examples.schema.json",
-  "title": "ObjectFlow examples file",
+  "title": "ObjectFlow examples file (format 1)",
   "description": "The examples a flow description carries: named setups, each a sequence of requests and imports from an empty store, and examples, each a request and what it must do (flow-format.md §11, ADR-0136).",
   "type": "object",
   "required": ["examples_for", "examples"],

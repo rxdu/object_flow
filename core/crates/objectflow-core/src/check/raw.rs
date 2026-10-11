@@ -64,6 +64,7 @@ const TYPE_ORDER: &[&str] = &[
     "mirror",
     "tracking",
     "state_machine",
+    "taken_by",
     "attributes",
     "inherited_parts",
     "observations",
