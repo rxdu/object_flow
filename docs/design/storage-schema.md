@@ -762,7 +762,7 @@ A publish is a declaration version and a set of DDL statements derived from it, 
 |---|---|
 | a new type, or a new observation kind | `CREATE TABLE`, its indexes, its constraints |
 | a new attribute | `ADD COLUMN`, nullable. DDL never writes a live row: a `default` applies at creation, and a new required attribute is filled by a `backfill` mapping, applied as recorded migration transitions (ADR-0099), its `NOT NULL` applied after the mappings, by a table rebuild on SQLite; an attribute made required is treated the same way (ADR-0147) |
-| a new indexed attribute | `ADD COLUMN` then `CREATE INDEX` |
+| a new indexed attribute, or one made indexed | `ADD COLUMN` then `CREATE INDEX`, `<table>_<column>_ix`, unless a reference's or a single-attribute key's index serves it; opening a store makes any such index it lacks, as a store a core before D593 made does, since an index changes no answer |
 | a removed attribute | **nothing**, but that a required one's `NOT NULL` is dropped, by a table rebuild on SQLite. A dropped attribute hides; its recorded values stay in history (ADR-0027, ADR-0148) |
 | an attribute made optional | its `NOT NULL` dropped, by a table rebuild on SQLite (ADR-0148) |
 | an attribute whose type changed | before the mappings, its column renamed aside, to `<name>__v<version>` of the last version that declared it, keeping its values readable for history, and a new column of the name added, nullable, every object's value starting absent (ADR-0148); a tracked attribute's intervals set aside under the same name, the open one closed at the publish event (ADR-0155, D528) |

@@ -610,6 +610,7 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
         }
         columns.push((col, def));
     }
+    indexes.extend(attribute_indexes(lib, t));
     // each uniqueness's key, which the uniqueness reads by: an index and
     // not a constraint, which an admitted conflict would refuse (ADR-0165);
     // a reference's key is its column, indexed above as a stored end
@@ -648,6 +649,34 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
         sets,
         indexes,
     }
+}
+
+/// The index on each attribute a query may filter on, `indexed`, where a
+/// reference's or a single-attribute key's index does not already serve it
+/// (`storage-schema.md` §10). The core made none before D593, so every read
+/// by such an attribute, an import's legacy key among them, read its whole
+/// table; [`Store::open`] makes one a store lacks.
+fn attribute_indexes(lib: &Library, t: &Type) -> Vec<String> {
+    let name = table(&t.name);
+    t.attributes
+        .iter()
+        .filter(|(n, a)| {
+            a.indexed
+                && !a.many
+                && !a.derived_end()
+                && !matches!(a.declared, Declared::Reference(_))
+                && !crate::request::unique_key(n, a, &crate::request::effective_unique(lib, a))
+                    .is_some_and(|(key, _)| key == [n.to_string()])
+        })
+        .map(|(n, a)| {
+            let col = column(n, a);
+            format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {name} ({});",
+                quote(&format!("{name}_{col}_ix")),
+                quote(&col)
+            )
+        })
+        .collect()
 }
 
 /// A span a publish opens on a member it newly tracks, holding its current
@@ -1628,6 +1657,14 @@ impl Store {
             .library_at(latest)?
             .map(Arc::new)
             .ok_or_else(|| StoreError(format!("version {latest} recorded no source")))?;
+        // an index the version declares and the store lacks, which a core
+        // before D593 never made: made now, since an index changes no answer,
+        // only how much of the store a read by it reads
+        for t in store.lib.types.values() {
+            for ddl in attribute_indexes(&store.lib, t) {
+                store.conn.execute_batch(&ddl)?;
+            }
+        }
         // never earlier than the last time the store recorded (decision 4)
         let last: Option<String> =
             store
@@ -4056,6 +4093,72 @@ types:
         assert!(
             plan.iter()
                 .any(|p| p.contains("USING INDEX t_label_by_name")),
+            "{plan:?}"
+        );
+    }
+
+    /// An attribute marked `indexed` has an index on its column, which a
+    /// read by it goes through; one whose reference or single-attribute key
+    /// is indexed already gets no second (D593).
+    #[test]
+    fn an_indexed_attribute_is_read_by_its_index() {
+        let text = r#"
+module: post
+categories: [open, closed]
+types:
+  Depot:
+    attributes:
+      name: { type: string }
+    states:
+      OPEN: { category: open }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [name] }
+  Parcel:
+    attributes:
+      code: { type: string, indexed: true }
+      note: { type: string, optional: true }
+      serial: { type: string, unique: true, indexed: true }
+      depot: { reference: Depot, indexed: true }
+    states:
+      OPEN: { category: open }
+    transitions:
+      send: { kind: initial, to: OPEN, required_inputs: [code, serial, depot], optional_inputs: [note] }
+"#;
+        let lib = Library::load(&[("post.yaml".into(), text.into())]).unwrap();
+        let store = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let indexes: Vec<String> = store
+            .conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 't_parcel'",
+            )
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .filter(|n| !n.starts_with("sqlite_"))
+            .collect();
+        let mut indexes = indexes;
+        indexes.sort();
+        assert_eq!(
+            indexes,
+            [
+                "t_parcel_asserted_ix",
+                "t_parcel_code_ix",
+                "t_parcel_depot_id_ix",
+                "t_parcel_serial_key_ix",
+                "t_parcel_state_ix",
+            ]
+        );
+        let plan: Vec<String> = store
+            .conn
+            .prepare("EXPLAIN QUERY PLAN SELECT id FROM t_parcel WHERE \"code\" = ?1")
+            .unwrap()
+            .query_map(["P-1"], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(
+            plan.iter().any(|p| p.contains("t_parcel_code_ix")),
             "{plan:?}"
         );
     }

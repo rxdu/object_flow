@@ -669,6 +669,45 @@ fn a_stopped_service_answers_the_requests_in_flight() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
+/// An attribute a version marks `indexed` has an index on its column, made
+/// by the publish, and a store that lacks it, as one a core before D593
+/// made, has it made when the service opens it again, so a read by it, an
+/// import's legacy key among them, never reads its whole table.
+#[test]
+fn an_indexed_attribute_s_index_is_made_where_the_store_lacks_it() {
+    let file = fresh_store("indexed");
+    let path = file.to_str().expect("a path");
+    let module = "module: post\ncategories: [open, closed]\ntypes:\n  Parcel:\n    description: A parcel, found by its code.\n    tracking: record\n    attributes:\n      code: { type: string, indexed: true }\n    states:\n      OPEN: { category: open }\n      DONE: { category: closed, final: true }\n    transitions:\n      send: { kind: initial, to: OPEN, required_inputs: [code] }\n      deliver: { kind: external, from: OPEN, to: DONE }\n";
+    let plain = module.replace("type: string, indexed: true", "type: string");
+    let indexed = || {
+        let conn = rusqlite::Connection::open(&file).expect("the file");
+        let n: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 't_parcel_code_ix'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("read");
+        n == 1
+    };
+    {
+        let s = start(&["--store", path, "--create", "--port", "0"]);
+        publish(&s, &json!({"post": plain}));
+        assert!(!indexed(), "an index on an attribute not marked indexed");
+        // a version marking it indexed, which changes nothing else of its table
+        publish(&s, &json!({"post": module}));
+    }
+    assert!(indexed(), "the publish made no index");
+    rusqlite::Connection::open(&file)
+        .expect("the file")
+        .execute_batch("DROP INDEX t_parcel_code_ix")
+        .expect("dropped");
+    assert!(!indexed());
+    drop(start(&["--store", path, "--port", "0"]));
+    assert!(indexed(), "the open made no index");
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
 /// `--version` names the service's release and the stores it serves.
 #[test]
 fn the_service_says_its_version() {

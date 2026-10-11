@@ -604,6 +604,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D590](#d590) | Running a deployment was unsaid | Resolved |
 | [D591](#d591) | A deadline was copied into the application's scheduler | Resolved |
 | [D592](#d592) | The wire left unsaid what an application relies on | Resolved |
+| [D593](#d593) | The core made no index for an attribute marked `indexed` | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3851,3 +3852,8 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **The wire left unsaid what an application relies on**: idempotency keys are the actor's, the `order` grammar, a label's `corrects`, a pending evaluator, a subscription's start, the per-assignee standard metrics' names, two built-in attributes holding JSON as text, a change's examples, an effect's created objects, and that reads check no actor. Found 2026-10-11 by the third cold review (integrator, E4, E7, E14, E16, E17, E18, E20, E25, E26, E28, E32).
 
 **Resolved** 2026-10-11 in `wire.md` and `integrate.md` §3 to §7; the JSON held as text is put to the author.
+
+### D593
+**The core made no index for an attribute marked `indexed`**: `flow-format.md` §4.3 says `indexed: true` lets a query filter on it, and `storage-schema.md` §10 gives a new indexed attribute `ADD COLUMN` then `CREATE INDEX`, but the core's model never read the key on a stored attribute, so its tables had indexes on state, references and uniqueness keys alone. Every read by such an attribute read its whole table: an import's check of each legacy key, a uniqueness or identifier lookup, a query's filter. Found 2026-10-11 measuring IMPORT-GROWTH, the go-live import of two years of claims, whose batches of 3,000 objects took 1.6 s rising to 23.5 s as the store grew, the lookups of each object's `legacy_key` and the writes after them growing with it; a release build timed by phase, not inferred.
+
+**Resolved** 2026-10-11: the model reads `indexed`, a table's DDL indexes each stored indexed attribute that no reference's or single-attribute key's index already serves, a publish marking one indexed rebuilds its table with it, and opening a store makes any such index it lacks, which an index changes no answer by (`an_indexed_attribute_is_read_by_its_index`, `an_indexed_attribute_s_index_is_made_where_the_store_lacks_it`, three mutations each failing them). The same import took 36 s, its batches 1.6 s rising to 4.3 s on a machine at load 6 to 7; the publish of one attribute on the 36.7k-object store, 5.3 s of dry run and 6.5 s of approval.

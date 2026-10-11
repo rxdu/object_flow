@@ -117,6 +117,9 @@ pub struct Attribute {
     pub composite: bool,
     /// An external identifier: the source whose value it holds (§4.15).
     pub external: Option<String>,
+    /// Whether a query may filter on it, which an index on its column
+    /// serves (`flow-format.md` §4.3, `storage-schema.md` §10, D593).
+    pub indexed: bool,
     /// On a composite end, `survives: true`: its parts outlive any final state
     /// of the whole, a migration's included (`publish-and-import.md` §3).
     pub survives_always: bool,
@@ -512,6 +515,7 @@ impl Reader<'_> {
                 .get("external")
                 .and_then(Node::text)
                 .map(str::to_string),
+            indexed: self.flag(node, "indexed")?,
             survives_always: node.get("survives").and_then(Node::boolean) == Some(true),
             actor_kind: node
                 .get("actor_kind")
@@ -853,6 +857,7 @@ impl Reader<'_> {
             composite: false,
             cascade: Vec::new(),
             external: None,
+            indexed: false,
             survives_always: false,
         };
         let mut attributes = Vec::new();
@@ -1244,6 +1249,7 @@ fn taken_by(t: &mut Type) -> Result<(), String> {
                 composite: false,
                 cascade: Vec::new(),
                 external: None,
+                indexed: false,
                 survives_always: false,
             },
         ));
@@ -1452,6 +1458,7 @@ fn operator_type() -> Type {
                 composite: false,
                 cascade: Vec::new(),
                 external: None,
+                indexed: false,
                 survives_always: false,
             },
         )],
@@ -1537,6 +1544,7 @@ fn proposal_type() -> Type {
         composite: false,
         cascade: Vec::new(),
         external: None,
+        indexed: false,
         survives_always: false,
     };
     let state = |category: &str, is_final: bool| State {
@@ -1717,6 +1725,7 @@ fn label_type() -> Type {
         composite: false,
         cascade: Vec::new(),
         external: None,
+        indexed: false,
         survives_always: false,
     };
     let text = || Declared::Scalar("string".into());
@@ -1857,6 +1866,7 @@ fn subscription_type() -> Type {
         composite: false,
         cascade: Vec::new(),
         external: None,
+        indexed: false,
         survives_always: false,
     };
     let state = |category: &str, is_final: bool| State {

@@ -28,6 +28,7 @@ Release 1.0.0 is held until a second production review, on the same 36.7k-object
 
 ### Performance
 
+- An attribute marked `indexed` has an index, which no release before made, and opening a store makes one it lacks: the go-live import of 36k objects took 36 s where 145 s (D593).
 - Reads by index, not by reading a type whole: on a store of 36.7k objects a `get` took 1 ms where it took 184 ms, a 50-claim worklist 11 ms where 737 ms, a write about 10 ms where about 200 ms, and a publish adding one attribute 4 s of dry run and 5 s of approval where 214 s and 220 s held every write (production review PERF-SCAN, PUBLISH-FREEZE).
 
 ### Security
