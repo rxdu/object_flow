@@ -708,6 +708,73 @@ fn an_indexed_attribute_s_index_is_made_where_the_store_lacks_it() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
+/// A change's submit runs its dry run on a read beside the writes, so no
+/// write waits for it: a module of 3,000 types held every write 83 s
+/// (DRYRUN-LOCK). The slowest write beside a large submit is a fraction of
+/// the submit, where it was all of it.
+#[test]
+fn a_submits_dry_run_holds_no_write() {
+    let file = fresh_store("submit-beside");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    let note = "module: tally\ncategories: [live, closed]\ntypes:\n  Note:\n    description: A note.\n    tracking: record\n    attributes:\n      a: { type: string }\n    states:\n      OPEN: { category: live }\n      DONE: { category: closed, final: true }\n    transitions:\n      make: { kind: initial, to: OPEN, required_inputs: [a] }\n      finish: { kind: external, from: OPEN, to: DONE }\n";
+    publish(&s, &json!({"tally": note}));
+    let mut big = String::from("module: big\ncategories: [live, closed]\ntypes:\n");
+    for i in 0..600 {
+        big.push_str(&format!("  T{i}:\n    description: Type {i}.\n    tracking: record\n    attributes:\n      a: {{ type: string }}\n    states:\n      OPEN: {{ category: live }}\n      DONE: {{ category: closed, final: true }}\n    transitions:\n      make: {{ kind: initial, to: OPEN, required_inputs: [a] }}\n      finish: {{ kind: external, from: OPEN, to: DONE }}\n"));
+    }
+    let op = json!({"id": "operator"});
+    let drafted = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
+        "inputs": {"source": {"tally": note, "big": big}, "source_ref": "test:big"}}),
+    );
+    let change = drafted["object_id"].as_str().expect("a change").to_string();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let writer = {
+        let (w, stop) = (at(&s), stop.clone());
+        std::thread::spawn(move || {
+            let mut slowest = std::time::Duration::ZERO;
+            while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                let began = std::time::Instant::now();
+                post(
+                    &w,
+                    "/v1/request",
+                    &json!({"actor": {"id": "operator"}, "type": "Note", "transition": "make", "inputs": {"a": "x"}}),
+                );
+                slowest = slowest.max(began.elapsed());
+            }
+            slowest
+        })
+    };
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let began = std::time::Instant::now();
+    let submitted = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": change, "transition": "submit"}),
+    );
+    let took = began.elapsed();
+    stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    let slowest = writer.join().expect("the writer");
+    assert_eq!(submitted["kind"], "satisfied", "{submitted}");
+    assert!(
+        took > std::time::Duration::from_millis(500),
+        "the submit took {took:?}, too little to tell"
+    );
+    assert!(
+        slowest * 3 < took,
+        "a write took {slowest:?} beside a submit of {took:?}"
+    );
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
 /// `--version` names the service's release and the stores it serves.
 #[test]
 fn the_service_says_its_version() {

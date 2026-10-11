@@ -732,6 +732,13 @@ fn relationship_errors(doc: &Value, library: &Obj) -> Found {
         .collect();
     let imported = imported(doc);
     let machines = obj(doc, "machines");
+    // the library and the module's types together, built once: built for
+    // each type, the copy made a module of 3,000 types take 83 s to check,
+    // under the writer's lock as a submit's dry run (DRYRUN-LOCK)
+    let mut kinds = library.clone();
+    for (k, v) in &module {
+        kinds.insert(k.clone(), v.clone());
+    }
     for (tn, t) in types(doc) {
         for (p, r) in references(t, &tn) {
             if !module.contains_key(&r) && !imported.contains(&r) {
@@ -848,10 +855,6 @@ fn relationship_errors(doc: &Value, library: &Obj) -> Found {
                     format!("{tn}.{an} has a cascade or survives, which only a composite end has"),
                 ));
             }
-        }
-        let mut kinds = library.clone();
-        for (k, v) in &module {
-            kinds.insert(k.clone(), v.clone());
         }
         let mut inherited_parts: Obj = Default::default();
         for b in bases(&tn, &kinds).iter().rev() {

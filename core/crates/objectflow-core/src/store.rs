@@ -1467,6 +1467,9 @@ pub struct Store {
     /// truncated, so the log's earlier frames still hold what it erased
     /// (D584).
     checkpoint_due: bool,
+    /// A change's dry run prepared on a read for the next request, which
+    /// takes it (DRYRUN-LOCK).
+    pub prepared: Option<Box<crate::publish::Prepared>>,
     /// How long its connection waits out another's lock, restored after
     /// the truncation an erasure is due, which waits for nothing.
     busy: std::cell::Cell<std::time::Duration>,
@@ -1553,6 +1556,7 @@ impl Store {
             answers: BTreeMap::new(),
             attempt_retention: None,
             checkpoint_due: false,
+            prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
             earlier: Arc::new(BTreeMap::new()),
@@ -1625,6 +1629,7 @@ impl Store {
             answers: BTreeMap::new(),
             attempt_retention: None,
             checkpoint_due: false,
+            prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
             earlier: Arc::new(BTreeMap::new()),
@@ -1709,6 +1714,7 @@ impl Store {
             answers,
             attempt_retention: None,
             checkpoint_due: false,
+            prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
             earlier,

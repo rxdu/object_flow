@@ -101,6 +101,66 @@ pub struct Draft<'a> {
     pub actor: &'a str,
 }
 
+/// A change's dry run computed on a read of the store beside its writes,
+/// for a `submit` or `refresh` to record without computing it under the
+/// writer's lock (DRYRUN-LOCK): taken only where the change and the store's
+/// version are what the read saw, and computed again otherwise. The report
+/// is the reviewer's to read, and an approval computes its own again.
+#[derive(Clone, Debug)]
+pub struct Prepared {
+    pub change: String,
+    /// The change's version and the store's declaration version it was
+    /// computed at.
+    pub change_version: i64,
+    pub at: i64,
+    pub report: PublishReport,
+}
+
+/// A change's source, reference and digest, as its record holds them.
+pub(crate) fn draft_of(o: &Object) -> (Vec<(String, String)>, String, String) {
+    let text = |a: &str| match o.attr(a) {
+        Value::Text(t) => t,
+        _ => String::new(),
+    };
+    let source: Vec<(String, String)> =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&text("source"))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
+            .collect();
+    (source, text("source_ref"), text("source_digest"))
+}
+
+/// The dry run a `submit` or `refresh` of a change would record, computed on
+/// a read; none where the id names no change in a state either is taken
+/// from.
+pub fn prepare(world: &World<'_>, change: &str, actor: &str) -> Result<Option<Prepared>, NotRun> {
+    let Some(o) = world
+        .get(change)?
+        .filter(|o| o.type_ == crate::model::DECLARATION_CHANGE)
+        .filter(|o| o.state == "DRAFTED" || o.state == "SUBMITTED")
+    else {
+        return Ok(None);
+    };
+    let (source, source_ref, source_digest) = draft_of(o);
+    let report = dry_run(
+        world,
+        &Draft {
+            change_id: Some(&o.id),
+            source: &source,
+            source_ref: Some(&source_ref),
+            source_digest: Some(&source_digest),
+            actor,
+        },
+    )?;
+    Ok(Some(Prepared {
+        change: o.id.clone(),
+        change_version: o.version,
+        at: world.lib.version,
+        report,
+    }))
+}
+
 /// Findings gathered by category, in the order first met.
 #[derive(Debug, Default)]
 struct Found(Vec<Finding>);

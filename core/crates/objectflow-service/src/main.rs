@@ -285,7 +285,7 @@ impl Drop for Writing<'_> {
 /// own read transaction and given back when the read ends; or a sandbox's
 /// one store, read under its lock.
 enum Reading<'a> {
-    Own(Option<Store>, &'a Reads),
+    Own(Option<Box<Store>>, &'a Reads),
     Locked(Writing<'a>),
 }
 
@@ -306,7 +306,7 @@ impl Drop for Reading<'_> {
         if let Reading::Own(s, reads) = self
             && let Some(s) = s.take()
         {
-            reads.pool.give_back(s);
+            reads.pool.give_back(*s);
         }
     }
 }
@@ -343,7 +343,7 @@ fn reading(shared: &Shared) -> Result<Reading<'_>, Fault> {
         .fetch_max(wall_clock(), Ordering::SeqCst)
         .max(wall_clock());
     Ok(Reading::Own(
-        Some(reads.pool.read(lib, earlier, now, answers)?),
+        Some(Box::new(reads.pool.read(lib, earlier, now, answers)?)),
         reads,
     ))
 }
@@ -846,10 +846,26 @@ async fn evaluators(State(shared): State<Shared>, Body(body): Body) -> Answer {
 async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
         let req = request_of(&body)?;
+        // a change's dry run, which a `submit` or `refresh` records, computed
+        // on a read beside the writes, so no write waits for it; the request
+        // takes it only where nothing it read has changed (DRYRUN-LOCK)
+        let prepared = match (&req.object_id, req.transition.as_str()) {
+            (Some(id), "submit" | "refresh") if shared.reads.is_some() => {
+                let mut r = reading(&shared)?;
+                let s = r.store()?;
+                // a read that cannot prepare it leaves it to the request,
+                // which computes it under the lock and says why it cannot
+                objectflow_core::publish::prepare(&s.snapshot()?, id, &req.actor).unwrap_or(None)
+            }
+            _ => None,
+        };
         let (v, told) = consulting(
             &shared,
             false,
-            |s| Ok(request::request_told(s, &req)?),
+            |s| {
+                s.prepared = prepared.clone().map(Box::new);
+                Ok(request::request_told(s, &req)?)
+            },
             |out| match out {
                 Err(request::NoVerdict::NotRun(NotRun::Unanswered(c))) => Some((**c).clone()),
                 _ => None,

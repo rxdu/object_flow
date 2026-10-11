@@ -31,6 +31,7 @@ Release 1.0.0 is held until a second production review, on the same 36.7k-object
 
 ### Performance
 
+- A submit's dry run runs beside the writes, where every write waited for it: 83 s for a module of 3,000 types, which also checks ten times faster (D599, D600).
 - A person's or an agent's submit of a version, which resolved its submitter by reading every actor for each object, took 6 s where it passed 20 minutes on 37k objects (D594); a per-person metric and a filter on a derived attribute 1 to 1.5 s where 77 to 83 s (D595); `available` reads only the objects its transition is taken from (D596); an erasure's truncation of the write-ahead log waits on no reader, where it made every write take 5 s while a read was open (D597).
 - An attribute marked `indexed` has an index, which no release before made, and opening a store makes one it lacks: the go-live import of 36k objects took 36 s where 145 s (D593).
 - Reads by index, not by reading a type whole: on a store of 36.7k objects a `get` took 1 ms where it took 184 ms, a 50-claim worklist 11 ms where 737 ms, a write about 10 ms where about 200 ms, and a publish adding one attribute 4 s of dry run and 5 s of approval where 214 s and 220 s held every write (production review PERF-SCAN, PUBLISH-FREEZE).

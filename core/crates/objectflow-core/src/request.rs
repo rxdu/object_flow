@@ -544,7 +544,7 @@ pub fn decide(
     req: &Request,
     answers: &BTreeMap<String, String>,
 ) -> Result<(Verdict, Option<Change>, Refusal), NotRun> {
-    decide_as(world, alloc, req, answers, &None)
+    decide_as(world, alloc, req, answers, &None, None)
 }
 
 /// A check's collector of the guards it leaves unevaluated; none for a
@@ -559,6 +559,7 @@ fn decide_as(
     req: &Request,
     answers: &BTreeMap<String, String>,
     checking: &Checking,
+    prepared: Option<&crate::publish::Prepared>,
 ) -> Result<(Verdict, Option<Change>, Refusal), NotRun> {
     // a request filed for approval, and one deciding a proposal, are the
     // store's own (DESIGN.md §9)
@@ -567,7 +568,7 @@ fn decide_as(
     let changing = target.is_some_and(|o| o.type_ == DECLARATION_CHANGE)
         || (req.object_id.is_none() && req.type_.as_deref() == Some(DECLARATION_CHANGE));
     let answer = if changing {
-        decide_change(world, alloc, req, answers)
+        decide_change(world, alloc, req, answers, prepared)
     } else if req.propose {
         file(world, alloc, req)
     } else if deciding {
@@ -2797,6 +2798,7 @@ fn decide_change(
     alloc: &mut Allocator,
     req: &Request,
     answers: &BTreeMap<String, String>,
+    prepared: Option<&crate::publish::Prepared>,
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
     let who = request_who(world, req)?;
@@ -2920,26 +2922,29 @@ fn decide_change(
             }
         }
         "submit" | "refresh" => {
-            let text = |a: &str| match o.attr(a) {
-                Value::Text(t) => t,
-                _ => String::new(),
+            // the dry run prepared on a read beside the writes, where the
+            // change and the store's version are what that read saw, and
+            // computed here otherwise (DRYRUN-LOCK)
+            let report = match prepared.filter(|p| {
+                p.change == o.id
+                    && Some(p.change_version) == held.map(|h| h.version)
+                    && p.at == world.lib.version
+            }) {
+                Some(p) => p.report.clone(),
+                None => {
+                    let (source, source_ref, source_digest) = crate::publish::draft_of(&o);
+                    crate::publish::dry_run(
+                        world,
+                        &crate::publish::Draft {
+                            change_id: Some(&o.id),
+                            source: &source,
+                            source_ref: Some(&source_ref),
+                            source_digest: Some(&source_digest),
+                            actor: &req.actor,
+                        },
+                    )?
+                }
             };
-            let source: Vec<(String, String)> =
-                serde_json::from_str::<serde_json::Map<String, Json>>(&text("source"))
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
-                    .collect();
-            let report = crate::publish::dry_run(
-                world,
-                &crate::publish::Draft {
-                    change_id: Some(&o.id),
-                    source: &source,
-                    source_ref: Some(&text("source_ref")),
-                    source_digest: Some(&text("source_digest")),
-                    actor: &req.actor,
-                },
-            )?;
             if report.fatal() {
                 return refused(Verdict::Unsatisfied {
                     clause: "dry_run_clean".into(),
@@ -4689,6 +4694,7 @@ pub fn request_told(
     req: &Request,
 ) -> Result<Result<(Verdict, Told), NoVerdict>, crate::store::StoreError> {
     let answers = store.answers.clone();
+    let prepared = store.prepared.take();
     // what an erasure reads was personal under each earlier version
     store.load_earlier()?;
     let decided = store.transact(|world, alloc| {
@@ -4712,7 +4718,7 @@ pub fn request_told(
             let v = replayed_verdict(recorded)?;
             return Ok(((v, Refusal::default(), false), None));
         }
-        let (v, change, r) = decide(world, alloc, req, &answers)?;
+        let (v, change, r) = decide_as(world, alloc, req, &answers, &None, prepared.as_deref())?;
         // what a key applied is recorded with it, so only what commits replays
         let change = match (change, &keyed) {
             (Some(mut c), Some((actor, key))) => {
@@ -4817,7 +4823,7 @@ pub fn check(
     let named = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let checking = Some(named.clone());
     let decided = store.simulate(|world, alloc| {
-        decide_as(world, alloc, req, &BTreeMap::new(), &checking).map(|(v, _, r)| {
+        decide_as(world, alloc, req, &BTreeMap::new(), &checking, None).map(|(v, _, r)| {
             let t = told(world.lib, world, req, &v, &r);
             (v, t)
         })
@@ -8910,5 +8916,63 @@ types:
         );
         assert!(resolve_actor(&w, "nobody@corp.example").unwrap().is_none());
         assert!(w.held_count() <= 3, "{} held", w.held_count());
+    }
+
+    /// A submit takes the dry run prepared on a read beside the writes
+    /// where the change and the store's version are what the read saw, and
+    /// computes its own where either moved, so no write waits for a dry run
+    /// and none records one of another state (DRYRUN-LOCK).
+    #[test]
+    fn a_submit_takes_a_prepared_dry_run_only_where_nothing_moved() {
+        let module = "module: post\ncategories: [open, closed]\ntypes:\n  Parcel:\n    description: A parcel.\n    tracking: record\n    attributes:\n      code: { type: string }\n    states:\n      OPEN: { category: open }\n      DONE: { category: closed, final: true }\n    transitions:\n      send: { kind: initial, to: OPEN, required_inputs: [code] }\n      deliver: { kind: external, from: OPEN, to: DONE }\n";
+        let mut s = Store::sandbox(Library::load(&[]).unwrap(), 0).unwrap();
+        let draft = |s: &mut Store| {
+            created(&req(
+                s,
+                "draft",
+                OPERATOR,
+                ("DeclarationChange", true),
+                json!({"source": {"post": module}, "source_ref": "test"}),
+            ))
+        };
+        let marked = |s: &Store, c: &str| {
+            let mut p = crate::publish::prepare(&s.snapshot().unwrap(), c, OPERATOR)
+                .unwrap()
+                .unwrap();
+            p.report.person_dimensions.push("prepared.marker".into());
+            p
+        };
+        let report = |s: &Store, c: &str| match s
+            .snapshot()
+            .unwrap()
+            .get(c)
+            .unwrap()
+            .unwrap()
+            .attr("report")
+        {
+            Value::Text(t) => t,
+            other => panic!("{other:?}"),
+        };
+        // nothing moved: the prepared report is the one recorded
+        let first = draft(&mut s);
+        s.prepared = Some(Box::new(marked(&s, &first)));
+        let v = req(&mut s, "submit", OPERATOR, (&first, false), json!({}));
+        assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+        assert!(report(&s, &first).contains("prepared.marker"));
+        // the change revised since the read: computed again
+        let second = draft(&mut s);
+        let stale = marked(&s, &second);
+        let revised = req(
+            &mut s,
+            "revise",
+            OPERATOR,
+            (&second, false),
+            json!({"source": {"post": module.replace("A parcel.", "A parcel, revised.")}, "source_ref": "test"}),
+        );
+        assert!(matches!(revised, Verdict::Satisfied { .. }), "{revised:?}");
+        s.prepared = Some(Box::new(stale));
+        let v = req(&mut s, "submit", OPERATOR, (&second, false), json!({}));
+        assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+        assert!(!report(&s, &second).contains("prepared.marker"));
     }
 }

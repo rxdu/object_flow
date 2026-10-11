@@ -610,6 +610,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D596](#d596) | `available` computed every object's every offer | Resolved |
 | [D597](#d597) | An erasure's truncation waited on every reader under the writer's lock | Resolved |
 | [D598](#d598) | A module's YAML nesting was unbounded | Resolved |
+| [D599](#d599) | The core's check copied the library for each type | Resolved |
+| [D600](#d600) | A submit's dry run ran under the writer's lock | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3887,3 +3889,13 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **A module's YAML nesting was unbounded**: F1 bounded expressions, but `yaml.rs` built a tree of any depth, which a walk or its drop then overflowed: a module of block sequences 300,000 deep, 600 KB, drafted by an agent as `integrate.md` §6 allows, aborted the service. The reference checker's composer recursed too. Found 2026-10-11 by the second production review's adversary (YAML-DEPTH).
 
 **Resolved** 2026-10-11: both checkers refuse a description nesting its collections deeper than 64 levels, at the line of the 65th, as a `yaml` finding, the reference checker from the parser's events before anything composes it (`a_description_nested_past_its_bound_is_refused`, 300,000 levels refused at once; a plant the oracle holds alike; each mutation-checked).
+
+### D599
+**The core's check copied the library for each type**: step 3's relationship check built the library and the module's types afresh inside its loop over the types, so a module of n types was copied n times; a submit's dry run of 1,000 trivial types took 8.9 s, 7 s of it there, and of 3,000 types 83 s. Found 2026-10-11 measuring DRYRUN-LOCK by phase, after the second production review's adversary.
+
+**Resolved** 2026-10-11: built once before the loop. A submit of 1,000 types 1.65 s, of 2,000 4.35 s, of 3,000 8.7 s, at load 6; what remains grows a little faster than the module, and runs beside the writes (D600).
+
+### D600
+**A submit's dry run ran under the writer's lock**: `submit` and `refresh` computed the change's dry run in the request's transaction, so every write waited for it: 4 s for one attribute on the 37k-object store, 83 s for a module of 3,000 types an agent may draft and submit. Found 2026-10-11 by the second production review's adversary (DRYRUN-LOCK).
+
+**Resolved** 2026-10-11: a deployment's service computes it on a read beside the writes (`publish::prepare`) and the request records it where the change and the store's version are what the read saw, computing it again otherwise (`a_submit_takes_a_prepared_dry_run_only_where_nothing_moved`, `a_submits_dry_run_holds_no_write`, each mutation-checked); 766 writes ran beside a 3,000-type submit of 8.6 s, the slowest 0.04 s. An approval still computes the dry run again under the lock, as it must to install what it checked: about 5 s for one attribute on 37k objects.
