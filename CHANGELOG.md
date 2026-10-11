@@ -24,6 +24,7 @@ Release 1.0.0 is held until a second production review, on the same 36.7k-object
 - `--socket <path>`: the service on a Unix socket, made `0660`, in an address's place, so the socket's owner and group are its only callers (ADR-0183 decision 4).
 - One line on stderr for each answer, its time, method, route, status and duration; `GET /metrics`, the answers by route and status, the store's version and the clock's lead, in Prometheus's text format; `/health` reading the store's file and answering `clock_lead_seconds` (ADR-0183 decision 8).
 - On SIGTERM or SIGINT the service takes no new connection, answers the requests in flight for up to 30 s and exits, where it stopped at once (ADR-0183 decision 9).
+- `/health` and `/metrics` say how long the writer has been held and the requests in flight, `/metrics` the process's resident memory; `/health` is `503` while an upgrade is due; a 5xx's reason is logged (OBSERVE-2).
 - `--version`.
 - The checkers notice a correction's free-text reason on a type an erasure reaches, `reason_kept`, since its event keeps the reason and an erasure leaves it (production review F7).
 - A refusal tells its caller what its remedy points at (ADR-0179).

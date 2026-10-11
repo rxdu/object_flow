@@ -846,6 +846,81 @@ fn a_submits_dry_run_holds_no_write() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
+/// A held writer and the requests in flight are seen in `/health` and
+/// `/metrics` while an approval holds the writer, where a 21-minute stall
+/// answered health 200 in 1 ms and showed nothing (OBSERVE-2); and both
+/// return to nothing once it is done.
+#[test]
+fn a_held_writer_is_seen_in_health_and_metrics() {
+    let file = fresh_store("held-writer");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    let mut big = String::from("module: big\ncategories: [live, closed]\ntypes:\n");
+    for i in 0..600 {
+        big.push_str(&format!("  T{i}:\n    description: Type {i}.\n    tracking: record\n    attributes:\n      a: {{ type: string }}\n    states:\n      OPEN: {{ category: live }}\n      DONE: {{ category: closed, final: true }}\n    transitions:\n      make: {{ kind: initial, to: OPEN, required_inputs: [a] }}\n      finish: {{ kind: external, from: OPEN, to: DONE }}\n"));
+    }
+    let op = json!({"id": "operator"});
+    let drafted = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
+        "inputs": {"source": {"big": big}, "source_ref": "test:big"}}),
+    );
+    let change = drafted["object_id"].as_str().expect("a change").to_string();
+    let submitted = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": change, "transition": "submit"}),
+    );
+    assert_eq!(submitted["kind"], "satisfied", "{submitted}");
+    // the approval computes its dry run again under the writer
+    let approving = {
+        let (w, change, version) = (at(&s), change.clone(), submitted["version"].clone());
+        std::thread::spawn(move || {
+            post(
+                &w,
+                "/v1/publish",
+                &json!({"actor": {"id": "operator"}, "change": change, "expected_version": version}),
+            )
+        })
+    };
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    let (_, health) = call(&s, "GET", "/health", None);
+    let mut stream = TcpStream::connect(&s.addr).expect("a connection");
+    write!(
+        stream,
+        "GET /metrics HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+    )
+    .expect("asked");
+    let mut metrics = String::new();
+    stream.read_to_string(&mut metrics).expect("the metrics");
+    let approved = approving.join().expect("the approval");
+    assert_eq!(approved["verdict"]["kind"], "satisfied", "{approved}");
+    assert!(
+        health["writer_held_seconds"].as_f64().unwrap_or(0.0) > 0.2,
+        "{health}"
+    );
+    assert!(
+        health["requests_in_flight"].as_u64().unwrap_or(0) >= 2,
+        "{health}"
+    );
+    let held = metrics
+        .lines()
+        .find_map(|l| l.strip_prefix("objectflow_writer_held_seconds "))
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    assert!(held > 0.2, "{metrics}");
+    assert!(metrics.contains("objectflow_resident_bytes "), "{metrics}");
+    let (_, after) = call(&s, "GET", "/health", None);
+    assert_eq!(after["writer_held_seconds"].as_f64(), Some(0.0), "{after}");
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
 /// `--version` names the service's release and the stores it serves.
 #[test]
 fn the_service_says_its_version() {
@@ -1134,7 +1209,9 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
         assert_eq!(recorded["release"], "objectflow-core 0.1.0");
         let args = ["--store", path.to_str().expect("a path"), "--port", "0"];
         let s = start(&args);
-        let (_, health) = call(&s, "GET", "/health", None);
+        let (status, health) = call(&s, "GET", "/health", None);
+        // a store due an upgrade serves only the upgrade: its health is 503
+        assert_eq!(status, 503, "{health}");
         assert_eq!(
             (&health["upgrade_due"], &health["store_release"]),
             (&json!(true), &recorded["release"])

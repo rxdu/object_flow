@@ -91,7 +91,8 @@ fn asked(endpoint: &str, timeout: std::time::Duration, call: &Call) -> &'static 
     // review, minor)
     let unknown = |why: String| {
         eprintln!(
-            "objectflow-service: {}.{} of {} argument(s) is unknown: {why}",
+            "{} objectflow-service: {}.{} of {} argument(s) is unknown: {why}",
+            timestamp_text(wall_clock()),
             call.evaluator,
             call.function,
             call.arguments.len()
@@ -204,6 +205,40 @@ struct Service {
     /// What it has answered, by route and status: how many, and their
     /// seconds, which `GET /metrics` gives (production review OBSERVE).
     served: Mutex<std::collections::BTreeMap<(String, u16), (u64, f64)>>,
+    /// The requests being answered now, and when the writer was taken, in
+    /// milliseconds since 1970, none while it is free: a writer held for
+    /// minutes answered health 200 and showed nothing (OBSERVE-2).
+    in_flight: std::sync::atomic::AtomicUsize,
+    writer_since: AtomicI64,
+}
+
+/// Now, in milliseconds since 1970.
+fn wall_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+}
+
+/// How long the writer has been held, in seconds, or none while it is free.
+fn writer_held(shared: &Service) -> f64 {
+    match shared.writer_since.load(Ordering::SeqCst) {
+        0 => 0.0,
+        since => (wall_millis() - since).max(0) as f64 / 1000.0,
+    }
+}
+
+/// The process's resident memory in bytes, as Linux reports it.
+fn resident_bytes() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let kb = status
+        .lines()
+        .find_map(|l| l.strip_prefix("VmRSS:"))?
+        .trim()
+        .strip_suffix("kB")?
+        .trim()
+        .parse::<u64>()
+        .ok()?;
+    kb.checked_mul(1024)
 }
 
 /// What a deployment's reads need beside its writer (ADR-0178): its read
@@ -253,6 +288,7 @@ type Shared = Arc<Service>;
 struct Writing<'a> {
     guard: std::sync::MutexGuard<'a, Sandbox>,
     reads: Option<&'a Reads>,
+    since: &'a AtomicI64,
 }
 
 impl std::ops::Deref for Writing<'_> {
@@ -270,6 +306,7 @@ impl std::ops::DerefMut for Writing<'_> {
 
 impl Drop for Writing<'_> {
     fn drop(&mut self) {
+        self.since.store(0, Ordering::SeqCst);
         if let Some(reads) = self.reads {
             if let Some(s) = &self.guard.store {
                 reads.floor.fetch_max(s.now, Ordering::SeqCst);
@@ -379,6 +416,15 @@ impl IntoResponse for Fault {
             Fault::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m),
             Fault::Mismatch(m) => (StatusCode::SERVICE_UNAVAILABLE, m),
         };
+        // the service's own faults said with their reason, which the line
+        // of the answer, its route and status alone, does not (OBSERVE-2)
+        if status.is_server_error() {
+            eprintln!(
+                "{} fault {}: {message}",
+                timestamp_text(wall_clock()),
+                status.as_u16()
+            );
+        }
         (status, Json(json!({ "fault": message }))).into_response()
     }
 }
@@ -511,12 +557,15 @@ impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
 }
 
 fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
+    let guard = shared
+        .writer
+        .lock()
+        .map_err(|_| Fault::Internal("a previous request panicked".to_string()))?;
+    shared.writer_since.store(wall_millis(), Ordering::SeqCst);
     Ok(Writing {
-        guard: shared
-            .writer
-            .lock()
-            .map_err(|_| Fault::Internal("a previous request panicked".to_string()))?,
+        guard,
         reads: shared.reads.as_ref(),
+        since: &shared.writer_since,
     })
 }
 
@@ -1937,7 +1986,10 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
 
 /// `GET /health`: the release, the store's version and its clock (ADR-0174
 /// decision 6).
-async fn health(State(shared): State<Shared>) -> Answer {
+async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
+    // a store due an upgrade serves nothing but the upgrade, so its health
+    // is 503, with what is due (OBSERVE-2)
+    let due = |body: J| Ok((StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response());
     tokio::task::block_in_place(move || {
         // a deployment's health is read beside its writes, never behind one
         // (ADR-0178), from what the writer last held
@@ -1948,10 +2000,10 @@ async fn health(State(shared): State<Shared>) -> Answer {
                 .map_err(|_| Fault::Internal("a previous request panicked".to_string()))?
                 .clone();
             if let Some(at) = seen.due {
-                return Ok(Json(
+                return due(
                     json!({"release": BUILTINS, "shape": "deployment", "version": J::Null,
                                   "now": J::Null, "store_release": at, "upgrade_due": true}),
-                ));
+                );
             }
             // the store read, so a store that cannot be read answers 500
             // here rather than at the next request (production review
@@ -1983,8 +2035,11 @@ async fn health(State(shared): State<Shared>) -> Answer {
             return Ok(Json(
                 json!({"release": BUILTINS, "shape": "deployment", "version": version,
                               "now": timestamp_text(now), "store_release": BUILTINS,
-                              "upgrade_due": false, "clock_lead_seconds": clock_lead(&shared)}),
-            ));
+                              "upgrade_due": false, "clock_lead_seconds": clock_lead(&shared),
+                              "writer_held_seconds": writer_held(&shared),
+                              "requests_in_flight": shared.in_flight.load(Ordering::SeqCst)}),
+            )
+            .into_response());
         }
         let mut sandbox = locked(&shared)?;
         let shape = if sandbox.deployment {
@@ -1995,10 +2050,10 @@ async fn health(State(shared): State<Shared>) -> Answer {
         // a store due an upgrade answers both releases and nothing it holds
         // (ADR-0177 decision 4)
         if let Some(at) = &sandbox.due {
-            return Ok(Json(
+            return due(
                 json!({"release": BUILTINS, "shape": shape, "version": J::Null,
                               "now": J::Null, "store_release": at, "upgrade_due": true}),
-            ));
+            );
         }
         let (version, now) = match sandbox.store {
             Some(_) => {
@@ -2009,8 +2064,10 @@ async fn health(State(shared): State<Shared>) -> Answer {
         };
         Ok(Json(
             json!({"release": BUILTINS, "shape": shape, "version": version, "now": now,
-               "store_release": BUILTINS, "upgrade_due": false, "clock_lead_seconds": 0}),
-        ))
+               "store_release": BUILTINS, "upgrade_due": false, "clock_lead_seconds": 0,
+               "writer_held_seconds": 0, "requests_in_flight": shared.in_flight.load(Ordering::SeqCst)}),
+        )
+        .into_response())
     })
 }
 
@@ -2130,6 +2187,15 @@ async fn logged(
     next: axum::middleware::Next,
 ) -> Response {
     let started = std::time::Instant::now();
+    // counted while it is answered, a panic's unwinding included
+    struct Flying<'a>(&'a std::sync::atomic::AtomicUsize);
+    impl Drop for Flying<'_> {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+    shared.in_flight.fetch_add(1, Ordering::SeqCst);
+    let _flying = Flying(&shared.in_flight);
     let method = req.method().clone();
     // the route, never the path asked, so a caller cannot grow the counts
     // by asking paths no route takes
@@ -2202,6 +2268,20 @@ async fn metrics(State(shared): State<Shared>) -> Response {
          # TYPE objectflow_clock_lead_seconds gauge\nobjectflow_clock_lead_seconds {}\n",
         clock_lead(&shared)
     ));
+    out.push_str(&format!(
+        "# HELP objectflow_requests_in_flight Requests being answered now.\n\
+         # TYPE objectflow_requests_in_flight gauge\nobjectflow_requests_in_flight {}\n\
+         # HELP objectflow_writer_held_seconds How long the writer has been held, 0 while free.\n\
+         # TYPE objectflow_writer_held_seconds gauge\nobjectflow_writer_held_seconds {:.3}\n",
+        shared.in_flight.load(Ordering::SeqCst),
+        writer_held(&shared)
+    ));
+    if let Some(bytes) = resident_bytes() {
+        out.push_str(&format!(
+            "# HELP objectflow_resident_bytes The process's resident memory.\n\
+             # TYPE objectflow_resident_bytes gauge\nobjectflow_resident_bytes {bytes}\n"
+        ));
+    }
     (
         [(
             axum::http::header::CONTENT_TYPE,
@@ -2608,6 +2688,8 @@ async fn serve() -> std::io::Result<()> {
         reads,
         writer: Mutex::new(sandbox),
         served: Mutex::new(std::collections::BTreeMap::new()),
+        in_flight: std::sync::atomic::AtomicUsize::new(0),
+        writer_since: AtomicI64::new(0),
     };
     let router = app(Arc::new(service), deployment);
     match listening {

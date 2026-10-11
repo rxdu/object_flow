@@ -226,7 +226,7 @@ pub fn report_json(r: &PublishReport) -> serde_json::Value {
 
 /// The dry run over a sandbox's objects.
 pub fn dry_run(world: &World<'_>, draft: &Draft<'_>) -> Result<PublishReport, NotRun> {
-    simulate(world, draft).map(|s| s.report)
+    simulate_as(world, draft, false).map(|s| s.report)
 }
 
 /// A dry run, and what an approval would install from it: the next
@@ -239,6 +239,18 @@ pub struct Simulated {
 }
 
 pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRun> {
+    simulate_as(world, draft, true)
+}
+
+/// [`simulate`], keeping what an approval installs only where it is
+/// installing: a dry run's report needs no copy of every object as the
+/// mappings leave it, which was a third copy of the store in memory, beside
+/// the store as read and the simulation (MEMORY).
+fn simulate_as(
+    world: &World<'_>,
+    draft: &Draft<'_>,
+    installing: bool,
+) -> Result<Simulated, NotRun> {
     let old = world.lib;
     let mut found = Found::default();
     let report = PublishReport {
@@ -316,7 +328,7 @@ pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRu
     // cannot be run over the objects, which it says
     let checked = found.0.clone();
     let refused = checked.iter().any(|f| f.severity == Severity::Fatal);
-    match impact(world, draft, found, report.clone()) {
+    match impact(world, draft, found, report.clone(), installing) {
         // a read of the store that failed is not a rule that cannot run
         Err(NotRun::Unsupported(e)) if refused => {
             let mut found = Found(checked);
@@ -345,6 +357,7 @@ fn impact(
     draft: &Draft<'_>,
     mut found: Found,
     mut report: PublishReport,
+    installing: bool,
 ) -> Result<Simulated, NotRun> {
     let old = world.lib;
     let mut new = match Library::load(draft.source) {
@@ -725,6 +738,12 @@ fn impact(
                 })
             }
         });
+    if !installing {
+        return Ok(Simulated {
+            report,
+            install: None,
+        });
+    }
     let objects: BTreeMap<String, Object> = sim
         .in_order()?
         .into_iter()
