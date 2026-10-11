@@ -14,7 +14,11 @@ scripts/check-flows.py implement it. This checks that they agree:
    is a valid description;
 7. the example keys and values of §10 are exactly those examples.schema.json
    defines, with the alias `operator` and the clock's `now` the checker reads
-   (§11).
+   (§11);
+8. the one-page card, docs/guides/flow-format-card.md, names every key either
+   schema defines and every finding code the checker reports, and lists as a
+   key in its key tables nothing either schema does not define; its module
+   and examples are checked by check-flow-docs.py, as every document's are.
 """
 import importlib.util
 import json
@@ -27,6 +31,7 @@ DOC = ROOT / "docs/design/flow-format.md"
 SCHEMA = ROOT / "docs/design/flow-format/flow.schema.json"
 EXAMPLES_SCHEMA = ROOT / "docs/design/flow-format/examples.schema.json"
 CHECKER = ROOT / "scripts/check-flows.py"
+CARD = ROOT / "docs/guides/flow-format-card.md"
 
 
 def schema_vocabulary(schema):
@@ -51,6 +56,23 @@ def schema_vocabulary(schema):
 def listed(doc, label):
     m = re.search(rf"^\*\*{label}:\*\* (.*)$", doc, re.M)
     return set(re.findall(r"`([^`]+)`", m.group(1))) if m else None
+
+
+def card_findings(card, keys, codes):
+    """Rule 8: what the one-page card omits, or lists as a key that no schema defines."""
+    card = re.sub(r"```.*?```", "", card, flags=re.S)       # a fence's backticks pair with nothing
+    words = set()
+    for span in re.findall(r"`([^`]+)`", card):
+        words |= set(re.findall(r"[a-z_]+", span))
+    out = [f"the card omits the key `{k}`" for k in sorted(keys - words)]
+    out += [f"the card omits the finding code `{c}`" for c in sorted(codes - words)]
+    for table in re.findall(r"^\| Key \|.*?\n(?:\|.*\n?)+", card, re.M):
+        for row in table.splitlines()[2:]:
+            first = row.split("|")[1]
+            for k in re.findall(r"`([a-z_]+)`", first):
+                if k not in keys:
+                    out.append(f"the card lists `{k}` as a key, which no schema defines")
+    return out
 
 
 def main():
@@ -125,10 +147,12 @@ def main():
         for f, line, _sev, code, msg in found:
             findings.append(f"§ example {i} is not valid: line {line} {code} {msg}")
 
+    findings += card_findings(CARD.read_text(), keys | ekeys, reported)
+
     for f in findings:
         print(f"  {f}")
     print(f"flow-format.md: {len(keys)} keys and {len(values)} values against the schema, "
-          f"{len(reported)} finding codes, {len(examples)} example(s): "
+          f"{len(reported)} finding codes, {len(examples)} example(s), and the card: "
           + ("consistent" if not findings else f"{len(findings)} finding(s)"))
     return 1 if findings else 0
 
