@@ -229,7 +229,31 @@ pub fn available_page(
     };
     let mut items = Vec::new();
     let mut more = false;
-    for o in world.of_type(type_)? {
+    // the objects in a state the transition is taken from, by the state's
+    // index, where no subtype may declare states of its own; never every
+    // object of the type, which made a worklist with nothing to find read
+    // a year's claims (READ-COST)
+    let family = world
+        .lib
+        .types
+        .keys()
+        .any(|n| n != type_ && world.lib.is_a(n, type_));
+    let candidates = if family {
+        world.of_type(type_)?
+    } else {
+        let states: BTreeSet<String> = t
+            .states
+            .iter()
+            .filter(|(s, st)| match x.kind {
+                Kind::Erasure => true,
+                Kind::Assertion => !st.is_final,
+                _ => takes_from(t, x, s),
+            })
+            .map(|(s, _)| s.clone())
+            .collect();
+        world.of_type_in(type_, &states)?
+    };
+    for o in candidates {
         if from.is_some_and(|f| o.order <= f) {
             continue;
         }
@@ -237,7 +261,7 @@ pub fn available_page(
             more = true;
             break;
         }
-        let offers = availability(world, actor, &o.id)?.unwrap_or_default();
+        let offers = offers_of(world, actor, &o.id, true, Some(transition))?.unwrap_or_default();
         let Some(offer) = offers.iter().find(|f| f.transition == transition) else {
             continue;
         };
@@ -904,6 +928,19 @@ pub(crate) fn offers(
     id: &str,
     metrics: bool,
 ) -> Result<Option<Vec<Offer>>, NotRun> {
+    offers_of(world, actor, id, metrics, None)
+}
+
+/// What [`offers`] gives, or its offer of one transition alone where one is
+/// named, as `available` reads it, never every other transition's guards
+/// (READ-COST).
+fn offers_of(
+    world: &World<'_>,
+    actor: &str,
+    id: &str,
+    metrics: bool,
+    only: Option<&str>,
+) -> Result<Option<Vec<Offer>>, NotRun> {
     let Some(o) = world.get(id)? else {
         return Ok(None);
     };
@@ -918,7 +955,7 @@ pub(crate) fn offers(
     let no_inputs = BTreeMap::new();
     let mut offers = Vec::new();
     for (xn, x) in &t.transitions {
-        if x.kind == Kind::Initial || !x.only_via.is_empty() {
+        if x.kind == Kind::Initial || !x.only_via.is_empty() || only.is_some_and(|n| n != xn) {
             continue;
         }
         let inputs = input_schema(t, x);
@@ -1100,7 +1137,14 @@ pub(crate) fn offers(
     // carries, its generated guards decided on the subject and its fields
     // waiting for the caller (ADR-0099)
     let label = crate::model::LABEL.to_string();
-    for kind in t.observations.iter().map(|(_, k)| k).chain([&label]) {
+    let recording = only.is_none_or(|n| n == "record");
+    for kind in t
+        .observations
+        .iter()
+        .map(|(_, k)| k)
+        .chain([&label])
+        .filter(|_| recording)
+    {
         let Some(k) = world.lib.type_(kind) else {
             return Err(NotRun::Unsupported(format!("the observation kind {kind}")));
         };

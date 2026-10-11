@@ -201,6 +201,12 @@ fn line_of(span: &Span) -> usize {
     span.start.line()
 }
 
+/// How deep a description's collections may nest, which no module comes
+/// near: a tree 300,000 deep, 600 KB of block sequences, loaded and then
+/// overflowed the stack of a walk or a drop over it, aborting the service
+/// (YAML-DEPTH). `check-flows.py`'s `NESTING`.
+pub const NESTING: usize = 64;
+
 /// The document a text holds, as a tree; an empty text is a null scalar.
 pub fn load(text: &str) -> Result<Node, YamlError> {
     let mut parser = Parser::new_from_str(text);
@@ -307,6 +313,14 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
                     message: "an anchor is refused".to_string(),
                 });
             }
+            Event::SequenceStart(..) | Event::MappingStart(..) if stack.len() >= NESTING => {
+                return Err(YamlError {
+                    line,
+                    message: format!(
+                        "the description nests deeper than {NESTING} levels, which no flow needs"
+                    ),
+                });
+            }
             Event::SequenceStart(..) => {
                 flows.push((chars.get(span.start.index()) == Some(&'[')).then_some(']'));
                 stack.push(Open::Seq(Vec::new(), line));
@@ -345,6 +359,24 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A description nested past the bound is refused with its line, and
+    /// one nested 300,000 deep, which aborted the service, is refused as
+    /// promptly, nothing built of it (YAML-DEPTH).
+    #[test]
+    fn a_description_nested_past_its_bound_is_refused() {
+        let at = |depth: usize| format!("x:\n  {}z\n", "- ".repeat(depth));
+        assert!(load(&at(NESTING - 2)).is_ok());
+        let refused = load(&at(NESTING)).unwrap_err();
+        assert_eq!(refused.line, 2);
+        assert!(
+            refused.message.contains("deeper than 64 levels"),
+            "{}",
+            refused.message
+        );
+        let deep = load(&at(300_000)).unwrap_err();
+        assert!(deep.message.contains("deeper than 64 levels"));
+    }
 
     #[test]
     fn a_mapping_keeps_its_order_and_lines() {

@@ -1907,6 +1907,62 @@ types:
     assert!(!held("other19@kept").is_empty(), "the others' values stay");
 }
 
+/// An erasure while a read older than it is open waits for no reader: the
+/// writes after it take what they take, never the busy timeout each, and
+/// the truncation that takes the erased values out of the `-wal` is made by
+/// the first write after the read ends (ERASE-CHECKPOINT, D584).
+#[test]
+fn an_erasure_beside_an_open_read_holds_no_write() {
+    let file = fresh_store("erasure-read");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    let module = "module: erase\ncategories: [live, closed]\ntypes:\n  Candidate:\n    description: Someone who applied.\n    tracking: record\n    attributes:\n      name: { type: string, personal: true, optional: true }\n    states:\n      NEW: { category: live }\n      DONE: { category: closed, final: true }\n    transitions:\n      apply: { kind: initial, to: NEW, optional_inputs: [name] }\n      close: { kind: external, from: NEW, to: DONE }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+    publish(&s, &json!({ "erase": module }));
+    let op = json!({"id": "operator"});
+    let apply = |name: &str| {
+        let v = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Candidate", "transition": "apply", "inputs": {"name": name}}),
+        );
+        v["object_id"].as_str().expect("a candidate").to_string()
+    };
+    let gone = apply("Ysolde Quillfeather");
+    // a read older than the erasure, held open on the store's file
+    let reader = rusqlite::Connection::open(&file).expect("the file");
+    reader.execute_batch("BEGIN").expect("a read");
+    let _: i64 = reader
+        .query_row("SELECT count(*) FROM of_event", [], |r| r.get(0))
+        .expect("read");
+    let v = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": gone, "transition": "forget",
+        "inputs": {"reason": "asked to be forgotten"}}),
+    );
+    assert_eq!(v["kind"], "satisfied", "{v}");
+    for i in 0..3 {
+        let began = std::time::Instant::now();
+        apply(&format!("Other {i}"));
+        let took = began.elapsed();
+        assert!(
+            took < std::time::Duration::from_secs(2),
+            "a write took {took:?} with a read open after an erasure"
+        );
+    }
+    reader.execute_batch("COMMIT").expect("the read ended");
+    apply("After");
+    let wal = std::fs::metadata(format!("{}-wal", file.display())).map_or(0, |m| m.len());
+    assert_eq!(wal, 0, "the -wal was not truncated once the read ended");
+    let held = std::fs::read(&file).expect("the store's file");
+    assert!(!held.windows(10).any(|w| w == b"Quillfeath"));
+}
+
 /// A change's source and report are answered as the JSON they hold, as
 /// its source was written, never as text holding it (ADR-0182 decision 9).
 #[test]

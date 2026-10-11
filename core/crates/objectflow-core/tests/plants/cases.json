@@ -1754,6 +1754,66 @@
   }
  },
  {
+  "label": "self_test: a description nested past its bound",
+  "files": [
+   [
+    "people.yaml",
+    "ed616a83e6085b5b"
+   ],
+   [
+    "service.yaml",
+    "5dcb5cbf411bba61"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    158,
+    "fatal",
+    "yaml",
+    "the description nests deeper than 64 levels, which no flow needs"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
   "label": "self_test: an enforcement that is not one of the three",
   "files": [
    [

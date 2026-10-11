@@ -192,13 +192,24 @@ pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Result<Option<Who
     if let Some(o) = world.get(actor)? {
         return Ok(identity(o));
     }
+    // by the identity's column and its index, never every object of each
+    // actor type: a dry run resolving its submitter for each object read a
+    // store's actors whole each time, and a person's submit on 37k objects
+    // ran past 20 minutes where the operator's, named by id, took 9 s
+    // (DRYRUN-ACTOR)
     let mut found: Option<(i64, Who)> = None;
     for (tn, t) in &world.lib.types {
-        if t.actor_identity().is_none() {
+        let Some((attr, _)) = t.actor_identity() else {
             continue;
-        }
-        for o in world.of_type(tn)? {
-            if let Some(w) = identity(o)
+        };
+        let named = Value::Text(actor.to_string());
+        for o in world.with_key(
+            tn,
+            std::slice::from_ref(&attr.to_string()),
+            std::slice::from_ref(&named),
+        )? {
+            if o.type_ == *tn
+                && let Some(w) = identity(o)
                 && w.id == actor
                 && found.as_ref().is_none_or(|(n, _)| o.order < *n)
             {
@@ -8773,5 +8784,131 @@ types:
         .unwrap();
         assert_eq!(page.items.len(), 10);
         assert!(w.held_count() <= 24, "{} held", w.held_count());
+    }
+
+    /// A sweep reading each object's parts, as a filter on a derived count
+    /// of them does, keys each object it holds into the column indexes a
+    /// bounded number of times: a column rebuilt whenever an object was
+    /// held keyed every held object again for each one read, and a metric
+    /// or filter over 12,000 claims took 77 to 84 s (READ-COST).
+    #[test]
+    fn a_sweep_keys_what_it_holds_a_bounded_number_of_times() {
+        let text = r#"
+module: lines
+categories: [open, closed]
+types:
+  Order:
+    attributes:
+      lines: { reference: "Line[]", opposite: order, aggregation: composite, survives: true }
+    derived_attributes:
+      size: { description: Its lines., expression: count(l in lines) }
+    states:
+      OPEN: { category: open }
+    transitions:
+      place: { kind: initial, to: OPEN }
+  Line:
+    attributes:
+      order: { reference: Order, opposite: lines }
+      qty: { type: int }
+    states:
+      ACTIVE: { category: open }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [order, qty] }
+"#;
+        let lib = Library::load(&[("lines.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        for i in 0..150 {
+            let o = created(&req(&mut s, "place", OPERATOR, ("Order", true), json!({})));
+            for q in 0..(i % 6) {
+                created(&req(
+                    &mut s,
+                    "add",
+                    OPERATOR,
+                    ("Line", true),
+                    json!({"order": &o, "qty": q}),
+                ));
+            }
+        }
+        let w = s.snapshot().unwrap();
+        let page = crate::reads::query(&w, "Order", Some("size > 3"), &[], None).unwrap();
+        assert_eq!(page.items.len(), 50);
+        let (held, keyed) = (w.held_count(), w.keyed_count());
+        assert!(held > 500, "{held} held");
+        assert!(keyed <= 3 * held, "{keyed} keyings for {held} held");
+    }
+
+    /// `available` reads the objects in a state its transition is taken
+    /// from, by the state's index, and each one's offer of that transition
+    /// alone: a worklist with nothing to find read every claim of the type,
+    /// 41 s at 12,000 claims (READ-COST).
+    #[test]
+    fn available_reads_only_the_objects_its_transition_is_taken_from() {
+        let text = r#"
+module: desk
+categories: [open, closed]
+types:
+  Ticket:
+    attributes:
+      note: { type: string, optional: true }
+    states:
+      OPEN: { category: open }
+      DONE: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN }
+      close: { kind: external, from: OPEN, to: DONE }
+"#;
+        let lib = Library::load(&[("desk.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        for i in 0..120 {
+            let t = created(&req(&mut s, "open", OPERATOR, ("Ticket", true), json!({})));
+            if i >= 20 {
+                req(&mut s, "close", OPERATOR, (&t, false), json!({}));
+            }
+        }
+        let w = s.snapshot().unwrap();
+        let page = crate::reads::available_page(&w, OPERATOR, "Ticket", "close", None, 50).unwrap();
+        assert_eq!(page.items.len(), 20);
+        assert!(w.held_count() <= 25, "{} held", w.held_count());
+    }
+
+    /// An actor named by its identity is found by the identity's column,
+    /// holding the actor alone: reading every object of each actor type for
+    /// each lookup made a person's submit on 37k objects run past 20 minutes,
+    /// the dry run resolving its submitter for each object (DRYRUN-ACTOR).
+    #[test]
+    fn an_actor_named_by_identity_is_found_by_its_column() {
+        let text = r#"
+module: people
+categories: [live, closed]
+types:
+  User:
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { category: live }
+      LEFT: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: ACTIVE, to: LEFT }
+"#;
+        let lib = Library::load(&[("people.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        for i in 0..200 {
+            created(&req(
+                &mut s,
+                "add",
+                OPERATOR,
+                ("User", true),
+                json!({"login": format!("u{i}@corp.example")}),
+            ));
+        }
+        let w = s.snapshot().unwrap();
+        let who = resolve_actor(&w, "u150@corp.example").unwrap().unwrap();
+        assert_eq!(
+            (who.id.as_str(), who.kind.as_str()),
+            ("u150@corp.example", "human")
+        );
+        assert!(resolve_actor(&w, "nobody@corp.example").unwrap().is_none());
+        assert!(w.held_count() <= 3, "{} held", w.held_count());
     }
 }

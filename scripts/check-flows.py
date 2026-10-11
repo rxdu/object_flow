@@ -126,6 +126,24 @@ def load(text):
     return yaml.load(text, Loader=StrictLoader)
 
 
+# how deep a description's collections may nest, which no module comes near: a deeper one exhausted the composer's
+# recursion here and the core's stack, aborting its service (YAML-DEPTH)
+NESTING = 64
+
+
+def shallow(text):
+    """A description nesting its collections deeper than NESTING refused, read from the parser's events, which recurse on
+    nothing, before anything composes it, as the core's loader refuses it."""
+    depth = 0
+    for event in yaml.parse(text, Loader=StrictLoader):
+        if isinstance(event, (yaml.SequenceStartEvent, yaml.MappingStartEvent)):
+            depth += 1
+            if depth > NESTING:
+                raise yaml.MarkedYAMLError(problem=f"the description nests deeper than {NESTING} levels, which no flow needs", problem_mark=event.start_mark)
+        elif isinstance(event, (yaml.SequenceEndEvent, yaml.MappingEndEvent)):
+            depth -= 1
+
+
 def line_index(text):
     """The line of every key and list item, by its path from the root."""
     idx = {}
@@ -4622,6 +4640,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     stored = {}                 # module -> its types, enumerations and machines, which one store holds together
     for f, text in files:
         try:
+            shallow(text)
             idx = line_index(text)
             doc = load(text)
         except yaml.YAMLError as e:
@@ -4784,6 +4803,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(service, "          engineer_active: deny", "          engineer_is_active: deny")),
         ("a guard listed twice", "yaml", "service.yaml",
          plant(service, "          photo_attached: audit\n", "          photo_attached: audit\n          photo_attached: warn\n")),
+        ("a description nested past its bound", "yaml", "service.yaml",
+         service.rstrip("\n") + "\nnested:\n  " + "- " * 70 + "deep\n"),
         ("an enforcement that is not one of the three", "schema", "service.yaml",
          plant(service, "photo_attached: audit", "photo_attached: enforce")),
         ("an initial transition that names a source state", "schema", "service.yaml",

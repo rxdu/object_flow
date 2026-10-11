@@ -1467,6 +1467,9 @@ pub struct Store {
     /// truncated, so the log's earlier frames still hold what it erased
     /// (D584).
     checkpoint_due: bool,
+    /// How long its connection waits out another's lock, restored after
+    /// the truncation an erasure is due, which waits for nothing.
+    busy: std::cell::Cell<std::time::Duration>,
 }
 
 /// How many read connections a deployment keeps idle for the next reads;
@@ -1550,6 +1553,7 @@ impl Store {
             answers: BTreeMap::new(),
             attempt_retention: None,
             checkpoint_due: false,
+            busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
             earlier: Arc::new(BTreeMap::new()),
         };
@@ -1621,6 +1625,7 @@ impl Store {
             answers: BTreeMap::new(),
             attempt_retention: None,
             checkpoint_due: false,
+            busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
             earlier: Arc::new(BTreeMap::new()),
         };
@@ -1679,6 +1684,7 @@ impl Store {
     /// How long its connection waits out another's write lock before a
     /// write meets it as busy (ADR-0178 decision 2).
     pub fn set_busy_timeout(&self, wait: std::time::Duration) -> Stored<()> {
+        self.busy.set(wait);
         Ok(self.conn.busy_timeout(wait)?)
     }
 
@@ -1703,6 +1709,7 @@ impl Store {
             answers,
             attempt_retention: None,
             checkpoint_due: false,
+            busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
             earlier,
         };
@@ -1730,9 +1737,26 @@ impl Store {
         if !self.checkpoint_due {
             return Ok(true);
         }
-        let busy: i64 = self
-            .conn
-            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
+        // tried once, waiting for no reader: a reader holding the log keeps
+        // it until it ends, and the truncation stays due after the next
+        // write; waiting here, under the writer's lock, made every write
+        // take the busy timeout while any read older than the erasure was
+        // open (ERASE-CHECKPOINT)
+        self.conn.busy_timeout(std::time::Duration::ZERO)?;
+        let tried: Result<i64, rusqlite::Error> =
+            self.conn
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0));
+        self.conn.busy_timeout(self.busy.get())?;
+        let busy = match tried {
+            Ok(busy) => busy,
+            Err(e) => {
+                let e = StoreError::from(e);
+                if !e.is_busy() {
+                    return Err(e);
+                }
+                1
+            }
+        };
         self.checkpoint_due = busy != 0;
         Ok(busy == 0)
     }

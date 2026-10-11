@@ -605,6 +605,11 @@ Findings from every review of this design. It began as the implementation-readin
 | [D591](#d591) | A deadline was copied into the application's scheduler | Resolved |
 | [D592](#d592) | The wire left unsaid what an application relies on | Resolved |
 | [D593](#d593) | The core made no index for an attribute marked `indexed` | Resolved |
+| [D594](#d594) | An actor named by its identity was found by reading every actor | Resolved |
+| [D595](#d595) | The in-memory column index was rebuilt whenever an object was held | Resolved |
+| [D596](#d596) | `available` computed every object's every offer | Resolved |
+| [D597](#d597) | An erasure's truncation waited on every reader under the writer's lock | Resolved |
+| [D598](#d598) | A module's YAML nesting was unbounded | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3857,3 +3862,28 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **The core made no index for an attribute marked `indexed`**: `flow-format.md` §4.3 says `indexed: true` lets a query filter on it, and `storage-schema.md` §10 gives a new indexed attribute `ADD COLUMN` then `CREATE INDEX`, but the core's model never read the key on a stored attribute, so its tables had indexes on state, references and uniqueness keys alone. Every read by such an attribute read its whole table: an import's check of each legacy key, a uniqueness or identifier lookup, a query's filter. Found 2026-10-11 measuring IMPORT-GROWTH, the go-live import of two years of claims, whose batches of 3,000 objects took 1.6 s rising to 23.5 s as the store grew, the lookups of each object's `legacy_key` and the writes after them growing with it; a release build timed by phase, not inferred.
 
 **Resolved** 2026-10-11: the model reads `indexed`, a table's DDL indexes each stored indexed attribute that no reference's or single-attribute key's index already serves, a publish marking one indexed rebuilds its table with it, and opening a store makes any such index it lacks, which an index changes no answer by (`an_indexed_attribute_is_read_by_its_index`, `an_indexed_attribute_s_index_is_made_where_the_store_lacks_it`, three mutations each failing them). The same import took 36 s, its batches 1.6 s rising to 4.3 s on a machine at load 6 to 7; the publish of one attribute on the 36.7k-object store, 5.3 s of dry run and 6.5 s of approval.
+
+### D594
+**An actor named by its identity was found by reading every object of every actor type**: `resolve_actor` took an id directly and an identity, as a person or an agent is named, by `of_type` over each type marking one, then a scan of what the operation held. A dry run resolves its submitter for each object in both versions, so a person's submit on the review's 37k-object store got no answer in 1,200 s where the operator's, named by its id, took 9 s. Found 2026-10-11 by the second production review's operator (DRYRUN-ACTOR) and traced in the code.
+
+**Resolved** 2026-10-11: the identity is read through its column and index, as a uniqueness is (`an_actor_named_by_identity_is_found_by_its_column`, holding one object of 201 where the scan held all, mutation-checked); the person's submit took 6.1 s and the operator's 5.5 s, at load 10.9.
+
+### D595
+**The in-memory column index was rebuilt whenever an object was held**: PERF-SCAN's index of held objects by a column's value was thrown away when a slot was added, so a sweep reading each object's parts, a filter on a derived attribute or a per-person metric, rebuilt it over everything held for each object read. At 12k claims a metric took 77 s and a filter on `total` 83 s. Found 2026-10-11 by the second production review (READ-COST); an incremental index had been tried for the import, measured no different there and set aside, which was a measurement of the wrong path.
+
+**Resolved** 2026-10-11: each column keys the slots held since it last looked and those changed since, from a log of changed slots (`a_sweep_keys_what_it_holds_a_bounded_number_of_times`, 50,375 keyings for 525 objects when rebuilt, mutation-checked); on the 37k-object store the metric took 1.5 s and the filter 1.0 s.
+
+### D596
+**`available` computed every object's every offer**: it read every object of the type, whatever its state, and each one's whole availability, to find the one transition asked; a worklist with nothing to find took 41 s at 12k claims. Found 2026-10-11 by the second production review's operator (READ-COST).
+
+**Resolved** 2026-10-11: it reads the objects in a state the transition is taken from, by the state's index, a type with subtypes read whole, and computes that transition's offer alone (`available_reads_only_the_objects_its_transition_is_taken_from`, mutation-checked).
+
+### D597
+**An erasure's truncation of the `-wal` waited on every reader under the writer's lock**: after an erasure each request ran `PRAGMA wal_checkpoint(TRUNCATE)` with the connection's busy timeout, so while any read older than the erasure was open every write took 5 s; a routine metric read held the company's writes to one each 5 s for 74 s. Found 2026-10-11 by the second production review's adversary (ERASE-CHECKPOINT).
+
+**Resolved** 2026-10-11: the truncation is tried with no busy wait and stays due until a later request completes it once the read ends (`an_erasure_beside_an_open_read_holds_no_write`, a write taking 5.0 s with the wait restored). The erased values stay in the `-wal` while a read older than the erasure is open, which no truncation can take from under it; `integrate.md` §9 says so.
+
+### D598
+**A module's YAML nesting was unbounded**: F1 bounded expressions, but `yaml.rs` built a tree of any depth, which a walk or its drop then overflowed: a module of block sequences 300,000 deep, 600 KB, drafted by an agent as `integrate.md` §6 allows, aborted the service. The reference checker's composer recursed too. Found 2026-10-11 by the second production review's adversary (YAML-DEPTH).
+
+**Resolved** 2026-10-11: both checkers refuse a description nesting its collections deeper than 64 levels, at the line of the 65th, as a `yaml` finding, the reference checker from the parser's events before anything composes it (`a_description_nested_past_its_bound_is_refused`, 300,000 levels refused at once; a plant the oracle holds alike; each mutation-checked).

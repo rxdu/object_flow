@@ -246,23 +246,54 @@ struct Held {
     /// The records read alone, by type, past [`BATCH`] of which the rest
     /// of a type's are read together.
     alone: std::cell::RefCell<BTreeMap<String, usize>>,
-    /// The held objects by a column's value, built on first use and
-    /// rebuilt once what is held has changed (PERF-SCAN).
-    index: std::cell::RefCell<ColumnIndex>,
-    /// How many times a held object has been changed or replaced, which
-    /// the index is built at.
-    changes: std::cell::Cell<u64>,
+    /// The held objects by a column's value, each column built on its
+    /// first use and kept as objects are held and changed (PERF-SCAN).
+    index: std::cell::RefCell<BTreeMap<(String, String), Column>>,
+    /// Each slot changed or replaced since the operation began, in order,
+    /// which a column keys again from where it last read.
+    changed: std::cell::RefCell<Vec<usize>>,
+    /// How many slots the columns have keyed, which a test holds linear in
+    /// what is held.
+    keyed: std::cell::Cell<usize>,
 }
 
-/// The held objects of a type by an attribute's value, a key of each value
-/// an index can hold and `None` for an absent one, as of a count of slots
-/// and of changes (PERF-SCAN): a scan of every held object for each object
-/// read, as a dry run's invariants made over a whole store, is one lookup.
+/// The held objects of one type by one attribute's value, a key of each
+/// value an index can hold and `None` for an absent one (PERF-SCAN): a scan
+/// of every held object for each object read, as a dry run's invariants
+/// made over a whole store, is one lookup. It is kept, not rebuilt: a
+/// lookup keys the slots held since it last looked and those changed
+/// since, so its cost is what changed, where rebuilding it on any change
+/// made an import's checks, each holding an object more, quadratic again
+/// (IMPORT-GROWTH).
 #[derive(Clone, Debug, Default)]
-struct ColumnIndex {
+struct Column {
+    /// How many slots it has keyed, and how far into the changed slots it
+    /// has read.
     slots: usize,
-    changes: u64,
-    by: BTreeMap<(String, String), BTreeMap<Option<String>, Vec<usize>>>,
+    changes: usize,
+    by: BTreeMap<Option<String>, BTreeSet<usize>>,
+    /// Each slot's key, so a changed slot's old one is taken out.
+    key_of: BTreeMap<usize, Option<String>>,
+}
+
+impl Column {
+    /// A slot keyed as the object it holds now is: taken out under its old
+    /// key, and put under its new one where it is of the column's type and
+    /// its value is one an index holds.
+    fn key(&mut self, n: usize, o: Option<&Object>, type_: &str, attr: &str) {
+        if let Some(old) = self.key_of.remove(&n)
+            && let Some(slots) = self.by.get_mut(&old)
+        {
+            slots.remove(&n);
+        }
+        if let Some(o) = o
+            && o.type_ == type_
+            && let Some(k) = index_key(&o.attr(attr))
+        {
+            self.by.entry(k.clone()).or_default().insert(n);
+            self.key_of.insert(n, k);
+        }
+    }
 }
 
 /// The key an index holds a value by, where it holds one: an object's id,
@@ -592,33 +623,25 @@ impl<'l> World<'l> {
     fn held_where(&self, type_: &str, attr: &str, v: &Value) -> Option<Vec<&Object>> {
         let key = index_key(v)?.map(Some)?;
         let mut idx = self.held.index.borrow_mut();
-        let (slots, changes) = (self.held.slots.len.get(), self.held.changes.get());
-        if idx.slots != slots || idx.changes != changes {
-            *idx = ColumnIndex {
-                slots,
-                changes,
-                by: BTreeMap::new(),
-            };
-        }
-        let mut found: Vec<usize> = Vec::new();
+        let changed = self.held.changed.borrow();
+        let slots = self.held.slots.len.get();
+        let mut found: BTreeSet<usize> = BTreeSet::new();
         for t in self.lib.types.keys().filter(|t| self.lib.is_a(t, type_)) {
-            let entry = idx
-                .by
-                .entry((t.clone(), attr.to_string()))
-                .or_insert_with(|| {
-                    let mut by: BTreeMap<Option<String>, Vec<usize>> = BTreeMap::new();
-                    for n in 0..slots {
-                        if let Some(o) = self.held.slots.get(n)
-                            && o.type_ == *t
-                            && let Some(k) = index_key(&o.attr(attr))
-                        {
-                            by.entry(k).or_default().push(n);
-                        }
-                    }
-                    by
-                });
+            let column = idx.entry((t.clone(), attr.to_string())).or_default();
+            // the slots held since it last looked, then those changed since
+            let fresh = changed.get(column.changes..).unwrap_or_default();
+            self.held
+                .keyed
+                .set(self.held.keyed.get() + (slots - column.slots) + fresh.len());
+            for n in column.slots..slots {
+                column.key(n, self.held.slots.get(n), t, attr);
+            }
+            for &n in fresh {
+                column.key(n, self.held.slots.get(n), t, attr);
+            }
+            (column.slots, column.changes) = (slots, changed.len());
             for k in [key.clone(), None] {
-                if let Some(ns) = entry.get(&k) {
+                if let Some(ns) = column.by.get(&k) {
                     found.extend(ns);
                 }
             }
@@ -636,6 +659,13 @@ impl<'l> World<'l> {
     /// (PERF-SCAN).
     pub fn held_count(&self) -> usize {
         self.held.slots.len.get()
+    }
+
+    /// How many slots the operation's column indexes have keyed: linear in
+    /// what it holds, where an index rebuilt whenever an object was held
+    /// made a sweep of a store quadratic (READ-COST).
+    pub fn keyed_count(&self) -> usize {
+        self.held.keyed.get()
     }
 
     fn held_in_order(&self, of: impl Fn(&Object) -> bool) -> Vec<&Object> {
@@ -960,9 +990,9 @@ impl<'l> World<'l> {
             }
             None => None,
         };
-        if slot.is_some() {
+        if let Some(n) = slot {
             self.held.written.insert(id.to_string());
-            self.held.changes.set(self.held.changes.get() + 1);
+            self.held.changed.get_mut().push(n);
         }
         Ok(slot.and_then(|n| self.held.slots.get_mut(n)))
     }
@@ -973,8 +1003,10 @@ impl<'l> World<'l> {
     pub fn insert(&mut self, o: Object) -> Result<(), crate::eval::NotRun> {
         o.held_parts()?;
         self.held.written.insert(o.id.clone());
-        self.held.changes.set(self.held.changes.get() + 1);
         let held = self.held.by_id.get_mut().get(&o.id).copied().flatten();
+        if let Some(n) = held {
+            self.held.changed.get_mut().push(n);
+        }
         match held.and_then(|n| self.held.slots.get_mut(n)) {
             Some(slot) => *slot = o,
             None => {
