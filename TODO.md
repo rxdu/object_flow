@@ -236,7 +236,33 @@ The review before 1.0.0, 2026-10-11 ([`production-review.md`](docs/design/produc
 - [x] **RELEASE** CI in the repository, a CHANGELOG, a security policy, tags and checksums, advisory scanning. *Done 2026-10-11 (ADR-0183 decision 2): `scripts/check-all`, run by `.github/workflows/check.yml` on each push with `cargo audit`; `.github/workflows/release.yml` builds a tag's service with its checksum; `CHANGELOG.md`, `SECURITY.md`, `core/README.md` "Releases". The workflows have not yet run on GitHub: they run on the first push, and `SECURITY.md`'s private reporting is enabled in the repository's settings by its owner.*
 - [x] **F7** an erasure's unmarked `reason` noticed by the checker, `context` said never to hold personal data; **F8** the agent's reads of personal attributes said in the guides; the minor items of `production-review.md` §3. *Done 2026-10-11, F7 narrower than this line said: an erasure's own event keeps only what it erased, so the reason an erasure leaves is a correction's, kept with its event unless personal; both checkers notice a correction's free-text reason on a type an erasure reaches, `reason_kept` (`flow-format.md` §7), planted three ways and mutation-checked in each, and `customers.yaml` marks its correction's reason personal; the guides say what an erasure reaches (`integrate.md` §9, `wire.md`). F8 in `integrate.md` §6. The minors: files `0600`, the evaluator log, `--version` and the body limit done; idle timeouts recorded and not built (ADR-0183 decision 10); F5, an overflow's `501` with no remedy, and a poisoned writer's lock after a panic, open below.*
 - [ ] **F5** an integer overflow in an effect answers `501 not run` with no remedy; a refusal naming the overflow, as `over_limit` names a limit, is to be designed. **POISON** a panic while the writer's lock is held poisons it until a restart: the service answers `500` to every write after; recovering the lock, or exiting so a supervisor restarts it, is to be decided.
-- [ ] A second production review on the same store, before 1.0.0 is cut.
+- [x] A second production review on the same store, before 1.0.0 is cut. *Done 2026-10-11 at `cd1b536` ([`production-review.md`](docs/design/production-review.md) §6): **NO-GO** from both reviewers, four blockers and nine majors, below.*
+
+### The second production review
+
+Found 2026-10-11 at `cd1b536` (`production-review.md` §6). Blockers first, each fixed with a test at the size or input that broke it; then a third production review.
+
+- [ ] **YAML-DEPTH** a module's YAML nesting bounded in the core's loader and the reference checker alike, refused as a `yaml` finding: 300,000 levels of block sequences abort the process (`yaml.rs`).
+- [ ] **DRYRUN-ACTOR** a publish's dry run, preview and approval cost the same whoever submits: the submitter's offers for every object in both versions (`publish.rs` `clauses_and_offers`) made a person's or an agent's take minutes, quadratically.
+- [ ] **DRYRUN-LOCK** a submit's dry run held off the writer lock, or bounded, with a change's size bounded: a 3,000-type module held every write 83 s.
+- [ ] **ERASE-CHECKPOINT** the truncation after an erasure never waits on a reader under the writer lock (`store.rs` `after_erasure`), and the erased value's stay in the `-wal` bounded and said.
+- [ ] **READ-COST** `available`, a filter on a derived attribute and a per-person metric linear in what they read (41 to 84 s at 12k claims), and a read bounded in time and memory (Author question 3).
+- [ ] **MEMORY** what a publish holds measured and lowered, and the service's memory documented and exported.
+- [ ] **OBSERVE-2** a writer stall, requests in flight and the store's disk in `/health` and `/metrics`; a 5xx's line says why.
+- [ ] **RELEASE-2** the workflows run on GitHub, the advisory scan on a schedule; the reporting channel open (Author question 2).
+- [ ] **TYPES** every key of every operation typed: a value of another JSON type is `400`, never read as absent.
+- [ ] **CONN** half-sent and idle connections closed after a bound, and a cap on connections said in the log.
+- [ ] **SAMPLE-AGENTS** `reimbursement.yaml`'s approvals, payments, erasures and assertions, and `customers.yaml`'s assertion, `taken_by: [human]`; whether the checker notices an erasure or an assertion an agent may take.
+- [ ] **ATTEMPT-INPUTS** a refused attempt keeps no input it does not declare, so no erasure need reach one.
+- [ ] **STORE-ACTS** F3 again (Author question 1).
+- [ ] The minors of `production-review.md` §6, and F5 and POISON above.
+- [ ] A third production review, on the same store, before 1.0.0 is cut.
+
+**Questions for the author** (2026-10-11), each with a recommendation:
+
+1. **STORE-ACTS.** Both reviews rank it major: through the wire an agent can approve a version and retire the operator, after which the operator can do nothing and cannot be installed again. PRD T6 and N7 forbid a refusal by the requester's kind (ADR-0183 decision 7). Options: (a) the gateway alone, as now; (b) a PRD revision letting the engine refuse the store's own acts, the approval of a version and the operator's retirement, to a non-human; (c) no kind read at all, and the operator's retirement refused outright, since it is irreversible and leaves the store without an operator. Recommended: (c), with (a) for the approval, because it closes the irreversible failure without reading anyone's kind.
+2. **RELEASE-2.** Nothing has run on GitHub because nothing is pushed, and `SECURITY.md` names GitHub's private vulnerability reporting, which is disabled on the repository. Both are the repository owner's acts. Recommended: push `main`, which runs CI for the first time, and enable private vulnerability reporting in the repository's settings (Security, "Private vulnerability reporting").
+3. **A bound on a read.** Nothing bounds a read's time or memory, and an erasure's checkpoint waits for the longest read. Recommended: a deadline on every read, `--read-timeout` (30 s unless given), a read past it answered `503` `read_timeout` and its work stopped, added to `/v1` before 1.0.0, when the promise does not yet bind.
 
 ## Flow Studio
 
