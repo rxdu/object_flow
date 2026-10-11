@@ -5630,6 +5630,9 @@ def syntax_plants():
          p(MINI, NOTE, NOTE + "      who:   { type: identity, actor_kind: human, optional: true }\n"
                               "      also:  { type: identity, actor_kind: agent, optional: true }\n")),
         ("the actor read in a condition", "check 64", p(MINI, COND, "expression: actor.id is not null")),
+        # an expression past the parser's bounds, which once exhausted the core's stack (F1)
+        ("an expression deeper than its bound", "syntax", p(MINI, COND, "expression: " + " or ".join(["title is not null"] * 200))),
+        ("an expression nested past its bound", "syntax", p(MINI, COND, "expression: " + "(" * 70 + "title is not null" + ")" * 70)),
         ("a part created not only via its whole", "check 11",
          p(PARTS, START, "      start: { kind: initial, to: ACTIVE, required_inputs: [order] }\n")),
         ("an only via whose parent never reaches it", "check 13",
@@ -6696,6 +6699,56 @@ def decimal_plant(people):
         verdict.append(bool([x for x in found if "a decimal holds 1 to 18 digits" in x[4]]))
     ok = verdict == [False, True]
     print(f"  a decimal of 19 digits is refused, and one of 18 is not: {'yes' if ok else 'NO ' + str(verdict)}")
+    return ok
+
+
+SCALE_FLOW = """module: dec
+categories: [live, closed]
+types:
+  Line:
+    description: A line priced in a currency.
+    tracking: record
+    attributes:
+      rate: { type: "decimal(18,6)" }
+      qty: { type: "decimal(18,6)" }
+      total: { type: "decimal(18,6)", optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        required_inputs: [rate, qty]
+        effect:
+          - assign: { location: total, expr: rate * qty }
+      close: { kind: external, from: OPEN, to: DONE }
+"""
+
+SCALE_EXAMPLES = """examples_for: dec
+examples:
+  a_product_keeps_its_scale:
+    description: Two decimals multiplied in an effect are kept at the column's scale.
+    request: { type: Line, transition: add, inputs: { rate: 2, qty: 3 } }
+    expect: { verdict: applied, state: OPEN, values: { total: 6.000000 } }
+  a_third_squared:
+    description: A product rounded to the column's scale.
+    request: { type: Line, transition: add, inputs: { rate: 0.333333, qty: 0.333333 } }
+    expect: { verdict: applied, state: OPEN, values: { total: 0.111111 } }
+"""
+
+
+def scale_plant():
+    """A decimal an effect computes is written at its attribute's scale, a product rounding half to even to it
+    (declaration-syntax.md §8.3), on both backends: the core once stored 2 x 3 as 6000000.000000, and the reference kept
+    every place of 0.333333 squared (F4). Clean, and an example expecting the unrounded product caught."""
+    found, _ = check([("dec.yaml", SCALE_FLOW), ("dec.examples.yaml", SCALE_EXAMPLES)])
+    ok = not found
+    wrong = SCALE_EXAMPLES.replace("values: { total: 0.111111 }", "values: { total: 0.111110888889 }")
+    assert wrong != SCALE_EXAMPLES
+    caught, _ = check([("dec.yaml", SCALE_FLOW), ("dec.examples.yaml", wrong)])
+    ok &= any(x[3] == "example" for x in caught)
+    print(f"  a decimal product written at its attribute's scale, rounded half to even: {'yes' if ok else 'NO ' + str(found)}")
     return ok
 
 
@@ -7807,6 +7860,7 @@ def main():
     ok &= veto_plants()
     ok &= conversion_self_test()
     ok &= decimal_plant(people)
+    ok &= scale_plant()
     ok &= cutover_plant(people)
     ok &= supersession_plant(people)
     ok &= proposal_plants(people)

@@ -1,0 +1,21 @@
+module: dec
+categories: [live, closed]
+types:
+  Line:
+    description: A line priced in a currency.
+    tracking: record
+    attributes:
+      rate: { type: "decimal(18,6)" }
+      qty: { type: "decimal(18,6)" }
+      total: { type: "decimal(18,6)", optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        required_inputs: [rate, qty]
+        effect:
+          - assign: { location: total, expr: rate * qty }
+      close: { kind: external, from: OPEN, to: DONE }

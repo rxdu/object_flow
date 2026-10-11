@@ -325,6 +325,34 @@ fn invariant_objects(world: &World<'_>, o: &Object, n: &str) -> Result<BTreeSet<
     Ok(BTreeSet::new())
 }
 
+/// A decimal written to an attribute, at the attribute's declared scale: a
+/// product or quotient rounds half to even to the target's scale, as money
+/// does (`declaration-syntax.md` §8.3, F4), and a value past the store's
+/// 18 digits is not written. Any other value, or an attribute of another
+/// type, is written as it is.
+pub(crate) fn at_declared_scale(t: &Type, name: &str, v: Value) -> Result<Value, NotRun> {
+    let Value::Decimal(d) = &v else {
+        return Ok(v);
+    };
+    let scale = t.attribute(name).and_then(|a| match &a.declared {
+        Declared::Scalar(ty) => ty
+            .strip_prefix("decimal(")
+            .and_then(|r| r.trim_end_matches(')').rsplit(',').next())
+            .and_then(|s| s.trim().parse::<u8>().ok()),
+        Declared::Reference(_) => None,
+    });
+    let Some(scale) = scale else {
+        return Ok(v);
+    };
+    match d.rescale(scale) {
+        Some(held) if held.units().abs() <= 999_999_999_999_999_999 => Ok(Value::Decimal(held)),
+        _ => Err(NotRun::Unsupported(format!(
+            "{}.{name} given a decimal past its 18 digits",
+            t.name
+        ))),
+    }
+}
+
 /// What refuses an actor, resolved or not: one the store holds no actor
 /// for, as `actor_known`, and one whose object is in a final state, a
 /// person who left or an agent retired, as `actor_active`, each `dependent`
@@ -1439,7 +1467,7 @@ fn take(
                         .with_actor(&ctx.who)
                         .eval(d)?;
                     if !v.is_absent() {
-                        o.attrs.insert(a.clone(), v);
+                        o.attrs.insert(a.clone(), at_declared_scale(t, a, v)?);
                     }
                 }
             }
@@ -1569,7 +1597,8 @@ fn take(
     }
     for k in x.required_inputs.iter().chain(&x.optional_inputs) {
         if let Some(v) = inputs.get(k) {
-            o.attrs.insert(k.clone(), v.clone());
+            o.attrs
+                .insert(k.clone(), at_declared_scale(t, k, v.clone())?);
         }
     }
     // the event records every input the transition took, those that write
@@ -3514,6 +3543,7 @@ fn effects(
                         "an assignment of an absent value, which only an unsupplied optional input may be",
                     );
                 }
+                let v = at_declared_scale(t, location, v)?;
                 if let Some(o) = ctx.work.get_mut(id)? {
                     o.attrs.insert(location.clone(), v);
                 }

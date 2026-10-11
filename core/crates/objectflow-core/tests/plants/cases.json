@@ -11285,6 +11285,75 @@
   "could_violate": {}
  },
  {
+  "label": "scale_plant",
+  "files": [
+   [
+    "dec.yaml",
+    "6cc678295d580e7c"
+   ],
+   [
+    "dec.examples.yaml",
+    "f7504cceb3c47db3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "dec.examples.yaml",
+    2,
+    "notice",
+    "coverage",
+    "no example takes 1 transition of dec, by its request, a step, a setup or a cascade it expects: Line.close"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "scale_plant",
+  "files": [
+   [
+    "dec.yaml",
+    "6cc678295d580e7c"
+   ],
+   [
+    "dec.examples.yaml",
+    "c4a088c1050c2e5e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "dec.examples.yaml",
+    2,
+    "notice",
+    "coverage",
+    "no example takes 1 transition of dec, by its request, a step, a setup or a cascade it expects: Line.close"
+   ],
+   [
+    "dec.examples.yaml",
+    7,
+    "fatal",
+    "example",
+    "a_third_squared: expected total to hold 0.111110888889, and it holds 0.111111"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "cutover_plant",
   "files": [
    [
@@ -16588,6 +16657,50 @@
     "fatal",
     "check 64",
     "reads the actor outside an outcome value: require titled: actor.id is not null because dependent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: an expression deeper than its bound",
+  "files": [
+   [
+    "plant.yaml",
+    "c04d548305aa81c8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    16,
+    "fatal",
+    "syntax",
+    "the expression is deeper than 128 levels; a long list of alternatives is written x in {a, b, …}, at 4197 of 'title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null or title is not null': not an expression of declaration-syntax.md §8"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: an expression nested past its bound",
+  "files": [
+   [
+    "plant.yaml",
+    "db9a0b16014f2173"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    16,
+    "fatal",
+    "syntax",
+    "the expression nests deeper than 64 levels, found '(', at 65 of '((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((title is not null))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))': not an expression of declaration-syntax.md §8"
    ]
   ],
   "analysed": {},

@@ -351,6 +351,74 @@ struct Parser {
     text: String,
     toks: Vec<Token>,
     i: usize,
+    /// How deeply the parse has nested, bounded by `MAX_NESTING`.
+    depth: usize,
+}
+
+/// The most an expression's parse may nest, parentheses, `not`, `-`,
+/// `implies` and `if` each a level, so no request's filter or module's
+/// expression exhausts the stack that parses it (F1).
+pub const MAX_NESTING: usize = 64;
+
+/// The deepest an expression's tree may be, every node a level, which its
+/// evaluation and its drop recurse through: a chain of 300 `or`s is 300
+/// levels, where a list of alternatives is one, `x in {a, b, …}` (F1).
+pub const MAX_DEPTH: usize = 128;
+
+/// The depth of a tree, counted without recursion, since the tree is what
+/// recursion would exhaust.
+fn depth(e: &Expr) -> usize {
+    let mut deepest = 0;
+    let mut stack: Vec<(&Expr, usize)> = vec![(e, 1)];
+    while let Some((e, d)) = stack.pop() {
+        deepest = deepest.max(d);
+        let mut children: Vec<&Expr> = Vec::new();
+        match e {
+            Expr::Num(_)
+            | Expr::Str(_)
+            | Expr::Bool(_)
+            | Expr::Dur(..)
+            | Expr::Money(..)
+            | Expr::Name(_) => {}
+            Expr::Path(b, _)
+            | Expr::Not(b)
+            | Expr::Neg(b)
+            | Expr::IsNull(b, _)
+            | Expr::Changed(_, b) => children.push(b),
+            Expr::Call(f, args) => {
+                children.push(f);
+                children.extend(args.iter());
+            }
+            Expr::Agg {
+                collection,
+                filter,
+                body,
+                ..
+            } => children.extend(
+                [collection.as_deref(), filter.as_deref(), body.as_deref()]
+                    .into_iter()
+                    .flatten(),
+            ),
+            Expr::Metric {
+                name,
+                binds,
+                over,
+                fresh,
+            } => {
+                children.push(name);
+                children.extend(binds.iter().map(|(_, b)| b));
+                children.extend([over.as_deref(), fresh.as_deref()].into_iter().flatten());
+            }
+            Expr::Set(items) => children.extend(items.iter()),
+            Expr::In(a, b) | Expr::Bin(_, a, b) => {
+                children.push(a);
+                children.push(b);
+            }
+            Expr::If(c, a, b) => children.extend([&**c, &**a, &**b]),
+        }
+        stack.extend(children.into_iter().map(|c| (c, d + 1)));
+    }
+    deepest
 }
 
 type Parsed<T> = Result<T, ParseError>;
@@ -410,6 +478,20 @@ impl Parser {
     }
 
     fn expr(&mut self) -> Parsed<Expr> {
+        self.depth += 1;
+        let e = self.nested_expr();
+        self.depth -= 1;
+        e
+    }
+
+    /// An expression at one more level of nesting, refused past
+    /// `MAX_NESTING` (F1).
+    fn nested_expr(&mut self) -> Parsed<Expr> {
+        if self.depth > MAX_NESTING {
+            return self.fail(&format!(
+                "the expression nests deeper than {MAX_NESTING} levels"
+            ));
+        }
         if self.at("if", 0) {
             self.take();
             let cond = self.expr()?;
@@ -516,15 +598,23 @@ impl Parser {
     }
 
     fn unary(&mut self) -> Parsed<Expr> {
-        if self.at("not", 0) {
-            self.take();
-            return Ok(Expr::Not(boxed(self.unary()?)));
+        if !(self.at("not", 0) || self.at("-", 0)) {
+            return self.postfix();
         }
-        if self.at("-", 0) {
+        self.depth += 1;
+        let e = if self.depth > MAX_NESTING {
+            self.fail(&format!(
+                "the expression nests deeper than {MAX_NESTING} levels"
+            ))
+        } else if self.at("not", 0) {
             self.take();
-            return Ok(Expr::Neg(boxed(self.unary()?)));
-        }
-        self.postfix()
+            self.unary().map(|x| Expr::Not(boxed(x)))
+        } else {
+            self.take();
+            self.unary().map(|x| Expr::Neg(boxed(x)))
+        };
+        self.depth -= 1;
+        e
     }
 
     fn postfix(&mut self) -> Parsed<Expr> {
@@ -832,10 +922,16 @@ pub fn parse(text: &str) -> Result<Expr, ParseError> {
         text: text.to_string(),
         toks: tokenize(text)?,
         i: 0,
+        depth: 0,
     };
     let node = p.expr()?;
     if p.peek(0).kind != Kind::End {
         return p.fail("the end of the expression");
+    }
+    if depth(&node) > MAX_DEPTH {
+        return Err(p.error(format!(
+            "the expression is deeper than {MAX_DEPTH} levels; a long list of alternatives is written x in {{a, b, …}}"
+        )));
     }
     Ok(node)
 }
@@ -894,6 +990,43 @@ mod tests {
         ] {
             assert!(parse(kept).is_ok(), "{kept}");
         }
+    }
+
+    #[test]
+    fn nesting_and_depth_are_bounded() {
+        // a long chain is refused past the tree's bound, a list of
+        // alternatives is one level, and nesting is refused past its bound,
+        // so no expression exhausts the stack that parses or evaluates it
+        // (F1)
+        let chain = |n: usize| {
+            (0..n)
+                .map(|i| format!("x == {i}"))
+                .collect::<Vec<_>>()
+                .join(" or ")
+        };
+        assert!(parse(&chain(120)).is_ok());
+        let long = parse(&chain(200)).expect_err("a chain past the bound");
+        assert!(long.message.contains("deeper than 128"), "{}", long.message);
+        let set = format!(
+            "x in {{{}}}",
+            (0..3000)
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        assert!(parse(&set).is_ok());
+        let parens = |n: usize| format!("{}x{}", "(".repeat(n), ")".repeat(n));
+        assert!(parse(&parens(60)).is_ok());
+        assert!(
+            parse(&parens(70))
+                .expect_err("nesting past the bound")
+                .message
+                .contains("nests deeper than 64")
+        );
+        assert!(parse(&format!("{}x", "not ".repeat(70))).is_err());
+        // past both bounds by far, refused rather than overflowing
+        assert!(parse(&chain(20_000)).is_err());
+        assert!(parse(&parens(5_000)).is_err());
     }
 
     #[test]

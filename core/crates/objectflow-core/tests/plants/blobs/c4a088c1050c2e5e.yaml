@@ -1,0 +1,10 @@
+examples_for: dec
+examples:
+  a_product_keeps_its_scale:
+    description: Two decimals multiplied in an effect are kept at the column's scale.
+    request: { type: Line, transition: add, inputs: { rate: 2, qty: 3 } }
+    expect: { verdict: applied, state: OPEN, values: { total: 6.000000 } }
+  a_third_squared:
+    description: A product rounded to the column's scale.
+    request: { type: Line, transition: add, inputs: { rate: 0.333333, qty: 0.333333 } }
+    expect: { verdict: applied, state: OPEN, values: { total: 0.111110888889 } }

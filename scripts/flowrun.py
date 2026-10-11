@@ -164,6 +164,15 @@ def computed_end(kinds, spec):
     return not str(other.get("reference", "")).endswith("[]") and bool(other.get("stored")) and not spec.get("stored")
 
 
+def at_declared_scale(spec, v):
+    """A value written to an attribute, at the attribute's declared scale: a decimal product or quotient rounds half to
+    even to the target's scale, as money does (declaration-syntax.md §8.3, F4); any other value as it is."""
+    typ = str((spec or {}).get("type") or "")
+    if typ.startswith("decimal(") and isinstance(v, (int, Fraction)) and not isinstance(v, bool):
+        return half_even(v, int(typ.rstrip(")").rsplit(",", 1)[1]))
+    return v
+
+
 def half_even(v, places):
     """A value rounded half to even to so many decimal places (declaration-syntax.md §8.3)."""
     scaled = Fraction(v) * 10 ** places
@@ -2305,7 +2314,8 @@ class Runner:
                 elif (spec or {}).get("type") == "counter":
                     o.attrs[a] = 0
                 elif "default" in (spec or {}):
-                    o.attrs[a] = Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs).value(flowexpr.parse(str(spec["default"])), {})
+                    o.attrs[a] = at_declared_scale(spec, Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs).value(
+                        flowexpr.parse(str(spec["default"])), {}))
             if xn == "record" and "subject" in inputs:
                 o.attrs["recorded_at"] = work.now
                 # a correction replaces the fact it corrects, so it keeps that fact's occurred time (ADR-0146)
@@ -2327,7 +2337,7 @@ class Runner:
                 self.erase(ctx, o)
         for k in x.get("required_inputs", []) + x.get("optional_inputs", []):
             if k in inputs:
-                o.attrs[k] = inputs[k]
+                o.attrs[k] = at_declared_scale(attrs.get(k), inputs[k])
         if oid is None:
             self.mint(ctx, o, attrs)
         ctx.wrote(o.id)
@@ -2488,7 +2498,7 @@ class Runner:
                     raise NotRunnable("an assignment of an absent value, which only an unsupplied optional input may be")
                 if self.owner_end(attrs.get(spec["location"])) and o.attrs.get(spec["location"]) not in (None, v):
                     raise NotRunnable("re-parenting a part by an effect, whose whole_open guard this runner does not yet evaluate")
-                o.attrs[spec["location"]] = v
+                o.attrs[spec["location"]] = at_declared_scale(attrs.get(spec["location"]), v)
                 ctx.attr_writes.setdefault(o.id, set()).add(spec["location"])
                 if self.owner_end(attrs.get(spec["location"])):
                     ctx.wrote(v)

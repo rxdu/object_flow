@@ -224,8 +224,8 @@ The author's fifteen decisions of 2026-10-11 (ADR-0182, "go with your recommenda
 
 The review before 1.0.0, 2026-10-11 ([`production-review.md`](docs/design/production-review.md)): **NO-GO**; 1.0.0 is not cut. Blockers first:
 
-- [ ] **F1** a depth bound on every expression a request or a module gives: a deep or long filter aborts the process (`expr.rs` parse, the evaluator and the tree's drop recurse).
-- [ ] **F4** a product or quotient written to a decimal rounds half to even to the target's scale (`declaration-syntax.md` §8.3), on both backends: the core stores unscaled units (`store.rs` `to_sql`), the runner keeps every place.
+- [x] **F1** a depth bound on every expression a request or a module gives: a deep or long filter aborts the process (`expr.rs` parse, the evaluator and the tree's drop recurse). *Done 2026-10-11: nesting 64 and a tree 128 deep, both parsers; the service's threads 16 MiB, a release build having overflowed at about 256 levels and a debug one at 170 on 2 MiB.*
+- [x] **F4** a product or quotient written to a decimal rounds half to even to the target's scale (`declaration-syntax.md` §8.3), on both backends: the core stores unscaled units (`store.rs` `to_sql`), the runner keeps every place. *Done 2026-10-11: at every write, an effect's, an input's and a default's, both backends; `scale_plant`.*
 - [ ] **PERF-SCAN** a one-to-many end read by its index (`eval.rs:801`, `opposite_end`), and a size test: request, read, publish and import times on a store of 36.7k objects.
 - [ ] **PUBLISH-FREEZE** a publish's dry run and an import measured again after PERF-SCAN; neither holds every write for minutes, and the import is not quadratic (`import.rs:768-799`).
 - [ ] **F3** publishing and retiring the operator refused to an agent; **F2** the samples' actor types `taken_by: [human]`; **F6** `dry_run` and `propose` refused unless a boolean; **MAINTAIN** `maintain` the operator's only.

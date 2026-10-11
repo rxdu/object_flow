@@ -1428,3 +1428,62 @@ fn a_changes_source_and_report_are_answered_as_json() {
     assert!(attributes["source"]["service"].is_string(), "{got}");
     assert_eq!(attributes["report"]["accepted"], true, "{got}");
 }
+
+/// A filter long or nested past the parser's bounds is refused
+/// `malformed_filter`, and the service answers on: a 3,000-term `or` chain
+/// once aborted the process by overflowing its stack (F1). Within the
+/// bounds, a 120-term chain and 60 parentheses are answered, a list of
+/// alternatives of any length too.
+#[test]
+fn a_filter_past_the_parsers_bounds_is_refused_and_the_service_answers_on() {
+    let file = fresh_store("deep-filters");
+    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    ledger(&s);
+    let op = json!({"id": "operator"});
+    let read = |filter: &str| {
+        post(
+            &s,
+            "/v1/query",
+            &json!({"actor": op, "type": "Account", "filter": filter}),
+        )
+    };
+    let chain = |n: usize| {
+        (0..n)
+            .map(|i| format!("balance == {i}"))
+            .collect::<Vec<_>>()
+            .join(" or ")
+    };
+    for wrong in [
+        chain(3000),
+        format!("{}balance > 0{}", "(".repeat(600), ")".repeat(600)),
+        format!("{}true", "not ".repeat(5000)),
+    ] {
+        let page = read(&wrong);
+        assert_eq!(
+            page["refused"],
+            "malformed_filter",
+            "{}",
+            &page.to_string()[..200.min(page.to_string().len())]
+        );
+    }
+    for right in [
+        chain(120),
+        format!("{}balance >= 0{}", "(".repeat(60), ")".repeat(60)),
+        format!(
+            "balance in {{{}}}",
+            (0..3000)
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    ] {
+        let page = read(&right);
+        assert!(
+            page["refused"].is_null(),
+            "{}",
+            &page.to_string()[..200.min(page.to_string().len())]
+        );
+    }
+    let (status, _) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 200);
+}

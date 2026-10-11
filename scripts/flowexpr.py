@@ -69,9 +69,33 @@ def tokenize(text):
     return out
 
 
+# the most an expression's parse may nest, and the deepest its tree may be, as the core bounds them, so no
+# expression exhausts the stack that parses or evaluates it (F1)
+MAX_NESTING, MAX_DEPTH = 64, 128
+
+
+def depth(node):
+    """The depth of a tree, every node a level, counted without recursion."""
+    deepest, stack = 0, [(node, 1)]
+    while stack:
+        x, d = stack.pop()
+        deepest = max(deepest, d)
+        for e in x[1:]:
+            if isinstance(e, tuple):
+                stack.append((e, d + 1))
+            elif isinstance(e, list):
+                stack.extend((y, d + 1) for y in e if isinstance(y, tuple))
+    return deepest
+
+
 class Parser:
     def __init__(self, text):
-        self.text, self.toks, self.i = text, tokenize(text), 0
+        self.text, self.toks, self.i, self.depth = text, tokenize(text), 0, 0
+
+    def nest(self):
+        self.depth += 1
+        if self.depth > MAX_NESTING:
+            self.fail(f"the expression nests deeper than {MAX_NESTING} levels")
 
     def peek(self, k=0):
         return self.toks[min(self.i + k, len(self.toks) - 1)]
@@ -93,6 +117,13 @@ class Parser:
 
     # precedence, lowest first: if; implies; or; and; comparison, in, is null; + -; * /; not; paths and calls
     def expr(self):
+        self.nest()
+        try:
+            return self.nested_expr()
+        finally:
+            self.depth -= 1
+
+    def nested_expr(self):
         if self.at("if"):
             self.take()
             cond = self.expr()
@@ -159,13 +190,14 @@ class Parser:
         return left
 
     def unary(self):
-        if self.at("not"):
-            self.take()
-            return ("not", self.unary())
-        if self.at("-"):
-            self.take()
-            return ("neg", self.unary())
-        return self.postfix()
+        if not (self.at("not") or self.at("-")):
+            return self.postfix()
+        self.nest()
+        try:
+            kind = "not" if self.take()[1] == "not" else "neg"
+            return (kind, self.unary())
+        finally:
+            self.depth -= 1
 
     def postfix(self):
         node = self.primary()
@@ -309,6 +341,9 @@ def parse(text):
     node = p.expr()
     if p.peek()[0] != "end":
         p.fail("the end of the expression")
+    if depth(node) > MAX_DEPTH:
+        raise ParseError(p.text, p.peek()[2], f"the expression is deeper than {MAX_DEPTH} levels; a long list of "
+                                              f"alternatives is written x in {{a, b, …}}")
     return node
 
 

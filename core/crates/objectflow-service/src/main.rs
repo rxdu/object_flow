@@ -2169,8 +2169,24 @@ fn args() -> Result<Args, String> {
     Ok(out)
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
-async fn main() -> std::io::Result<()> {
+/// The stack each thread of the service runs a request on: an expression
+/// nests at most `expr::MAX_NESTING` levels and its tree is at most
+/// `expr::MAX_DEPTH` deep, and evaluating one level of a tree took about
+/// 8 KiB of stack in a release build, measured 2026-10-11; 16 MiB holds
+/// those many times over, where the runtime's default 2 MiB did not hold a
+/// 256-level tree (F1).
+const WORKER_STACK: usize = 16 * 1024 * 1024;
+
+fn main() -> std::io::Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_stack_size(WORKER_STACK)
+        .enable_all()
+        .build()?
+        .block_on(serve())
+}
+
+async fn serve() -> std::io::Result<()> {
     let a = match args() {
         Ok(a) => a,
         Err(why) if why.is_empty() => {
