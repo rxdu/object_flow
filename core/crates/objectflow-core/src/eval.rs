@@ -797,7 +797,9 @@ impl<'a> Evaluator<'a> {
     }
 
     /// An end the other side stores: the objects of the target type whose
-    /// opposite end names this one.
+    /// opposite end names this one, read through that end's column and its
+    /// index, never the target type whole, which made every read of a
+    /// claim's lines read every line (PERF-SCAN).
     fn opposite_end(
         &self,
         o: &Object,
@@ -805,11 +807,12 @@ impl<'a> Evaluator<'a> {
         opposite: &str,
         many: bool,
     ) -> Result<Value, NotRun> {
+        let named = Value::Object(o.id.clone());
         let found: Vec<Value> = self
             .world
-            .of_type(target)?
+            .of_type_where(target, None, &[(opposite.to_string(), named.clone())])?
             .into_iter()
-            .filter(|x| x.attrs.get(opposite) == Some(&Value::Object(o.id.clone())))
+            .filter(|x| x.attrs.get(opposite) == Some(&named))
             .map(|x| Value::Object(x.id.clone()))
             .collect();
         Ok(if many {

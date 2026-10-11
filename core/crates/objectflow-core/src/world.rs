@@ -246,6 +246,35 @@ struct Held {
     /// The records read alone, by type, past [`BATCH`] of which the rest
     /// of a type's are read together.
     alone: std::cell::RefCell<BTreeMap<String, usize>>,
+    /// The held objects by a column's value, built on first use and
+    /// rebuilt once what is held has changed (PERF-SCAN).
+    index: std::cell::RefCell<ColumnIndex>,
+    /// How many times a held object has been changed or replaced, which
+    /// the index is built at.
+    changes: std::cell::Cell<u64>,
+}
+
+/// The held objects of a type by an attribute's value, a key of each value
+/// an index can hold and `None` for an absent one, as of a count of slots
+/// and of changes (PERF-SCAN): a scan of every held object for each object
+/// read, as a dry run's invariants made over a whole store, is one lookup.
+#[derive(Clone, Debug, Default)]
+struct ColumnIndex {
+    slots: usize,
+    changes: u64,
+    by: BTreeMap<(String, String), BTreeMap<Option<String>, Vec<usize>>>,
+}
+
+/// The key an index holds a value by, where it holds one: an object's id,
+/// a text or an integer.
+fn index_key(v: &Value) -> Option<Option<String>> {
+    match v {
+        Value::Absent => Some(None),
+        Value::Object(id) => Some(Some(format!("o:{id}"))),
+        Value::Text(t) => Some(Some(format!("t:{t}"))),
+        Value::Int(n) => Some(Some(format!("i:{n}"))),
+        _ => None,
+    }
 }
 
 /// How many of a type's records an operation reads one by one before it
@@ -557,6 +586,58 @@ impl<'l> World<'l> {
     }
 
     /// Every object held, in ascending id order: creation order.
+    /// The held objects of a type, its own or a subtype's, whose attribute
+    /// holds the value given or none, by the index, in ascending id order;
+    /// none where the value is one the index holds no key for.
+    fn held_where(&self, type_: &str, attr: &str, v: &Value) -> Option<Vec<&Object>> {
+        let key = index_key(v)?.map(Some)?;
+        let mut idx = self.held.index.borrow_mut();
+        let (slots, changes) = (self.held.slots.len.get(), self.held.changes.get());
+        if idx.slots != slots || idx.changes != changes {
+            *idx = ColumnIndex {
+                slots,
+                changes,
+                by: BTreeMap::new(),
+            };
+        }
+        let mut found: Vec<usize> = Vec::new();
+        for t in self.lib.types.keys().filter(|t| self.lib.is_a(t, type_)) {
+            let entry = idx
+                .by
+                .entry((t.clone(), attr.to_string()))
+                .or_insert_with(|| {
+                    let mut by: BTreeMap<Option<String>, Vec<usize>> = BTreeMap::new();
+                    for n in 0..slots {
+                        if let Some(o) = self.held.slots.get(n)
+                            && o.type_ == *t
+                            && let Some(k) = index_key(&o.attr(attr))
+                        {
+                            by.entry(k).or_default().push(n);
+                        }
+                    }
+                    by
+                });
+            for k in [key.clone(), None] {
+                if let Some(ns) = entry.get(&k) {
+                    found.extend(ns);
+                }
+            }
+        }
+        let mut out: Vec<&Object> = found
+            .into_iter()
+            .filter_map(|n| self.held.slots.get(n))
+            .collect();
+        out.sort_by_key(|o| o.order);
+        Some(out)
+    }
+
+    /// How many objects the operation holds, which a read of one object's
+    /// parts keeps to its parts rather than its parts' whole type
+    /// (PERF-SCAN).
+    pub fn held_count(&self) -> usize {
+        self.held.slots.len.get()
+    }
+
     fn held_in_order(&self, of: impl Fn(&Object) -> bool) -> Vec<&Object> {
         let mut all: Vec<&Object> = self.held.slots.iter().filter(|o| of(o)).collect();
         all.sort_by_key(|o| o.order);
@@ -806,14 +887,20 @@ impl<'l> World<'l> {
                 }
             }
         }
-        Ok(self.held_in_order(|o| {
+        let holds = |o: &Object| {
             self.lib.is_a(&o.type_, type_)
                 && states.is_none_or(|s| s.contains(&o.state))
                 && pairs.iter().all(|(a, v)| {
                     let x = o.attr(a);
                     x.is_absent() || x.equals(v)
                 })
-        }))
+        };
+        // the held objects by the index on a pair's column, where its value
+        // is one the index holds, never every held object (PERF-SCAN)
+        if let Some(found) = pairs.iter().find_map(|(a, v)| self.held_where(type_, a, v)) {
+            return Ok(found.into_iter().filter(|o| holds(o)).collect());
+        }
+        Ok(self.held_in_order(holds))
     }
 
     /// Every object of a type, its own or a subtype's, whose attributes
@@ -849,9 +936,17 @@ impl<'l> World<'l> {
                 }
             }
         }
-        Ok(self.held_in_order(|o| {
+        let holds = |o: &Object| {
             self.lib.is_a(&o.type_, type_) && pairs.iter().all(|(a, v)| o.attr(a).equals(v))
-        }))
+        };
+        // the held objects by the index on a pair's column, where its value
+        // is one the index holds, never every held object: a uniqueness
+        // checked on each of a store's objects was a scan of all of them
+        // for each (PERF-SCAN)
+        if let Some(found) = pairs.iter().find_map(|(a, v)| self.held_where(type_, a, v)) {
+            return Ok(found.into_iter().filter(|o| holds(o)).collect());
+        }
+        Ok(self.held_in_order(holds))
     }
 
     /// An object to change, fetched first where it is not held.
@@ -867,6 +962,7 @@ impl<'l> World<'l> {
         };
         if slot.is_some() {
             self.held.written.insert(id.to_string());
+            self.held.changes.set(self.held.changes.get() + 1);
         }
         Ok(slot.and_then(|n| self.held.slots.get_mut(n)))
     }
@@ -877,6 +973,7 @@ impl<'l> World<'l> {
     pub fn insert(&mut self, o: Object) -> Result<(), crate::eval::NotRun> {
         o.held_parts()?;
         self.held.written.insert(o.id.clone());
+        self.held.changes.set(self.held.changes.get() + 1);
         let held = self.held.by_id.get_mut().get(&o.id).copied().flatten();
         match held.and_then(|n| self.held.slots.get_mut(n)) {
             Some(slot) => *slot = o,

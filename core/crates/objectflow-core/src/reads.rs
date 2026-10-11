@@ -490,12 +490,20 @@ pub fn query_page(
     // where the filter requires its states, only the objects in them are
     // read, through each type's state index, and the filter then decides
     // among them as it would among all (ADR-0162 step 3)
-    let candidates = match filter
+    let states = filter
         .as_ref()
-        .and_then(|f| required_states(world.lib, type_, f))
-    {
-        Some(states) => world.of_type_in(type_, &states)?,
-        None => world.of_type(type_)?,
+        .and_then(|f| required_states(world.lib, type_, f));
+    // and through the columns its conjuncts hold equal to a value, a
+    // claim's lines by `claim.id == "…"` among them, never the type whole
+    // (PERF-SCAN)
+    let columns = filter
+        .as_ref()
+        .map(|f| required_columns(world.lib, type_, f))
+        .unwrap_or_default();
+    let candidates = if states.is_none() && columns.is_empty() {
+        world.of_type(type_)?
+    } else {
+        world.of_type_where(type_, states.as_ref(), &columns)?
     };
     let mut chosen = Vec::new();
     for o in candidates {
@@ -766,6 +774,63 @@ fn input_schema(t: &Type, x: &Transition) -> Vec<(String, String)> {
 /// conjuncts of an `and`; none where it requires none this can tell. A state
 /// written bare is taken only where every type of the family resolves the
 /// name to its state of that name, as the filter's own evaluation would.
+/// The columns a filter's conjuncts hold equal to a value, which a query
+/// reads its candidates by: `<reference>.id == "<id>"` of a single
+/// reference, and `<attribute> == <literal>` of a stored text, identity or
+/// integer attribute, each a conjunct of the filter's top-level `and`s, so
+/// every object the filter holds for holds them (PERF-SCAN). The filter
+/// still decides among the candidates.
+fn required_columns(lib: &crate::model::Library, type_: &str, e: &Expr) -> Vec<(String, Value)> {
+    use crate::expr::BinOp;
+    let Some(t) = lib.type_(type_) else {
+        return Vec::new();
+    };
+    let mut conjuncts = vec![e];
+    let mut out = Vec::new();
+    while let Some(c) = conjuncts.pop() {
+        let Expr::Bin(op, a, b) = c else {
+            continue;
+        };
+        match op {
+            BinOp::And => {
+                conjuncts.push(a);
+                conjuncts.push(b);
+            }
+            BinOp::Eq => {
+                for (side, other) in [(a, b), (b, a)] {
+                    let held = match (side.as_ref(), other.as_ref()) {
+                        (Expr::Path(base, id), Expr::Str(v)) if id == "id" => match base.as_ref() {
+                            Expr::Name(r) => t
+                                .attribute(r)
+                                .filter(|x| !x.many && matches!(x.declared, Declared::Reference(_)))
+                                .map(|_| (r.clone(), Value::Object(v.clone()))),
+                            _ => None,
+                        },
+                        (Expr::Name(n), Expr::Str(v)) => t
+                            .attribute(n)
+                            .filter(|x| {
+                                !x.many
+                                    && matches!(&x.declared, Declared::Scalar(ty) if ty == "string" || ty == "identity")
+                            })
+                            .map(|_| (n.clone(), Value::Text(v.clone()))),
+                        (Expr::Name(n), Expr::Num(crate::expr::Number::Int(k))) => t
+                            .attribute(n)
+                            .filter(|x| !x.many && matches!(&x.declared, Declared::Scalar(ty) if ty == "int"))
+                            .map(|_| (n.clone(), Value::Int(*k))),
+                        _ => None,
+                    };
+                    if let Some(h) = held {
+                        out.push(h);
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 fn required_states(lib: &crate::model::Library, type_: &str, e: &Expr) -> Option<BTreeSet<String>> {
     use crate::expr::BinOp;
     let family: Vec<&crate::model::Type> = lib

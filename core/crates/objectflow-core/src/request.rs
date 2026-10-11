@@ -8709,4 +8709,69 @@ types:
         assert_eq!(found(&s, "crm", "dd"), None);
         assert_eq!(found(&s, "xero", "X2"), Some(c1));
     }
+
+    /// A read of an object's one-to-many end holds that object's parts,
+    /// read through the stored end's index, never every object of the
+    /// parts' type, which made every read of a claim read every claim line
+    /// in the store (PERF-SCAN); and a query by a reference's id reads the
+    /// objects naming it, never the type whole.
+    #[test]
+    fn a_one_to_many_end_is_read_by_its_index_not_its_type_whole() {
+        let text = r#"
+module: lines
+categories: [open, closed]
+types:
+  Order:
+    attributes:
+      lines: { reference: "Line[]", opposite: order, aggregation: composite, survives: true }
+    derived_attributes:
+      size: { description: Its lines., expression: count(l in lines) }
+    states:
+      OPEN: { category: open }
+    transitions:
+      place: { kind: initial, to: OPEN }
+  Line:
+    attributes:
+      order: { reference: Order, opposite: lines }
+      qty: { type: int }
+    states:
+      ACTIVE: { category: open }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [order, qty] }
+"#;
+        let lib = Library::load(&[("lines.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let mut orders = Vec::new();
+        for _ in 0..20 {
+            let o = created(&req(&mut s, "place", OPERATOR, ("Order", true), json!({})));
+            for q in 0..10 {
+                created(&req(
+                    &mut s,
+                    "add",
+                    OPERATOR,
+                    ("Line", true),
+                    json!({"order": &o, "qty": q}),
+                ));
+            }
+            orders.push(o);
+        }
+        let w = s.snapshot().unwrap();
+        let t = w.lib.type_("Order").unwrap();
+        let size = Evaluator::new(&w, Some(t), Some(&orders[7]))
+            .eval(&crate::expr::parse("size").unwrap())
+            .unwrap();
+        assert_eq!(size, Value::Int(10));
+        // the order and its ten lines, and nothing like the 200 lines held
+        assert!(w.held_count() <= 12, "{} held", w.held_count());
+        let page = crate::reads::query(
+            &w,
+            "Line",
+            Some(&format!("order.id == \"{}\"", orders[3])),
+            &[],
+            None,
+        )
+        .unwrap();
+        assert_eq!(page.items.len(), 10);
+        assert!(w.held_count() <= 24, "{} held", w.held_count());
+    }
 }

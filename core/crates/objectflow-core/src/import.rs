@@ -764,8 +764,19 @@ fn decide(
             }
             work.insert(obj)?;
         }
-        // every object, which an external identifier's uniqueness reads
-        let everyone = work.in_order()?;
+        // the types holding each external identifier's source, which its
+        // uniqueness reads through their columns, never the store whole,
+        // which made every batch read every object (PUBLISH-FREEZE)
+        let holding = |a: &str, source: &str| -> Vec<String> {
+            lib.types
+                .iter()
+                .filter(|(_, xt)| {
+                    xt.attribute(a)
+                        .is_some_and(|xa| xa.external.as_deref() == Some(source))
+                })
+                .map(|(n, _)| n.clone())
+                .collect()
+        };
         // the classes, found once over every object the batch writes (C34)
         for p in placed.iter().filter(|p| !excluded.contains(&p.index)) {
             let o = &batch.objects[p.index];
@@ -797,14 +808,15 @@ fn decide(
                     && !v.is_absent()
                 {
                     let value = text_of(&v);
-                    let shared = everyone.iter().any(|x| {
-                        x.id != obj.id
-                            && lib
-                                .type_(&x.type_)
-                                .and_then(|xt| xt.attribute(a))
-                                .is_some_and(|xa| xa.external.as_ref() == Some(source))
-                            && text_of(&x.attr(a)) == value
-                    });
+                    let mut shared = false;
+                    for tn in holding(a, source) {
+                        shared |= work
+                            .with_key(&tn, std::slice::from_ref(a), std::slice::from_ref(&v))?
+                            .iter()
+                            .any(|x| {
+                                x.id != obj.id && x.type_ == tn && text_of(&x.attr(a)) == value
+                            });
+                    }
                     if shared {
                         found(
                             &mut these,
