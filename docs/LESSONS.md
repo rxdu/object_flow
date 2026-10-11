@@ -502,3 +502,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** ADR-0176's `veto` notice was ported to the core's checker and its plants exported, and the oracle passed; a mutation that dropped every `veto` from the core still passed, because `checker_oracle.rs` compares only the codes in its `COVERED` list, and a new code is in none.
 - **Correction:** A new code a check reports joins `COVERED` (or `COVERED_IN_EXAMPLES`) in the same change that ports it, and the port is mutated away once to see the oracle fail.
 - **Context:** The Rust core's checker held to `scripts/check-flows.py` by exported plants, ObjectFlow; 2026-10-10.
+
+### Tests that run at once name their scratch files apart
+- **Pattern:** Two deployment tests copied the same release fixture to `fresh_store("upgrade-reimbursement")`, a name the process id alone made unique; cargo runs a test binary's tests on threads of one process, so both wrote one file, and one test's upgrade met the other's half-copied or already-upgraded store. It passed in every gate run from the upgrade's commit until one run under load, where it failed as a 503 `engine_mismatch` that looked like an upgrade fault.
+- **Correction:** A scratch path is unique per test, not per process: the test's own name or tag in it, never a name derived only from the fixture being copied.
+- **Context:** Rust integration tests with temporary files, ObjectFlow's `deployment.rs`; 2026-10-11.

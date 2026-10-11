@@ -514,9 +514,11 @@ fn an_endpoint_is_a_deployments() {
 
 /// The stores release 0.1.0's own service made, kept with what it answered
 /// of them (`fixtures/make-release-store.py`, at commit f6ee6d6).
-fn release_fixture(name: &str) -> (PathBuf, Value) {
+/// Each test copies into a store of its own, `tag` naming it, since tests
+/// run at once in one process and share its id.
+fn release_fixture(name: &str, tag: &str) -> (PathBuf, Value) {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/release-0.1.0");
-    let path = fresh_store(&format!("upgrade-{name}"));
+    let path = fresh_store(&format!("upgrade-{name}-{tag}"));
     std::fs::copy(dir.join(format!("{name}.sqlite")), &path).expect("the fixture copied");
     let reads = std::fs::read_to_string(dir.join(format!("{name}.reads.json")))
         .expect("what release 0.1.0 answered");
@@ -549,7 +551,7 @@ fn exported_log(s: &Service) -> Vec<Value> {
 fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
     let op = json!({"id": "operator"});
     for name in ["reimbursement", "servicedesk"] {
-        let (path, recorded) = release_fixture(name);
+        let (path, recorded) = release_fixture(name, "alike");
         assert_eq!(recorded["release"], "objectflow-core 0.1.0");
         let args = ["--store", path.to_str().expect("a path"), "--port", "0"];
         let s = start(&args);
@@ -649,7 +651,7 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
 /// An upgrade is the operator's, and refused to anyone else.
 #[test]
 fn only_an_operator_upgrades() {
-    let (path, _) = release_fixture("reimbursement");
+    let (path, _) = release_fixture("reimbursement", "operator");
     let s = start(&["--store", path.to_str().expect("a path"), "--port", "0"]);
     let (status, said) = call(
         &s,
