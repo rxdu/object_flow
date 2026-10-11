@@ -37,6 +37,7 @@ the Flow Studio's server. It stops at the port, as not run: the port carries leg
 leaves to the core, so the runner is held to the core by the comparisons and not by the scenarios (ADR-0167). An
 operation the runner's sandbox does not serve is not run there; its reads would be held by `scenarios_passing_runner.txt`.
 """
+import collections
 import copy
 import datetime
 import hashlib
@@ -90,6 +91,9 @@ class Service:
             self.close()
             raise SystemExit(f"the core's service did not start: {line}")
         self.base = m.group(1)
+        # the service writes a line for each answer: read to its end, so a
+        # full pipe never stops it
+        threading.Thread(target=collections.deque, args=(self.proc.stderr, 0), daemon=True).start()
 
     def close(self):
         self.proc.terminate()

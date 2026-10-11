@@ -266,8 +266,18 @@ describe.each(BACKENDS)("against the %s", (backend) => {
         job,
       ]);
       // what the version declares, which the panel shows its reviewer
+      // people's actor types are taken by a person or a service, each of
+      // their transitions generating an invariant of who took it (ADR-0176)
+      const taken = Object.entries({
+        User: ["add", "rename", "leave"],
+        Agent: ["issue", "revoke"],
+        Service: ["register", "retire"],
+      }).flatMap(([t, xs]) => xs.map((x) => [t, x, xs[0]] as const));
       expect(d.report?.invariant_forms).toEqual({
         "ServiceJob.photo_when_done": "local",
+        ...Object.fromEntries(
+          taken.map(([t, x]) => [`${t}.${x}_taken_by`, "local"]),
+        ),
       });
       expect(d.report?.could_violate).toEqual({
         "ServiceJob.photo_when_done": [
@@ -275,6 +285,12 @@ describe.each(BACKENDS)("against the %s", (backend) => {
           "ServiceJob.open",
           "ServiceJob.start",
         ],
+        ...Object.fromEntries(
+          taken.map(([t, x, made]) => [
+            `${t}.${x}_taken_by`,
+            [...new Set([`${t}.${made}`, `${t}.${x}`])].sort(),
+          ]),
+        ),
       });
       expect(d.report?.person_dimensions).toContain(
         "ServiceJob.time_working.engineer",

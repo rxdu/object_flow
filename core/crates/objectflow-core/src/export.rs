@@ -645,10 +645,13 @@ types:
         );
         s.attempt_retention = Some(1);
         assert!(matches!(
-            s.maintain(&crate::store::MaintenanceTask {
-                name: "prune_attempts".into(),
-                before: s.now - 1
-            }),
+            s.maintain(
+                crate::model::OPERATOR,
+                &crate::store::MaintenanceTask {
+                    name: "prune_attempts".into(),
+                    before: s.now - 1
+                }
+            ),
             Ok(Ok(Ok(_)))
         ));
         assert_eq!(page(&s, "Job.attempt_counts", None).0, counts);

@@ -10,10 +10,12 @@ It builds the core's service with the pinned toolchain, and fails, not skips,
 without it.
 """
 
+import collections
 import pathlib
 import re
 import subprocess
 import tempfile
+import threading
 
 import pytest
 
@@ -38,11 +40,15 @@ def deployment():
     store = pathlib.Path(tempfile.mkdtemp()) / "store.sqlite"
     service = subprocess.Popen(
         [str(ROOT / "core/target/debug/objectflow-service"),
-         "--store", str(store), "--port", "0"],
+         "--store", str(store), "--create", "--port", "0"],
         stderr=subprocess.PIPE, text=True)
     line = service.stderr.readline()
     m = re.search(r"listening on (http://127\.0\.0\.1:\d+)", line)
     assert m, f"the core's service did not start: {line}"
+    # the service writes a line for each answer: read to its end, so a full
+    # pipe never stops it
+    threading.Thread(target=collections.deque, args=(service.stderr, 0),
+                     daemon=True).start()
     yield Wire(m.group(1))
     service.terminate()
     service.wait()

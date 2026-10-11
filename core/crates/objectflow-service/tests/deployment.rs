@@ -17,6 +17,35 @@ use serde_json::{Value, json};
 struct Service {
     child: Option<Child>,
     addr: String,
+    /// What it has written to stderr since it started listening, read as
+    /// it is written, so a service logging every answer never fills the
+    /// pipe and stops.
+    said: std::sync::Arc<std::sync::Mutex<String>>,
+}
+
+/// A service's stderr past its first line, drained into a buffer by a thread
+/// of its own until the service exits.
+fn drained(
+    stderr: BufReader<std::process::ChildStderr>,
+) -> std::sync::Arc<std::sync::Mutex<String>> {
+    let said = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let into = said.clone();
+    std::thread::spawn(move || {
+        for line in stderr.lines().map_while(Result::ok) {
+            if let Ok(mut s) = into.lock() {
+                s.push_str(&line);
+                s.push('\n');
+            }
+        }
+    });
+    said
+}
+
+impl Service {
+    /// What the service has written to stderr since it began listening.
+    fn said(&self) -> String {
+        self.said.lock().map(|s| s.clone()).unwrap_or_default()
+    }
 }
 
 impl Drop for Service {
@@ -34,10 +63,9 @@ fn start(args: &[&str]) -> Service {
         .stderr(Stdio::piped())
         .spawn()
         .expect("the service starts");
+    let mut stderr = BufReader::new(child.stderr.take().expect("its stderr"));
     let mut line = String::new();
-    BufReader::new(child.stderr.as_mut().expect("its stderr"))
-        .read_line(&mut line)
-        .expect("its first line");
+    stderr.read_line(&mut line).expect("its first line");
     let addr = line
         .trim()
         .strip_prefix("listening on http://")
@@ -46,6 +74,7 @@ fn start(args: &[&str]) -> Service {
     Service {
         child: Some(child),
         addr,
+        said: drained(stderr),
     }
 }
 
@@ -189,7 +218,7 @@ fn a_deployments_store_survives_a_restart_on_the_wall_clock() {
         .as_secs();
     let job;
     {
-        let s = start(&["--store", path, "--port", "0"]);
+        let s = start(&["--store", path, "--create", "--port", "0"]);
         let (status, health) = call(&s, "GET", "/health", None);
         assert_eq!(status, 200);
         assert_eq!(
@@ -253,6 +282,26 @@ fn a_deployments_store_survives_a_restart_on_the_wall_clock() {
     let s = start(&["--store", path, "--port", "0"]);
     let (_, health) = call(&s, "GET", "/health", None);
     assert_eq!(health["now"], "2100-01-01T00:00:00Z", "{health}");
+    // the clock's lead, said where an operator looks (production review
+    // CLOCK-PIN): in health, at the start, and on each answer's line
+    assert!(
+        health["clock_lead_seconds"].as_i64().unwrap_or(0) > 2_000_000_000,
+        "{health}"
+    );
+    post(
+        &s,
+        "/v1/get",
+        &json!({"actor": {"id": "operator"}, "id": "operator"}),
+    );
+    let said = s.said();
+    assert!(
+        said.contains("the store's clock leads the wall clock by"),
+        "{said}"
+    );
+    assert!(
+        said.contains("POST /v1/get 200") && said.contains(" clock_lead="),
+        "{said}"
+    );
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
@@ -264,7 +313,7 @@ fn a_store_of_a_release_this_one_does_not_upgrade_from_is_refused() {
     for release in ["objectflow-core 9.0.0", "objectflow-core 0.0.0"] {
         let file = fresh_store("release");
         let path = file.to_str().expect("a path");
-        drop(start(&["--store", path, "--port", "0"]));
+        drop(start(&["--store", path, "--create", "--port", "0"]));
         let conn = rusqlite::Connection::open(&file).expect("the file");
         conn.execute(
             "INSERT INTO of_engine_release (seq, release, installed_at, installed_by) \
@@ -295,6 +344,344 @@ fn a_sandbox_still_answers_its_controls_and_its_health() {
     );
     let (status, _) = call(&s, "POST", "/sandbox/reset", Some(&json!({})));
     assert_ne!(status, 404);
+}
+
+/// A flag that is not a JSON boolean, and inputs that are not an object,
+/// are refused, never read as false or as none: `"dry_run": "true"` read as
+/// false installed a version (production review F6). Each body is valid
+/// but for the one key.
+#[test]
+fn a_flag_or_inputs_of_another_type_is_refused() {
+    let path = fresh_store("flags");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    let op = json!({"id": "operator"});
+    let draft = json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
+                       "inputs": {"source": {"people": example("people.yaml")}, "source_ref": "test"}});
+    let with = |key: &str, v: Value| {
+        let mut b = draft.clone();
+        b[key] = v;
+        b
+    };
+    for (path, body) in [
+        ("/v1/request", with("propose", json!("yes"))),
+        ("/v1/request", with("inputs", json!(["source"]))),
+        (
+            "/v1/publish",
+            json!({"actor": op, "change": "C1", "expected_version": 1, "dry_run": "true"}),
+        ),
+        (
+            "/v1/import_batch",
+            json!({"actor": op, "batch": {"objects": []}, "dry_run": 1}),
+        ),
+        ("/v1/upgrade", json!({"actor": op, "dry_run": "false"})),
+    ] {
+        let (status, said) = call(&s, "POST", path, Some(&body));
+        assert_eq!(status, 400, "{path} {body}: {said}");
+    }
+    // the draft itself, the flags and inputs as they should be, is taken
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/request",
+        Some(&with("propose", json!(false))),
+    );
+    assert_eq!(
+        (status, said["kind"].as_str()),
+        (200, Some("satisfied")),
+        "{said}"
+    );
+}
+
+/// `maintain` names an actor the store knows, as a request does: an actor
+/// it does not know prunes nothing (production review MAINTAIN), and a
+/// known one's prune is refused only by the retention. Who may maintain is
+/// the application's (DESIGN.md §10, ADR-0183 decision 5).
+#[test]
+fn maintain_names_an_actor_the_store_knows() {
+    let path = fresh_store("maintain");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    let task = json!({"name": "prune_attempts", "before": "2020-01-01T00:00:00Z"});
+    let alice = post(
+        &s,
+        "/v1/maintain",
+        &json!({"actor": {"id": "alice"}, "task": task}),
+    );
+    assert_eq!(alice, json!({"moved": 0, "refused": "actor_known"}));
+    let operator = post(
+        &s,
+        "/v1/maintain",
+        &json!({"actor": {"id": "operator"}, "task": task}),
+    );
+    assert_eq!(operator["refused"], json!("inside_retention"), "{operator}");
+}
+
+/// A path that holds no store, absent or empty, is refused unless the start
+/// asks to make one, so a mistyped path never becomes an empty store served
+/// (ADR-0183 decision 3); a store made is its owner's alone, its `-wal`
+/// and `-shm` as well; and it is opened again without asking.
+#[test]
+fn a_path_holding_no_store_is_refused_unless_made() {
+    use std::os::unix::fs::PermissionsExt;
+    let file = fresh_store("made");
+    let path = file.to_str().expect("a path");
+    let (code, said) = refused(&["--store", path, "--port", "0"]);
+    assert_ne!(code, Some(0));
+    assert!(
+        said.contains("holds no store") && said.contains("--create"),
+        "{said}"
+    );
+    assert!(!file.exists(), "a refused start made {}", file.display());
+    std::fs::write(&file, b"").expect("an empty file");
+    let (code, said) = refused(&["--store", path, "--port", "0"]);
+    assert_ne!(code, Some(0));
+    assert!(said.contains("holds no store"), "{said}");
+    std::fs::remove_file(&file).expect("the empty file removed");
+    {
+        let s = start(&["--store", path, "--create", "--port", "0"]);
+        publish_service(&s);
+        assert!(s.said().contains("a store made at"), "{}", s.said());
+        for suffix in ["", "-wal", "-shm"] {
+            let f = format!("{path}{suffix}");
+            let mode = std::fs::metadata(&f)
+                .expect("the file")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600, "{f}");
+        }
+    }
+    let s = start(&["--store", path, "--port", "0"]);
+    let (_, health) = call(&s, "GET", "/health", None);
+    assert_eq!(health["version"].as_i64(), Some(1), "{health}");
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+/// One HTTP/1.1 exchange over a Unix socket: its status and its JSON body.
+fn call_unix(socket: &Path, method: &str, path: &str) -> (u16, Value) {
+    let mut stream = std::os::unix::net::UnixStream::connect(socket).expect("a connection");
+    write!(
+        stream,
+        "{method} {path} HTTP/1.1\r\nHost: objectflow\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )
+    .expect("the request is written");
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).expect("the answer");
+    let status = raw[9..12].parse().expect("a status");
+    let body = raw
+        .split_once("\r\n\r\n")
+        .map(|(_, b)| b)
+        .unwrap_or_default();
+    (status, serde_json::from_str(body).unwrap_or(Value::Null))
+}
+
+/// The service on a Unix socket, the boundary the design leaves to the
+/// deployment (ADR-0183 decision 4): its owner and group alone may connect,
+/// a socket a stopped service left is replaced, and a file of another kind
+/// is never.
+#[test]
+fn the_service_listens_on_a_unix_socket() {
+    use std::os::unix::fs::PermissionsExt;
+    let file = fresh_store("socket");
+    let socket = file.with_file_name("objectflow.sock");
+    let started = |args: &[&str]| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
+            .args(args)
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the service starts");
+        let mut stderr = BufReader::new(child.stderr.take().expect("its stderr"));
+        let mut line = String::new();
+        stderr.read_line(&mut line).expect("its first line");
+        assert_eq!(
+            line.trim(),
+            format!("listening on unix:{}", socket.display())
+        );
+        Service {
+            child: Some(child),
+            addr: String::new(),
+            said: drained(stderr),
+        }
+    };
+    let args = [
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--socket",
+        socket.to_str().expect("a path"),
+    ];
+    {
+        let _s = started(&args);
+        let mode = std::fs::metadata(&socket)
+            .expect("the socket")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o660);
+        let (status, health) = call_unix(&socket, "GET", "/health");
+        assert_eq!(
+            (status, health["shape"].as_str()),
+            (200, Some("deployment")),
+            "{health}"
+        );
+    }
+    // killed, it leaves its socket, which the next start replaces
+    assert!(socket.exists());
+    {
+        let _s = started(&args);
+        assert_eq!(call_unix(&socket, "GET", "/health").0, 200);
+    }
+    std::fs::remove_file(&socket).expect("the socket removed");
+    std::fs::write(&socket, b"not a socket").expect("a file");
+    let (code, said) = refused(&args);
+    assert_ne!(code, Some(0));
+    assert!(said.contains("not a socket"), "{said}");
+    let (code, said) = refused(&["--socket", "/tmp/x.sock", "--port", "0"]);
+    assert_ne!(code, Some(0));
+    assert!(said.contains("one or the other"), "{said}");
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+/// Each answer is logged, its time, route, status and duration, and counted
+/// in `GET /metrics` by route, a path no route takes counted as one; and
+/// `/health` reads the store, so a store that cannot be read answers 500
+/// (production review OBSERVE).
+#[test]
+fn each_answer_is_logged_and_counted_and_health_reads_the_store() {
+    let file = fresh_store("observed");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish_service(&s);
+    for n in 0..3 {
+        call(&s, "POST", &format!("/v1/nothing-{n}"), Some(&json!({})));
+    }
+    let (status, said) = call(&s, "POST", "/v1/request", Some(&json!({"inputs": 1})));
+    assert_eq!(status, 400, "{said}");
+    let log = s.said();
+    let line = log
+        .lines()
+        .find(|l| l.contains("POST /v1/publish 200"))
+        .unwrap_or_else(|| panic!("no publish logged: {log}"));
+    assert!(
+        line.starts_with("20") && line.contains('T') && line.ends_with(" ms"),
+        "{line}"
+    );
+    assert!(log.contains("POST /v1/request 400"), "{log}");
+    assert!(log.contains("POST unrouted 404"), "{log}");
+    let mut stream = TcpStream::connect(&s.addr).expect("a connection");
+    write!(
+        stream,
+        "GET /metrics HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+    )
+    .expect("asked");
+    let mut metrics = String::new();
+    stream.read_to_string(&mut metrics).expect("the metrics");
+    for want in [
+        "objectflow_requests_total{route=\"/v1/publish\",status=\"200\"} 1",
+        "objectflow_requests_total{route=\"/v1/request\",status=\"400\"} 1",
+        "objectflow_requests_total{route=\"unrouted\",status=\"404\"} 3",
+        "objectflow_store_version 1",
+        "objectflow_clock_lead_seconds 0",
+    ] {
+        assert!(metrics.contains(want), "{want} in {metrics}");
+    }
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(
+        (status, health["clock_lead_seconds"].as_i64()),
+        (200, Some(0)),
+        "{health}"
+    );
+    // the store's files gone from under the service, as an unmounted
+    // volume's are: health says so, where a read connection, its pages
+    // cached and the files it holds open still readable, would not
+    std::fs::remove_dir_all(file.parent().expect("its directory")).expect("the files removed");
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 500, "{health}");
+}
+
+/// Asked to stop, as a supervisor asks by SIGTERM, the service takes no new
+/// connection, answers the request in flight, and exits cleanly, saying so
+/// (ADR-0183 decision 9).
+#[test]
+fn a_stopped_service_answers_the_requests_in_flight() {
+    let (url, _) = bank();
+    let file = fresh_store("stopping");
+    let named = format!("bank={url}");
+    let mut s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+        "--evaluator",
+        &named,
+        "--evaluator-timeout",
+        "2 s",
+    ]);
+    publish(&s, &json!({"payments": PAYMENTS}));
+    // a settle the bank answers too slowly, held for the timeout's 2 s
+    let flight = at(&s);
+    let held = std::thread::spawn(move || settle(&flight, "T-4"));
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    let pid = s.child.as_ref().expect("its process").id();
+    let sent = Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .status()
+        .expect("kill runs");
+    assert!(sent.success());
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(
+        TcpStream::connect(&s.addr).is_err(),
+        "a connection was taken after the stop"
+    );
+    let v = held.join().expect("the request in flight");
+    assert_eq!(
+        (v["kind"].as_str(), v["remedy"].as_str()),
+        (Some("unsatisfied"), Some("temporal")),
+        "{v}"
+    );
+    let status = s
+        .child
+        .as_mut()
+        .expect("its process")
+        .wait()
+        .expect("it exits");
+    assert!(status.success(), "{status}");
+    let said = s.said();
+    assert!(
+        said.contains(" stopping: ") && said.contains(" stopped"),
+        "{said}"
+    );
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+/// `--version` names the service's release and the stores it serves.
+#[test]
+fn the_service_says_its_version() {
+    let out = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
+        .arg("--version")
+        .output()
+        .expect("it runs");
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{said}");
+    assert!(
+        said.starts_with(&format!("objectflow-service {}", env!("CARGO_PKG_VERSION"))),
+        "{said}"
+    );
 }
 
 #[test]
@@ -419,6 +806,7 @@ fn a_deployment_asks_its_evaluators_at_their_endpoints() {
     let s = start(&[
         "--store",
         path,
+        "--create",
         "--port",
         "0",
         "--evaluator",
@@ -464,10 +852,24 @@ fn a_deployment_asks_its_evaluators_at_their_endpoints() {
             "{reference}: {v}"
         );
     }
+    // each said on stderr by its function, never its arguments or the
+    // endpoint's answer, which may hold personal data (production review)
+    let said = s.said();
+    assert!(
+        said.contains("bank.cleared of 1 argument(s) is unknown"),
+        "{said}"
+    );
+    for kept in ["T-3", "T-4", "T-5", "cleared\": true"] {
+        assert!(!said.contains(kept), "{kept} in {said}");
+    }
     // while an endpoint is slow, every other request is served (D563)
     let addr = s.addr.clone();
     let slow = std::thread::spawn(move || {
-        let s = Service { child: None, addr };
+        let s = Service {
+            child: None,
+            addr,
+            said: Default::default(),
+        };
         settle(&s, "T-4")
     });
     std::thread::sleep(std::time::Duration::from_millis(300));
@@ -493,7 +895,7 @@ fn a_deployment_asks_its_evaluators_at_their_endpoints() {
 fn an_evaluator_no_endpoint_answers_is_unknown() {
     let file = fresh_store("unanswered");
     let path = file.to_str().expect("a path");
-    let s = start(&["--store", path, "--port", "0"]);
+    let s = start(&["--store", path, "--create", "--port", "0"]);
     publish(&s, &json!({"payments": PAYMENTS}));
     let v = settle(&s, "T-1");
     assert_eq!(
@@ -700,6 +1102,7 @@ fn at(s: &Service) -> Service {
     Service {
         child: None,
         addr: s.addr.clone(),
+        said: s.said.clone(),
     }
 }
 
@@ -751,7 +1154,15 @@ fn held_lock(path: &Path) -> rusqlite::Connection {
 fn reads_answer_beside_a_write_waiting_on_the_lock() {
     let file = fresh_store("beside");
     let path = file.to_str().expect("a path");
-    let s = start(&["--store", path, "--port", "0", "--busy-timeout", "5 s"]);
+    let s = start(&[
+        "--store",
+        path,
+        "--create",
+        "--port",
+        "0",
+        "--busy-timeout",
+        "5 s",
+    ]);
     let (tally, a, _, pair) = ledger(&s);
     let lock = held_lock(&file);
     let writer = {
@@ -821,7 +1232,15 @@ fn reads_answer_beside_a_write_waiting_on_the_lock() {
 fn a_write_meeting_a_lock_past_its_timeout_is_retried_then_refused_stale() {
     let file = fresh_store("busy");
     let path = file.to_str().expect("a path");
-    let s = start(&["--store", path, "--port", "0", "--busy-timeout", "1 s"]);
+    let s = start(&[
+        "--store",
+        path,
+        "--create",
+        "--port",
+        "0",
+        "--busy-timeout",
+        "1 s",
+    ]);
     let (tally, _, _, _) = ledger(&s);
     // let go after one timeout and before the next: one retry
     let lock = held_lock(&file);
@@ -882,7 +1301,13 @@ fn a_write_meeting_a_lock_past_its_timeout_is_retried_then_refused_stale() {
 #[test]
 fn concurrent_writes_lose_no_update() {
     let file = fresh_store("writers");
-    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
     let (tally, _, _, _) = ledger(&s);
     let (threads, each) = (8, 25);
     let workers: Vec<_> = (0..threads)
@@ -958,7 +1383,13 @@ fn concurrent_writes_lose_no_update() {
 #[test]
 fn a_read_sees_one_committed_state() {
     let file = fresh_store("snapshot");
-    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
     let (_, a, b, pair) = ledger(&s);
     let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
     let movers: Vec<_> = [(a.clone(), b.clone()), (b.clone(), a.clone())]
@@ -1024,7 +1455,7 @@ fn a_read_sees_one_committed_state() {
 fn a_version_another_process_publishes_is_read_and_written_by_this_one() {
     let file = fresh_store("two");
     let path = file.to_str().expect("a path");
-    let first = start(&["--store", path, "--port", "0"]);
+    let first = start(&["--store", path, "--create", "--port", "0"]);
     let (tally, _, _, _) = ledger(&first);
     let second = start(&["--store", path, "--port", "0"]);
     let text = std::fs::read_to_string(
@@ -1060,7 +1491,13 @@ fn a_version_another_process_publishes_is_read_and_written_by_this_one() {
 #[test]
 fn reads_and_writes_a_second_measured() {
     let file = fresh_store("probe");
-    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
     let (tally, _, _, pair) = ledger(&s);
     let window = std::time::Duration::from_secs(2);
     let read_for = |until: std::time::Instant| -> Vec<std::thread::JoinHandle<i64>> {
@@ -1130,7 +1567,13 @@ fn reads_and_writes_a_second_measured() {
 #[test]
 fn a_query_is_read_in_pages() {
     let file = fresh_store("pages");
-    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
     ledger(&s);
     let op = json!({"id": "operator"});
     for (i, balance) in [5, 40, 15, 40, 25, 10].iter().enumerate() {
@@ -1223,7 +1666,13 @@ fn a_query_is_read_in_pages() {
 #[test]
 fn available_pull_and_export_are_read_in_pages() {
     let file = fresh_store("more-pages");
-    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
     let (tally, ..) = ledger(&s);
     let op = json!({"id": "operator"});
     let sub = post(
@@ -1313,7 +1762,13 @@ fn available_pull_and_export_are_read_in_pages() {
 #[test]
 fn a_filter_that_does_not_type_is_refused() {
     let file = fresh_store("typed-filters");
-    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
     ledger(&s);
     let op = json!({"id": "operator"});
     let read = |filter: &str| {
@@ -1350,7 +1805,13 @@ fn a_filter_that_does_not_type_is_refused() {
 #[test]
 fn an_erasure_leaves_no_erased_bytes_in_the_stores_files() {
     let file = fresh_store("erasure-bytes");
-    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
     let module = "module: erase
 categories: [live, closed]
 types:
@@ -1412,7 +1873,13 @@ types:
 #[test]
 fn a_changes_source_and_report_are_answered_as_json() {
     let file = fresh_store("held-json");
-    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
     publish_service(&s);
     let op = json!({"id": "operator"});
     let page = post(
@@ -1437,7 +1904,13 @@ fn a_changes_source_and_report_are_answered_as_json() {
 #[test]
 fn a_filter_past_the_parsers_bounds_is_refused_and_the_service_answers_on() {
     let file = fresh_store("deep-filters");
-    let s = start(&["--store", file.to_str().expect("a path"), "--port", "0"]);
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
     ledger(&s);
     let op = json!({"id": "operator"});
     let read = |filter: &str| {

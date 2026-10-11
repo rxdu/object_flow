@@ -6,15 +6,15 @@ What an application sends the engine's service and what comes back, operation by
 
 ## 1. Requests, answers and faults
 
-Every operation is `POST /v1/<operation>` with a JSON object for a body and `Content-Type: application/json`; the sandbox's controls are `POST /sandbox/<control>`, which a deployment's store does not route (ADR-0174); and `GET /health` answers `{"release": "objectflow-core 0.2.0", "shape": "sandbox" | "deployment", "version": <the store's>, "now": <its clock>, "store_release": "objectflow-core 0.2.0", "upgrade_due": false}`, the store's release and whether an upgrade is due being ADR-0177's. An answer is `200` with the operation's result. **A refusal is a `200`**, a verdict whose `kind` names it, never an error: a caller branches on `kind`.
+Every operation is `POST /v1/<operation>` with a JSON object for a body and `Content-Type: application/json`; the sandbox's controls are `POST /sandbox/<control>`, which a deployment's store does not route (ADR-0174); and `GET /health` answers `{"release": "objectflow-core 0.2.0", "shape": "sandbox" | "deployment", "version": <the store's>, "now": <its clock>, "store_release": "objectflow-core 0.2.0", "upgrade_due": false, "clock_lead_seconds": 0}`, the store's release and whether an upgrade is due being ADR-0177's, and the clock's lead how far the store's clock is ahead of the wall clock, which it never moves back from (ADR-0174 decision 4); a deployment's opens its store's file to answer, and answers `500` where it cannot. `GET /metrics` answers the requests answered by route and status, their seconds, the store's version and the clock's lead, in Prometheus's text format, its metric names held as `/health`'s fields are (ADR-0183). A body is at most 2 MiB. An answer is `200` with the operation's result. **A refusal is a `200`**, a verdict whose `kind` names it, never an error: a caller branches on `kind`.
 
 A **fault** is a `4xx` or `5xx` whose body is `{"fault": "<what is wrong>"}`, every time:
 
 | Status | When |
 |---|---|
-| `400` | a body that is not a JSON object, a key the operation does not take (`/v1/get takes no key folow`), or an argument it needs left out |
+| `400` | a body that is not a JSON object, a key the operation does not take (`/v1/get takes no key folow`), a body past 2 MiB (`length limit exceeded`), an argument it needs left out, or one of another JSON type: a flag such as `dry_run` or `propose` is `true` or `false`, never `"true"`, and `inputs` is an object |
 | `404` | an operation that does not exist (`no operation /v1/nope`) |
-| `405` | an operation asked by anything but `POST`, or `/health` by anything but `GET` |
+| `405` | an operation asked by anything but `POST`, or `/health` or `/metrics` by anything but `GET` |
 | `409` | the sandbox has no module loaded; an idempotency key reused for a different request (`key_reused: …`) |
 | `501` | a construct the core does not yet run (`not run: …`) |
 | `503` | `engine_mismatch: …`: the store is at another engine release than this copy of the service, an upgrade due or made by another copy (ADR-0177) |
@@ -102,7 +102,7 @@ POST /v1/request
 - `expected_version`, the version the caller read, refuses the request `stale` if the object has moved (ADR-0023).
 - `idempotency_key` makes a retry safe: the same request under the same key, from the same actor, answers its first verdict, `replayed: true`; a different request under it is a `409` fault. A key is the actor's: another actor's request under the same key is a request of its own, so a retry queue sends under the identity the first request named.
 - `propose: true` files the request as a `Proposal` instead of taking it, for a transition marked `proposable`; the verdict names the proposal, and a person approves it with `{"object_id": "<proposal>", "transition": "approve"}`, which takes the request as the approver.
-- `context` is the caller's reason, kept with the event.
+- `context` is the caller's reason, kept with the event, and kept through an erasure, which erases only values marked `personal`: never put personal data in it (production review F7).
 
 ### Reads
 
@@ -184,7 +184,7 @@ There is no push: a consumer polls `pull` and acknowledges what it has handled.
 |---|---|---|
 | `publish` | `actor`, `change`, `dry_run`, `expected_version` | `{"verdict": …, "report": {...}}`: a `DeclarationChange`'s dry run and its impact report, or its approval at the version read, which installs the version |
 | `import_batch` | `actor`, `batch`, `disposition`, `dry_run` | `{"written": …, "findings": [...], "refused_types": [...], "refusal": …}` |
-| `maintain` | `actor`, `task` | `{"moved": …, "refused": …}`: `task` is `{"name": "prune_attempts" \| "prune_idempotency" \| "archive_events", "before": "<timestamp>"}`; a prune inside the retention the service was started with is refused `inside_retention`, and `archive_events` is a `501`, since one SQLite file has no tier to move events to |
+| `maintain` | `actor`, `task` | `{"moved": …, "refused": …}`: `task` is `{"name": "prune_attempts" \| "prune_idempotency" \| "archive_events", "before": "<timestamp>"}`; its actor resolved as a request's is, so one the store does not know is refused `actor_known` and one in a final state `actor_active`; a prune inside the retention the service was started with is refused `inside_retention`, and `archive_events` is a `501`, since one SQLite file has no tier to move events to |
 
 A change is an object: `{"type": "DeclarationChange", "transition": "draft", "inputs": {"source": {"<module>": "<its YAML>", …}, "source_ref": "git:…"}}`, then `submit`, which runs its dry run, then `publish` with `expected_version` to approve it. The whole procedure, and importing legacy data into mirror types, is `docs/design/publish-and-import.md`; §7 there works a go-live through.
 

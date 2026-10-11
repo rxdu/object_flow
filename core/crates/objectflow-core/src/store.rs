@@ -1777,8 +1777,23 @@ impl Store {
     /// run.
     pub fn maintain(
         &mut self,
+        actor: &str,
         task: &MaintenanceTask,
     ) -> Stored<Result<Result<i64, &'static str>, NotRun>> {
+        // an actor the store knows, its object in no final state, as a
+        // request's is (DESIGN.md §6 step 1); who may maintain is the upper
+        // layer's to decide, never a capability the store holds (DESIGN.md
+        // §10, ADR-0114, ADR-0183 decision 5)
+        {
+            let world = self.snapshot()?;
+            match crate::request::active(resolve_actor(&world, actor)?) {
+                Ok(_) => {}
+                Err(Verdict::Unsatisfied { clause, .. }) if clause == "actor_active" => {
+                    return Ok(Ok(Err("actor_active")));
+                }
+                Err(_) => return Ok(Ok(Err("actor_known"))),
+            }
+        }
         let retention = match task.name.as_str() {
             "prune_attempts" => self.attempt_retention,
             "prune_idempotency" => self.idempotency_retention,
@@ -4164,10 +4179,13 @@ types:
         assert!(tried.err().unwrap().is_mismatch());
         assert!(store.simulate(|_, _| ()).err().unwrap().is_mismatch());
         store.attempt_retention = Some(0);
-        let pruned = store.maintain(&MaintenanceTask {
-            name: "prune_attempts".into(),
-            before: 1_767_225_600,
-        });
+        let pruned = store.maintain(
+            crate::model::OPERATOR,
+            &MaintenanceTask {
+                name: "prune_attempts".into(),
+                before: 1_767_225_600,
+            },
+        );
         assert!(pruned.err().unwrap().is_mismatch());
     }
 

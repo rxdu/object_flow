@@ -32,6 +32,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[4]
 CORE = ROOT / "core"
 CARGO = pathlib.Path.home() / ".cargo/bin/cargo"
 BINARY = CORE / "target/debug/objectflow-service"
+# the line the core writes for each answer: its time, method, route, status
+# and duration (ADR-0183 decision 8)
+ANSWER = re.compile(r"\d{4}-\d\d-\d\dT\S+ [A-Z]+ \S+ \d{3} [\d.]+ ms")
 # the prefixes the core answers; the studio's tooling stays the server's
 FORWARDED = ("/v1/", "/sandbox/")
 TIMEOUT_S = 60
@@ -64,14 +67,17 @@ class Core:
             self.process.kill()
             raise CoreUnavailable(f"the core's service did not start: {line}")
         self.url = m.group(1)
-        # a panic's message is the core's only other output; it is logged,
-        # and the pipe is drained so the child never blocks writing it
+        # the core writes a line for each answer, and a fault it meets; the
+        # pipe is drained so the child never blocks writing them
         threading.Thread(target=self.drain, daemon=True).start()
 
     def drain(self) -> None:
         assert self.process.stderr is not None
         for line in self.process.stderr:
-            log.warning("core: %s", line.rstrip())
+            # an answer's line is the core's log, anything else, a panic's
+            # message among them, is the studio's to say
+            answered = ANSWER.match(line)
+            (log.debug if answered else log.warning)("core: %s", line.rstrip())
 
     def forward(self, path: str, body: dict) -> tuple[int, Any]:
         """The core's answer to a call, its status and body as it gave

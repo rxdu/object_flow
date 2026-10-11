@@ -154,6 +154,8 @@ types:
       forget:
         kind: erasure
         description: Erases the customer's personal data, and their contacts'.
+        # a person's act, never an agent's (production review F2)
+        taken_by: [human]
         inputs:
           reason: { type: string }
         effect:

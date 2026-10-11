@@ -1098,6 +1098,13 @@ def test_a_reports_marks_are_the_versions_declarations(tee):
     alike(tee)
 
 
+# people.yaml's actor types and their transitions, the creation first, each
+# taken by a person or a service (`taken_by: [human, service]`)
+PEOPLE_TRANSITIONS = {"User": ["add", "rename", "leave"],
+                      "Agent": ["issue", "revoke"],
+                      "Service": ["register", "retire"]}
+
+
 def test_a_report_states_each_invariants_form(tee):
     """A dry run names the form of each invariant a type of the version
     under publish declares, as the checks classify it, alike through both
@@ -1111,8 +1118,12 @@ def test_a_report_states_each_invariants_form(tee):
                source_ref="git:service@2")["object_id"]
     report = tee.post("/v1/publish", {"actor": OP, "change": c,
                                       "dry_run": True})["report"]
+    # people's actor types are taken by a person or a service, each of their
+    # transitions generating an invariant of who took it (ADR-0176)
+    taken = {f"{t}.{x}_taken_by": "local" for t, xs in PEOPLE_TRANSITIONS.items()
+             for x in xs}
     assert report["invariant_forms"] == {
-        "ServiceJob.photo_when_done": "local"}
+        "ServiceJob.photo_when_done": "local", **taken}
     alike(tee)
 
 
@@ -1661,8 +1672,13 @@ def test_a_report_names_the_transitions_that_could_violate_each_invariant(tee):
                source_ref="git:service@2")["object_id"]
     report = tee.post("/v1/publish", {"actor": OP, "change": c,
                                       "dry_run": True})["report"]
+    # each of people's generated invariants of who took a transition, which
+    # the transition and the creation, writing the record of who, reach
+    # (ADR-0176)
+    taken = {f"{t}.{x}_taken_by": sorted({f"{t}.{x}", f"{t}.{xs[0]}"})
+             for t, xs in PEOPLE_TRANSITIONS.items() for x in xs}
     assert report["could_violate"] == {"ServiceJob.photo_when_done": [
-        "ServiceJob.finish", "ServiceJob.open", "ServiceJob.start"]}
+        "ServiceJob.finish", "ServiceJob.open", "ServiceJob.start"], **taken}
     alike(tee)
 
 

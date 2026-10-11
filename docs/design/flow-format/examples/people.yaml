@@ -8,6 +8,9 @@ types:
   User:
     description: A person who can make requests, as the upper layer's user system holds them and its sync keeps in step; only the sync requests add, rename and leave, which the upper layer ensures, since the engine evaluates no actor (ADR-0080, ADR-0114). It holds who the person is, never their roles.
     tracking: record
+    # the sync, a service, or a person; never an agent, which would be handed
+    # who may act (production review F2)
+    taken_by: [human, service]
     attributes:
       login: { type: identity, actor_kind: human, unique: true }
       name:  { type: string }
@@ -34,6 +37,7 @@ types:
   Agent:
     description: An AI agent that can make requests.
     tracking: record
+    taken_by: [human, service]
     attributes:
       key_id: { type: identity, actor_kind: agent, unique: true }
       name:   { type: string }
@@ -53,6 +57,7 @@ types:
   Service:
     description: A system that can make requests, such as an application built on ObjectFlow.
     tracking: record
+    taken_by: [human, service]
     attributes:
       name: { type: identity, actor_kind: service, unique: true }
     states:

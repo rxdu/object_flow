@@ -7242,7 +7242,7 @@ def could_violate_plants(people):
             "Visit.one_open": ["Visit.book", "Visit.close"]}
     violators = {}
     found, _ = check([("people.yaml", people), ("crm.yaml", INVARIANT_FORMS)], None, None, None, None, None, violators)
-    ok = not found and violators == want
+    ok = not found and beyond_people(violators) == want
     print(f"  each invariant with the transitions that could violate it: {'as expected' if ok else 'NOT: ' + str((found, violators))}")
     # a set end is written by the transition writing its far, stored end, and a scan by its type's creations
     counted = {}
@@ -7251,16 +7251,23 @@ def could_violate_plants(people):
                                  "      lines_anywhere: { description: Few lines anywhere., expression: count(o in Line) < 99 }\n"
                                  "    transitions:\n      open:     { kind: initial, to: OPEN }\n", 1)
     found, _ = check([("people.yaml", people), ("shop.yaml", lined)], None, None, None, None, None, counted)
-    ends = not found and counted == {"Order.few_lines": ["Line.start", "Order.open"],
+    ends = not found and beyond_people(counted) == {"Order.few_lines": ["Line.start", "Order.open"],
                                      "Order.lines_anywhere": ["Line.start", "Order.open"]}
     print(f"  a set end by its far end's writer, a scan by its type's creations: {'as expected' if ends else 'NOT: ' + str((found, counted))}")
     ok &= ends
     # a machine's transition is named by the type binding it, never by the machine
     seated = {}
     found, _ = check([("people.yaml", people), ("office.yaml", MACHINE_OFFICE)], None, None, None, None, None, seated)
-    bound = not found and seated == {"Desk.crowded": ["Chair.sit", "Desk.make"]}
+    bound = not found and beyond_people(seated) == {"Desk.crowded": ["Chair.sit", "Desk.make"]}
     print(f"  a machine's transition named by its binder alone: {'as expected' if bound else 'NOT: ' + str((found, seated))}")
     return ok and bound
+
+
+def beyond_people(by_invariant):
+    """What a check found of each invariant, but those of people.yaml's actor types, which a plant loads for its actors
+    alone: each takes `taken_by`, generating an invariant per transition (ADR-0176), which the studio's publishing tests
+    hold through both backends."""
+    return {k: v for k, v in by_invariant.items() if k.split(".", 1)[0] not in ("User", "Agent", "Service")}
 
 
 def invariant_form_plants(people):
@@ -7273,14 +7280,14 @@ def invariant_form_plants(people):
             "Visit.one_open": "type_scan"}
     forms = {}
     found, _ = check([("people.yaml", people), ("crm.yaml", INVARIANT_FORMS)], None, None, None, None, forms)
-    ok = not found and forms == want
+    ok = not found and beyond_people(forms) == want
     print(f"  each invariant by its form: {'as expected' if ok else 'NOT: ' + str((found, forms))}")
     pieces = "      pieces: { reference: \"Piece[]\", opposite: asset, aggregation: composite }\n"
     based = {}
     found, _ = check([("people.yaml", people), ("kit.yaml", REPARENT_KIT.replace(pieces, pieces +
                       "    invariants:\n      few_pieces: { description: Few pieces., expression: \"count(x in pieces) < 9\" }\n"))],
                      None, None, None, None, based)
-    inherited_once = not found and based == {"Asset.few_pieces": "traversal"}
+    inherited_once = not found and beyond_people(based) == {"Asset.few_pieces": "traversal"}
     print(f"  an inherited invariant by its form, at its base alone: {'as expected' if inherited_once else 'NOT: ' + str((found, based))}")
     return ok and inherited_once
 

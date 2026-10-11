@@ -86,8 +86,16 @@ fn asked(endpoint: &str, timeout: std::time::Duration, call: &Call) -> &'static 
         )
         .build()
         .into();
+    // the call by its function alone: its arguments and the endpoint's
+    // answer may hold personal data, which the log does not (production
+    // review, minor)
     let unknown = |why: String| {
-        eprintln!("objectflow-service: {} is unknown: {why}", call.key());
+        eprintln!(
+            "objectflow-service: {}.{} of {} argument(s) is unknown: {why}",
+            call.evaluator,
+            call.function,
+            call.arguments.len()
+        );
         "unanswered"
     };
     let mut answer = match agent
@@ -114,7 +122,10 @@ fn asked(endpoint: &str, timeout: std::time::Duration, call: &Call) -> &'static 
     {
         Some("satisfied") => "satisfied",
         Some("unsatisfied") => "unsatisfied",
-        _ => unknown(format!("{endpoint} answered no verdict: {text}")),
+        _ => unknown(format!(
+            "{endpoint} answered no verdict, in {} byte(s)",
+            text.len()
+        )),
     }
 }
 
@@ -190,6 +201,9 @@ struct Service {
     endpoints: std::collections::BTreeMap<String, String>,
     evaluator_timeout: std::time::Duration,
     deployment: bool,
+    /// What it has answered, by route and status: how many, and their
+    /// seconds, which `GET /metrics` gives (production review OBSERVE).
+    served: Mutex<std::collections::BTreeMap<(String, u16), (u64, f64)>>,
 }
 
 /// What a deployment's reads need beside its writer (ADR-0178): its read
@@ -198,6 +212,8 @@ struct Service {
 /// 4).
 struct Reads {
     pool: Readers,
+    /// The store's file, which `GET /health` opens afresh.
+    path: std::path::PathBuf,
     seen: std::sync::RwLock<Seen>,
     floor: AtomicI64,
 }
@@ -528,6 +544,17 @@ fn store(sandbox: &mut Sandbox) -> Result<&mut Store, Fault> {
         }
     }
     Ok(s)
+}
+
+/// A flag of a request's body: absent or null is false, and anything but
+/// a JSON boolean is refused, never read as false, since `"dry_run":
+/// "true"` read as false installed a version (production review F6).
+fn flag(body: &J, key: &str) -> Result<bool, Fault> {
+    match body.get(key) {
+        None | Some(J::Null) => Ok(false),
+        Some(J::Bool(b)) => Ok(*b),
+        Some(_) => Err(Fault::Bad(format!("{key} takes true or false"))),
+    }
 }
 
 fn text<'a>(body: &'a J, key: &str) -> Option<&'a str> {
@@ -1025,7 +1052,7 @@ async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
 async fn maintain(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
         let task = body.get("task");
-        let (Some(_actor), Some(name), Some(before)) = (
+        let (Some(actor), Some(name), Some(before)) = (
             body.get("actor").and_then(|a| text(a, "id")),
             task.and_then(|t| text(t, "name")),
             task.and_then(|t| text(t, "before")),
@@ -1043,7 +1070,7 @@ async fn maintain(State(shared): State<Shared>, Body(body): Body) -> Answer {
             name: name.to_string(),
             before,
         };
-        Ok(Json(match s.maintain(&task)?? {
+        Ok(Json(match s.maintain(actor, &task)?? {
             Ok(moved) => json!({ "moved": moved, "refused": J::Null }),
             Err(why) => json!({ "moved": 0, "refused": why }),
         }))
@@ -1118,7 +1145,7 @@ fn request_of(body: &J) -> Result<Request, Fault> {
             Fault::Bad("expected_version takes an object's version, an integer".to_string())
         })?),
     };
-    let propose = body.get("propose").and_then(J::as_bool) == Some(true);
+    let propose = flag(body, "propose")?;
     // a proposal's expiry, with `propose` only (library-api.md §3)
     let expires_at =
         match text(body, "expires_at") {
@@ -1154,13 +1181,17 @@ fn request_of(body: &J) -> Result<Request, Fault> {
             })?),
             None => None,
         };
-    let inputs = body
-        .get("inputs")
-        .and_then(J::as_object)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
+    // the transition's inputs by name; anything but an object is refused,
+    // never read as none (production review F6)
+    let inputs = match body.get("inputs") {
+        None | Some(J::Null) => Default::default(),
+        Some(J::Object(m)) => m.clone().into_iter().collect(),
+        Some(_) => {
+            return Err(Fault::Bad(
+                "inputs takes an object of the transition's inputs by name".to_string(),
+            ));
+        }
+    };
     let req = Request {
         transition: transition.to_string(),
         actor: actor.to_string(),
@@ -1459,7 +1490,7 @@ async fn import_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
         {
             file.push(violation_class(c)?);
         }
-        let dry_run = body.get("dry_run").and_then(J::as_bool) == Some(true);
+        let dry_run = flag(&body, "dry_run")?;
         let mut sandbox = locked(&shared)?;
         let s = store(&mut sandbox)?;
         let r = import::import_batch(s, actor, &batch, &file, dry_run)??;
@@ -1548,9 +1579,10 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "publish names its actor and the change".to_string(),
             ));
         };
+        let dry_run = flag(&body, "dry_run")?;
         let mut sandbox = locked(&shared)?;
         let s = store(&mut sandbox)?;
-        if body.get("dry_run").and_then(J::as_bool) != Some(true) {
+        if !dry_run {
             // the version of the change the approver read, required (ADR-0101)
             let Some(expected) = body.get("expected_version").and_then(J::as_i64) else {
                 return Err(Fault::Bad(
@@ -1928,15 +1960,37 @@ async fn health(State(shared): State<Shared>) -> Answer {
                                   "now": J::Null, "store_release": at, "upgrade_due": true}),
                 ));
             }
-            let version = seen.lib.as_ref().map_or(0, |(lib, _)| lib.version);
-            let now = reads
-                .floor
-                .fetch_max(wall_clock(), Ordering::SeqCst)
-                .max(wall_clock());
+            // the store read, so a store that cannot be read answers 500
+            // here rather than at the next request (production review
+            // OBSERVE): its file opened afresh, which a read connection,
+            // whose pages stay cached while no write moves the log, never
+            // rereads, and its release found to be the one served
+            match objectflow_core::release::store_release_at(&reads.path) {
+                Ok(Some(r)) if r == BUILTINS => {}
+                Ok(at) => {
+                    return Err(Fault::Internal(format!(
+                        "storage unavailable: {} holds {}",
+                        reads.path.display(),
+                        at.map_or("no store".to_string(), |r| format!("a store at {r}"))
+                    )));
+                }
+                Err(e) => {
+                    return Err(Fault::Internal(format!(
+                        "storage unavailable: {}: {e}",
+                        reads.path.display()
+                    )));
+                }
+            }
+            let mut r = reading(&shared)?;
+            let s = r.store()?;
+            let version = s.lib.version;
+            s.snapshot()?.get(objectflow_core::model::OPERATOR)?;
+            let now = s.now;
+            drop(r);
             return Ok(Json(
                 json!({"release": BUILTINS, "shape": "deployment", "version": version,
                               "now": timestamp_text(now), "store_release": BUILTINS,
-                              "upgrade_due": false}),
+                              "upgrade_due": false, "clock_lead_seconds": clock_lead(&shared)}),
             ));
         }
         let mut sandbox = locked(&shared)?;
@@ -1962,7 +2016,7 @@ async fn health(State(shared): State<Shared>) -> Answer {
         };
         Ok(Json(
             json!({"release": BUILTINS, "shape": shape, "version": version, "now": now,
-               "store_release": BUILTINS, "upgrade_due": false}),
+               "store_release": BUILTINS, "upgrade_due": false, "clock_lead_seconds": 0}),
         ))
     })
 }
@@ -1979,11 +2033,7 @@ async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "an upgrade names its actor, an operator of the store".to_string(),
             ));
         };
-        let dry_run = match body.get("dry_run") {
-            None | Some(J::Null) => false,
-            Some(J::Bool(b)) => *b,
-            Some(_) => return Err(Fault::Bad("dry_run takes true or false".to_string())),
-        };
+        let dry_run = flag(&body, "dry_run")?;
         let mut sandbox = locked(&shared)?;
         let Some(path) = sandbox.path.clone().filter(|_| sandbox.deployment) else {
             return Err(Fault::Bad(
@@ -2040,7 +2090,8 @@ fn app(shared: Shared, deployment: bool) -> Router {
         .route("/v1/lookup", post(lookup))
         .route("/v1/publish", post(publish))
         .route("/v1/upgrade", post(upgrade))
-        .route("/health", axum::routing::get(health));
+        .route("/health", axum::routing::get(health))
+        .route("/metrics", axum::routing::get(metrics));
     // a deployment's service routes none of the sandbox's controls, so no
     // caller can load, reset or move its clock (ADR-0174 decision 1)
     let routes = if deployment {
@@ -2061,24 +2112,132 @@ fn app(shared: Shared, deployment: bool) -> Router {
         .method_not_allowed_fallback(|| async {
             Fault::Method("an operation is a POST".to_string())
         })
+        .layer(axum::middleware::from_fn_with_state(shared.clone(), logged))
         .with_state(shared)
 }
 
-const USAGE: &str = "usage: objectflow-service [--port <n> | --bind <host:port>]
-                          [--store <file> [--attempt-retention <duration>]
+/// How far a deployment's clock leads the wall clock, in seconds: the
+/// store's clock never moves back (ADR-0174 decision 4), so after the host's
+/// clock ran ahead and came back every event is stamped at the latest time
+/// it reached until the wall clock passes it (production review CLOCK-PIN).
+fn clock_lead(shared: &Service) -> i64 {
+    shared.reads.as_ref().map_or(0, |r| {
+        (r.floor.load(Ordering::SeqCst) - wall_clock()).max(0)
+    })
+}
+
+/// Each answer, logged as one line on stderr, its time, method, route,
+/// status and duration, and the clock's lead where a deployment's has one;
+/// and counted for `GET /metrics` (production review OBSERVE). A health
+/// check that answers 200 and a scrape of the metrics are counted, not
+/// logged.
+async fn logged(
+    State(shared): State<Shared>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let started = std::time::Instant::now();
+    let method = req.method().clone();
+    // the route, never the path asked, so a caller cannot grow the counts
+    // by asking paths no route takes
+    let route = req
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map_or("unrouted".to_string(), |m| m.as_str().to_string());
+    let answer = next.run(req).await;
+    let took = started.elapsed().as_secs_f64();
+    let status = answer.status().as_u16();
+    if let Ok(mut served) = shared.served.lock() {
+        let row = served.entry((route.clone(), status)).or_insert((0, 0.0));
+        row.0 += 1;
+        row.1 += took;
+    }
+    let quiet = (route == "/health" && status == 200) || route == "/metrics";
+    if !quiet {
+        let lead = clock_lead(&shared);
+        eprintln!(
+            "{} {method} {route} {status} {:.1} ms{}",
+            timestamp_text(wall_clock()),
+            took * 1000.0,
+            if lead > 0 {
+                format!(" clock_lead={lead}s")
+            } else {
+                String::new()
+            }
+        );
+    }
+    answer
+}
+
+/// `GET /metrics`: what the service has answered, by route and status, and
+/// its store's version and clock lead, in Prometheus's text format
+/// (production review OBSERVE).
+async fn metrics(State(shared): State<Shared>) -> Response {
+    let mut out = String::from(
+        "# HELP objectflow_requests_total Requests answered, by route and status.\n\
+         # TYPE objectflow_requests_total counter\n",
+    );
+    let served = shared.served.lock().map(|s| s.clone()).unwrap_or_default();
+    for ((route, status), (n, _)) in &served {
+        out.push_str(&format!(
+            "objectflow_requests_total{{route=\"{route}\",status=\"{status}\"}} {n}\n"
+        ));
+    }
+    out.push_str(
+        "# HELP objectflow_request_seconds_total Seconds spent answering, by route and status.\n\
+         # TYPE objectflow_request_seconds_total counter\n",
+    );
+    for ((route, status), (_, secs)) in &served {
+        out.push_str(&format!(
+            "objectflow_request_seconds_total{{route=\"{route}\",status=\"{status}\"}} {secs:.6}\n"
+        ));
+    }
+    let version = shared.reads.as_ref().and_then(|r| {
+        r.seen
+            .read()
+            .ok()
+            .and_then(|s| s.lib.as_ref().map(|(lib, _)| lib.version))
+    });
+    if let Some(v) = version {
+        out.push_str(&format!(
+            "# HELP objectflow_store_version The flow version the store runs.\n\
+             # TYPE objectflow_store_version gauge\nobjectflow_store_version {v}\n"
+        ));
+    }
+    out.push_str(&format!(
+        "# HELP objectflow_clock_lead_seconds How far the store's clock leads the wall clock.\n\
+         # TYPE objectflow_clock_lead_seconds gauge\nobjectflow_clock_lead_seconds {}\n",
+        clock_lead(&shared)
+    ));
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        out,
+    )
+        .into_response()
+}
+
+const USAGE: &str = "usage: objectflow-service [--port <n> | --bind <host:port> | --socket <path>]
+                          [--store <file> [--create]
+                                          [--attempt-retention <duration>]
                                           [--idempotency-retention <duration>]
                                           [--evaluator <name>=<url> ...]
                                           [--evaluator-timeout <duration>]
                                           [--busy-timeout <duration>]]
 
-Serves the engine's operations, POST /v1/<operation>, and GET /health, on
-127.0.0.1 at port n (8712 unless given; 0 takes a free one) or at the
-address --bind names, writing the address to stderr once it answers.
+Serves the engine's operations, POST /v1/<operation>, GET /health and GET
+/metrics, on 127.0.0.1 at port n (8712 unless given; 0 takes a free one), at
+the address --bind names, or on the Unix socket --socket names, made 0660 so
+its owner and group alone reach it (ADR-0183); it writes where it listens
+to stderr once it answers, and then one line for each answer.
 
 Without --store the store is a sandbox's, held in memory, with its controls,
 POST /sandbox/<control>. With --store it is a deployment's: the SQLite file
-named, created at version 0 where absent and its flow published through the
-wire, the wall clock, and no controls (ADR-0174). Each --evaluator names
+named, which must hold a store unless --create is given, which makes one at
+version 0, its files 0600, whose flow is published through the wire; the
+wall clock; and no controls (ADR-0174, ADR-0183). Each --evaluator names
 the endpoint a namespace's calls are posted to, answered within the timeout,
 5 s unless given, and an evaluator no endpoint answers is unknown
 (ADR-0175). Its reads run beside its writes, each on a connection of its
@@ -2091,7 +2250,13 @@ the application that does (core/README.md).";
 /// retentions where it names one.
 struct Args {
     bind: String,
+    /// A Unix socket listened on in the address's place (ADR-0183
+    /// decision 4).
+    socket: Option<std::path::PathBuf>,
     store: Option<std::path::PathBuf>,
+    /// Whether a store is made where the path holds none (ADR-0183
+    /// decision 3).
+    create: bool,
     retentions: (Option<i64>, Option<i64>),
     endpoints: std::collections::BTreeMap<String, String>,
     evaluator_timeout: Option<std::time::Duration>,
@@ -2101,13 +2266,16 @@ struct Args {
 fn args() -> Result<Args, String> {
     let mut out = Args {
         bind: "127.0.0.1:8712".to_string(),
+        socket: None,
         store: None,
+        create: false,
         retentions: (None, None),
         endpoints: std::collections::BTreeMap::new(),
         evaluator_timeout: None,
         busy_timeout: None,
     };
     let mut retained = false;
+    let mut addressed = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         let mut value = || args.next().ok_or_else(|| format!("{a} takes a value"));
@@ -2117,9 +2285,15 @@ fn args() -> Result<Args, String> {
                     .parse()
                     .map_err(|_| "--port takes a number".to_string())?;
                 out.bind = format!("127.0.0.1:{port}");
+                addressed = true;
             }
-            "--bind" => out.bind = value()?,
+            "--bind" => {
+                out.bind = value()?;
+                addressed = true;
+            }
+            "--socket" => out.socket = Some(value()?.into()),
             "--store" => out.store = Some(value()?.into()),
+            "--create" => out.create = true,
             "--attempt-retention" | "--idempotency-retention" => {
                 let d = value()?;
                 let kept = parse_duration(&d)
@@ -2156,9 +2330,16 @@ fn args() -> Result<Args, String> {
                 out.busy_timeout = Some(std::time::Duration::from_secs(secs.unsigned_abs()));
             }
             "--help" | "-h" => return Err(String::new()),
+            "--version" | "-V" => return Err(VERSION.to_string()),
             // an argument it does not take is an error, never ignored (D558)
             other => return Err(format!("no argument {other}")),
         }
+    }
+    if addressed && out.socket.is_some() {
+        return Err("--socket listens in the address's place; give one or the other".to_string());
+    }
+    if out.create && out.store.is_none() {
+        return Err("--create makes a deployment's store, which --store names".to_string());
     }
     if retained && out.store.is_none() {
         return Err("a retention is a deployment's; a sandbox's load names its own".to_string());
@@ -2186,11 +2367,125 @@ fn main() -> std::io::Result<()> {
         .block_on(serve())
 }
 
+/// What `--version` answers: the service's release and the release of the
+/// stores it serves.
+const VERSION: &str = concat!(
+    "objectflow-service ",
+    env!("CARGO_PKG_VERSION"),
+    ", serving stores of objectflow-core ",
+    env!("CARGO_PKG_VERSION")
+);
+
+/// How long a stopping service answers the requests in flight before it
+/// exits with them unanswered (ADR-0183 decision 9): longer than an import
+/// batch near the body limit took on a store of 36.7k objects, 23 s, and
+/// shorter than systemd's default stop timeout, 90 s.
+const GRACE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Resolved when the service is asked to stop, by SIGTERM as a supervisor
+/// asks or SIGINT as a terminal does: it takes no new connection, answers
+/// the requests in flight, and exits; past [`GRACE`] it exits without them
+/// (ADR-0183 decision 9).
+fn stopping() -> std::io::Result<impl std::future::Future<Output = ()>> {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut term = signal(SignalKind::terminate())?;
+    let mut int = signal(SignalKind::interrupt())?;
+    Ok(async move {
+        tokio::select! {
+            _ = term.recv() => {}
+            _ = int.recv() => {}
+        }
+        eprintln!(
+            "{} stopping: no new connection, and the requests in flight answered for at most {} s",
+            timestamp_text(wall_clock()),
+            GRACE.as_secs()
+        );
+        std::thread::spawn(|| {
+            std::thread::sleep(GRACE);
+            eprintln!(
+                "{} stopped with requests still in flight after {} s",
+                timestamp_text(wall_clock()),
+                GRACE.as_secs()
+            );
+            std::process::exit(1);
+        });
+    })
+}
+
+/// Where the service listens: an address, or a Unix socket.
+enum Listening {
+    Tcp(tokio::net::TcpListener),
+    Unix(tokio::net::UnixListener),
+}
+
+/// A Unix socket bound at a path, replacing one a stopped service left
+/// there and never another kind of file, and made 0660: its owner and its
+/// group alone reach the service, the boundary the design leaves to the
+/// deployment (ADR-0114, ADR-0183 decision 4).
+fn bind_socket(path: &std::path::Path) -> std::io::Result<tokio::net::UnixListener> {
+    use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_socket() => std::fs::remove_file(path)?,
+        Ok(_) => {
+            return Err(std::io::Error::other(format!(
+                "{} holds a file that is not a socket, which the service does not replace",
+                path.display()
+            )));
+        }
+        Err(_) => {}
+    }
+    let listener = tokio::net::UnixListener::bind(path)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o660))?;
+    Ok(listener)
+}
+
+/// A deployment's store file, checked before it is opened: a path that holds
+/// no store, absent or empty, is refused unless the start asks to create
+/// one, so a mistyped path never becomes an empty store served (ADR-0183
+/// decision 3); a store made here is its owner's alone, 0600, which SQLite
+/// gives its `-wal` and `-shm` too; and one others can read is said. What
+/// it has to say is returned, said once the service listens, whose first
+/// line says where.
+fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Option<String>> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let held = std::fs::metadata(path)
+        .map(|m| m.len() > 0)
+        .unwrap_or(false);
+    if !held {
+        if !create {
+            return Err(std::io::Error::other(format!(
+                "{} holds no store; to make one there, start once with --create",
+                path.display()
+            )));
+        }
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(path)?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        return Ok(Some(format!("a store made at {}", path.display())));
+    }
+    let mode = std::fs::metadata(path)?.permissions().mode();
+    Ok((mode & 0o077 != 0).then(|| {
+        format!(
+            "the store {} is readable by others than its owner (mode {:o}); its personal data is too",
+            path.display(),
+            mode & 0o777
+        )
+    }))
+}
+
 async fn serve() -> std::io::Result<()> {
     let a = match args() {
         Ok(a) => a,
         Err(why) if why.is_empty() => {
             println!("{USAGE}");
+            return Ok(());
+        }
+        Err(why) if why == VERSION => {
+            println!("{VERSION}");
             return Ok(());
         }
         Err(why) => {
@@ -2199,11 +2494,13 @@ async fn serve() -> std::io::Result<()> {
         }
     };
     let mut sandbox = Sandbox::default();
+    let mut noted = None;
     if let Some(path) = &a.store {
         // a deployment's store, opened before anything is served (ADR-0174);
         // one at a release this core upgrades from is served only the
         // upgrade until it runs, and one at any other refuses to start, so
         // there is no downgrade (ADR-0177 decision 4)
+        noted = store_file(path, a.create)?;
         let at = objectflow_core::release::store_release_at(path)
             .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
         let busy = a
@@ -2240,8 +2537,23 @@ async fn serve() -> std::io::Result<()> {
             .unwrap_or(std::time::Duration::from_secs(5));
     }
     let deployment = sandbox.deployment;
-    let listener = tokio::net::TcpListener::bind(&a.bind).await?;
-    eprintln!("listening on http://{}", listener.local_addr()?);
+    // a stop asked for once it listens is a graceful one
+    let stop = stopping()?;
+    let listening = match &a.socket {
+        Some(path) => {
+            let l = bind_socket(path)?;
+            eprintln!("listening on unix:{}", path.display());
+            Listening::Unix(l)
+        }
+        None => {
+            let l = tokio::net::TcpListener::bind(&a.bind).await?;
+            eprintln!("listening on http://{}", l.local_addr()?);
+            Listening::Tcp(l)
+        }
+    };
+    if let Some(note) = noted {
+        eprintln!("{note}");
+    }
     if let (Some(path), Some(at)) = (&a.store, &sandbox.due) {
         eprintln!(
             "the store {} is at {at}, and this core is {BUILTINS}: every operation is refused until POST /v1/upgrade runs (ADR-0177)",
@@ -2254,6 +2566,14 @@ async fn serve() -> std::io::Result<()> {
             path.display(),
             s.lib.version
         );
+        // a clock that ran ahead and came back (ADR-0174 decision 4)
+        let lead = s.now - wall_clock();
+        if lead > 0 {
+            eprintln!(
+                "the store's clock leads the wall clock by {lead} s: every event is stamped at {} until the wall clock passes it",
+                timestamp_text(s.now)
+            );
+        }
         let unanswered: Vec<&String> = s
             .lib
             .evaluators
@@ -2279,6 +2599,7 @@ async fn serve() -> std::io::Result<()> {
     }
     // a deployment's reads, beside its writer (ADR-0178)
     let reads = a.store.as_ref().map(|path| Reads {
+        path: path.clone(),
         pool: Readers::new(
             path,
             a.busy_timeout
@@ -2293,8 +2614,22 @@ async fn serve() -> std::io::Result<()> {
         deployment,
         reads,
         writer: Mutex::new(sandbox),
+        served: Mutex::new(std::collections::BTreeMap::new()),
     };
-    axum::serve(listener, app(Arc::new(service), deployment)).await
+    let router = app(Arc::new(service), deployment);
+    match listening {
+        Listening::Tcp(l) => axum::serve(l, router).with_graceful_shutdown(stop).await?,
+        Listening::Unix(l) => {
+            axum::serve(l, router).with_graceful_shutdown(stop).await?;
+            // the socket goes with the service; a start replaces one left
+            // by a service that was killed
+            if let Some(path) = &a.socket {
+                std::fs::remove_file(path)?;
+            }
+        }
+    }
+    eprintln!("{} stopped", timestamp_text(wall_clock()));
+    Ok(())
 }
 
 #[cfg(test)]

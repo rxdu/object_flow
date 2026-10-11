@@ -4232,21 +4232,26 @@ types:
         );
         // a store built with no retention prunes nothing
         assert_eq!(
-            s.maintain(&task("prune_attempts", first)).unwrap().unwrap(),
+            s.maintain(crate::model::OPERATOR, &task("prune_attempts", first))
+                .unwrap()
+                .unwrap(),
             Err("inside_retention")
         );
         s.attempt_retention = Some(30 * DAY);
         s.now += 40 * DAY;
         // inside the retention, refused
         assert_eq!(
-            s.maintain(&task("prune_attempts", s.now - 10 * DAY))
-                .unwrap()
-                .unwrap(),
+            s.maintain(
+                crate::model::OPERATOR,
+                &task("prune_attempts", s.now - 10 * DAY)
+            )
+            .unwrap()
+            .unwrap(),
             Err("inside_retention")
         );
         // the first row pruned, then the second, into the same day's count
         assert_eq!(
-            s.maintain(&task("prune_attempts", first + 1))
+            s.maintain(crate::model::OPERATOR, &task("prune_attempts", first + 1))
                 .unwrap()
                 .unwrap(),
             Ok(2)
@@ -4254,9 +4259,12 @@ types:
         assert_eq!(s.snapshot().unwrap().attempts().unwrap().len(), 1);
         assert_eq!(refusals(&s), counted);
         assert_eq!(
-            s.maintain(&task("prune_attempts", first + 3 * 3600))
-                .unwrap()
-                .unwrap(),
+            s.maintain(
+                crate::model::OPERATOR,
+                &task("prune_attempts", first + 3 * 3600)
+            )
+            .unwrap()
+            .unwrap(),
             Ok(1)
         );
         assert!(s.snapshot().unwrap().attempts().unwrap().is_empty());
@@ -4289,18 +4297,35 @@ types:
         s.idempotency_retention = Some(DAY);
         s.now += 2 * DAY;
         assert_eq!(
-            s.maintain(&task("prune_idempotency", s.now - DAY))
-                .unwrap()
-                .unwrap(),
+            s.maintain(
+                crate::model::OPERATOR,
+                &task("prune_idempotency", s.now - DAY)
+            )
+            .unwrap()
+            .unwrap(),
             Ok(1)
         );
         let (again, replayed) = opened(&mut s);
         assert!(!replayed && again != once);
         // a task it does not know, and one it does not run
         assert_eq!(
-            s.maintain(&task("prune_everything", 0)).unwrap().unwrap(),
+            s.maintain(crate::model::OPERATOR, &task("prune_everything", 0))
+                .unwrap()
+                .unwrap(),
             Err("unknown_task")
         );
-        assert!(s.maintain(&task("archive_events", 0)).unwrap().is_err());
+        assert!(
+            s.maintain(crate::model::OPERATOR, &task("archive_events", 0))
+                .unwrap()
+                .is_err()
+        );
+        // an actor the store does not know prunes nothing, past the
+        // retention as the task is (production review MAINTAIN)
+        assert_eq!(
+            s.maintain("alice", &task("prune_idempotency", s.now - 10 * DAY))
+                .unwrap()
+                .unwrap(),
+            Err("actor_known")
+        );
     }
 }

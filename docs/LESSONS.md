@@ -528,3 +528,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Before recommending a decision that reverses or narrows a design statement, search the PRD for the requirement and the use case behind that statement, and put any conflict to the author with the recommendation, as a PRD revision to approve, not after the decision is taken.
 - **Context:** Design recommendations in ObjectFlow, whose PRD is the baseline every design choice is checked against; 2026-10-11.
 
+
+### Restricting who may call an operation is checked against the design's capability statements
+- **Pattern:** Building the production review's MAINTAIN finding, I made `maintain` the operator's act, as `upgrade` is, the recommendation I had written into `TODO.md` myself; `DESIGN.md` §10 says "who may ... maintain ... is decided by upper-layer applications (ADR-0114)", withdrawing exactly such a capability. I had checked F3's engine-level refusal against the PRD the same hour and found T6 and N7 against it, but searched nothing for `maintain`; the same mistake as the lesson above, a second time in one session.
+- **Correction:** Before any change that narrows who may call an operation or take a transition, grep `DESIGN.md`, the PRD and the ADRs for the operation's name and for "capabilit", "authoriz" and "upper layer"; fix a finding by validating what the store validates (the actor's identity and state), never by adding a role, unless the author decides a PRD or design revision.
+- **Context:** ObjectFlow, whose engine authenticates and authorizes nobody by design (PRD N7, ADR-0114); reviewers' recommendations to add an authorization check are the case to watch; 2026-10-11.
