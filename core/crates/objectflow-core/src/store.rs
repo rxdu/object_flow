@@ -1767,6 +1767,16 @@ impl Store {
         Ok(busy == 0)
     }
 
+    /// The write-ahead log carried into the store's file and truncated, as a
+    /// service stopping cleanly leaves it: whether it completed, which a
+    /// reader still open prevents.
+    pub fn checkpoint(&self) -> Stored<bool> {
+        let busy: i64 = self
+            .conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
+        Ok(busy == 0)
+    }
+
     pub fn read_connection(path: &std::path::Path) -> Stored<Connection> {
         let conn = Connection::open_with_flags(
             path,

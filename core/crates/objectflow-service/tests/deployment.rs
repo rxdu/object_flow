@@ -519,6 +519,41 @@ fn a_path_holding_no_store_is_refused_unless_made() {
     assert_ne!(code, Some(0));
     assert!(said.contains("holds no store"), "{said}");
     std::fs::remove_file(&file).expect("the empty file removed");
+    // another application's database, or a file that is none, is never made
+    // a store, asked or not, and the refusal is a sentence
+    let other = rusqlite::Connection::open(&file).expect("a database");
+    other
+        .execute_batch(
+            "CREATE TABLE invoices (id INTEGER PRIMARY KEY); INSERT INTO invoices VALUES (1);",
+        )
+        .expect("its table");
+    drop(other);
+    for args in [
+        vec!["--store", path, "--port", "0"],
+        vec!["--store", path, "--create", "--port", "0"],
+    ] {
+        let (code, said) = refused(&args);
+        assert_ne!(code, Some(0));
+        assert!(said.contains("not an ObjectFlow store"), "{said}");
+        assert!(
+            !said.contains("Custom {") && !said.contains("kind:"),
+            "{said}"
+        );
+    }
+    let tables: i64 = rusqlite::Connection::open(&file)
+        .expect("the database")
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("read");
+    assert_eq!(tables, 1, "the other application's database was changed");
+    std::fs::write(&file, b"a text file, not a database").expect("a text file");
+    let (code, said) = refused(&["--store", path, "--create", "--port", "0"]);
+    assert_ne!(code, Some(0));
+    assert!(said.contains("not an ObjectFlow store"), "{said}");
+    std::fs::remove_file(&file).expect("the file removed");
     {
         let s = start(&["--store", path, "--create", "--port", "0"]);
         publish_service(&s);
@@ -598,6 +633,12 @@ fn the_service_listens_on_a_unix_socket() {
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o660);
+        // a second service given the socket a live one answers on is refused,
+        // never taking it over
+        let second: Vec<&str> = args.iter().copied().filter(|a| *a != "--create").collect();
+        let (code, said) = refused(&second);
+        assert_ne!(code, Some(0));
+        assert!(said.contains("still answering"), "{said}");
         let (status, health) = call_unix(&socket, "GET", "/health");
         assert_eq!(
             (status, health["shape"].as_str()),
@@ -737,6 +778,9 @@ fn a_stopped_service_answers_the_requests_in_flight() {
         said.contains(" stopping: ") && said.contains(" stopped"),
         "{said}"
     );
+    // a clean stop leaves the store whole in its one file
+    let wal = std::fs::metadata(format!("{}-wal", file.display())).map_or(0, |m| m.len());
+    assert_eq!(wal, 0, "{said}");
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 

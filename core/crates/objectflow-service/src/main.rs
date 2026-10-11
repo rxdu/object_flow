@@ -2431,13 +2431,19 @@ fn args() -> Result<Args, String> {
 /// 256-level tree (F1).
 const WORKER_STACK: usize = 16 * 1024 * 1024;
 
-fn main() -> std::io::Result<()> {
-    tokio::runtime::Builder::new_multi_thread()
+fn main() {
+    let ran = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .thread_stack_size(WORKER_STACK)
         .enable_all()
-        .build()?
-        .block_on(serve())
+        .build()
+        .and_then(|rt| rt.block_on(serve()));
+    // a start or a stop that fails says why in a sentence, never in Rust's
+    // debug form (second production review, minor)
+    if let Err(e) = ran {
+        eprintln!("objectflow-service: {e}");
+        std::process::exit(1);
+    }
 }
 
 /// What `--version` answers: the service's release and the release of the
@@ -2498,6 +2504,17 @@ enum Listening {
 fn bind_socket(path: &std::path::Path) -> std::io::Result<tokio::net::UnixListener> {
     use std::os::unix::fs::{FileTypeExt, PermissionsExt};
     match std::fs::symlink_metadata(path) {
+        // a socket a service still answers on is that service's, never
+        // taken over (second production review, minor)
+        Ok(m)
+            if m.file_type().is_socket()
+                && std::os::unix::net::UnixStream::connect(path).is_ok() =>
+        {
+            return Err(std::io::Error::other(format!(
+                "{} is the socket of a service still answering on it",
+                path.display()
+            )));
+        }
         Ok(m) if m.file_type().is_socket() => std::fs::remove_file(path)?,
         Ok(_) => {
             return Err(std::io::Error::other(format!(
@@ -2510,6 +2527,13 @@ fn bind_socket(path: &std::path::Path) -> std::io::Result<tokio::net::UnixListen
     let listener = tokio::net::UnixListener::bind(path)?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o660))?;
     Ok(listener)
+}
+
+/// Whether a file that holds something is a store: a SQLite database with
+/// the store's declarations' table.
+fn is_store(path: &std::path::Path) -> std::io::Result<bool> {
+    objectflow_core::release::holds_store(path)
+        .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))
 }
 
 /// A deployment's store file, checked before it is opened: a path that holds
@@ -2539,6 +2563,15 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Option<St
             .open(path)?;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
         return Ok(Some(format!("a store made at {}", path.display())));
+    }
+    // a file that is a database but not a store, another application's, is
+    // never made one: its tables are not ours to add to (second production
+    // review, minor)
+    if !is_store(path)? {
+        return Err(std::io::Error::other(format!(
+            "{} holds a file that is not an ObjectFlow store, which the service does not make one",
+            path.display()
+        )));
     }
     let mode = std::fs::metadata(path)?.permissions().mode();
     Ok((mode & 0o077 != 0).then(|| {
@@ -2691,7 +2724,8 @@ async fn serve() -> std::io::Result<()> {
         in_flight: std::sync::atomic::AtomicUsize::new(0),
         writer_since: AtomicI64::new(0),
     };
-    let router = app(Arc::new(service), deployment);
+    let shared = Arc::new(service);
+    let router = app(shared.clone(), deployment);
     match listening {
         Listening::Tcp(l) => axum::serve(l, router).with_graceful_shutdown(stop).await?,
         Listening::Unix(l) => {
@@ -2701,6 +2735,23 @@ async fn serve() -> std::io::Result<()> {
             if let Some(path) = &a.socket {
                 std::fs::remove_file(path)?;
             }
+        }
+    }
+    // the write-ahead log carried into the store's file, so a clean stop
+    // leaves the store whole in one file (second production review, minor)
+    if let Ok(writer) = shared.writer.lock()
+        && let Some(s) = &writer.store
+    {
+        match s.checkpoint() {
+            Ok(true) => {}
+            Ok(false) => eprintln!(
+                "{} the write-ahead log was not carried into the store's file: a read was still open",
+                timestamp_text(wall_clock())
+            ),
+            Err(e) => eprintln!(
+                "{} the write-ahead log was not carried into the store's file: {e}",
+                timestamp_text(wall_clock())
+            ),
         }
     }
     eprintln!("{} stopped", timestamp_text(wall_clock()));

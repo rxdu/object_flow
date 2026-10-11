@@ -8,6 +8,7 @@ Release 1.0.0 is held until a second production review, on the same 36.7k-object
 
 ### Changes that may refuse what 0.2.0 accepted
 
+- A file that holds something other than a store, another application's database among them, is refused with `--create` too, where it was given the store's tables and served.
 - A description nesting its collections deeper than 64 levels is refused, a `yaml` finding, where 300,000 levels aborted the service (D598).
 
 - A deployment's store path that holds no store, absent or empty, is refused unless the start gives `--create`, so a mistyped path is never served as an empty store (ADR-0183 decision 3).
@@ -25,6 +26,7 @@ Release 1.0.0 is held until a second production review, on the same 36.7k-object
 - One line on stderr for each answer, its time, method, route, status and duration; `GET /metrics`, the answers by route and status, the store's version and the clock's lead, in Prometheus's text format; `/health` reading the store's file and answering `clock_lead_seconds` (ADR-0183 decision 8).
 - On SIGTERM or SIGINT the service takes no new connection, answers the requests in flight for up to 30 s and exits, where it stopped at once (ADR-0183 decision 9).
 - `/health` and `/metrics` say how long the writer has been held and the requests in flight, `/metrics` the process's resident memory; `/health` is `503` while an upgrade is due; a 5xx's reason is logged (OBSERVE-2).
+- A clean stop carries the write-ahead log into the store's file; a socket a live service answers on is refused, never taken over; start errors are sentences.
 - `--version`.
 - The checkers notice a correction's free-text reason on a type an erasure reaches, `reason_kept`, since its event keeps the reason and an erasure leaves it (production review F7).
 - A refusal tells its caller what its remedy points at (ADR-0179).

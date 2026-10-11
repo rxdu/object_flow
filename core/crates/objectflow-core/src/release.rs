@@ -79,6 +79,26 @@ CREATE TABLE of_engine_release (
 );
 ";
 
+/// Whether a file that holds something holds a store: a SQLite database
+/// with the store's declarations' table. A file that is no database, or is
+/// another application's, does not, and is never made one.
+pub fn holds_store(path: &Path) -> Result<bool, StoreError> {
+    let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    match conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'of_declaration'",
+        [],
+        |r| r.get::<_, i64>(0),
+    ) {
+        Ok(n) => Ok(n > 0),
+        Err(rusqlite::Error::SqliteFailure(e, _))
+            if e.code == rusqlite::ErrorCode::NotADatabase =>
+        {
+            Ok(false)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// The release a store's file is at, or none where it holds no store: the
 /// last row of its release table, or, for a store of 0.1.0, which has none,
 /// the release version 0 names.
