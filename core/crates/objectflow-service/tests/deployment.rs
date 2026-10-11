@@ -398,6 +398,77 @@ fn a_flag_or_inputs_of_another_type_is_refused() {
     );
 }
 
+/// A value of another JSON type is refused on every key, never read as
+/// absent: a numeric `filter` returned every object unfiltered, a numeric
+/// `cursor` the first page again, a non-object `bind` the whole metric, and
+/// a non-string `principal` was dropped (second production review, TYPES).
+/// Each body is valid but for the one key.
+#[test]
+fn a_value_of_another_type_is_refused_on_every_key() {
+    let path = fresh_store("typed-keys");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish_service(&s);
+    let op = json!({"id": "operator"});
+    for (path, body) in [
+        (
+            "/v1/query",
+            json!({"actor": op, "type": "ServiceJob", "filter": 1}),
+        ),
+        (
+            "/v1/query",
+            json!({"actor": op, "type": "ServiceJob", "cursor": 5}),
+        ),
+        ("/v1/query", json!({"actor": op, "type": 7})),
+        (
+            "/v1/metric",
+            json!({"actor": op, "name": "ServiceJob.time_working", "bind": "x"}),
+        ),
+        (
+            "/v1/request",
+            json!({"actor": {"id": "operator", "principal": 9}, "type": "ServiceJob", "transition": "open"}),
+        ),
+        (
+            "/v1/request",
+            json!({"actor": {"id": "operator", "role": "admin"}, "type": "ServiceJob", "transition": "open"}),
+        ),
+        (
+            "/v1/request",
+            json!({"actor": "operator", "type": "ServiceJob", "transition": "open"}),
+        ),
+        (
+            "/v1/request",
+            json!({"actor": op, "object_id": 3, "type": "ServiceJob", "transition": "open"}),
+        ),
+        ("/v1/get", json!({"actor": op, "id": 4})),
+        ("/v1/events", json!({"actor": op, "positions": 1})),
+        (
+            "/v1/publish",
+            json!({"actor": op, "change": "C1", "expected_version": "1"}),
+        ),
+        (
+            "/v1/maintain",
+            json!({"actor": op, "task": "prune_attempts"}),
+        ),
+    ] {
+        let (status, said) = call(&s, "POST", path, Some(&body));
+        assert_eq!(status, 400, "{path} {body}: {said}");
+    }
+    // the same keys of their own types are taken
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/query",
+        Some(&json!({"actor": op, "type": "ServiceJob", "filter": "state == ServiceJob.OPEN"})),
+    );
+    assert_eq!(status, 200, "{said}");
+}
+
 /// `maintain` names an actor the store knows, as a request does: an actor
 /// it does not know prunes nothing (production review MAINTAIN), and a
 /// known one's prune is refused only by the retention. Who may maintain is

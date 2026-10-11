@@ -1170,6 +1170,23 @@ fn state_invariants(t: &Value) -> Vec<(String, Expr)> {
             }
         }
     }
+    // an invariant `taken_by` generates, left out where no other invariant
+    // reads its attribute: absence satisfies it and only its own transition
+    // writes the attribute, so it holds together with any other, and
+    // expanding it only multiplied the cases past what step 5 decides
+    // (ADR-0176); `flowlogic.py`'s `state_invariants`
+    let (transitions, attributes) = (obj(t, "transitions"), obj(t, "attributes"));
+    let generated = |n: &str| -> Option<String> {
+        let x = n.strip_suffix("_taken_by")?;
+        (transitions.contains_key(x) && attributes.contains_key(&format!("{x}_by_kind")))
+            .then(|| format!("{x}_by_kind"))
+    };
+    let read: BTreeSet<String> = out
+        .iter()
+        .filter(|(n, _)| generated(n).is_none())
+        .flat_map(|(_, e)| names_in(e))
+        .collect();
+    out.retain(|(n, _)| generated(n).is_none_or(|a| read.contains(&a)));
     out
 }
 

@@ -11,7 +11,7 @@ Release 1.0.0 is held until a second production review, on the same 36.7k-object
 - A description nesting its collections deeper than 64 levels is refused, a `yaml` finding, where 300,000 levels aborted the service (D598).
 
 - A deployment's store path that holds no store, absent or empty, is refused unless the start gives `--create`, so a mistyped path is never served as an empty store (ADR-0183 decision 3).
-- `dry_run` and `propose` take `true` or `false`, and `inputs` an object; anything else is `400`, where `"dry_run": "true"` was read as false and installed a version (ADR-0183 decision 6).
+- `dry_run` and `propose` take `true` or `false`, and `inputs` an object; anything else is `400`, where `"dry_run": "true"` was read as false and installed a version (ADR-0183 decision 6). Every other key is typed too: a value of another JSON type is `400`, where a numeric `filter` returned every object unfiltered, and `actor` takes `id` and `principal` alone.
 - `maintain` names an actor the store knows, as a request does: one it does not know is refused `actor_known`, and one in a final state `actor_active`, where any name was taken (ADR-0183 decision 5).
 - An expression nests at most 64 levels and its tree is at most 128 deep, in a request's filter and in a module, where a deep filter overflowed the stack and stopped the service (production review F1).
 - A decimal written by an effect, an input or a default is rounded half to even to its declared scale, as `declaration-syntax.md` §8.3 states, where the core stored unscaled units (production review F4).

@@ -1,0 +1,30 @@
+module: m
+categories: [live]
+types:
+  T:
+    description: A record a person handles.
+    tracking: record
+    taken_by: [human]
+    attributes:
+      a: { type: int }
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
+    invariants:
+      big: { description: Big., expression: a > 5 }
+      small: { description: Small., expression: a < 3 }
+    transitions:
+      t: { kind: initial, to: S, required_inputs: [a] }
+      t0: { kind: internal, from: S }
+      t1: { kind: internal, from: S }
+      t2: { kind: internal, from: S }
+      t3: { kind: internal, from: S }
+      t4: { kind: internal, from: S }
+      t5: { kind: internal, from: S }
+      t6: { kind: internal, from: S }
+      t7: { kind: internal, from: S }
+      t8: { kind: internal, from: S }
+      t9: { kind: internal, from: S }
+      t10: { kind: internal, from: S }
+      t11: { kind: internal, from: S }
+      t12: { kind: internal, from: S }
+      t13: { kind: internal, from: S }
+      e: { kind: external, from: S, to: E }

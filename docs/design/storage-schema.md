@@ -746,7 +746,7 @@ Erasure (§8 of the model, ADR-0087) does these things to storage:
 It does **not** touch `of_attribute_write`, `of_attempt`, or `of_interval` beyond step 9:
 - redacting a value inside an event does not change which event last wrote the attribute, so `changed_since` answers the same after an erasure as before;
 - a tracked reference holds an id, and a personal enum's values are redacted by step 9;
-- an attempt holds no personal input, naming each as withheld (ADR-0105); the identity a refused request named for an actor the store does not hold is kept as it was sent, until the attempt retention prunes it (ADR-0125), a limit `DESIGN.md` §8 names.
+- an attempt holds no personal input, nor one its transition does not declare, naming each as withheld (ADR-0105); the identity a refused request named for an actor the store does not hold is kept as it was sent, until the attempt retention prunes it (ADR-0125), a limit `DESIGN.md` §8 names.
 
 The log is never pruned. **Archival tiering** is therefore not deletion but a second table with the same shape on cheaper storage, plus a view over both: events older than a threshold move, by `maintain(archive_events)` (ADR-0100), and `pull`, `export` and `history` read the view.
 

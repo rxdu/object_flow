@@ -12,7 +12,7 @@ A **fault** is a `4xx` or `5xx` whose body is `{"fault": "<what is wrong>"}`, ev
 
 | Status | When |
 |---|---|
-| `400` | a body that is not a JSON object, a key the operation does not take (`/v1/get takes no key folow`), a body past 2 MiB (`length limit exceeded`), an argument it needs left out, or one of another JSON type: a flag such as `dry_run` or `propose` is `true` or `false`, never `"true"`, and `inputs` is an object |
+| `400` | a body that is not a JSON object, a key the operation does not take (`/v1/get takes no key folow`), a body past 2 MiB (`length limit exceeded`), an argument it needs left out, or a key of another JSON type than it takes, on every operation: a flag such as `dry_run` or `propose` is `true` or `false`, never `"true"`, `inputs` and `bind` objects, `filter`, `cursor` and an id strings, `expected_version` an integer, and `actor` an object taking `id` and `principal` alone; absent or `null` is a key not given |
 | `404` | an operation that does not exist (`no operation /v1/nope`) |
 | `405` | an operation asked by anything but `POST`, or `/health` or `/metrics` by anything but `GET` |
 | `409` | the sandbox has no module loaded; an idempotency key reused for a different request (`key_reused: …`) |

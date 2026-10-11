@@ -1048,7 +1048,7 @@
    ],
    [
     "customers.yaml",
-    "29abde7824f0693a"
+    "4dc41b6c012757a7"
    ],
    [
     "customers.examples.yaml",
@@ -1101,6 +1101,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -1115,6 +1116,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -1430,7 +1435,7 @@
    ],
    [
     "reimbursement.yaml",
-    "d174506d9b5bf43a"
+    "609abc5b2a042548"
    ],
    [
     "reimbursement.examples.yaml",
@@ -1455,21 +1460,21 @@
    ],
    [
     "reimbursement.yaml",
-    358,
+    365,
     "notice",
     "warn",
     "lines_within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    572,
+    582,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    584,
+    594,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
@@ -1516,9 +1521,26 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "AssistantAgent.register_taken_by": "local",
+   "AssistantAgent.retire_taken_by": "local",
+   "BusinessFunction.dissolve_taken_by": "local",
+   "BusinessFunction.establish_taken_by": "local",
+   "Claim.approve_taken_by": "local",
+   "Claim.complete_review_taken_by": "local",
+   "Claim.erase_personal_data_taken_by": "local",
    "Claim.has_title": "local",
+   "Claim.pay_taken_by": "local",
+   "Claim.reject_taken_by": "local",
    "ClaimLine.confirmed_by_a_person": "local",
+   "ClaimLine.erase_taken_by": "local",
    "ClaimLine.spent_amount_has_its_currency": "local",
+   "Employee.forget_taken_by": "local",
+   "Employee.leave_taken_by": "local",
+   "Employee.link_xero_contact_taken_by": "local",
+   "Employee.onboard_taken_by": "local",
+   "ExpenseCategory.change_policy_amount_taken_by": "local",
+   "ExpenseCategory.define_taken_by": "local",
+   "ExpenseCategory.retire_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
    "User.add_taken_by": "local",
@@ -1533,18 +1555,82 @@
     "Agent.issue",
     "Agent.revoke"
    ],
+   "AssistantAgent.register_taken_by": [
+    "AssistantAgent.register"
+   ],
+   "AssistantAgent.retire_taken_by": [
+    "AssistantAgent.register",
+    "AssistantAgent.retire"
+   ],
+   "BusinessFunction.dissolve_taken_by": [
+    "BusinessFunction.dissolve",
+    "BusinessFunction.establish"
+   ],
+   "BusinessFunction.establish_taken_by": [
+    "BusinessFunction.establish"
+   ],
+   "Claim.approve_taken_by": [
+    "Claim.approve",
+    "Claim.draft"
+   ],
+   "Claim.complete_review_taken_by": [
+    "Claim.complete_review",
+    "Claim.draft"
+   ],
+   "Claim.erase_personal_data_taken_by": [
+    "Claim.draft",
+    "Claim.erase_personal_data"
+   ],
    "Claim.has_title": [
     "Claim.draft",
     "Claim.erase_personal_data"
+   ],
+   "Claim.pay_taken_by": [
+    "Claim.draft",
+    "Claim.pay"
+   ],
+   "Claim.reject_taken_by": [
+    "Claim.draft",
+    "Claim.reject"
    ],
    "ClaimLine.confirmed_by_a_person": [
     "ClaimLine.add",
     "ClaimLine.amend",
     "ClaimLine.confirm_nature"
    ],
+   "ClaimLine.erase_taken_by": [
+    "ClaimLine.add",
+    "ClaimLine.erase"
+   ],
    "ClaimLine.spent_amount_has_its_currency": [
     "ClaimLine.add",
     "ClaimLine.amend"
+   ],
+   "Employee.forget_taken_by": [
+    "Employee.forget",
+    "Employee.onboard"
+   ],
+   "Employee.leave_taken_by": [
+    "Employee.leave",
+    "Employee.onboard"
+   ],
+   "Employee.link_xero_contact_taken_by": [
+    "Employee.link_xero_contact",
+    "Employee.onboard"
+   ],
+   "Employee.onboard_taken_by": [
+    "Employee.onboard"
+   ],
+   "ExpenseCategory.change_policy_amount_taken_by": [
+    "ExpenseCategory.change_policy_amount",
+    "ExpenseCategory.define"
+   ],
+   "ExpenseCategory.define_taken_by": [
+    "ExpenseCategory.define"
+   ],
+   "ExpenseCategory.retire_taken_by": [
+    "ExpenseCategory.define",
+    "ExpenseCategory.retire"
    ],
    "Service.register_taken_by": [
     "Service.register"
@@ -3608,14 +3694,14 @@
    ],
    [
     "customers.yaml",
-    "4fdd9a0a70b769bf"
+    "b78d0989ce2ee5cb"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    153,
+    155,
     "fatal",
     "names",
     "Customer.correct_state's reason is not an enumeration; an assertion's reasons are counted, so they are declared values"
@@ -3625,6 +3711,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -3639,6 +3726,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -3673,14 +3764,14 @@
    ],
    [
     "customers.yaml",
-    "c2795b492d33026c"
+    "87b031eeeac80b34"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    155,
+    157,
     "fatal",
     "names",
     "Customer.correct_state may admit 'active_rule', which is not an invariant of Customer"
@@ -3690,6 +3781,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -3704,6 +3796,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -3738,14 +3834,14 @@
    ],
    [
     "customers.yaml",
-    "ad976a17bd268516"
+    "64f3b0ece932131b"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    156,
+    158,
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
@@ -3755,6 +3851,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -3769,6 +3866,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -3803,7 +3904,7 @@
    ],
    [
     "customers.yaml",
-    "f4a7d361791b6ed9"
+    "39b0cb9ed89d1b86"
    ]
   ],
   "previous": {},
@@ -3820,6 +3921,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -3834,6 +3936,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -3868,7 +3974,7 @@
    ],
    [
     "customers.yaml",
-    "a68364f5322ad08c"
+    "4730d6f14730e476"
    ]
   ],
   "previous": {},
@@ -3885,6 +3991,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -3899,6 +4006,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -3933,14 +4044,14 @@
    ],
    [
     "customers.yaml",
-    "d0da12a6ed4cf824"
+    "6cbf3a809af8d4bc"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    156,
+    158,
     "fatal",
     "schema",
     "an erasure declares neither `from` nor `to`: it runs at any state"
@@ -4064,7 +4175,7 @@
    ],
    [
     "customers.yaml",
-    "55668d89bb6fb76f"
+    "1ef1d6cc4a053434"
    ]
   ],
   "previous": {},
@@ -5534,7 +5645,7 @@
    ],
    [
     "customers.yaml",
-    "1f529a8308df66b3"
+    "e4e7049a067c9ae6"
    ]
   ],
   "previous": {},
@@ -5551,6 +5662,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -5565,6 +5677,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -5599,7 +5715,7 @@
    ],
    [
     "customers.yaml",
-    "0b24cf94e3c8b782"
+    "c077f7c3c1e537ec"
    ]
   ],
   "previous": {},
@@ -5616,6 +5732,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -5630,6 +5747,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -5664,7 +5785,7 @@
    ],
    [
     "customers.yaml",
-    "71f373a9c205f589"
+    "f1f8109479fc85bd"
    ]
   ],
   "previous": {},
@@ -5681,6 +5802,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -5695,6 +5817,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -5729,7 +5855,7 @@
    ],
    [
     "customers.yaml",
-    "be0545a343a0b978"
+    "9f37c0074f4a54f6"
    ]
   ],
   "previous": {},
@@ -5746,6 +5872,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -5760,6 +5887,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -5794,7 +5925,7 @@
    ],
    [
     "customers.yaml",
-    "25c7687b2463cc03"
+    "4be5b8317b42cddf"
    ]
   ],
   "previous": {},
@@ -5811,6 +5942,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -5825,6 +5957,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -5859,14 +5995,14 @@
    ],
    [
     "customers.yaml",
-    "89c313827270d9e0"
+    "383bd1581d754208"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    176,
+    178,
     "fatal",
     "names",
     "metric overrides compares t.transition with \"corect_state\", which is not a transition of Customer"
@@ -5876,6 +6012,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -5890,6 +6027,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -5924,7 +6065,7 @@
    ],
    [
     "customers.yaml",
-    "1e6a70137c780781"
+    "7c45ce35e8a7d256"
    ]
   ],
   "previous": {},
@@ -5941,6 +6082,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -5955,6 +6097,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -5989,7 +6135,7 @@
    ],
    [
     "customers.yaml",
-    "c0b19afffc092ddb"
+    "07266f30a8cc3adf"
    ]
   ],
   "previous": {},
@@ -6006,6 +6152,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -6020,6 +6167,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -6054,7 +6205,7 @@
    ],
    [
     "customers.yaml",
-    "ddb7d0cb92a6d906"
+    "b603438a4e6e4b22"
    ]
   ],
   "previous": {},
@@ -6071,6 +6222,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -6085,6 +6237,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -6190,7 +6346,7 @@
    ],
    [
     "customers.yaml",
-    "af7026e973a4cd9d"
+    "b6f11af3f475c1a4"
    ]
   ],
   "previous": {},
@@ -6207,6 +6363,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -6221,6 +6378,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -6255,7 +6416,7 @@
    ],
    [
     "customers.yaml",
-    "f1c2bb13ead2c828"
+    "eb5490b79eeacda5"
    ]
   ],
   "previous": {},
@@ -6272,6 +6433,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -6286,6 +6448,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -6320,7 +6486,7 @@
    ],
    [
     "customers.yaml",
-    "f96e949217c3eba0"
+    "70dc9b6c5eedfb50"
    ]
   ],
   "previous": {},
@@ -6337,6 +6503,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -6351,6 +6518,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -6385,7 +6556,7 @@
    ],
    [
     "customers.yaml",
-    "79a96fc509edea26"
+    "65059058a8793cb6"
    ]
   ],
   "previous": {},
@@ -6402,6 +6573,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -6416,6 +6588,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -6450,7 +6626,7 @@
    ],
    [
     "customers.yaml",
-    "fa916c905642b6b0"
+    "ff301343773752f9"
    ]
   ],
   "previous": {},
@@ -6467,6 +6643,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -6481,6 +6658,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -6515,7 +6696,7 @@
    ],
    [
     "customers.yaml",
-    "86e29776541fe1b7"
+    "18ecbc9795299056"
    ]
   ],
   "previous": {},
@@ -6539,6 +6720,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -6553,6 +6735,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -6587,7 +6773,7 @@
    ],
    [
     "customers.yaml",
-    "53c9b990330a955d"
+    "c46c9948fa66e710"
    ]
   ],
   "previous": {},
@@ -6604,6 +6790,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -6618,6 +6805,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -6652,7 +6843,7 @@
    ],
    [
     "customers.yaml",
-    "0381e448dbf8c496"
+    "80402a3e6bf1f4d2"
    ]
   ],
   "previous": {},
@@ -6669,6 +6860,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -6683,6 +6875,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -8159,7 +8355,7 @@
    ],
    [
     "customers.yaml",
-    "dda91b31bbc6ca28"
+    "1dd2e511edb36ca5"
    ]
   ],
   "previous": {},
@@ -8176,6 +8372,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -8190,6 +8387,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -8224,7 +8425,7 @@
    ],
    [
     "customers.yaml",
-    "01c1c73509d7f399"
+    "61386d71b404702f"
    ]
   ],
   "previous": {},
@@ -8241,6 +8442,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -8255,6 +8457,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -9217,6 +9423,136 @@
   },
   "forms": {},
   "could_violate": {}
+ },
+ {
+  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "files": [
+   [
+    "taken.yaml",
+    "f87cabe1d66ffdc1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    10,
+    "fatal",
+    "contradiction",
+    "no object of T can be in E: big and small cannot both hold there, and e enters it"
+   ],
+   [
+    "taken.yaml",
+    10,
+    "fatal",
+    "contradiction",
+    "no object of T can be in S: big and small cannot both hold there, and t enters it"
+   ],
+   [
+    "taken.yaml",
+    15,
+    "fatal",
+    "contradiction",
+    "T.t can never be taken: what it writes leaves S, where big and small cannot hold, whatever the request"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "T.big": "local",
+   "T.e_taken_by": "local",
+   "T.small": "local",
+   "T.t0_taken_by": "local",
+   "T.t10_taken_by": "local",
+   "T.t11_taken_by": "local",
+   "T.t12_taken_by": "local",
+   "T.t13_taken_by": "local",
+   "T.t1_taken_by": "local",
+   "T.t2_taken_by": "local",
+   "T.t3_taken_by": "local",
+   "T.t4_taken_by": "local",
+   "T.t5_taken_by": "local",
+   "T.t6_taken_by": "local",
+   "T.t7_taken_by": "local",
+   "T.t8_taken_by": "local",
+   "T.t9_taken_by": "local",
+   "T.t_taken_by": "local"
+  },
+  "could_violate": {
+   "T.big": [
+    "T.t"
+   ],
+   "T.e_taken_by": [
+    "T.e",
+    "T.t"
+   ],
+   "T.small": [
+    "T.t"
+   ],
+   "T.t0_taken_by": [
+    "T.t",
+    "T.t0"
+   ],
+   "T.t10_taken_by": [
+    "T.t",
+    "T.t10"
+   ],
+   "T.t11_taken_by": [
+    "T.t",
+    "T.t11"
+   ],
+   "T.t12_taken_by": [
+    "T.t",
+    "T.t12"
+   ],
+   "T.t13_taken_by": [
+    "T.t",
+    "T.t13"
+   ],
+   "T.t1_taken_by": [
+    "T.t",
+    "T.t1"
+   ],
+   "T.t2_taken_by": [
+    "T.t",
+    "T.t2"
+   ],
+   "T.t3_taken_by": [
+    "T.t",
+    "T.t3"
+   ],
+   "T.t4_taken_by": [
+    "T.t",
+    "T.t4"
+   ],
+   "T.t5_taken_by": [
+    "T.t",
+    "T.t5"
+   ],
+   "T.t6_taken_by": [
+    "T.t",
+    "T.t6"
+   ],
+   "T.t7_taken_by": [
+    "T.t",
+    "T.t7"
+   ],
+   "T.t8_taken_by": [
+    "T.t",
+    "T.t8"
+   ],
+   "T.t9_taken_by": [
+    "T.t",
+    "T.t9"
+   ],
+   "T.t_taken_by": [
+    "T.t"
+   ]
+  }
  },
  {
   "label": "self_test: a step's expression written as a mapping, reported at its own line",
@@ -13402,7 +13738,7 @@
    ],
    [
     "module.yaml",
-    "29abde7824f0693a"
+    "4dc41b6c012757a7"
    ],
    [
     "module.examples.yaml",
@@ -13462,6 +13798,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -13476,6 +13813,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -14580,7 +14921,7 @@
    ],
    [
     "customers.yaml",
-    "29abde7824f0693a"
+    "4dc41b6c012757a7"
    ],
    [
     "customers.examples.yaml",
@@ -14601,6 +14942,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -14615,6 +14957,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -19024,7 +19370,7 @@
    ],
    [
     "customers.yaml",
-    "886dab61345d139e"
+    "63e88f0ae83e74e9"
    ],
    [
     "customers.examples.yaml",
@@ -19077,6 +19423,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -19091,6 +19438,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -19479,7 +19830,7 @@
    ],
    [
     "reimbursement.yaml",
-    "d174506d9b5bf43a"
+    "609abc5b2a042548"
    ],
    [
     "reimbursement.examples.yaml",
@@ -19497,21 +19848,21 @@
    ],
    [
     "reimbursement.yaml",
-    358,
+    365,
     "notice",
     "warn",
     "lines_within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    572,
+    582,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    584,
+    594,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
@@ -19521,9 +19872,26 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "AssistantAgent.register_taken_by": "local",
+   "AssistantAgent.retire_taken_by": "local",
+   "BusinessFunction.dissolve_taken_by": "local",
+   "BusinessFunction.establish_taken_by": "local",
+   "Claim.approve_taken_by": "local",
+   "Claim.complete_review_taken_by": "local",
+   "Claim.erase_personal_data_taken_by": "local",
    "Claim.has_title": "local",
+   "Claim.pay_taken_by": "local",
+   "Claim.reject_taken_by": "local",
    "ClaimLine.confirmed_by_a_person": "local",
+   "ClaimLine.erase_taken_by": "local",
    "ClaimLine.spent_amount_has_its_currency": "local",
+   "Employee.forget_taken_by": "local",
+   "Employee.leave_taken_by": "local",
+   "Employee.link_xero_contact_taken_by": "local",
+   "Employee.onboard_taken_by": "local",
+   "ExpenseCategory.change_policy_amount_taken_by": "local",
+   "ExpenseCategory.define_taken_by": "local",
+   "ExpenseCategory.retire_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
    "User.add_taken_by": "local",
@@ -19538,18 +19906,82 @@
     "Agent.issue",
     "Agent.revoke"
    ],
+   "AssistantAgent.register_taken_by": [
+    "AssistantAgent.register"
+   ],
+   "AssistantAgent.retire_taken_by": [
+    "AssistantAgent.register",
+    "AssistantAgent.retire"
+   ],
+   "BusinessFunction.dissolve_taken_by": [
+    "BusinessFunction.dissolve",
+    "BusinessFunction.establish"
+   ],
+   "BusinessFunction.establish_taken_by": [
+    "BusinessFunction.establish"
+   ],
+   "Claim.approve_taken_by": [
+    "Claim.approve",
+    "Claim.draft"
+   ],
+   "Claim.complete_review_taken_by": [
+    "Claim.complete_review",
+    "Claim.draft"
+   ],
+   "Claim.erase_personal_data_taken_by": [
+    "Claim.draft",
+    "Claim.erase_personal_data"
+   ],
    "Claim.has_title": [
     "Claim.draft",
     "Claim.erase_personal_data"
+   ],
+   "Claim.pay_taken_by": [
+    "Claim.draft",
+    "Claim.pay"
+   ],
+   "Claim.reject_taken_by": [
+    "Claim.draft",
+    "Claim.reject"
    ],
    "ClaimLine.confirmed_by_a_person": [
     "ClaimLine.add",
     "ClaimLine.amend",
     "ClaimLine.confirm_nature"
    ],
+   "ClaimLine.erase_taken_by": [
+    "ClaimLine.add",
+    "ClaimLine.erase"
+   ],
    "ClaimLine.spent_amount_has_its_currency": [
     "ClaimLine.add",
     "ClaimLine.amend"
+   ],
+   "Employee.forget_taken_by": [
+    "Employee.forget",
+    "Employee.onboard"
+   ],
+   "Employee.leave_taken_by": [
+    "Employee.leave",
+    "Employee.onboard"
+   ],
+   "Employee.link_xero_contact_taken_by": [
+    "Employee.link_xero_contact",
+    "Employee.onboard"
+   ],
+   "Employee.onboard_taken_by": [
+    "Employee.onboard"
+   ],
+   "ExpenseCategory.change_policy_amount_taken_by": [
+    "ExpenseCategory.change_policy_amount",
+    "ExpenseCategory.define"
+   ],
+   "ExpenseCategory.define_taken_by": [
+    "ExpenseCategory.define"
+   ],
+   "ExpenseCategory.retire_taken_by": [
+    "ExpenseCategory.define",
+    "ExpenseCategory.retire"
    ],
    "Service.register_taken_by": [
     "Service.register"
@@ -19773,7 +20205,7 @@
    ],
    [
     "customers.yaml",
-    "30ae8ea125a627a1"
+    "e04236ce250101b3"
    ]
   ],
   "previous": {},
@@ -19794,7 +20226,7 @@
    ],
    [
     "customers.yaml",
-    163,
+    165,
     "fatal",
     "names",
     "Customer.forget calls Contact.forget without the input 'ticket', which it requires"
@@ -19804,6 +20236,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -19818,6 +20251,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -19852,7 +20289,7 @@
    ],
    [
     "customers.yaml",
-    "76587f1ba0555c60"
+    "ada6fe4e4ecb6308"
    ]
   ],
   "previous": {},
@@ -19873,7 +20310,7 @@
    ],
    [
     "customers.yaml",
-    163,
+    165,
     "fatal",
     "names",
     "Customer.forget passes inputs.reason, string, to Contact.forget's input 'reason', which takes enumeration OverrideReason: an argument must fit its input (the model's check 2)"
@@ -19883,6 +20320,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -19897,6 +20335,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -19931,28 +20373,28 @@
    ],
    [
     "customers.yaml",
-    "d9b51d967b739ba5"
+    "42df1323be8e043c"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    156,
+    158,
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ],
    [
     "customers.yaml",
-    163,
+    165,
     "fatal",
     "names",
     "Customer.forget binds 'email', which is a member of Customer; a bound name shares no name with a member"
    ],
    [
     "customers.yaml",
-    163,
+    165,
     "fatal",
     "names",
     "forget reads 'c', which Customer does not declare"
@@ -19962,6 +20404,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -19976,6 +20419,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -20277,14 +20724,14 @@
    ],
    [
     "customers.yaml",
-    "9c9aacbcd378f1e5"
+    "bb650fbb4cb13056"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    262,
+    264,
     "fatal",
     "names",
     "the migration moves Customer.LAPSED to MERGED, a superseding state, which would leave its objects superseded by nothing (ADR-0146)"
@@ -20294,6 +20741,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -20308,6 +20756,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -20713,28 +21165,28 @@
    ],
    [
     "customers.yaml",
-    "f731ebd7a3372be8"
+    "c55742beb1fd2280"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    156,
+    158,
     "fatal",
     "names",
     "Customer.purge erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ],
    [
     "customers.yaml",
-    156,
+    158,
     "fatal",
     "names",
     "Customer.purge is an erasure, and declares no input 'reason'"
    ],
    [
     "customers.yaml",
-    159,
+    161,
     "fatal",
     "names",
     "Customer declares the erasures purge, forget; a type declares at most one, which a group's erasure takes (ADR-0147)"
@@ -20744,6 +21196,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -20758,6 +21211,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -20792,7 +21249,7 @@
    ],
    [
     "customers.yaml",
-    "f7db96876ff9ce5b"
+    "74e60846311c8d84"
    ]
   ],
   "previous": {},
@@ -20806,7 +21263,7 @@
    ],
    [
     "customers.yaml",
-    150,
+    152,
     "fatal",
     "names",
     "Customer.correct_state asserts a superseding state, which would name no successor; a merge is a declared transition (the model's check 26, ADR-0147)"
@@ -20816,6 +21273,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -20830,6 +21288,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -20888,28 +21350,28 @@
    ],
    [
     "customers.yaml",
-    "6553a504c618f60b"
+    "1a84dbe3448a9278"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    156,
+    158,
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ],
    [
     "customers.yaml",
-    163,
+    165,
     "fatal",
     "names",
     "Customer.forget binds 'now', a word an expression resolves first or every object has (ADR-0147)"
    ],
    [
     "customers.yaml",
-    163,
+    165,
     "fatal",
     "names",
     "forget reads 'c', which Customer does not declare"
@@ -20919,6 +21381,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -20933,6 +21396,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -21702,7 +22169,7 @@
    ],
    [
     "customers.yaml",
-    "9179dd0c7b4c8ae8"
+    "4f2c9f6ac838337d"
    ]
   ],
   "previous": {},
@@ -21736,6 +22203,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -21750,6 +22218,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",
@@ -21784,7 +22256,7 @@
    ],
    [
     "customers.yaml",
-    "33d352b01c18c5e4"
+    "e1a386901f715c0f"
    ]
   ],
   "previous": {},
@@ -21801,6 +22273,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
    "Service.retire_taken_by": "local",
@@ -21815,6 +22288,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.correct_state_taken_by": [
+    "Customer.correct_state",
+    "Customer.register"
    ],
    "Customer.forget_taken_by": [
     "Customer.forget",

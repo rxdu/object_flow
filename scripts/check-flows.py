@@ -5122,6 +5122,21 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     ok &= hit
     print(f"  planted a correction's free-text reason on a type an erasure reaches: "
           f"{'noticed, and neither marked personal nor without an erasure' if hit else 'MISSED ' + str(kept)}")
+    # a type whose many transitions a person takes, each generating an invariant of who took it, still has its own
+    # invariants' contradiction found: the generated ones, which nothing else reads, are left out of step 5 rather
+    # than multiplying its cases past what it decides (ADR-0176)
+    takers = "".join(f"      t{i}: {{ kind: internal, from: S }}\n" for i in range(14))
+    taken = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A record a person handles.\n    tracking: record\n"
+             "    taken_by: [human]\n    attributes:\n      a: { type: int }\n"
+             "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
+             "    invariants:\n      big: { description: Big., expression: a > 5 }\n      small: { description: Small., expression: a < 3 }\n"
+             "    transitions:\n      t: { kind: initial, to: S, required_inputs: [a] }\n" + takers +
+             "      e: { kind: external, from: S, to: E }\n")
+    decided = check([("taken.yaml", taken)])
+    found = [x[3] for x in decided[0] + decided[1] if x[3] in ("contradiction", "undecided")]
+    ok &= "contradiction" in found and "undecided" not in found
+    print(f"  planted a type of many transitions a person takes, and two invariants that cannot hold together: "
+          f"{'contradiction found, decided' if 'contradiction' in found and 'undecided' not in found else 'MISSED ' + str(found)}")
     end = "    states:\n      S: { category: live, description: Open. }\n      E: { category: live, final: true, description: Done. }\n"
     ring = [x for x in check([("ring.yaml", "module: m\ncategories: [live]\ntypes:\n"
                                             "  A:\n    description: One end.\n    tracking: record\n"

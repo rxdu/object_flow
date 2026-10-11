@@ -557,8 +557,60 @@ fn flag(body: &J, key: &str) -> Result<bool, Fault> {
     }
 }
 
-fn text<'a>(body: &'a J, key: &str) -> Option<&'a str> {
-    body.get(key).and_then(J::as_str)
+/// A key of a body that holds a string: absent or null is none, and a
+/// value of any other JSON type is refused, never read as absent, where a
+/// numeric `filter` returned every object unfiltered (production review
+/// F6, TYPES).
+fn text<'a>(body: &'a J, key: &str) -> Result<Option<&'a str>, Fault> {
+    match body.get(key) {
+        None | Some(J::Null) => Ok(None),
+        Some(J::String(t)) => Ok(Some(t)),
+        Some(_) => Err(Fault::Bad(format!("{key} takes a string"))),
+    }
+}
+
+/// A key that holds an integer, as [`text`] holds a string.
+fn int(body: &J, key: &str) -> Result<Option<i64>, Fault> {
+    match body.get(key) {
+        None | Some(J::Null) => Ok(None),
+        Some(v) => v
+            .as_i64()
+            .map(Some)
+            .ok_or_else(|| Fault::Bad(format!("{key} takes an integer"))),
+    }
+}
+
+/// A key that holds an object, as [`text`] holds a string.
+fn object<'a>(body: &'a J, key: &str) -> Result<Option<&'a Map<String, J>>, Fault> {
+    match body.get(key) {
+        None | Some(J::Null) => Ok(None),
+        Some(J::Object(m)) => Ok(Some(m)),
+        Some(_) => Err(Fault::Bad(format!("{key} takes an object"))),
+    }
+}
+
+/// A key that holds an array, as [`text`] holds a string.
+fn array<'a>(body: &'a J, key: &str) -> Result<Option<&'a Vec<J>>, Fault> {
+    match body.get(key) {
+        None | Some(J::Null) => Ok(None),
+        Some(J::Array(a)) => Ok(Some(a)),
+        Some(_) => Err(Fault::Bad(format!("{key} takes an array"))),
+    }
+}
+
+/// A body's actor, `{"id": …, "principal": …}`: its id, where it names one;
+/// an actor of another shape, or with a key it does not take, is refused,
+/// never read as no actor or with the key dropped (TYPES).
+fn actor_id(body: &J) -> Result<Option<&str>, Fault> {
+    let Some(actor) = object(body, "actor")? else {
+        return Ok(None);
+    };
+    if let Some(k) = actor.keys().find(|k| *k != "id" && *k != "principal") {
+        return Err(Fault::Bad(format!("actor takes no key {k}")));
+    }
+    let actor = &body["actor"];
+    text(actor, "principal")?;
+    text(actor, "id")
 }
 
 // ── the verdict, the object and the event as the wire carries them ─────────
@@ -728,7 +780,7 @@ async fn load(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
         // the deployment's attempt and idempotency retentions, durations
         let retention = |k: &str| -> Result<Option<i64>, Fault> {
-            match text(&body, k) {
+            match text(&body, k)? {
                 None => Ok(None),
                 Some(d) => parse_duration(d)
                     .map(Some)
@@ -740,13 +792,8 @@ async fn load(State(shared): State<Shared>, Body(body): Body) -> Answer {
             retention("idempotency_retention")?,
         );
         let mut files = Vec::new();
-        for f in body
-            .get("files")
-            .and_then(J::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let (Some(name), Some(text)) = (text(f, "name"), text(f, "text")) else {
+        for f in array(&body, "files")?.into_iter().flatten() {
+            let (Some(name), Some(text)) = (text(f, "name")?, text(f, "text")?) else {
                 return Err(Fault::Bad(
                     "load takes files, each with a name and a text".to_string(),
                 ));
@@ -803,12 +850,12 @@ async fn clock(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
         let mut sandbox = locked(&shared)?;
         let s = store(&mut sandbox)?;
-        let target = if let Some(by) = text(&body, "advance") {
+        let target = if let Some(by) = text(&body, "advance")? {
             let step = parse_duration(by).ok_or_else(|| {
                 Fault::Bad(format!("advance takes a duration such as '1 h': {by}"))
             })?;
             s.now + step
-        } else if let Some(at) = text(&body, "set") {
+        } else if let Some(at) = text(&body, "set")? {
             parse_timestamp(at)
                 .ok_or_else(|| Fault::Bad(format!("set takes an RFC 3339 timestamp: {at}")))?
         } else {
@@ -828,7 +875,7 @@ async fn evaluators(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
         let mut sandbox = locked(&shared)?;
         store(&mut sandbox)?;
-        if let Some(answers) = body.get("answers").and_then(J::as_object) {
+        if let Some(answers) = object(&body, "answers")? {
             sandbox.answers.extend(answers.clone());
         }
         // the store asks its evaluators through these answers (PRD F13)
@@ -919,10 +966,8 @@ fn cursor_of(body: &J) -> Result<Option<i64>, Fault> {
 /// acknowledged one, and the settled cursor (`library-api.md` §6).
 async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let (Some(_actor), Some(subscription)) = (
-            body.get("actor").and_then(|a| text(a, "id")),
-            text(&body, "subscription"),
-        ) else {
+        let (Some(_actor), Some(subscription)) = (actor_id(&body)?, text(&body, "subscription")?)
+        else {
             return Err(Fault::Bad(
                 "pull names its actor and the subscription".to_string(),
             ));
@@ -978,10 +1023,7 @@ fn limit_of(body: &J) -> Result<usize, Fault> {
 /// those holding an admitted violation (`DESIGN.md` §10).
 async fn exceptions(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let (Some(_actor), Some(type_)) = (
-            body.get("actor").and_then(|a| text(a, "id")),
-            text(&body, "type"),
-        ) else {
+        let (Some(_actor), Some(type_)) = (actor_id(&body)?, text(&body, "type")?) else {
             return Err(Fault::Bad(
                 "exceptions names its actor and the type".to_string(),
             ));
@@ -998,9 +1040,9 @@ async fn exceptions(State(shared): State<Shared>, Body(body): Body) -> Answer {
 async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
         let (Some(actor), Some(type_), Some(transition)) = (
-            body.get("actor").and_then(|a| text(a, "id")),
-            text(&body, "type"),
-            text(&body, "transition"),
+            actor_id(&body)?,
+            text(&body, "type")?,
+            text(&body, "transition")?,
         ) else {
             return Err(Fault::Bad(
                 "available names its actor, the type and the transition".to_string(),
@@ -1014,7 +1056,7 @@ async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
             actor,
             type_,
             transition,
-            text(&body, "cursor"),
+            text(&body, "cursor")?,
             limit_of(&body)?,
         )?);
         // a row is swept on the state and the guards, so one the transition may
@@ -1035,9 +1077,9 @@ async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
 async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
         let (Some(_actor), Some(type_), Some(window)) = (
-            body.get("actor").and_then(|a| text(a, "id")),
-            text(&body, "type"),
-            text(&body, "window"),
+            actor_id(&body)?,
+            text(&body, "type")?,
+            text(&body, "window")?,
         ) else {
             return Err(Fault::Bad(
                 "diagnostics names its actor, the type and a window".to_string(),
@@ -1067,11 +1109,11 @@ async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// the rows it moved or removed, or its refusal, a value (`DESIGN.md` §10).
 async fn maintain(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let task = body.get("task");
+        let task = object(&body, "task")?.map(|_| &body["task"]);
         let (Some(actor), Some(name), Some(before)) = (
-            body.get("actor").and_then(|a| text(a, "id")),
-            task.and_then(|t| text(t, "name")),
-            task.and_then(|t| text(t, "before")),
+            actor_id(&body)?,
+            task.map(|t| text(t, "name")).transpose()?.flatten(),
+            task.map(|t| text(t, "before")).transpose()?.flatten(),
         ) else {
             return Err(Fault::Bad(
                 "maintain names its actor and a task, its name and a time before which it prunes"
@@ -1097,10 +1139,7 @@ async fn maintain(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// omitted; a refusal is a value (`library-api.md` §6, ADR-0094).
 async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let (Some(_actor), Some(source)) = (
-            body.get("actor").and_then(|a| text(a, "id")),
-            text(&body, "source"),
-        ) else {
+        let (Some(_actor), Some(source)) = (actor_id(&body)?, text(&body, "source")?) else {
             return Err(Fault::Bad(
                 "export names its actor and the source".to_string(),
             ));
@@ -1111,7 +1150,7 @@ async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let page = objectflow_core::export::export_page(
             &world,
             source,
-            text(&body, "cursor"),
+            text(&body, "cursor")?,
             limit_of(&body)?,
         )?;
         Ok(Json(json!({
@@ -1127,8 +1166,8 @@ async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
 async fn acknowledge(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
         let (Some(_actor), Some(subscription), Some(cursor)) = (
-            body.get("actor").and_then(|a| text(a, "id")),
-            text(&body, "subscription"),
+            actor_id(&body)?,
+            text(&body, "subscription")?,
             cursor_of(&body)?,
         ) else {
             return Err(Fault::Bad(
@@ -1164,7 +1203,7 @@ fn request_of(body: &J) -> Result<Request, Fault> {
     let propose = flag(body, "propose")?;
     // a proposal's expiry, with `propose` only (library-api.md §3)
     let expires_at =
-        match text(body, "expires_at") {
+        match text(body, "expires_at")? {
             Some(_) if !propose => {
                 return Err(Fault::Bad(
                     "expires_at is a proposal's, with propose".to_string(),
@@ -1175,23 +1214,20 @@ fn request_of(body: &J) -> Result<Request, Fault> {
             })?),
             None => None,
         };
-    let (Some(transition), Some(actor)) = (
-        text(body, "transition"),
-        body.get("actor").and_then(|a| text(a, "id")),
-    ) else {
+    let (Some(transition), Some(actor)) = (text(body, "transition")?, actor_id(body)?) else {
         return Err(Fault::Bad(
             "a request names its transition and its actor".to_string(),
         ));
     };
-    let object_id = text(body, "object_id").map(str::to_string);
-    let type_ = text(body, "type").map(str::to_string);
+    let object_id = text(body, "object_id")?.map(str::to_string);
+    let type_ = text(body, "type")?.map(str::to_string);
     if object_id.is_some() == type_.is_some() {
         return Err(Fault::Bad(
             "a request names an object_id or, to create, a type".to_string(),
         ));
     }
     let occurred_at =
-        match text(body, "occurred_at") {
+        match text(body, "occurred_at")? {
             Some(t) => Some(parse_timestamp(t).ok_or_else(|| {
                 Fault::Bad(format!("occurred_at takes an RFC 3339 timestamp: {t}"))
             })?),
@@ -1219,9 +1255,10 @@ fn request_of(body: &J) -> Result<Request, Fault> {
         expires_at,
         expected_version,
         // the principal the actor acts for, which the store records (library-api.md §3)
-        principal: body
-            .get("actor")
-            .and_then(|a| text(a, "principal"))
+        principal: object(body, "actor")?
+            .map(|_| text(&body["actor"], "principal"))
+            .transpose()?
+            .flatten()
             .map(str::to_string),
         idempotency_key,
         // why the request was sent and by which route (library-api.md §3)
@@ -1248,9 +1285,9 @@ fn instant(v: Option<&J>, what: &str) -> Result<Option<i64>, Fault> {
 }
 
 fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
-    let field = |k: &str| text(o, k).map(str::to_string);
+    let field = |k: &str| -> Result<Option<String>, Fault> { Ok(text(o, k)?.map(str::to_string)) };
     let (Some(type_), Some(legacy_key), Some(state)) =
-        (field("type"), field("legacy_key"), field("state"))
+        (field("type")?, field("legacy_key")?, field("state")?)
     else {
         return Err(Fault::Bad(
             "an imported object names its type, legacy_key and state".to_string(),
@@ -1263,12 +1300,7 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
         ));
     }
     let mut entered = std::collections::BTreeMap::new();
-    for (dimension, e) in o
-        .get("entered")
-        .and_then(J::as_object)
-        .into_iter()
-        .flatten()
-    {
+    for (dimension, e) in object(o, "entered")?.into_iter().flatten() {
         let Some(at) = instant(e.get("at"), "entered.at")? else {
             return Err(Fault::Bad(format!(
                 "entered.{dimension} names its time, at"
@@ -1278,34 +1310,25 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
             dimension.clone(),
             EnteredAt {
                 at,
-                by: text(e, "by").map(str::to_string),
-                by_kind: text(e, "by_kind").map(str::to_string),
+                by: text(e, "by")?.map(str::to_string),
+                by_kind: text(e, "by_kind")?.map(str::to_string),
             },
         );
     }
     // its history from before the store (ADR-0163 decision 2)
     let mut legacy_entries = Vec::new();
-    for e in o
-        .get("legacy_entries")
-        .and_then(J::as_array)
-        .into_iter()
-        .flatten()
-    {
+    for e in array(o, "legacy_entries")?.into_iter().flatten() {
         let (Some(kind), Some(occurred_at)) = (
-            text(e, "kind").map(str::to_string),
+            text(e, "kind")?.map(str::to_string),
             instant(e.get("occurred_at"), "legacy_entries.occurred_at")?,
         ) else {
             return Err(Fault::Bad(format!(
                 "a legacy entry of {type_} {legacy_key} names its kind and occurred_at"
             )));
         };
-        let payload = e
-            .get("payload")
-            .and_then(J::as_object)
-            .cloned()
-            .unwrap_or_default();
+        let payload = object(e, "payload")?.cloned().unwrap_or_default();
         let mut about = std::collections::BTreeMap::new();
-        for (field, target) in e.get("about").and_then(J::as_object).into_iter().flatten() {
+        for (field, target) in object(e, "about")?.into_iter().flatten() {
             let Some(target) = target.as_str() else {
                 return Err(Fault::Bad(format!(
                     "a legacy entry's about maps {field} to <Type>:<key>"
@@ -1322,14 +1345,9 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
     }
     // the earlier values the legacy record gives, and where it is silent
     let mut legacy_intervals = Vec::new();
-    for l in o
-        .get("legacy_intervals")
-        .and_then(J::as_array)
-        .into_iter()
-        .flatten()
-    {
+    for l in array(o, "legacy_intervals")?.into_iter().flatten() {
         let (Some(dimension), Some(entered_at)) = (
-            text(l, "dimension"),
+            text(l, "dimension")?,
             instant(l.get("entered_at"), "legacy_intervals.entered_at")?,
         ) else {
             return Err(Fault::Bad(
@@ -1341,17 +1359,12 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
             value: l.get("value").cloned().unwrap_or(J::Null),
             entered_at,
             left_at: instant(l.get("left_at"), "legacy_intervals.left_at")?,
-            entered_by: text(l, "entered_by").map(str::to_string),
-            entered_by_kind: text(l, "entered_by_kind").map(str::to_string),
+            entered_by: text(l, "entered_by")?.map(str::to_string),
+            entered_by_kind: text(l, "entered_by_kind")?.map(str::to_string),
         });
     }
     let mut silent_spans = Vec::new();
-    for span in o
-        .get("silent_spans")
-        .and_then(J::as_array)
-        .into_iter()
-        .flatten()
-    {
+    for span in array(o, "silent_spans")?.into_iter().flatten() {
         let ends = span.as_array().map(|a| a.as_slice()).unwrap_or_default();
         let (Some(start), Some(end)) = (
             instant(ends.first(), "silent_spans")?,
@@ -1369,14 +1382,12 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
         type_,
         legacy_key,
         state,
-        attributes: o
-            .get("attributes")
-            .and_then(J::as_object)
+        attributes: object(o, "attributes")?
             .map(|m| m.clone().into_iter().collect())
             .unwrap_or_default(),
         entered,
         created_at: instant(o.get("created_at"), "created_at")?,
-        created_by_kind: field("created_by_kind"),
+        created_by_kind: field("created_by_kind")?,
         occurred_at: instant(o.get("occurred_at"), "occurred_at")?,
         legacy_entries,
         // everything a batch carries is imported (ADR-0154 decision 6)
@@ -1385,16 +1396,16 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
 }
 
 fn violation_class(c: &J) -> Result<ViolationClass, Fault> {
-    let field = |k: &str| text(c, k).map(str::to_string);
-    let kind = field("kind").as_deref().and_then(ViolationKind::parse);
-    let disposition = field("disposition")
+    let field = |k: &str| -> Result<Option<String>, Fault> { Ok(text(c, k)?.map(str::to_string)) };
+    let kind = field("kind")?.as_deref().and_then(ViolationKind::parse);
+    let disposition = field("disposition")?
         .as_deref()
         .map_or(Some(Disposition::Undecided), Disposition::parse);
     let (Some(type_), Some(kind), Some(rule), Some(shape), Some(disposition)) = (
-        field("type"),
+        field("type")?,
         kind,
-        field("rule"),
-        field("shape"),
+        field("rule")?,
+        field("shape")?,
         disposition,
     ) else {
         return Err(Fault::Bad(
@@ -1402,18 +1413,17 @@ fn violation_class(c: &J) -> Result<ViolationClass, Fault> {
         ));
     };
     Ok(ViolationClass {
-        id: field("id").unwrap_or_default(),
+        id: field("id")?.unwrap_or_default(),
         type_,
         kind,
         rule,
         shape,
-        count: c
-            .get("count")
-            .and_then(J::as_u64)
-            .map_or(0, |n| usize::try_from(n).unwrap_or(usize::MAX)),
-        sample: c
-            .get("sample")
-            .and_then(J::as_array)
+        count: match int(c, "count")? {
+            None => 0,
+            Some(n) => usize::try_from(n)
+                .map_err(|_| Fault::Bad("count takes a count, 0 or more".to_string()))?,
+        },
+        sample: array(c, "sample")?
             .map(|a| {
                 a.iter()
                     .filter_map(|s| s.as_str().map(str::to_string))
@@ -1421,8 +1431,8 @@ fn violation_class(c: &J) -> Result<ViolationClass, Fault> {
             })
             .unwrap_or_default(),
         disposition,
-        decided_by: field("decided_by"),
-        reason: field("reason"),
+        decided_by: field("decided_by")?,
+        reason: field("reason")?,
     })
 }
 
@@ -1441,7 +1451,7 @@ fn report(r: &ImportReport) -> J {
 
 async fn import_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let Some(actor) = body.get("actor").and_then(|a| text(a, "id")) else {
+        let Some(actor) = actor_id(&body)? else {
             return Err(Fault::Bad("an import names its actor".to_string()));
         };
         let Some(b) = body.get("batch") else {
@@ -1454,16 +1464,11 @@ async fn import_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
             ));
         }
         let mut batch = ImportBatch::default();
-        for o in b.get("objects").and_then(J::as_array).into_iter().flatten() {
+        for o in array(b, "objects")?.into_iter().flatten() {
             batch.objects.push(imported_object(o)?);
         }
         // each entry kind's fields kept through an erasure (ADR-0163 decision 3)
-        for (kind, fields) in b
-            .get("legacy_kinds")
-            .and_then(J::as_object)
-            .into_iter()
-            .flatten()
-        {
+        for (kind, fields) in object(b, "legacy_kinds")?.into_iter().flatten() {
             let fields = fields
                 .as_array()
                 .and_then(|a| {
@@ -1478,32 +1483,20 @@ async fn import_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 })?;
             batch.legacy_kinds.insert(kind.clone(), fields);
         }
-        for r in b
-            .get("sequences")
-            .and_then(J::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let (Some(sequence), Some(last)) =
-                (text(r, "sequence"), r.get("last").and_then(J::as_i64))
-            else {
+        for r in array(b, "sequences")?.into_iter().flatten() {
+            let (Some(sequence), Some(last)) = (text(r, "sequence")?, int(r, "last")?) else {
                 return Err(Fault::Bad(
                     "a sequence names its sequence and the last value minted".to_string(),
                 ));
             };
             batch.sequences.push(Raise {
                 sequence: sequence.to_string(),
-                scope: text(r, "scope").unwrap_or_default().to_string(),
+                scope: text(r, "scope")?.unwrap_or_default().to_string(),
                 last,
             });
         }
         let mut file = Vec::new();
-        for c in body
-            .get("disposition")
-            .and_then(J::as_array)
-            .into_iter()
-            .flatten()
-        {
+        for c in array(&body, "disposition")?.into_iter().flatten() {
             file.push(violation_class(c)?);
         }
         let dry_run = flag(&body, "dry_run")?;
@@ -1576,7 +1569,7 @@ async fn get(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
         // the argument it needs, a fault and never an absent object (D570)
         let id =
-            text(&body, "id").ok_or_else(|| Fault::Bad("get names an object's id".to_string()))?;
+            text(&body, "id")?.ok_or_else(|| Fault::Bad("get names an object's id".to_string()))?;
         let mut r = reading(&shared)?;
         let s = r.store()?;
         object_json(s, id)
@@ -1587,10 +1580,7 @@ async fn get(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// approval, which installs it (`library-api.md` §6, ADR-0155).
 async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let (Some(actor), Some(change)) = (
-            body.get("actor").and_then(|a| text(a, "id")),
-            text(&body, "change"),
-        ) else {
+        let (Some(actor), Some(change)) = (actor_id(&body)?, text(&body, "change")?) else {
             return Err(Fault::Bad(
                 "publish names its actor and the change".to_string(),
             ));
@@ -1600,7 +1590,7 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let s = store(&mut sandbox)?;
         if !dry_run {
             // the version of the change the approver read, required (ADR-0101)
-            let Some(expected) = body.get("expected_version").and_then(J::as_i64) else {
+            let Some(expected) = int(&body, "expected_version")? else {
                 return Err(Fault::Bad(
                     "a publish names the expected_version of the change it approves".to_string(),
                 ));
@@ -1650,7 +1640,7 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// key among them (`library-api.md` §6, ADR-0154).
 async fn lookup(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let (Some(source), Some(value)) = (text(&body, "source"), text(&body, "value")) else {
+        let (Some(source), Some(value)) = (text(&body, "source")?, text(&body, "value")?) else {
             return Err(Fault::Bad("lookup names a source and a value".to_string()));
         };
         let mut r = reading(&shared)?;
@@ -1665,7 +1655,7 @@ async fn lookup(State(shared): State<Shared>, Body(body): Body) -> Answer {
 
 async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let id = text(&body, "id")
+        let id = text(&body, "id")?
             .ok_or_else(|| Fault::Bad("history names an object's id".to_string()))?;
         let mut r = reading(&shared)?;
         let s = r.store()?;
@@ -1689,9 +1679,7 @@ async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
 
 async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let Some(positions) = body
-            .get("positions")
-            .and_then(J::as_array)
+        let Some(positions) = array(&body, "positions")?
             .and_then(|ps| ps.iter().map(J::as_i64).collect::<Option<Vec<i64>>>())
         else {
             return Err(Fault::Bad(
@@ -1712,7 +1700,7 @@ async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// installed version's declaration (`renderers.md` §3, ADR-0173 decision 10).
 async fn tools(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let kind = text(&body, "actor_kind")
+        let kind = text(&body, "actor_kind")?
             .filter(|k| objectflow_core::tools::ACTOR_KINDS.contains(k))
             .ok_or_else(|| {
                 Fault::Bad("tools names an actor_kind: human, agent or service".to_string())
@@ -1730,7 +1718,7 @@ async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
         let mut r = reading(&shared)?;
         let s = r.store()?;
-        let name = text(&body, "type").unwrap_or_default();
+        let name = text(&body, "type")?.unwrap_or_default();
         // the version asked for, the installed one where none is
         // (library-api.md §6)
         let earlier = match body.get("version") {
@@ -1787,10 +1775,7 @@ async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
 
 async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let (Some(actor), Some(id)) = (
-            body.get("actor").and_then(|a| text(a, "id")),
-            text(&body, "id"),
-        ) else {
+        let (Some(actor), Some(id)) = (actor_id(&body)?, text(&body, "id")?) else {
             return Err(Fault::Bad(
                 "availability names its actor and an object's id".to_string(),
             ));
@@ -1862,10 +1847,7 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
 /// one page, so no cursor; a refusal is a value.
 async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let (Some(_actor), Some(type_)) = (
-            body.get("actor").and_then(|a| text(a, "id")),
-            text(&body, "type"),
-        ) else {
+        let (Some(_actor), Some(type_)) = (actor_id(&body)?, text(&body, "type")?) else {
             return Err(Fault::Bad("query names its actor and the type".to_string()));
         };
         let limit = limit_of(&body)?;
@@ -1890,10 +1872,10 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let page = reads::query_page(
             &world,
             type_,
-            text(&body, "filter"),
+            text(&body, "filter")?,
             &order,
             fields.as_deref(),
-            text(&body, "cursor"),
+            text(&body, "cursor")?,
             limit,
         )?;
         Ok(Json(page_json(&page)))
@@ -1902,10 +1884,7 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
 
 async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let (Some(_actor), Some(name)) = (
-            body.get("actor").and_then(|a| text(a, "id")),
-            text(&body, "name"),
-        ) else {
+        let (Some(_actor), Some(name)) = (actor_id(&body)?, text(&body, "name")?) else {
             return Err(Fault::Bad(
                 "metric names its actor and the metric".to_string(),
             ));
@@ -1916,9 +1895,7 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
                     .to_string(),
             ));
         }
-        let bind = body
-            .get("bind")
-            .and_then(J::as_object)
+        let bind = object(&body, "bind")?
             .map(|b| b.clone().into_iter().collect())
             .unwrap_or_default();
         let keep: Option<Vec<String>> = match body.get("keep") {
@@ -1932,7 +1909,7 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
             ),
             Some(_) => return Err(Fault::Bad("keep takes dimension names".to_string())),
         };
-        let over = match text(&body, "over") {
+        let over = match text(&body, "over")? {
             None => None,
             Some(by) => Some(parse_duration(by).ok_or_else(|| {
                 Fault::Bad(format!("over takes a duration such as '30 days': {by}"))
@@ -1948,7 +1925,7 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
             &bind,
             keep.as_deref(),
             over,
-            text(&body, "filter"),
+            text(&body, "filter")?,
         )?;
         let mut out = objectflow_core::metric::page_json(&page);
         if let Some(o) = out.as_object_mut() {
@@ -2044,7 +2021,7 @@ async fn health(State(shared): State<Shared>) -> Answer {
 /// nothing is due; a sandbox's store is always this release's.
 async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
-        let Some(actor) = body.get("actor").and_then(|a| text(a, "id")) else {
+        let Some(actor) = actor_id(&body)? else {
             return Err(Fault::Bad(
                 "an upgrade names its actor, an operator of the store".to_string(),
             ));

@@ -47,6 +47,7 @@ types:
   Employee:
     description: A person employed by the company, who may claim expenses and act on claims.
     tracking: record
+    taken_by: [human, service]
     attributes:
       user_id: { type: identity, actor_kind: human, unique: true }
       name: { type: string, optional: true, personal: true }
@@ -80,6 +81,7 @@ types:
         to: LEFT
       forget:
         kind: erasure
+        taken_by: [human]
         description: Erases this store's copy of the employee's name.
         inputs:
           reason: { type: string }
@@ -87,6 +89,7 @@ types:
   AssistantAgent:
     description: An AI agent that makes requests of its own, such as suggesting whether a claim line is an expense or a purchase; it never commits a financial write.
     tracking: record
+    taken_by: [human]
     attributes:
       agent_id: { type: identity, actor_kind: agent, unique: true }
       name: { type: string }
@@ -106,6 +109,7 @@ types:
   BusinessFunction:
     description: A function of the company, a role or team such as finance or management, under whose authority claims are approved; never a named person.
     tracking: record
+    taken_by: [human, service]
     attributes:
       name: { type: string, unique: true }
     states:
@@ -124,6 +128,7 @@ types:
   ExpenseCategory:
     description: A category of spending a claim line is filed under, such as travel, meals, equipment or other, with the policy amount above which a line is flagged.
     tracking: record
+    taken_by: [human]
     attributes:
       name: { type: string, unique: true }
       policy_amount:
@@ -342,6 +347,7 @@ types:
             description: What the claimant should change.
       complete_review:
         kind: external
+        taken_by: [human]
         from: SUBMITTED
         to: REVIEWED
         description: The reviewer finishes the review, every line's nature confirmed.
@@ -349,6 +355,7 @@ types:
           lines_classified: deny
       approve:
         kind: external
+        taken_by: [human]
         from: REVIEWED
         to: APPROVED
         description: A person approves the claim under the authority of a function.
@@ -360,6 +367,7 @@ types:
           - assign: { location: approved_at, expr: now }
       reject:
         kind: external
+        taken_by: [human]
         from: [SUBMITTED, REVIEWED]
         to: REJECTED
         description: A reviewer or approver refuses the claim.
@@ -402,6 +410,7 @@ types:
           - assign: { location: verified_at, expr: now }
       pay:
         kind: external
+        taken_by: [human, service]
         from: VERIFIED
         to: PAID
         description: Records that the bill was paid to the claimant, as Xero shows.
@@ -411,6 +420,7 @@ types:
           bill_paid_in_xero: deny
       erase_personal_data:
         kind: erasure
+        taken_by: [human]
         description: Erases the claim's personal data and that of its lines.
         inputs:
           reason: { type: string }
@@ -616,6 +626,7 @@ types:
         only_via: [Claim.pay, Claim.reject, Claim.withdraw]
       erase:
         kind: erasure
+        taken_by: [human]
         description: Erases the line's personal data.
         inputs:
           reason: { type: string }

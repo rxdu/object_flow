@@ -4853,7 +4853,10 @@ fn refused_reads(ctx: &Ctx<'_>) -> Result<Json, NotRun> {
 /// object, none for a refused creation or an unknown id; the transition; the
 /// verdict, its clause, the first invariant for violated invariants, and its
 /// remedy; whether the clause was unknown; and the request's values, a
-/// personal input named and withheld (ADR-0105). An approval its request
+/// personal input, and one the transition does not declare, named and
+/// withheld (ADR-0105): what was sent under a name no declaration marks, or
+/// to a transition there is none of, is no value an erasure could reach
+/// (ATTEMPT-INPUTS). An approval its request
 /// refused is a row of the proposed transition, on its object, naming the
 /// proposal.
 fn refused_attempt(
@@ -4898,10 +4901,17 @@ fn refused_attempt(
             .or_else(|| t.and_then(|t| t.attribute(k)).map(|a| a.personal))
             .unwrap_or(false)
     };
+    let declared = |k: &str| {
+        x.is_some_and(|x| {
+            x.inputs.iter().any(|(n, _)| n == k)
+                || x.required_inputs.iter().any(|n| n == k)
+                || x.optional_inputs.iter().any(|n| n == k)
+        })
+    };
     let mut values = serde_json::Map::new();
     let mut withheld = Vec::new();
     for (k, v) in &asked.inputs {
-        if personal(k) {
+        if personal(k) || !declared(k) {
             withheld.push(k.clone());
         } else {
             values.insert(k.clone(), v.clone());
@@ -8974,5 +8984,56 @@ types:
         let v = req(&mut s, "submit", OPERATOR, (&second, false), json!({}));
         assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
         assert!(!report(&s, &second).contains("prepared.marker"));
+    }
+
+    /// A refused request's row of the attempt log keeps the values of the
+    /// inputs its transition declares, and names the rest withheld: what was
+    /// sent under a name no declaration marks, or to a transition there is
+    /// none of, is no value an erasure could reach (ATTEMPT-INPUTS).
+    #[test]
+    fn a_refused_attempt_keeps_no_input_its_transition_does_not_declare() {
+        let text = r#"
+module: desk
+categories: [open, closed]
+types:
+  Ticket:
+    attributes:
+      code: { type: string }
+    states:
+      OPEN: { category: open }
+      DONE: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [code] }
+      close: { kind: external, from: OPEN, to: DONE }
+"#;
+        let lib = Library::load(&[("desk.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        // refused, an input it does not take among the declared one
+        req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Ticket", true),
+            json!({"code": "T-1", "note": "Ysolde Quillfeather's number"}),
+        );
+        // refused, a transition the type has none of
+        req(
+            &mut s,
+            "clsoe",
+            OPERATOR,
+            ("Ticket", true),
+            json!({"why": "Ysolde again"}),
+        );
+        let w = s.snapshot().unwrap();
+        let rows = w.attempts().unwrap();
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        let held = format!("{rows:?}");
+        assert!(!held.contains("Ysolde"), "{held}");
+        assert!(
+            held.contains("T-1"),
+            "the declared input's value is kept: {held}"
+        );
+        assert!(rows[0].withheld.contains(&"note".to_string()), "{rows:?}");
+        assert!(rows[1].withheld.contains(&"why".to_string()), "{rows:?}");
     }
 }

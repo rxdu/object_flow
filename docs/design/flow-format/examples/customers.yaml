@@ -147,6 +147,8 @@ types:
           reason: { type: string, personal: true }
       correct_state:
         kind: assertion
+        # an override is a person's act, never an agent's (second production review)
+        taken_by: [human]
         to: [PROSPECT, ACTIVE, DORMANT]
         description: Puts the customer into the state they are really in, when the record is wrong.
         inputs:
