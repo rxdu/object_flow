@@ -46,6 +46,8 @@ class _Absent:
 ABSENT = _Absent()
 SECONDS = {"s": 1, "min": 60, "h": 3600, "day": 86400, "days": 86400, "week": 604800, "weeks": 604800}
 EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+# the calendar a time is written in, 0001-01-01 to 9999-12-31T23:59:59Z, in seconds since 1970 (ADR-0190 decision 1)
+FIRST_SECOND, LAST_SECOND = -62_135_596_800, 253_402_300_799
 CLOCK_START = "2026-01-01T00:00:00Z"            # flow-format.md §11.3
 ACTOR_KINDS = ("human", "agent", "service")
 OPERATOR = "operator"                           # the alias, and the identity, of the store's operator (ADR-0126)
@@ -978,7 +980,12 @@ class Evaluator:
         if a is ABSENT or b is ABSENT:
             return ABSENT
         if is_date(a) or is_date(b):
-            return self.dates(op, a, b)
+            try:
+                return self.dates(op, a, b)
+            except OverflowError:
+                # a date moved past the calendar has no value, as the core's has none (ADR-0190 decision 1)
+                self.failed_arithmetic = True
+                return ABSENT
         if op == "==":
             return a == b
         if op == "!=":
@@ -2527,6 +2534,10 @@ class Runner:
                 digits = precision_of((attrs.get(spec["location"]) or {}).get("type"))
                 scale = int(str(attrs[spec["location"]]["type"]).rstrip(")").rsplit(",", 1)[1]) if digits else 0
                 if digits and isinstance(written, (int, Fraction)) and abs(Fraction(written) * 10 ** scale) > 10 ** digits - 1:
+                    raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
+                # a time past the calendar refuses the request, as the core refuses it (ADR-0190 decision 1)
+                if ((attrs.get(spec["location"]) or {}).get("type") == "timestamp"
+                        and isinstance(written, (int, Fraction)) and not FIRST_SECOND <= written <= LAST_SECOND):
                     raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
                 o.attrs[spec["location"]] = written
                 ctx.attr_writes.setdefault(o.id, set()).add(spec["location"])

@@ -9,10 +9,12 @@ without it.
 
 import pathlib
 import tempfile
+import urllib.error
+import urllib.request
 
 import pytest
 
-from compare import Tee
+from compare import Tee, raw
 from replay import Failed
 from flowstudio.catalogue import Catalogue
 from flowstudio.core import Core
@@ -1813,6 +1815,71 @@ types:
 """
 
 
+LEASES = """module: leases
+categories: [live, closed]
+types:
+  Lease:
+    description: A lease that runs to a day and an instant.
+    tracking: record
+    attributes:
+      ends_at: { type: timestamp }
+      ends_on: { type: date }
+    states:
+      ON: { category: live, description: Running. }
+      ENDED: { category: closed, final: true, description: Ended. }
+    conditions:
+      room: { description: A month is left in the calendar., expression: ends_on + 30 days > ends_on, remedy: unreachable_from_here }
+    transitions:
+      start: { kind: initial, to: ON, required_inputs: [ends_at, ends_on] }
+      renew: { kind: internal, from: ON, guards: { room: deny } }
+      end: { kind: external, from: ON, to: ENDED }
+      extend_at:
+        kind: internal
+        from: ON
+        effect:
+          - assign: { location: ends_at, expr: ends_at + 30 days }
+      extend_on:
+        kind: internal
+        from: ON
+        effect:
+          - assign: { location: ends_on, expr: ends_on + 30 days }
+"""
+
+
+def test_a_time_moved_past_the_calendar_is_refused_alike(tee):
+    """An effect moving a time or a date past year 9999, as one from the
+    legacy "no end" 9999-12-31 does, refuses its request value_in_range,
+    naming its object, alike through both backends, where the core wrote
+    year 10000, which no read took back, so its object and its type answered
+    500 for good (fifth production review BRICK, ADR-0190)."""
+    assert tee.post("/sandbox/load", {"files": [
+        {"name": "leases.yaml", "text": LEASES}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+
+    def start(at: str, on: str) -> str:
+        v = tee.post("/v1/request", {"transition": "start", "actor": OP, "type": "Lease",
+                                     "inputs": {"ends_at": at, "ends_on": on}})
+        assert v["kind"] == "satisfied", v
+        return v["object_id"]
+
+    usual = start("2026-12-31T00:00:00Z", "2026-12-31")
+    endless = start("9999-12-31T00:00:00Z", "9999-12-31")
+    for xn in ("extend_at", "extend_on"):
+        v = tee.post("/v1/request", {"transition": xn, "actor": OP, "object_id": endless})
+        assert (v["kind"], v.get("clause"), v.get("objects")) == (
+            "unsatisfied", "value_in_range", [endless]), v
+        v = tee.post("/v1/request", {"transition": xn, "actor": OP, "object_id": usual})
+        assert v["kind"] == "satisfied", v
+    # a guard over a date moved past it is unknown, and refuses
+    v = tee.post("/v1/request", {"transition": "renew", "actor": OP, "object_id": endless})
+    assert (v["kind"], v.get("clause"), v.get("unknown")) == ("unsatisfied", "room", True), v
+    assert tee.post("/v1/request", {"transition": "renew", "actor": OP, "object_id": usual})["kind"] == "satisfied"
+    # what was refused left the object readable, as it was
+    assert tee.post("/v1/get", {"id": endless})["attributes"]["ends_on"] == "9999-12-31"
+    alike(tee)
+
+
 def test_an_effects_arithmetic_past_its_bound_is_refused_alike(tee):
     """An effect whose integer arithmetic passes 64 bits, or divides by
     zero, refuses its request as the generated clause value_in_range, naming
@@ -2116,3 +2183,86 @@ def test_a_string_holds_at_most_64_kib_alike(tee):
         v = write(note)
         assert (v["kind"], v.get("inputs")) == ("invalid_input", ["note"]), v["kind"]
     alike(tee)
+
+
+def test_a_key_and_a_position_are_each_taken_once_alike(tee):
+    """A body naming a key twice, a second actor among them, is 400 in both
+    backends, where the last one won and changed who was recorded; and events
+    naming a position twice is 400, where one position named a thousand times
+    answered 201 MB (fifth production review, ADR-0190 decisions 6 and 8)."""
+    loaded(tee, "reimbursement.yaml")
+    twice = (b'{"type": "Employee", "transition": "onboard", "actor": {"id": "operator"},'
+             b' "actor": {"id": "someone"}, "inputs": {"user_id": "zed"}}')
+    for base in (tee.core, tee.runner):
+        req = urllib.request.Request(base + "/v1/request", data=twice, method="POST",
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req) as resp:
+                status = resp.status
+        except urllib.error.HTTPError as e:
+            status = e.code
+        assert status == 400, base
+        assert raw(base, "POST", "/v1/events", {"actor": OP, "positions": [1, 1]})[0] == 400, base
+        assert raw(base, "POST", "/v1/events", {"actor": OP, "positions": [1, 2]})[0] == 200, base
+
+
+HELD = """module: held
+categories: [live, closed]
+types:
+  Staff:
+    description: A person who may act.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { description: Working., category: live }
+      LEFT: { description: Gone., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: ACTIVE, to: LEFT }
+  Bot:
+    description: An agent.
+    tracking: record
+    attributes:
+      key: { type: identity, actor_kind: agent, unique: true }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      issue: { kind: initial, to: ON, required_inputs: [key] }
+      retire: { kind: external, from: ON, to: OFF }
+  Bill:
+    description: A bill a person corrects.
+    tracking: record
+    taken_by: [human, service]
+    attributes:
+      amount: { type: int }
+    states:
+      OPEN: { description: Open., category: live }
+      PAID: { description: Paid., category: closed, final: true }
+    transitions:
+      record: { kind: initial, to: OPEN, required_inputs: [amount] }
+      fix: { kind: internal, from: OPEN, corrects: [amount], required_inputs: [amount], inputs: { reason: { type: string } } }
+      pay: { kind: external, from: OPEN, to: PAID }
+"""
+
+
+def test_a_correction_held_to_people_refuses_an_agent_alike(tee):
+    """A type's taken_by holds its correction to the kinds it names: an agent
+    is refused, a person takes it, alike through both backends, where a
+    correction could take no taken_by and the agent rewrote a recorded bill
+    (fifth production review NEW-CORRECTION, ADR-0190 decision 5)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    for t, x, inputs in (("Staff", "add", {"login": "ana"}), ("Bot", "issue", {"key": "scout"})):
+        assert tee.post("/v1/request", {"type": t, "transition": x, "actor": OP, "inputs": inputs})["kind"] == "satisfied"
+    bill = tee.post("/v1/request", {"type": "Bill", "transition": "record", "actor": {"id": "ana"},
+                                    "inputs": {"amount": 5}})["object_id"]
+    fix = {"object_id": bill, "transition": "fix", "inputs": {"amount": 7, "reason": "typo"}}
+    v = tee.post("/v1/request", {**fix, "actor": {"id": "scout"}})
+    assert (v["kind"], [f["invariant"] for f in v.get("failures", [])]) == (
+        "invariant_violated", ["fix_taken_by"]), v
+    assert tee.post("/v1/request", {**fix, "actor": {"id": "ana"}})["kind"] == "satisfied"
+    alike(tee)
+

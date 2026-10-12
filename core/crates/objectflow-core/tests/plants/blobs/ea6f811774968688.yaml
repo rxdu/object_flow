@@ -1,0 +1,14 @@
+module: m
+categories: [live]
+types:
+  T:
+    description: A record a person corrects.
+    tracking: record
+    taken_by: [human]
+    attributes:
+      amount: { type: int }
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
+    transitions:
+      t: { kind: initial, to: S, required_inputs: [amount] }
+      fix: { kind: internal, from: S, corrects: [amount], required_inputs: [amount], inputs: { reason: { type: string } } }
+      e: { kind: external, from: S, to: E }

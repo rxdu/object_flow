@@ -10643,6 +10643,41 @@
   "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [
+    "held.yaml",
+    "ea6f811774968688"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "T.e_taken_by": "local",
+   "T.fix_taken_by": "local",
+   "T.t_taken_by": "local"
+  },
+  "could_violate": {
+   "T.e_taken_by": [
+    "T.e",
+    "T.t"
+   ],
+   "T.fix_taken_by": [
+    "T.fix",
+    "T.t"
+   ],
+   "T.t_taken_by": [
+    "T.t"
+   ]
+  }
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
     "taken.yaml",
     "f87cabe1d66ffdc1"
    ]

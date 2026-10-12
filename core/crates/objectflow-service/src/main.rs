@@ -93,7 +93,20 @@ fn say(line: std::fmt::Arguments<'_>) {
     let mine = LOGGING_SINCE
         .compare_exchange(0, now, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok();
-    eprintln!("{} {line}", timestamp_text(wall_clock()));
+    // a log whose reader has gone drops the line: `eprintln!` panicked on
+    // the broken pipe, losing answers already committed and leaving the
+    // log held blocked until a restart (fifth production review)
+    let written = {
+        use std::io::Write;
+        writeln!(
+            std::io::stderr().lock(),
+            "{} {line}",
+            timestamp_text(wall_clock())
+        )
+    };
+    if written.is_err() {
+        LINES_DROPPED.fetch_add(1, Ordering::SeqCst);
+    }
     if mine {
         LOGGING_SINCE.store(0, Ordering::SeqCst);
     }
@@ -285,9 +298,14 @@ struct Service {
     /// How long a deployment's read may take before it is stopped
     /// (ADR-0184 decision 3).
     read_timeout: std::time::Duration,
-    /// The reads that grow with the store, bounded in number (ADR-0189
-    /// decision 2).
+    /// The analytics, metrics, exceptions, diagnostics and exports, bounded
+    /// in number (ADR-0189 decision 2); the worklists, queries, the objects
+    /// available and a subscription's pages, bounded alike beside them; and a
+    /// change's dry runs, one at a time (fifth production review N-1 and
+    /// DRYRUN-MEMORY, ADR-0190 decision 2).
     admission: Admission,
+    worklists: Admission,
+    dry_runs: Admission,
     /// What it has answered, by route and status: how many, and their
     /// seconds, which `GET /metrics` gives (production review OBSERVE).
     served: Mutex<std::collections::BTreeMap<(String, u16), (u64, f64)>>,
@@ -651,13 +669,32 @@ impl Drop for Slot<'_> {
 /// its own deadline, and the read is given what is left of the deadline; a
 /// read of one object, of the events by position or of the declaration
 /// never waits (ADR-0189 decision 2).
-fn heavy_reading(shared: &Shared) -> Result<(Slot<'_>, Reading<'_>), Fault> {
+fn heavy_reading<'s>(
+    shared: &'s Shared,
+    pool: &'s Admission,
+) -> Result<(Slot<'s>, Reading<'s>), Fault> {
     let until = std::time::Instant::now() + shared.read_timeout;
     let slot = match shared.reads {
-        Some(_) => shared.admission.take(until, shared.read_timeout)?,
+        Some(_) => pool.take(until, shared.read_timeout)?,
         None => Slot(None),
     };
     Ok((slot, reading_until(shared, until)?))
+}
+
+/// Whether a request is a change of the flow's `submit` or `refresh`, which
+/// runs a dry run: a transition of that name on any other type is an
+/// ordinary write, which took the dry run's slot and queued behind every
+/// metric, a claim's submit waiting up to 29 s and refused `503` (fifth
+/// production review N-1, ADR-0190 decision 2).
+fn changes_the_flow(shared: &Shared, req: &Request) -> Result<bool, Fault> {
+    let (Some(id), "submit" | "refresh") = (&req.object_id, req.transition.as_str()) else {
+        return Ok(false);
+    };
+    let mut r = reading(shared)?;
+    let s = r.store()?;
+    Ok(s.snapshot()?
+        .get(id)?
+        .is_some_and(|o| o.type_ == objectflow_core::model::DECLARATION_CHANGE))
 }
 
 /// A read of the store as it stands, beside the writes and never behind
@@ -950,6 +987,72 @@ struct Body(J);
 /// connection and its task for ever (ADR-0184 decision 4).
 static BODY_READ: std::sync::OnceLock<std::time::Duration> = std::sync::OnceLock::new();
 
+/// A JSON body read refusing an object that names a key twice, where the
+/// last one won, a second `actor` changing who was recorded (fifth
+/// production review, ADR-0190 decision 8).
+fn strict_json(bytes: &[u8]) -> Result<J, String> {
+    use serde::de::{DeserializeSeed, Deserializer, Error, MapAccess, SeqAccess, Visitor};
+    struct Strict;
+    impl<'de> DeserializeSeed<'de> for Strict {
+        type Value = J;
+        fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<J, D::Error> {
+            d.deserialize_any(Strict)
+        }
+    }
+    impl<'de> Visitor<'de> for Strict {
+        type Value = J;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a JSON value")
+        }
+        fn visit_bool<E: Error>(self, v: bool) -> Result<J, E> {
+            Ok(J::Bool(v))
+        }
+        fn visit_i64<E: Error>(self, v: i64) -> Result<J, E> {
+            Ok(J::from(v))
+        }
+        fn visit_u64<E: Error>(self, v: u64) -> Result<J, E> {
+            Ok(J::from(v))
+        }
+        fn visit_f64<E: Error>(self, v: f64) -> Result<J, E> {
+            Ok(serde_json::Number::from_f64(v).map_or(J::Null, J::Number))
+        }
+        fn visit_str<E: Error>(self, v: &str) -> Result<J, E> {
+            Ok(J::String(v.to_string()))
+        }
+        fn visit_string<E: Error>(self, v: String) -> Result<J, E> {
+            Ok(J::String(v))
+        }
+        fn visit_unit<E: Error>(self) -> Result<J, E> {
+            Ok(J::Null)
+        }
+        fn visit_none<E: Error>(self) -> Result<J, E> {
+            Ok(J::Null)
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<J, A::Error> {
+            let mut items = Vec::new();
+            while let Some(v) = seq.next_element_seed(Strict)? {
+                items.push(v);
+            }
+            Ok(J::Array(items))
+        }
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<J, A::Error> {
+            let mut m = Map::new();
+            while let Some(k) = map.next_key::<String>()? {
+                if m.contains_key(&k) {
+                    return Err(A::Error::custom(format!("the key {k} is named twice")));
+                }
+                let v = map.next_value_seed(Strict)?;
+                m.insert(k, v);
+            }
+            Ok(J::Object(m))
+        }
+    }
+    let mut read = serde_json::Deserializer::from_slice(bytes);
+    let v = Strict.deserialize(&mut read).map_err(|e| e.to_string())?;
+    read.end().map_err(|e| e.to_string())?;
+    Ok(v)
+}
+
 impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
     type Rejection = Fault;
 
@@ -959,19 +1062,38 @@ impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
             .get()
             .copied()
             .unwrap_or(std::time::Duration::from_secs(30));
-        let read = match tokio::time::timeout(bound, Json::<J>::from_request(req, state)).await {
-            Ok(read) => read,
-            Err(_) => {
-                return Err(Fault::SlowBody(format!(
-                    "the body did not arrive within {} s",
-                    bound.as_secs()
-                )));
-            }
-        };
-        let body = match read {
-            Ok(Json(J::Object(m))) => m,
-            Ok(_) => return Err(Fault::Bad("the body is a JSON object".to_string())),
+        let json = req
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| {
+                v.split(';')
+                    .next()
+                    .is_some_and(|t| t.trim().eq_ignore_ascii_case("application/json"))
+            });
+        if !json {
+            return Err(Fault::Bad(
+                "Expected request with `Content-Type: application/json`".to_string(),
+            ));
+        }
+        let read =
+            match tokio::time::timeout(bound, axum::body::Bytes::from_request(req, state)).await {
+                Ok(read) => read,
+                Err(_) => {
+                    return Err(Fault::SlowBody(format!(
+                        "the body did not arrive within {} s",
+                        bound.as_secs()
+                    )));
+                }
+            };
+        let bytes = match read {
+            Ok(bytes) => bytes,
             Err(e) => return Err(Fault::Bad(e.body_text())),
+        };
+        let body = match strict_json(&bytes) {
+            Ok(J::Object(m)) => m,
+            Ok(_) => return Err(Fault::Bad("the body is a JSON object".to_string())),
+            Err(e) => return Err(Fault::Bad(e)),
         };
         if let Some((_, takes)) = TAKES.iter().find(|(p, _)| *p == path)
             && let Some(k) = body.keys().find(|k| !takes.contains(&k.as_str()))
@@ -1414,9 +1536,9 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
         // a change's dry run, which a `submit` or `refresh` records, computed
         // on a read beside the writes, so no write waits for it; the request
         // takes it only where nothing it read has changed (DRYRUN-LOCK)
-        let prepared = match (&req.object_id, req.transition.as_str()) {
-            (Some(id), "submit" | "refresh") if shared.reads.is_some() => {
-                let (_slot, mut r) = heavy_reading(&shared)?;
+        let prepared = match &req.object_id {
+            Some(id) if shared.reads.is_some() && changes_the_flow(&shared, &req)? => {
+                let (_slot, mut r) = heavy_reading(&shared, &shared.dry_runs)?;
                 let s = r.store()?;
                 match objectflow_core::publish::prepare(&s.snapshot()?, id, &req.actor) {
                     Ok(prepared) => prepared,
@@ -1458,6 +1580,15 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "a check simulates a request, not a proposal".to_string(),
             ));
         }
+        // a check of a change's submit runs its dry run, one at a time as a
+        // submit's does, where six at once took 9.3 GB outside every bound
+        // (fifth production review DRYRUN-MEMORY, ADR-0190 decision 2)
+        let _slot = if shared.reads.is_some() && changes_the_flow(&shared, &req)? {
+            let until = std::time::Instant::now() + shared.read_timeout;
+            Some(shared.dry_runs.take(until, shared.read_timeout)?)
+        } else {
+            None
+        };
         let c = consulting(
             &shared,
             true,
@@ -1500,7 +1631,7 @@ async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let cursor = cursor_of(&body)?;
         let limit = limit_of(&body)?;
-        let (_slot, mut r) = heavy_reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared, &shared.worklists)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         let page = objectflow_core::subscription::pull_page(&world, subscription, cursor, limit)?;
@@ -1554,7 +1685,7 @@ async fn exceptions(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "exceptions names its actor and the type".to_string(),
             ));
         };
-        let (_slot, mut r) = heavy_reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared, &shared.admission)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         Ok(Json(page_json(&reads::exceptions(&world, type_)?)))
@@ -1574,7 +1705,7 @@ async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "available names its actor, the type and the transition".to_string(),
             ));
         };
-        let (_slot, mut r) = heavy_reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared, &shared.worklists)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         let mut page = page_json(&reads::available_page(
@@ -1616,7 +1747,7 @@ async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "window takes a duration such as '30 days': {window}"
             ))
         })?;
-        let (_slot, mut r) = heavy_reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared, &shared.admission)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         Ok(Json(
@@ -1670,7 +1801,7 @@ async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "export names its actor and the source".to_string(),
             ));
         };
-        let (_slot, mut r) = heavy_reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared, &shared.admission)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         let page = objectflow_core::export::export_page(
@@ -2156,7 +2287,7 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
             // production review PUBLISH-SCALE); a sandbox's reads take the
             // writer, as every one of its reads does
             if shared.reads.is_some() {
-                let (_slot, mut r) = heavy_reading(&shared)?;
+                let (_slot, mut r) = heavy_reading(&shared, &shared.dry_runs)?;
                 let s = r.store()?;
                 return preview(&s.snapshot()?, actor, change).map_err(|e| match e {
                     Fault::TimedOut(_) => dry_run_late(&shared),
@@ -2309,6 +2440,15 @@ async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
             return Err(Fault::Bad(format!(
                 "events takes at most {} positions",
                 reads::PAGE_LIMIT
+            )));
+        }
+        // each position once, where one named a thousand times answered a
+        // 7 kB request with 201 MB (fifth production review, ADR-0190
+        // decision 6)
+        let mut seen = std::collections::BTreeSet::new();
+        if let Some(twice) = positions.iter().find(|p| !seen.insert(**p)) {
+            return Err(Fault::Bad(format!(
+                "events takes each position once, not {twice} twice"
             )));
         }
         let mut r = reading(&shared)?;
@@ -2491,7 +2631,7 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let order = strings("order")?.unwrap_or_default();
         let fields = strings("fields")?;
-        let (_slot, mut r) = heavy_reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared, &shared.worklists)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         let page = reads::query_page(
@@ -2540,7 +2680,7 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 Fault::Bad(format!("over takes a duration such as '30 days': {by}"))
             })?),
         };
-        let (_slot, mut r) = heavy_reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared, &shared.admission)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         let page = objectflow_core::metric::page(
@@ -3066,18 +3206,29 @@ async fn metrics(State(shared): State<Shared>) -> Response {
         LINES_DROPPED.load(Ordering::SeqCst)
     ));
     // the reads that grow with the store, bounded in number (ADR-0189)
-    let a = &shared.admission;
-    out.push_str(&format!(
-        "# HELP objectflow_reads_running Reads that grow with the store running now.\n\
-         # TYPE objectflow_reads_running gauge\nobjectflow_reads_running {}\n\
-         # HELP objectflow_reads_waiting Reads that grow with the store waiting for their turn.\n\
-         # TYPE objectflow_reads_waiting gauge\nobjectflow_reads_waiting {}\n\
-         # HELP objectflow_reads_most How many reads that grow with the store run at once.\n\
-         # TYPE objectflow_reads_most gauge\nobjectflow_reads_most {}\n",
-        a.running(),
-        a.waiting.load(Ordering::SeqCst),
-        a.most
-    ));
+    // by pool, the worklists', the analytics' and the dry runs' (ADR-0190)
+    out.push_str(
+        "# HELP objectflow_reads_running Reads that grow with the store running now, by pool.\n\
+         # TYPE objectflow_reads_running gauge\n\
+         # HELP objectflow_reads_waiting Reads that grow with the store waiting for their turn, by pool.\n\
+         # TYPE objectflow_reads_waiting gauge\n\
+         # HELP objectflow_reads_most How many reads of a pool run at once.\n\
+         # TYPE objectflow_reads_most gauge\n",
+    );
+    for (pool, a) in [
+        ("worklists", &shared.worklists),
+        ("analytics", &shared.admission),
+        ("dry_runs", &shared.dry_runs),
+    ] {
+        out.push_str(&format!(
+            "objectflow_reads_running{{pool=\"{pool}\"}} {}\n\
+             objectflow_reads_waiting{{pool=\"{pool}\"}} {}\n\
+             objectflow_reads_most{{pool=\"{pool}\"}} {}\n",
+            a.running(),
+            a.waiting.load(Ordering::SeqCst),
+            a.most
+        ));
+    }
     let c = &shared.connections;
     out.push_str(&format!(
         "# HELP objectflow_connections_open The connections open.\n\
@@ -3490,15 +3641,22 @@ fn cut_back(shared: &Service, limit: u64) -> bool {
     if bytes <= limit && !erasure_due {
         return false;
     }
-    let a = &shared.admission;
-    let drained = a.hold(std::time::Instant::now() + shared.read_timeout);
+    let pools = [&shared.admission, &shared.worklists, &shared.dry_runs];
+    let until = std::time::Instant::now() + shared.read_timeout;
+    // every pool held, one that does not drain in time holding the rest too
+    let mut drained = true;
+    for p in &pools {
+        drained &= p.hold(until);
+    }
     let cut = drained
         && shared.writer.lock().ok().is_some_and(|mut w| {
             w.store
                 .as_mut()
                 .is_some_and(|s| s.truncate_log(CUT_WAIT).unwrap_or(false))
         });
-    a.release();
+    for p in pools {
+        p.release();
+    }
     if cut {
         shared.watch.cuts.fetch_add(1, Ordering::SeqCst);
     } else {
@@ -4145,6 +4303,8 @@ async fn serve() -> std::io::Result<()> {
         evaluator_timeout: sandbox.evaluator_timeout,
         read_timeout: a.read_timeout.unwrap_or(std::time::Duration::from_secs(30)),
         admission: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
+        worklists: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
+        dry_runs: Admission::new(1),
         deployment,
         reads,
         writer: Mutex::new(sandbox),
@@ -4301,6 +4461,24 @@ mod tests {
         assert!(log_blocked(1_000_000, 1_000_000 + LOG_BLOCKED_MS + 1));
     }
 
+    /// A body naming a key twice is refused, where the last one won; one
+    /// naming each once reads as it did (ADR-0190 decision 8).
+    #[test]
+    fn a_body_names_each_key_once() {
+        assert!(
+            strict_json(br#"{"actor": {"id": "a"}, "actor": {"id": "b"}}"#)
+                .is_err_and(|e| e.contains("actor is named twice"))
+        );
+        assert!(strict_json(br#"{"a": {"b": 1, "b": 2}}"#).is_err());
+        assert_eq!(
+            strict_json(
+                br#"{"a": [1, -2, 2.5, "x", null, true], "b": {"c": 18446744073709551615}}"#
+            ),
+            Ok(json!({"a": [1, -2, 2.5, "x", null, true], "b": {"c": 18446744073709551615_u64}}))
+        );
+        assert!(strict_json(b"{} {}").is_err());
+    }
+
     /// A fault's reason is said in the log at most 1 KiB long, cut on a
     /// character's boundary, where a filter of 1.9 MB was written whole
     /// (fourth production review A-10).
@@ -4419,6 +4597,8 @@ mod tests {
             deployment: true,
             read_timeout: Duration::from_secs(1),
             admission: Admission::new(1),
+            worklists: Admission::new(1),
+            dry_runs: Admission::new(1),
             served: Mutex::new(std::collections::BTreeMap::new()),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             writer_since: AtomicI64::new(0),
@@ -4429,13 +4609,32 @@ mod tests {
             store_identity: None,
             watch: Watch::default(),
         });
-        let Ok(held) = shared.admission.take(
-            Instant::now() + Duration::from_secs(600),
-            Duration::from_secs(600),
-        ) else {
-            panic!("no slot free")
-        };
         let op = json!({"id": "operator"});
+        // a change of the flow to submit, drafted before any slot is held
+        let Ok(Json(drafted)) = request_op(
+            State(shared.clone()),
+            Body(
+                json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
+                        "inputs": {"source": {"m": "module: m\ncategories: [live]\n"}, "source_ref": "git:m@1"}}),
+            ),
+        )
+        .await
+        else {
+            panic!("no change drafted")
+        };
+        assert_eq!(drafted["kind"], "satisfied", "{drafted}");
+        let change = drafted["object_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        // every pool's one slot held, a read of each to wait for it
+        let held = [&shared.admission, &shared.worklists, &shared.dry_runs].map(|pool| {
+            pool.take(
+                Instant::now() + Duration::from_secs(600),
+                Duration::from_secs(600),
+            )
+        });
+        assert!(held.iter().all(Result::is_ok), "no slot free");
         let waited = |answer: Answer, started: Instant, route: &str| {
             assert!(
                 matches!(&answer, Err(Fault::TimedOut(m)) if m.contains("--max-reads")),
@@ -4468,11 +4667,15 @@ mod tests {
         heavy!(pull, json!({"actor": op, "subscription": "subscription-1"}));
         heavy!(
             publish,
-            json!({"actor": op, "change": "declarationchange-1", "dry_run": true})
+            json!({"actor": op, "change": change, "dry_run": true})
         );
         heavy!(
             request_op,
-            json!({"actor": op, "object_id": "declarationchange-1", "transition": "submit", "inputs": {}})
+            json!({"actor": op, "object_id": change, "transition": "submit", "inputs": {}})
+        );
+        heavy!(
+            check,
+            json!({"actor": op, "object_id": change, "transition": "submit", "inputs": {}})
         );
         macro_rules! light {
             ($route:ident, $body:expr) => {{
@@ -4499,6 +4702,12 @@ mod tests {
         light!(declaration, json!({"actor": op}));
         light!(lookup, json!({"source": "legacy", "value": "x"}));
         light!(history, json!({"actor": op, "id": "subscription-1"}));
+        // a transition named submit on what is no change of the flow is an
+        // ordinary write, taking no slot (fifth production review N-1)
+        light!(
+            request_op,
+            json!({"actor": op, "object_id": "operator", "transition": "submit", "inputs": {}})
+        );
         drop(held);
         let started = Instant::now();
         let answer = query(
@@ -4512,6 +4721,29 @@ mod tests {
         );
         assert!(started.elapsed() < Duration::from_millis(900));
         drop(answer);
+        // the pools apart: a worklist never waits behind the analytics, nor
+        // an analysis behind the worklists (fifth production review N-1)
+        let analytics = shared.admission.take(
+            Instant::now() + Duration::from_secs(600),
+            Duration::from_secs(600),
+        );
+        assert!(analytics.is_ok(), "no slot free");
+        light!(query, json!({"actor": op, "type": "Subscription"}));
+        light!(
+            available,
+            json!({"actor": op, "type": "Subscription", "transition": "end"})
+        );
+        light!(pull, json!({"actor": op, "subscription": "subscription-1"}));
+        drop(analytics);
+        let worklists = shared.worklists.take(
+            Instant::now() + Duration::from_secs(600),
+            Duration::from_secs(600),
+        );
+        assert!(worklists.is_ok(), "no slot free");
+        light!(metric, json!({"actor": op, "name": "Subscription.count"}));
+        light!(export, json!({"actor": op, "source": "log"}));
+        light!(exceptions, json!({"actor": op, "type": "Subscription"}));
+        drop(worklists);
         // what a read waited for its turn is counted against its deadline
         let Ok(held) = shared.admission.take(
             Instant::now() + Duration::from_secs(600),
@@ -4525,7 +4757,7 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(300));
                 drop(held);
             });
-            let Ok((_slot, mut r)) = heavy_reading(&shared) else {
+            let Ok((_slot, mut r)) = heavy_reading(&shared, &shared.admission) else {
                 panic!("a slot freed within the deadline was not taken")
             };
             let Ok(store) = r.store() else {
@@ -4547,11 +4779,14 @@ mod tests {
             State(shared.clone()),
             Body(
                 json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
-                        "inputs": {"source": {"m": "module: m\ncategories: [live]\n"}}}),
+                        "inputs": {"source": {"m": "module: m\ncategories: [live]\n"}, "source_ref": "git:m@1"}}),
             ),
         )
         .await;
-        assert!(drafted.is_ok(), "a write before the cut");
+        assert!(
+            matches!(&drafted, Ok(Json(v)) if v["kind"] == "satisfied"),
+            "a write before the cut"
+        );
         let mut wal = path.clone().into_os_string();
         wal.push("-wal");
         let wal_len = || std::fs::metadata(&wal).map_or(0, |m| m.len());
@@ -4651,6 +4886,8 @@ mod tests {
             deployment: true,
             read_timeout: std::time::Duration::from_secs(30),
             admission: Admission::new(MAX_READS),
+            worklists: Admission::new(MAX_READS),
+            dry_runs: Admission::new(1),
             served: Mutex::new(std::collections::BTreeMap::new()),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             writer_since: AtomicI64::new(0),

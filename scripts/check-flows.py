@@ -3156,6 +3156,10 @@ def override_errors(doc, tn, t, library):
             written = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", []))
             written |= {st[k]["location"] for st, k, _p, _d in walk(x.get("effect")) if k in ("assign", "add", "remove")}
             written |= {a for st, k, _p, _d in walk(x.get("effect")) if k == "clear" for a in st["clear"]}
+            # the record of who took it, which taken_by generates, is no value it corrects, as for an assertion or an
+            # erasure (ADR-0181 decision 1, ADR-0190 decision 5)
+            if x.get("taken_by"):
+                written.discard(taken_by_names(xn)[0])
             for a in sorted(set(x["corrects"]) - written):
                 out.append((base + ("corrects",), "names", f"{tn}.{xn} corrects '{a}' and does not write it"))
             for a in sorted(written - set(x["corrects"])):
@@ -5249,6 +5253,19 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                for name, text in (("changed", after), ("unchanged", before))]
     hit = dropped == [["T.e is taken by", "T.t was taken by", "publishing.taken_by was"], []]
     ok &= hit
+    # a correction taking taken_by, its own or its type's, is no correction writing more than it corrects (ADR-0190
+    # decision 5)
+    held = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A record a person corrects.\n"
+            "    tracking: record\n    taken_by: [human]\n"
+            "    attributes:\n      amount: { type: int }\n"
+            "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
+            "    transitions:\n      t: { kind: initial, to: S, required_inputs: [amount] }\n"
+            "      fix: { kind: internal, from: S, corrects: [amount], required_inputs: [amount], inputs: { reason: { type: string } } }\n"
+            "      e: { kind: external, from: S, to: E }\n")
+    refused = [x for x in check([("held.yaml", held)])[0] if x[3] == "names"]
+    hit = refused == []
+    ok &= hit
+    print(f"  planted a correction a type's taken_by holds to people: {'taken' if hit else 'REFUSED ' + str(refused)}")
     print(f"  planted a version dropping or widening who takes a transition or approves a version: "
           f"{'noticed, and a narrowing not' if hit else 'MISSED ' + str(dropped)}")
     # a type whose many transitions a person takes, each generating an invariant of who took it, still has its own

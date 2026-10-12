@@ -3566,6 +3566,26 @@ fn effects(
                     );
                 }
                 let v = at_declared_scale(t, location, v)?;
+                // a date or a time past the calendar refuses the request, as
+                // an arithmetic past its bound does, where it was written as
+                // text no read takes back (fifth production review BRICK,
+                // ADR-0190 decision 1)
+                let outside = match &v {
+                    Value::Timestamp(s) => {
+                        !(crate::value::FIRST_SECOND..=crate::value::LAST_SECOND).contains(s)
+                    }
+                    Value::Date(d) => !crate::value::in_calendar(*d),
+                    _ => false,
+                };
+                if outside {
+                    return refused_naming(
+                        Verdict::Unsatisfied {
+                            clause: "value_in_range".into(),
+                            remedy: Some(Remedy::UnreachableFromHere),
+                        },
+                        id,
+                    );
+                }
                 // a decimal written past its `p` digits refuses the request,
                 // as an arithmetic past its bound does (ADR-0185, third
                 // production review, minor)

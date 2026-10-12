@@ -701,15 +701,20 @@ fn a_deployments_edges_are_said() {
         assert!(metrics.contains("objectflow_disk_free_bytes "), "{metrics}");
         // the reads that grow with the store, none running, 4 at once
         // unless given (ADR-0189 decision 2)
+        for pool in ["worklists", "analytics"] {
+            for line in [
+                format!("objectflow_reads_running{{pool=\"{pool}\"}} 0\n"),
+                format!("objectflow_reads_waiting{{pool=\"{pool}\"}} 0\n"),
+                format!("objectflow_reads_most{{pool=\"{pool}\"}} 4\n"),
+            ] {
+                assert!(metrics.contains(&line), "{line} in {metrics}");
+            }
+        }
+        // a change's dry runs one at a time (ADR-0190)
         assert!(
-            metrics.contains("objectflow_reads_running 0\n"),
+            metrics.contains("objectflow_reads_most{pool=\"dry_runs\"} 1\n"),
             "{metrics}"
         );
-        assert!(
-            metrics.contains("objectflow_reads_waiting 0\n"),
-            "{metrics}"
-        );
-        assert!(metrics.contains("objectflow_reads_most 4\n"), "{metrics}");
         let (_, health) = call(&s, "GET", "/health", None);
         assert!(
             health["disk_free_bytes"].as_u64().is_some_and(|b| b > 0),
@@ -733,9 +738,39 @@ fn a_deployments_edges_are_said() {
         file.seek(SeekFrom::Start(4096)).expect("its second page");
         file.write_all(&[0xff; 64]).expect("damaged");
     }
+    // and a write-ahead log beside it holding frames no close carried in, as
+    // a copy restored beside another state's -wal has
+    {
+        let conn = rusqlite::Connection::open(&path).expect("the store");
+        conn.set_db_config(
+            rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+            true,
+        )
+        .expect("no checkpoint on close");
+        conn.execute_batch(
+            "PRAGMA wal_autocheckpoint = 0; CREATE TABLE later (x); INSERT INTO later VALUES (1);",
+        )
+        .expect("a frame in the log");
+    }
+    let wal = path.with_file_name("store.sqlite-wal");
+    let (file_before, log_before) = (
+        std::fs::read(&path).expect("the file"),
+        std::fs::read(&wal).expect("the log"),
+    );
+    assert!(!log_before.is_empty(), "a log to keep");
     let (code, said) = refused(&["--store", path.to_str().expect("a path"), "--port", "0"]);
     assert_eq!(code, Some(1));
     assert!(said.contains("fails SQLite's quick check"), "{said}");
+    // the refused start changed neither, where it wrote the log into the
+    // file and emptied it (fourth and fifth production reviews)
+    assert!(
+        std::fs::read(&path).expect("the file") == file_before,
+        "the refused start changed the file"
+    );
+    assert!(
+        std::fs::read(&wal).expect("the log") == log_before,
+        "the refused start changed the log"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -3334,4 +3369,70 @@ fn systemd_is_told_ready_and_stopping() {
     assert!(sent.success());
     let n = socket.recv(&mut buf).expect("told it stops");
     assert_eq!(&buf[..n], b"STOPPING=1");
+}
+
+/// A log whose reader has gone drops its lines: every request is still
+/// answered and `/health` is 200, where `eprintln!` panicked on the broken
+/// pipe, losing answers to writes already committed and leaving the log held
+/// blocked until a restart (fifth production review).
+#[test]
+fn a_log_whose_reader_has_gone_stops_nothing() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
+        .args(["--port", "0"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the service starts");
+    let mut stderr = BufReader::new(child.stderr.take().expect("its stderr"));
+    let mut line = String::new();
+    stderr.read_line(&mut line).expect("its first line");
+    let addr = line
+        .trim()
+        .split_once("listening on http://")
+        .map(|(_, a)| a.to_string())
+        .expect("its address");
+    drop(stderr);
+    let s = Service {
+        child: Some(child),
+        addr,
+        said: std::sync::Arc::new(std::sync::Mutex::new(String::new())),
+    };
+    for _ in 0..20 {
+        let (status, _) = call(
+            &s,
+            "POST",
+            "/v1/get",
+            Some(&json!({"actor": {"id": "operator"}, "id": "nothing-1"})),
+        );
+        // answered, a sandbox with no module saying so, its line dropped
+        assert_eq!(status, 409);
+    }
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 200, "{health}");
+}
+
+/// A body naming a key twice is refused 400 by the core itself, where the
+/// last one won, a second `actor` changing who was recorded (fifth
+/// production review, ADR-0190 decision 8).
+#[test]
+fn a_body_naming_a_key_twice_is_refused() {
+    let file = fresh_store("twice");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    let body = r#"{"actor": {"id": "operator"}, "actor": {"id": "someone"}, "id": "operator"}"#;
+    let mut stream = TcpStream::connect(&s.addr).expect("a connection");
+    write!(
+        stream,
+        "POST /v1/get HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .expect("asked");
+    let mut answer = String::new();
+    stream.read_to_string(&mut answer).expect("the answer");
+    assert!(answer.starts_with("HTTP/1.1 400"), "{answer}");
+    assert!(answer.contains("the key actor is named twice"), "{answer}");
 }

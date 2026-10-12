@@ -106,7 +106,7 @@ pub fn store_release_at(path: &Path) -> Result<Option<String>, StoreError> {
     if !path.exists() {
         return Ok(None);
     }
-    store_release(&Connection::open(path)?)
+    store_release(&crate::store::looking(path)?)
 }
 
 pub fn store_release(conn: &Connection) -> Result<Option<String>, StoreError> {

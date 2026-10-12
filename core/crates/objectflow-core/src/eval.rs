@@ -1867,6 +1867,9 @@ pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
                 } else {
                     day.checked_sub(days)
                 }
+                // a date moved past the calendar has no value, as it has
+                // none in the reference runner (ADR-0190 decision 1)
+                .filter(|d| crate::value::in_calendar(*d))
                 .map(V::Date),
             )
         }

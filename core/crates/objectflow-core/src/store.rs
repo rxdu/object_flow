@@ -1113,6 +1113,24 @@ pub(crate) fn read_last_position(conn: &Connection) -> rusqlite::Result<i64> {
     })
 }
 
+/// A connection that only looks at a store's file, carrying no write-ahead
+/// log into the file as it closes, so a start that refuses a store leaves
+/// the file and its log as they were: the release a start reads first, on a
+/// plain connection, wrote another state's log into a restored copy as it
+/// closed, which the check after it did not (fourth production review A-16,
+/// fifth production review).
+pub(crate) fn looking(path: &std::path::Path) -> Stored<Connection> {
+    let conn = Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    conn.set_db_config(
+        rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+        true,
+    )?;
+    Ok(conn)
+}
+
 /// The events a clause over one value selects, in position order: an
 /// event by its position, an object's own, or those one caused, each by
 /// the log's indexes (fourth production review).
@@ -1732,14 +1750,7 @@ impl Store {
     /// restored copy and deleted it, so the copy failed again once the log
     /// was removed (fourth production review A-16).
     pub fn checked_file(path: &std::path::Path) -> Stored<Option<String>> {
-        let conn = Connection::open_with_flags(
-            path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
-        conn.set_db_config(
-            rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
-            true,
-        )?;
+        let conn = looking(path)?;
         let first: String = conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
         Ok((first != "ok").then_some(first))
     }

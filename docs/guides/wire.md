@@ -18,12 +18,12 @@ A **fault** is a `4xx` or `5xx` whose body is `{"fault": "<what is wrong>"}`, ev
 | `408` | a request whose body did not arrive within the service's idle timeout (ADR-0184) |
 | `409` | the sandbox has no module loaded; an idempotency key reused for a different request (`key_reused: …`) |
 | `501` | a construct the core does not yet run (`not run: …`) |
-| `503` | `engine_mismatch: …`: the store is at another engine release than this copy of the service, an upgrade due or made by another copy (ADR-0177); or `read_timeout: …`: a deployment's read passed its deadline, 30 s unless the service is given another, and was stopped: narrow it, by an indexed member or a page (ADR-0184), and a change's dry run, a `submit`'s or a `publish` preview's, which recorded nothing, needs a longer deadline; or a read that grows with the store waited its whole deadline for its turn while `--max-reads` others ran, and was not started: send it again later (ADR-0189); or `busy: …`, its connection closed after it: every connection the service allows was answering a request, or this one, answering nothing, was closed to make room for another; nothing was done, so send it again on another connection (ADR-0186) |
+| `503` | `engine_mismatch: …`: the store is at another engine release than this copy of the service, an upgrade due or made by another copy (ADR-0177); or `read_timeout: …`: a deployment's read passed its deadline, 30 s unless the service is given another, and was stopped: narrow it, by an indexed member or a page (ADR-0184), and a change's dry run, a `submit`'s or a `publish` preview's, which recorded nothing, needs a longer deadline; or a read that grows with the store waited its whole deadline for its turn while its pool's others ran, `--max-reads` worklists or analytics, or a change's one dry run, and was not started: send it again later (ADR-0189, ADR-0190); or `busy: …`, its connection closed after it: every connection the service allows was answering a request, or this one, answering nothing, was closed to make room for another; nothing was done, so send it again on another connection (ADR-0186) |
 | `500` | the service's own fault |
 
 **A fault's body is `{"fault": <its reason>, "code": <its code>}`**: the reason is text, which is not promised, and the code is what a client branches on (fourth production review): the reason's own prefix where it has one, `read_timeout`, `busy`, `engine_mismatch`, `key_reused`, `disk_low`, `disk_full`, `store_replaced`, `log_blocked`, `writes_stalled`, else its status's name, `bad_request`, `not_found`, `method_not_allowed`, `slow_body`, `conflict`, `not_run`, `unavailable` or `internal`. A `503` with `disk_full` is a write the store's full volume stopped, and `store_replaced` one refused because the store's file was moved or replaced under the running service; either may be sent again once the operator has acted.
 
-**Unknown keys are refused**, so a misspelt key is never read as absent. The keys each operation takes are in §4.
+**Unknown keys are refused**, so a misspelt key is never read as absent, and **a key named twice in an object is refused `400`**, where the last one won, a second `actor` changing who was recorded (ADR-0190). The keys each operation takes are in §4.
 
 **An object that does not exist** reads as `null` from `get`, `history` and `availability`; a request naming it is the verdict `not_found`.
 
@@ -41,6 +41,8 @@ A value is JSON's own where JSON keeps it exactly, and otherwise a string in the
 | `money(CCC)` | a string, the currency, one space and the amount, at most its minor unit's places, nothing around them | `"USD 19.99"` |
 | `timestamp` | RFC 3339 at UTC, `Z` or `+00:00`, to the second or the minute, each field its digits exactly, no fraction of a second | `"2026-10-04T09:30:00Z"` |
 | `date` | `YYYY-MM-DD` exactly, the year 0001 to 9999 | `"2026-10-04"` |
+
+A date or a time stays in the calendar, 0001-01-01 to 9999-12-31T23:59:59Z: an effect writing one past it refuses its request `value_in_range`, and a date moved past it has no value, which a guard reads as unknown (ADR-0190 decision 1); one written past it was text no read took back, its object and its type answering `500` for good.
 | `duration` | a count and a unit | `"30 min"`, `"2 days"` |
 | enumeration member, state | its name | `"NEW"` |
 | reference | the object's id | `"employee-1"` |
@@ -113,7 +115,7 @@ POST /v1/request
 |---|---|---|
 | `get` | `id`, `follow` | the object, or `null`; no `id` is a `400`; with `"follow": true`, the object its supersession chain ends at, its successor's successor and on (`DESIGN.md` §5) |
 | `history` | `id`, `follow` | `{"events": [...], "not_computed": [...]}`, its legacy entries first, or `null`; no `id` is a `400`; with `"follow": true`, every member's whose chain ends where this one's does, their legacy entries first, then their events in position order (ADR-0147) |
-| `events` | `positions` | `{"events": [...]}`, each position's event or `null` |
+| `events` | `positions` | `{"events": [...]}`, each position's event or `null`, in the order asked; at most a page's positions, each named once, a repeat `400` (ADR-0190) |
 | `availability` | `actor`, `id` | each transition's offer to the actor, or `null` |
 | `query` | `actor`, `type`, `filter`, `order`, `fields`, `cursor`, `limit` | `{"items": [...], "cursor": "<next page>" or null, "refused": null}` |
 | `available` | `actor`, `type`, `transition`, `cursor`, `limit` | a page of the objects the transition is available to |

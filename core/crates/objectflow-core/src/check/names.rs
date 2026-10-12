@@ -5140,6 +5140,12 @@ fn override_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
                     written.extend(list(s.st, "clear").iter().map(py_str));
                 }
             }
+            // the record of who took it, which taken_by generates, is no
+            // value it corrects, as for an assertion or an erasure (ADR-0181
+            // decision 1, ADR-0190 decision 5)
+            if !strings(x, "taken_by").is_empty() {
+                written.remove(&crate::model::taken_by_names(xn).0);
+            }
             let corrects: BTreeSet<String> = strings(x, "corrects").into_iter().collect();
             for a in corrects.difference(&written) {
                 out.push(finding(

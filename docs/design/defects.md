@@ -620,6 +620,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D606](#d606) | An external identifier had no index unless marked | Resolved |
 | [D607](#d607) | One import batch could stop every write for good | Resolved |
 | [D608](#d608) | A publish report kept one of the checks' findings of each code | Resolved |
+| [D609](#d609) | A refused restore's fix claimed and not made whole | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3947,3 +3948,9 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **A publish report kept one of the checks' findings of each code**: the report gathers its findings by code, which suits a decision's affected objects, and the checks' findings went through it too, so of several findings of one code, in one module or several, only the first one's message was reported: a second module's notice, or a second fatal `names` finding, was never shown to whoever approved the version. Found 2026-10-12 by the scenarios' replay, when ADR-0189's `agent_open`, one notice for each module, reported the first module of version 15 alone where the reference checker named three.
 
 **Resolved** 2026-10-12: each of the checks' findings is reported as itself, an exact repeat once, alike in the reference runner's publish, which merged them the same way (`each_of_the_checks_findings_is_reported`, failing with the findings merged by code again; the replay's versions 15 and 17; the Studio's comparison of the two backends' reports).
+
+### D609
+**A refused restore's fix claimed and not made whole**: commit `879fb2c` fixed the fourth production review's A-16, a start refused for a store failing SQLite's quick check writing another state's `-wal` into the restored copy, by running the check on a connection that carries no log into the file as it closes; but the start reads the store's release first, on a plain connection, whose close still carried the log in and emptied it. The changelog, `integrate.md` §9 and the start's message ("nothing was written") claimed the copy untouched. The fix's test exercised the check's function alone, never the start. Found 2026-10-12 by the fifth production review's operator, who measured the copy's digest change and the `-wal` emptied twice.
+
+**Resolved** 2026-10-12: every connection the start opens before serving, the release's and the check's, is one that carries no log into the file as it closes (`store::looking`); the start's own test now leaves a damaged file and a `-wal` holding frames, and requires both byte for byte unchanged after the refusal (`a_deployments_edges_are_said`, failing with the release's plain connection restored); the changelog entry says the first fix was partial.
+

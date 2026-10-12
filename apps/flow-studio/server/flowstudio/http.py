@@ -72,6 +72,17 @@ TAKES = {
 }
 
 
+def keys_once(pairs: list) -> dict:
+    """A JSON object naming each key once, as the core's service reads one: a key named twice is refused, where the
+    last one won (ADR-0190 decision 8)."""
+    out: dict = {}
+    for k, v in pairs:
+        if k in out:
+            raise ValueError(f"the key {k} is named twice")
+        out[k] = v
+    return out
+
+
 def routes(box: Sandbox, cat: Catalogue) -> dict[str, Callable[[dict], Any]]:
     return {
         "/studio/check": lambda b: cat.check(b.get("files") or []),
@@ -162,8 +173,9 @@ def handler(box: Sandbox, cat: Catalogue, origin: str | None,
                 self.send(413, {"fault": "the body is too large"})
                 return
             try:
-                body = json.loads(self.rfile.read(length) or b"{}")
-            except json.JSONDecodeError as e:
+                body = json.loads(self.rfile.read(length) or b"{}", object_pairs_hook=keys_once)
+            except ValueError as e:
+                # not JSON, or an object naming a key twice (ADR-0190 decision 8)
                 self.send(400, {"fault": f"the body is not JSON: {e}"})
                 return
             if not isinstance(body, dict):

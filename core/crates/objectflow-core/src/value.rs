@@ -324,6 +324,20 @@ pub fn parse_date(text: &str) -> Option<i64> {
     (civil_from_days(days) == (y, m, d)).then_some(days)
 }
 
+/// The calendar a date or a time is written in, 0001-01-01 to
+/// 9999-12-31T23:59:59Z, as the wire reads one: a value past it is written
+/// as text no read takes back, which an effect wrote, making its object and
+/// its type unreadable for good (fifth production review BRICK, ADR-0190).
+pub const FIRST_DAY: i64 = -719_162;
+pub const LAST_DAY: i64 = 2_932_896;
+pub const FIRST_SECOND: i64 = FIRST_DAY * 86_400;
+pub const LAST_SECOND: i64 = LAST_DAY * 86_400 + 86_399;
+
+/// Whether a day, in days since 1970-01-01, is in the calendar.
+pub fn in_calendar(day: i64) -> bool {
+    (FIRST_DAY..=LAST_DAY).contains(&day)
+}
+
 pub fn date_text(days: i64) -> String {
     let (y, m, d) = civil_from_days(days);
     format!("{y:04}-{m:02}-{d:02}")

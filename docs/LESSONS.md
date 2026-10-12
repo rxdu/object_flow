@@ -548,3 +548,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A mutant applied with `sed` against a line `cargo fmt` had since rewrapped matched nothing, so the file was unchanged and its test passed, read at first as a mutant the test missed (2026-10-12, the fourth review's minors).
 - **Correction:** Apply every mutant by a script that asserts its pattern matched once, as the Python edits do, and match across whitespace (`\s*`) where a formatter may have wrapped the line; a mutant that did not apply is reported, never run.
 - **Context:** Mutation checks over Rust formatted by rustfmt; any formatter.
+
+### A fix tested at its function, not along the finding's path, was claimed whole
+- **Pattern:** The fourth review's refused-restore finding was "fixed" by giving the quick check a connection that carries no log in on close, and tested by calling that function; the start, the path the finding took, opened the file once before it on a plain connection, which still wrote the log in. The changelog, the guide and the message claimed it fixed; the fifth review measured it not (D609, 2026-10-12).
+- **Correction:** Test a fix along the path the finding was reported on, end to end where the finding was end to end, here a refused start leaving the files byte for byte, and mutate the finding's own cause back in; claim the fix only from that test.
+- **Context:** Any finding a reviewer reproduced through the service; ObjectFlow's production reviews.
+

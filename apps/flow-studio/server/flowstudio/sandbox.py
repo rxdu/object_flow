@@ -839,6 +839,9 @@ class Sandbox:
                 isinstance(p, int) and not isinstance(p, bool)
                 for p in positions):
             raise Fault(400, "events takes positions, a list of integers")
+        if len(set(positions)) != len(positions):
+            # each position once, as the core takes it (ADR-0190 decision 6)
+            raise Fault(400, "events takes each position once")
         log = {e["position"]: e for e in self.store.events}
         return {"events": [self.event(log[p]) if p in log else None
                            for p in positions],
