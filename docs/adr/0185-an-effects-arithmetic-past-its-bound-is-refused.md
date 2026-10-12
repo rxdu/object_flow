@@ -2,7 +2,7 @@
 
 - **Status:** **Decided by the author**, 2026-10-12 ("go with your recommendation on F5"), on the recommendation `TODO.md` states with question 5, after the first production review's F5, which the second found not fixed. Built the same day.
 - **Date:** 2026-10-12
-- **Refined by:** ADR-0190 — a date or a time an effect writes past the calendar is refused `value_in_range` too, and a date moved past it has no value.
+- **Refined by:** ADR-0190 — a date or a time an effect writes past the calendar is refused `value_in_range` too, and a date moved past it has no value. ADR-0191 — money an effect writes past an input's range refused `value_in_range`.
 - **Refines:** ADR-0138 (the generated guards' remedies), `DESIGN.md` §5.5 (the generated guards) and §6 (the order of refusals), `design/declaration-syntax.md` §8.2
 - **Relates to:** ADR-0143 (the core's decimal type), ADR-0180 (what a release promises), ADR-0184, `guides/wire.md`
 

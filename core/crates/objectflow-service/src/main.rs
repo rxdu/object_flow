@@ -69,6 +69,10 @@ struct Sandbox {
 /// 1970, 0 while none is: a pipe left full stopped the service at its next
 /// line while `/health` answered 200 (fourth production review).
 static LOGGING_SINCE: AtomicI64 = AtomicI64::new(0);
+
+/// When the service started, in seconds since 1970, for `/metrics`
+/// (ADR-0191 decision 4).
+static STARTED_AT: AtomicI64 = AtomicI64::new(0);
 /// The lines not written while the log was blocked.
 static LINES_DROPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 /// How long a line may take before the log is held blocked.
@@ -1648,14 +1652,19 @@ async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// fields, the cursor of the next page, none where this is the last, or a
 /// refusal, a value.
 fn page_json(page: &reads::QueryPage) -> J {
-    json!({
+    let mut out = json!({
         "items": page.items.iter().map(|i| json!({
             "id": i.id, "type": i.type_,
             "fields": J::Object(i.fields.iter().map(|(f, v)| (f.clone(), as_held(&i.type_, f, encode(v)))).collect()),
         })).collect::<Vec<_>>(),
         "cursor": page.cursor,
         "refused": page.refused,
-    })
+    });
+    // what a malformed filter did, a sentence beside its code (ADR-0191)
+    if let (Some(reason), Some(o)) = (&page.reason, out.as_object_mut()) {
+        o.insert("reason".to_string(), J::String(reason.clone()));
+    }
+    out
 }
 
 /// A page's size as a read is asked for it: 1 to `PAGE_LIMIT`, and
@@ -1742,9 +1751,9 @@ async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "diagnostics names its actor, the type and a window".to_string(),
             ));
         };
-        let window = parse_duration(window).ok_or_else(|| {
+        let window = parse_duration(window).filter(|s| *s > 0).ok_or_else(|| {
             Fault::Bad(format!(
-                "window takes a duration such as '30 days': {window}"
+                "window takes a positive duration such as '30 days': {window}"
             ))
         })?;
         let (_slot, mut r) = heavy_reading(&shared, &shared.admission)?;
@@ -2676,8 +2685,13 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let over = match text(&body, "over")? {
             None => None,
-            Some(by) => Some(parse_duration(by).ok_or_else(|| {
-                Fault::Bad(format!("over takes a duration such as '30 days': {by}"))
+            // a window back from now is positive, where one of "-5 days"
+            // answered an empty page (fifth production review, ADR-0191
+            // decision 3)
+            Some(by) => Some(parse_duration(by).filter(|s| *s > 0).ok_or_else(|| {
+                Fault::Bad(format!(
+                    "over takes a positive duration such as '30 days': {by}"
+                ))
             })?),
         };
         let (_slot, mut r) = heavy_reading(&shared, &shared.admission)?;
@@ -2721,13 +2735,11 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                                   "now": J::Null, "store_release": at, "upgrade_due": true}),
                 );
             }
-            // a store file replaced under the service, said before the path
-            // is read, which reads the file that replaced it; one gone
-            // answers 500 below, its storage unavailable (fourth production
-            // review)
-            if reads.path.exists()
-                && let Some(replaced) = store_replaced(&shared)
-            {
+            // a store file moved, gone or replaced under the service, said
+            // before the path is read, which reads the file that replaced
+            // it, and answered 503 as a write is, where one gone answered
+            // 500 (fourth and fifth production reviews, ADR-0191 decision 4)
+            if let Some(replaced) = store_replaced(&shared) {
                 let body = json!({"release": BUILTINS, "shape": "deployment",
                                   "code": fault_code(503, &replaced), "fault": replaced});
                 return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response());
@@ -3273,6 +3285,15 @@ async fn metrics(State(shared): State<Shared>) -> Response {
              # TYPE objectflow_resident_bytes gauge\nobjectflow_resident_bytes {bytes}\n"
         ));
     }
+    // which release answers, and since when, so a restart shows (fifth
+    // production review, ADR-0191 decision 4)
+    out.push_str(&format!(
+        "# HELP objectflow_build_info The release serving, always 1.\n\
+         # TYPE objectflow_build_info gauge\nobjectflow_build_info{{release=\"{BUILTINS}\"}} 1\n\
+         # HELP objectflow_start_time_seconds When the service started, in seconds since 1970.\n\
+         # TYPE objectflow_start_time_seconds gauge\nobjectflow_start_time_seconds {}\n",
+        STARTED_AT.load(Ordering::SeqCst)
+    ));
     (
         [(
             axum::http::header::CONTENT_TYPE,
@@ -4091,11 +4112,26 @@ fn is_store(path: &std::path::Path) -> std::io::Result<bool> {
 /// gives its `-wal` and `-shm` too; and one others can read is said. What
 /// it has to say is returned, said once the service listens, whose first
 /// line says where.
-fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Option<String>> {
+fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<String>> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let held = std::fs::metadata(path)
         .map(|m| m.len() > 0)
         .unwrap_or(false);
+    let mut notes = Vec::new();
+    // a log holding what the file does not, before anything opens it: the
+    // last stop was not clean, which a clean one never leaves (fifth
+    // production review, ADR-0191 decision 4)
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    if let Ok(m) = std::fs::metadata(&wal)
+        && m.len() > 0
+    {
+        notes.push(format!(
+            "the store's log, {}, holds {} byte(s) its file does not: the last stop was not clean, or another process has the store open; the store takes them in as it opens",
+            std::path::Path::new(&wal).display(),
+            m.len()
+        ));
+    }
     if !held {
         if !create {
             return Err(std::io::Error::other(format!(
@@ -4114,7 +4150,16 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Option<St
             .open(path)
             .map_err(named)?;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(named)?;
-        return Ok(Some(format!("a store made at {}", path.display())));
+        notes.push(format!("a store made at {}", path.display()));
+        return Ok(notes);
+    }
+    // a flag kept in a unit opens what is there, a volume that did not mount
+    // among it (fifth production review, ADR-0183 decision 3)
+    if create {
+        notes.push(format!(
+            "--create was given and {} holds a store, which is served as it is; a unit keeping the flag no longer refuses an empty path, a volume that did not mount among them",
+            path.display()
+        ));
     }
     // a file that is a database but not a store, another application's, is
     // never made one: its tables are not ours to add to (second production
@@ -4129,13 +4174,42 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Option<St
         .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?
         .permissions()
         .mode();
-    Ok((mode & 0o077 != 0).then(|| {
-        format!(
+    if mode & 0o077 != 0 {
+        notes.push(format!(
             "the store {} is readable by others than its owner (mode {:o}); its personal data is too",
             path.display(),
             mode & 0o777
-        )
-    }))
+        ));
+    }
+    Ok(notes)
+}
+
+/// Whether an endpoint's host is this machine's loopback.
+fn loopback(url: &str) -> bool {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let authority = rest.split('/').next().unwrap_or_default();
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let host = if let Some(v6) = host.strip_prefix('[') {
+        v6.split(']').next().unwrap_or_default()
+    } else {
+        host.rsplit_once(':').map_or(host, |(h, _)| h)
+    };
+    host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+/// The interval at which systemd asks to be told the service lives, half
+/// its `WatchdogSec`, where the unit sets one for this process.
+fn watchdog() -> Option<std::time::Duration> {
+    let usec: u64 = std::env::var("WATCHDOG_USEC").ok()?.parse().ok()?;
+    if let Ok(pid) = std::env::var("WATCHDOG_PID")
+        && pid.parse::<u32>().ok() != Some(std::process::id())
+    {
+        return None;
+    }
+    (usec > 0).then(|| std::time::Duration::from_micros(usec / 2))
 }
 
 async fn serve() -> std::io::Result<()> {
@@ -4150,12 +4224,30 @@ async fn serve() -> std::io::Result<()> {
             return Ok(());
         }
         Err(why) => {
-            eprintln!("objectflow-service: {why}\n{USAGE}");
+            // stamped as every other line (fifth production review)
+            say!("objectflow-service: {why}");
+            eprintln!("{USAGE}");
             std::process::exit(2);
         }
     };
+    STARTED_AT.store(wall_millis() / 1000, Ordering::SeqCst);
+    // a token sent where anyone between may read it, said after where the
+    // service listens (fifth production review, ADR-0191 decision 4)
+    let told: Vec<String> = a
+        .tokens
+        .keys()
+        .filter_map(|name| {
+            let url = a.endpoints.get(name)?;
+            (url.starts_with("http://") && !loopback(url)).then(|| {
+                format!(
+                    "the evaluator {name}'s token is sent over plain http to {}, beyond loopback, where anyone on the way may read it; give an https:// endpoint",
+                    shown(url)
+                )
+            })
+        })
+        .collect();
     let mut sandbox = Sandbox::default();
-    let mut noted = None;
+    let mut noted = Vec::new();
     if let Some(path) = &a.store {
         // a deployment's store, opened before anything is served (ADR-0174);
         // one at a release this core upgrades from is served only the
@@ -4235,7 +4327,7 @@ async fn serve() -> std::io::Result<()> {
             Listening::Tcp(l)
         }
     };
-    if let Some(note) = noted {
+    for note in noted.into_iter().chain(told) {
         say!("{note}");
     }
     if let (Some(path), Some(at)) = (&a.store, &sandbox.due) {
@@ -4349,6 +4441,18 @@ async fn serve() -> std::io::Result<()> {
         tokio::spawn(keep_the_log_short(shared.clone()));
     }
     notify("READY=1");
+    // a unit of WatchdogSec is told the service lives at half its interval,
+    // while its runtime answers; whether writes move is /health's
+    // writes_stalled (fifth production review, ADR-0191 decision 4)
+    if let Some(every) = watchdog() {
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(every);
+            loop {
+                tick.tick().await;
+                notify("WATCHDOG=1");
+            }
+        });
+    }
     served(
         listening,
         router,

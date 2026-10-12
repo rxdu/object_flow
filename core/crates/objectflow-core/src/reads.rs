@@ -85,7 +85,19 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
     let mut derived = Vec::new();
     for (n, e) in &t.derived {
         let v = Evaluator::new(world, Some(t), Some(id)).eval(e)?;
-        derived.push((n.clone(), crate::metric::typed_derived(world, t, e, v)));
+        // a derived time past the calendar is answered without a value, as
+        // no request could send it back, where year 2,739,933 was answered;
+        // a guard compares it as the number it is (fifth production review,
+        // ADR-0191 decision 3)
+        let v = match crate::metric::typed_derived(world, t, e, v) {
+            Value::Timestamp(s)
+                if !(crate::value::FIRST_SECOND..=crate::value::LAST_SECOND).contains(&s) =>
+            {
+                Value::Absent
+            }
+            v => v,
+        };
+        derived.push((n.clone(), v));
     }
     // a subscription carries its lag, and whether it is lagging or dead,
     // derived from its acknowledged cursor (DESIGN.md §7)
@@ -147,6 +159,10 @@ pub struct Item {
 pub struct QueryPage {
     pub items: Vec<Item>,
     pub refused: Option<String>,
+    /// What a `malformed_filter` refusal found, a sentence, where the code
+    /// alone left its caller guessing (fifth production review, ADR-0191
+    /// decision 4).
+    pub reason: Option<String>,
     /// Where the next page continues, none where this is the last
     /// (ADR-0179).
     pub cursor: Option<String>,
@@ -202,6 +218,7 @@ pub fn exceptions(world: &World<'_>, type_: &str) -> Result<QueryPage, NotRun> {
         return Ok(QueryPage {
             items: Vec::new(),
             refused: Some("unknown_type".into()),
+            reason: None,
             cursor: None,
         });
     }
@@ -209,6 +226,7 @@ pub fn exceptions(world: &World<'_>, type_: &str) -> Result<QueryPage, NotRun> {
     Ok(QueryPage {
         items,
         refused: None,
+        reason: None,
         cursor: None,
     })
 }
@@ -259,6 +277,7 @@ pub fn available_page(
         Ok(QueryPage {
             items: Vec::new(),
             refused: Some(why.to_string()),
+            reason: None,
             cursor: None,
         })
     };
@@ -334,6 +353,7 @@ pub fn available_page(
     Ok(QueryPage {
         items,
         refused: None,
+        reason: None,
         cursor,
     })
 }
@@ -437,6 +457,10 @@ fn unanswerable(lib: &Library, t: &Type, e: &Expr) -> bool {
 /// took 7.8 s, each holding a read's slot while the worklists waited
 /// (fifth production review FILTER-COST, ADR-0190 decision 3).
 pub const FILTER_AGGREGATES: usize = 2;
+
+/// Why a filter an object of its type cannot answer is refused.
+const MISMATCHED: &str =
+    "an object of the type cannot answer it: it compares values of different types";
 pub const FILTER_MEMBERS: usize = 1_000;
 
 /// Whether a filter nests aggregates deeper, or writes a larger set, than a
@@ -584,6 +608,15 @@ pub fn query_page(
         Ok(QueryPage {
             items: Vec::new(),
             refused: Some(why.to_string()),
+            reason: None,
+            cursor: None,
+        })
+    };
+    let malformed = |why: String| {
+        Ok(QueryPage {
+            items: Vec::new(),
+            refused: Some("malformed_filter".to_string()),
+            reason: Some(why),
             cursor: None,
         })
     };
@@ -599,13 +632,31 @@ pub fn query_page(
     };
     let filter = match filter.map(crate::expr::parse) {
         None => None,
-        Some(Ok(e)) if misread_reference(world.lib, t, &e) => return refuse("malformed_filter"),
-        Some(Ok(e)) if mistyped_literal(world.lib, t, &e) => return refuse("malformed_filter"),
-        Some(Ok(e)) if unanswerable(world.lib, t, &e) => return refuse("malformed_filter"),
-        Some(Ok(e)) if costly(&e) => return refuse("malformed_filter"),
-        Some(Ok(e)) if literal_out_of_range(world, t, &e)? => return refuse("malformed_filter"),
+        Some(Ok(e)) if misread_reference(world.lib, t, &e) => {
+            return malformed(
+                "it compares a reference with text or computes with one; a reference is compared by its id, as claim.id == \"claim-4\"".to_string(),
+            );
+        }
+        Some(Ok(e)) if mistyped_literal(world.lib, t, &e) => {
+            return malformed(
+                "it compares a member with a literal its type cannot hold".to_string(),
+            );
+        }
+        Some(Ok(e)) if unanswerable(world.lib, t, &e) => {
+            return malformed(
+                "no stored object can answer it: it calls an evaluator, reads the request's actor, inputs or this_event, or divides by a literal zero".to_string(),
+            );
+        }
+        Some(Ok(e)) if costly(&e) => {
+            return malformed(format!(
+                "it nests aggregates more than {FILTER_AGGREGATES} deep or writes a set of more than {FILTER_MEMBERS} members (ADR-0190)"
+            ));
+        }
+        Some(Ok(e)) if literal_out_of_range(world, t, &e)? => {
+            return malformed("it holds a literal past what its type holds".to_string());
+        }
         Some(Ok(e)) => Some(e),
-        Some(Err(_)) => return refuse("malformed_filter"),
+        Some(Err(e)) => return malformed(format!("it does not parse: {e}")),
     };
     let mut keys = Vec::new();
     for k in order {
@@ -684,7 +735,7 @@ pub fn query_page(
                 world.of_type_from(type_, states.as_ref(), &columns, after, chunk)?;
             for o in &next {
                 match selects(o)? {
-                    None => return refuse("malformed_filter"),
+                    None => return malformed(MISMATCHED.to_string()),
                     Some(true) => chosen.push(*o),
                     Some(false) => {}
                 }
@@ -705,7 +756,7 @@ pub fn query_page(
         };
         for o in candidates {
             match selects(o)? {
-                None => return refuse("malformed_filter"),
+                None => return malformed(MISMATCHED.to_string()),
                 Some(true) => chosen.push(o),
                 Some(false) => {}
             }
@@ -870,6 +921,7 @@ pub fn query_page(
     Ok(QueryPage {
         items,
         refused: None,
+        reason: None,
         cursor,
     })
 }

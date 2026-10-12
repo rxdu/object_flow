@@ -685,7 +685,13 @@ class Sandbox:
                 # typed as the runner types it, a bare name read on `this`
                 typ = values.type_of_kind(
                     ev.kind(expr, {"this": ("object", o.type)}))
-                attrs[k] = values.encode(ev.member(o.id, k), typ)
+                v = ev.member(o.id, k)
+                # a derived time past the calendar is answered without a
+                # value, as the core answers it (ADR-0191 decision 3)
+                if typ == ("timestamp",) and isinstance(v, (int, Fraction)) \
+                        and not flowrun.FIRST_SECOND <= v <= flowrun.LAST_SECOND:
+                    v = flowrun.ABSENT
+                attrs[k] = values.encode(v, typ)
             built = {k: values.encode(ev.member(o.id, k), typ)
                      for k, typ in BUILT_IN.items()}
             if o.type == flowrun.PROPOSAL:
@@ -798,13 +804,21 @@ class Sandbox:
         try:
             window = flowrun.seconds(body["over"]) if body.get("over") \
                 else None
+            # a window back from now is positive, as the core reads it
+            # (ADR-0191 decision 3)
+            if window is not None and window <= 0:
+                raise Fault(400, "over takes a positive duration such as "
+                                 f"'30 days': {body['over']}")
             page = ev.read_page(name, bind=dict(body.get("bind") or {}),
                                 keep=keep, over=window,
                                 filt=body.get("filter"))
             if page["refused"]:
+                # the core says why a filter is malformed, in a sentence the
+                # runner does not word (ADR-0191 decision 4)
                 return {"rows": [], "cursor": None, "flags": [],
                         "history_complete": True,
-                        "refused": page["refused"]}
+                        "refused": page["refused"],
+                        "not_computed": ["reason"]}
             owner, spec, module = s.find_metric(flowrun.parsed(name))
             value_kind, dim_kinds = ev.page_kinds(
                 owner, spec, module, sorted(s.metric_dimensions(owner, spec)))

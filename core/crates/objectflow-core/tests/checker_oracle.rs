@@ -43,6 +43,8 @@ const COVERED: &[&str] = &[
     // (ADR-0190)
     "publishing_open",
     "unbounded_reach",
+    // the rules a version loosens (ADR-0191)
+    "rule_changed",
     // step 4 (C2), by group as each is ported
     "check 2",
     "check 7",

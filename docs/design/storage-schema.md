@@ -142,7 +142,7 @@ Every declared type gets one table. Its identity columns are the same in every o
 | `version` | the store | incremented on every recorded change; what `expected_version` compares against, and what a read set records |
 | `declaration_version` | the declaration | the publish whose rules the row was last written under (ADR-0027, ADR-0077); the same number the event carries |
 | `last_event` | the store | the event that last wrote this object |
-| `superseded_by` | the store | present only on a type with a `superseding` state; `get(id, follow)` walks it (ADR-0028), and erasure follows it (ADR-0087) |
+| `superseded_by` | the store | present only on a type with a `superseding` state, and indexed, `t_<type>_superseded_by_ix`; `get(id, follow)` walks it (ADR-0028), and erasure follows it (ADR-0087), finding each member's predecessors by the index, where it read every superseding type whole for each member; a store opened that lacks the index is given it (ADR-0191 decision 5) |
 | `state_source` | the store | the `source` of the event that last **changed** `state`, a migration's excepted: `observed`, `asserted`, or `imported` for the import's state change. A migration leaves it as it was, even where its mapping moves the state, which is why `migrated` is not a value, and an object an assertion put in its state stays listed by `exceptions` until a transition changes it (ADR-0105, ADR-0146). Indexed; an action leaves it alone. `exceptions(type)` reads `asserted` (ADR-0083) |
 
 There is no `last_part_event` column. A part relationship's last event is a row of `of_attribute_write` keyed by the relationship's name, so a guard naming `checklist_items` is not invalidated by a change to `approvals` (ADR-0082, repairing D202).
@@ -291,6 +291,7 @@ Most indexes are performance. These are not: a stated guarantee is false without
 | `of_interval` on the current interval of each dimension, and on its entry time | work in progress, current age and every ageing condition become scans of the whole index (ADR-0083, ADR-0084) |
 | `of_file_ref (hash)` | erasure cannot tell whether another object still holds a file, and either deletes it too (D207) or never deletes anything (ADR-0087) |
 | `of_event (txn, position)` | the settled cursor becomes a sort of the whole log on every `pull` and `export` (ADR-0089) |
+| `superseded_by` on a type with a superseding state | a supersession group's erasure reads each superseding type whole for each member, under the writer, 1.43 s for a group of 41 (ADR-0191 decision 5) |
 
 The third is why check 7 rejects a type-scan over an unindexed attribute at publish: the schema cannot be built to satisfy it afterwards.
 

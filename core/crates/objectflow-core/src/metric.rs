@@ -1713,7 +1713,7 @@ pub fn page_json(page: &Page) -> serde_json::Value {
                 .collect(),
         )
     };
-    serde_json::json!({
+    let mut out = serde_json::json!({
         "rows": page.rows.iter().map(|r| serde_json::json!({
             "dimensions": group(&r.dimensions), "value": crate::wire::encode(&r.value), "gaps": r.gaps,
             "time_basis": "UTC calendar",
@@ -1723,7 +1723,14 @@ pub fn page_json(page: &Page) -> serde_json::Value {
         })).collect::<Vec<_>>(),
         "history_complete": page.history_complete,
         "refused": page.refused,
-    })
+    });
+    if let (Some(reason), Some(o)) = (&page.reason, out.as_object_mut()) {
+        o.insert(
+            "reason".to_string(),
+            serde_json::Value::String(reason.clone()),
+        );
+    }
+    out
 }
 
 /// A reader's read of a metric (`library-api.md` §5, `MetricPage`): every
@@ -1737,6 +1744,9 @@ pub struct Page {
     /// `unknown_dimension`, `filter_on_combined`, `no_window` or `personal`
     /// (ADR-0148).
     pub refused: Option<&'static str>,
+    /// What a `malformed_filter` refusal found, a sentence (ADR-0191
+    /// decision 4).
+    pub reason: Option<String>,
 }
 
 /// A set some dimension's path goes through, by the prefix reaching it: its
@@ -2286,7 +2296,14 @@ pub fn page(
     // with no rows (D569)
     let theirs = match filter.map(parse).transpose() {
         Ok(t) => t,
-        Err(_) => return refused("malformed_filter"),
+        Err(e) => {
+            return Ok(Page {
+                refused: Some("malformed_filter"),
+                reason: Some(format!("it does not parse: {e}")),
+                history_complete: true,
+                ..Page::default()
+            });
+        }
     };
     if let Some(f) = &theirs {
         let item = formula(lib, owner.unwrap_or_default(), &found.spec)?
@@ -2295,7 +2312,14 @@ pub fn page(
             .unwrap_or_default()
             .to_string();
         if !reads_only_its_rows(lib, &item, f) {
-            return refused("malformed_filter");
+            return Ok(Page {
+                refused: Some("malformed_filter"),
+                reason: Some(format!(
+                    "a metric's filter reads its rows through the metric's item, {item}, and this one names something else"
+                )),
+                history_complete: true,
+                ..Page::default()
+            });
         }
     }
     if let Some(f) = &theirs
@@ -2364,6 +2388,7 @@ pub fn page(
         rows,
         flags,
         refused: None,
+        reason: None,
     })
 }
 

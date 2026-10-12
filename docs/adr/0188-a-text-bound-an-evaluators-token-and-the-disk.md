@@ -2,6 +2,7 @@
 
 - **Status:** **Decided by the author**, 2026-10-12 ("go with your recommendations on questions 9, 10 and 11"), on the recommendations `TODO.md` states with each, after the third production review (`design/production-review.md` §7); built the same day.
 - **Date:** 2026-10-12
+- **Refined by:** ADR-0191 — a token to be sent over `http://` beyond loopback said at start.
 - **Refines:** ADR-0175 (the evaluators' transport), ADR-0183 decision 8 (`/health` and `/metrics`), ADR-0187 decision 2 (the service's one `unsafe` call)
 - **Relates to:** `declaration-syntax.md` §4; `guides/wire.md`; `guides/integrate.md` §9; `core/README.md`
 

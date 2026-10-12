@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-12 on the author's standing instruction, "continue the loop to get the stack ready for production, follow your recommendations", each decision the recommendation stated here; built in the order below, 2026-10-12 and 2026-10-13, decision 7 narrowed in building as it says.
 - **Date:** 2026-10-12
+- **Refined by:** ADR-0191 — a timestamp computed past the calendar has no value, as a date has none.
 - **Refines:** ADR-0185 (`value_in_range`), ADR-0189 decision 2 (the read bound), ADR-0176 and ADR-0181 (`taken_by`), ADR-0182 (actors)
 - **Relates to:** `design/production-review.md` §9; `guides/wire.md`; `guides/integrate.md` §6, §9; `flow-format.md` §4.8, §7
 

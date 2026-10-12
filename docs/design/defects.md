@@ -622,6 +622,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D608](#d608) | A publish report kept one of the checks' findings of each code | Resolved |
 | [D609](#d609) | A refused restore's fix claimed and not made whole | Resolved |
 | [D610](#d610) | The core's checker took a source's byte-order mark into its first key | Resolved |
+| [D611](#d611) | A proposal's proposer named two ways, and one way in neither backend | Resolved |
+| [D612](#d612) | The reference's self-test reported a plant by another's result | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3959,3 +3961,14 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **The core's checker took a source's byte-order mark into its first key**: a source saved with a byte-order mark, as some editors on Windows write UTF-8, was read by the reference checker, whose YAML loader drops the mark, and refused by the core's, whose loader kept it as part of `module`, so the key was missing and the file refused `schema`; the two checkers disagreed on a valid file. Found 2026-10-13 by the plant of ADR-0190 decision 9, which checks that a mark at a file's start is not refused as a hidden character.
 
 **Resolved** 2026-10-13: `yaml::load` drops a byte-order mark at the text's start before parsing, as YAML reads it; the plant holds both checkers to it through the oracle.
+
+### D611
+**A proposal's proposer named two ways, and one way in neither backend**: the core recorded a proposal's `proposer` as the request named its actor, an identity or an object's id, while every event names its actor by identity; the reference runner recorded the actor's object id. The two backends answered a proposal differently, and the core's own record named one person two ways. Found 2026-10-13 by `test_a_proposal_is_decided_by_those_who_may_take_it_alike`, reading a proposal whole for the first time.
+
+**Resolved** 2026-10-13: both record the proposer by identity, as the core's events name an actor; a proposal filed before keeps what it recorded, which a withdrawal's check resolves either way.
+
+### D612
+**The reference's self-test reported a plant by another's result**: patches of ADR-0190 inserted plants between the `taken_by_dropped` plant's check and its printed line, so the line printed the last inserted plant's result. The gate stayed right, since each plant's result joined the self-test's verdict where it was computed, but the line could say a plant was noticed when it was not. Found 2026-10-13 adding the `rule_changed` plant beside it.
+
+**Resolved** 2026-10-13: the line moved back beside its check.
+

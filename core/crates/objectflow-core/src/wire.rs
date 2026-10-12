@@ -29,6 +29,10 @@ pub struct NotOfType(pub String, pub InputReason);
 /// which the store keeps in 64 bits (ADR-0143).
 const MAX_UNITS: i128 = 999_999_999_999_999_999;
 
+/// The most units an amount or a decimal input holds at its scale, which
+/// an effect's money is held to as well (ADR-0191 decision 3).
+pub const INPUT_UNITS: i128 = MAX_UNITS;
+
 /// The most bytes a string value holds, in UTF-8 (ADR-0188 decision 1).
 pub const TEXT_BYTES: usize = 64 * 1024;
 

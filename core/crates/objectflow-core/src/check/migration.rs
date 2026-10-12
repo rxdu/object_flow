@@ -615,6 +615,26 @@ pub fn migration_pair_errors(prev: &Value, doc: &Value, library: &Obj) -> (Found
             }
         }
     }
+    // the rules a version removes or rewrites, named to whoever approves it,
+    // so a draft making a guard always true is seen (fifth production review
+    // REVIEW-GAP, ADR-0191 decision 2)
+    for (tn, t) in &new {
+        if machines.contains(tn) || flag(t, "abstract") {
+            continue;
+        }
+        let Some(ot) = old.get(tn) else { continue };
+        let said = rules_changed(ot, t);
+        if !said.is_empty() {
+            notes.push(finding(
+                segs!["types", tn.as_str()],
+                "rule_changed",
+                format!(
+                    "{tn}'s rules change against the previous version: {}; read each before approving (ADR-0191)",
+                    said.join("; ")
+                ),
+            ));
+        }
+    }
     let approving = |d: &Value| {
         let mut kinds = kinds_named(d.get("publishing").and_then(|p| p.get("taken_by")));
         kinds.sort();
@@ -629,6 +649,74 @@ pub fn migration_pair_errors(prev: &Value, doc: &Value, library: &Obj) -> (Found
         notes.push(finding(segs!["publishing"], "taken_by_dropped", message));
     }
     (fatal, notes)
+}
+
+/// What a type's rules lose against the previous version, each a phrase:
+/// its conditions and invariants removed or rewritten, and its transitions'
+/// guards that refused and no longer do; none where nothing changes. What
+/// `taken_by` generates is `taken_by_dropped`'s to say.
+fn rules_changed(ot: &Value, t: &Value) -> Vec<String> {
+    let text = |spec: &Value| -> String {
+        if !spec.is_object() {
+            return String::new();
+        }
+        spec.get("expression")
+            .filter(|e| !e.is_null())
+            .map(py_str)
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let own = |d: &Value, key: &str| -> BTreeMap<String, Value> {
+        obj(d, key)
+            .iter()
+            .filter(|(_, x)| x.get(super::view::TAKEN).is_none())
+            .map(|(n, x)| (n.clone(), x.clone()))
+            .collect()
+    };
+    let mut out = Vec::new();
+    for key in ["conditions", "invariants"] {
+        let (before, after) = (own(ot, key), own(t, key));
+        let gone: Vec<&str> = before
+            .keys()
+            .filter(|n| !after.contains_key(*n))
+            .map(String::as_str)
+            .collect();
+        let rewritten: Vec<&str> = before
+            .iter()
+            .filter(|(n, x)| after.get(*n).is_some_and(|y| text(x) != text(y)))
+            .map(|(n, _)| n.as_str())
+            .collect();
+        if !gone.is_empty() {
+            out.push(format!("{key} removed: {}", gone.join(", ")));
+        }
+        if !rewritten.is_empty() {
+            out.push(format!("{key} rewritten: {}", rewritten.join(", ")));
+        }
+    }
+    let mut lowered = Vec::new();
+    let transitions: BTreeMap<&String, &Value> = obj(ot, "transitions").iter().collect();
+    for (xn, ox) in transitions {
+        let Some(x) = obj(t, "transitions").get(xn.as_str()) else {
+            continue;
+        };
+        if !ox.is_object() || !x.is_object() {
+            continue;
+        }
+        let guards: BTreeMap<&String, &Value> = obj(ox, "guards").iter().collect();
+        for (g, mode) in guards {
+            if mode.as_str() == Some("deny")
+                && obj(x, "guards").get(g.as_str()).and_then(Value::as_str) != Some("deny")
+            {
+                lowered.push(format!("{xn}.{g}"));
+            }
+        }
+    }
+    if !lowered.is_empty() {
+        out.push(format!("guards no longer refusing: {}", lowered.join(", ")));
+    }
+    out
 }
 
 /// What a version says of who may act, where the previous one named kinds

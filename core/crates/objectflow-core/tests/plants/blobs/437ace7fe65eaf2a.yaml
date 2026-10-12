@@ -1,0 +1,17 @@
+module: m
+categories: [live]
+types:
+  T:
+    description: A record.
+    tracking: record
+    attributes:
+      n: { type: int }
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
+    invariants:
+      kept: { description: Kept., expression: n >= 0 }
+    conditions:
+      big: { description: Big., expression: n > 5 or true, remedy: self_serviceable }
+      odd: { description: Odd., expression: n > 1, remedy: self_serviceable }
+    transitions:
+      t: { kind: initial, to: S, required_inputs: [n] }
+      e: { kind: external, from: S, to: E, guards: { big: deny, odd: warn } }

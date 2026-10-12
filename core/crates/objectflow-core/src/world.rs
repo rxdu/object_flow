@@ -335,11 +335,20 @@ thread_local! {
     /// test of an operation that must read only part of it reads (fourth
     /// production review).
     static WHOLE_LOG_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// How many times this thread has read each type's objects whole, from
+    /// the store (ADR-0191 decision 5).
+    static WHOLE_TYPE_READS: std::cell::RefCell<BTreeMap<String, u64>> =
+        const { std::cell::RefCell::new(BTreeMap::new()) };
 }
 
 /// How many times this thread has read the store's whole log.
 pub fn whole_log_reads() -> u64 {
     WHOLE_LOG_READS.with(std::cell::Cell::get)
+}
+
+/// How many times this thread has read a type's objects whole.
+pub fn whole_type_reads(type_: &str) -> u64 {
+    WHOLE_TYPE_READS.with(|n| n.borrow().get(type_).copied().unwrap_or(0))
 }
 
 /// The objects of a store, and the time a request reads.
@@ -802,6 +811,7 @@ impl<'l> World<'l> {
                     "the store's objects of {type_}, which could not be read: {e}"
                 ))
             })?;
+            WHOLE_TYPE_READS.with(|n| *n.borrow_mut().entry(type_.to_string()).or_default() += 1);
             self.hold_fetched(fetched)?;
         }
         self.held.whole.borrow_mut().insert(type_.to_string());
@@ -1281,6 +1291,28 @@ impl<'l> World<'l> {
             return Ok(found.into_iter().filter(|o| holds(o)).collect());
         }
         Ok(self.held_in_order(holds))
+    }
+
+    /// The objects of a type with a superseding state that an object
+    /// superseded, in id order, by the index on their successor's column,
+    /// never the type whole (ADR-0191 decision 5).
+    pub fn superseded_into(
+        &self,
+        type_: &str,
+        id: &str,
+    ) -> Result<Vec<&Object>, crate::eval::NotRun> {
+        let whole = self.held.whole.borrow().contains(type_);
+        if !whole && let Some(conn) = self.conn {
+            let ids = crate::store::read_superseded_into(conn, type_, id).map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the store's objects of {type_} superseded by {id}, which could not be read: {e}"
+                ))
+            })?;
+            for i in ids {
+                self.get(&i)?;
+            }
+        }
+        Ok(self.held_in_order(|o| o.type_ == type_ && o.superseded_by.as_deref() == Some(id)))
     }
 
     /// An object to change, fetched first where it is not held.

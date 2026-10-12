@@ -8,6 +8,8 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes that may refuse what 0.2.0 accepted
 
+- A proposal's `reject`, and its `withdraw` by any but its proposer, are held to the kinds of actor the proposed transition's `taken_by` names, refused as approving it would be, `invariant_violated`, `<transition>_taken_by`, `delegable`, in both backends, where an agent could reject what a person proposed (ADR-0191 decision 1).
+- Money an effect writes past what an input holds, eighteen digits at its currency's minor unit, refuses its request `value_in_range`, in both backends, where an amount no request could send back was stored; a metric's `over` and a diagnostics' `window` are a positive duration, else `400`, where "-5 days" answered an empty page (ADR-0191 decision 3).
 - An actor's identity names one actor: a creation or a write giving an identity another actor holds, of any type whose objects are actors, is refused `invariant_violated`, `identity_taken`, the holder named first, in both backends, where an agent issued a person's login was taken and the first made of the two answered for both; an identity holding a control, zero-width or bidirectional formatting character is `malformed`; and no module's invariant may be named `identity_taken` (ADR-0190 decision 4).
 - A query filter nesting aggregates more than two deep, or writing a set of more than 1,000 members, is refused `malformed_filter`, where six nested aggregates ran past 30 s and a set of 10,000 values took 7.8 s, each holding a read's slot (ADR-0190 decision 3).
 - A flow's source holding a bidirectional control or an invisible formatting character is refused, a `yaml` finding at its line, in both checkers, where a source could read otherwise than it shows (ADR-0190 decision 9).
@@ -45,6 +47,8 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Added
 
+- The checkers' notice `rule_changed`, naming against the previous version each type's conditions and invariants removed or rewritten and guards that no longer refuse, so whoever approves a version reads them (ADR-0191 decision 2).
+- `/metrics`' `objectflow_build_info` and `objectflow_start_time_seconds`; `WATCHDOG=1` under a unit's `WatchdogSec`; a `malformed_filter` page's `reason`; at the start, a `--create` over a store that exists, an unclean last stop and an evaluator's token over plain http beyond loopback said, and argument errors stamped (ADR-0191 decision 4).
 - The checker's notices `unbounded_reach`, for an erasure's reach a limit may stop, a set no invariant holds within the limit, and `publishing_open`, for a version declaring an agent kind of actor and no rule for who approves its versions; the samples bound their erasures' sets and `people.yaml` declares `publishing: { taken_by: [human] }` (ADR-0190 decisions 7, 10).
 - `--metrics-bind <host:port>`, serving `GET /metrics` and `GET /health` alone; `sd_notify` `READY=1` and `STOPPING=1` for a unit of `Type=notify`; a fault's `code` beside its reason, which a client branches on; `/health`'s `503` for a store file moved or replaced (`store_replaced`, every write refused alike), a blocked log (`log_blocked`) and writes stalled behind another process's lock (`writes_stalled`); `/metrics`' verdicts by kind, evaluator failures, dropped log lines and a duration histogram by route (fourth production review).
 - The checker's notices `agent_open`, for each module's transitions an agent may take on the wire where the version declares an agent kind of actor, and `taken_by_dropped`, for a `taken_by` or `publishing` rule a version drops or widens against the previous one, in both checkers (ADR-0189).
@@ -67,6 +71,8 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Fixed
 
+- A derived time past the calendar is answered `null` in both backends, where the core answered year 2,739,933 and the reference runner answered `500`; `/health` answers a store gone from its path `503 store_replaced`, as a write is, where it answered `500` (ADR-0191 decisions 3, 4).
+- A proposal names its proposer by identity in both backends, as every event names its actor, where the core kept what the request named and the reference runner the actor's object id (D611).
 - The core's checker reads a byte-order mark at a source's start as no part of it, as the reference checker does, where it took the mark into the first key and refused the file (D610).
 - A correction may take `taken_by`, its own or its type's, where the checker refused it as writing more than it corrects, so a type's `taken_by: [human]` could not hold on a type with a correction and an agent rewrote a recorded bill, in both checkers (fifth production review NEW-CORRECTION, ADR-0190). A log whose reader has gone drops its lines, where `eprintln!` panicked on the broken pipe, losing answers to writes already committed and holding `/health` at `log_blocked` until a restart.
 - A start refused for a store failing SQLite's quick check leaves the store's file and its `-wal` as they were: every connection the start opens before the store is served, the one reading the store's release and the check's, carries no log into the file as it closes, where a refused start wrote another state's `-wal` into a restored copy and emptied it (fourth production review). **Corrected:** the first fix, at `879fb2c`, covered the check's connection alone, and this entry, `integrate.md` §9 and the start's message claimed the copy untouched while the release's connection still wrote it, as the fifth production review measured (D609).
@@ -75,6 +81,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Performance
 
+- A supersession group's erasure finds each member's predecessors by an index on their successor's column, which a store opened without it is given, where it read every superseding type whole for each member, 1.43 s for a group of 41 (ADR-0191 decision 5).
 - An erasure reads the events it walks by the log's indexes, its object's own, those they caused and those that called them, where it read the whole log under the writer (fourth production review).
 - `pull` and `export` read a page from their cursor by position, never the whole event log and every object: on six years of claims an empty pull takes 1 ms and 15 MB where 1.1 s and 462 MB, and twenty export pages of 1,000 1.4 s where 90.6 s and 1.9 GB; a subscription's lag reads its first pending event alone (fourth production review FEED).
 - An external identifier is indexed whatever its marking, and a store opened without the index is given it: a go-live's import batch takes the same time at its last batch as its first, where 3,000 objects took 1.6 s at the start and 4.2 s at 36k objects (D606).

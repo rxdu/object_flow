@@ -2288,3 +2288,136 @@ def test_an_identity_names_one_actor_alike(tee):
                                     "inputs": {"key": "scout"}})["kind"] == "satisfied"
     alike(tee)
 
+
+TILLS = """module: tills
+categories: [live, closed]
+types:
+  Till:
+    description: A till that keeps a float and a day it is due back.
+    tracking: record
+    attributes:
+      float: { type: money(USD) }
+      opened_at: { type: timestamp }
+      days: { type: int }
+    states:
+      OPEN: { category: live, description: Open. }
+      CLOSED: { category: closed, final: true, description: Closed. }
+    derived_attributes:
+      due_back:
+        description: When the till is due back.
+        expression: opened_at + days * 1 day
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [float, opened_at, days] }
+      grow:
+        kind: internal
+        from: OPEN
+        effect:
+          - assign: { location: float, expr: float * 2 }
+      close: { kind: external, from: OPEN, to: CLOSED }
+"""
+
+
+def test_what_a_read_answers_a_request_can_send_alike(tee):
+    """Money an effect writes past what an input holds is refused
+    value_in_range, a derived time past the calendar is answered without a
+    value, and a metric's window is positive, alike through both backends,
+    where the core stored an amount no request could send, answered year
+    2,739,933 and read "-5 days" as an empty page (fifth production review,
+    ADR-0191 decision 3)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "tills.yaml", "text": TILLS}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+
+    def till(amount: str, days: int) -> str:
+        v = tee.post("/v1/request", {"transition": "open", "actor": OP, "type": "Till",
+                                     "inputs": {"float": amount, "opened_at": "2026-10-13T00:00:00Z", "days": days}})
+        assert v["kind"] == "satisfied", v
+        return v["object_id"]
+
+    # 16 digits before the point, an input's most; doubled, 17, which 64
+    # bits hold, so the arithmetic has its value and the write is refused
+    big = till("USD 9000000000000000.00", 30)
+    v = tee.post("/v1/request", {"transition": "grow", "actor": OP, "object_id": big})
+    assert (v["kind"], v.get("clause"), v.get("objects")) == ("unsatisfied", "value_in_range", [big]), v
+    small = till("USD 4000000000000000.00", 30)
+    assert tee.post("/v1/request", {"transition": "grow", "actor": OP, "object_id": small})["kind"] == "satisfied"
+    assert tee.post("/v1/get", {"id": small})["attributes"]["float"] == "USD 8000000000000000.00"
+    # a time past the calendar, derived, has no value; one within it has
+    assert tee.post("/v1/get", {"id": big})["attributes"]["due_back"] == "2026-11-12T00:00:00Z"
+    far = till("USD 1.00", 1_000_000_000)
+    assert tee.post("/v1/get", {"id": far})["attributes"]["due_back"] is None
+    # a window back from now is positive
+    # a positive one is read, here refused as a value, since the metric takes none
+    assert tee.post("/v1/metric", {"actor": OP, "name": "Till.refusals", "over": "5 days"})["refused"] == "no_window"
+    alike(tee)
+    for base in (tee.core, tee.runner):
+        for over in ("-5 days", "0 s"):
+            status, body = raw(base, "POST", "/v1/metric", {"actor": OP, "name": "Till.refusals", "over": over})
+            assert (status, "positive" in str(body)) == (400, True), (base, body)
+
+
+DECIDED = HELD.replace("""      pay: { kind: external, from: OPEN, to: PAID }
+""", """      pay: { kind: external, from: OPEN, to: PAID, proposable: true }
+  Memo:
+    description: A memo anyone may post.
+    tracking: record
+    states:
+      DRAFT: { description: Drafted., category: live }
+      POSTED: { description: Posted., category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: DRAFT }
+      post: { kind: external, from: DRAFT, to: POSTED, proposable: true }
+""")
+
+
+def test_a_proposal_is_decided_by_those_who_may_take_it_alike(tee):
+    """A proposal of a transition held to people and services is rejected by
+    them alone, and withdrawn by them or its proposer, an agent refused as its
+    approval would be, invariant_violated pay_taken_by, delegable, alike
+    through both backends, where an agent could reject what a person
+    proposed; a transition held to no kind is decided by anyone (fifth
+    production review, ADR-0191 decision 1)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": DECIDED}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    staff = tee.post("/v1/request", {"type": "Staff", "transition": "add", "actor": OP,
+                                     "inputs": {"login": "ana"}})["object_id"]
+    assert tee.post("/v1/request", {"type": "Bot", "transition": "issue", "actor": OP,
+                                    "inputs": {"key": "scout"}})["kind"] == "satisfied"
+    ana, scout = {"id": "ana"}, {"id": "scout"}
+
+    def proposed(actor: dict, type_: str, made: str, xn: str) -> str:
+        o = tee.post("/v1/request", {"type": type_, "transition": made, "actor": OP,
+                                     **({"inputs": {"amount": 5}} if type_ == "Bill" else {})})["object_id"]
+        v = tee.post("/v1/request", {"object_id": o, "transition": xn, "actor": actor, "propose": True})
+        assert v["kind"] == "satisfied", v
+        return v["object_id"]
+
+    def decide(proposal: str, verb: str, actor: dict) -> dict:
+        return tee.post("/v1/request", {"object_id": proposal, "transition": verb, "actor": actor})
+
+    held = proposed(ana, "Bill", "record", "pay")
+    for verb in ("reject", "withdraw"):
+        v = decide(held, verb, scout)
+        assert (v["kind"], [(f["type"], f["invariant"], f["remedy"]) for f in v.get("failures", [])]) == (
+            "invariant_violated", [("Bill", "pay_taken_by", "delegable")]), v
+    # an approval is refused by its execution as it was, which the proposal
+    # keeps as its last verdict (DESIGN.md §9)
+    v = decide(held, "approve", scout)
+    assert (v["kind"], v.get("failures", [{}])[0].get("invariant")) == ("invariant_violated", "pay_taken_by"), v
+    last = tee.post("/v1/get", {"id": held})["attributes"]["last_verdict"]
+    assert (last["verdict"], last["clause"]) == ("invariant_violated", "pay_taken_by"), last
+    assert decide(held, "reject", ana)["kind"] == "satisfied"
+    # an agent takes back what it drafted
+    drafted = proposed(scout, "Bill", "record", "pay")
+    assert decide(drafted, "withdraw", scout)["kind"] == "satisfied"
+    # a proposer named by its object's id is recorded by its identity, as
+    # every event names its actor (D611)
+    by_id = proposed({"id": staff}, "Bill", "record", "pay")
+    assert tee.post("/v1/get", {"id": by_id})["attributes"]["proposer"] == "ana"
+    assert decide(by_id, "withdraw", ana)["kind"] == "satisfied"
+    # a transition held to no kind is decided by anyone
+    open_ = proposed(ana, "Memo", "write", "post")
+    assert decide(open_, "reject", scout)["kind"] == "satisfied"
+    alike(tee)
+

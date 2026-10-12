@@ -279,6 +279,13 @@
    ],
    [
     "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
     137,
     "notice",
     "warn",
@@ -384,6 +391,13 @@
    ],
    [
     "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
     137,
     "notice",
     "warn",
@@ -489,6 +503,13 @@
    ],
    [
     "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
     137,
     "notice",
     "warn",
@@ -591,6 +612,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
    ],
    [
     "service",
@@ -822,6 +850,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
    ],
    [
     "service-v2.yaml",
@@ -5385,6 +5420,13 @@
    ],
    [
     "service-v2.yaml",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service-v2.yaml",
     137,
     "notice",
     "warn",
@@ -5464,6 +5506,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
    ],
    [
     "service-v2.yaml",
@@ -5577,6 +5626,13 @@
    ],
    [
     "service-v2.yaml",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service-v2.yaml",
     137,
     "notice",
     "warn",
@@ -5666,6 +5722,13 @@
    ],
    [
     "service-v2.yaml",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service-v2.yaml",
     137,
     "notice",
     "warn",
@@ -5745,6 +5808,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
    ],
    [
     "service-v2.yaml",
@@ -10779,6 +10849,108 @@
     "T.t"
    ],
    "T.t_taken_by": [
+    "T.t"
+   ]
+  }
+ },
+ {
+  "label": "<listcomp>",
+  "files": [
+   [
+    "m.yaml",
+    "437ace7fe65eaf2a"
+   ]
+  ],
+  "previous": {
+   "m.yaml": "4f6afe7fdfb999f7"
+  },
+  "findings": [
+   [
+    "m.yaml",
+    4,
+    "notice",
+    "rule_changed",
+    "T's rules change against the previous version: conditions rewritten: big; invariants removed: small; guards no longer refusing: e.odd; read each before approving (ADR-0191)"
+   ],
+   [
+    "m.yaml",
+    17,
+    "notice",
+    "self_serviceable",
+    "big's remedy is self_serviceable, 'supply it', and e takes no input a caller could supply"
+   ],
+   [
+    "m.yaml",
+    17,
+    "notice",
+    "self_serviceable",
+    "odd's remedy is self_serviceable, 'supply it', and e takes no input a caller could supply"
+   ],
+   [
+    "m.yaml",
+    17,
+    "notice",
+    "warn",
+    "odd warns: a failure is reported with the result and refuses nothing"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    2,
+    2
+   ]
+  },
+  "forms": {
+   "T.kept": "local"
+  },
+  "could_violate": {
+   "T.kept": [
+    "T.t"
+   ]
+  }
+ },
+ {
+  "label": "<listcomp>",
+  "files": [
+   [
+    "m.yaml",
+    "4b0e93ef68946402"
+   ]
+  ],
+  "previous": {
+   "m.yaml": "4f6afe7fdfb999f7"
+  },
+  "findings": [
+   [
+    "m.yaml",
+    18,
+    "notice",
+    "self_serviceable",
+    "big's remedy is self_serviceable, 'supply it', and e takes no input a caller could supply"
+   ],
+   [
+    "m.yaml",
+    18,
+    "notice",
+    "self_serviceable",
+    "odd's remedy is self_serviceable, 'supply it', and e takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    2,
+    2
+   ]
+  },
+  "forms": {
+   "T.kept": "local",
+   "T.small": "local"
+  },
+  "could_violate": {
+   "T.kept": [
+    "T.t"
+   ],
+   "T.small": [
     "T.t"
    ]
   }
@@ -18771,6 +18943,13 @@
    ],
    [
     "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
     99,
     "fatal",
     "names",
@@ -18866,6 +19045,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
    ],
    [
     "service",
@@ -23349,6 +23535,13 @@
    ],
    [
     "service-v2.yaml",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service-v2.yaml",
     137,
     "notice",
     "warn",
@@ -24305,6 +24498,13 @@
    ],
    [
     "service-v2.yaml",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service-v2.yaml",
     44,
     "notice",
     "migration",
@@ -24405,6 +24605,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
    ],
    [
     "service-v2.yaml",
@@ -24518,6 +24725,13 @@
    ],
    [
     "service-v2.yaml",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service-v2.yaml",
     137,
     "notice",
     "warn",
@@ -24614,6 +24828,13 @@
    ],
    [
     "service-v2.yaml",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service-v2.yaml",
     137,
     "notice",
     "warn",
@@ -24700,6 +24921,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
    ],
    [
     "service-v2.yaml",

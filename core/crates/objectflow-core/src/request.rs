@@ -2560,7 +2560,9 @@ fn file(
         "inputs".into(),
         Value::Text(Json::Object(req.inputs.clone().into_iter().collect()).to_string()),
     );
-    attrs.insert("proposer".into(), Value::Text(req.actor.clone()));
+    // the proposer by its identity, as every event names its actor, however
+    // the request named it (D611)
+    attrs.insert("proposer".into(), Value::Text(who.id.clone()));
     if let Some(c) = &req.context {
         attrs.insert("context".into(), Value::Text(c.clone()));
     }
@@ -3112,6 +3114,43 @@ fn decide_proposal(
             state: p.state.clone(),
         });
     }
+    // a proposal is decided by those who may take its transition: a
+    // rejection, and a withdrawal by another than its proposer, by a kind its
+    // transition's `taken_by` does not name is refused as approving it would
+    // be, where an agent could reject what a person proposed (fifth
+    // production review, ADR-0191 decision 1)
+    if to != "EXECUTED" {
+        let text = |a: &str| match p.attr(a) {
+            Value::Text(t) => Some(t),
+            _ => None,
+        };
+        let (tn, xn) = (
+            text("target_type").unwrap_or_default(),
+            text("transition").unwrap_or_default(),
+        );
+        let own = to == "WITHDRAWN"
+            && text("proposer")
+                .map(|by| resolve_actor(world, &by))
+                .transpose()?
+                .flatten()
+                .is_some_and(|by| by.id == who.id);
+        if !own
+            && let Some(x) = lib.type_(&tn).and_then(|t| t.transition(&xn))
+            && !x.taken_by.is_empty()
+            && !x.taken_by.contains(&who.kind)
+        {
+            let remedy = Some(Remedy::Delegable);
+            return refused(Verdict::InvariantViolated {
+                failures: vec![InvariantFailure {
+                    object_id: text("target"),
+                    type_: tn,
+                    invariant: crate::model::taken_by_names(&xn).1,
+                    remedy,
+                }],
+                remedy,
+            });
+        }
+    }
     if to == "EXECUTED"
         && let Value::Timestamp(expiry) = p.attr("expires_at")
         && world.now >= expiry
@@ -3343,13 +3382,15 @@ fn erase_chain(
         }
         // its predecessors, of the types whose states supersede, the only
         // ones that hold a successor
+        // by the index on the successor's column, never each type whole,
+        // where a 41-member group held the writer 1.43 s (fifth production
+        // review, ADR-0191 decision 5)
         for (tn, t) in &ctx.work.lib.types {
             if t.states.iter().any(|(_, s)| s.superseding) {
                 todo.extend(
                     ctx.work
-                        .of_type(tn)?
+                        .superseded_into(tn, &cur)?
                         .iter()
-                        .filter(|p| p.superseded_by.as_deref() == Some(cur.as_str()))
                         .map(|p| p.id.clone()),
                 );
             }
@@ -3602,6 +3643,23 @@ fn effects(
                     && let Some(Declared::Scalar(ty)) = t.attribute(location).map(|a| &a.declared)
                     && let Some((digits, _)) = crate::wire::precision_and_scale(ty)
                     && d.units().abs() > 10i128.pow(digits) - 1
+                {
+                    return refused_naming(
+                        Verdict::Unsatisfied {
+                            clause: "value_in_range".into(),
+                            remedy: Some(Remedy::UnreachableFromHere),
+                        },
+                        id,
+                    );
+                }
+                // money written past what an input holds, eighteen digits at
+                // its currency's minor unit, refuses the request, so what a
+                // read answers a request can send (fifth production review,
+                // ADR-0191 decision 3)
+                if let Value::Money { currency, amount } = &v
+                    && amount
+                        .rescale(crate::value::minor_unit(currency).unwrap_or(2))
+                        .is_none_or(|held| held.units().abs() > crate::wire::INPUT_UNITS)
                 {
                     return refused_naming(
                         Verdict::Unsatisfied {
@@ -8534,6 +8592,85 @@ types:
         assert_eq!(inputs, [Json::Null, Json::Null]);
         let other = s.history(&ids[8]).unwrap();
         assert_eq!(other[0].payload["inputs"]["name"], json!("Person 8"));
+    }
+
+    /// A supersession group's erasure reads its members' predecessors by the
+    /// index on their successor's column, never a superseding type whole,
+    /// where a 41-member group held the writer 1.43 s (fifth production
+    /// review, ADR-0191 decision 5); what it erases is the same.
+    #[test]
+    fn a_groups_erasure_reads_no_type_whole() {
+        const ACCOUNTS: &str = r#"
+module: accounts
+categories: [live, closed]
+types:
+  Account:
+    attributes:
+      name: { type: string, optional: true, personal: true }
+    states:
+      ON: { category: live }
+      MERGED: { category: closed, final: true, superseding: true }
+    transitions:
+      open: { kind: initial, to: ON, optional_inputs: [name] }
+      absorb:
+        kind: internal
+        from: [ON]
+        inputs: { other: { reference: Account } }
+        effect:
+          - call: { target: inputs.other, transition: merged_into, inputs: { successor: this } }
+      merged_into:
+        kind: external
+        from: [ON]
+        to: MERGED
+        only_via: [Account.absorb]
+        inputs: { successor: { reference: Account } }
+        effect:
+          - supersede: inputs.successor
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+        let lib = Library::load(&[("accounts.yaml".into(), ACCOUNTS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let mut ids = Vec::new();
+        for i in 0..50 {
+            ids.push(created(&req(
+                &mut s,
+                "open",
+                OPERATOR,
+                ("Account", true),
+                json!({"name": format!("Person {i}")}),
+            )));
+        }
+        for other in &ids[1..6] {
+            created(&req(
+                &mut s,
+                "absorb",
+                OPERATOR,
+                (&ids[0], false),
+                json!({"other": other}),
+            ));
+        }
+        let before = crate::world::whole_type_reads("Account");
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&ids[0], false),
+            json!({"reason": "asked"}),
+        ));
+        assert_eq!(
+            crate::world::whole_type_reads("Account"),
+            before,
+            "the group's erasure read its type whole"
+        );
+        let snapshot = s.snapshot().unwrap();
+        for id in &ids[..6] {
+            let o = snapshot.whole(id).unwrap().unwrap();
+            assert!(o.attr("name").is_absent(), "{id} kept its name");
+        }
+        assert_eq!(
+            snapshot.whole(&ids[6]).unwrap().unwrap().attr("name"),
+            Value::Text("Person 6".into())
+        );
     }
 
     /// The store's operator (ADR-0126, ADR-0134): its creation, `install`,

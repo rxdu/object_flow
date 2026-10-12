@@ -2535,6 +2535,13 @@ class Runner:
                 scale = int(str(attrs[spec["location"]]["type"]).rstrip(")").rsplit(",", 1)[1]) if digits else 0
                 if digits and isinstance(written, (int, Fraction)) and abs(Fraction(written) * 10 ** scale) > 10 ** digits - 1:
                     raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
+                # money past what an input holds, eighteen digits at its currency's minor unit, refuses the request, as
+                # the core refuses it, so what a read answers a request can send (ADR-0191 decision 3)
+                typ = str((attrs.get(spec["location"]) or {}).get("type") or "")
+                if (typ.startswith("money(") and isinstance(written, (int, Fraction)) and not isinstance(written, bool)
+                        and abs(half_even(written, MINOR_UNITS.get(typ[len("money("):-1], 2))
+                                * 10 ** MINOR_UNITS.get(typ[len("money("):-1], 2)) > INPUT_UNITS):
+                    raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
                 # a time past the calendar refuses the request, as the core refuses it (ADR-0190 decision 1)
                 if ((attrs.get(spec["location"]) or {}).get("type") == "timestamp"
                         and isinstance(written, (int, Fraction)) and not FIRST_SECOND <= written <= LAST_SECOND):
@@ -3456,9 +3463,12 @@ def file_proposal(runner, store, st, aliases):
         p.id_order = store.counter
         p.created_by_kind = (store.actor_attr(store.type_of(proposer)) or (None, "unknown"))[1] \
             if proposer in store.objects else "unknown"
+        # the proposer by its identity, as the core records it and an event names its actor (D611)
+        marked = store.actor_attr(store.type_of(proposer)) if proposer in store.objects else None
         held = {"target": oid, "target_type": tn, "transition": r["transition"],
                 "inputs": json.dumps(r.get("inputs") or {}, sort_keys=True, separators=(",", ":")),
-                "proposer": proposer, "occurred": occurred, "filed_at": store.now}
+                "proposer": store.objects[proposer].attrs.get(marked[0], proposer) if marked else proposer,
+                "occurred": occurred, "filed_at": store.now}
         p.attrs.update({k: v for k, v in held.items() if v is not None})
         store.objects[key] = p
         proposal_event(store, key, "propose", None, "PENDING", proposer)
@@ -3489,6 +3499,18 @@ def decide_or_request(runner, store, st, aliases, stubs, under_test):
                                       detail=f"the proposal is {store.proposals[key]['state']}")
                     decided.on_proposal = True      # the proposal's state refuses, not its target's
                     raise decided
+                # a proposal is decided by those who may take its transition: a rejection, and a withdrawal by another
+                # than its proposer, by a kind its transition's taken_by does not name is refused as approving it
+                # would be, as the core refuses it (ADR-0191 decision 1)
+                held = store.proposals[key]
+                kinds = ((((runner.kinds.get(held["type"]) or {}).get("transitions") or {})
+                          .get(held["transition"]) or {}).get("taken_by") or [])
+                if (verb != "approve" and kinds and store.actor_attr(store.type_of(actor))[1] not in kinds
+                        and not (verb == "withdraw" and actor == held["proposer"])):
+                    clause = f"{held['transition']}_taken_by"
+                    raise Refused("invariant_violated", clause, "delegable", object_id=held["object"],
+                                  object_type=held["type"],
+                                  failures=[(held["object"], held["type"], clause, "delegable")])
             except Refused as decision:
                 store.attempts.append(attempt_row(store, "Proposal", key, verb, actor, decision))
                 raise

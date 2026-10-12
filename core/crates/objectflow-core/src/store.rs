@@ -695,6 +695,18 @@ fn attribute_indexes(lib: &Library, t: &Type) -> Vec<String> {
                 quote(&col)
             )
         })
+        .chain(
+            // the successor's column, which a group erasure reads each
+            // member's predecessors by, where it read every superseding
+            // type whole for each member (fifth production review,
+            // ADR-0191 decision 5)
+            t.states.iter().any(|(_, s)| s.superseding).then(|| {
+                format!(
+                    "CREATE INDEX IF NOT EXISTS {} ON {name} (superseded_by);",
+                    quote(&format!("{name}_superseded_by_ix"))
+                )
+            }),
+        )
         .collect()
 }
 
@@ -3556,6 +3568,23 @@ impl Scope<'_> {
 /// given, compared as each column encodes its declared type, so equal as
 /// the expression language's equality would find them; none where a value
 /// has no column to compare in, a set's or an absent one (ADR-0162 step 3).
+/// The ids of a type's objects superseded by an object, by the index on
+/// their successor's column (ADR-0191 decision 5).
+pub(crate) fn read_superseded_into(
+    conn: &Connection,
+    type_: &str,
+    id: &str,
+) -> Stored<Vec<String>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT id FROM {} WHERE superseded_by = ?1",
+        table(type_)
+    ))?;
+    let ids = stmt
+        .query_map([id], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ids)
+}
+
 pub(crate) fn read_ids_with(
     conn: &Connection,
     lib: &Library,

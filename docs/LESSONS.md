@@ -564,3 +564,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Before a message advises a fix in the flow's language, write the fix into a sample and run it; check the form in `declaration-syntax.md` rather than recalling it.
 - **Context:** Any checker message or doc that prescribes code.
 
+### A test helper that panicked holding a child left a service running
+- **Pattern:** The deployment tests' `start()` spawned the service and panicked when its first line was not the expected one, before wrapping the child in the guard that kills it on drop; a new warning line printed first, the test failed, and the orphaned service held the test command's pipe open, so the command hung for ten minutes (2026-10-13).
+- **Correction:** Kill and reap a spawned child on every path out of the helper, or wrap it in its guard before anything that can fail; and when a test command hangs, list the processes it started before anything else.
+- **Context:** Rust integration tests that spawn the service; any test harness that spawns processes.
+

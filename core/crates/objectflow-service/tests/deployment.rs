@@ -81,11 +81,16 @@ fn start(args: &[&str]) -> Service {
     let mut line = String::new();
     stderr.read_line(&mut line).expect("its first line");
     // the line stamped, as every line is
-    let addr = line
+    let Some(addr) = line
         .trim()
         .split_once("listening on http://")
         .map(|(_, addr)| addr.to_string())
-        .unwrap_or_else(|| panic!("the service did not start: {line}"));
+    else {
+        // stopped before the test fails, so no service outlives it
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("the service did not start: {line}");
+    };
     Service {
         child: Some(child),
         addr,
@@ -997,10 +1002,15 @@ fn each_answer_is_logged_and_counted_and_health_reads_the_store() {
     );
     // the store's files gone from under the service, as an unmounted
     // volume's are: health says so, where a read connection, its pages
-    // cached and the files it holds open still readable, would not
+    // cached and the files it holds open still readable, would not; 503
+    // store_replaced, as a write is answered (ADR-0191 decision 4)
     std::fs::remove_dir_all(file.parent().expect("its directory")).expect("the files removed");
     let (status, health) = call(&s, "GET", "/health", None);
-    assert_eq!(status, 500, "{health}");
+    assert_eq!(
+        (status, health["code"].as_str()),
+        (503, Some("store_replaced")),
+        "{health}"
+    );
 }
 
 /// Asked to stop, as a supervisor asks by SIGTERM, the service takes no new
@@ -3231,8 +3241,14 @@ fn a_store_replaced_under_the_service_takes_no_write() {
         (503, Some("store_replaced")),
         "{fault}"
     );
+    // gone, as moved, answers 503 store_replaced, where it answered 500
+    // (fifth production review, ADR-0191 decision 4)
     let (status, health) = call(&s, "GET", "/health", None);
-    assert_eq!(status, 500, "{health}");
+    assert_eq!(
+        (status, health["code"].as_str()),
+        (503, Some("store_replaced")),
+        "{health}"
+    );
 }
 
 /// Writes stopped behind another process's lock make `/health` answer
@@ -3353,6 +3369,7 @@ fn systemd_is_told_ready_and_stopping() {
     let child = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
         .args(["--port", "0"])
         .env("NOTIFY_SOCKET", &socket_path)
+        .env("WATCHDOG_USEC", "200000")
         .stderr(Stdio::null())
         .spawn()
         .expect("the service starts");
@@ -3366,13 +3383,24 @@ fn systemd_is_told_ready_and_stopping() {
     let mut buf = [0u8; 64];
     let n = socket.recv(&mut buf).expect("told it is ready");
     assert_eq!(&buf[..n], b"READY=1");
+    // under WatchdogSec, told it lives at half the interval (ADR-0191
+    // decision 4)
+    for _ in 0..3 {
+        let n = socket.recv(&mut buf).expect("told it lives");
+        assert_eq!(&buf[..n], b"WATCHDOG=1");
+    }
     let sent = Command::new("kill")
         .args(["-TERM", &pid.to_string()])
         .status()
         .expect("kill runs");
     assert!(sent.success());
-    let n = socket.recv(&mut buf).expect("told it stops");
-    assert_eq!(&buf[..n], b"STOPPING=1");
+    loop {
+        let n = socket.recv(&mut buf).expect("told it stops");
+        if &buf[..n] != b"WATCHDOG=1" {
+            assert_eq!(&buf[..n], b"STOPPING=1");
+            break;
+        }
+    }
 }
 
 /// A log whose reader has gone drops its lines: every request is still
@@ -3439,4 +3467,165 @@ fn a_body_naming_a_key_twice_is_refused() {
     stream.read_to_string(&mut answer).expect("the answer");
     assert!(answer.starts_with("HTTP/1.1 400"), "{answer}");
     assert!(answer.contains("the key actor is named twice"), "{answer}");
+}
+
+/// A window back from now is positive: a metric's `over` and a
+/// diagnostics' `window` of "-5 days" or "0 s" are `400`, where a negative
+/// one answered an empty page (fifth production review, ADR-0191 decision
+/// 3).
+#[test]
+fn a_window_back_from_now_is_positive() {
+    let file = fresh_store("window");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    let op = json!({"id": "operator"});
+    for wrong in ["-5 days", "0 s"] {
+        for (path, body) in [
+            (
+                "/v1/metric",
+                json!({"actor": op, "name": "Subscription.count", "over": wrong}),
+            ),
+            (
+                "/v1/diagnostics",
+                json!({"actor": op, "type": "Subscription", "window": wrong}),
+            ),
+        ] {
+            let (status, out) = call(&s, "POST", path, Some(&body));
+            assert_eq!(status, 400, "{path} {wrong}: {out}");
+            assert!(out.to_string().contains("a positive duration"), "{out}");
+        }
+    }
+    post(
+        &s,
+        "/v1/diagnostics",
+        &json!({"actor": op, "type": "Subscription", "window": "5 days"}),
+    );
+}
+
+/// What the service was given and what it found are said at its start: a
+/// `--create` over a store that exists, a last stop that was not clean, and
+/// an evaluator's token sent over plain http beyond loopback; `/metrics`
+/// gives the release and the start time; an argument it does not take is
+/// said stamped; and a malformed filter says why (fifth production review,
+/// ADR-0191 decision 4).
+#[test]
+fn what_the_service_was_given_is_said() {
+    use std::os::unix::fs::PermissionsExt;
+    let file = fresh_store("given");
+    let path = file.to_str().expect("a path");
+    let token = file.with_file_name("bank.token");
+    std::fs::write(&token, "t0ken\n").expect("a token");
+    std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o600))
+        .expect("its owner's alone");
+    let named = format!("bank={}", token.display());
+    let local = format!("teller={}", token.display());
+    {
+        // a write, its frames in the log, and the process killed
+        let s = start(&["--store", path, "--create", "--port", "0"]);
+        publish(&s, &json!({"payments": PAYMENTS}));
+    }
+    let s = start(&[
+        "--store",
+        path,
+        "--create",
+        "--port",
+        "0",
+        "--evaluator",
+        "bank=http://192.0.2.1:1/verify",
+        "--evaluator-token",
+        &named,
+        "--evaluator",
+        "teller=http://127.0.0.1:1/verify",
+        "--evaluator-token",
+        &local,
+    ]);
+    let said = s.said_within(" at version ");
+    assert!(said.contains("--create was given and"), "{said}");
+    assert!(said.contains("the last stop was not clean"), "{said}");
+    assert!(
+        said.contains("token is sent over plain http to http://192.0.2.1:1/verify"),
+        "{said}"
+    );
+    // a token to this machine's loopback goes unsaid
+    assert!(!said.contains("teller's token"), "{said}");
+    let mut stream = TcpStream::connect(&s.addr).expect("a connection");
+    write!(
+        stream,
+        "GET /metrics HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+    )
+    .expect("asked");
+    let mut metrics = String::new();
+    stream.read_to_string(&mut metrics).expect("the metrics");
+    assert!(
+        metrics.contains("objectflow_build_info{release=\""),
+        "{metrics}"
+    );
+    assert!(
+        metrics.contains("objectflow_start_time_seconds 1"),
+        "{metrics}"
+    );
+    let page = post(
+        &s,
+        "/v1/query",
+        &json!({"actor": {"id": "operator"}, "type": "Transfer", "filter": "((("}),
+    );
+    assert_eq!(page["refused"], "malformed_filter", "{page}");
+    assert!(
+        page["reason"]
+            .as_str()
+            .is_some_and(|r| r.starts_with("it does not parse")),
+        "{page}"
+    );
+    let page = post(
+        &s,
+        "/v1/metric",
+        &json!({"actor": {"id": "operator"}, "name": "Transfer.work_in_progress", "filter": "((("}),
+    );
+    assert_eq!(page["refused"], "malformed_filter", "{page}");
+    assert!(
+        page["reason"]
+            .as_str()
+            .is_some_and(|r| r.starts_with("it does not parse")),
+        "{page}"
+    );
+    // a clean stop, and a start that finds nothing to say of it
+    let pid = s.child.as_ref().expect("its process").id();
+    let sent = Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .status()
+        .expect("kill runs");
+    assert!(sent.success());
+    let mut s = s;
+    let status = s
+        .child
+        .as_mut()
+        .expect("its process")
+        .wait()
+        .expect("it exits");
+    assert!(status.success(), "{status}");
+    drop(s);
+    let s = start(&["--store", path, "--port", "0"]);
+    let said = s.said_within(" at version ");
+    assert!(!said.contains("not clean"), "{said}");
+    assert!(!said.contains("--create was given"), "{said}");
+    // an argument it does not take, said stamped
+    let out = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
+        .args(["--nonsense"])
+        .output()
+        .expect("it runs");
+    assert_eq!(out.status.code(), Some(2));
+    let first = String::from_utf8_lossy(&out.stderr)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        first.as_bytes().get(4) == Some(&b'-') && first.contains("no argument --nonsense"),
+        "{first}"
+    );
 }

@@ -1583,6 +1583,16 @@ def migration_pair_errors(prev, doc, library):
                 notes.append((("types", tn, "transitions", xn), "taken_by_dropped",
                               f"{tn}.{xn} is taken by [{', '.join(now)}], where the previous version allowed "
                               f"[{', '.join(was)}] (ADR-0189)"))
+    # the rules a version removes or rewrites, named to whoever approves it, so a draft making a guard always true
+    # is seen (fifth production review REVIEW-GAP, ADR-0191 decision 2)
+    for tn, t in new.items():
+        if tn in machines or tn not in old or t.get("abstract"):
+            continue
+        said = rules_changed(old[tn], t)
+        if said:
+            notes.append((("types", tn), "rule_changed",
+                          f"{tn}'s rules change against the previous version: {'; '.join(said)}; read each before approving "
+                          f"(ADR-0191)"))
     was, now = (sorted(kinds_named((d.get("publishing") or {}).get("taken_by"))) for d in (prev, doc))
     if was and not now:
         notes.append((("publishing",), "taken_by_dropped",
@@ -1593,6 +1603,36 @@ def migration_pair_errors(prev, doc, library):
                       f"publishing.taken_by is [{', '.join(now)}], where the previous version allowed "
                       f"[{', '.join(was)}] (ADR-0189)"))
     return fatal, notes
+
+
+def rules_changed(ot, t):
+    """What a type's rules lose against the previous version, each a phrase: its conditions and invariants removed or
+    rewritten, and its transitions' guards that refused and no longer do; none where nothing changes. What taken_by
+    generates is taken_by_dropped's to say."""
+    def text(spec):
+        return " ".join(str((spec or {}).get("expression") or "").split()) if isinstance(spec, dict) else ""
+
+    out = []
+    for key in ("conditions", "invariants"):
+        before = {n: x for n, x in (ot.get(key) or {}).items() if not (isinstance(x, dict) and TAKEN in x)}
+        after = {n: x for n, x in (t.get(key) or {}).items() if not (isinstance(x, dict) and TAKEN in x)}
+        gone = sorted(set(before) - set(after))
+        rewritten = sorted(n for n in set(before) & set(after) if text(before[n]) != text(after[n]))
+        if gone:
+            out.append(f"{key} removed: {', '.join(gone)}")
+        if rewritten:
+            out.append(f"{key} rewritten: {', '.join(rewritten)}")
+    lowered = []
+    for xn, ox in sorted((ot.get("transitions") or {}).items()):
+        x = (t.get("transitions") or {}).get(xn)
+        if not isinstance(ox, dict) or not isinstance(x, dict):
+            continue
+        for g, mode in sorted((ox.get("guards") or {}).items()):
+            if mode == "deny" and (x.get("guards") or {}).get(g) != "deny":
+                lowered.append(f"{xn}.{g}")
+    if lowered:
+        out.append(f"guards no longer refusing: {', '.join(lowered)}")
+    return out
 
 
 def kinds_named(given):
@@ -5347,6 +5387,30 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                for name, text in (("changed", after), ("unchanged", before))]
     hit = dropped == [["T.e is taken by", "T.t was taken by", "publishing.taken_by was"], []]
     ok &= hit
+    print(f"  planted a version dropping or widening who takes a transition or approves a version: "
+          f"{'noticed, and a narrowing not' if hit else 'MISSED ' + str(dropped)}")
+    # against the previous version, a condition or an invariant removed or rewritten and a guard no longer refusing
+    # are noticed, once for the type, and a version changing none of them is not (ADR-0191 decision 2)
+    ruled = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A record.\n    tracking: record\n"
+             "    attributes:\n      n: { type: int }\n"
+             "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
+             "    invariants:\n      small: { description: Small., expression: n < 10 }\n"
+             "      kept: { description: Kept., expression: n >= 0 }\n"
+             "    conditions:\n      big: { description: Big., expression: n > 5, remedy: self_serviceable }\n"
+             "      odd: { description: Odd., expression: n > 1, remedy: self_serviceable }\n"
+             "    transitions:\n      t: { kind: initial, to: S, required_inputs: [n] }\n"
+             "      e: { kind: external, from: S, to: E, guards: { big: deny, odd: deny } }\n")
+    loosened = (ruled.replace("expression: n > 5,", "expression: n > 5 or true,")
+                .replace("      small: { description: Small., expression: n < 10 }\n", "")
+                .replace("guards: { big: deny, odd: deny }", "guards: { big: deny, odd: warn }"))
+    changed = [[x[4] for x in check([("m.yaml", text)], {"m.yaml": ruled})[1] if x[3] == "rule_changed"]
+               for text in (loosened, ruled.replace("description: Big.", "description: Larger."))]
+    hit = (len(changed[0]) == 1 and changed[1] == []
+           and all(p in changed[0][0] for p in ("conditions rewritten: big", "invariants removed: small",
+                                                 "guards no longer refusing: e.odd")))
+    ok &= hit
+    print(f"  planted a version loosening a type's rules: "
+          f"{'noticed once, and not where only a description changes' if hit else 'MISSED ' + str(changed)}")
     # a source holding a bidirectional control is refused at its line, a byte-order mark at its start is not; and a
     # version with an agent kind and no publishing rule is noticed, one with the rule is not (ADR-0190 decisions 9, 10)
     shown = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A record.\n    tracking: record\n"
@@ -5410,8 +5474,6 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     hit = refused == []
     ok &= hit
     print(f"  planted a correction a type's taken_by holds to people: {'taken' if hit else 'REFUSED ' + str(refused)}")
-    print(f"  planted a version dropping or widening who takes a transition or approves a version: "
-          f"{'noticed, and a narrowing not' if hit else 'MISSED ' + str(dropped)}")
     # a type whose many transitions a person takes, each generating an invariant of who took it, still has its own
     # invariants' contradiction found: the generated ones, which nothing else reads, are left out of step 5 rather
     # than multiplying its cases past what it decides (ADR-0176)
