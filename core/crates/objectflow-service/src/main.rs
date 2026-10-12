@@ -4025,20 +4025,20 @@ async fn serve() -> std::io::Result<()> {
                 sandbox.due = Some(r);
             }
             _ => {
-                let mut s = Store::open(path, wall_clock())
-                    .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
-                // a store whose file is damaged does not start, a copy
-                // restored beside another state's -wal among them, which
-                // answered health while its reads failed (N5)
-                let checked = s
-                    .quick_check()
+                // the file and its log checked before anything opens them to
+                // write, so a refused start leaves both as they were, where it
+                // wrote another state's log into a restored copy (fourth
+                // production review A-16)
+                let checked = Store::checked_file(path)
                     .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
                 if let Some(fault) = checked {
                     return Err(std::io::Error::other(format!(
-                        "{} fails SQLite's quick check ({fault}); a copy restored beside the -wal or -shm of another state does this: restore the copy alone, with neither beside it (integrate.md §9)",
+                        "{} fails SQLite's quick check ({fault}); a copy restored beside the -wal or -shm of another state does this: nothing was written, so restore the copy alone, with neither beside it (integrate.md §9)",
                         path.display()
                     )));
                 }
+                let mut s = Store::open(path, wall_clock())
+                    .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
                 (s.attempt_retention, s.idempotency_retention) = a.retentions;
                 s.set_busy_timeout(busy)
                     .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;

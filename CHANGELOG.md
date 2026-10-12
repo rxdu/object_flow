@@ -60,6 +60,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Fixed
 
+- A start refused for a store failing SQLite's quick check leaves the store's file and its `-wal` as they were: the check runs before anything opens the store to write, on a connection that carries no log into the file as it closes, where a refused start wrote another state's `-wal` into a restored copy and deleted it (fourth production review).
 - A full disk answers a write `503 disk_full`, which a client may retry, where it answered `500`, and a fault of one code is written to the log at most once a second, the rest counted; every log line is stamped, the start's among them; a log no one reads holds one line and then drops lines, counted, so no request waits on it, where the service stopped at its next line; listening beyond loopback is said at the start; an evaluator's address is logged with its password hidden; what a run of short requests freed is given back once the service is idle (fourth production review).
 - A publish report shows each of the checks' findings, where it kept the first of each code, so a second module's notice or a second refusal of one code was never shown (D608).
 

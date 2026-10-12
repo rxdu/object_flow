@@ -1724,6 +1724,26 @@ impl Store {
         Ok(store)
     }
 
+    /// SQLite's quick check of a store's file read with the write-ahead log
+    /// beside it, before anything opens it to write: the first fault it
+    /// finds, none where it holds. Its connection carries no log into the
+    /// file as it closes, so a check that fails leaves the file and its log
+    /// as they were, where a refused start wrote another state's log into a
+    /// restored copy and deleted it, so the copy failed again once the log
+    /// was removed (fourth production review A-16).
+    pub fn checked_file(path: &std::path::Path) -> Stored<Option<String>> {
+        let conn = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.set_db_config(
+            rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+            true,
+        )?;
+        let first: String = conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
+        Ok((first != "ok").then_some(first))
+    }
+
     /// SQLite's quick check of the store's file read with its write-ahead
     /// log: the first fault it finds, none where it holds. A copy restored
     /// beside another state's `-wal` opened and answered health while its
@@ -4312,6 +4332,58 @@ mod tests {
     /// A deployment's store cuts its write-ahead log back to its limit when
     /// a checkpoint empties it, where the log grew to 792 MB beside a 133 MB
     /// store and stayed (third production review N6).
+    /// A store's file checked with the log beside it keeps both as they
+    /// were, where closing a connection carried the log into the file and
+    /// deleted it, as a plain connection still does (fourth production
+    /// review A-16).
+    #[test]
+    fn a_checked_store_keeps_its_file_and_log_as_they_were() {
+        let dir = std::env::temp_dir().join(format!("objectflow-checked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("store.sqlite");
+        drop(Store::open(&path, 0).unwrap());
+        // a write the log holds, which no close carries into the file
+        {
+            let w = Connection::open(&path).unwrap();
+            w.set_db_config(
+                rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+                true,
+            )
+            .unwrap();
+            w.execute_batch("PRAGMA wal_autocheckpoint = 0; CREATE TABLE later (x); INSERT INTO later VALUES (1);")
+                .unwrap();
+        }
+        let wal = dir.join("store.sqlite-wal");
+        let file = std::fs::read(&path).unwrap();
+        let log = std::fs::read(&wal).unwrap();
+        assert!(!log.is_empty(), "a log to keep");
+        assert_eq!(Store::checked_file(&path).unwrap(), None);
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            file,
+            "the check changed the file"
+        );
+        assert_eq!(
+            std::fs::read(&wal).unwrap(),
+            log,
+            "the check changed the log"
+        );
+        // as a plain connection's close does not
+        drop(
+            Connection::open(&path)
+                .unwrap()
+                .query_row("PRAGMA quick_check(1)", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+        );
+        drop(Connection::open(&path).unwrap());
+        assert!(
+            std::fs::read(&path).unwrap() != file || !wal.exists(),
+            "a plain close carried nothing, so the test shows nothing"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_deployments_write_ahead_log_is_cut_back() {
         let dir = std::env::temp_dir().join(format!("of-wal-limit-{}", std::process::id()));
