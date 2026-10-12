@@ -18,7 +18,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      # pinned by commit, as every action is: a tag can be moved under a
+      # workflow, a commit cannot (fifth production review, ADR-0191)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # no credential left in the checkout for a later step to read
+          persist-credentials: false
       - name: The core's dependencies against the RustSec advisory database
         working-directory: core
         run: |

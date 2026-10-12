@@ -4,24 +4,32 @@
 # checked against the tag, and published with its SHA-256 checksum as the
 # tag's GitHub release; the release is the author's act (core/README.md,
 # "Releases"). A release that tested nothing and needed no passed check was
-# the third production review's finding.
+# the third production review's finding. The build reads and the publish
+# alone writes, so nothing the build runs holds a token that can change the
+# repository (fifth production review, ADR-0191 decision 7).
 name: release
 
 on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
-  checks: read
+permissions: {}
 
 jobs:
-  release:
+  build:
     # the oldest Ubuntu supported, so the binary runs on it and later ones
     runs-on: ubuntu-22.04
     timeout-minutes: 60
+    permissions:
+      contents: read
+      checks: read
     steps:
-      - uses: actions/checkout@v4
+      # pinned by commit, as every action is: a tag can be moved under a
+      # workflow, a commit cannot (fifth production review, ADR-0191)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # no credential left in the checkout for a later step to read
+          persist-credentials: false
       - name: The tagged commit's check has passed
         env:
           GH_TOKEN: ${{ github.token }}
@@ -38,7 +46,7 @@ jobs:
         run: |
           channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
           rustup toolchain install "$channel" --profile minimal
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.10"
       - name: The scripts' Python environment, which the core's parity tests read
@@ -65,10 +73,28 @@ jobs:
           tar czf "$name.tar.gz" "$name"
           sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
           cat "$name.tar.gz.sha256"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: objectflow-service-*.tar.gz*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+      - name: Its checksum, as built
+        run: sha256sum -c objectflow-service-*.tar.gz.sha256
       - name: The GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" \
             --notes "What it changed is in CHANGELOG.md; verify the archive with sha256sum -c." \
             objectflow-service-*.tar.gz objectflow-service-*.tar.gz.sha256
