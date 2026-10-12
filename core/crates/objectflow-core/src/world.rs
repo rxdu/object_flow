@@ -554,6 +554,19 @@ impl<'l> World<'l> {
             .map_or(stored, |e| e.position.max(stored)))
     }
 
+    /// The last transaction number the store has handed out, an attempt's
+    /// cursor; none bounds it where no store is read.
+    pub fn last_txn(&self) -> Result<i64, crate::eval::NotRun> {
+        match self.conn {
+            Some(conn) => crate::store::read_counter(conn, "txn").map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the store's transaction counter, which could not be read: {e}"
+                ))
+            }),
+            None => Ok(i64::MAX),
+        }
+    }
+
     /// An object's first event's position, none where it has none.
     pub fn first_position(&self, id: &str) -> Result<Option<i64>, crate::eval::NotRun> {
         if self.stored.get().is_some() || self.conn.is_none() {

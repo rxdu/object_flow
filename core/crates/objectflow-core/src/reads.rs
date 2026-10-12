@@ -412,6 +412,53 @@ fn misread_reference(lib: &Library, t: &Type, e: &Expr) -> bool {
 /// state and a member by name); text with a number; a number with text; a
 /// truth with anything but a truth. Such a comparison is never true, or
 /// cannot be made, so the filter is refused rather than answered empty.
+/// Whether a filter reads what no stored object answers, so that it is
+/// unknown for every object and the page answered empty: an evaluator, which
+/// a read never asks; the request's `actor`, `inputs` or `this_event`, which
+/// a read has none of; or a division by a literal zero (D580, fourth
+/// production review A-10).
+fn unanswerable(lib: &Library, t: &Type, e: &Expr) -> bool {
+    let here = match e {
+        Expr::Call(f, _) => matches!(&**f, Expr::Path(base, m)
+            if matches!(&**base, Expr::Name(ns)
+                if lib.evaluators.iter().any(|x| x.split_once('.') == Some((ns.as_str(), m.as_str()))))),
+        Expr::Name(n) => {
+            matches!(n.as_str(), "actor" | "inputs" | "this_event") && t.attribute(n).is_none()
+        }
+        Expr::Bin(BinOp::Div, _, d) => matches!(&**d, Expr::Num(n) if zero(n)),
+        _ => false,
+    };
+    here || e.children().into_iter().any(|c| unanswerable(lib, t, c))
+}
+
+/// Whether a number written in an expression is zero.
+fn zero(n: &crate::expr::Number) -> bool {
+    match n {
+        crate::expr::Number::Int(i) => *i == 0,
+        crate::expr::Number::Decimal(d) => d.bytes().all(|b| matches!(b, b'0' | b'.' | b'-')),
+    }
+}
+
+/// Whether a literal of a filter is past what its type holds, a money of
+/// 5,000 digits or a duration of 10^15 weeks, which every object's
+/// evaluation answered not run, or a type with no object answered empty
+/// (fourth production review A-10).
+fn literal_out_of_range(world: &World<'_>, t: &Type, e: &Expr) -> Result<bool, NotRun> {
+    if matches!(e, Expr::Num(_) | Expr::Money(..) | Expr::Dur(..)) {
+        return match Evaluator::new(world, Some(t), None).eval(e) {
+            Err(NotRun::Unsupported(_)) => Ok(true),
+            Err(other) => Err(other),
+            Ok(_) => Ok(false),
+        };
+    }
+    for c in e.children() {
+        if literal_out_of_range(world, t, c)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn mistyped_literal(lib: &Library, t: &Type, e: &Expr) -> bool {
     // the declared type of the member a name or a path reads, where it is
     // a stored scalar or the state
@@ -529,6 +576,8 @@ pub fn query_page(
         None => None,
         Some(Ok(e)) if misread_reference(world.lib, t, &e) => return refuse("malformed_filter"),
         Some(Ok(e)) if mistyped_literal(world.lib, t, &e) => return refuse("malformed_filter"),
+        Some(Ok(e)) if unanswerable(world.lib, t, &e) => return refuse("malformed_filter"),
+        Some(Ok(e)) if literal_out_of_range(world, t, &e)? => return refuse("malformed_filter"),
         Some(Ok(e)) => Some(e),
         Some(Err(_)) => return refuse("malformed_filter"),
     };
@@ -580,8 +629,9 @@ pub fn query_page(
         .map(|f| required_columns(world.lib, type_, f))
         .unwrap_or_default();
     // whether the filter selects an object; none where it compares what its
-    // values cannot, such as a derived time with text, which refuses the
-    // filter as malformed rather than the read as not run (D580)
+    // values cannot, such as a derived time with text, or a time computed
+    // past what one holds, which refuses the filter as malformed rather than
+    // the read as not run (D580, fourth production review A-10)
     let selects = |o: &Object| -> Result<Option<bool>, NotRun> {
         let Some(ot) = world.lib.type_(&o.type_) else {
             return Err(NotRun::Unsupported(format!("the type {}", o.type_)));
@@ -1357,6 +1407,98 @@ types:
         assert_eq!(refused(r#"customer.id == "customer-1""#), None);
         assert_eq!(refused(r#"customer.name == "Ana""#), None);
         assert_eq!(refused("customer == customer"), None);
+    }
+
+    /// A filter no stored object can answer, an evaluator's, the request's
+    /// `actor`, `inputs` or `this_event`, or a division by a literal zero, is
+    /// refused malformed where it was answered empty, and one with a literal
+    /// past its type's range where it was not run (D580, fourth production
+    /// review A-10).
+    #[test]
+    fn a_filter_no_object_can_answer_is_malformed() {
+        const LEDGER: &str = r#"
+module: ledger
+categories: [live]
+evaluators:
+  bank:
+    description: The bank.
+    functions:
+      known:
+        description: Whether the bank knows the payee.
+        arguments:
+          payee: { type: string }
+types:
+  Payment:
+    attributes:
+      payee: { type: string }
+      amount: { type: money(USD) }
+      count: { type: int }
+    states: { DUE: { category: live } }
+    transitions:
+      add: { kind: initial, to: DUE, required_inputs: [payee, amount, count] }
+  Refund:
+    attributes:
+      amount: { type: money(USD) }
+    states: { DUE: { category: live } }
+    transitions:
+      add: { kind: initial, to: DUE, required_inputs: [amount] }
+"#;
+        let lib = Library::load(&[("ledger.yaml".into(), LEDGER.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let r = Request {
+            transition: "add".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Payment".into()),
+            inputs: [
+                ("payee".to_string(), json!("Ana")),
+                ("amount".to_string(), json!("USD 5.00")),
+                ("count".to_string(), json!(2)),
+            ]
+            .into_iter()
+            .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        request(&mut s, &r).unwrap().unwrap();
+        let w = s.snapshot().unwrap();
+        let refused = |f: &str| query(&w, "Payment", Some(f), &[], None).unwrap().refused;
+        let malformed = Some("malformed_filter".to_string());
+        let huge = format!("amount > USD {}", "9".repeat(5000));
+        for f in [
+            "bank.known(payee)",
+            r#"actor.kind == "human""#,
+            "inputs.count > 1",
+            "count / 0 > 1",
+            "count / 0.00 > 1",
+            huge.as_str(),
+            "created_at < now + 999999999999999 weeks",
+        ] {
+            assert_eq!(refused(f), malformed, "{}", &f[..f.len().min(60)]);
+        }
+        // a value past its range only once computed on an object, and a
+        // literal past it on a type with no object, which no object's
+        // evaluation reaches
+        assert_eq!(
+            refused("created_at + 9223372036854775807 seconds > now"),
+            malformed
+        );
+        let empty = query(&w, "Refund", Some(huge.as_str()), &[], None).unwrap();
+        assert_eq!(empty.refused, malformed);
+        assert_eq!(refused("count / 2 > 0"), None);
+        assert_eq!(refused(r#"payee == "Ana""#), None);
+        assert_eq!(
+            query(&w, "Payment", Some("count / 2 > 0"), &[], None)
+                .unwrap()
+                .items
+                .len(),
+            1
+        );
     }
 
     fn setup() -> (Store, String) {

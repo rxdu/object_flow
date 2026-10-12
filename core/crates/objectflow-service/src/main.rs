@@ -521,6 +521,21 @@ fn reading_until(shared: &Shared, until: std::time::Instant) -> Result<Reading<'
     Ok(Reading::Own(Some(Box::new(store)), reads))
 }
 
+/// A fault's reason as the log says it, at most 1 KiB of it, where a filter
+/// of 1.9 MB was written whole into one line (fourth production review
+/// A-10).
+fn said(message: &str) -> std::borrow::Cow<'_, str> {
+    const MOST: usize = 1024;
+    if message.len() <= MOST {
+        return message.into();
+    }
+    let mut end = MOST;
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}… ({} bytes)", &message[..end], message.len()).into()
+}
+
 /// The refusal of everything but the upgrade on a store due one.
 fn due(at: &str) -> Fault {
     Fault::Mismatch(format!(
@@ -565,9 +580,10 @@ impl IntoResponse for Fault {
         // of the answer, its route and status alone, does not (OBSERVE-2)
         if status.is_server_error() {
             eprintln!(
-                "{} fault {}: {message}",
+                "{} fault {}: {}",
                 timestamp_text(wall_clock()),
-                status.as_u16()
+                status.as_u16(),
+                said(&message)
             );
         }
         (status, Json(json!({ "fault": message }))).into_response()
@@ -3708,6 +3724,17 @@ mod tests {
             disk_free(std::path::Path::new("/no/such/volume/here")),
             None
         );
+    }
+
+    /// A fault's reason is said in the log at most 1 KiB long, cut on a
+    /// character's boundary, where a filter of 1.9 MB was written whole
+    /// (fourth production review A-10).
+    #[test]
+    fn a_faults_reason_is_said_bounded() {
+        assert_eq!(said("short"), "short");
+        let long = "é".repeat(1000);
+        let cut = said(&long);
+        assert!(cut.len() < 1100 && cut.ends_with("… (2000 bytes)"), "{cut}");
     }
 
     /// A read that grows with the store waits for its turn within its

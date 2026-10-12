@@ -1191,6 +1191,9 @@ def test_an_invalid_input_says_why_alike(tee):
     assert why(amount="1500.00") == {"amount": "malformed"}
     assert why(amount="SGD 20.00") == {"amount": "wrong_currency"}
     assert why(amount="USD 1.234") == {"amount": "malformed"}
+    # nothing around an amount, as a date is read (fourth production review)
+    for spaced in ("USD  20.00", "USD 20.00 ", " USD 20.00"):
+        assert why(amount=spaced) == {"amount": "malformed"}, spaced
     assert why(amount="USD 99999999999999999999.00") == {
         "amount": "out_of_range"}
     assert why(expense_date="2025-02-30") == {"expense_date": "malformed"}

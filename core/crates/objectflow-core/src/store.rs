@@ -1075,6 +1075,21 @@ pub(crate) fn read_log_after(
     rows.collect()
 }
 
+/// The digest an idempotency record holds once an erasure redacted what its
+/// request sent: the key replays its verdict whatever is sent under it
+/// (fourth production review A-5).
+pub const ERASED_DIGEST: &str = "erased";
+
+/// A counter's value: the last position, transaction or object number
+/// the store has handed out.
+pub(crate) fn read_counter(conn: &Connection, name: &str) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT value FROM of_counter WHERE name = ?1",
+        params![name],
+        |r| r.get(0),
+    )
+}
+
 /// The log's last position, 0 for an empty log.
 pub(crate) fn read_last_position(conn: &Connection) -> rusqlite::Result<i64> {
     conn.query_row("SELECT COALESCE(MAX(position), 0) FROM of_event", [], |r| {
@@ -2089,9 +2104,16 @@ impl Store {
         let refusal = {
             let world = self.snapshot()?;
             match world.get(subscription)? {
-                Some(s) if s.type_ == crate::model::SUBSCRIPTION => {
-                    (s.state == "REVOKED").then(|| "revoked".to_string())
+                Some(s) if s.type_ == crate::model::SUBSCRIPTION && s.state == "REVOKED" => {
+                    Some("revoked".to_string())
                 }
+                // a cursor of the log's, from 0, which replays it from the
+                // start, to its last position, where any integer was taken
+                // and one past the log skipped every later event (fourth
+                // production review A-12)
+                Some(s) if s.type_ == crate::model::SUBSCRIPTION => (cursor < 0
+                    || cursor > world.last_position()?)
+                .then(|| "invalid_cursor".to_string()),
                 _ => Some("unknown".to_string()),
             }
         };
@@ -4167,6 +4189,14 @@ fn write(
             "UPDATE of_event SET payload = json_set(payload, ?2, json('null')) \
              WHERE position = ?1 AND json_type(payload, ?2) IS NOT NULL",
             params![position, path],
+        )?;
+        // the key of the request that sent it replays its verdict whatever
+        // is sent under it, so its digest confirms no guess of what was
+        // erased (fourth production review A-5)
+        tx.execute(
+            "UPDATE of_idempotency SET request_digest = ?2 WHERE first_position = \
+             (SELECT MIN(position) FROM of_event WHERE txn = (SELECT txn FROM of_event WHERE position = ?1))",
+            params![position, ERASED_DIGEST],
         )?;
     }
     for (id, dimension, entered) in &change.redacted_spans {

@@ -193,6 +193,9 @@ pub fn decode(
                 t if t.starts_with("decimal(") => {
                     let (digits, scale) = precision_and_scale(t).ok_or_else(wrong)?;
                     let d = match v {
+                        // nothing around the digits, as a date is read
+                        // strictly (fourth production review A-12)
+                        Json::String(s) if s.trim() != s => return Err(malformed()),
                         Json::String(s) => Decimal::parse(s).ok_or_else(malformed)?,
                         Json::Number(n) if n.is_f64() => return Err(wrong()),
                         Json::Number(n) => n.as_i64().map(Decimal::from_int).ok_or_else(|| {
@@ -212,6 +215,12 @@ pub fn decode(
                     })?;
                     let s = v.as_str().ok_or_else(wrong)?;
                     let (ccy, amount) = s.split_once(' ').ok_or_else(malformed)?;
+                    // a currency, one space and an amount, nothing around
+                    // them, as a date is read strictly (fourth production
+                    // review A-12)
+                    if amount.trim() != amount {
+                        return Err(malformed());
+                    }
                     let d = Decimal::parse(amount).ok_or_else(malformed)?;
                     if ccy != currency {
                         return Err(NotOfType(
@@ -416,6 +425,18 @@ mod tests {
             why(json!("SGD 5.00"), "money(USD)"),
             Some(InputReason::WrongCurrency)
         );
+        for spaced in ["USD  1500.00", "USD 1500.00 ", " USD 1500.00"] {
+            assert_eq!(
+                why(json!(spaced), "money(USD)"),
+                Some(InputReason::Malformed),
+                "{spaced}"
+            );
+        }
+        assert_eq!(
+            why(json!(" 1.00"), "decimal(12,2)"),
+            Some(InputReason::Malformed)
+        );
+        assert_eq!(why(json!("1.00"), "decimal(12,2)"), None);
         assert_eq!(
             why(json!("99999999999999999999"), "int"),
             Some(InputReason::OutOfRange)

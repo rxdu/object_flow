@@ -35,8 +35,8 @@ A value is JSON's own where JSON keeps it exactly, and otherwise a string in the
 | `bool` | a boolean | `true` |
 | `int` | a number within ±(2⁵³ − 1), else a string of digits | `3` |
 | `string`, an identity | a string of at most 64 KiB in UTF-8, past which it is `out_of_range`; never U+0000 | `"Taxis"` |
-| `decimal(p,s)` | a string, at most `s` places and `p` digits in all, past which an input is `out_of_range` and an effect's write refused `value_in_range` | `"19.90"` |
-| `money(CCC)` | a string, the currency and the amount, at most its minor unit's places | `"USD 19.99"` |
+| `decimal(p,s)` | a string with nothing around its digits, at most `s` places and `p` digits in all, past which an input is `out_of_range` and an effect's write refused `value_in_range` | `"19.90"` |
+| `money(CCC)` | a string, the currency, one space and the amount, at most its minor unit's places, nothing around them | `"USD 19.99"` |
 | `timestamp` | RFC 3339 at UTC, `Z` or `+00:00`, to the second or the minute, each field its digits exactly, no fraction of a second | `"2026-10-04T09:30:00Z"` |
 | `date` | `YYYY-MM-DD` exactly, the year 0001 to 9999 | `"2026-10-04"` |
 | `duration` | a count and a unit | `"30 min"`, `"2 days"` |
@@ -101,7 +101,7 @@ POST /v1/request
 ```
 
 - `expected_version`, the version the caller read, refuses the request `stale` if the object has moved (ADR-0023).
-- `idempotency_key`, at most 256 bytes, makes a retry safe: the same request under the same key, from the same actor, answers its first verdict, `replayed: true`; a different request under it is a `409` fault. A key is the actor's: another actor's request under the same key is a request of its own, so a retry queue sends under the identity the first request named.
+- `idempotency_key`, at most 256 bytes, makes a retry safe: the same request under the same key, from the same actor, answers its first verdict, `replayed: true`; a different request under it is a `409` fault. Once an erasure has redacted what the request sent, the key answers its first verdict whatever is sent under it, so it confirms no guess of the erased value (fourth production review). A key is the actor's: another actor's request under the same key is a request of its own, so a retry queue sends under the identity the first request named.
 - `propose: true` files the request as a `Proposal` instead of taking it, for a transition marked `proposable`; the verdict names the proposal, and a person approves it with `{"object_id": "<proposal>", "transition": "approve"}`, which takes the request as the approver.
 - `context`, at most 16 KiB, is the caller's reason, kept with the event, and kept through an erasure, which erases only values marked `personal`: never put personal data in it (production review F7).
 
@@ -120,7 +120,7 @@ POST /v1/request
 | `tools` | `actor_kind` | `{"tools": [...]}`: each `{name, description, input_schema}` an agent of that kind is handed, sorted by name (`renderers.md` §3) |
 | `metric` | `actor`, `name`, `bind`, `keep`, `over`, `filter`, `cursor` | `{"rows": [{"dimensions": …, "value": …}], "flags": [...], "history_complete": …, "refused": null}` |
 | `lookup` | `actor`, `source`, `value` | the object an external identifier names (`source` an external system, or `legacy` with `"<Type>:<key>"`), or `null` |
-| `export` | `actor`, `source`, `cursor`, `limit` | `{"lines": [...], "cursor": …}`: JSON lines of `log`, the event log, an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, personal values left out |
+| `export` | `actor`, `source`, `cursor`, `limit` | `{"lines": [...], "cursor": …}`: JSON lines of `log`, the event log, an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, personal values left out; `refused: "invalid_cursor"` for a cursor past what the store has handed out |
 | `diagnostics` | `actor`, `type`, `window` | `{"diagnostics": [...]}`: where the flow and its record disagree |
 
 An **object**:
@@ -166,7 +166,7 @@ A **query filter** is an expression over the type's members (`declaration-syntax
 
 **Pages** (ADR-0179): `query`, `available`, `pull` and `export` answer at most `limit` items, 1 to 1000, **100 unless asked**, with the `cursor` of the next page, `null` where it is the last; send the cursor back, with the same read, until it is `null`. A cursor continues only the read it came from: another `query` or `available` refuses it `malformed_cursor`. A page goes on after the last object given, in the read's order, so an object created between pages is met once and none twice, unless an object's order key changes between pages. `pull` pages by its settled cursor and `export` by its own, each a position in a log that grows, so neither is ever `null`: a page with fewer than `limit` items is the end of what is there now, and the cursor kept reads what is added later (ADR-0089); a metric's read and `exceptions` answer one page.
 
-**Filters and order.** A `filter` is an expression of the flow's language over the type's members (`declaration-syntax.md` §8): a state or an enumeration's member by name (`state == Claim.SUBMITTED`), a reference by its id (`claim.id == "claim-4"`), money, numbers and text as literals, and a time against `now` (`submitted_at <= now - 30 days`), since there is no timestamp literal. A filter comparing a member with a literal its type cannot hold, a time with text, a name with a number, the state with text, is refused `malformed_filter` rather than answered empty (D580), and so is a filter nested deeper than 64 levels or with a tree deeper than 128: a long list of alternatives is written `number in {"C-1", "C-2", …}`, not as a chain of `or`s. `order` is a key or a list of keys, each an indexed attribute, `created_at` or `entered_at(<tracked member>)`, ascending unless followed by ` desc`, the id breaking ties and an absent value last; any other key is refused `unknown_order_key` (ADR-0127).
+**Filters and order.** A `filter` is an expression of the flow's language over the type's members (`declaration-syntax.md` §8): a state or an enumeration's member by name (`state == Claim.SUBMITTED`), a reference by its id (`claim.id == "claim-4"`), money, numbers and text as literals, and a time against `now` (`submitted_at <= now - 30 days`), since there is no timestamp literal. A filter comparing a member with a literal its type cannot hold, a time with text, a name with a number, the state with text, is refused `malformed_filter` rather than answered empty (D580), as is one no stored object can answer, calling an evaluator, reading the request's `actor`, `inputs` or `this_event`, or dividing by a literal zero, and one with a literal past what its type holds, rather than answered not run (fourth production review), and so is a filter nested deeper than 64 levels or with a tree deeper than 128: a long list of alternatives is written `number in {"C-1", "C-2", …}`, not as a chain of `or`s. `order` is a key or a list of keys, each an indexed attribute, `created_at` or `entered_at(<tracked member>)`, ascending unless followed by ` desc`, the id breaking ties and an absent value last; any other key is refused `unknown_order_key` (ADR-0127).
 
 ### Subscriptions
 
@@ -175,7 +175,7 @@ A subscription is an object: `{"actor": …, "type": "Subscription", "transition
 | Operation | Keys | Answers |
 |---|---|---|
 | `pull` | `actor`, `subscription`, `cursor`, `limit` | `{"events": [...], "settled": "<cursor>", "refused": null}` |
-| `acknowledge` | `actor`, `subscription`, `cursor` | `{"refused": null}`: everything up to the settled cursor is handled |
+| `acknowledge` | `actor`, `subscription`, `cursor` | `{"refused": null}`: everything up to the settled cursor is handled; `invalid_cursor` for a cursor below 0 or past the log's last, 0 replaying the log from its start |
 
 There is no push: a consumer polls `pull` and acknowledges what it has handled.
 

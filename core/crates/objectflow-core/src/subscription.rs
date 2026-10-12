@@ -167,6 +167,46 @@ mod tests {
     use crate::verdict::Verdict;
     use serde_json::{Value as Json, json};
 
+    /// An acknowledgement of a cursor the log never had, past its last
+    /// position or below 0, is refused, where one past the log skipped
+    /// every later event, and 0 still replays it from the start; and an
+    /// export's cursor past the log or the attempts is
+    /// refused, where a forged one answered an empty page for ever (fourth
+    /// production review A-12).
+    #[test]
+    fn a_cursor_the_store_never_handed_out_is_refused() {
+        let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        req(&mut s, "Repair", "open", None, json!({"title": "before"}));
+        let sub = req(
+            &mut s,
+            "Subscription",
+            "subscribe",
+            None,
+            json!({"target_type": "Repair"}),
+        );
+        req(&mut s, "Repair", "open", None, json!({"title": "after"}));
+        let w = s.snapshot().unwrap();
+        let (first, last) = (
+            w.first_position(&sub).unwrap().unwrap(),
+            w.last_position().unwrap(),
+        );
+        for source in ["log", "Repair.transitions", "Repair.attempts"] {
+            let far = (last + 1_000_000).to_string();
+            let page = crate::export::export_page(&w, source, Some(&far), 10).unwrap();
+            assert_eq!(page.refused.as_deref(), Some("invalid_cursor"), "{source}");
+        }
+        let page = crate::export::export_page(&w, "log", Some(&first.to_string()), 10).unwrap();
+        assert_eq!(page.refused, None);
+        drop(w);
+        let invalid = Some("invalid_cursor".to_string());
+        assert_eq!(s.acknowledge(&sub, last + 1).unwrap(), invalid);
+        assert_eq!(s.acknowledge(&sub, -1).unwrap(), invalid);
+        assert_eq!(s.acknowledge(&sub, last).unwrap(), None);
+        assert_eq!(s.acknowledge(&sub, first).unwrap(), None);
+        assert_eq!(s.acknowledge(&sub, 0).unwrap(), None);
+    }
+
     /// A page of the feed reads from its cursor, never the whole log nor
     /// every object: a pull with nothing new took 1.3 s and 640 MB on six
     /// years, an export page about 5 s whatever its size (fourth production

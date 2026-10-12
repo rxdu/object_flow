@@ -4750,7 +4750,10 @@ pub fn request_told(
             None => None,
         };
         if let (Some((_, key)), Some((applied, recorded))) = (&keyed, &held) {
-            if *applied != digest {
+            // a request whose inputs an erasure redacted is matched by its
+            // key alone, so the key confirms no guess (fourth production
+            // review A-5)
+            if *applied != digest && applied != crate::store::ERASED_DIGEST {
                 return Err(NoVerdict::KeyReused { key: key.clone() });
             }
             let v = replayed_verdict(recorded)?;
@@ -8316,6 +8319,68 @@ types:
             request(&mut s, &keyed).unwrap(),
             Err(NoVerdict::KeyReused { key: "k".into() })
         );
+    }
+
+    /// After an erasure redacts what a keyed request sent, the request sent
+    /// again under its key replays its verdict whatever it carries, so the
+    /// key confirms no guess of the erased value; before it, another
+    /// request under the key is refused (fourth production review A-5).
+    #[test]
+    fn an_erased_requests_key_confirms_no_guess() {
+        const CRM: &str = r#"
+module: crm
+categories: [live]
+types:
+  Contact:
+    attributes:
+      title: { type: string }
+      name: { type: string, optional: true, personal: true }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [title], optional_inputs: [name] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+        let lib = Library::load(&[("crm.yaml".into(), CRM.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let keyed = |name: &str| Request {
+            transition: "add".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Contact".into()),
+            inputs: [
+                ("title".to_string(), json!("Lead")),
+                ("name".to_string(), json!(name)),
+            ]
+            .into_iter()
+            .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            principal: None,
+            idempotency_key: Some("k".into()),
+            context: None,
+        };
+        let id = created(&request(&mut s, &keyed("Dana")).unwrap().unwrap());
+        assert_eq!(
+            request(&mut s, &keyed("Ana")).unwrap(),
+            Err(NoVerdict::KeyReused { key: "k".into() })
+        );
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&id, false),
+            json!({"reason": "asked"}),
+        ));
+        for guess in ["Dana", "Ana"] {
+            let again = request(&mut s, &keyed(guess)).unwrap();
+            assert!(
+                matches!(&again, Ok(Verdict::Satisfied { object_id, .. }) if *object_id == id),
+                "{guess}: {again:?}"
+            );
+        }
     }
 
     /// The store's operator (ADR-0126, ADR-0134): its creation, `install`,

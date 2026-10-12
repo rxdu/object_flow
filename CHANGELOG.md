@@ -8,6 +8,9 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes that may refuse what 0.2.0 accepted
 
+- A money input is a currency, one space and an amount, and a decimal one its digits, with nothing around them, as a date is read: `"USD  1.00"`, `"USD 1.00 "` and `" 1.00"` are `malformed`, in both backends, where they were taken (fourth production review).
+- A query filter calling an evaluator, reading the request's `actor`, `inputs` or `this_event`, or dividing by a literal zero is refused `malformed_filter`, where it answered an empty page, and one with a literal past its type's range, where it answered `501` (fourth production review).
+- `acknowledge` refuses `invalid_cursor` a cursor below 0 or past the log's last, where any integer was taken and one past the log skipped every later event; `export` refuses one past what the store has handed out, where a forged one answered an empty page for ever (fourth production review).
 - An agent's generated tools offer a transition only where its `taken_by`, or its type's, names `agent`, and any other only for proposing where it is proposable: an agent held to its tools takes only what the flow names it for, where it was handed every transition a flow left open; the wire is as the flow says (ADR-0189). A flow whose agents take transitions names `agent` on them, as `reimbursement.yaml`'s `suggest_nature` now does.
 - The reads that grow with the store, `query`, `available`, `metric`, `exceptions`, `diagnostics`, `pull`, `export` and a change's dry run, run at most `--max-reads` at once, 4 unless given, a read waiting its turn within its deadline and answered `503 read_timeout` past it, where any number ran at once and 32 metrics on six years took 3.3 GB (ADR-0189).
 - The operator's retirement is refused `not_requestable`, as its creation is, where it was irreversible (ADR-0184).
@@ -71,6 +74,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Security
 
+- An idempotency key whose request an erasure redacted answers its first verdict whatever is sent under it, where it answered `409` to a wrong guess of the erased value and replayed the right one (fourth production review). A fault's reason is written to the log at most 1 KiB long, where a filter of 1.9 MB was written whole.
 - A release's workflow refuses a tag whose commit's `check-all` has not passed, and runs the core's and the service's tests on the runner that builds the binary it ships (third production review).
 - A store `--create` makes is `0600`, its `-wal` and `-shm` too; the service says at its start where a store's file is readable by others.
 - An evaluator's failure is logged by its function, never its arguments or the endpoint's answer.

@@ -3659,8 +3659,10 @@ def input_fault(spec, v, enums):
     if typ.startswith("money("):
         if not isinstance(v, str):
             return "wrong_type"
-        code, _, amount = v.strip().rpartition(" ")
-        if not code.strip() or not NUMBER.fullmatch(amount):
+        # a currency, one space and an amount, nothing around them, as a date is read strictly (fourth production
+        # review A-12)
+        code, _, amount = v.rpartition(" ")
+        if v != v.strip() or not code or code != code.strip() or not NUMBER.fullmatch(amount):
             return "malformed"
         if code.strip() != typ[len("money("):-1]:
             return "wrong_currency"
@@ -3668,7 +3670,7 @@ def input_fault(spec, v, enums):
     if typ.startswith("decimal("):
         if isinstance(v, bool):
             return "wrong_type"
-        text = str(v).strip()
+        text = str(v)
         if not NUMBER.fullmatch(text):
             return "malformed"
         return held_fault(text, int(typ.rstrip(")").rsplit(",", 1)[1]), precision_of(typ))

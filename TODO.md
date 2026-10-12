@@ -309,7 +309,19 @@ Found 2026-10-12 at `092f644` (`production-review.md` §8).
 - [x] **READS** concurrent heavy reads bounded in number and so in memory, and `integrate.md`'s sizing measured against them (Author question 14). *Done 2026-10-12 (ADR-0189 decision 2): `--max-reads`, 4 unless given, over the nine reads that grow with the store, a read waiting its turn within its own deadline; sixteen metrics at once on six years peaked at 1.15 GB, eight answered, where with the bound lifted to 64 they peaked at 1.9 GB and none answered (`a_heavy_read_waits_its_turn_within_its_deadline`, `only_the_reads_that_grow_with_the_store_wait_their_turn`, `a_deployments_edges_are_said`; five mutations each failing them).*
 - [x] **AGENTS-OPEN** an agent's bounds where a flow declares none (Author question 13). *Done 2026-10-12 (ADR-0189 decision 1): an agent's tools offer only what names `agent`, any other for proposing only, in both backends; the checkers' notices `agent_open` and `taken_by_dropped`, the core's held word for word by the oracle; `reimbursement.yaml`'s `suggest_nature` names `agent` (`test_an_agent_is_handed_only_what_its_flow_names_it_for`, the plants; six mutations each failing them).*
 - [ ] `reimbursement.yaml`'s agent may still take nine of a claim's transitions and three of a line's on the wire, as its `agent_open` notice says, though the sample says it never commits a financial write: name who takes them, or mark the types `taken_by: [human, service]`, and its examples kept passing.
-- [ ] The minors of `production-review.md` §8; `--help` naming `--evaluator-token` is done (ADR-0189's change).
+- [~] The minors of `production-review.md` §8:
+  - [x] a filter no object can answer, or with a literal past its type, refused `malformed_filter` where it answered empty or `501`; a fault's reason logged at most 1 KiB (`a_filter_no_object_can_answer_is_malformed`, `a_faults_reason_is_said_bounded`).
+  - [x] `acknowledge` and `export` refuse a cursor the store never handed out (`a_cursor_the_store_never_handed_out_is_refused`).
+  - [x] money and decimals read with nothing around them, in both backends (`a_value_refused_says_why`, `test_an_invalid_input_says_why_alike`).
+  - [x] an erased request's idempotency key confirms no guess (`an_erased_requests_key_confirms_no_guess`).
+  - [x] `--help` names `--evaluator-token` (ADR-0189's change).
+  - [x] the `record` offer said never takeable: checked 2026-10-12, not a defect: the offer names what it creates, `label`, and `{"type": "label", "transition": "record"}` is satisfied; the reviewer asked for `Label`, which no flow declares.
+  - [x] an external identifier differing from its legacy key: not a defect: the legacy key is the import's own identifier space, `legacy:<type>:<key>`, beside a mirror's declared one, and the two need not agree.
+  - [ ] the service: start lines stamped, a warning beyond loopback, a full disk `503 disk_full`, a store file moved or replaced refused, `/health` for a blocked log and stalled writes, a fault's `code`, an evaluator URL's password hidden, `sd_notify`, a metrics listener, refusal kinds, evaluator failures and a latency histogram in `/metrics`, memory given back when idle.
+  - [ ] an erasure reading only the events it walks, by the log's indexes.
+  - [ ] the `-wal` cut back under reads that always overlap, and after an erasure.
+  - [ ] import findings for a timestamp before 1970 or after the store's clock, in both backends.
+  - [ ] the README's "not yet for production", the author's at the release cut.
 
 **Questions for the author** (2026-10-12), each with a recommendation, all three decided as recommended the same day ("go with your recommendations on questions 13, 14 and 15", ADR-0189), `main` protected through `gh api`:
 

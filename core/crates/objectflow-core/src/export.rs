@@ -64,6 +64,17 @@ pub fn export_page(
             _ => return refuse("invalid_cursor"),
         },
     };
+    // a cursor past what the store has handed out is none of its own, where
+    // a forged one answered an empty page and was kept, so a consumer waited
+    // for ever unsaid (fourth production review A-12)
+    let last = if source.ends_with(".attempts") {
+        world.last_txn()?
+    } else {
+        world.last_position()?
+    };
+    if after > last {
+        return refuse("invalid_cursor");
+    }
     let mut rows: Vec<(i64, Json)> = if source == "log" {
         // a page of the log read from the cursor, each event's object
         // fetched as its row is written, where every page read the whole log

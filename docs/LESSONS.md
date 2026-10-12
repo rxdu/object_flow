@@ -543,3 +543,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** I ran `grep` over the gates' summary and `git commit` in one chained command, so the commit ran whatever the summary said: the gates had reported `FAILED core` (a library test asserting the answer `no_retention` replaced), and `d813e62` was committed failing; the fix followed in its own commit.
 - **Correction:** Read the gates' summary in one call; commit in the next, only on "every gate passed". Never chain `git commit` after a command whose output decides whether to commit.
 - **Context:** ObjectFlow's `scripts/check-all` before each commit, run in the background; 2026-10-12.
+
+### A mutation that matched nothing passed as a surviving mutant
+- **Pattern:** A mutant applied with `sed` against a line `cargo fmt` had since rewrapped matched nothing, so the file was unchanged and its test passed, read at first as a mutant the test missed (2026-10-12, the fourth review's minors).
+- **Correction:** Apply every mutant by a script that asserts its pattern matched once, as the Python edits do, and match across whitespace (`\s*`) where a formatter may have wrapped the line; a mutant that did not apply is reported, never run.
+- **Context:** Mutation checks over Rust formatted by rustfmt; any formatter.
