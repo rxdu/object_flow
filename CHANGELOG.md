@@ -4,11 +4,12 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased, toward 1.0.0
 
-Release 1.0.0 is held until a second production review, on the same 36.7k-object store as the first, finds no blocker or major (ADR-0183 decision 1; `docs/design/production-review.md`).
+Release 1.0.0 is held until a production review, on the same 36.7k-object store as the first, finds no blocker or major (ADR-0183 decision 1; `docs/design/production-review.md`); the first two found some.
 
 ### Changes that may refuse what 0.2.0 accepted
 
 - The operator's retirement is refused `not_requestable`, as its creation is, where it was irreversible (ADR-0184).
+- An effect whose arithmetic of present values has no value, an integer past 64 bits, a negation of the least or a division by zero among them, refuses its request as the generated clause `value_in_range`, `unsatisfied` with the remedy `unreachable_from_here`, naming the object, where the core answered `501 not run` and the reference runner stored the value; a condition may not be named `value_in_range` (ADR-0185, production review F5). The least integer leaves the wire as a string, as every integer past 2⁵³ does, where a release build sent it as a number (D601).
 - `events` takes 1,000 positions at most.
 - A file that holds something other than a store, another application's database among them, is refused with `--create` too, where it was given the store's tables and served.
 - A description nesting its collections deeper than 64 levels is refused, a `yaml` finding, where 300,000 levels aborted the service (D598).

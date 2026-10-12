@@ -612,6 +612,9 @@ Findings from every review of this design. It began as the implementation-readin
 | [D598](#d598) | A module's YAML nesting was unbounded | Resolved |
 | [D599](#d599) | The core's check copied the library for each type | Resolved |
 | [D600](#d600) | A submit's dry run ran under the writer's lock | Resolved |
+| [D601](#d601) | The least integer's magnitude overflowed in the core's encoders | Resolved |
+| [D602](#d602) | The reference runner refused the least integer as an input | Resolved |
+| [D603](#d603) | The reference runner held a string-carried integer input as a string | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3899,3 +3902,18 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **A submit's dry run ran under the writer's lock**: `submit` and `refresh` computed the change's dry run in the request's transaction, so every write waited for it: 4 s for one attribute on the 37k-object store, 83 s for a module of 3,000 types an agent may draft and submit. Found 2026-10-11 by the second production review's adversary (DRYRUN-LOCK).
 
 **Resolved** 2026-10-11: a deployment's service computes it on a read beside the writes (`publish::prepare`) and the request records it where the change and the store's version are what the read saw, computing it again otherwise (`a_submit_takes_a_prepared_dry_run_only_where_nothing_moved`, `a_submits_dry_run_holds_no_write`, each mutation-checked); 766 writes ran beside a 3,000-type submit of 8.6 s, the slowest 0.04 s. An approval still computes the dry run again under the lock, as it must to install what it checked: about 5 s for one attribute on 37k objects.
+
+### D601
+**The least integer's magnitude overflowed in the core's encoders**: the wire's `encode` and the duration's text took an `i64`'s magnitude by `abs()`, which has no value for the least integer, -2⁶³. A debug build panicked; a release build, which does not check overflow, wrapped it to a negative, so the least integer left the wire as a bare JSON number where `wire.md` says an integer past 2⁵³ leaves as a string, and a duration of -2⁶³ seconds was written with the plural unit. Found 2026-10-12 writing F5's test, whose object was opened with the least integer.
+
+**Resolved** 2026-10-12: both take the magnitude unsigned (`an_int_leaves_json_past_the_safe_range`, the duration's text among it, mutation-checked).
+
+### D602
+**The reference runner refused the least integer as an input**: its bound, `abs(v) <= 2**63 - 1`, excluded -2⁶³, which the core admits as a 64-bit integer, so the same request was refused `invalid input` by one backend and taken by the other. Found 2026-10-12 writing F5's comparison test.
+
+**Resolved** 2026-10-12: the runner admits `-2**63 <= v <= 2**63 - 1`, as the core does (`test_an_effects_arithmetic_past_its_bound_is_refused_alike`, mutation-checked).
+
+### D603
+**The reference runner held a string-carried integer input as a string**: an `int` or `counter` input past 2⁵³, which the wire carries as a string, was converted to check its bound and then stored as the string it arrived as, so an expression over it raised a type error and the runner answered `500` where the core answered. Found 2026-10-12 writing F5's comparison test.
+
+**Resolved** 2026-10-12: the runner holds it as the integer (`test_an_effects_arithmetic_past_its_bound_is_refused_alike`, mutation-checked).

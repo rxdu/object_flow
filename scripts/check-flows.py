@@ -4145,7 +4145,7 @@ EXAMPLE_CLOCK = "2026-01-01T00:00:00Z"   # the instant every example's clock sta
 EXAMPLES_ORDER = ["examples_for", "setups", "examples"]
 # the guards the engine generates, which an example may expect to refuse (DESIGN.md §6)
 GENERATED_GUARDS = {"actor_known", "actor_active", "occurred_within", "whole_open", "not_erased", "subject_open", "corrects_current",
-                    "subject_owned", "successor_not_superseded"}
+                    "subject_owned", "successor_not_superseded", "value_in_range"}
 DATE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")   # a date as an example writes it (ADR-0145)
 BUILT_IN_MEMBERS = {"id", "open", "created_at", "created_by_kind", "recorded_from", "declaration_version"}
 EXAMPLE_OUTCOMES = []      # each example step 6 ran, with its outcome, for the summary a file check prints
@@ -4801,6 +4801,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
         ("a misspelt key", "schema", "service.yaml", plant(service, "        guards:\n", "        guard:\n")),
         ("a guard on no declared condition", "names", "service.yaml",
          plant(service, "          engineer_active: deny", "          engineer_is_active: deny")),
+        ("a condition named after a generated guard", "names", "service.yaml",
+         service.replace("photo_attached:", "value_in_range:")),
         ("a guard listed twice", "yaml", "service.yaml",
          plant(service, "          photo_attached: audit\n", "          photo_attached: audit\n          photo_attached: warn\n")),
         ("a description nested past its bound", "yaml", "service.yaml",

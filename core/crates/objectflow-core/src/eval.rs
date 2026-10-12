@@ -197,6 +197,11 @@ pub struct Evaluator<'a> {
     /// guard's remedy temporal (ADR-0138), or a metric it consults none of
     /// was read.
     pub unanswered: std::cell::Cell<bool>,
+    /// Whether an arithmetic of present values had no value: an integer, a
+    /// duration or an amount past its bound, or a division by zero, which
+    /// a guard reads as unknown and an effect refuses as `value_in_range`
+    /// (ADR-0185).
+    pub failed_arithmetic: std::cell::Cell<bool>,
     /// Whether a metric is computed where it is read: a dry run consults
     /// none, a metric's read left unanswered as an evaluator's call is
     /// (`publish-and-import.md` §1 step 3, D537).
@@ -319,6 +324,7 @@ impl<'a> Evaluator<'a> {
             event: None,
             answers: None,
             unanswered: std::cell::Cell::new(false),
+            failed_arithmetic: std::cell::Cell::new(false),
             metrics: true,
             committed: None,
             reading: None,
@@ -533,16 +539,26 @@ impl<'a> Evaluator<'a> {
                 let v = truth(&self.value(inner, env)?)?;
                 Term::Value(v.map_or(Value::Absent, |b| Value::Bool(!b)))
             }
-            Expr::Neg(inner) => Term::Value(match self.value(inner, env)? {
-                Value::Absent => Value::Absent,
-                Value::Int(n) => n.checked_neg().map_or(Value::Absent, Value::Int),
-                Value::Decimal(d) => d.checked_neg().map_or(Value::Absent, Value::Decimal),
-                Value::Duration(s) => s.checked_neg().map_or(Value::Absent, Value::Duration),
-                Value::Money { currency, amount } => match amount.checked_neg() {
-                    Some(amount) => Value::Money { currency, amount },
-                    None => Value::Absent,
-                },
-                other => return not_run(format!("negating {other:?}")),
+            Expr::Neg(inner) => Term::Value({
+                let v = self.value(inner, env)?;
+                let negated = match &v {
+                    Value::Absent => Value::Absent,
+                    Value::Int(n) => n.checked_neg().map_or(Value::Absent, Value::Int),
+                    Value::Decimal(d) => d.checked_neg().map_or(Value::Absent, Value::Decimal),
+                    Value::Duration(s) => s.checked_neg().map_or(Value::Absent, Value::Duration),
+                    Value::Money { currency, amount } => match amount.checked_neg() {
+                        Some(amount) => Value::Money {
+                            currency: currency.clone(),
+                            amount,
+                        },
+                        None => Value::Absent,
+                    },
+                    other => return not_run(format!("negating {other:?}")),
+                };
+                if negated.is_absent() && !v.is_absent() {
+                    self.failed_arithmetic.set(true);
+                }
+                negated
             }),
             Expr::IsNull(inner, negated) => {
                 let v = self.value(inner, env)?;
@@ -880,7 +896,17 @@ impl<'a> Evaluator<'a> {
         }
         let a = self.value(l, env)?;
         let b = self.value(r, env)?;
-        combine(op, &a, &b)
+        self.combined(op, &a, &b)
+    }
+
+    /// [`combine`], an arithmetic of present values with no value noted as
+    /// failed.
+    fn combined(&self, op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
+        let v = combine(op, a, b)?;
+        if v.is_absent() && !a.is_absent() && !b.is_absent() {
+            self.failed_arithmetic.set(true);
+        }
+        Ok(v)
     }
 
     /// The states a scan's filter requires of the object it binds to the
@@ -1261,7 +1287,7 @@ impl<'a> Evaluator<'a> {
                         return Ok(Value::Int(0));
                     };
                     for v in iter {
-                        total = combine(BinOp::Add, &total, &v)?;
+                        total = self.combined(BinOp::Add, &total, &v)?;
                     }
                     return Ok(total);
                 }

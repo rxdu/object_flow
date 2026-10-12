@@ -1769,3 +1769,75 @@ def test_a_proposals_inputs_are_answered_as_json_alike(tee):
     assert proposal["attributes"]["inputs"] == {}, proposal["attributes"]
     alike(tee)
 
+
+
+BOUNDED = """module: tally
+categories: [live, closed]
+types:
+  Tally:
+    description: A count.
+    tracking: record
+    attributes:
+      n: { type: int }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    conditions:
+      small: { description: Small., expression: n * 2 < 100, remedy: unreachable_from_here }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [n] }
+      add:
+        kind: internal
+        from: OPEN
+        inputs: { by: { type: int } }
+        effect:
+          - assign: { location: n, expr: n + inputs.by }
+      halve:
+        kind: internal
+        from: OPEN
+        inputs: { by: { type: int } }
+        effect:
+          - assign: { location: n, expr: n / inputs.by }
+      negate:
+        kind: internal
+        from: OPEN
+        effect:
+          - assign: { location: n, expr: -n }
+      check: { kind: internal, from: OPEN, guards: { small: deny } }
+      close: { kind: external, from: OPEN, to: DONE }
+"""
+
+
+def test_an_effects_arithmetic_past_its_bound_is_refused_alike(tee):
+    """An effect whose integer arithmetic passes 64 bits, or divides by
+    zero, refuses its request as the generated clause value_in_range, naming
+    its object, alike through both backends, where the core stopped 501 and
+    the runner, its integers unbounded, stored the value; a guard over the
+    same arithmetic stays unknown and refuses (production review F5,
+    ADR-0185)."""
+    loaded = tee.post("/sandbox/load", {"files": [
+        {"name": "tally.yaml", "text": BOUNDED}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    opened = tee.post("/v1/request", {"transition": "open", "actor": OP, "type": "Tally",
+                                      "inputs": {"n": 9223372036854775000}})
+    assert opened["kind"] == "satisfied", opened
+    t = opened["object_id"]
+
+    least = tee.post("/v1/request", {"transition": "open", "actor": OP, "type": "Tally",
+                                     "inputs": {"n": "-9223372036854775808"}})
+    assert least["kind"] == "satisfied", least
+
+    def take(xn: str, oid: str = t, **inputs) -> dict:
+        return tee.post("/v1/request", {"transition": xn, "actor": OP, "object_id": oid, "inputs": inputs})
+
+    for xn, oid, inputs in (("add", t, {"by": 10000}), ("halve", t, {"by": 0}),
+                            ("negate", least["object_id"], {})):
+        v = take(xn, oid, **inputs)
+        assert (v["kind"], v.get("clause"), v.get("remedy"), v.get("objects")) == (
+            "unsatisfied", "value_in_range", "unreachable_from_here", [oid]), v
+    guarded = take("check")
+    assert (guarded["kind"], guarded.get("clause"), guarded.get("unknown")) == ("unsatisfied", "small", True), guarded
+    assert take("add", by=7)["kind"] == "satisfied"
+    alike(tee)

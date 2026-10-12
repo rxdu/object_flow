@@ -267,7 +267,7 @@ pub fn duration_text(seconds: i64) -> String {
     for (one, many, size) in UNITS {
         if seconds % size == 0 && (seconds != 0 || size == 1) {
             let n = seconds / size;
-            return format!("{n} {}", if n.abs() == 1 { one } else { many });
+            return format!("{n} {}", if n.unsigned_abs() == 1 { one } else { many });
         }
     }
     format!("{seconds} s")

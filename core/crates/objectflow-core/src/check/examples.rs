@@ -40,6 +40,7 @@ const GENERATED_GUARDS: &[&str] = &[
     "corrects_current",
     "subject_owned",
     "successor_not_superseded",
+    "value_in_range",
 ];
 const BUILT_IN_MEMBERS: &[&str] = &[
     "id",

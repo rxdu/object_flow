@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-29: "accept all three", on the recommendations put the same day.
 - **Date:** 2026-09-29
-- **Refined by:** ADR-0144 — a further generated guard, `successor_not_superseded`, with the remedy `self_serviceable`.
+- **Refined by:** ADR-0144 — a further generated guard, `successor_not_superseded`, with the remedy `self_serviceable`; ADR-0185 — a further generated guard, `value_in_range`, with the remedy `unreachable_from_here`, refusing an effect's arithmetic past its bound.
 - **Refines:** ADR-0038 (cascades apply sequentially), ADR-0049 (external evaluators), ADR-0122 (a flow recoverable from its description), ADR-0136 (examples)
 - **Relates to:** PRD F4; `DESIGN.md` §5.5, §6; `flow-format.md` §4.8, §4.18, §11.3; `declaration-syntax.md` §5.1
 

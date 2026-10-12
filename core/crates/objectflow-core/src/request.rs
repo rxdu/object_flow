@@ -3470,7 +3470,7 @@ fn effect_value(
     position: i64,
     e: &Expr,
     filtering: bool,
-) -> Result<Value, NotRun> {
+) -> Result<Value, Stop> {
     let ev = Evaluator::new(&ctx.work, Some(t), Some(id))
         .with_committed(&ctx.before)
         .with_inputs(inputs)
@@ -3478,10 +3478,22 @@ fn effect_value(
         .with_answers(&ctx.answers)
         .with_event(position);
     if filtering {
-        ev.filtering().eval_in(e, env)
-    } else {
-        ev.eval_in(e, env)
+        return Ok(ev.filtering().eval_in(e, env)?);
     }
+    let v = ev.eval_in(e, env)?;
+    // an effect's value an arithmetic left with none, past its bound or a
+    // division by zero, refuses the request, naming its object, where it
+    // stopped as not run (production review F5, ADR-0185)
+    if v.is_absent() && ev.failed_arithmetic.get() {
+        return refused_naming(
+            Verdict::Unsatisfied {
+                clause: "value_in_range".into(),
+                remedy: Some(Remedy::UnreachableFromHere),
+            },
+            id,
+        );
+    }
+    Ok(v)
 }
 
 /// The place in creation order of each object among a loop's items, read
@@ -3739,7 +3751,7 @@ fn arguments(
     env: &BTreeMap<String, Value>,
     position: i64,
     binds: &[(String, Expr)],
-) -> Result<BTreeMap<String, Value>, NotRun> {
+) -> Result<BTreeMap<String, Value>, Stop> {
     let mut out = BTreeMap::new();
     for (k, e) in binds {
         if unsupplied(e, inputs) {
@@ -9062,5 +9074,113 @@ types:
         let page =
             crate::reads::available_page(&w, OPERATOR, "Operator", "retire", None, 10).unwrap();
         assert_eq!(page.refused.as_deref(), Some("not_requestable"));
+    }
+
+    const TALLY: &str = "module: tally
+categories: [live, closed]
+types:
+  Tally:
+    description: A count.
+    tracking: record
+    attributes:
+      n: { type: int }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    conditions:
+      small: { description: Small., expression: n * 2 < 100, remedy: unreachable_from_here }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [n] }
+      add:
+        kind: internal
+        from: OPEN
+        inputs: { by: { type: int } }
+        effect:
+          - assign: { location: n, expr: n + inputs.by }
+      negate:
+        kind: internal
+        from: OPEN
+        effect:
+          - assign: { location: n, expr: -n }
+      halve:
+        kind: internal
+        from: OPEN
+        inputs: { by: { type: int } }
+        effect:
+          - assign: { location: n, expr: n / inputs.by }
+      check: { kind: internal, from: OPEN, guards: { small: deny } }
+";
+
+    /// An effect whose arithmetic of present values has none, an integer
+    /// past 64 bits, a negation of the least or a division by zero, refuses
+    /// its request as `value_in_range`, naming its object and storing
+    /// nothing, where it stopped not run; a guard over the same arithmetic
+    /// stays unknown (production review F5, ADR-0185).
+    #[test]
+    fn an_effects_arithmetic_past_its_bound_is_refused() {
+        let lib = Library::load(&[("tally.yaml".into(), TALLY.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let told = |s: &mut Store, xn: &str, id: &str, inputs: Json| {
+            let mut r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: Some(id.into()),
+                type_: None,
+                inputs: Default::default(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            r.inputs = inputs
+                .as_object()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
+            request_told(s, &r).unwrap().unwrap()
+        };
+        let big = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Tally", true),
+            json!({"n": i64::MAX - 5}),
+        ));
+        let least = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Tally", true),
+            json!({"n": i64::MIN}),
+        ));
+        for (xn, id, inputs) in [
+            ("add", &big, json!({"by": 6})),
+            ("negate", &least, json!({})),
+            ("halve", &big, json!({"by": 0})),
+        ] {
+            let (v, t) = told(&mut s, xn, id, inputs);
+            assert!(
+                matches!(&v, Verdict::Unsatisfied { clause, remedy: Some(Remedy::UnreachableFromHere) } if clause == "value_in_range"),
+                "{xn}: {v:?}"
+            );
+            assert_eq!(t.objects, vec![id.clone()], "{xn}");
+        }
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.get(&big).unwrap().unwrap().attrs.get("n"),
+            Some(&crate::value::Value::Int(i64::MAX - 5))
+        );
+        let (v, t) = told(&mut s, "check", &big, json!({}));
+        assert!(
+            matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "small"),
+            "{v:?}"
+        );
+        assert!(t.unknown);
+        let (v, _) = told(&mut s, "add", &big, json!({"by": 5}));
+        assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
     }
 }

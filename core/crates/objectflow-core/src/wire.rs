@@ -271,7 +271,9 @@ pub fn encode(v: &Value) -> Json {
     match v {
         Value::Absent => Json::Null,
         Value::Bool(b) => json!(b),
-        Value::Int(n) if n.abs() <= SAFE_INT => json!(n),
+        // the least integer has no positive counterpart, so its magnitude
+        // is taken unsigned rather than wrapped to a negative (F5)
+        Value::Int(n) if n.unsigned_abs() <= SAFE_INT as u64 => json!(n),
         Value::Int(n) => json!(n.to_string()),
         Value::Decimal(d) => json!(d.to_string()),
         Value::Money { currency, amount } => json!(format!("{currency} {amount}")),
@@ -426,6 +428,14 @@ mod tests {
         assert_eq!(
             encode(&Value::Int(SAFE_INT + 1)),
             json!((SAFE_INT + 1).to_string())
+        );
+        // the least integer, which has no positive counterpart, past the
+        // safe range as its negation would be (F5)
+        assert_eq!(encode(&Value::Int(-SAFE_INT)), json!(-SAFE_INT));
+        assert_eq!(encode(&Value::Int(i64::MIN)), json!("-9223372036854775808"));
+        assert_eq!(
+            crate::value::duration_text(i64::MIN),
+            "-9223372036854775808 s"
         );
     }
 }

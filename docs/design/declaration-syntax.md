@@ -1321,7 +1321,7 @@ Every attribute type of §3.1, and four more that only expressions have, plus `i
 
 ### 8.2 Absence, and why a guard can be unknown
 
-An expression yields a value of its type **or `unknown`**. Reading an absent optional attribute yields `unknown`, and so do reading an unsupplied optional input and dividing by zero.
+An expression yields a value of its type **or `unknown`**. Reading an absent optional attribute yields `unknown`, and so do reading an unsupplied optional input, dividing by zero and an arithmetic past its type's bound: an `int` past 64 bits, a decimal or an amount past 38 digits, a duration, a time or a date past its range.
 
 - Any operator with an `unknown` operand yields `unknown`, with three exceptions.
 - `is null` and `is not null` always yield `bool`. They are the only way to test presence.
@@ -1336,6 +1336,7 @@ The places an expression is evaluated each need an answer, and they are not the 
 | a **derivation** | absent, so a reader of the derived attribute sees the same absence that produced it |
 | a **filter** in a metric's `from` or `count(where …)`, in an aggregate over a row's own collections inside a metric's value, in a reader's `filter` argument to `metric()`, or in a `for` of an outcome | the element is not selected, as a SQL `WHERE` leaves out a row (ADR-0103, ADR-0106). Inside a guard, an invariant or a derivation, an aggregate is not a place of its own: an element whose filter is `unknown` makes `all`, `any` and `none` unknown unless another element decides them, and `count`, `sum`, `min` and `max` unknown, so a guard over it fails closed and an erased approver cannot satisfy `none(a in approvals where a.approver == inputs.approver)` (ADR-0047). *(Corrected 2026-09-30: the example compared with `actor.id`, which check 64 refuses in a guard since ADR-0114.)* |
 | a metric's **flag** | not raised, and reported as unknown on its group, so a reader can tell a figure it cannot judge from one within bounds (ADR-0146) |
+| an **effect**'s expression: a `set`, a call's or a creation's argument, a `for`'s collection, an `if`'s condition | where an arithmetic of present values left it unknown, the request is refused as the generated guard `value_in_range`, `unsatisfied` with the remedy `unreachable_from_here`, naming the object, since a value past its bound cannot be stored and wrapping it would store a wrong one (ADR-0185); otherwise an argument is not passed, and a `set` stops its request `not run`, since only an unsupplied optional input, whose step is skipped, may leave a written value absent |
 
 This is the trap the language most invites, so it is worth stating in the shape it arrives in. `derive serious = severity == Severity.SEVERE or outcome == Outcome.FATAL`, where `outcome` is absent until the case closes, is `unknown` for a mild case rather than `false`. A later guard `require routine: not serious` is then `unknown`, and the transition can never be taken by anyone. Write the presence test: `severity == Severity.SEVERE or (outcome is not null and outcome == Outcome.FATAL)`. Publishing reports, without failing, every guard and every filter whose value can be `unknown` through an optional it does not test (ADR-0103); the flow checker reports each as the notice `unknown` (`flow-format.md` §7).
 

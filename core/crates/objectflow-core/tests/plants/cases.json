@@ -1780,6 +1780,73 @@
   }
  },
  {
+  "label": "self_test: a condition named after a generated guard",
+  "files": [
+   [
+    "people.yaml",
+    "ed616a83e6085b5b"
+   ],
+   [
+    "service.yaml",
+    "c715f740507fd724"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    86,
+    "fatal",
+    "names",
+    "'value_in_range' is the name of a guard the engine generates, so a refusal naming it would not say which it was; choose another name"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "value_in_range is audited: its failures are recorded and it refuses nothing"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
   "label": "self_test: a guard listed twice",
   "files": [
    [

@@ -679,6 +679,7 @@ class Evaluator:
         self.filter_mode = filter_mode          # a filter leaves out an element it cannot decide (§8.2)
         self.committed = committed              # the store as the request found it, which a metric guard reads (ADR-0084)
         self.unanswered = False                 # an evaluator it asked did not answer (ADR-0138)
+        self.failed_arithmetic = False          # an arithmetic of present values with none, as the core's (ADR-0185)
         self.t = store.kinds.get(tn) or {}
         self.naming = None                      # where the objects a refusing clause names are noted (DESIGN.md §5.5)
 
@@ -915,7 +916,7 @@ class Evaluator:
             return ABSENT if v is ABSENT else not v
         if k == "neg":
             v = self.value(e[1], env)
-            return ABSENT if v is ABSENT else -v
+            return ABSENT if v is ABSENT else self.bounded(v, 0, -v) if isinstance(v, int) else -v
         if k == "isnull":
             v = self.value(e[1], env)
             return (v is ABSENT) != e[2]
@@ -980,19 +981,26 @@ class Evaluator:
             return a != b
         if op in ("<", "<=", ">", ">="):
             return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
-        if op == "+":
-            return a + b
-        if op == "-":
-            return a - b
-        if op == "*":
-            return a * b
+        if op in ("+", "-", "*"):
+            r = a + b if op == "+" else a - b if op == "-" else a * b
+            return self.bounded(a, b, r)
         if op == "/":
             if b == 0:
+                self.failed_arithmetic = True
                 return ABSENT
             if isinstance(a, int) and isinstance(b, int):
-                return int(Fraction(a, b))          # int / int discards the remainder (§8.3)
+                return self.bounded(a, b, int(Fraction(a, b)))   # int / int discards the remainder (§8.3)
             return Fraction(a) / Fraction(b)
         raise NotRunnable(f"the operator {op}")
+
+    def bounded(self, a, b, r):
+        """An integer result within 64 bits, as the core's; past them it has no value, which a guard reads as unknown and
+        an effect refuses as value_in_range (ADR-0185)."""
+        ints = all(isinstance(x, int) and not isinstance(x, bool) for x in (a, b))
+        if ints and not -2 ** 63 <= r <= 2 ** 63 - 1:
+            self.failed_arithmetic = True
+            return ABSENT
+        return r
 
     @staticmethod
     def dates(op, a, b):
@@ -1862,6 +1870,8 @@ class Runner:
             return Fraction(int(n)) * SECONDS[unit]
         if typ.startswith(("decimal", "money")):
             return Fraction(str(v))
+        if typ in ("int", "counter") and isinstance(v, str):
+            return int(v)   # an integer past 2^53, which the wire carries as a string (wire.md), held as the integer
         return v
 
     def owner_end(self, spec):
@@ -2472,8 +2482,14 @@ class Runner:
         attrs = (self.kinds.get(tn) or {}).get("attributes") or {}
 
         def ev(tree, filtering=False):
-            return Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs, filter_mode=filtering,
-                             event=ctx.position_of.get(o.id)).value(tree, env)
+            asking = Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs, filter_mode=filtering,
+                               event=ctx.position_of.get(o.id))
+            v = asking.value(tree, env)
+            # an effect's value an arithmetic left with none, past 64 bits or a division by zero, refuses the request,
+            # naming its object, as the core does (production review F5, ADR-0185)
+            if v is ABSENT and asking.failed_arithmetic and not filtering:
+                raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
+            return v
 
         def unsupplied(tree):
             # a write whose right-hand side is an unsupplied optional input is skipped (DESIGN.md §5.4)
@@ -3596,7 +3612,7 @@ def input_fault(spec, v, enums):
             if not re.fullmatch(r"-?[0-9]+", v):
                 return "malformed"
             v = int(v)
-        return None if abs(v) <= 2 ** 63 - 1 else "out_of_range"
+        return None if -2 ** 63 <= v <= 2 ** 63 - 1 else "out_of_range"   # 64 bits, the least included, as the core's
     if typ == "timestamp":
         if isinstance(v, datetime.datetime):
             return None
