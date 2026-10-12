@@ -48,6 +48,11 @@ impl StoreError {
         self.0.starts_with(ENGINE_MISMATCH)
     }
 
+    /// Whether the store's volume was full.
+    pub fn is_disk_full(&self) -> bool {
+        self.0.starts_with(DISK_FULL)
+    }
+
     /// Whether a write found the store's write lock held past the busy
     /// timeout and its retries (ADR-0178 decision 2), which a request
     /// answers `stale`, cause `retries_exhausted`.
@@ -55,6 +60,10 @@ impl StoreError {
         self.0.starts_with(BUSY)
     }
 }
+
+/// What a write the store's full volume stopped is refused with, before its
+/// reason.
+pub const DISK_FULL: &str = "disk_full";
 
 /// What a write that met the store's lock past its busy timeout and every
 /// retry is refused with, before its reason.
@@ -163,6 +172,13 @@ pub fn release_fingerprint() -> String {
 
 impl From<rusqlite::Error> for StoreError {
     fn from(e: rusqlite::Error) -> StoreError {
+        // a full volume, which a client may retry once space is freed,
+        // told apart from the store's own faults (fourth production review)
+        if let rusqlite::Error::SqliteFailure(f, _) = &e
+            && f.code == rusqlite::ErrorCode::DiskFull
+        {
+            return StoreError(format!("{DISK_FULL}: {e}"));
+        }
         StoreError(e.to_string())
     }
 }

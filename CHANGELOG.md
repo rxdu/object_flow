@@ -38,6 +38,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Added
 
+- `--metrics-bind <host:port>`, serving `GET /metrics` and `GET /health` alone; `sd_notify` `READY=1` and `STOPPING=1` for a unit of `Type=notify`; a fault's `code` beside its reason, which a client branches on; `/health`'s `503` for a store file moved or replaced (`store_replaced`, every write refused alike), a blocked log (`log_blocked`) and writes stalled behind another process's lock (`writes_stalled`); `/metrics`' verdicts by kind, evaluator failures, dropped log lines and a duration histogram by route (fourth production review).
 - The checker's notices `agent_open`, for each module's transitions an agent may take on the wire where the version declares an agent kind of actor, and `taken_by_dropped`, for a `taken_by` or `publishing` rule a version drops or widens against the previous one, in both checkers (ADR-0189).
 - `--max-reads <n>` and `/metrics`' `objectflow_reads_running`, `objectflow_reads_waiting` and `objectflow_reads_most` (ADR-0189); `--help` names `--evaluator-token` and `--max-reads`, where it lacked the first (fourth production review).
 - `--evaluator-token <name>=<file>`: an evaluator's bearer token, read at start from a file its owner alone reads and sent with every call, never logged; `/health`'s `disk_free_bytes` and `/metrics`' `objectflow_disk_free_bytes`, the free space on the store's volume (ADR-0188).
@@ -58,6 +59,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Fixed
 
+- A full disk answers a write `503 disk_full`, which a client may retry, where it answered `500`, and a fault of one code is written to the log at most once a second, the rest counted; every log line is stamped, the start's among them; a log no one reads holds one line and then drops lines, counted, so no request waits on it, where the service stopped at its next line; listening beyond loopback is said at the start; an evaluator's address is logged with its password hidden; what a run of short requests freed is given back once the service is idle (fourth production review).
 - A publish report shows each of the checks' findings, where it kept the first of each code, so a second module's notice or a second refusal of one code was never shown (D608).
 
 ### Performance

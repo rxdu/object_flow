@@ -80,11 +80,12 @@ fn start(args: &[&str]) -> Service {
     let mut stderr = BufReader::new(child.stderr.take().expect("its stderr"));
     let mut line = String::new();
     stderr.read_line(&mut line).expect("its first line");
+    // the line stamped, as every line is
     let addr = line
         .trim()
-        .strip_prefix("listening on http://")
-        .unwrap_or_else(|| panic!("the service did not start: {line}"))
-        .to_string();
+        .split_once("listening on http://")
+        .map(|(_, addr)| addr.to_string())
+        .unwrap_or_else(|| panic!("the service did not start: {line}"));
     Service {
         child: Some(child),
         addr,
@@ -850,9 +851,10 @@ fn the_service_listens_on_a_unix_socket() {
         let mut stderr = BufReader::new(child.stderr.take().expect("its stderr"));
         let mut line = String::new();
         stderr.read_line(&mut line).expect("its first line");
-        assert_eq!(
-            line.trim(),
-            format!("listening on unix:{}", socket.display())
+        assert!(
+            line.trim()
+                .ends_with(&format!(" listening on unix:{}", socket.display())),
+            "{line}"
         );
         Service {
             child: Some(child),
@@ -3033,4 +3035,303 @@ fn a_filter_past_the_parsers_bounds_is_refused_and_the_service_answers_on() {
     }
     let (status, _) = call(&s, "GET", "/health", None);
     assert_eq!(status, 200);
+}
+
+/// What the service's operator is told (fourth production review): every
+/// line stamped, the start's among them; listening beyond loopback said;
+/// an evaluator's password never written, its failed calls counted; each
+/// verdict's kind and each route's durations in `/metrics`; a fault's code
+/// beside its reason; and `/metrics` and `/health` alone on an address of
+/// their own.
+#[test]
+fn an_operator_is_told_what_the_service_does() {
+    let file = fresh_store("told");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--bind",
+        "0.0.0.0:0",
+        "--metrics-bind",
+        "127.0.0.1:0",
+        "--evaluator",
+        "bank=http://teller:s3cret@127.0.0.1:1/verify",
+        "--evaluator-timeout",
+        "1 s",
+    ]);
+    let said = s.said_within("metrics and health on http://");
+    assert!(said.contains("listening beyond loopback"), "{said}");
+    assert!(
+        said.contains("asked at http://teller:***@127.0.0.1:1/verify"),
+        "{said}"
+    );
+    assert!(!said.contains("s3cret"), "{said}");
+    // every line stamped: a timestamp, then what was said
+    for line in said.lines() {
+        assert!(
+            line.as_bytes().get(4) == Some(&b'-') && line.contains('T'),
+            "{line}"
+        );
+    }
+    let metrics_at = said
+        .lines()
+        .find_map(|l| {
+            l.split_once("metrics and health on http://")
+                .map(|(_, a)| a.trim().to_string())
+        })
+        .expect("the metrics address");
+    publish(&s, &json!({"payments": PAYMENTS}));
+    let v = settle(&s, "T-9");
+    assert_eq!(v["remedy"], "temporal", "{v}");
+    let failed = s.said_within("was not reached");
+    assert!(
+        failed.contains("http://teller:***@127.0.0.1:1/verify was not reached"),
+        "{failed}"
+    );
+    assert!(!failed.contains("s3cret"), "{failed}");
+    // a fault's code beside its reason
+    let (status, fault) = call(
+        &s,
+        "POST",
+        "/v1/pull",
+        Some(&json!({"actor": {"id": "operator"}})),
+    );
+    assert_eq!(
+        (status, fault["code"].as_str()),
+        (400, Some("bad_request")),
+        "{fault}"
+    );
+    let (status, fault) = call(&s, "GET", "/v1/nothing", None);
+    assert_eq!(
+        (status, fault["code"].as_str()),
+        (404, Some("not_found")),
+        "{fault}"
+    );
+    // the metrics listener answers /metrics and /health, and nothing else
+    let metrics_svc = Service {
+        child: None,
+        addr: metrics_at,
+        said: std::sync::Arc::new(std::sync::Mutex::new(String::new())),
+    };
+    let (status, health) = call(&metrics_svc, "GET", "/health", None);
+    assert_eq!(status, 200, "{health}");
+    let mut stream = TcpStream::connect(&metrics_svc.addr).expect("a connection");
+    write!(
+        stream,
+        "GET /metrics HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+    )
+    .expect("asked");
+    let mut metrics = String::new();
+    stream.read_to_string(&mut metrics).expect("the metrics");
+    assert!(
+        metrics.contains("objectflow_verdicts_total{kind=\"satisfied\"}"),
+        "{metrics}"
+    );
+    assert!(
+        metrics.contains(
+            "objectflow_request_duration_seconds_bucket{route=\"/v1/request\",le=\"+Inf\"}"
+        ),
+        "{metrics}"
+    );
+    assert!(
+        metrics.contains("objectflow_evaluator_failures_total{evaluator=\"bank\"}"),
+        "{metrics}"
+    );
+    assert!(
+        metrics.contains("objectflow_log_lines_dropped_total 0"),
+        "{metrics}"
+    );
+    let (status, _) = call(&metrics_svc, "POST", "/v1/get", Some(&json!({"id": "x"})));
+    assert_eq!(status, 404);
+}
+
+/// A store file moved or replaced under the running service refuses every
+/// write `503 store_replaced` and makes `/health` say so, where a write was
+/// acknowledged into a file no one would read (fourth production review).
+#[test]
+fn a_store_replaced_under_the_service_takes_no_write() {
+    let file = fresh_store("replaced");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish_service(&s);
+    let op = json!({"id": "operator"});
+    let add = json!({"actor": op, "type": "User", "transition": "add", "inputs": {"login": "ana", "name": "Ana"}});
+    let (status, v) = call(&s, "POST", "/v1/request", Some(&add));
+    assert_eq!(
+        (status, v["kind"].as_str()),
+        (200, Some("satisfied")),
+        "{v}"
+    );
+    let moved = file.with_file_name("moved.sqlite");
+    std::fs::rename(&file, &moved).expect("moved");
+    std::fs::copy(&moved, &file).expect("a copy in its place");
+    let (status, fault) = call(&s, "POST", "/v1/request", Some(&add));
+    assert_eq!(
+        (status, fault["code"].as_str()),
+        (503, Some("store_replaced")),
+        "{fault}\n{}",
+        s.said()
+    );
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(
+        (status, health["code"].as_str()),
+        (503, Some("store_replaced")),
+        "{health}"
+    );
+    // moved away with nothing in its place, a write is refused alike, and
+    // health answers its storage unavailable
+    std::fs::remove_file(&file).expect("the copy removed");
+    let (status, fault) = call(&s, "POST", "/v1/request", Some(&add));
+    assert_eq!(
+        (status, fault["code"].as_str()),
+        (503, Some("store_replaced")),
+        "{fault}"
+    );
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 500, "{health}");
+}
+
+/// Writes stopped behind another process's lock make `/health` answer
+/// `503 writes_stalled` until one commits again, where it answered 200
+/// while every write failed (fourth production review).
+#[test]
+fn writes_stalled_behind_another_lock_are_said_by_health() {
+    let file = fresh_store("stalled");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+        "--busy-timeout",
+        "1 s",
+    ]);
+    publish_service(&s);
+    let op = json!({"id": "operator"});
+    let add = json!({"actor": op, "type": "User", "transition": "add", "inputs": {"login": "ana", "name": "Ana"}});
+    let other = rusqlite::Connection::open(&file).expect("another process's connection");
+    other.execute_batch("BEGIN IMMEDIATE").expect("its lock");
+    let (status, v) = call(&s, "POST", "/v1/request", Some(&add));
+    assert_eq!((status, v["kind"].as_str()), (200, Some("stale")), "{v}");
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(
+        (status, health["code"].as_str()),
+        (503, Some("writes_stalled")),
+        "{health}"
+    );
+    other.execute_batch("ROLLBACK").expect("its lock released");
+    let (status, v) = call(&s, "POST", "/v1/request", Some(&add));
+    assert_eq!(
+        (status, v["kind"].as_str()),
+        (200, Some("satisfied")),
+        "{v}"
+    );
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 200, "{health}");
+}
+
+/// A log no one reads stops no request beyond its bound, and `/health`
+/// answers `503 log_blocked` until it is read, where the service stopped at
+/// its next line while `/health` answered 200 (fourth production review).
+#[test]
+fn a_log_no_one_reads_is_said_and_stops_no_request() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
+        .args(["--port", "0"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the service starts");
+    let mut stderr = BufReader::new(child.stderr.take().expect("its stderr"));
+    let mut line = String::new();
+    stderr.read_line(&mut line).expect("its first line");
+    let addr = line
+        .trim()
+        .split_once("listening on http://")
+        .map(|(_, a)| a.to_string())
+        .expect("its address");
+    let s = Service {
+        child: Some(child),
+        addr,
+        said: std::sync::Arc::new(std::sync::Mutex::new(String::new())),
+    };
+    // answers logged until the pipe, unread, is full and a line waits
+    let get = json!({"actor": {"id": "operator"}, "id": "nothing-1"});
+    let blocked = std::thread::spawn({
+        let addr = s.addr.clone();
+        move || {
+            for _ in 0..20_000 {
+                let mut stream = TcpStream::connect(&addr).expect("a connection");
+                let body = get.to_string();
+                write!(
+                    stream,
+                    "POST /v1/get HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .expect("asked");
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                    .expect("a timeout");
+                let mut answer = String::new();
+                if stream.read_to_string(&mut answer).is_err() || answer.is_empty() {
+                    return true;
+                }
+            }
+            false
+        }
+    });
+    assert!(blocked.join().expect("the flood"), "the log never filled");
+    std::thread::sleep(std::time::Duration::from_secs(6));
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(
+        (status, health["code"].as_str()),
+        (503, Some("log_blocked")),
+        "{health}"
+    );
+    // read, the log takes lines again and health is 200
+    std::thread::spawn(move || {
+        let mut sink = String::new();
+        let _ = stderr.read_to_string(&mut sink);
+    });
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 200, "{health}");
+}
+
+/// A unit of `Type=notify` is told the service is ready once it answers,
+/// and that it stops on SIGTERM (fourth production review).
+#[test]
+fn systemd_is_told_ready_and_stopping() {
+    let dir = fresh_store("notify");
+    let socket_path = dir.with_file_name("notify.sock");
+    let socket = std::os::unix::net::UnixDatagram::bind(&socket_path).expect("a notify socket");
+    socket
+        .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .expect("a timeout");
+    let child = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
+        .args(["--port", "0"])
+        .env("NOTIFY_SOCKET", &socket_path)
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("the service starts");
+    let pid = child.id();
+    // stopped however the test ends
+    let _s = Service {
+        child: Some(child),
+        addr: String::new(),
+        said: std::sync::Arc::new(std::sync::Mutex::new(String::new())),
+    };
+    let mut buf = [0u8; 64];
+    let n = socket.recv(&mut buf).expect("told it is ready");
+    assert_eq!(&buf[..n], b"READY=1");
+    let sent = Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .status()
+        .expect("kill runs");
+    assert!(sent.success());
+    let n = socket.recv(&mut buf).expect("told it stops");
+    assert_eq!(&buf[..n], b"STOPPING=1");
 }

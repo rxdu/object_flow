@@ -65,6 +65,68 @@ struct Sandbox {
     due: Option<String>,
 }
 
+/// When the line being written to the log began, in milliseconds since
+/// 1970, 0 while none is: a pipe left full stopped the service at its next
+/// line while `/health` answered 200 (fourth production review).
+static LOGGING_SINCE: AtomicI64 = AtomicI64::new(0);
+/// The lines not written while the log was blocked.
+static LINES_DROPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// How long a line may take before the log is held blocked.
+const LOG_BLOCKED_MS: i64 = 5_000;
+
+/// Whether a line begun at `since` has blocked the log too long.
+fn log_blocked(since: i64, now: i64) -> bool {
+    since != 0 && now - since > LOG_BLOCKED_MS
+}
+
+/// A line on the log, standard error, stamped with the wall clock, every
+/// line the service writes among them, where its start's carried no time;
+/// dropped and counted while the log has been blocked longer than
+/// `LOG_BLOCKED_MS`, so a reader of the log that stopped reading stops no
+/// request beyond it (fourth production review).
+fn say(line: std::fmt::Arguments<'_>) {
+    let now = wall_millis();
+    if log_blocked(LOGGING_SINCE.load(Ordering::SeqCst), now) {
+        LINES_DROPPED.fetch_add(1, Ordering::SeqCst);
+        return;
+    }
+    let mine = LOGGING_SINCE
+        .compare_exchange(0, now, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok();
+    eprintln!("{} {line}", timestamp_text(wall_clock()));
+    if mine {
+        LOGGING_SINCE.store(0, Ordering::SeqCst);
+    }
+}
+
+/// `say` with `format!`'s arguments.
+macro_rules! say {
+    ($($arg:tt)*) => { say(format_args!($($arg)*)) };
+}
+
+/// An endpoint as the log shows it, a password in its address hidden,
+/// where the start's line and each failed call wrote it whole (fourth
+/// production review).
+fn shown(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    match authority.rsplit_once('@') {
+        Some((user, host)) => {
+            let name = user.split(':').next().unwrap_or(user);
+            let tail = &rest[authority.len()..];
+            format!("{scheme}://{name}:***@{host}{tail}")
+        }
+        None => url.to_string(),
+    }
+}
+
+/// Each evaluator's calls that answered nothing it could use, which
+/// `/metrics` gives (fourth production review).
+static EVALUATOR_FAILURES: Mutex<std::collections::BTreeMap<String, u64>> =
+    Mutex::new(std::collections::BTreeMap::new());
+
 /// The most calls one request asks its endpoints, after which a call is
 /// unknown (ADR-0175 decision 2).
 const MAX_CALLS: usize = 16;
@@ -95,9 +157,11 @@ fn asked(
     // answer may hold personal data, which the log does not (production
     // review, minor)
     let unknown = |why: String| {
-        eprintln!(
-            "{} objectflow-service: {}.{} of {} argument(s) is unknown: {why}",
-            timestamp_text(wall_clock()),
+        if let Ok(mut failures) = EVALUATOR_FAILURES.lock() {
+            *failures.entry(call.evaluator.clone()).or_insert(0) += 1;
+        }
+        say!(
+            "objectflow-service: {}.{} of {} argument(s) is unknown: {why}",
             call.evaluator,
             call.function,
             call.arguments.len()
@@ -113,15 +177,15 @@ fn asked(
     }
     let mut answer = match posting.send(&body) {
         Ok(a) => a,
-        Err(e) => return unknown(format!("{endpoint} was not reached: {e}")),
+        Err(e) => return unknown(format!("{} was not reached: {e}", shown(endpoint))),
     };
     let status = answer.status().as_u16();
     let text = match answer.body_mut().read_to_string() {
         Ok(t) => t,
-        Err(e) => return unknown(format!("{endpoint}'s answer was not read: {e}")),
+        Err(e) => return unknown(format!("{}'s answer was not read: {e}", shown(endpoint))),
     };
     if status != 200 {
-        return unknown(format!("{endpoint} answered {status}"));
+        return unknown(format!("{} answered {status}", shown(endpoint)));
     }
     match serde_json::from_str::<J>(&text)
         .ok()
@@ -132,7 +196,8 @@ fn asked(
         Some("satisfied") => "satisfied",
         Some("unsatisfied") => "unsatisfied",
         _ => unknown(format!(
-            "{endpoint} answered no verdict, in {} byte(s)",
+            "{} answered no verdict, in {} byte(s)",
+            shown(endpoint),
             text.len()
         )),
     }
@@ -244,6 +309,91 @@ struct Service {
     /// times, and whether a giving back is running (ADR-0187 decision 2).
     trims: std::sync::atomic::AtomicU64,
     trimming: std::sync::atomic::AtomicBool,
+    /// The store's file as the service opened it, its device and inode,
+    /// which every write and `/health` compare with the path's (fourth
+    /// production review).
+    store_identity: Option<(u64, u64)>,
+    /// What `/health` and `/metrics` say of the writes and the answers.
+    watch: Watch,
+}
+
+/// What the service watches of its writes and answers (fourth production
+/// review): when a write last committed and last met another process's
+/// lock past its retries, each verdict's kind, and each route's durations.
+#[derive(Debug, Default)]
+struct Watch {
+    written_at: AtomicI64,
+    stalled_at: AtomicI64,
+    verdicts: Mutex<std::collections::BTreeMap<&'static str, u64>>,
+    durations: Mutex<std::collections::BTreeMap<String, [u64; BUCKETS.len()]>>,
+    answered: std::sync::atomic::AtomicU64,
+}
+
+/// The upper bounds, in seconds, of `/metrics`' duration histogram.
+const BUCKETS: [f64; 8] = [0.005, 0.025, 0.1, 0.5, 1.0, 2.5, 10.0, 30.0];
+
+/// How recently a write must have met another process's lock past its
+/// retries, with none committed since, for `/health` to say writes stall.
+const STALLED_MS: i64 = 60_000;
+
+impl Watch {
+    /// A request's verdict: committed, or stopped by another process's lock.
+    fn note(&self, v: &Verdict) {
+        let now = wall_millis();
+        match v {
+            Verdict::Satisfied { .. } => self.written_at.store(now, Ordering::SeqCst),
+            Verdict::RetriesExhausted => self.stalled_at.store(now, Ordering::SeqCst),
+            _ => {}
+        }
+        if let Ok(mut kinds) = self.verdicts.lock() {
+            *kinds.entry(v.kind()).or_insert(0) += 1;
+        }
+    }
+
+    /// Whether writes stall: the last one met another process's lock past
+    /// its retries, lately, and none committed since.
+    fn stalled(&self, now: i64) -> bool {
+        let stalled = self.stalled_at.load(Ordering::SeqCst);
+        stalled != 0
+            && stalled > self.written_at.load(Ordering::SeqCst)
+            && now - stalled < STALLED_MS
+    }
+
+    /// A route's answer, by how long it took.
+    fn timed(&self, route: &str, took: f64) {
+        self.answered.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut durations) = self.durations.lock() {
+            let row = durations
+                .entry(route.to_string())
+                .or_insert([0; BUCKETS.len()]);
+            for (i, bound) in BUCKETS.iter().enumerate() {
+                if took <= *bound {
+                    row[i] += 1;
+                }
+            }
+        }
+    }
+}
+
+/// A file's device and inode, as `/health` and every write compare them.
+fn file_identity(path: &std::path::Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
+}
+
+/// Whether the store's path still names the file the service opened, where
+/// a file moved or replaced under it kept every write acknowledged into a
+/// file no one would read (fourth production review).
+fn store_replaced(shared: &Service) -> Option<String> {
+    let (Some(path), Some(opened)) = (&shared.store_path, shared.store_identity) else {
+        return None;
+    };
+    (file_identity(path) != Some(opened)).then(|| {
+        format!(
+            "store_replaced: {} is no longer the file the service opened, moved or replaced under it; stop the service and start it on the store to serve",
+            path.display()
+        )
+    })
 }
 
 #[derive(Debug, Default)]
@@ -521,6 +671,56 @@ fn reading_until(shared: &Shared, until: std::time::Instant) -> Result<Reading<'
     Ok(Reading::Own(Some(Box::new(store)), reads))
 }
 
+/// The code of the fault last said, when, and how many of it were left
+/// unsaid since: a full disk said its fault for every write, at the clients'
+/// retry rate (fourth production review).
+static LAST_FAULT: Mutex<(String, i64, u64)> = Mutex::new((String::new(), 0, 0));
+
+/// How long after a fault is said another of its code is counted, not said.
+const FAULT_QUIET_MS: i64 = 1_000;
+
+/// Whether a fault of this code is said, with how many of the last one's
+/// code were left unsaid before it, or, within `FAULT_QUIET_MS` of the last
+/// said of its code, only counted.
+fn fault_said(last: &Mutex<(String, i64, u64)>, code: &str, now: i64) -> Option<u64> {
+    let Ok(mut last) = last.lock() else {
+        return Some(0);
+    };
+    if last.0 == code && now - last.1 < FAULT_QUIET_MS {
+        last.2 += 1;
+        return None;
+    }
+    let unsaid = last.2;
+    *last = (code.to_string(), now, 0);
+    Some(unsaid)
+}
+
+/// A fault's code, which a client branches on rather than its reason's
+/// text, which is not promised: the reason's own prefix where it has one,
+/// `read_timeout`, `busy`, `engine_mismatch`, `key_reused`, `disk_low`,
+/// `disk_full`, `store_replaced` and the like, else its status's name
+/// (fourth production review).
+fn fault_code(status: u16, message: &str) -> String {
+    if let Some((head, _)) = message.split_once(':')
+        && !head.is_empty()
+        && head.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+    {
+        return head.to_string();
+    }
+    match status {
+        400 => "bad_request",
+        404 => "not_found",
+        405 => "method_not_allowed",
+        408 => "slow_body",
+        409 => "conflict",
+        413 => "too_large",
+        501 => "not_run",
+        503 => "unavailable",
+        _ => "internal",
+    }
+    .to_string()
+}
+
 /// A fault's reason as the log says it, at most 1 KiB of it, where a filter
 /// of 1.9 MB was written whole into one line (fourth production review
 /// A-10).
@@ -558,6 +758,9 @@ enum Fault {
     TimedOut(String),
     /// A request whose body did not arrive in time (ADR-0184 decision 4).
     SlowBody(String),
+    /// What the service cannot do now and may later, its code its reason's
+    /// prefix: `disk_full`, `store_replaced` (fourth production review).
+    Unavailable(String),
 }
 
 impl IntoResponse for Fault {
@@ -575,18 +778,23 @@ impl IntoResponse for Fault {
                 format!("read_timeout: {m}"),
             ),
             Fault::SlowBody(m) => (StatusCode::REQUEST_TIMEOUT, m),
+            Fault::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m),
         };
         // the service's own faults said with their reason, which the line
         // of the answer, its route and status alone, does not (OBSERVE-2)
+        let code = fault_code(status.as_u16(), &message);
         if status.is_server_error() {
-            eprintln!(
-                "{} fault {}: {}",
-                timestamp_text(wall_clock()),
-                status.as_u16(),
-                said(&message)
-            );
+            match fault_said(&LAST_FAULT, &code, wall_millis()) {
+                Some(0) => say!("fault {}: {}", status.as_u16(), said(&message)),
+                Some(unsaid) => say!(
+                    "fault {}: {} (and {unsaid} like the last fault said, left unsaid)",
+                    status.as_u16(),
+                    said(&message)
+                ),
+                None => {}
+            }
         }
-        (status, Json(json!({ "fault": message }))).into_response()
+        (status, Json(json!({ "fault": message, "code": code }))).into_response()
     }
 }
 
@@ -621,6 +829,11 @@ impl From<objectflow_core::store::StoreError> for Fault {
     fn from(e: objectflow_core::store::StoreError) -> Fault {
         if e.is_mismatch() {
             return Fault::Mismatch(e.0);
+        }
+        // a full volume answers 503, which a client may retry, where it
+        // answered 500, the service's own fault (fourth production review)
+        if e.is_disk_full() {
+            return Fault::Unavailable(e.0);
         }
         Fault::Internal(e.to_string())
     }
@@ -747,14 +960,16 @@ fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
         Err(poisoned) => {
             shared.writer.clear_poison();
             let mut guard = poisoned.into_inner();
-            eprintln!(
-                "{} a request panicked holding the writer; {}",
-                timestamp_text(wall_clock()),
+            say!(
+                "a request panicked holding the writer; {}",
                 reopened(&mut guard)
             );
             guard
         }
     };
+    if let Some(replaced) = store_replaced(shared) {
+        return Err(Fault::Unavailable(replaced));
+    }
     shared.writer_since.store(wall_millis(), Ordering::SeqCst);
     Ok(Writing {
         guard,
@@ -1195,6 +1410,7 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 _ => None,
             },
         )??;
+        shared.watch.note(&v);
         Ok(Json(verdict_told(&v, Some(&told))))
     })
 }
@@ -2332,6 +2548,17 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                                   "now": J::Null, "store_release": at, "upgrade_due": true}),
                 );
             }
+            // a store file replaced under the service, said before the path
+            // is read, which reads the file that replaced it; one gone
+            // answers 500 below, its storage unavailable (fourth production
+            // review)
+            if reads.path.exists()
+                && let Some(replaced) = store_replaced(&shared)
+            {
+                let body = json!({"release": BUILTINS, "shape": "deployment",
+                                  "code": fault_code(503, &replaced), "fault": replaced});
+                return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response());
+            }
             // the store read, so a store that cannot be read answers 500
             // here rather than at the next request (production review
             // OBSERVE): its file opened afresh, which a read connection,
@@ -2369,11 +2596,30 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                               "disk_free_bytes": free});
             // a volume too full for a checkpoint answers 503, said, where a
             // full disk answered 200 and a write then failed (ADR-0188
-            // decision 3)
-            if let Some(bytes) = free.filter(|b| disk_low(*b)) {
-                body["fault"] = json!(format!(
+            // decision 3); and a store file moved or replaced, a log no one
+            // reads, and writes stopped behind another process's lock, each
+            // answered 200 (fourth production review)
+            let now = wall_millis();
+            let fault = if let Some(bytes) = free.filter(|b| disk_low(*b)) {
+                Some(format!(
                     "disk_low: {bytes} byte(s) free on the store's volume, below the {DISK_FLOOR} a checkpoint needs"
-                ));
+                ))
+            } else if log_blocked(LOGGING_SINCE.load(Ordering::SeqCst), now) {
+                Some(format!(
+                    "log_blocked: a line of the log has waited more than {} s to be written; its lines are dropped until it is read",
+                    LOG_BLOCKED_MS / 1000
+                ))
+            } else if shared.watch.stalled(now) {
+                Some(
+                    "writes_stalled: the last write met another process's lock past its retries, and none has committed since"
+                        .to_string(),
+                )
+            } else {
+                None
+            };
+            if let Some(fault) = fault {
+                body["code"] = json!(fault_code(503, &fault));
+                body["fault"] = json!(fault);
                 return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response());
             }
             return Ok(Json(body).into_response());
@@ -2399,6 +2645,17 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
             }
             None => (0, J::Null),
         };
+        // a log no one reads, said whatever the shape (fourth production
+        // review)
+        if log_blocked(LOGGING_SINCE.load(Ordering::SeqCst), wall_millis()) {
+            let fault = format!(
+                "log_blocked: a line of the log has waited more than {} s to be written; its lines are dropped until it is read",
+                LOG_BLOCKED_MS / 1000
+            );
+            let body = json!({"release": BUILTINS, "shape": shape, "version": version, "now": now,
+                              "code": fault_code(503, &fault), "fault": fault});
+            return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response());
+        }
         Ok(Json(
             json!({"release": BUILTINS, "shape": shape, "version": version, "now": now,
                "store_release": BUILTINS, "upgrade_due": false, "clock_lead_seconds": 0,
@@ -2569,6 +2826,7 @@ async fn logged(
         row.0 += 1;
         row.1 += took;
     }
+    shared.watch.timed(&route, took);
     // what a publish, an import or a long read freed, given back to the
     // system, which glibc kept: 975 MB held after one publish on 37k
     // objects, 23 MB once given back (third production review MEMORY-2)
@@ -2578,9 +2836,8 @@ async fn logged(
     let quiet = (route == "/health" && status == 200) || route == "/metrics";
     if !quiet {
         let lead = clock_lead(&shared);
-        eprintln!(
-            "{} {method} {route} {status} {:.1} ms{}",
-            timestamp_text(wall_clock()),
+        say!(
+            "{method} {route} {status} {:.1} ms{}",
             took * 1000.0,
             if lead > 0 {
                 format!(" clock_lead={lead}s")
@@ -2715,6 +2972,58 @@ async fn metrics(State(shared): State<Shared>) -> Response {
         shared.in_flight.load(Ordering::SeqCst),
         writer_held(&shared)
     ));
+    // each verdict's kind, a refusal's among them, which an answer's status
+    // does not tell, each route's durations, each evaluator's failed calls
+    // and the log's dropped lines (fourth production review)
+    out.push_str(
+        "# HELP objectflow_verdicts_total Requests' verdicts, by kind.\n\
+         # TYPE objectflow_verdicts_total counter\n",
+    );
+    if let Ok(kinds) = shared.watch.verdicts.lock() {
+        for (kind, n) in kinds.iter() {
+            out.push_str(&format!(
+                "objectflow_verdicts_total{{kind=\"{kind}\"}} {n}\n"
+            ));
+        }
+    }
+    out.push_str(
+        "# HELP objectflow_request_duration_seconds How long answers took, by route.\n\
+         # TYPE objectflow_request_duration_seconds histogram\n",
+    );
+    if let (Ok(durations), Ok(served)) = (shared.watch.durations.lock(), shared.served.lock()) {
+        for (route, row) in durations.iter() {
+            for (bound, n) in BUCKETS.iter().zip(row) {
+                out.push_str(&format!(
+                    "objectflow_request_duration_seconds_bucket{{route=\"{route}\",le=\"{bound}\"}} {n}\n"
+                ));
+            }
+            let (count, sum) = served
+                .iter()
+                .filter(|((r, _), _)| r == route)
+                .fold((0, 0.0), |(c, s), (_, (n, t))| (c + n, s + t));
+            out.push_str(&format!(
+                "objectflow_request_duration_seconds_bucket{{route=\"{route}\",le=\"+Inf\"}} {count}\n\
+                 objectflow_request_duration_seconds_sum{{route=\"{route}\"}} {sum:.6}\n\
+                 objectflow_request_duration_seconds_count{{route=\"{route}\"}} {count}\n"
+            ));
+        }
+    }
+    out.push_str(
+        "# HELP objectflow_evaluator_failures_total Calls an evaluator answered nothing usable to, by evaluator.\n\
+         # TYPE objectflow_evaluator_failures_total counter\n",
+    );
+    if let Ok(failures) = EVALUATOR_FAILURES.lock() {
+        for (evaluator, n) in failures.iter() {
+            out.push_str(&format!(
+                "objectflow_evaluator_failures_total{{evaluator=\"{evaluator}\"}} {n}\n"
+            ));
+        }
+    }
+    out.push_str(&format!(
+        "# HELP objectflow_log_lines_dropped_total Lines not written while the log was blocked.\n\
+         # TYPE objectflow_log_lines_dropped_total counter\nobjectflow_log_lines_dropped_total {}\n",
+        LINES_DROPPED.load(Ordering::SeqCst)
+    ));
     // the reads that grow with the store, bounded in number (ADR-0189)
     let a = &shared.admission;
     out.push_str(&format!(
@@ -2784,6 +3093,7 @@ async fn metrics(State(shared): State<Shared>) -> Response {
 
 const USAGE: &str = "usage: objectflow-service [--port <n> | --bind <host:port> | --socket <path>]
                           [--idle-timeout <duration>] [--max-connections <n>]
+                          [--metrics-bind <host:port>]
                           [--store <file> [--create]
                                           [--attempt-retention <duration>]
                                           [--idempotency-retention <duration>]
@@ -2798,7 +3108,10 @@ Serves the engine's operations, POST /v1/<operation>, GET /health and GET
 /metrics, on 127.0.0.1 at port n (8712 unless given; 0 takes a free one), at
 the address --bind names, or on the Unix socket --socket names, made 0660 so
 its owner and group alone reach it (ADR-0183); it writes where it listens
-to stderr once it answers, and then one line for each answer.
+to stderr once it answers, and then one line for each answer, each line
+stamped; --metrics-bind serves GET /metrics and GET /health alone on an
+address of their own; under systemd it tells a Type=notify unit when it is
+ready and when it stops.
 
 Without --store the store is a sandbox's, held in memory, with its controls,
 POST /sandbox/<control>. With --store it is a deployment's: the SQLite file
@@ -2843,6 +3156,9 @@ struct Args {
     /// How many reads that grow with the store run at once (ADR-0189
     /// decision 2).
     max_reads: Option<usize>,
+    /// An address `/metrics` and `/health` alone are served on (fourth
+    /// production review).
+    metrics_bind: Option<String>,
 }
 
 /// The reads that grow with the store run at once unless `--max-reads`
@@ -2864,6 +3180,7 @@ fn args() -> Result<Args, String> {
         idle_timeout: std::time::Duration::from_secs(30),
         max_connections: 512,
         max_reads: None,
+        metrics_bind: None,
     };
     let mut retained = false;
     let mut addressed = false;
@@ -2936,6 +3253,7 @@ fn args() -> Result<Args, String> {
                         format!("--max-connections takes a count, 1 or more: {n}")
                     })?;
             }
+            "--metrics-bind" => out.metrics_bind = Some(value()?),
             "--max-reads" => {
                 let n = value()?;
                 out.max_reads = Some(
@@ -3040,7 +3358,7 @@ fn main() {
     // a start or a stop that fails says why in a sentence, never in Rust's
     // debug form (second production review, minor)
     if let Err(e) = ran {
-        eprintln!("objectflow-service: {e}");
+        say!("objectflow-service: {e}");
         std::process::exit(1);
     }
 }
@@ -3073,21 +3391,74 @@ fn stopping() -> std::io::Result<impl std::future::Future<Output = ()>> {
             _ = term.recv() => {}
             _ = int.recv() => {}
         }
-        eprintln!(
-            "{} stopping: no new connection, and the requests in flight answered for at most {} s",
-            timestamp_text(wall_clock()),
+        notify("STOPPING=1");
+        say!(
+            "stopping: no new connection, and the requests in flight answered for at most {} s",
             GRACE.as_secs()
         );
         std::thread::spawn(|| {
             std::thread::sleep(GRACE);
-            eprintln!(
-                "{} stopped with requests still in flight after {} s",
-                timestamp_text(wall_clock()),
+            say!(
+                "stopped with requests still in flight after {} s",
                 GRACE.as_secs()
             );
             std::process::exit(1);
         });
     })
+}
+
+/// The connections the metrics listener serves at once.
+const METRICS_CONNECTIONS: usize = 16;
+
+/// How often an idle service gives back what its requests freed.
+const IDLE_TRIM: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// What the service's requests freed, given back to the system every
+/// `IDLE_TRIM` that it answered something and has nothing in flight.
+async fn idle_trims(shared: Shared) {
+    let mut every = tokio::time::interval(IDLE_TRIM);
+    let mut seen = 0;
+    loop {
+        every.tick().await;
+        let answered = shared.watch.answered.load(Ordering::SeqCst);
+        if trim_due(seen, answered, shared.in_flight.load(Ordering::SeqCst)) {
+            give_back(&shared);
+        }
+        seen = answered;
+    }
+}
+
+/// Whether an idle trim is due: something was answered since the last
+/// look, and nothing is in flight.
+fn trim_due(seen: u64, answered: u64, in_flight: usize) -> bool {
+    answered != seen && in_flight == 0
+}
+
+/// A state told to systemd's notify socket where the unit names one,
+/// `Type=notify`: `READY=1` once the service answers and `STOPPING=1` as it
+/// stops, where a unit could only guess when the socket was ready (fourth
+/// production review).
+fn notify(state: &str) {
+    let Some(path) = std::env::var_os("NOTIFY_SOCKET") else {
+        return;
+    };
+    let Ok(socket) = std::os::unix::net::UnixDatagram::unbound() else {
+        return;
+    };
+    let sent = match path.as_encoded_bytes().strip_prefix(b"@") {
+        #[cfg(target_os = "linux")]
+        Some(name) => {
+            use std::os::linux::net::SocketAddrExt;
+            std::os::unix::net::SocketAddr::from_abstract_name(name)
+                .and_then(|at| socket.send_to_addr(state.as_bytes(), &at))
+        }
+        #[cfg(not(target_os = "linux"))]
+        Some(_) => Ok(0),
+        None => socket.send_to(state.as_bytes(), &path),
+    };
+    if let Err(e) = sent {
+        say!("systemd was not told {state}: {e}");
+    }
 }
 
 /// Where the service listens: an address, or a Unix socket.
@@ -3250,7 +3621,9 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for OnConnec
 /// answered.
 fn busy(fault: &str) -> hyper::Response<Held> {
     let mut answer = hyper::Response::new(Held {
-        body: axum::body::Body::from(json!({ "fault": fault }).to_string()),
+        body: axum::body::Body::from(
+            json!({ "fault": fault, "code": fault_code(503, fault) }).to_string(),
+        ),
         _holding: None,
     });
     *answer.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
@@ -3311,10 +3684,7 @@ async fn served(
             Err(e) => {
                 // descriptors exhausted among the causes: said, and tried
                 // again after a pause rather than in a loop
-                eprintln!(
-                    "{} a connection was not accepted: {e}",
-                    timestamp_text(wall_clock())
-                );
+                say!("a connection was not accepted: {e}");
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 continue;
             }
@@ -3337,15 +3707,13 @@ async fn served(
             if let Some(close) = room {
                 close.notify_one();
                 shared.connections.made_room.fetch_add(1, Ordering::SeqCst);
-                eprintln!(
-                    "{} a connection answering nothing closed to make room: {cap} are open, as --max-connections allows",
-                    timestamp_text(wall_clock())
+                say!(
+                    "a connection answering nothing closed to make room: {cap} are open, as --max-connections allows"
                 );
             } else {
                 shared.connections.refused.fetch_add(1, Ordering::SeqCst);
-                eprintln!(
-                    "{} a connection refused: {cap} are open, every one answering a request, as --max-connections allows",
-                    timestamp_text(wall_clock())
+                say!(
+                    "a connection refused: {cap} are open, every one answering a request, as --max-connections allows"
                 );
                 if refusing.load(Ordering::SeqCst) < REFUSING {
                     refusing.fetch_add(1, Ordering::SeqCst);
@@ -3581,28 +3949,37 @@ async fn serve() -> std::io::Result<()> {
     let listening = match &a.socket {
         Some(path) => {
             let l = bind_socket(path)?;
-            eprintln!("listening on unix:{}", path.display());
+            say!("listening on unix:{}", path.display());
             Listening::Unix(l)
         }
         None => {
             let l = tokio::net::TcpListener::bind(&a.bind)
                 .await
                 .map_err(|e| std::io::Error::other(format!("{}: {e}", a.bind)))?;
-            eprintln!("listening on http://{}", l.local_addr()?);
+            let at = l.local_addr()?;
+            say!("listening on http://{at}");
+            // the service authenticates nobody, so an address beyond
+            // loopback is said, where it started without a word (fourth
+            // production review)
+            if !at.ip().is_loopback() {
+                say!(
+                    "listening beyond loopback, on {at}: the service authenticates nobody, so whoever reaches this address may act as any actor; bind 127.0.0.1 or give --socket, behind the application that authenticates (core/README.md)"
+                );
+            }
             Listening::Tcp(l)
         }
     };
     if let Some(note) = noted {
-        eprintln!("{note}");
+        say!("{note}");
     }
     if let (Some(path), Some(at)) = (&a.store, &sandbox.due) {
-        eprintln!(
+        say!(
             "the store {} is at {at}, and this core is {BUILTINS}: every operation is refused until POST /v1/upgrade runs (ADR-0177)",
             path.display()
         );
     }
     if let (Some(path), Some(s)) = (&a.store, &sandbox.store) {
-        eprintln!(
+        say!(
             "the store {} at version {}, under {BUILTINS}",
             path.display(),
             s.lib.version
@@ -3610,7 +3987,7 @@ async fn serve() -> std::io::Result<()> {
         // a clock that ran ahead and came back (ADR-0174 decision 4)
         let lead = s.now - wall_clock();
         if lead > 0 {
-            eprintln!(
+            say!(
                 "the store's clock leads the wall clock by {lead} s: every event is stamped at {} until the wall clock passes it",
                 timestamp_text(s.now)
             );
@@ -3625,7 +4002,7 @@ async fn serve() -> std::io::Result<()> {
             })
             .collect();
         if !unanswered.is_empty() {
-            eprintln!(
+            say!(
                 "unknown, no endpoint answering them (ADR-0175 decision 5): {}",
                 unanswered
                     .iter()
@@ -3640,7 +4017,7 @@ async fn serve() -> std::io::Result<()> {
             } else {
                 ""
             };
-            eprintln!("the evaluator {name} asked at {url}{token}");
+            say!("the evaluator {name} asked at {}{token}", shown(url));
         }
     }
     // a deployment's reads, beside its writer (ADR-0178)
@@ -3667,13 +4044,40 @@ async fn serve() -> std::io::Result<()> {
         in_flight: std::sync::atomic::AtomicUsize::new(0),
         writer_since: AtomicI64::new(0),
         connections: Connections::default(),
+        store_identity: a.store.as_deref().and_then(file_identity),
         store_path: a.store.clone(),
         trims: std::sync::atomic::AtomicU64::new(0),
         trimming: std::sync::atomic::AtomicBool::new(false),
+        watch: Watch::default(),
     };
     let shared = Arc::new(service);
     let router = app(shared.clone(), deployment);
     let _ = BODY_READ.set(a.idle_timeout);
+    // `/metrics` and `/health` alone on an address of their own, where a
+    // service on a socket could not be scraped (fourth production review)
+    if let Some(bind) = &a.metrics_bind {
+        let l = tokio::net::TcpListener::bind(bind)
+            .await
+            .map_err(|e| std::io::Error::other(format!("{bind}: {e}")))?;
+        say!("metrics and health on http://{}", l.local_addr()?);
+        let router = Router::new()
+            .route("/health", axum::routing::get(health))
+            .route("/metrics", axum::routing::get(metrics))
+            .with_state(shared.clone());
+        tokio::spawn(served(
+            Listening::Tcp(l),
+            router,
+            shared.clone(),
+            std::future::pending::<()>(),
+            a.idle_timeout,
+            METRICS_CONNECTIONS,
+        ));
+    }
+    // what a run of short requests left held, given back once the service
+    // is idle, where it waited for a heavy request (fourth production
+    // review)
+    tokio::spawn(idle_trims(shared.clone()));
+    notify("READY=1");
     served(
         listening,
         router,
@@ -3695,17 +4099,13 @@ async fn serve() -> std::io::Result<()> {
     {
         match s.checkpoint() {
             Ok(true) => {}
-            Ok(false) => eprintln!(
-                "{} the write-ahead log was not carried into the store's file: a read was still open",
-                timestamp_text(wall_clock())
+            Ok(false) => say!(
+                "the write-ahead log was not carried into the store's file: a read was still open"
             ),
-            Err(e) => eprintln!(
-                "{} the write-ahead log was not carried into the store's file: {e}",
-                timestamp_text(wall_clock())
-            ),
+            Err(e) => say!("the write-ahead log was not carried into the store's file: {e}"),
         }
     }
-    eprintln!("{} stopped", timestamp_text(wall_clock()));
+    say!("stopped");
     Ok(())
 }
 
@@ -3724,6 +4124,70 @@ mod tests {
             disk_free(std::path::Path::new("/no/such/volume/here")),
             None
         );
+    }
+
+    /// Writes stall where the last one met another process's lock past its
+    /// retries, lately, and none committed since; an idle trim is due where
+    /// something was answered and nothing is in flight; and a full volume is
+    /// a 503 a client may retry (fourth production review).
+    #[test]
+    fn a_stall_an_idle_trim_and_a_full_disk_are_told() {
+        let w = Watch::default();
+        let now = wall_millis();
+        assert!(!w.stalled(now));
+        w.note(&Verdict::RetriesExhausted);
+        assert!(w.stalled(wall_millis()));
+        assert!(!w.stalled(wall_millis() + STALLED_MS));
+        w.note(&Verdict::Satisfied {
+            object_id: "x-1".into(),
+            version: 1,
+            events: Vec::new(),
+            flags: Vec::new(),
+            replayed: false,
+        });
+        assert!(!w.stalled(wall_millis()));
+        assert!(trim_due(0, 3, 0));
+        assert!(!trim_due(3, 3, 0));
+        assert!(!trim_due(0, 3, 1));
+        let full = rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
+            Some("database or disk is full".into()),
+        );
+        let fault = Fault::from(objectflow_core::store::StoreError::from(full));
+        let answer = fault.into_response();
+        assert_eq!(answer.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    /// A fault's code is its reason's prefix where it has one, else its
+    /// status's name; an endpoint's password is never shown; and a log
+    /// blocked longer than its bound is held so, a line still writing
+    /// within it not (fourth production review).
+    #[test]
+    fn a_fault_is_coded_a_password_hidden_and_a_blocked_log_known() {
+        assert_eq!(
+            fault_code(503, "read_timeout: the read took 30 s"),
+            "read_timeout"
+        );
+        assert_eq!(fault_code(503, "busy: every connection"), "busy");
+        assert_eq!(fault_code(409, "key_reused: k"), "key_reused");
+        assert_eq!(fault_code(400, "pull names its actor"), "bad_request");
+        assert_eq!(fault_code(500, "storage unavailable: x"), "internal");
+        assert_eq!(fault_code(501, "not run: a metric"), "not_run");
+        assert_eq!(
+            shown("https://bridge:s3cret@acct.example/verify?x=1"),
+            "https://bridge:***@acct.example/verify?x=1"
+        );
+        assert_eq!(shown("http://127.0.0.1:9000/x"), "http://127.0.0.1:9000/x");
+        // a fault of one code said once a second, the rest counted
+        let last = Mutex::new((String::new(), 0, 0));
+        assert_eq!(fault_said(&last, "disk_full", 10_000), Some(0));
+        assert_eq!(fault_said(&last, "disk_full", 10_500), None);
+        assert_eq!(fault_said(&last, "disk_full", 10_900), None);
+        assert_eq!(fault_said(&last, "disk_full", 11_000), Some(2));
+        assert_eq!(fault_said(&last, "internal", 11_100), Some(0));
+        assert!(!log_blocked(0, 1_000_000));
+        assert!(!log_blocked(1_000_000, 1_000_000 + LOG_BLOCKED_MS));
+        assert!(log_blocked(1_000_000, 1_000_000 + LOG_BLOCKED_MS + 1));
     }
 
     /// A fault's reason is said in the log at most 1 KiB long, cut on a
@@ -3823,6 +4287,8 @@ mod tests {
             store_path: None,
             trims: std::sync::atomic::AtomicU64::new(0),
             trimming: std::sync::atomic::AtomicBool::new(false),
+            store_identity: None,
+            watch: Watch::default(),
         });
         let Ok(held) = shared.admission.take(
             Instant::now() + Duration::from_secs(600),
@@ -3999,6 +4465,8 @@ mod tests {
             store_path: None,
             trims: std::sync::atomic::AtomicU64::new(0),
             trimming: std::sync::atomic::AtomicBool::new(false),
+            store_identity: None,
+            watch: Watch::default(),
         });
         let held = shared.clone();
         let panicked = std::thread::spawn(move || {
