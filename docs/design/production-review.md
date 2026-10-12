@@ -131,3 +131,32 @@ Minors: the `-wal` past its limit under sustained heavy load (3.2 to 3.4 GB in m
 ### What the fourth review asks
 
 A-15 is fixed, and FEED, which needed no decision, after it. AGENTS-OPEN and READS were the author's, decided as recommended the same day and built (ADR-0189), with `main` protected against force-pushes and deletion; then the minors, and a fifth review, or the author's acceptance of what remains.
+
+## 9. The fifth review, after the fourth's fixes
+
+At commit `879fb2c`, 2026-10-12, not yet pushed, every gate of `scripts/check-all` passed on it: two new cold reviewers, an operator and an adversary, each in a checkout of its own with the release binary built from it, given the fourth review's findings to re-check, on copies of the same 37,154-object store and the six-year store. Their logs stayed in the session's scratch directory, which is not kept; this section is the record.
+
+**Verdicts: both NO-GO.** The operator found no blocker and one major; the adversary one blocker and six majors. Neither lost an acknowledged write: 1,600 acknowledged through kill -9 and SIGTERM during writes, a publish and an import, none missing; about 2,450 malformed bodies across every operation answered no 5xx.
+
+### The fourth review's findings, re-checked
+
+Fixed, measured by both: A-15 (and a store an earlier release left wrapped repaired by a raise); READS (32 per-person metrics on six years peaked at 1.1 to 1.2 GB, where 3.3 GB); FEED (an empty pull 0.5 to 1 ms; the whole log of 117k events exported in 7.9 s, where about 12 minutes); every minor but the two below. AGENTS-OPEN partly: an agent's tools fail closed, four reads on the review flow, and both notices work; on the wire an agent still takes what a flow leaves open, by design, approving a version among it where no `publishing` rule is declared, which no notice names. RELEASE-3: `main` protected; no required checks, no tag ruleset, actions pinned by tag, releases unsigned. **The refused restore not fixed**: the fix, tested at its function, missed the start's earlier connection, and the documents claimed it whole (D609, resolved the same day). A filter's zero computed per object, or an integer overflow, still answers an empty page.
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| BRICK | An effect moving a date or a time past year 9999 wrote text the store cannot read back: `ends_at + 30 days` from the legacy "no end", 9999-12-31, answered satisfied and stored year 10000; then every read of the object and every scan of its type, and every later submit and preview, answered 500, for good, `/health` 200 | measured by the adversary | blocker |
+| N-1 | A transition named `submit` or `refresh` on any type took a slot meant for a change's dry run, and worklists shared the slots with per-person metrics: beside 8 to 12 looping metrics on six years every claim submit waited 10 to 29 s, one refused `503 read_timeout`, a 12 ms worklist 17 s and then 503 | measured by the operator; read | major |
+| FILTER-COST | One caller's filter starves every heavy read: nested aggregates of depth 6 over a claim's lines took over 30 s each, an `in` of 10,000 values 7.8 s; with 8 such queries a 1 ms worklist took 29 s; an agent's `query_objects` takes a free filter | measured by the adversary | major |
+| IDENTITY | An identity unique only within its type: an agent onboarded `Employee agentx`, the operator then registered `AssistantAgent agentx`, which took a `taken_by: [human]` erasure as a human; in reverse a person is taken as an agent; identities not normalised, zero-width and bidi characters distinct | measured by the adversary | major |
+| NEW-CORRECTION | A correction cannot take `taken_by`, and a type's `taken_by` is refused on any type with a correction: the agent rewrote a recorded claim's bill id | measured by the adversary | major |
+| DRYRUN-MEMORY | Four concurrent submits of a change on six years peaked at 6.2 GB; `check` of a change's submit runs its dry run outside every bound, six at once 9.3 GB | measured by the adversary | major |
+| EVENTS | `events` answers a position as often as it is named, outside every read bound: a 7 kB request answered 201 MB, eight at once 5.9 GB | measured by the adversary | major |
+| ERASE-LIMIT | A claim with 201 lines cannot be withdrawn, rejected, paid or erased in the review flow, its cascade and its erasure's loop each `limit: 200`, which the checker does not notice; the repository's sample declares the same | measured by the adversary; read | major |
+
+Minors: a stderr reader that exits loses answers for 5 s and leaves `/health` `log_blocked` until a restart; duplicate JSON keys taken, the last winning, an `actor` among them; an agent may reject a person's proposal; a supersession group's erasure growing as the group times its type; an evaluator token sent over `http://` without a word; a metric over a negative window answered empty, negative durations taken; derived times answered past year 9999; bidi and zero-width characters taken in a flow's source; `--create` on an existing store served without a word; `/health` 200 while the read gate refuses writes; `malformed_filter` without a reason; no record of an unclean stop, no build-info metric, no watchdog; argument errors unstamped; the first write behind another process's lock waiting 24 to 40 s; CI's required checks, tag protection, SHA pins, Dependabot.
+
+### What the fifth review asks
+
+The author's standing instruction, "follow your recommendations", decides what the findings ask (ADR-0190); the blocker and the majors are fixed, then a sixth review, or the author's acceptance of what remains.
