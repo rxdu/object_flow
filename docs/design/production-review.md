@@ -130,4 +130,4 @@ Minors: the `-wal` past its limit under sustained heavy load (3.2 to 3.4 GB in m
 
 ### What the fourth review asks
 
-A-15 is fixed. FEED needs no decision and is built next; AGENTS-OPEN and READS are the author's, as `TODO.md` asks; then a fifth review, or the author's acceptance of what remains.
+A-15 is fixed, and FEED, which needed no decision, after it. AGENTS-OPEN and READS were the author's, decided as recommended the same day and built (ADR-0189), with `main` protected against force-pushes and deletion; then the minors, and a fifth review, or the author's acceptance of what remains.

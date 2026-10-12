@@ -166,6 +166,24 @@ pub fn prepare(world: &World<'_>, change: &str, actor: &str) -> Result<Option<Pr
 struct Found(Vec<Finding>);
 
 impl Found {
+    /// A finding of its own, never merged with another of its code: each
+    /// of the checks' findings says a different thing, where merging them by
+    /// code kept the first module's alone (D608); an exact repeat once.
+    fn own(&mut self, severity: Severity, code: String, message: String) {
+        if !self
+            .0
+            .iter()
+            .any(|f| f.code == code && f.message == message)
+        {
+            self.0.push(Finding {
+                severity,
+                code,
+                message,
+                affected: Vec::new(),
+            });
+        }
+    }
+
     fn add(
         &mut self,
         severity: Severity,
@@ -321,7 +339,7 @@ fn simulate_as(
         } else {
             format!("{}:{}: {}", f.file, f.line, f.message)
         };
-        found.add(severity, code, message, None);
+        found.own(severity, code, message);
     }
     // the dry run goes on past what the checks refuse, reporting everything
     // (publish-and-import.md §1 step 4), except where the rules they refuse
@@ -1336,6 +1354,39 @@ types:
                 .any(|f| f.code == "check:self_serviceable" && f.severity == Severity::Notice)
         );
         assert!(r.accepted, "{:#?}", r.findings);
+    }
+
+    /// Two of the checks' findings of one code, in two modules, are each
+    /// reported, where the report kept the first module's alone (D608).
+    #[test]
+    fn each_of_the_checks_findings_is_reported() {
+        let (mut s, _, _, _) = fleet();
+        let text = v2(true, true, true);
+        let change = draft(&mut s, &text);
+        let bare = "module: bare\ncategories: [live]\ntypes:\n  T:\n    description: A type with two states.\n    tracking: record\n    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n    conditions: { ready: { description: Ready., expression: 'true', remedy: self_serviceable } }\n    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E, guards: { ready: deny } } }\n";
+        let w = s.snapshot().unwrap();
+        let r = dry_run(
+            &w,
+            &Draft {
+                change_id: Some(&change),
+                source: &[
+                    ("fleet".to_string(), text.clone()),
+                    ("bare".to_string(), bare.to_string()),
+                ],
+                source_ref: Some("git:fleet@1"),
+                source_digest: None,
+                actor: OPERATOR,
+            },
+        )
+        .unwrap();
+        let mut modules: Vec<&str> = r
+            .findings
+            .iter()
+            .filter(|f| f.code == "check:self_serviceable")
+            .filter_map(|f| f.message.split(':').next())
+            .collect();
+        modules.sort_unstable();
+        assert_eq!(modules, ["bare", "fleet"], "{:#?}", r.findings);
     }
 
     #[test]

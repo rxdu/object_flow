@@ -645,6 +645,19 @@ fn a_deployments_edges_are_said() {
     ]);
     assert_eq!(code, Some(1));
     assert!(said.contains(missing.to_str().expect("a path")), "{said}");
+    // how many reads run at once is a count, and a deployment's (ADR-0189)
+    let (code, said) = refused(&["--max-reads", "0", "--port", "0"]);
+    assert_eq!(code, Some(2));
+    assert!(
+        said.contains("--max-reads takes a count, 1 or more: 0"),
+        "{said}"
+    );
+    let (code, said) = refused(&["--max-reads", "2", "--port", "0"]);
+    assert_eq!(code, Some(2));
+    assert!(
+        said.contains("how many reads run at once is a deployment's"),
+        "{said}"
+    );
     let long = dir.join("s".repeat(150));
     let (code, said) = refused(&["--socket", long.to_str().expect("a path")]);
     assert_eq!(code, Some(1));
@@ -685,6 +698,17 @@ fn a_deployments_edges_are_said() {
         assert!(metrics.contains("objectflow_wal_bytes "), "{metrics}");
         // and the volume they are on (ADR-0188 decision 3)
         assert!(metrics.contains("objectflow_disk_free_bytes "), "{metrics}");
+        // the reads that grow with the store, none running, 4 at once
+        // unless given (ADR-0189 decision 2)
+        assert!(
+            metrics.contains("objectflow_reads_running 0\n"),
+            "{metrics}"
+        );
+        assert!(
+            metrics.contains("objectflow_reads_waiting 0\n"),
+            "{metrics}"
+        );
+        assert!(metrics.contains("objectflow_reads_most 4\n"), "{metrics}");
         let (_, health) = call(&s, "GET", "/health", None);
         assert!(
             health["disk_free_bytes"].as_u64().is_some_and(|b| b > 0),

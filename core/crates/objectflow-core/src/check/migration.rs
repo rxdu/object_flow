@@ -13,6 +13,7 @@ use super::doc::{
     str_or,
 };
 use super::names::invariant_names;
+use super::notices::{kinds_named, taken_kinds};
 use super::raw::imported;
 use super::steps::sources;
 use super::view::{View, types};
@@ -590,5 +591,72 @@ pub fn migration_pair_errors(prev: &Value, doc: &Value, library: &Obj) -> (Found
             }
         }
     }
+    // who may take a transition, or approve a version, named no longer or
+    // widened (ADR-0189 decision 1)
+    for (tn, t) in &new {
+        if machines.contains(tn) || flag(t, "abstract") {
+            continue;
+        }
+        let Some(ot) = old.get(tn) else { continue };
+        for (xn, ox) in obj(ot, "transitions") {
+            let Some(x) = obj(t, "transitions").get(xn) else {
+                continue;
+            };
+            if !x.is_object() || !ox.is_object() {
+                continue;
+            }
+            let (was, now) = (taken_kinds(ox, ot), taken_kinds(x, t));
+            if let Some(message) = narrowed_no_longer(&format!("{tn}.{xn}"), &was, &now, true) {
+                notes.push(finding(
+                    segs!["types", tn.as_str(), "transitions", xn.as_str()],
+                    "taken_by_dropped",
+                    message,
+                ));
+            }
+        }
+    }
+    let approving = |d: &Value| {
+        let mut kinds = kinds_named(d.get("publishing").and_then(|p| p.get("taken_by")));
+        kinds.sort();
+        kinds
+    };
+    if let Some(message) = narrowed_no_longer(
+        "publishing.taken_by",
+        &approving(prev),
+        &approving(doc),
+        false,
+    ) {
+        notes.push(finding(segs!["publishing"], "taken_by_dropped", message));
+    }
     (fatal, notes)
+}
+
+/// What a version says of who may act, where the previous one named kinds
+/// and this one names none or adds one: of a transition, who may take it, or
+/// of `publishing`, who may approve the next version (ADR-0189 decision 1).
+fn narrowed_no_longer(what: &str, was: &[String], now: &[String], taking: bool) -> Option<String> {
+    if was.is_empty() {
+        return None;
+    }
+    if now.is_empty() {
+        let after = if taking {
+            "every kind of actor may take it"
+        } else {
+            "once it is installed every kind of actor may approve the next"
+        };
+        let verb = if taking { " was taken by" } else { " was" };
+        return Some(format!(
+            "{what}{verb} [{}], and this version names no kind, so {after} (ADR-0189)",
+            was.join(", ")
+        ));
+    }
+    if now.iter().any(|k| !was.contains(k)) {
+        let verb = if taking { " is taken by" } else { " is" };
+        return Some(format!(
+            "{what}{verb} [{}], where the previous version allowed [{}] (ADR-0189)",
+            now.join(", "),
+            was.join(", ")
+        ));
+    }
+    None
 }

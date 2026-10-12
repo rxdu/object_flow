@@ -2446,7 +2446,7 @@ Read: `get(W5)`
 
 **Findings.**
 1. **The review's `filled` does not read the units procured for a delivery** (UC-20). `mark_ready` requires a unit bound and none still on order. A unit bought for the delivery is on order until it arrives. From then it carries `procured_for`, and is neither bound nor on order. So D20 may be marked ready with one of its two units while the other waits to be assigned to it (§37). Adding `none(u in procured)` to `filled` would make the delivery wait for it. The two proposals were the author's to decide together, so `flow-review.md` §8 records the interaction. *(Corrected in the review 2026-09-28, D454: its appendix's `filled` now adds `none(u in procured)`. Version 15 above keeps the `filled` that found the gap.)*
-2. **A version that reroutes a transition changes what a metric filtering on its states counts, and nothing reports it** (UC-20, UC-21). The lead's `delivery_cycle_time` counts completions from `PREPARATION` (§29). Since version 15 a completion leaves `READY`, so D06, 165 days in preparation, and D20 are not counted. The people's median below is §30's, over ten completions that include D17's and D10's and not those two. Publishing checked version 15 and reported nothing of it, only the `audit` notice of version 14's rule on trial, as a probe of the flow checker's notices showed. The metric is still well formed, and its filter still means what it says. *(Settled 2026-09-28 by ADR-0129: publishing now notices each such metric, and version 15's notices, read below, name the lead's cycle time beside the rule on trial. The on-time rate, which counts completions into `DELIVERED` from wherever they come, is not named, since where they end did not change.)*
+2. **A version that reroutes a transition changes what a metric filtering on its states counts, and nothing reports it** (UC-20, UC-21). The lead's `delivery_cycle_time` counts completions from `PREPARATION` (§29). Since version 15 a completion leaves `READY`, so D06, 165 days in preparation, and D20 are not counted. The people's median below is §30's, over ten completions that include D17's and D10's and not those two. Publishing checked version 15 and reported nothing of it, only the `audit` notice of version 14's rule on trial, as a probe of the flow checker's notices showed. The metric is still well formed, and its filter still means what it says. *(Settled 2026-09-28 by ADR-0129: publishing now notices each such metric, and version 15's notices, read below, name the lead's cycle time beside the rule on trial, and since ADR-0189 the transitions an agent may take on the wire. The on-time rate, which counts completions into `DELIVERED` from wherever they come, is not named, since where they end did not change.)*
 
 Read: `metric(delivery_cycle_time, keep: [creator])`
 
@@ -2460,6 +2460,7 @@ Read: `notices of version 15`
 
 | module | code | notice |
 |---|---|---|
+| inventory_journey | agent_open | an agent may take on the wire the transitions here that name no taken_by: Delivery (11), Engagement (8), Lease (3), PdiCheck (2), Robot (16), RobotModel (7), ServiceJob (10), Shipment (12), Warranty (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189) |
 | inventory_journey | audit | all_passed is audited: its failures are recorded and it refuses nothing |
 | inventory_journey | metric | delivery_cycle_time's filter counts transitions out of Delivery.PREPARATION, and this version changes which transitions those are, so what the metric counts changes from this version on |
 
@@ -2719,12 +2720,13 @@ Read: `rules(ExpenseClaim.add_line)`
 |---|---|---|---|
 | within_policy | self_serviceable | no | FLAG — NOT ENFORCED |
 
-**No guarantee is claimed for it.** The publish report lists the flag, so whoever approves the version is told it refuses nothing, and the adversarial harness treats it as absent (`declaration-syntax.md` §5.1). Version 17's report, from the flow checker, names only it:
+**No guarantee is claimed for it.** The publish report lists the flag, so whoever approves the version is told it refuses nothing, and the adversarial harness treats it as absent (`declaration-syntax.md` §5.1). Version 17's report, from the flow checker, names it, beside the transitions an agent may still take on the wire, which the version leaves open (ADR-0189):
 
 Read: `notices of version 17`
 
 | module | code | notice |
 |---|---|---|
+| approvals | agent_open | an agent may take on the wire the transitions here that name no taken_by: ClaimLine (1), ExpenseCategory (2), ExpenseClaim (6), PurchaseRequest (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189) |
 | approvals | warn | within_policy warns: a failure is reported with the result and refuses nothing |
 
 ## 43. UC-24: per-person numbers behind a door

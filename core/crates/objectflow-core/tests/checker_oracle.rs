@@ -35,6 +35,10 @@ const COVERED: &[&str] = &[
     "before",
     // an invariant that can only refuse others' changes (ADR-0176)
     "veto",
+    // a version's transitions open to agents, and who may act named no
+    // longer or widened against the previous version (ADR-0189)
+    "agent_open",
+    "taken_by_dropped",
     // step 4 (C2), by group as each is ported
     "check 2",
     "check 7",

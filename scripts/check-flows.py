@@ -1565,7 +1565,67 @@ def migration_pair_errors(prev, doc, library):
             notes.append((("enumerations", en), "migration", f"{en}.{x} is gone: a publish needs a mapping for it if live objects hold it, and is refused if an observation does"))
         for x in sorted(set(mapped) - old_enums[en]):
             fatal.append((("migration", "removed_members", en, x), "names", f"the migration maps {en}.{x}, which the previous version did not have"))
+    # who may take a transition, or approve a version, named no longer or widened (ADR-0189 decision 1)
+    for tn, t in new.items():
+        if tn in machines or tn not in old or t.get("abstract"):
+            continue
+        ot = old[tn]
+        for xn, ox in (ot.get("transitions") or {}).items():
+            x = (t.get("transitions") or {}).get(xn)
+            if not isinstance(x, dict) or not isinstance(ox, dict):
+                continue
+            was, now = taken_kinds(ox, ot), taken_kinds(x, t)
+            if was and not now:
+                notes.append((("types", tn, "transitions", xn), "taken_by_dropped",
+                              f"{tn}.{xn} was taken by [{', '.join(was)}], and this version names no kind, so every kind of "
+                              f"actor may take it (ADR-0189)"))
+            elif was and not set(now) <= set(was):
+                notes.append((("types", tn, "transitions", xn), "taken_by_dropped",
+                              f"{tn}.{xn} is taken by [{', '.join(now)}], where the previous version allowed "
+                              f"[{', '.join(was)}] (ADR-0189)"))
+    was, now = (sorted(kinds_named((d.get("publishing") or {}).get("taken_by"))) for d in (prev, doc))
+    if was and not now:
+        notes.append((("publishing",), "taken_by_dropped",
+                      f"publishing.taken_by was [{', '.join(was)}], and this version names no kind, so once it is "
+                      f"installed every kind of actor may approve the next (ADR-0189)"))
+    elif was and not set(now) <= set(was):
+        notes.append((("publishing",), "taken_by_dropped",
+                      f"publishing.taken_by is [{', '.join(now)}], where the previous version allowed "
+                      f"[{', '.join(was)}] (ADR-0189)"))
     return fatal, notes
+
+
+def kinds_named(given):
+    """The kinds of actor a `taken_by` names, its texts in the order given."""
+    return [k for k in given if isinstance(k, str)] if isinstance(given, list) else []
+
+
+def taken_kinds(x, t):
+    """The kinds of actor that may take a transition, as the view holds it: its own `taken_by`, or its type's where it
+    names none (ADR-0182 decision 5), sorted; none where neither names one."""
+    return sorted(kinds_named(x.get("taken_by")) or kinds_named(t.get("taken_by")))
+
+
+def agent_kinds(doc, v):
+    """The identity attributes of a module's concrete types that declare an agent kind of actor, as `Type.attribute`."""
+    machines = set(doc.get("machines") or {})
+    return [f"{tn}.{an}" for tn, t in types(v) if tn not in machines and not t.get("abstract")
+            for an, a in (t.get("attributes") or {}).items() if isinstance(a, dict) and a.get("actor_kind") == "agent"]
+
+
+def agent_open(doc, v):
+    """Each concrete type's count of the transitions a request may name that name no `taken_by`, its type's included:
+    an agent may take each on the wire wherever the version declares an agent kind of actor (ADR-0189 decision 1)."""
+    machines = set(doc.get("machines") or {})
+    out = {}
+    for tn, t in types(v):
+        if tn in machines or t.get("abstract"):
+            continue
+        n = sum(1 for x in (t.get("transitions") or {}).values()
+                if isinstance(x, dict) and not x.get("only_via") and not taken_kinds(x, t))
+        if n:
+            out[tn] = n
+    return out
 
 
 def machine_errors(doc, kinds=None):
@@ -4639,6 +4699,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     modules, example_files = {}, []
     stored = {}                 # module -> its types, enumerations and machines, which one store holds together
     approvers = {}              # module -> the kinds that approve a version, where it declares them (ADR-0187)
+    agents, opened = [], []     # the agent kinds of actor declared, and each module's transitions open to them (ADR-0189)
     for f, text in files:
         try:
             shallow(text)
@@ -4746,6 +4807,18 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
                         violators[f"{tn}.{i}"] = could_violate(library, tn, (spec or {}).get("expression", ""), machines)
         notes += [(f, line_of(idx, back(p)), "notice", c, m)
                   for p, c, m in notices(v) + unknowns(v, library) + befores(v) + vetoes(v, library) if back(p) is not None]
+        agents += agent_kinds(doc, v)
+        opened.append((f, line_of(idx, ("module",)), agent_open(doc, v)))
+    # where the version declares an agent kind of actor, each module's transitions an agent may take on the wire, which
+    # name no taken_by; its generated tools offer them only for proposing (ADR-0189 decision 1)
+    if agents:
+        for f, line, counts in opened:
+            if counts:
+                notes.append((f, line, "notice", "agent_open",
+                              f"an agent may take on the wire the transitions here that name no taken_by: "
+                              f"{', '.join(f'{tn} ({n})' for tn, n in sorted(counts.items()))}, since the version "
+                              f"declares an agent kind of actor ({', '.join(sorted(agents))}); an agent's generated tools "
+                              f"offer them only for proposing, where they may be proposed (ADR-0189)"))
     for f, idx, doc in example_files:
         errors = examples_schema_errors(doc)
         if not errors:
@@ -5143,6 +5216,41 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     ok &= hit
     print(f"  planted a correction's free-text reason on a type an erasure reaches: "
           f"{'noticed, and neither marked personal nor without an erasure' if hit else 'MISSED ' + str(kept)}")
+    # where the version declares an agent kind of actor, a module's transitions that name no taken_by are noticed, once
+    # for the module, whichever module checked declares the kind; a version declaring none is not (ADR-0189 decision 1)
+    tasks = ("module: tasks\ncategories: [live]\ntypes:\n  Task:\n    description: A task.\n    tracking: record\n"
+             "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
+             "    transitions:\n      t: { kind: initial, to: S }\n      e: { kind: external, from: S, to: E, taken_by: [human] }\n")
+    bots = ("module: bots\ncategories: [live]\ntypes:\n  Bot:\n    description: An agent.\n    tracking: record\n"
+            "    taken_by: [human]\n    attributes:\n      bot_id: { type: identity, actor_kind: agent }\n"
+            "    states: { S: { category: live, description: On. }, E: { category: live, final: true, description: Off. } }\n"
+            "    transitions:\n      t: { kind: initial, to: S, required_inputs: [bot_id] }\n      e: { kind: external, from: S, to: E }\n")
+    opened = [[(x[0], x[4]) for x in check(files)[1] if x[3] == "agent_open"]
+              for name, files in (("agent_declared", [("tasks.yaml", tasks), ("bots.yaml", bots)]),
+                                  ("none_declared", [("tasks.yaml", tasks)]))]
+    hit = (len(opened[0]) == 1 and opened[0][0][0] == "tasks.yaml" and "Task (1)" in opened[0][0][1]
+           and "(Bot.bot_id)" in opened[0][0][1] and opened[1] == [])
+    ok &= hit
+    print(f"  planted transitions naming no taken_by where a later module declares an agent kind: "
+          f"{'noticed once, and not where none is declared' if hit else 'MISSED ' + str(opened)}")
+    # against the previous version, a transition or a version's approval whose taken_by is dropped or widened is
+    # noticed, and one narrowed is not (ADR-0189 decision 1)
+    before = ("module: m\ncategories: [live]\npublishing: { taken_by: [human] }\ntypes:\n  T:\n    description: A record.\n"
+              "    tracking: record\n"
+              "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
+              "    transitions:\n      t: { kind: initial, to: S, taken_by: [human] }\n"
+              "      e: { kind: external, from: S, to: E, taken_by: [human] }\n"
+              "      f: { kind: internal, from: S, taken_by: [human, service] }\n")
+    after = (before.replace("publishing: { taken_by: [human] }\n", "")
+             .replace("t: { kind: initial, to: S, taken_by: [human] }", "t: { kind: initial, to: S }")
+             .replace("to: E, taken_by: [human] }", "to: E, taken_by: [agent, human] }")
+             .replace("taken_by: [human, service] }", "taken_by: [human] }"))
+    dropped = [sorted(x[4].split(" [")[0] for x in check([("m.yaml", text)], {"m.yaml": before})[1] if x[3] == "taken_by_dropped")
+               for name, text in (("changed", after), ("unchanged", before))]
+    hit = dropped == [["T.e is taken by", "T.t was taken by", "publishing.taken_by was"], []]
+    ok &= hit
+    print(f"  planted a version dropping or widening who takes a transition or approves a version: "
+          f"{'noticed, and a narrowing not' if hit else 'MISSED ' + str(dropped)}")
     # a type whose many transitions a person takes, each generating an invariant of who took it, still has its own
     # invariants' contradiction found: the generated ones, which nothing else reads, are left out of step 5 rather
     # than multiplying its cases past what it decides (ADR-0176)

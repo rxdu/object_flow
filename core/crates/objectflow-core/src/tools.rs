@@ -4,7 +4,9 @@
 //! `read_metric`, and the reads an agent plans with, `get_object`,
 //! `object_availability` and `query_objects` (D564), sorted by name. A transition is left out for an actor kind
 //! where an invariant of its type, over a value its effect assigns from
-//! `actor.kind`, is certain to fail with that kind (decision 1).
+//! `actor.kind`, is certain to fail with that kind (decision 1), and for an
+//! agent wherever its `taken_by` does not name `agent` (ADR-0189 decision 1);
+//! either is offered for proposing where it may be proposed.
 //!
 //! `scripts/flowtools.py` renders the same, the reference the Flow Studio's
 //! server answers with on the runner's side, so the two are compared answer
@@ -505,7 +507,11 @@ pub fn tools(lib: &Library, actor_kind: &str) -> Vec<Json> {
             if !x.only_via.is_empty() {
                 continue;
             }
-            if refuses(t, x, actor_kind) {
+            // an agent is offered what the flow names it for, a transition
+            // whose taken_by names agent, and any other only for proposing,
+            // where it may be proposed (ADR-0189 decision 1)
+            let unnamed = actor_kind == "agent" && !x.taken_by.iter().any(|k| k == "agent");
+            if unnamed || refuses(t, x, actor_kind) {
                 // refused, it is offered for proposing where it may be
                 // proposed (ADR-0176 decision 1)
                 if x.proposable {

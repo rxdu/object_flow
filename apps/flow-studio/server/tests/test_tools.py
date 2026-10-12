@@ -3,7 +3,8 @@
 and the reference runner over every module of the design and every actor
 kind, each a valid JSON Schema that takes the calls the wire takes, and a
 transition left out for an actor kind where an invariant over the kind it
-records is certain to fail with it (decision 1).
+records is certain to fail with it (decision 1), and for an agent wherever its
+taken_by does not name agent (ADR-0189 decision 1).
 
 It builds the core's service with the pinned toolchain, and fails, not skips,
 without it.
@@ -93,10 +94,46 @@ def test_an_agent_may_only_propose_what_a_person_takes(tee):
     # not proposable, so not the agent's at all; the service's, as a person's
     assert "request_reject" not in kinds["agent"]
     assert "request_reject" in kinds["service"]
-    assert "request_retitle" in kinds["agent"]
+    # named for no kind of actor, so the agent's tools leave it out (ADR-0189)
+    assert "request_retitle" not in kinds["agent"]
     mine = kinds["human"]["request_approve"]["input_schema"]
     assert mine["properties"]["propose"]["type"] == "boolean"
     assert "propose" not in mine["required"]
+
+
+RETITLE = "retitle: { kind: internal, from: OPEN, required_inputs: [title] }"
+
+
+def test_an_agent_is_handed_only_what_its_flow_names_it_for(tee):
+    """A transition whose taken_by does not name agent, its type's where it
+    names none, is offered an agent only for proposing, where it may be
+    proposed, and otherwise not at all; one naming agent is handed it as a
+    person is, and a person is handed each as before (ADR-0189 decision 1).
+    """
+    assert TAKEN.count(RETITLE) == 1
+    variants = {
+        "unnamed": TAKEN,
+        "proposable": TAKEN.replace(RETITLE, RETITLE[:-2] + ", proposable: true }"),
+        "named": TAKEN.replace(RETITLE, RETITLE[:-2] + ", taken_by: [agent, human] }"),
+    }
+    handed = {}
+    for name, text in variants.items():
+        tee.found.clear()
+        assert tee.post("/sandbox/load",
+                        {"files": [{"name": "taken.yaml", "text": text}]})["loaded"]
+        handed[name] = {kind: {t["name"]: t for t in
+                               tee.post("/v1/tools", {"actor_kind": kind})["tools"]}
+                        for kind in ("human", "agent")}
+        alike(tee)
+        assert "request_retitle" in handed[name]["human"]
+    assert "request_retitle" not in handed["unnamed"]["agent"]
+    proposing = handed["proposable"]["agent"]["request_retitle"]["input_schema"]
+    assert proposing["properties"]["propose"]["const"] is True
+    assert "propose" in proposing["required"]
+    named = handed["named"]["agent"]["request_retitle"]["input_schema"]
+    assert "propose" not in named.get("required", [])
+    # what an agent reads and records is its own, whatever the flow names
+    assert {"get_object", "read_metric"} <= set(handed["unnamed"]["agent"])
 
 
 def test_a_tool_takes_the_calls_the_wire_takes(tee):
@@ -127,7 +164,7 @@ def test_an_agent_can_read_before_it_acts(tee):
     availability, so the tools an agent is handed read too (D564)."""
     t = tools(tee, "reimbursement.yaml", "agent")
     assert {"get_object", "object_availability", "query_objects"} <= set(t)
-    assert "object_availability" in t["claim_submit"]["description"]
+    assert "object_availability" in t["claim_line_suggest_nature"]["description"]
     assert "Claim" in t["query_objects"]["input_schema"]["properties"][
         "type"]["enum"]
 

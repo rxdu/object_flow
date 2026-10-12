@@ -147,6 +147,10 @@ pub fn checked_reading(
     // each module that declares who approves a version, in the order
     // checked, with the kinds it declares, sorted (ADR-0187 decision 1)
     let mut approvers: Vec<(String, Vec<String>)> = Vec::new();
+    // the agent kinds of actor declared, and each module's transitions open
+    // to them, by its file and its `module` line (ADR-0189 decision 1)
+    let mut agents: Vec<String> = Vec::new();
+    let mut opened: Vec<(String, usize, BTreeMap<String, usize>)> = Vec::new();
     // every type of the modules checked so far, as the view holds it
     let mut library = doc::Obj::new();
     // every machine declared, a type of the view that no object has
@@ -432,7 +436,36 @@ pub fn checked_reading(
                 notice(found, node.line_at(&p), code, message);
             }
         }
+        agents.extend(notices::agent_kinds(&doc, &v.doc));
+        opened.push((
+            file.clone(),
+            node.line_at(&[Seg::Key("module".into())]),
+            notices::agent_open(&doc, &v.doc),
+        ));
         modules.push((index, node, doc));
+    }
+    // where the version declares an agent kind of actor, each module's
+    // transitions an agent may take on the wire, which name no taken_by; its
+    // generated tools offer them only for proposing (ADR-0189 decision 1)
+    if !agents.is_empty() {
+        agents.sort();
+        for (file, line, counts) in opened {
+            if counts.is_empty() {
+                continue;
+            }
+            let by_type: Vec<String> = counts.iter().map(|(tn, n)| format!("{tn} ({n})")).collect();
+            found.push(Finding {
+                file,
+                line,
+                severity: Severity::Notice,
+                code: "agent_open".into(),
+                message: format!(
+                    "an agent may take on the wire the transitions here that name no taken_by: {}, since the version declares an agent kind of actor ({}); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)",
+                    by_type.join(", "),
+                    agents.join(", ")
+                ),
+            });
+        }
     }
     let all_parsed = parsed == files.len();
     // each examples file's shape, then what it names against the modules

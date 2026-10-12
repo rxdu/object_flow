@@ -2,7 +2,7 @@
 
 - **Status:** **Decided by the author**, 2026-10-12 ("go with your recommendations on questions 7 and 8"), on the recommendations `TODO.md` states with each, after the third production review (`design/production-review.md` §7). Both built the same day.
 - **Date:** 2026-10-12
-- **Refined by:** ADR-0188 — the service's second `unsafe` call, `statvfs`, for the disk in `/health`.
+- **Refined by:** ADR-0188 — the service's second `unsafe` call, `statvfs`, for the disk in `/health`. ADR-0189 — the checker notices a version dropping or widening `publishing.taken_by`.
 - **Refines:** ADR-0182 (`taken_by`), ADR-0183 decision 7 and ADR-0184 decision 1 (the store's own acts), ADR-0126 (the built-in `DeclarationChange`)
 - **Relates to:** `PRD.md` T6, N7, UC-15; ADR-0176; `flow-format.md` §4; `guides/integrate.md` §6, §9
 

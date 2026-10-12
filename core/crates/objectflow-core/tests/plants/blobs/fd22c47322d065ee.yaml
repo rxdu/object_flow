@@ -1,0 +1,13 @@
+module: bots
+categories: [live]
+types:
+  Bot:
+    description: An agent.
+    tracking: record
+    taken_by: [human]
+    attributes:
+      bot_id: { type: identity, actor_kind: agent }
+    states: { S: { category: live, description: On. }, E: { category: live, final: true, description: Off. } }
+    transitions:
+      t: { kind: initial, to: S, required_inputs: [bot_id] }
+      e: { kind: external, from: S, to: E }

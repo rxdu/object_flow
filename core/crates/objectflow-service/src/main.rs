@@ -220,6 +220,9 @@ struct Service {
     /// How long a deployment's read may take before it is stopped
     /// (ADR-0184 decision 3).
     read_timeout: std::time::Duration,
+    /// The reads that grow with the store, bounded in number (ADR-0189
+    /// decision 2).
+    admission: Admission,
     /// What it has answered, by route and status: how many, and their
     /// seconds, which `GET /metrics` gives (production review OBSERVE).
     served: Mutex<std::collections::BTreeMap<(String, u16), (u64, f64)>>,
@@ -386,9 +389,102 @@ impl Drop for Reading<'_> {
     }
 }
 
+/// The reads whose cost grows with the store running now, and those
+/// waiting, at most `most` running: each takes a slot before its reader, so
+/// their memory is bounded by their number, where 32 metrics on six years
+/// took 3.3 GB (fourth production review READS, ADR-0189 decision 2).
+struct Admission {
+    running: Mutex<usize>,
+    freed: std::sync::Condvar,
+    most: usize,
+    waiting: std::sync::atomic::AtomicUsize,
+}
+
+impl Admission {
+    fn new(most: usize) -> Self {
+        Admission {
+            running: Mutex::new(0),
+            freed: std::sync::Condvar::new(),
+            most,
+            waiting: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    /// A slot, waited for until `until`, and refused `read_timeout` past it.
+    fn take(
+        &self,
+        until: std::time::Instant,
+        timeout: std::time::Duration,
+    ) -> Result<Slot<'_>, Fault> {
+        let panicked = || Fault::Internal("a previous request panicked".to_string());
+        self.waiting.fetch_add(1, Ordering::SeqCst);
+        let taken = (|| {
+            let mut running = self.running.lock().map_err(|_| panicked())?;
+            while *running >= self.most {
+                let left = until.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    return Err(Fault::TimedOut(format!(
+                        "{} reads that grow with the store ran for the whole of this one's deadline, --read-timeout ({} s), so it was not started; --max-reads bounds how many run at once",
+                        self.most,
+                        timeout.as_secs()
+                    )));
+                }
+                running = self
+                    .freed
+                    .wait_timeout(running, left)
+                    .map_err(|_| panicked())?
+                    .0;
+            }
+            *running += 1;
+            Ok(())
+        })();
+        self.waiting.fetch_sub(1, Ordering::SeqCst);
+        taken.map(|()| Slot(Some(self)))
+    }
+
+    fn running(&self) -> usize {
+        self.running.lock().map_or(0, |n| *n)
+    }
+}
+
+/// A heavy read's slot, given back when the read ends; none for a
+/// sandbox's, which take the writer.
+struct Slot<'a>(Option<&'a Admission>);
+
+impl Drop for Slot<'_> {
+    fn drop(&mut self) {
+        if let Some(a) = self.0 {
+            if let Ok(mut running) = a.running.lock() {
+                *running = running.saturating_sub(1);
+            }
+            a.freed.notify_one();
+        }
+    }
+}
+
+/// A read whose cost grows with the store: a query, a metric, the objects
+/// available, the exceptions, the diagnostics, a page of a subscription or
+/// an export, a change's dry run. It takes a slot first, waited for within
+/// its own deadline, and the read is given what is left of the deadline; a
+/// read of one object, of the events by position or of the declaration
+/// never waits (ADR-0189 decision 2).
+fn heavy_reading(shared: &Shared) -> Result<(Slot<'_>, Reading<'_>), Fault> {
+    let until = std::time::Instant::now() + shared.read_timeout;
+    let slot = match shared.reads {
+        Some(_) => shared.admission.take(until, shared.read_timeout)?,
+        None => Slot(None),
+    };
+    Ok((slot, reading_until(shared, until)?))
+}
+
 /// A read of the store as it stands, beside the writes and never behind
 /// them, for a deployment; under the lock for a sandbox.
 fn reading(shared: &Shared) -> Result<Reading<'_>, Fault> {
+    reading_until(shared, std::time::Instant::now() + shared.read_timeout)
+}
+
+/// A read, stopped at `until` (ADR-0184 decision 3).
+fn reading_until(shared: &Shared, until: std::time::Instant) -> Result<Reading<'_>, Fault> {
     let Some(reads) = &shared.reads else {
         return Ok(Reading::Locked(locked(shared)?));
     };
@@ -421,7 +517,7 @@ fn reading(shared: &Shared) -> Result<Reading<'_>, Fault> {
     // a read answers within its deadline or is stopped there, so no read
     // holds a reader, and an erasure's truncation behind it, without bound
     // (ADR-0184 decision 3)
-    store.deadline = Some(std::time::Instant::now() + shared.read_timeout);
+    store.deadline = Some(until);
     Ok(Reading::Own(Some(Box::new(store)), reads))
 }
 
@@ -1056,7 +1152,7 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
         // takes it only where nothing it read has changed (DRYRUN-LOCK)
         let prepared = match (&req.object_id, req.transition.as_str()) {
             (Some(id), "submit" | "refresh") if shared.reads.is_some() => {
-                let mut r = reading(&shared)?;
+                let (_slot, mut r) = heavy_reading(&shared)?;
                 let s = r.store()?;
                 match objectflow_core::publish::prepare(&s.snapshot()?, id, &req.actor) {
                     Ok(prepared) => prepared,
@@ -1139,7 +1235,7 @@ async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let cursor = cursor_of(&body)?;
         let limit = limit_of(&body)?;
-        let mut r = reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         let page = objectflow_core::subscription::pull_page(&world, subscription, cursor, limit)?;
@@ -1193,7 +1289,7 @@ async fn exceptions(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "exceptions names its actor and the type".to_string(),
             ));
         };
-        let mut r = reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         Ok(Json(page_json(&reads::exceptions(&world, type_)?)))
@@ -1213,7 +1309,7 @@ async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "available names its actor, the type and the transition".to_string(),
             ));
         };
-        let mut r = reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         let mut page = page_json(&reads::available_page(
@@ -1255,7 +1351,7 @@ async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "window takes a duration such as '30 days': {window}"
             ))
         })?;
-        let mut r = reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         Ok(Json(
@@ -1309,7 +1405,7 @@ async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "export names its actor and the source".to_string(),
             ));
         };
-        let mut r = reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         let page = objectflow_core::export::export_page(
@@ -1795,7 +1891,7 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
             // production review PUBLISH-SCALE); a sandbox's reads take the
             // writer, as every one of its reads does
             if shared.reads.is_some() {
-                let mut r = reading(&shared)?;
+                let (_slot, mut r) = heavy_reading(&shared)?;
                 let s = r.store()?;
                 return preview(&s.snapshot()?, actor, change).map_err(|e| match e {
                     Fault::TimedOut(_) => dry_run_late(&shared),
@@ -2130,7 +2226,7 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let order = strings("order")?.unwrap_or_default();
         let fields = strings("fields")?;
-        let mut r = reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         let page = reads::query_page(
@@ -2179,7 +2275,7 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 Fault::Bad(format!("over takes a duration such as '30 days': {by}"))
             })?),
         };
-        let mut r = reading(&shared)?;
+        let (_slot, mut r) = heavy_reading(&shared)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         let page = objectflow_core::metric::page(
@@ -2603,6 +2699,19 @@ async fn metrics(State(shared): State<Shared>) -> Response {
         shared.in_flight.load(Ordering::SeqCst),
         writer_held(&shared)
     ));
+    // the reads that grow with the store, bounded in number (ADR-0189)
+    let a = &shared.admission;
+    out.push_str(&format!(
+        "# HELP objectflow_reads_running Reads that grow with the store running now.\n\
+         # TYPE objectflow_reads_running gauge\nobjectflow_reads_running {}\n\
+         # HELP objectflow_reads_waiting Reads that grow with the store waiting for their turn.\n\
+         # TYPE objectflow_reads_waiting gauge\nobjectflow_reads_waiting {}\n\
+         # HELP objectflow_reads_most How many reads that grow with the store run at once.\n\
+         # TYPE objectflow_reads_most gauge\nobjectflow_reads_most {}\n",
+        a.running(),
+        a.waiting.load(Ordering::SeqCst),
+        a.most
+    ));
     let c = &shared.connections;
     out.push_str(&format!(
         "# HELP objectflow_connections_open The connections open.\n\
@@ -2664,8 +2773,10 @@ const USAGE: &str = "usage: objectflow-service [--port <n> | --bind <host:port> 
                                           [--idempotency-retention <duration>]
                                           [--evaluator <name>=<url> ...]
                                           [--evaluator-timeout <duration>]
+                                          [--evaluator-token <name>=<file> ...]
                                           [--busy-timeout <duration>]
-                                          [--read-timeout <duration>]]
+                                          [--read-timeout <duration>]
+                                          [--max-reads <n>]]
 
 Serves the engine's operations, POST /v1/<operation>, GET /health and GET
 /metrics, on 127.0.0.1 at port n (8712 unless given; 0 takes a free one), at
@@ -2680,8 +2791,11 @@ version 0, its files 0600, whose flow is published through the wire; the
 wall clock; and no controls (ADR-0174, ADR-0183). Each --evaluator names
 the endpoint a namespace's calls are posted to, answered within the timeout,
 5 s unless given, and an evaluator no endpoint answers is unknown
-(ADR-0175). Its reads run beside its writes, each on a connection of its
-own, and its writes one at a time, each waiting out another process's
+(ADR-0175), sent the token each --evaluator-token's file holds (ADR-0188).
+Its reads run beside its writes, each on a connection of its own, stopped
+at the read timeout, 30 s unless given, those that grow with the store at
+most n at once, 4 unless given, a read waiting for its turn within its
+timeout (ADR-0189); and its writes one at a time, each waiting out another process's
 write lock for the busy timeout, 5 s unless given, before it is retried
 and then refused stale (ADR-0178). It authenticates nothing: bind it beyond loopback only behind
 the application that does (core/README.md).";
@@ -2710,7 +2824,14 @@ struct Args {
     /// (ADR-0184 decision 4).
     idle_timeout: std::time::Duration,
     max_connections: usize,
+    /// How many reads that grow with the store run at once (ADR-0189
+    /// decision 2).
+    max_reads: Option<usize>,
 }
+
+/// The reads that grow with the store run at once unless `--max-reads`
+/// says otherwise (ADR-0189 decision 2).
+const MAX_READS: usize = 4;
 
 fn args() -> Result<Args, String> {
     let mut out = Args {
@@ -2726,6 +2847,7 @@ fn args() -> Result<Args, String> {
         read_timeout: None,
         idle_timeout: std::time::Duration::from_secs(30),
         max_connections: 512,
+        max_reads: None,
     };
     let mut retained = false;
     let mut addressed = false;
@@ -2798,6 +2920,15 @@ fn args() -> Result<Args, String> {
                         format!("--max-connections takes a count, 1 or more: {n}")
                     })?;
             }
+            "--max-reads" => {
+                let n = value()?;
+                out.max_reads = Some(
+                    n.parse::<usize>()
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .ok_or_else(|| format!("--max-reads takes a count, 1 or more: {n}"))?,
+                );
+            }
             "--read-timeout" => {
                 let d = value()?;
                 let secs = parse_duration(&d).filter(|s| *s > 0).ok_or_else(|| {
@@ -2824,6 +2955,12 @@ fn args() -> Result<Args, String> {
     if out.read_timeout.is_some() && out.store.is_none() {
         return Err(
             "a read's timeout is a deployment's; a sandbox's reads take the writer's lock"
+                .to_string(),
+        );
+    }
+    if out.max_reads.is_some() && out.store.is_none() {
+        return Err(
+            "how many reads run at once is a deployment's; a sandbox's reads take the writer's lock"
                 .to_string(),
         );
     }
@@ -3506,6 +3643,7 @@ async fn serve() -> std::io::Result<()> {
         tokens: a.tokens.clone(),
         evaluator_timeout: sandbox.evaluator_timeout,
         read_timeout: a.read_timeout.unwrap_or(std::time::Duration::from_secs(30)),
+        admission: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
         deployment,
         reads,
         writer: Mutex::new(sandbox),
@@ -3572,6 +3710,207 @@ mod tests {
         );
     }
 
+    /// A read that grows with the store waits for its turn within its
+    /// deadline and is refused past it, its slot given back when the read
+    /// ends, a waiter counted while it waits (ADR-0189 decision 2).
+    #[test]
+    #[allow(clippy::panic)]
+    fn a_heavy_read_waits_its_turn_within_its_deadline() {
+        use std::time::{Duration, Instant};
+        let a = Admission::new(1);
+        let timeout = Duration::from_secs(30);
+        let Ok(first) = a.take(Instant::now() + timeout, timeout) else {
+            panic!("no slot free")
+        };
+        assert_eq!(a.running(), 1);
+        std::thread::scope(|scope| {
+            let started = Instant::now();
+            let waiter =
+                scope.spawn(|| a.take(Instant::now() + timeout, timeout).map(drop).is_ok());
+            while a.waiting.load(Ordering::SeqCst) == 0 {
+                std::thread::yield_now();
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            drop(first);
+            assert!(waiter.join().unwrap_or(false), "a freed slot was not taken");
+            assert!(started.elapsed() >= Duration::from_millis(100));
+        });
+        assert_eq!((a.running(), a.waiting.load(Ordering::SeqCst)), (0, 0));
+        let Ok(held) = a.take(Instant::now() + timeout, timeout) else {
+            panic!("no slot free")
+        };
+        let started = Instant::now();
+        let late = a.take(Instant::now() + Duration::from_millis(200), timeout);
+        assert!(
+            matches!(&late, Err(Fault::TimedOut(m)) if m.contains("--max-reads")),
+            "a read waited past its deadline"
+        );
+        assert!(started.elapsed() >= Duration::from_millis(200));
+        drop(late);
+        assert_eq!((a.running(), a.waiting.load(Ordering::SeqCst)), (1, 0));
+        drop(held);
+        assert_eq!(a.running(), 0);
+    }
+
+    /// Every read that grows with the store waits for a slot and is
+    /// answered `503 read_timeout` at its deadline while none frees; a read
+    /// of one object, of events by position or of the declaration never
+    /// waits (ADR-0189 decision 2).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::panic)]
+    async fn only_the_reads_that_grow_with_the_store_wait_their_turn() {
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!("objectflow-admission-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let path = dir.join("store.sqlite");
+        store_file(&path, true).unwrap_or_else(|e| panic!("{e}"));
+        let Ok(store) = Store::open(&path, wall_clock()) else {
+            panic!("the store did not open")
+        };
+        let sandbox = Sandbox {
+            deployment: true,
+            path: Some(path.clone()),
+            store: Some(store),
+            ..Default::default()
+        };
+        let reads = Reads {
+            path: path.clone(),
+            pool: Readers::new(&path, objectflow_core::store::BUSY_TIMEOUT),
+            seen: std::sync::RwLock::new(Seen::of(&sandbox)),
+            floor: AtomicI64::new(0),
+        };
+        let shared: Shared = Arc::new(Service {
+            writer: Mutex::new(sandbox),
+            reads: Some(reads),
+            endpoints: std::collections::BTreeMap::new(),
+            tokens: std::collections::BTreeMap::new(),
+            evaluator_timeout: Duration::from_secs(5),
+            deployment: true,
+            read_timeout: Duration::from_secs(1),
+            admission: Admission::new(1),
+            served: Mutex::new(std::collections::BTreeMap::new()),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
+            writer_since: AtomicI64::new(0),
+            connections: Connections::default(),
+            store_path: None,
+            trims: std::sync::atomic::AtomicU64::new(0),
+            trimming: std::sync::atomic::AtomicBool::new(false),
+        });
+        let Ok(held) = shared.admission.take(
+            Instant::now() + Duration::from_secs(600),
+            Duration::from_secs(600),
+        ) else {
+            panic!("no slot free")
+        };
+        let op = json!({"id": "operator"});
+        let waited = |answer: Answer, started: Instant, route: &str| {
+            assert!(
+                matches!(&answer, Err(Fault::TimedOut(m)) if m.contains("--max-reads")),
+                "{route} did not wait for its turn"
+            );
+            assert!(
+                started.elapsed() >= Duration::from_millis(900),
+                "{route} answered early"
+            );
+        };
+        macro_rules! heavy {
+            ($route:ident, $body:expr) => {{
+                let started = Instant::now();
+                let answer = $route(State(shared.clone()), Body($body)).await;
+                waited(answer, started, stringify!($route));
+            }};
+        }
+        heavy!(query, json!({"actor": op, "type": "Subscription"}));
+        heavy!(metric, json!({"actor": op, "name": "Subscription.count"}));
+        heavy!(
+            available,
+            json!({"actor": op, "type": "Subscription", "transition": "end"})
+        );
+        heavy!(exceptions, json!({"actor": op, "type": "Subscription"}));
+        heavy!(
+            diagnostics,
+            json!({"actor": op, "type": "Subscription", "window": "30 days"})
+        );
+        heavy!(export, json!({"actor": op, "source": "log"}));
+        heavy!(pull, json!({"actor": op, "subscription": "subscription-1"}));
+        heavy!(
+            publish,
+            json!({"actor": op, "change": "declarationchange-1", "dry_run": true})
+        );
+        heavy!(
+            request_op,
+            json!({"actor": op, "object_id": "declarationchange-1", "transition": "submit", "inputs": {}})
+        );
+        macro_rules! light {
+            ($route:ident, $body:expr) => {{
+                let started = Instant::now();
+                let answer = $route(State(shared.clone()), Body($body)).await;
+                assert!(
+                    !matches!(&answer, Err(Fault::TimedOut(_))),
+                    "{} waited for a heavy read's turn",
+                    stringify!($route)
+                );
+                // the body taken, so the route reached its read
+                if let Err(Fault::Bad(m)) = &answer {
+                    panic!("{} refused its body: {m}", stringify!($route));
+                }
+                assert!(
+                    started.elapsed() < Duration::from_millis(900),
+                    "{} waited",
+                    stringify!($route)
+                );
+            }};
+        }
+        light!(get, json!({"actor": op, "id": "subscription-1"}));
+        light!(events, json!({"actor": op, "positions": [1]}));
+        light!(declaration, json!({"actor": op}));
+        light!(lookup, json!({"source": "legacy", "value": "x"}));
+        light!(history, json!({"actor": op, "id": "subscription-1"}));
+        drop(held);
+        let started = Instant::now();
+        let answer = query(
+            State(shared.clone()),
+            Body(json!({"actor": op, "type": "Subscription"})),
+        )
+        .await;
+        assert!(
+            !matches!(&answer, Err(Fault::TimedOut(_))),
+            "a freed slot was not taken"
+        );
+        assert!(started.elapsed() < Duration::from_millis(900));
+        drop(answer);
+        // what a read waited for its turn is counted against its deadline
+        let Ok(held) = shared.admission.take(
+            Instant::now() + Duration::from_secs(600),
+            Duration::from_secs(600),
+        ) else {
+            panic!("no slot free")
+        };
+        let started = Instant::now();
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                std::thread::sleep(Duration::from_millis(300));
+                drop(held);
+            });
+            let Ok((_slot, mut r)) = heavy_reading(&shared) else {
+                panic!("a slot freed within the deadline was not taken")
+            };
+            let Ok(store) = r.store() else {
+                panic!("no store read")
+            };
+            let Some(deadline) = store.deadline else {
+                panic!("a read with no deadline")
+            };
+            assert!(started.elapsed() >= Duration::from_millis(300));
+            assert!(
+                deadline <= started + Duration::from_millis(1050),
+                "the read was given a whole deadline after waiting"
+            );
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A connection's requests take it and let it go; one the cap has taken
     /// to make room takes nothing, so closing it cuts no request short, and
     /// one answering a request is never taken to make room (C-1).
@@ -3625,6 +3964,7 @@ mod tests {
             evaluator_timeout: std::time::Duration::from_secs(5),
             deployment: true,
             read_timeout: std::time::Duration::from_secs(30),
+            admission: Admission::new(MAX_READS),
             served: Mutex::new(std::collections::BTreeMap::new()),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             writer_since: AtomicI64::new(0),

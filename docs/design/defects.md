@@ -619,6 +619,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D605](#d605) | An exact lookup gathered every object holding no value | Resolved |
 | [D606](#d606) | An external identifier had no index unless marked | Resolved |
 | [D607](#d607) | One import batch could stop every write for good | Resolved |
+| [D608](#d608) | A publish report kept one of the checks' findings of each code | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3941,3 +3942,8 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **One import batch could stop every write for good**: a batch's `sequences` raised any sequence it named, declared or not, to `last + 1`, which for `last` = i64::MAX wrapped to i64::MIN in a release build; every write's allocator then read `next_value - 1` in SQL, which overflowed to a REAL, so every write of any kind answered `500`, across restarts, with `/health` 200 and the file to be edited by hand. With the flow's own sequence one object was minted at i64::MAX first. Found 2026-10-12 by the fourth production review's adversary (A-15), from an agent's request.
 
 **Resolved** 2026-10-12: a raise names a sequence a module declares, in a scope its identifiers take, with a `last` from 0 to 2⁶³ − 3, or the batch is refused, in both backends; the store writes the next value checked; the allocator counts in Rust, a row an earlier release wrapped reading as an exhausted sequence; a sequence draws at most 2⁶³ − 2, and a creation minting from an exhausted one is refused `value_in_range`, every other write taken (`a_raise_naming_no_sequence_or_past_its_last_is_refused`, `a_wrapped_sequence_refuses_only_what_mints_from_it`, `test_a_raise_naming_no_sequence_or_past_its_last_is_refused_alike`, four mutations each failing one).
+
+### D608
+**A publish report kept one of the checks' findings of each code**: the report gathers its findings by code, which suits a decision's affected objects, and the checks' findings went through it too, so of several findings of one code, in one module or several, only the first one's message was reported: a second module's notice, or a second fatal `names` finding, was never shown to whoever approved the version. Found 2026-10-12 by the scenarios' replay, when ADR-0189's `agent_open`, one notice for each module, reported the first module of version 15 alone where the reference checker named three.
+
+**Resolved** 2026-10-12: each of the checks' findings is reported as itself, an exact repeat once, alike in the reference runner's publish, which merged them the same way (`each_of_the_checks_findings_is_reported`, failing with the findings merged by code again; the replay's versions 15 and 17; the Studio's comparison of the two backends' reports).

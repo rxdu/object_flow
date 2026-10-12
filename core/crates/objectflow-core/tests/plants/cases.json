@@ -80,6 +80,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     102,
     "notice",
     "audit",
@@ -177,6 +184,13 @@
    ],
    [
     "inventory-v2.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory-v2.yaml",
     108,
     "notice",
     "warn",
@@ -258,6 +272,13 @@
   "findings": [
    [
     "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
     137,
     "notice",
     "warn",
@@ -356,6 +377,13 @@
   "findings": [
    [
     "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
     137,
     "notice",
     "warn",
@@ -454,6 +482,13 @@
   "findings": [
    [
     "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
     137,
     "notice",
     "warn",
@@ -550,6 +585,13 @@
    "service.examples": "b5b6bd173d23b779"
   },
   "findings": [
+   [
+    "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service",
     137,
@@ -664,6 +706,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -766,6 +815,13 @@
     "notice",
     "coverage",
     "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service-v2.yaml",
@@ -884,6 +940,20 @@
     "no example takes 3 transitions of delivery, by its request, a step, a setup or a cascade it expects: Approval.discard, Approval.record, Courier.retire"
    ],
    [
+    "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
     "inventory.yaml",
     102,
     "notice",
@@ -979,7 +1049,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "approvals.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ExpenseClaim (5), PurchaseRequest (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -1070,6 +1148,13 @@
     "notice",
     "coverage",
     "no example takes 8 transitions of customers, by its request, a step, a setup or a cascade it expects: Contact.add, Contact.discard, Customer.lapse, Customer.link_xero, Customer.merged_into, Order.cancel, Order.fulfil, Order.invoice"
+   ],
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -1176,6 +1261,13 @@
     "notice",
     "coverage",
     "no example takes 27 transitions of issues, by its request, a step, a setup or a cascade it expects: Document.archive, Epic.archive, Epic.done, Epic.start, Epic.to_do, Space.archive, Sprint.delete, Sprint.reopen, Subtask.create, Subtask.done, Subtask.start, Subtask.to_do, Version.archive, Version.create, Version.delete, Version.release, Version.release_moving_unresolved, Version.unarchive, Version.unrelease, WorkItem.assign_to_lead, WorkItem.assign_to_reporter, WorkItem.auto_resolve, WorkItem.edit, WorkItem.remove_label, WorkItem.set_fix_version, WorkItem.to_do, WorkItem.unplan"
+   ],
+   [
+    "issues.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "issues.yaml",
@@ -1313,6 +1405,13 @@
     "notice",
     "coverage",
     "no example takes 44 transitions of servicedesk, by its request, a step, a setup or a cascade it expects: Alert.acknowledge, Alert.delete, Alert.link_incident, Alert.reopen, Alert.unacknowledge, Change.archive, Change.cancel, Change.complete, Change.decline, Change.implement, Change.roll_back, ChangeWindow.withdraw, Incident.cancel, Incident.close, Incident.escalate, Incident.link_problem, Incident.pend, Incident.reopen, Incident.resume, Laptop.dispose, Laptop.retire, Organization.archive, PartStock.release, PartStock.set_reorder_level, PostIncidentReview.archive, PostIncidentReview.publish, Problem.archive, Problem.cancel, Problem.complete, Problem.investigate, Problem.open, Problem.review, RegisteredService.retire, Request.cancel, Request.escalate, Request.pend, Request.prioritise, Request.reopen, Request.resume, Request.share, Server.deploy, Server.dispose, Server.name_host, Server.retire"
+   ],
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -1435,7 +1534,7 @@
    ],
    [
     "reimbursement.yaml",
-    "f35914d1517da0ad"
+    "b63322e0cc8e8710"
    ],
    [
     "reimbursement.examples.yaml",
@@ -1457,6 +1556,13 @@
     "notice",
     "coverage",
     "no example takes 10 transitions of reimbursement, by its request, a step, a setup or a cascade it expects: AssistantAgent.retire, BusinessFunction.dissolve, ClaimLine.add, ClaimLine.discard, ClaimLine.erase, Employee.forget, Employee.leave, Employee.link_xero_contact, ExpenseCategory.change_policy_amount, ExpenseCategory.retire"
+   ],
+   [
+    "reimbursement.yaml",
+    15,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Claim (9), ClaimLine (3), since the version declares an agent kind of actor (Agent.key_id, AssistantAgent.agent_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "reimbursement.yaml",
@@ -1534,6 +1640,7 @@
    "ClaimLine.confirmed_by_a_person": "local",
    "ClaimLine.erase_taken_by": "local",
    "ClaimLine.spent_amount_has_its_currency": "local",
+   "ClaimLine.suggest_nature_taken_by": "local",
    "Employee.forget_taken_by": "local",
    "Employee.leave_taken_by": "local",
    "Employee.link_xero_contact_taken_by": "local",
@@ -1605,6 +1712,10 @@
    "ClaimLine.spent_amount_has_its_currency": [
     "ClaimLine.add",
     "ClaimLine.amend"
+   ],
+   "ClaimLine.suggest_nature_taken_by": [
+    "ClaimLine.add",
+    "ClaimLine.suggest_nature"
    ],
    "Employee.forget_taken_by": [
     "Employee.forget",
@@ -1728,6 +1839,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     97,
     "fatal",
     "names",
@@ -1793,6 +1911,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     86,
@@ -2102,6 +2227,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     114,
     "fatal",
     "names",
@@ -2180,10 +2312,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     117,
     "fatal",
     "names",
     "Delivery.complete calls InventoryItem.deliver_outside, which is not a transition of InventoryItem"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -2251,10 +2397,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     99,
     "fatal",
     "names",
     "Delivery.open creates a ChecklistItem without the input 'label', which ChecklistItem.add requires"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -2322,10 +2482,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     32,
     "fatal",
     "names",
     "Delivery.complete enters the final state DELIVERED, and Delivery.checklist_items neither cascades on it nor survives it"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -2393,6 +2567,13 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     35,
     "fatal",
     "names",
@@ -2404,6 +2585,13 @@
     "fatal",
     "names",
     "ChecklistItem.delivery's opposite Delivery.items does not name ChecklistItem.delivery back"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -2471,10 +2659,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     165,
     "fatal",
     "names",
     "ChecklistItem.discard is only via Delivery.abort, which is not a transition of Delivery"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -2536,6 +2738,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "inventory.yaml",
     55,
@@ -2605,6 +2814,13 @@
   "findings": [
    [
     "approvals.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ExpenseClaim (5), PurchaseRequest (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "approvals.yaml",
     20,
     "fatal",
     "names",
@@ -2663,6 +2879,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     55,
@@ -2730,6 +2953,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     68,
@@ -2806,6 +3036,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -2873,6 +3110,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     69,
     "fatal",
     "names",
@@ -2938,6 +3182,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     69,
@@ -3011,10 +3262,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     21,
     "fatal",
     "names",
     "Delivery.number is minted from delivery_serial, which is neither a sequence of this module nor imported"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -3082,10 +3347,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     21,
     "fatal",
     "names",
     "Delivery.number is scoped by 'courier', which not every creation of Delivery writes"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -3153,10 +3432,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     21,
     "fatal",
     "names",
     "Delivery.number's format has no {n} or {n:<width>}, so it would mint one value only"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -3224,10 +3517,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     139,
     "fatal",
     "names",
     "ChecklistItem.position's format reads label, which is optional, outside [ … ]; a segment that may be absent goes in brackets"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -3295,10 +3602,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     22,
     "fatal",
     "names",
     "Delivery.number is unique in scope, and has no identifier with a scope"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -3373,6 +3694,13 @@
    ],
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     102,
     "notice",
     "audit",
@@ -3431,6 +3759,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     123,
@@ -3500,6 +3835,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -3565,6 +3907,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     123,
@@ -3634,6 +3983,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -3701,6 +4057,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -3766,6 +4129,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     157,
@@ -3838,6 +4208,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     159,
     "fatal",
     "names",
@@ -3906,6 +4283,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     160,
@@ -3978,6 +4362,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     144,
     "fatal",
     "names",
@@ -4046,6 +4437,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     40,
@@ -4182,10 +4580,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     24,
     "fatal",
     "check 7",
     "Delivery.unit is a stored relationship end and is marked indexed, which it already is"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -4369,6 +4781,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     721,
     "fatal",
     "names",
@@ -4451,6 +4870,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     725,
     "fatal",
     "names",
@@ -4517,6 +4943,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "servicedesk.yaml",
     709,
@@ -4594,6 +5027,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     719,
     "fatal",
     "names",
@@ -4669,6 +5109,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     743,
     "fatal",
     "names",
@@ -4735,6 +5182,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "servicedesk.yaml",
     724,
@@ -4805,6 +5259,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (2), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     743,
     "fatal",
     "check 53",
@@ -4873,6 +5334,13 @@
    "service-v2.yaml": "9bd716ed3bc7b728"
   },
   "findings": [
+   [
+    "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service-v2.yaml",
     36,
@@ -4955,6 +5423,13 @@
    "service-v2.yaml": "9bd716ed3bc7b728"
   },
   "findings": [
+   [
+    "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service-v2.yaml",
     43,
@@ -5060,6 +5535,13 @@
   "findings": [
    [
     "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
     137,
     "notice",
     "warn",
@@ -5142,6 +5624,13 @@
   "findings": [
    [
     "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
     137,
     "notice",
     "warn",
@@ -5215,6 +5704,13 @@
    "service-v2.yaml": "9bd716ed3bc7b728"
   },
   "findings": [
+   [
+    "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service-v2.yaml",
     55,
@@ -5297,6 +5793,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     293,
     "fatal",
     "names",
@@ -5365,6 +5868,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     181,
     "fatal",
     "names",
@@ -5431,6 +5941,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "servicedesk.yaml",
     766,
@@ -5515,6 +6032,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     768,
     "fatal",
     "names",
@@ -5581,6 +6105,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "servicedesk.yaml",
     761,
@@ -5651,6 +6182,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     113,
     "fatal",
     "names",
@@ -5717,6 +6255,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     77,
@@ -5789,6 +6334,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     77,
     "fatal",
     "names",
@@ -5857,6 +6409,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     77,
@@ -5929,6 +6488,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     117,
     "fatal",
     "names",
@@ -5997,6 +6563,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     123,
@@ -6069,6 +6642,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     180,
     "fatal",
     "names",
@@ -6137,6 +6717,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     105,
@@ -6209,6 +6796,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     36,
     "fatal",
     "names",
@@ -6279,6 +6873,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     105,
     "fatal",
     "names",
@@ -6347,6 +6948,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     75,
@@ -6420,6 +7028,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     47,
     "fatal",
     "names",
@@ -6488,6 +7103,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     79,
@@ -6560,6 +7182,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     123,
     "fatal",
     "names",
@@ -6628,6 +7257,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     123,
@@ -6700,6 +7336,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     124,
     "fatal",
     "names",
@@ -6768,6 +7411,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     123,
@@ -6847,6 +7497,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     101,
     "fatal",
     "names",
@@ -6915,6 +7572,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     31,
@@ -6991,10 +7655,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     166,
     "fatal",
     "names",
     "ChecklistItem.discard is proposable and only via other transitions; no one may request it, so no proposal of it could be approved (check 14)"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -7062,10 +7740,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     123,
     "fatal",
     "names",
     "Delivery.approve passes now to Approval.record's event input 'at_event', which accepts only this_event (check 25)"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -7127,6 +7819,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "servicedesk.yaml",
     487,
@@ -7204,6 +7903,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     853,
     "fatal",
     "order",
@@ -7270,6 +7976,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "servicedesk.yaml",
     855,
@@ -7340,6 +8053,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     856,
     "fatal",
     "names",
@@ -7406,6 +8126,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "servicedesk.yaml",
     161,
@@ -7476,6 +8203,13 @@
   "findings": [
    [
     "approvals.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ExpenseClaim (5), PurchaseRequest (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "approvals.yaml",
     51,
     "fatal",
     "names",
@@ -7534,6 +8268,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "approvals.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ExpenseClaim (5), PurchaseRequest (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "approvals.yaml",
     54,
@@ -7596,6 +8337,13 @@
   "findings": [
    [
     "approvals.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ExpenseClaim (5), PurchaseRequest (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "approvals.yaml",
     80,
     "fatal",
     "names",
@@ -7654,6 +8402,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     127,
@@ -7723,6 +8478,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     87,
     "notice",
     "audit",
@@ -7790,6 +8552,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     55,
     "fatal",
     "names",
@@ -7855,6 +8624,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "inventory.yaml",
     102,
@@ -7931,6 +8707,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     18,
     "fatal",
     "names",
@@ -7996,6 +8779,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "inventory.yaml",
     53,
@@ -8069,6 +8859,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     18,
     "fatal",
     "names",
@@ -8136,6 +8933,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     4,
     "fatal",
     "names",
@@ -8201,6 +9005,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     4,
@@ -8291,6 +9102,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     53,
     "fatal",
     "names",
@@ -8362,6 +9180,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     8,
     "fatal",
     "names",
@@ -8427,6 +9252,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     113,
@@ -8499,6 +9331,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     53,
     "fatal",
     "names",
@@ -8567,6 +9406,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "servicedesk.yaml",
     9,
@@ -8641,10 +9487,24 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     26,
     "fatal",
     "names",
     "Delivery.helpers is a set of references with no opposite, which has nowhere to be stored; an end with no opposite is single (§4.3; the model's check 41)"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -8768,6 +9628,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     109,
     "fatal",
     "names",
@@ -8842,6 +9709,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     72,
     "fatal",
     "names",
@@ -8907,6 +9781,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "inventory.yaml",
     18,
@@ -8976,6 +9857,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     18,
     "fatal",
     "names",
@@ -9043,6 +9931,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     33,
     "fatal",
     "names",
@@ -9108,6 +10003,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     110,
@@ -9295,6 +10197,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     5,
@@ -9559,6 +10468,178 @@
   "could_violate": {}
  },
  {
+  "label": "<listcomp>: agent_declared",
+  "files": [
+   [
+    "tasks.yaml",
+    "a21037ca59e60744"
+   ],
+   [
+    "bots.yaml",
+    "fd22c47322d065ee"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "tasks.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Task (1), since the version declares an agent kind of actor (Bot.bot_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
+  "analysed": {
+   "Bot": [
+    0,
+    0
+   ],
+   "Task": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Bot.e_taken_by": "local",
+   "Bot.t_taken_by": "local",
+   "Task.e_taken_by": "local"
+  },
+  "could_violate": {
+   "Bot.e_taken_by": [
+    "Bot.e",
+    "Bot.t"
+   ],
+   "Bot.t_taken_by": [
+    "Bot.t"
+   ],
+   "Task.e_taken_by": [
+    "Task.e",
+    "Task.t"
+   ]
+  }
+ },
+ {
+  "label": "<listcomp>: none_declared",
+  "files": [
+   [
+    "tasks.yaml",
+    "a21037ca59e60744"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Task": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Task.e_taken_by": "local"
+  },
+  "could_violate": {
+   "Task.e_taken_by": [
+    "Task.e",
+    "Task.t"
+   ]
+  }
+ },
+ {
+  "label": "<listcomp>: changed",
+  "files": [
+   [
+    "m.yaml",
+    "d8a72b382a0c23e4"
+   ]
+  ],
+  "previous": {
+   "m.yaml": "cd6121927a7b06b0"
+  },
+  "findings": [
+   [
+    "m.yaml",
+    1,
+    "notice",
+    "taken_by_dropped",
+    "publishing.taken_by was [human], and this version names no kind, so once it is installed every kind of actor may approve the next (ADR-0189)"
+   ],
+   [
+    "m.yaml",
+    9,
+    "notice",
+    "taken_by_dropped",
+    "T.t was taken by [human], and this version names no kind, so every kind of actor may take it (ADR-0189)"
+   ],
+   [
+    "m.yaml",
+    10,
+    "notice",
+    "taken_by_dropped",
+    "T.e is taken by [agent, human], where the previous version allowed [human] (ADR-0189)"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "T.e_taken_by": "local",
+   "T.f_taken_by": "local"
+  },
+  "could_violate": {
+   "T.e_taken_by": [
+    "T.e",
+    "T.t"
+   ],
+   "T.f_taken_by": [
+    "T.f",
+    "T.t"
+   ]
+  }
+ },
+ {
+  "label": "<listcomp>: unchanged",
+  "files": [
+   [
+    "m.yaml",
+    "cd6121927a7b06b0"
+   ]
+  ],
+  "previous": {
+   "m.yaml": "cd6121927a7b06b0"
+  },
+  "findings": [
+   [
+    "m.yaml",
+    3,
+    "fatal",
+    "order",
+    "'publishing' comes after 'categories'; declare module, publishing, categories, types in that order"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "T.e_taken_by": "local",
+   "T.f_taken_by": "local",
+   "T.t_taken_by": "local"
+  },
+  "could_violate": {
+   "T.e_taken_by": [
+    "T.e",
+    "T.t"
+   ],
+   "T.f_taken_by": [
+    "T.f",
+    "T.t"
+   ],
+   "T.t_taken_by": [
+    "T.t"
+   ]
+  }
+ },
+ {
   "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [
@@ -9805,6 +10886,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     117,
     "fatal",
     "contradiction",
@@ -9884,6 +10972,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     128,
@@ -10013,6 +11108,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -10130,6 +11232,13 @@
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -10344,6 +11453,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -10461,6 +11577,13 @@
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -10654,6 +11777,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     129,
     "notice",
     "audit",
@@ -10844,6 +11974,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     129,
     "notice",
     "audit",
@@ -10936,6 +12073,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -11004,6 +12148,13 @@
     "fatal",
     "names",
     "acts on 'bob', which no earlier step gave as an alias"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -11085,6 +12236,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -11153,6 +12311,13 @@
     "fatal",
     "names",
     "'reason' is a ReassignmentReason, written qualified as ReassignmentReason.<MEMBER> with a member it declares"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -11227,6 +12392,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -11295,6 +12467,13 @@
     "fatal",
     "names",
     "ServiceJob.open does not leave an object in WORKING"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -11383,6 +12562,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -11451,6 +12637,13 @@
     "fatal",
     "names",
     "names the actor 'battery', which is neither `operator` nor an alias of an object whose type marks an actor identity"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -11525,6 +12718,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -11596,6 +12796,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -11664,6 +12871,13 @@
     "fatal",
     "names",
     "a setup's step must apply, and it leaves out the required input name"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -11749,6 +12963,13 @@
     "fatal",
     "example",
     "a_sale_below_the_list_price_is_warned_of: expected the request to warn of nothing, and it warns of ['not_below_list_price']"
+   ],
+   [
+    "module.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "module.yaml",
@@ -11854,6 +13075,13 @@
    ],
    [
     "module.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     108,
     "notice",
     "warn",
@@ -11942,6 +13170,13 @@
    ],
    [
     "module.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     108,
     "notice",
     "warn",
@@ -12010,6 +13245,13 @@
     "fatal",
     "example",
     "a_serial_is_in_stock_once: expected the remedy dependent, and it is refused as invariant_violated serial_unique self_serviceable and serial_unique"
+   ],
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "module.yaml",
@@ -12101,6 +13343,13 @@
    ],
    [
     "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     102,
     "notice",
     "audit",
@@ -12169,6 +13418,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     102,
     "notice",
     "audit",
@@ -12194,6 +13450,13 @@
     "fatal",
     "example",
     "ticking_after_the_sign_off_makes_it_stale: expected the request to apply, and it is refused as unsatisfied signed_off delegable"
+   ],
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -12291,6 +13554,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     102,
     "notice",
     "audit",
@@ -12351,6 +13621,13 @@
     "fatal",
     "example",
     "a_sign_off_after_the_ticks_is_current: a step names 3 objects its request creates, and it creates 2"
+   ],
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -12448,6 +13725,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     102,
     "notice",
     "audit",
@@ -12459,6 +13743,13 @@
     "fatal",
     "names",
     "a setup's step must apply, and ChecklistItem.discard is only via Delivery.cancel, so a direct request is not requestable"
+   ],
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {},
@@ -12523,6 +13814,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     102,
     "notice",
     "audit",
@@ -12534,6 +13832,13 @@
     "fatal",
     "names",
     "names objects Delivery.assign_courier creates, and its effect creates none"
+   ],
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {},
@@ -12629,6 +13934,13 @@
    ],
    [
     "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     123,
     "notice",
     "audit",
@@ -12718,6 +14030,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     102,
     "notice",
     "audit",
@@ -12743,6 +14062,13 @@
     "fatal",
     "example",
     "cancelling_discards_the_open_checklist: expected the request to cause ['ChecklistItem.discard'], and it causes ['ChecklistItem.discard', 'ChecklistItem.discard']"
+   ],
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -12840,6 +14166,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     102,
     "notice",
     "audit",
@@ -12865,6 +14198,13 @@
     "fatal",
     "example",
     "a_rejected_proposal_is_not_approved: expected the proposal withdrawn, and it is rejected"
+   ],
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -12962,6 +14302,13 @@
     "fatal",
     "example",
     "a_claim_is_filed_with_its_amount: expected amount to hold SGD 42.05, and it holds SGD 42.5"
+   ],
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ExpenseClaim (5), PurchaseRequest (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -13075,6 +14422,13 @@
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "module.yaml",
@@ -13198,6 +14552,13 @@
    ],
    [
     "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     123,
     "notice",
     "audit",
@@ -13315,6 +14676,13 @@
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "module.yaml",
@@ -13438,6 +14806,13 @@
    ],
    [
     "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     123,
     "notice",
     "audit",
@@ -13555,6 +14930,13 @@
     "notice",
     "notrun",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "module.yaml",
@@ -13678,6 +15060,13 @@
    ],
    [
     "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     123,
     "notice",
     "audit",
@@ -13798,6 +15187,13 @@
    ],
    [
     "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     123,
     "notice",
     "audit",
@@ -13901,6 +15297,13 @@
     "fatal",
     "example",
     "an_override_admits_what_it_breaks: expected the object in DORMANT, and it is in ACTIVE"
+   ],
+   [
+    "module.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -14000,6 +15403,13 @@
     "fatal",
     "example",
     "a_receipt_is_attached_to_a_draft: expected receipt to hold other.pdf, and it holds the file sha256:253e452cbb63…, 8 bytes of application/octet-stream"
+   ],
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ExpenseClaim (5), PurchaseRequest (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -14099,6 +15509,13 @@
     "fatal",
     "example",
     "starting_blocked_work_warns: expected the request to warn of nothing, and it warns of ['not_blocked']"
+   ],
+   [
+    "module.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "module.yaml",
@@ -14243,6 +15660,13 @@
     "fatal",
     "example",
     "a_negative_receipt_is_refused: expected the remedy unreachable_from_here, and it is refused as invariant_violated reserved_bounded self_serviceable"
+   ],
+   [
+    "module.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -14383,6 +15807,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -14451,6 +15882,13 @@
     "fatal",
     "order",
     "an examples file declares, in this order, examples_for, setups, examples"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -14525,6 +15963,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -14593,6 +16038,13 @@
     "fatal",
     "names",
     "'helpers' is a set of User, given as a list of aliases"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -14671,6 +16123,13 @@
     "fatal",
     "names",
     "'seen_by' is an actor_kind, written bare as human, agent or service"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -14824,6 +16283,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -14931,6 +16397,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -15002,6 +16475,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -15070,6 +16550,13 @@
     "fatal",
     "names",
     "'NOWHERE' is not a state Customer.correct_state may put an object in"
+   ],
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {},
@@ -15168,6 +16655,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -15239,6 +16733,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -15307,6 +16808,13 @@
     "fatal",
     "order",
     "is given the setup job_in_progress, declared after it; a setup is given one declared before it"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -15560,6 +17068,13 @@
    ],
    [
     "issues.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "issues.yaml",
     236,
     "notice",
     "warn",
@@ -15645,6 +17160,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -15713,6 +17235,13 @@
     "fatal",
     "names",
     "only an approval leaves a proposal to state"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -15787,6 +17316,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -15855,6 +17391,13 @@
     "fatal",
     "names",
     "an applied request's example states the state its object reaches"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -15929,6 +17472,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -15997,6 +17547,13 @@
     "fatal",
     "names",
     "ServiceJob.close names no transition a module checked declares"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -16071,6 +17628,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -16139,6 +17703,13 @@
     "fatal",
     "names",
     "a request refused as unsatisfied leaves no state to state"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -16213,6 +17784,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -16281,6 +17859,13 @@
     "fatal",
     "names",
     "ServiceJob.open is not only via others, so it is never refused as not_requestable"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -16355,6 +17940,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -16423,6 +18015,13 @@
     "fatal",
     "names",
     "always_right is not an invariant of ServiceJob"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "service.yaml",
@@ -16497,6 +18096,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -16568,6 +18174,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -16630,6 +18243,13 @@
    "service.examples": "b5b6bd173d23b779"
   },
   "findings": [
+   [
+    "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service",
     99,
@@ -16721,6 +18341,13 @@
    "service.examples": "b5b6bd173d23b779"
   },
   "findings": [
+   [
+    "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service",
     99,
@@ -16842,6 +18469,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -16925,6 +18559,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "module.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "module.yaml",
     236,
@@ -17051,6 +18692,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "module.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "module.yaml",
     236,
@@ -17186,6 +18834,13 @@
   "findings": [
    [
     "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     106,
     "notice",
     "audit",
@@ -17270,6 +18925,13 @@
   "findings": [
    [
     "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     106,
     "notice",
     "audit",
@@ -17347,6 +19009,13 @@
   "findings": [
    [
     "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     77,
     "fatal",
     "names",
@@ -17412,6 +19081,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "module.yaml",
     97,
@@ -17509,6 +19185,13 @@
   "findings": [
    [
     "module.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     236,
     "notice",
     "warn",
@@ -17588,6 +19271,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "module.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "module.yaml",
     236,
@@ -17671,6 +19361,13 @@
   "findings": [
    [
     "module.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
     123,
     "notice",
     "audit",
@@ -17750,6 +19447,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     123,
@@ -17833,6 +19537,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -17900,6 +19611,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -17965,6 +19683,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     123,
@@ -18039,6 +19764,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     123,
@@ -18120,6 +19852,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     123,
@@ -18404,6 +20143,13 @@
     "notice",
     "coverage",
     "no example takes 3 transitions of taken, by its request, a step, a setup or a cascade it expects: Agent.retire, Request.reject, User.leave"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -18462,6 +20208,13 @@
     "notice",
     "coverage",
     "no example takes 2 transitions of taken, by its request, a step, a setup or a cascade it expects: Request.reject, User.leave"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -18530,6 +20283,13 @@
     "notice",
     "coverage",
     "no example takes 3 transitions of taken, by its request, a step, a setup or a cascade it expects: Agent.retire, Request.approve, User.leave"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -18582,6 +20342,13 @@
   "findings": [
    [
     "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (3), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
     49,
     "fatal",
     "names",
@@ -18624,6 +20391,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "taken.yaml",
     41,
@@ -18669,6 +20443,13 @@
   "findings": [
    [
     "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
     32,
     "fatal",
     "order",
@@ -18712,6 +20493,13 @@
   "findings": [
    [
     "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
     35,
     "fatal",
     "names",
@@ -18744,6 +20532,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "taken.yaml",
     42,
@@ -18802,6 +20597,13 @@
     "fatal",
     "example",
     "the_agent_may_not_approve: expected the request to apply, and it is refused as invariant_violated approve_taken_by delegable"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -19098,6 +20900,13 @@
   "findings": [
    [
     "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
     103,
     "notice",
     "audit",
@@ -19173,6 +20982,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "inventory.yaml",
     26,
@@ -19311,6 +21127,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     751,
     "fatal",
     "names",
@@ -19383,7 +21206,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -19526,6 +21357,13 @@
     "notice",
     "coverage",
     "no example takes 7 transitions of customers, by its request, a step, a setup or a cascade it expects: Contact.add, Contact.discard, Customer.lapse, Customer.link_xero, Order.cancel, Order.fulfil, Order.invoice"
+   ],
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (9), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ]
   ],
   "analysed": {
@@ -19638,6 +21476,20 @@
     "Delivery.approve does not leave an object in DELIVERED"
    ],
    [
+    "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
     "inventory.yaml",
     102,
     "notice",
@@ -19713,6 +21565,20 @@
     "decides 'handoff', which no earlier step filed as a proposal"
    ],
    [
+    "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
     "inventory.yaml",
     102,
     "notice",
@@ -19786,6 +21652,20 @@
     "fatal",
     "names",
     "an approval that applies leaves its proposal executed, not pending"
+   ],
+   [
+    "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "inventory.yaml",
@@ -19877,6 +21757,20 @@
     "a_proposal_approved_too_soon_stays_pending: expected the request to apply, and it is refused as unsatisfied signed_off delegable"
    ],
    [
+    "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
     "inventory.yaml",
     102,
     "notice",
@@ -19964,7 +21858,7 @@
    ],
    [
     "reimbursement.yaml",
-    "f35914d1517da0ad"
+    "b63322e0cc8e8710"
    ],
    [
     "reimbursement.examples.yaml",
@@ -19979,6 +21873,13 @@
     "fatal",
     "names",
     "'expense_date' is a date, written as 2026-03-01"
+   ],
+   [
+    "reimbursement.yaml",
+    15,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Claim (9), ClaimLine (3), since the version declares an agent kind of actor (Agent.key_id, AssistantAgent.agent_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
     "reimbursement.yaml",
@@ -20019,6 +21920,7 @@
    "ClaimLine.confirmed_by_a_person": "local",
    "ClaimLine.erase_taken_by": "local",
    "ClaimLine.spent_amount_has_its_currency": "local",
+   "ClaimLine.suggest_nature_taken_by": "local",
    "Employee.forget_taken_by": "local",
    "Employee.leave_taken_by": "local",
    "Employee.link_xero_contact_taken_by": "local",
@@ -20091,6 +21993,10 @@
     "ClaimLine.add",
     "ClaimLine.amend"
    ],
+   "ClaimLine.suggest_nature_taken_by": [
+    "ClaimLine.add",
+    "ClaimLine.suggest_nature"
+   ],
    "Employee.forget_taken_by": [
     "Employee.forget",
     "Employee.onboard"
@@ -20151,6 +22057,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "servicedesk.yaml",
     565,
@@ -20218,7 +22131,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -20346,6 +22267,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     113,
     "fatal",
     "names",
@@ -20430,6 +22358,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     113,
     "fatal",
     "names",
@@ -20512,6 +22447,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     160,
@@ -20655,7 +22597,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -20785,6 +22735,13 @@
   "findings": [
    [
     "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
     137,
     "notice",
     "warn",
@@ -20865,6 +22822,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     266,
     "fatal",
     "names",
@@ -20935,6 +22899,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -21000,6 +22971,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     123,
@@ -21083,6 +23061,13 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     4,
     "notice",
     "imports",
@@ -21150,6 +23135,13 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     4,
     "notice",
     "imports",
@@ -21215,6 +23207,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "delivery.yaml",
     4,
@@ -21306,6 +23305,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (9), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     160,
     "fatal",
     "names",
@@ -21388,6 +23394,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "customers.yaml",
     47,
@@ -21491,6 +23504,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     160,
     "fatal",
     "names",
@@ -21575,6 +23595,13 @@
   "findings": [
    [
     "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
     4,
     "notice",
     "imports",
@@ -21642,6 +23669,13 @@
    "service-v2.yaml": "9bd716ed3bc7b728"
   },
   "findings": [
+   [
+    "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service-v2.yaml",
     44,
@@ -21738,6 +23772,13 @@
    "service-v2.yaml": "9bd716ed3bc7b728"
   },
   "findings": [
+   [
+    "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service-v2.yaml",
     44,
@@ -21843,6 +23884,13 @@
   "findings": [
    [
     "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
     137,
     "notice",
     "warn",
@@ -21932,6 +23980,13 @@
   "findings": [
    [
     "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
     137,
     "notice",
     "warn",
@@ -22012,6 +24067,13 @@
    "service-v2.yaml": "9bd716ed3bc7b728"
   },
   "findings": [
+   [
+    "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service-v2.yaml",
     137,
@@ -22108,6 +24170,13 @@
   "findings": [
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -22173,6 +24242,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "service.yaml",
     123,
@@ -22242,6 +24318,13 @@
   "findings": [
    [
     "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "servicedesk.yaml",
     857,
     "fatal",
     "names",
@@ -22307,7 +24390,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -22397,6 +24488,13 @@
   "findings": [
    [
     "customers.yaml",
+    4,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
     140,
     "fatal",
     "names",
@@ -22465,6 +24563,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "servicedesk.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Alert (9), Change (12), ChangeWindow (2), Employee (1), Incident (14), Laptop (5), Organization (2), PartStock (7), PostIncidentReview (3), Problem (6), RegisteredService (2), Request (16), Server (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "servicedesk.yaml",
     717,
@@ -22581,6 +24686,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -22673,6 +24785,13 @@
    ],
    [
     "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
     123,
     "notice",
     "audit",
@@ -22731,6 +24850,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "shop.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Line (1), Order (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "shop.yaml",
     26,
@@ -22793,6 +24919,13 @@
   "findings": [
    [
     "shop.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Line (1), Order (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "shop.yaml",
     26,
     "fatal",
     "names",
@@ -22853,6 +24986,13 @@
   "findings": [
    [
     "shop.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Line (1), Order (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "shop.yaml",
     26,
     "fatal",
     "names",
@@ -22911,6 +25051,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "shop.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Line (1), Order (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "shop.yaml",
     26,
@@ -22980,6 +25127,13 @@
   "findings": [
    [
     "mini.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Job (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "mini.yaml",
     18,
     "fatal",
     "names",
@@ -23040,6 +25194,13 @@
   "findings": [
    [
     "fleet.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Piece (1), Robot (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "fleet.yaml",
     34,
     "fatal",
     "names",
@@ -23097,7 +25258,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "shop.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Line (1), Order (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -23173,6 +25342,13 @@
   "findings": [
    [
     "mini.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Job (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "mini.yaml",
     16,
     "fatal",
     "names",
@@ -23235,6 +25411,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "mini.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Job (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "mini.yaml",
     16,
@@ -23301,6 +25484,13 @@
   "findings": [
    [
     "mini.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Job (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "mini.yaml",
     18,
     "fatal",
     "names",
@@ -23363,6 +25553,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "mini.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Job (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "mini.yaml",
     18,
@@ -23429,6 +25626,13 @@
   "findings": [
    [
     "mini.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Job (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "mini.yaml",
     19,
     "fatal",
     "names",
@@ -23493,6 +25697,13 @@
   "findings": [
    [
     "shop.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Line (1), Order (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "shop.yaml",
     27,
     "fatal",
     "names",
@@ -23554,7 +25765,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "mini.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Job (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -23634,6 +25853,13 @@
   "findings": [
    [
     "rack.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Card (1), Rack (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "rack.yaml",
     8,
     "fatal",
     "names",
@@ -23691,7 +25917,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "rack.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Card (1), Rack (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -23767,6 +26001,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     22,
     "fatal",
     "names",
@@ -23825,6 +26066,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "crm.yaml",
     23,
@@ -23887,6 +26135,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     23,
     "fatal",
     "names",
@@ -23945,6 +26200,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "crm.yaml",
     19,
@@ -24007,6 +26269,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     19,
     "fatal",
     "names",
@@ -24065,6 +26334,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "crm.yaml",
     45,
@@ -24127,6 +26403,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     45,
     "fatal",
     "names",
@@ -24185,6 +26468,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "crm.yaml",
     45,
@@ -24247,6 +26537,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     45,
     "fatal",
     "names",
@@ -24305,6 +26602,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "crm.yaml",
     45,
@@ -24367,6 +26671,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     45,
     "fatal",
     "names",
@@ -24427,6 +26738,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     22,
     "fatal",
     "names",
@@ -24485,6 +26803,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "shop.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Line (1), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "shop.yaml",
     11,
@@ -24549,6 +26874,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     51,
     "fatal",
     "names",
@@ -24606,7 +26938,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -24682,6 +27022,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     19,
     "fatal",
     "names",
@@ -24740,6 +27087,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "kit.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Piece (2), Robot (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "kit.yaml",
     33,
@@ -24802,6 +27156,13 @@
   "findings": [
    [
     "kit.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Piece (2), Robot (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "kit.yaml",
     33,
     "fatal",
     "names",
@@ -24860,6 +27221,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "kit.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Piece (2), Robot (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "kit.yaml",
     33,
@@ -24926,7 +27294,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "kit.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Piece (1), Robot (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -24999,7 +27375,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "kit.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Piece (2), Robot (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -25072,7 +27456,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "rack.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Card (2), Rack (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -25148,6 +27540,13 @@
   "findings": [
    [
     "kit.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Piece (1), Robot (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "kit.yaml",
     9,
     "fatal",
     "names",
@@ -25206,6 +27605,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "crm.yaml",
     18,
@@ -25272,6 +27678,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     18,
     "fatal",
     "names",
@@ -25333,7 +27746,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -25411,7 +27832,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -25484,7 +27913,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (3), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -25588,7 +28025,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "kit.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Piece (1), Robot (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -25665,7 +28110,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (3), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -25769,7 +28222,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "shop.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Line (1), Order (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -25852,7 +28313,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "office.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Chair (3), Desk (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -25930,7 +28399,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "desk.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Room (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -26008,7 +28485,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "desk.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Room (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -26085,7 +28570,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "desk.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Room (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -26165,6 +28658,13 @@
   "findings": [
    [
     "desk.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Room (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "desk.yaml",
     28,
     "fatal",
     "names",
@@ -26228,6 +28728,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "desk.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Room (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "desk.yaml",
     28,
@@ -26295,6 +28802,13 @@
   "findings": [
    [
     "desk.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Room (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "desk.yaml",
     28,
     "fatal",
     "names",
@@ -26359,6 +28873,13 @@
   "findings": [
    [
     "desk.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Room (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "desk.yaml",
     28,
     "fatal",
     "names",
@@ -26421,6 +28942,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "desk.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Room (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "desk.yaml",
     28,
@@ -26488,6 +29016,13 @@
   "findings": [
    [
     "desk.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Room (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "desk.yaml",
     28,
     "fatal",
     "names",
@@ -26550,6 +29085,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "desk.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Room (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "desk.yaml",
     28,
@@ -26616,6 +29158,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     45,
     "fatal",
     "names",
@@ -26674,6 +29223,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "crm.yaml",
     22,
@@ -26736,6 +29292,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     45,
     "fatal",
     "names",
@@ -26794,6 +29357,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "crm.yaml",
     26,
@@ -26856,6 +29426,13 @@
   "findings": [
    [
     "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
     26,
     "fatal",
     "names",
@@ -26913,7 +29490,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -26986,7 +29571,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Agent": [
     0,
@@ -27062,6 +29655,13 @@
   "findings": [
    [
     "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
     24,
     "fatal",
     "names",
@@ -27120,6 +29720,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "ledger.yaml",
     24,
@@ -27182,6 +29789,13 @@
   "findings": [
    [
     "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
     24,
     "fatal",
     "names",
@@ -27240,6 +29854,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "ledger.yaml",
     24,
@@ -27302,6 +29923,13 @@
   "findings": [
    [
     "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
     24,
     "fatal",
     "names",
@@ -27360,6 +29988,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "ledger.yaml",
     24,
@@ -27422,6 +30057,13 @@
   "findings": [
    [
     "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
     24,
     "fatal",
     "names",
@@ -27480,6 +30122,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "ledger.yaml",
     24,
@@ -27542,6 +30191,13 @@
   "findings": [
    [
     "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
     24,
     "fatal",
     "names",
@@ -27600,6 +30256,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "ledger.yaml",
     24,
@@ -27662,6 +30325,13 @@
   "findings": [
    [
     "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
     24,
     "fatal",
     "names",
@@ -27720,6 +30390,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "ledger.yaml",
     24,
@@ -27782,6 +30459,13 @@
   "findings": [
    [
     "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
     24,
     "fatal",
     "names",
@@ -27840,6 +30524,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "ledger.yaml",
     24,
@@ -27902,6 +30593,13 @@
   "findings": [
    [
     "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
     24,
     "fatal",
     "names",
@@ -27960,6 +30658,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "ledger.yaml",
     26,
@@ -28026,6 +30731,13 @@
   "findings": [
    [
     "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
     26,
     "fatal",
     "names",
@@ -28084,6 +30796,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "ledger.yaml",
     24,
@@ -28146,6 +30865,13 @@
   "findings": [
    [
     "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
     24,
     "fatal",
     "names",
@@ -28204,6 +30930,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "ledger.yaml",
     24,
@@ -28266,6 +30999,13 @@
   "findings": [
    [
     "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
     24,
     "fatal",
     "names",
@@ -28323,7 +31063,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Account": [
     0,
@@ -28392,7 +31140,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Account": [
     0,
@@ -28461,7 +31217,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
   "analysed": {
    "Account": [
     0,
@@ -29024,6 +31788,13 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "plant.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Job (2), since the version declares an agent kind of actor (Job.also); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
    [
     "plant.yaml",
     6,

@@ -285,7 +285,11 @@ def render(kinds, enums, declared, metrics, actor_kind):
         for xn, x in (t.get("transitions") or {}).items():
             if x.get("only_via"):
                 continue
-            if refuses(t, x, actor_kind):
+            # an agent is offered what the flow names it for, a transition whose taken_by names agent, and any other
+            # only for proposing, where it may be proposed (ADR-0189 decision 1)
+            named = x.get("taken_by") or t.get("taken_by") or []
+            unnamed = actor_kind == "agent" and "agent" not in named
+            if unnamed or refuses(t, x, actor_kind):
                 # refused, it is offered for proposing where it may be proposed (ADR-0176 decision 1)
                 if x.get("proposable"):
                     tools.append(transition_tool(tn, xn, t, x, enums, proposing=True))

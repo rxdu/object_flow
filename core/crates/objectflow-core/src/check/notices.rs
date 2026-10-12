@@ -22,6 +22,75 @@ use crate::expr::{Expr, parse};
 /// reading through a reference or its referrers, so it is checked again
 /// whenever what it reads changes, and refuses that change (`flow-format.md`
 /// §4.6, ADR-0176 decision 5).
+/// The kinds of actor a `taken_by` names, its texts in the order given.
+pub fn kinds_named(given: Option<&Value>) -> Vec<String> {
+    given
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The kinds of actor that may take a transition, as the view holds it: its
+/// own `taken_by`, or its type's where it names none (ADR-0182 decision 5),
+/// sorted; none where neither names one.
+pub fn taken_kinds(x: &Value, t: &Value) -> Vec<String> {
+    let mut kinds = kinds_named(x.get("taken_by"));
+    if kinds.is_empty() {
+        kinds = kinds_named(t.get("taken_by"));
+    }
+    kinds.sort();
+    kinds
+}
+
+/// The identity attributes of a module's concrete types that declare an
+/// agent kind of actor, as `Type.attribute`.
+pub fn agent_kinds(doc: &Value, v: &Value) -> Vec<String> {
+    let machines = keys(doc, "machines");
+    let mut out = Vec::new();
+    for (tn, t) in types(v) {
+        if machines.contains(&tn) || flag(t, "abstract") {
+            continue;
+        }
+        for (an, a) in obj(t, "attributes") {
+            if a.get("actor_kind").and_then(Value::as_str) == Some("agent") {
+                out.push(format!("{tn}.{an}"));
+            }
+        }
+    }
+    out
+}
+
+/// Each concrete type's count of the transitions a request may name that
+/// name no `taken_by`, its type's included: an agent may take each on the
+/// wire wherever the version declares an agent kind of actor (ADR-0189
+/// decision 1).
+pub fn agent_open(doc: &Value, v: &Value) -> BTreeMap<String, usize> {
+    let machines = keys(doc, "machines");
+    let mut out = BTreeMap::new();
+    for (tn, t) in types(v) {
+        if machines.contains(&tn) || flag(t, "abstract") {
+            continue;
+        }
+        let n = obj(t, "transitions")
+            .values()
+            .filter(|x| {
+                x.is_object()
+                    && !super::doc::truthy(x.get("only_via"))
+                    && taken_kinds(x, t).is_empty()
+            })
+            .count();
+        if n > 0 {
+            out.insert(tn, n);
+        }
+    }
+    out
+}
+
 pub fn vetoes(doc: &Value, library: &Obj) -> Found {
     let mut kinds = library.clone();
     for (tn, t) in types(doc) {

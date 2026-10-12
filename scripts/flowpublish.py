@@ -310,6 +310,12 @@ class Found:
         if oid is not None and oid not in f["ids"]:
             f["ids"].append(oid)
 
+    def own(self, severity, code, message):
+        """A finding of its own, never merged with another of its code: each of the checks' findings says a different
+        thing, where merging them by code kept the first module's alone (D608); an exact repeat once."""
+        if not any(f["code"] == code and f["message"] == message for f in self.findings):
+            self.findings.append({"severity": severity, "code": code, "message": message, "ids": []})
+
     def fatal(self):
         return any(f["severity"] == "fatal" for f in self.findings)
 
@@ -333,17 +339,17 @@ def simulate(store, change_id, flows, actor):
     errs, notes = flows.check(ordered, dict(store.source), analysed, examples, forms=forms, violators=violators)
     for f, line, _sev, code, message in errs:
         # an example's failure by the name the design gives it (ADR-0136, publish-and-import.md §1 step 1)
-        found.add("fatal", "example_failed" if code == "example" else f"check:{code}", f"{f}:{line}: {message}")
+        found.own("fatal", "example_failed" if code == "example" else f"check:{code}", f"{f}:{line}: {message}")
     for f, line, _sev, code, message in notes:
         if code == "notrun":
             # an example not run has not passed, and nothing unchecked is installed (§1 step 1)
-            found.add("fatal", "example_not_run", f"{f}:{line}: {message}")
+            found.own("fatal", "example_not_run", f"{f}:{line}: {message}")
         elif code == "imports":
             # a version's source is the whole version, so an import from a module it does not carry is refused
             # (ADR-0161)
-            found.add("fatal", "check:imports", f"{f}:{line}: {message}; a version carries every module it imports")
+            found.own("fatal", "check:imports", f"{f}:{line}: {message}; a version carries every module it imports")
         else:
-            found.add("notice", f"check:{code}", f"{f}:{line}: {message}")
+            found.own("notice", f"check:{code}", f"{f}:{line}: {message}")
     refused = found.fatal()
     proposals_invalidated, installed = 0, None
     try:

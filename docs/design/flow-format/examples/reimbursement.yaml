@@ -607,6 +607,8 @@ types:
         kind: internal
         from: LISTED
         description: The agent suggests whether the line is an expense or a purchase; the suggestion commits nothing.
+        # the agent's, so its generated tools offer it (ADR-0189)
+        taken_by: [agent]
         required_inputs: [suggested_nature]
         optional_inputs: [suggestion_rationale]
         guards:

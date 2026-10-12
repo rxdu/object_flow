@@ -8,6 +8,8 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes that may refuse what 0.2.0 accepted
 
+- An agent's generated tools offer a transition only where its `taken_by`, or its type's, names `agent`, and any other only for proposing where it is proposable: an agent held to its tools takes only what the flow names it for, where it was handed every transition a flow left open; the wire is as the flow says (ADR-0189). A flow whose agents take transitions names `agent` on them, as `reimbursement.yaml`'s `suggest_nature` now does.
+- The reads that grow with the store, `query`, `available`, `metric`, `exceptions`, `diagnostics`, `pull`, `export` and a change's dry run, run at most `--max-reads` at once, 4 unless given, a read waiting its turn within its deadline and answered `503 read_timeout` past it, where any number ran at once and 32 metrics on six years took 3.3 GB (ADR-0189).
 - The operator's retirement is refused `not_requestable`, as its creation is, where it was irreversible (ADR-0184).
 - An import batch's `sequences` raise only a sequence a module declares, with a `last` that leaves it a next number, else the batch is refused, where `last` = i64::MAX was stored wrapped and stopped every write for good; a store an earlier release left so takes every write but a creation minting from that sequence, refused `value_in_range` (D607).
 - A flow may declare who approves its versions, `publishing: { taken_by: [human] }`: read from the installed version, it refuses an approver of another kind `invariant_violated`, `publish_taken_by`, `delegable`, the store's operator always excepted; modules of a version that declare it differently are refused by both checkers; the samples declare `[human]` (ADR-0187 decision 1, third production review AGENT-APPROVE).
@@ -33,6 +35,8 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Added
 
+- The checker's notices `agent_open`, for each module's transitions an agent may take on the wire where the version declares an agent kind of actor, and `taken_by_dropped`, for a `taken_by` or `publishing` rule a version drops or widens against the previous one, in both checkers (ADR-0189).
+- `--max-reads <n>` and `/metrics`' `objectflow_reads_running`, `objectflow_reads_waiting` and `objectflow_reads_most` (ADR-0189); `--help` names `--evaluator-token` and `--max-reads`, where it lacked the first (fourth production review).
 - `--evaluator-token <name>=<file>`: an evaluator's bearer token, read at start from a file its owner alone reads and sent with every call, never logged; `/health`'s `disk_free_bytes` and `/metrics`' `objectflow_disk_free_bytes`, the free space on the store's volume (ADR-0188).
 - `get` and `history` follow a supersession with `"follow": true`, which the wire listed and neither backend built, the key taken and ignored: `get` answers where the chain ends, `history` the whole group's events in position order; `follow` of another type is a `400`.
 - `/metrics` gives the store's file and its `-wal` in bytes; the `-wal` is cut back to 64 MiB when a checkpoint empties it, where it grew to six times the store and stayed; a start that cannot make its store or socket, or bind its address, names the path (third production review N6).
@@ -48,6 +52,10 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 - The checkers notice a correction's free-text reason on a type an erasure reaches, `reason_kept`, since its event keeps the reason and an erasure leaves it (production review F7).
 - A refusal tells its caller what its remedy points at (ADR-0179).
 - The wire's baseline, `docs/guides/wire-v1.json`, and format 1's frozen corpus, each held by a check (ADR-0180 decision 7).
+
+### Fixed
+
+- A publish report shows each of the checks' findings, where it kept the first of each code, so a second module's notice or a second refusal of one code was never shown (D608).
 
 ### Performance
 

@@ -1,0 +1,11 @@
+module: m
+categories: [live]
+types:
+  T:
+    description: A record.
+    tracking: record
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
+    transitions:
+      t: { kind: initial, to: S }
+      e: { kind: external, from: S, to: E, taken_by: [agent, human] }
+      f: { kind: internal, from: S, taken_by: [human] }

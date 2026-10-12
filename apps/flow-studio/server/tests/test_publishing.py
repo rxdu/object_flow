@@ -1270,7 +1270,8 @@ def test_an_offer_says_it_depends_on_who_takes_it_alike(tee):
     invariant reads says so, since availability runs no effects and so no
     invariants, through both backends alike (ADR-0173 decision 1): a line's
     confirm_nature writes the actor's kind that confirmed_by_a_person
-    reads, and suggest_nature writes nothing of the actor."""
+    reads, suggest_nature the kind its taken_by: [agent] records (ADR-0189),
+    and amend writes nothing of the actor."""
     loaded(tee, "reimbursement.yaml")
     tee.found.clear()
     emp = tee.post("/v1/request", {"type": "Employee", "transition": "onboard",
@@ -1294,7 +1295,8 @@ def test_an_offer_says_it_depends_on_who_takes_it_alike(tee):
     offers = {o["transition"]: o for o in tee.post(
         "/v1/availability", {"actor": OP, "id": line}) if not o["creates"]}
     assert offers["confirm_nature"]["actor_dependent"] is True
-    assert offers["suggest_nature"]["actor_dependent"] is False
+    assert offers["suggest_nature"]["actor_dependent"] is True
+    assert offers["amend"]["actor_dependent"] is False
     alike(tee)
 
 
