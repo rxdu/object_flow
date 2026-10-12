@@ -184,4 +184,5 @@
 | [0180](0180-what-a-release-promises.md) | What a release promises | Accepted (ADR-0182), binding from release 1.0.0 |
 | [0181](0181-the-hiring-reviews-findings-decided.md) | The hiring review's findings decided | Accepted (ADR-0182) |
 | [0182](0182-before-1-0-the-authors-decisions.md) | Before 1.0.0, the author's decisions | Decided by the author |
+| [0184](0184-the-second-reviews-four-decisions.md) | The second production review's four decisions | Decided by the author; 1, 3 and 4 built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

@@ -538,6 +538,8 @@ name = "objectflow-service"
 version = "0.2.0"
 dependencies = [
  "axum",
+ "hyper",
+ "hyper-util",
  "objectflow-core",
  "rusqlite",
  "serde",

@@ -1904,6 +1904,10 @@ class Runner:
         # 3. not found, and unknown transition; 4. not requestable, unavailable, invalid input, in that order
         if oid is not None and oid not in work.objects:
             raise Refused("not_found", remedy="unreachable_from_here")
+        # the operator's creation is taken only by creating the store, and its retirement by nothing, which would leave
+        # the store with no operator (ADR-0126, ADR-0184 decision 1)
+        if tn == "Operator" and (xn, oid is None) in (("install", True), ("retire", False)):
+            raise Refused("not_requestable", remedy="unreachable_from_here")
         if x is None or (x["kind"] == "initial") != (oid is None) or (oid is not None and work.type_of(oid) != tn):
             raise Refused("unknown_transition", remedy="self_serviceable")
         if x.get("only_via"):

@@ -628,8 +628,10 @@ fn decide_or_stop(
     };
     stale(world, req)?;
     // 3. not requestable, and unavailable: the operator's creation is taken
-    // only by creating the store (ADR-0126)
-    if t.name == crate::model::OPERATOR_TYPE && x.kind == Kind::Initial {
+    // only by creating the store (ADR-0126), and its retirement by nothing,
+    // since it is irreversible and would leave the store with no operator,
+    // reading no one's kind (ADR-0184 decision 1)
+    if t.name == crate::model::OPERATOR_TYPE {
         return refused(Verdict::NotRequestable {
             parents: Vec::new(),
         });
@@ -8315,9 +8317,10 @@ types:
                 parents: Vec::new()
             }
         );
+        // and its retirement is taken by nothing (ADR-0184 decision 1)
         assert!(matches!(
             req(&mut s, "retire", OPERATOR, (OPERATOR, false), json!({})),
-            Verdict::Satisfied { .. }
+            Verdict::NotRequestable { .. }
         ));
         assert_eq!(
             s.snapshot()
@@ -8326,7 +8329,7 @@ types:
                 .unwrap()
                 .unwrap()
                 .state,
-            "RETIRED"
+            "ACTIVE"
         );
     }
 
@@ -9035,5 +9038,29 @@ types:
         );
         assert!(rows[0].withheld.contains(&"note".to_string()), "{rows:?}");
         assert!(rows[1].withheld.contains(&"why".to_string()), "{rows:?}");
+    }
+
+    /// The operator's retirement is requested by nothing, as its creation
+    /// is: it is irreversible, and an agent that retired the operator left
+    /// the store with no one answerable for it (ADR-0184 decision 1). It is
+    /// refused as not requestable, offered to no one, and `available` for
+    /// it refuses; the operator stays active.
+    #[test]
+    fn the_operators_retirement_is_requested_by_nothing() {
+        let mut s = Store::sandbox(Library::load(&[]).unwrap(), 0).unwrap();
+        let v = req(&mut s, "retire", OPERATOR, (OPERATOR, false), json!({}));
+        assert!(matches!(v, Verdict::NotRequestable { .. }), "{v:?}");
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.get(OPERATOR).unwrap().unwrap().state, "ACTIVE");
+        let offers = crate::reads::availability(&w, OPERATOR, OPERATOR)
+            .unwrap()
+            .unwrap();
+        assert!(
+            offers.iter().all(|o| o.transition != "retire"),
+            "{offers:?}"
+        );
+        let page =
+            crate::reads::available_page(&w, OPERATOR, "Operator", "retire", None, 10).unwrap();
+        assert_eq!(page.refused.as_deref(), Some("not_requestable"));
     }
 }

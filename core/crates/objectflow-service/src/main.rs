@@ -202,6 +202,9 @@ struct Service {
     endpoints: std::collections::BTreeMap<String, String>,
     evaluator_timeout: std::time::Duration,
     deployment: bool,
+    /// How long a deployment's read may take before it is stopped
+    /// (ADR-0184 decision 3).
+    read_timeout: std::time::Duration,
     /// What it has answered, by route and status: how many, and their
     /// seconds, which `GET /metrics` gives (production review OBSERVE).
     served: Mutex<std::collections::BTreeMap<(String, u16), (u64, f64)>>,
@@ -379,10 +382,12 @@ fn reading(shared: &Shared) -> Result<Reading<'_>, Fault> {
         .floor
         .fetch_max(wall_clock(), Ordering::SeqCst)
         .max(wall_clock());
-    Ok(Reading::Own(
-        Some(Box::new(reads.pool.read(lib, earlier, now, answers)?)),
-        reads,
-    ))
+    let mut store = reads.pool.read(lib, earlier, now, answers)?;
+    // a read answers within its deadline or is stopped there, so no read
+    // holds a reader, and an erasure's truncation behind it, without bound
+    // (ADR-0184 decision 3)
+    store.deadline = Some(std::time::Instant::now() + shared.read_timeout);
+    Ok(Reading::Own(Some(Box::new(store)), reads))
 }
 
 /// The refusal of everything but the upgrade on a store due one.
@@ -403,6 +408,10 @@ enum Fault {
     /// `EngineMismatch`: the store is at another engine release
     /// (`library-api.md` §7, ADR-0177).
     Mismatch(String),
+    /// A read that passed its deadline (ADR-0184 decision 3).
+    TimedOut(String),
+    /// A request whose body did not arrive in time (ADR-0184 decision 4).
+    SlowBody(String),
 }
 
 impl IntoResponse for Fault {
@@ -415,6 +424,11 @@ impl IntoResponse for Fault {
             Fault::NotRun(m) => (StatusCode::NOT_IMPLEMENTED, format!("not run: {m}")),
             Fault::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m),
             Fault::Mismatch(m) => (StatusCode::SERVICE_UNAVAILABLE, m),
+            Fault::TimedOut(m) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("read_timeout: {m}"),
+            ),
+            Fault::SlowBody(m) => (StatusCode::REQUEST_TIMEOUT, m),
         };
         // the service's own faults said with their reason, which the line
         // of the answer, its route and status alone, does not (OBSERVE-2)
@@ -438,6 +452,7 @@ impl From<NotRun> for Fault {
             NotRun::Unsupported(w) => Fault::NotRun(w),
             NotRun::Unanswered(c) => Fault::NotRun(c.said),
             NotRun::Unreadable(w) => Fault::Internal(format!("storage unavailable: {w}")),
+            NotRun::TimedOut(w) => Fault::TimedOut(w),
         }
     }
 }
@@ -537,12 +552,30 @@ const REQUEST_KEYS: &[&str] = &[
 /// (ADR-0150 decision 1, D555).
 struct Body(J);
 
+/// How long a request's body may take to arrive once its head has, set
+/// from `--idle-timeout` as the service starts: a body half-sent held its
+/// connection and its task for ever (ADR-0184 decision 4).
+static BODY_READ: std::sync::OnceLock<std::time::Duration> = std::sync::OnceLock::new();
+
 impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
     type Rejection = Fault;
 
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Fault> {
         let path = req.uri().path().to_string();
-        let body = match Json::<J>::from_request(req, state).await {
+        let bound = BODY_READ
+            .get()
+            .copied()
+            .unwrap_or(std::time::Duration::from_secs(30));
+        let read = match tokio::time::timeout(bound, Json::<J>::from_request(req, state)).await {
+            Ok(read) => read,
+            Err(_) => {
+                return Err(Fault::SlowBody(format!(
+                    "the body did not arrive within {} s",
+                    bound.as_secs()
+                )));
+            }
+        };
+        let body = match read {
             Ok(Json(J::Object(m))) => m,
             Ok(_) => return Err(Fault::Bad("the body is a JSON object".to_string())),
             Err(e) => return Err(Fault::Bad(e.body_text())),
@@ -1735,6 +1768,14 @@ async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "events takes positions, a list of integers".to_string(),
             ));
         };
+        // a page's worth at most, where one position repeated 200,000 times
+        // built an answer of gigabytes (second production review)
+        if positions.len() > reads::PAGE_LIMIT {
+            return Err(Fault::Bad(format!(
+                "events takes at most {} positions",
+                reads::PAGE_LIMIT
+            )));
+        }
         let mut r = reading(&shared)?;
         let s = r.store()?;
         let found = s.events(&positions)?;
@@ -2293,12 +2334,14 @@ async fn metrics(State(shared): State<Shared>) -> Response {
 }
 
 const USAGE: &str = "usage: objectflow-service [--port <n> | --bind <host:port> | --socket <path>]
+                          [--idle-timeout <duration>] [--max-connections <n>]
                           [--store <file> [--create]
                                           [--attempt-retention <duration>]
                                           [--idempotency-retention <duration>]
                                           [--evaluator <name>=<url> ...]
                                           [--evaluator-timeout <duration>]
-                                          [--busy-timeout <duration>]]
+                                          [--busy-timeout <duration>]
+                                          [--read-timeout <duration>]]
 
 Serves the engine's operations, POST /v1/<operation>, GET /health and GET
 /metrics, on 127.0.0.1 at port n (8712 unless given; 0 takes a free one), at
@@ -2334,6 +2377,12 @@ struct Args {
     endpoints: std::collections::BTreeMap<String, String>,
     evaluator_timeout: Option<std::time::Duration>,
     busy_timeout: Option<std::time::Duration>,
+    read_timeout: Option<std::time::Duration>,
+    /// How long a connection may wait for a request's head, and a request
+    /// for its body; and how many connections are served at once
+    /// (ADR-0184 decision 4).
+    idle_timeout: std::time::Duration,
+    max_connections: usize,
 }
 
 fn args() -> Result<Args, String> {
@@ -2346,6 +2395,9 @@ fn args() -> Result<Args, String> {
         endpoints: std::collections::BTreeMap::new(),
         evaluator_timeout: None,
         busy_timeout: None,
+        read_timeout: None,
+        idle_timeout: std::time::Duration::from_secs(30),
+        max_connections: 512,
     };
     let mut retained = false;
     let mut addressed = false;
@@ -2395,6 +2447,27 @@ fn args() -> Result<Args, String> {
                 })?;
                 out.evaluator_timeout = Some(std::time::Duration::from_secs(secs.unsigned_abs()));
             }
+            "--idle-timeout" => {
+                let d = value()?;
+                let secs = parse_duration(&d).filter(|s| *s > 0).ok_or_else(|| {
+                    format!("--idle-timeout takes a duration such as '30 s': {d}")
+                })?;
+                out.idle_timeout = std::time::Duration::from_secs(secs.unsigned_abs());
+            }
+            "--max-connections" => {
+                let n = value()?;
+                out.max_connections =
+                    n.parse::<usize>().ok().filter(|n| *n > 0).ok_or_else(|| {
+                        format!("--max-connections takes a count, 1 or more: {n}")
+                    })?;
+            }
+            "--read-timeout" => {
+                let d = value()?;
+                let secs = parse_duration(&d).filter(|s| *s > 0).ok_or_else(|| {
+                    format!("--read-timeout takes a duration such as '30 s': {d}")
+                })?;
+                out.read_timeout = Some(std::time::Duration::from_secs(secs.unsigned_abs()));
+            }
             "--busy-timeout" => {
                 let d = value()?;
                 let secs = parse_duration(&d)
@@ -2410,6 +2483,12 @@ fn args() -> Result<Args, String> {
     }
     if addressed && out.socket.is_some() {
         return Err("--socket listens in the address's place; give one or the other".to_string());
+    }
+    if out.read_timeout.is_some() && out.store.is_none() {
+        return Err(
+            "a read's timeout is a deployment's; a sandbox's reads take the writer's lock"
+                .to_string(),
+        );
     }
     if out.create && out.store.is_none() {
         return Err("--create makes a deployment's store, which --store names".to_string());
@@ -2495,6 +2574,137 @@ fn stopping() -> std::io::Result<impl std::future::Future<Output = ()>> {
 enum Listening {
     Tcp(tokio::net::TcpListener),
     Unix(tokio::net::UnixListener),
+}
+
+impl Listening {
+    async fn accept(&self) -> std::io::Result<Conn> {
+        match self {
+            Listening::Tcp(l) => l.accept().await.map(|(s, _)| Conn::Tcp(s)),
+            Listening::Unix(l) => l.accept().await.map(|(s, _)| Conn::Unix(s)),
+        }
+    }
+}
+
+/// A connection accepted on either listener.
+enum Conn {
+    Tcp(tokio::net::TcpStream),
+    Unix(tokio::net::UnixStream),
+}
+
+impl tokio::io::AsyncRead for Conn {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Conn::Tcp(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            Conn::Unix(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl tokio::io::AsyncWrite for Conn {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            Conn::Tcp(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            Conn::Unix(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Conn::Tcp(s) => std::pin::Pin::new(s).poll_flush(cx),
+            Conn::Unix(s) => std::pin::Pin::new(s).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Conn::Tcp(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            Conn::Unix(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+        }
+    }
+}
+
+/// Each connection served by hyper's HTTP/1 with a timer, so a connection
+/// whose request's head is not read within the idle timeout, silent, idle
+/// between requests or half-sent, is closed, which `axum::serve`, setting
+/// no timer, never did; past the cap a connection is refused and said; and
+/// once the service is stopping no connection is taken, those open finish
+/// the request they are answering and close (ADR-0184 decision 4).
+async fn served(
+    listening: Listening,
+    router: Router,
+    stop: impl std::future::Future<Output = ()>,
+    idle: std::time::Duration,
+    cap: usize,
+) {
+    let mut http = hyper::server::conn::http1::Builder::new();
+    http.timer(hyper_util::rt::TokioTimer::new())
+        .header_read_timeout(idle);
+    let (closing, closed) = tokio::sync::watch::channel(false);
+    let open = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut tasks = tokio::task::JoinSet::new();
+    tokio::pin!(stop);
+    loop {
+        let accepted = tokio::select! {
+            () = &mut stop => break,
+            accepted = listening.accept() => accepted,
+        };
+        let io = match accepted {
+            Ok(io) => io,
+            Err(e) => {
+                // descriptors exhausted among the causes: said, and tried
+                // again after a pause rather than in a loop
+                eprintln!(
+                    "{} a connection was not accepted: {e}",
+                    timestamp_text(wall_clock())
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                continue;
+            }
+        };
+        if open.load(Ordering::SeqCst) >= cap {
+            eprintln!(
+                "{} a connection refused: {cap} are open, as --max-connections allows",
+                timestamp_text(wall_clock())
+            );
+            drop(io);
+            continue;
+        }
+        open.fetch_add(1, Ordering::SeqCst);
+        let serving = http.serve_connection(
+            hyper_util::rt::TokioIo::new(io),
+            hyper_util::service::TowerToHyperService::new(router.clone()),
+        );
+        let (mut closed, open) = (closed.clone(), open.clone());
+        tasks.spawn(async move {
+            tokio::pin!(serving);
+            tokio::select! {
+                _ = serving.as_mut() => {}
+                _ = closed.changed() => {
+                    serving.as_mut().graceful_shutdown();
+                    let _ = serving.await;
+                }
+            }
+            open.fetch_sub(1, Ordering::SeqCst);
+        });
+        while tasks.try_join_next().is_some() {}
+    }
+    drop(listening);
+    let _ = closing.send(true);
+    while tasks.join_next().await.is_some() {}
 }
 
 /// A Unix socket bound at a path, replacing one a stopped service left
@@ -2717,6 +2927,7 @@ async fn serve() -> std::io::Result<()> {
     let service = Service {
         endpoints: sandbox.endpoints.clone(),
         evaluator_timeout: sandbox.evaluator_timeout,
+        read_timeout: a.read_timeout.unwrap_or(std::time::Duration::from_secs(30)),
         deployment,
         reads,
         writer: Mutex::new(sandbox),
@@ -2726,16 +2937,12 @@ async fn serve() -> std::io::Result<()> {
     };
     let shared = Arc::new(service);
     let router = app(shared.clone(), deployment);
-    match listening {
-        Listening::Tcp(l) => axum::serve(l, router).with_graceful_shutdown(stop).await?,
-        Listening::Unix(l) => {
-            axum::serve(l, router).with_graceful_shutdown(stop).await?;
-            // the socket goes with the service; a start replaces one left
-            // by a service that was killed
-            if let Some(path) = &a.socket {
-                std::fs::remove_file(path)?;
-            }
-        }
+    let _ = BODY_READ.set(a.idle_timeout);
+    served(listening, router, stop, a.idle_timeout, a.max_connections).await;
+    // the socket goes with the service; a start replaces one left by a
+    // service that was killed
+    if let Some(path) = &a.socket {
+        std::fs::remove_file(path)?;
     }
     // the write-ahead log carried into the store's file, so a clean stop
     // leaves the store whole in one file (second production review, minor)

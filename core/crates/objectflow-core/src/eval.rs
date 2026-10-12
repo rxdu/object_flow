@@ -29,6 +29,9 @@ pub enum NotRun {
     /// deployment's service asks its endpoint and attempts the request again
     /// with (ADR-0175 decision 2), and a sandbox does not run.
     Unanswered(Box<Call>),
+    /// A read that passed the deadline it was given, stopped there
+    /// (ADR-0184 decision 3).
+    TimedOut(String),
 }
 
 /// An evaluator's call: the namespace, the function and its arguments, each
@@ -59,7 +62,7 @@ impl NotRun {
     /// What was not run, or what could not be read.
     pub fn what(&self) -> &str {
         match self {
-            NotRun::Unsupported(w) | NotRun::Unreadable(w) => w,
+            NotRun::Unsupported(w) | NotRun::Unreadable(w) | NotRun::TimedOut(w) => w,
             NotRun::Unanswered(c) => &c.said,
         }
     }
@@ -464,6 +467,7 @@ impl<'a> Evaluator<'a> {
     }
 
     fn term(&self, e: &Expr, env: &BTreeMap<String, Value>) -> Evaluated {
+        self.world.on_time()?;
         Ok(match e {
             Expr::Num(Number::Int(n)) => Term::Value(Value::Int(*n)),
             Expr::Num(Number::Decimal(t)) => match Decimal::parse(t) {

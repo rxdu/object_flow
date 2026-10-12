@@ -21,7 +21,12 @@ sha2 = "0.11.0"
 # the schema's patterns, in the core's checker (ADR-0156 decision 2)
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-perl"] }
 axum = "0.8.9"
-tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "signal", "sync"] }
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+# serving connections through hyper's HTTP/1 builder with a timer, which
+# axum::serve does not set: both already resolved through axum, with these
+# features (ADR-0184 decision 4)
+hyper = { version = "1.11.1", features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", features = ["tokio", "server", "service"] }
 # a deployment's evaluators asked over HTTP, with rustls and the platform's
 # trust store (ADR-0175 decision 1)
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "platform-verifier"] }

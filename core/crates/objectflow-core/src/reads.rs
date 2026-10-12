@@ -217,7 +217,7 @@ pub fn available_page(
     let Some(x) = t.transition(transition).filter(|x| x.kind != Kind::Initial) else {
         return refuse("unknown_transition");
     };
-    if !x.only_via.is_empty() {
+    if !x.only_via.is_empty() || t.name == crate::model::OPERATOR_TYPE {
         return refuse("not_requestable");
     }
     let from = match after {
@@ -955,7 +955,12 @@ fn offers_of(
     let no_inputs = BTreeMap::new();
     let mut offers = Vec::new();
     for (xn, x) in &t.transitions {
-        if x.kind == Kind::Initial || !x.only_via.is_empty() || only.is_some_and(|n| n != xn) {
+        // the operator's transitions are requested by nothing (ADR-0184)
+        if x.kind == Kind::Initial
+            || !x.only_via.is_empty()
+            || t.name == crate::model::OPERATOR_TYPE
+            || only.is_some_and(|n| n != xn)
+        {
             continue;
         }
         let inputs = input_schema(t, x);

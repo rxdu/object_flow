@@ -359,7 +359,16 @@ pub struct World<'l> {
     /// the `attempt_counts` source as the rows it counted were
     /// (`storage-schema.md` §6, `of_attempt_rollup`), read on first use.
     stored_rollup: std::cell::OnceCell<Result<Vec<RolledUp>, String>>,
+    /// When a read must have answered by, which its evaluation stops at;
+    /// none for a write, whose rules the flow bounds, or a sandbox's read
+    /// (ADR-0184 decision 3). Read every [`TICKS`] steps.
+    pub deadline: Option<std::time::Instant>,
+    ticks: std::cell::Cell<u32>,
 }
+
+/// How many steps of a read pass between two readings of the clock against
+/// its deadline.
+const TICKS: u32 = 256;
 
 impl<'l> World<'l> {
     pub fn new(lib: &'l Library, now: i64) -> World<'l> {
@@ -377,7 +386,27 @@ impl<'l> World<'l> {
             stored_attempts: std::cell::OnceCell::new(),
             acknowledged: BTreeMap::new(),
             stored_rollup: std::cell::OnceCell::new(),
+            deadline: None,
+            ticks: std::cell::Cell::new(0),
         }
+    }
+
+    /// Whether the read is within its deadline, where it has one: a filter,
+    /// a metric or a sweep with no bound held a reader, and an erasure's
+    /// truncation behind it, for minutes (ADR-0184 decision 3).
+    pub fn on_time(&self) -> Result<(), crate::eval::NotRun> {
+        let Some(at) = self.deadline else {
+            return Ok(());
+        };
+        let n = self.ticks.get().wrapping_add(1);
+        self.ticks.set(n);
+        if n.is_multiple_of(TICKS) && std::time::Instant::now() > at {
+            return Err(crate::eval::NotRun::TimedOut(
+                "the read passed its deadline; narrow it, a filter by an indexed member or a page"
+                    .into(),
+            ));
+        }
+        Ok(())
     }
 
     /// A type as the version given declared it: the installed version's,
@@ -547,6 +576,7 @@ impl<'l> World<'l> {
     /// read stops the operation as not run, naming why, never as an object
     /// that is not there.
     pub fn get(&self, id: &str) -> Result<Option<&Object>, crate::eval::NotRun> {
+        self.on_time()?;
         let known = self.held.by_id.borrow().get(id).copied();
         if let Some(slot) = known {
             return Ok(slot.and_then(|n| self.held.slots.get(n)));

@@ -1470,6 +1470,9 @@ pub struct Store {
     /// A change's dry run prepared on a read for the next request, which
     /// takes it (DRYRUN-LOCK).
     pub prepared: Option<Box<crate::publish::Prepared>>,
+    /// When a read on this store must have answered by, which each world it
+    /// snapshots carries (ADR-0184 decision 3); none for the writer.
+    pub deadline: Option<std::time::Instant>,
     /// How long its connection waits out another's lock, restored after
     /// the truncation an erasure is due, which waits for nothing.
     busy: std::cell::Cell<std::time::Duration>,
@@ -1556,6 +1559,7 @@ impl Store {
             answers: BTreeMap::new(),
             attempt_retention: None,
             checkpoint_due: false,
+            deadline: None,
             prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
@@ -1629,6 +1633,7 @@ impl Store {
             answers: BTreeMap::new(),
             attempt_retention: None,
             checkpoint_due: false,
+            deadline: None,
             prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
@@ -1714,6 +1719,7 @@ impl Store {
             answers,
             attempt_retention: None,
             checkpoint_due: false,
+            deadline: None,
             prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
@@ -1934,7 +1940,9 @@ impl Store {
 
     /// Every object, as a request reads them.
     pub fn snapshot(&self) -> Stored<World<'_>> {
-        snapshot(&self.conn, &self.lib, &self.earlier, self.now)
+        let mut world = snapshot(&self.conn, &self.lib, &self.earlier, self.now)?;
+        world.deadline = self.deadline;
+        Ok(world)
     }
 
     /// Every earlier version's library loaded, those already loaded kept:

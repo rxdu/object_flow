@@ -965,6 +965,141 @@ fn a_held_writer_is_seen_in_health_and_metrics() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
+/// A read that passes its deadline is stopped there and answered 503
+/// `read_timeout`, the service answering on, where a filter of nested
+/// sums ran past 186 s, holding a reader and an erasure's truncation behind
+/// it (ADR-0184 decision 3); and `events` takes a page of positions at most.
+#[test]
+fn a_read_past_its_deadline_is_stopped() {
+    let file = fresh_store("read-deadline");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+        "--read-timeout",
+        "1 s",
+    ]);
+    let note = "module: tally\ncategories: [live, closed]\ntypes:\n  Note:\n    description: A note.\n    tracking: record\n    attributes:\n      a: { type: int, indexed: true }\n    states:\n      OPEN: { category: live }\n      DONE: { category: closed, final: true }\n    transitions:\n      make: { kind: initial, to: OPEN, required_inputs: [a] }\n      finish: { kind: external, from: OPEN, to: DONE }\n";
+    publish(&s, &json!({"tally": note}));
+    let op = json!({"id": "operator"});
+    for i in 0..150 {
+        post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Note", "transition": "make", "inputs": {"a": i}}),
+        );
+    }
+    // a filter whose cost is the cube of the notes
+    let began = std::time::Instant::now();
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/query",
+        Some(&json!({"actor": op, "type": "Note",
+        "filter": "count(x in Note where count(y in Note where y.a <= x.a) > 0) > 0"})),
+    );
+    let took = began.elapsed();
+    assert_eq!(status, 503, "{said}");
+    assert!(
+        said["fault"]
+            .as_str()
+            .is_some_and(|f| f.starts_with("read_timeout")),
+        "{said}"
+    );
+    assert!(
+        took < std::time::Duration::from_secs(5),
+        "stopped after {took:?}"
+    );
+    let (status, _) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 200);
+    let positions: Vec<i64> = vec![1; 1001];
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/events",
+        Some(&json!({"actor": op, "positions": positions})),
+    );
+    assert_eq!(status, 400, "{said}");
+    let (code, said) = refused(&["--port", "0", "--read-timeout", "1 s"]);
+    assert_ne!(code, Some(0));
+    assert!(said.contains("deployment's"), "{said}");
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+/// A connection whose request's head is not read within the idle timeout,
+/// silent or half-sent, is closed, and a request whose body does not arrive
+/// in it is answered 408, where 700 such connections were open after 70 s;
+/// past the cap a connection is closed at once and said (ADR-0184 decision
+/// 4).
+#[test]
+fn idle_and_half_sent_connections_are_closed() {
+    let s = start(&[
+        "--port",
+        "0",
+        "--idle-timeout",
+        "1 s",
+        "--max-connections",
+        "3",
+    ]);
+    // how long until the service closes a connection, reading what it sends
+    let closes = |mut c: TcpStream| {
+        c.set_read_timeout(Some(std::time::Duration::from_secs(6)))
+            .expect("a read timeout");
+        let began = std::time::Instant::now();
+        let mut got = Vec::new();
+        let _ = c.read_to_end(&mut got);
+        (began.elapsed(), String::from_utf8_lossy(&got).to_string())
+    };
+    // three silent connections, the cap; a fourth is closed at once
+    let silent: Vec<TcpStream> = (0..3)
+        .map(|_| TcpStream::connect(&s.addr).expect("a connection"))
+        .collect();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let (took, _) = closes(TcpStream::connect(&s.addr).expect("a connection"));
+    assert!(
+        took < std::time::Duration::from_millis(900),
+        "the fourth waited {took:?}"
+    );
+    // the silent ones are closed after the idle timeout
+    for c in silent {
+        let (took, _) = closes(c);
+        assert!(
+            took < std::time::Duration::from_secs(4),
+            "a silent connection open {took:?}"
+        );
+    }
+    let (status, _) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 200);
+    // a request's head half-sent
+    let mut head = TcpStream::connect(&s.addr).expect("a connection");
+    write!(head, "GET /health HTTP/1.1\r\nHost: x\r\n").expect("half a head");
+    let (took, _) = closes(head);
+    assert!(
+        took < std::time::Duration::from_secs(4),
+        "a half-sent head open {took:?}"
+    );
+    // a request's body half-sent
+    let mut body = TcpStream::connect(&s.addr).expect("a connection");
+    write!(
+        body,
+        "POST /v1/get HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{{\"actor\":"
+    )
+    .expect("half a body");
+    let (took, said) = closes(body);
+    assert!(said.starts_with("HTTP/1.1 408"), "{said}");
+    assert!(
+        took < std::time::Duration::from_secs(4),
+        "a half-sent body open {took:?}"
+    );
+    assert!(
+        s.said().contains("a connection refused: 3 are open"),
+        "{}",
+        s.said()
+    );
+}
+
 /// `--version` names the service's release and the stores it serves.
 #[test]
 fn the_service_says_its_version() {

@@ -8,6 +8,8 @@ Release 1.0.0 is held until a second production review, on the same 36.7k-object
 
 ### Changes that may refuse what 0.2.0 accepted
 
+- The operator's retirement is refused `not_requestable`, as its creation is, where it was irreversible (ADR-0184).
+- `events` takes 1,000 positions at most.
 - A file that holds something other than a store, another application's database among them, is refused with `--create` too, where it was given the store's tables and served.
 - A description nesting its collections deeper than 64 levels is refused, a `yaml` finding, where 300,000 levels aborted the service (D598).
 
@@ -27,6 +29,7 @@ Release 1.0.0 is held until a second production review, on the same 36.7k-object
 - On SIGTERM or SIGINT the service takes no new connection, answers the requests in flight for up to 30 s and exits, where it stopped at once (ADR-0183 decision 9).
 - `/health` and `/metrics` say how long the writer has been held and the requests in flight, `/metrics` the process's resident memory; `/health` is `503` while an upgrade is due; a 5xx's reason is logged (OBSERVE-2).
 - A clean stop carries the write-ahead log into the store's file; a socket a live service answers on is refused, never taken over; start errors are sentences.
+- `--idle-timeout`, `--max-connections` and `--read-timeout`: a connection whose request does not arrive is closed, a body that does not is `408`, connections are capped, and a deployment's read passing its deadline is stopped and answered `503 read_timeout` (ADR-0184).
 - `--version`.
 - The checkers notice a correction's free-text reason on a type an erasure reaches, `reason_kept`, since its event keeps the reason and an erasure leaves it (production review F7).
 - A refusal tells its caller what its remedy points at (ADR-0179).

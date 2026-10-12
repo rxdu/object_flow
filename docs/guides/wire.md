@@ -15,9 +15,10 @@ A **fault** is a `4xx` or `5xx` whose body is `{"fault": "<what is wrong>"}`, ev
 | `400` | a body that is not a JSON object, a key the operation does not take (`/v1/get takes no key folow`), a body past 2 MiB (`length limit exceeded`), an argument it needs left out, or a key of another JSON type than it takes, on every operation: a flag such as `dry_run` or `propose` is `true` or `false`, never `"true"`, `inputs` and `bind` objects, `filter`, `cursor` and an id strings, `expected_version` an integer, and `actor` an object taking `id` and `principal` alone; absent or `null` is a key not given |
 | `404` | an operation that does not exist (`no operation /v1/nope`) |
 | `405` | an operation asked by anything but `POST`, or `/health` or `/metrics` by anything but `GET` |
+| `408` | a request whose body did not arrive within the service's idle timeout (ADR-0184) |
 | `409` | the sandbox has no module loaded; an idempotency key reused for a different request (`key_reused: …`) |
 | `501` | a construct the core does not yet run (`not run: …`) |
-| `503` | `engine_mismatch: …`: the store is at another engine release than this copy of the service, an upgrade due or made by another copy (ADR-0177) |
+| `503` | `engine_mismatch: …`: the store is at another engine release than this copy of the service, an upgrade due or made by another copy (ADR-0177); or `read_timeout: …`: a deployment's read passed its deadline, 30 s unless the service is given another, and was stopped: narrow it, by an indexed member or a page (ADR-0184) |
 | `500` | the service's own fault |
 
 **Unknown keys are refused**, so a misspelt key is never read as absent. The keys each operation takes are in §4.
