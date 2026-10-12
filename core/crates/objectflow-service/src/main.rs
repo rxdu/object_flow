@@ -590,16 +590,57 @@ impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
 }
 
 fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
-    let guard = shared
-        .writer
-        .lock()
-        .map_err(|_| Fault::Internal("a previous request panicked".to_string()))?;
+    let guard = match shared.writer.lock() {
+        Ok(guard) => guard,
+        // a request that panicked holding the writer left it poisoned,
+        // which made every later write 500 until a restart: taken back, and
+        // a deployment's store opened again from its file, so nothing the
+        // panic left half-changed in memory stays, the file's transaction
+        // having been rolled back (POISON)
+        Err(poisoned) => {
+            shared.writer.clear_poison();
+            let mut guard = poisoned.into_inner();
+            eprintln!(
+                "{} a request panicked holding the writer; {}",
+                timestamp_text(wall_clock()),
+                reopened(&mut guard)
+            );
+            guard
+        }
+    };
     shared.writer_since.store(wall_millis(), Ordering::SeqCst);
     Ok(Writing {
         guard,
         reads: shared.reads.as_ref(),
         since: &shared.writer_since,
     })
+}
+
+/// A deployment's store opened again from its file, as the service opens
+/// it at its start; what was done, said.
+fn reopened(sandbox: &mut Sandbox) -> String {
+    let Some(path) = sandbox
+        .path
+        .clone()
+        .filter(|_| sandbox.deployment && sandbox.due.is_none())
+    else {
+        return "the sandbox's store kept as it is".to_string();
+    };
+    let opened = Store::open(&path, wall_clock()).and_then(|mut s| {
+        (s.attempt_retention, s.idempotency_retention) = sandbox.retentions;
+        s.set_busy_timeout(sandbox.busy_timeout)?;
+        Ok(s)
+    });
+    match opened {
+        Ok(s) => {
+            sandbox.store = Some(s);
+            format!("the store opened again from {}", path.display())
+        }
+        Err(e) => format!(
+            "the store could not be opened again from {}: {e}",
+            path.display()
+        ),
+    }
 }
 
 fn store(sandbox: &mut Sandbox) -> Result<&mut Store, Fault> {
@@ -2968,6 +3009,56 @@ async fn serve() -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A request that panics holding the writer leaves it poisoned; the
+    /// next write takes it back, and a deployment's store is opened again
+    /// from its file, where every write after was refused 500 until a
+    /// restart (POISON).
+    #[test]
+    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    fn a_writer_a_panic_poisoned_is_taken_back() {
+        let dir = std::env::temp_dir().join(format!("objectflow-poison-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("store.sqlite");
+        let sandbox = Sandbox {
+            store: Some(Store::open(&path, wall_clock()).unwrap()),
+            deployment: true,
+            path: Some(path.clone()),
+            busy_timeout: objectflow_core::store::BUSY_TIMEOUT,
+            ..Default::default()
+        };
+        let shared: Shared = Arc::new(Service {
+            writer: Mutex::new(sandbox),
+            reads: None,
+            endpoints: std::collections::BTreeMap::new(),
+            evaluator_timeout: std::time::Duration::from_secs(5),
+            deployment: true,
+            read_timeout: std::time::Duration::from_secs(30),
+            served: Mutex::new(std::collections::BTreeMap::new()),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
+            writer_since: AtomicI64::new(0),
+        });
+        let held = shared.clone();
+        let panicked = std::thread::spawn(move || {
+            let Ok(mut w) = locked(&held) else {
+                panic!("the writer not taken")
+            };
+            // what a panic leaves half-done in memory: the store dropped
+            w.store = None;
+            panic!("a request's bug");
+        })
+        .join();
+        assert!(panicked.is_err());
+        assert!(shared.writer.is_poisoned());
+        let Ok(mut w) = locked(&shared) else {
+            panic!("the writer not taken back")
+        };
+        assert!(store(&mut w).is_ok(), "the store was not opened again");
+        drop(w);
+        assert!(!shared.writer.is_poisoned());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// `/v1`, and a sandbox's controls, take what `guides/wire-v1.json`
     /// promises (ADR-0180 decision 7, ADR-0181 decision 6): an operation or

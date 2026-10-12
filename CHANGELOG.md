@@ -30,6 +30,7 @@ Release 1.0.0 is held until a second production review, on the same 36.7k-object
 - `/health` and `/metrics` say how long the writer has been held and the requests in flight, `/metrics` the process's resident memory; `/health` is `503` while an upgrade is due; a 5xx's reason is logged (OBSERVE-2).
 - A clean stop carries the write-ahead log into the store's file; a socket a live service answers on is refused, never taken over; start errors are sentences.
 - `--idle-timeout`, `--max-connections` and `--read-timeout`: a connection whose request does not arrive is closed, a body that does not is `408`, connections are capped, and a deployment's read passing its deadline is stopped and answered `503 read_timeout` (ADR-0184).
+- A request that panics holding the writer no longer leaves every later write `500`: the next write takes the lock back and reopens the store from its file.
 - `--version`.
 - The checkers notice a correction's free-text reason on a type an erasure reaches, `reason_kept`, since its event keeps the reason and an erasure leaves it (production review F7).
 - A refusal tells its caller what its remedy points at (ADR-0179).
