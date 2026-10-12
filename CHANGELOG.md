@@ -42,6 +42,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Performance
 
+- A query's page in creation order reads from its cursor, a chunk at a time, where each page read and filtered its type whole: a filter on a derived attribute read page by page over 12k claims took 1.6 s where 44.4 s, and its first page 0.03 s where 1.03 s (third production review READ-PAGES).
 - A publish's dry run is linear in the store, where checking each object's optional identifiers swept every object without one: on 110k objects a publish adding one attribute submitted in 6.4 s where 41.5 s, and its approval held writes 9.1 s where 44.5 s (D605).
 - A submit's dry run runs beside the writes, where every write waited for it: 83 s for a module of 3,000 types, which also checks ten times faster (D599, D600).
 - A person's or an agent's submit of a version, which resolved its submitter by reading every actor for each object, took 6 s where it passed 20 minutes on 37k objects (D594); a per-person metric and a filter on a derived attribute 1 to 1.5 s where 77 to 83 s (D595); `available` reads only the objects its transition is taken from (D596); an erasure's truncation of the write-ahead log waits on no reader, where it made every write take 5 s while a read was open (D597).

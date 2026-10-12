@@ -434,6 +434,10 @@ pub fn query(
     query_page(world, type_, filter, order, fields, None, usize::MAX)
 }
 
+/// How many objects of a type a page in creation order reads at a time, at
+/// least, from its cursor (READ-PAGES).
+const CHUNK: usize = 256;
+
 /// A page of a query (ADR-0179): at most `limit` objects, after the one
 /// the cursor names in the query's order, which is the next page's place
 /// whatever was written since; the cursor of a further page, none where
@@ -524,30 +528,60 @@ pub fn query_page(
         .as_ref()
         .map(|f| required_columns(world.lib, type_, f))
         .unwrap_or_default();
-    let candidates = if states.is_none() && columns.is_empty() {
-        world.of_type(type_)?
-    } else {
-        world.of_type_where(type_, states.as_ref(), &columns)?
-    };
-    let mut chosen = Vec::new();
-    for o in candidates {
+    // whether the filter selects an object; none where it compares what its
+    // values cannot, such as a derived time with text, which refuses the
+    // filter as malformed rather than the read as not run (D580)
+    let selects = |o: &Object| -> Result<Option<bool>, NotRun> {
         let Some(ot) = world.lib.type_(&o.type_) else {
             return Err(NotRun::Unsupported(format!("the type {}", o.type_)));
         };
-        let held = match &filter {
-            None => true,
-            // a comparison the values cannot make, such as a derived time
-            // with text, refuses the filter as malformed rather than the
-            // read as not run (D580)
+        Ok(match &filter {
+            None => Some(true),
             Some(e) => match Evaluator::new(world, Some(ot), Some(&o.id)).eval(e) {
-                Err(NotRun::Unsupported(what)) if what.starts_with("comparing ") => {
-                    return refuse("malformed_filter");
-                }
-                v => truth(&v?)? == Some(true),
+                Err(NotRun::Unsupported(what)) if what.starts_with("comparing ") => None,
+                v => Some(truth(&v?)? == Some(true)),
             },
+        })
+    };
+    let mut chosen = Vec::new();
+    if keys.is_empty() {
+        // in creation order, the page is the first `limit` the filter
+        // selects after the cursor, and one more says another follows: read
+        // and judged from the cursor a chunk at a time, never the type
+        // whole, which each page did, so reading a result page by page was
+        // quadratic (READ-PAGES)
+        let chunk = limit.saturating_add(1).max(CHUNK);
+        let mut after = from.map_or(i64::MIN, |f| f.order);
+        'reading: loop {
+            let (next, more) =
+                world.of_type_from(type_, states.as_ref(), &columns, after, chunk)?;
+            for o in &next {
+                match selects(o)? {
+                    None => return refuse("malformed_filter"),
+                    Some(true) => chosen.push(*o),
+                    Some(false) => {}
+                }
+                if chosen.len() > limit {
+                    break 'reading;
+                }
+            }
+            match next.last() {
+                Some(last) if more => after = last.order,
+                _ => break,
+            }
+        }
+    } else {
+        let candidates = if states.is_none() && columns.is_empty() {
+            world.of_type(type_)?
+        } else {
+            world.of_type_where(type_, states.as_ref(), &columns)?
         };
-        if held {
-            chosen.push(o);
+        for o in candidates {
+            match selects(o)? {
+                None => return refuse("malformed_filter"),
+                Some(true) => chosen.push(o),
+                Some(false) => {}
+            }
         }
     }
     let lib = world.lib;

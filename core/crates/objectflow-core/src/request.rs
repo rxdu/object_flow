@@ -8868,6 +8868,82 @@ types:
         assert!(keyed <= 3 * held, "{keyed} keyings for {held} held");
     }
 
+    /// A query read page by page in creation order, over a family of two
+    /// interleaved types, gives what one read of it gives, each page read
+    /// and judged from its cursor a chunk at a time: a page deep in the
+    /// result holds the chunks its span needs, where each page read the
+    /// family whole, and reading a result page by page was quadratic
+    /// (READ-PAGES).
+    #[test]
+    fn a_query_read_by_pages_reads_each_from_its_cursor() {
+        let text = r#"
+module: assets
+categories: [live]
+types:
+  Asset:
+    abstract: true
+    attributes:
+      n: { type: int }
+  Laptop:
+    extends: Asset
+    states:
+      IN_USE: { category: live }
+    transitions:
+      receive: { kind: initial, to: IN_USE, required_inputs: [n] }
+  Server:
+    extends: Asset
+    states:
+      RACKED: { category: live }
+    transitions:
+      receive: { kind: initial, to: RACKED, required_inputs: [n] }
+"#;
+        let lib = Library::load(&[("assets.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        for i in 0..3000 {
+            // the two types interleaved unevenly, so a table's chunk ends
+            // before the other's
+            let tn = if i % 3 == 0 { "Server" } else { "Laptop" };
+            created(&req(
+                &mut s,
+                "receive",
+                OPERATOR,
+                (tn, true),
+                json!({"n": i}),
+            ));
+        }
+        let filter = Some("n - (n / 100) * 100 == 7");
+        let whole: Vec<String> = {
+            let w = s.snapshot().unwrap();
+            crate::reads::query_page(&w, "Asset", filter, &[], None, None, 1000)
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|i| i.id)
+                .collect()
+        };
+        assert_eq!(whole.len(), 30);
+        let mut paged = Vec::new();
+        let mut cursor: Option<String> = None;
+        let mut deepest = 0;
+        loop {
+            let w = s.snapshot().unwrap();
+            let page =
+                crate::reads::query_page(&w, "Asset", filter, &[], None, cursor.as_deref(), 7)
+                    .unwrap();
+            assert!(page.refused.is_none(), "{:?}", page.refused);
+            paged.extend(page.items.into_iter().map(|i| i.id));
+            deepest = deepest.max(w.held_count());
+            match page.cursor {
+                Some(c) => cursor = Some(c),
+                None => break,
+            }
+        }
+        assert_eq!(paged, whole);
+        // a page of 7 spans about 700 objects, past the first chunk of 256
+        // from each type's table: never the family's 3,000
+        assert!(deepest < 2000, "a page held {deepest} objects");
+    }
+
     /// An external identifier's uniqueness, checked on each object of a
     /// store held whole, as a dry run checks it, is looked up among the
     /// objects holding the same identifier only: the objects holding none

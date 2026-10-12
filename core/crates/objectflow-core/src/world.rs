@@ -1005,6 +1005,73 @@ impl<'l> World<'l> {
         Ok(self.held_in_order(holds))
     }
 
+    /// The objects of a type, its own or a subtype's, after a place in
+    /// creation order, in the states and holding the values given as
+    /// [`World::of_type_where`] narrows, read from each concrete type's
+    /// table at most `first` at a time: those certain to come next, up to
+    /// the earliest last place among the tables that gave as many as asked,
+    /// so none is passed over, in ascending id order; and whether more may
+    /// follow. A query's page reads from its cursor so, where each page read
+    /// its type whole, which made reading a result page by page quadratic
+    /// (READ-PAGES).
+    pub fn of_type_from(
+        &self,
+        type_: &str,
+        states: Option<&BTreeSet<String>>,
+        columns: &[(String, Value)],
+        after: i64,
+        first: usize,
+    ) -> Result<(Vec<&Object>, bool), crate::eval::NotRun> {
+        let wanted: Option<Vec<String>> = states.map(|s| s.iter().cloned().collect());
+        let pairs: Vec<(&str, &Value)> = columns.iter().map(|(a, v)| (a.as_str(), v)).collect();
+        // the earliest last place among the tables read to their limit
+        let mut cut: Option<i64> = None;
+        for t in self.lib.types.keys() {
+            let whole = self.held.whole.borrow().contains(t);
+            if self.lib.is_a(t, type_)
+                && !whole
+                && let Some(conn) = self.conn
+            {
+                let fetched = crate::store::read_type_from(
+                    conn,
+                    self.lib,
+                    t,
+                    wanted.as_deref(),
+                    &pairs,
+                    after,
+                    first,
+                )
+                .map_err(|e| {
+                    crate::eval::NotRun::Unreadable(format!(
+                        "the store's objects of {t} from a place, which could not be read: {e}"
+                    ))
+                })?;
+                match fetched {
+                    Some(fetched) => {
+                        if fetched.len() >= first
+                            && let Some(last) = fetched.last()
+                        {
+                            cut = Some(cut.map_or(last.order, |c| c.min(last.order)));
+                        }
+                        self.hold_fetched(fetched)?;
+                    }
+                    None => self.hold_type(t)?,
+                }
+            }
+        }
+        let holds = |o: &Object| {
+            o.order > after
+                && cut.is_none_or(|c| o.order <= c)
+                && self.lib.is_a(&o.type_, type_)
+                && states.is_none_or(|s| s.contains(&o.state))
+                && pairs.iter().all(|(a, v)| {
+                    let x = o.attr(a);
+                    x.is_absent() || x.equals(v)
+                })
+        };
+        Ok((self.held_in_order(holds), cut.is_some()))
+    }
+
     /// Every object of a type, its own or a subtype's, whose attributes
     /// named hold values equal to those given, in ascending id order: a type
     /// held whole is read from what is held, any other by its columns, read

@@ -3080,6 +3080,35 @@ pub(crate) fn read_type_where(
     )?))
 }
 
+/// The objects of a concrete type after a place in creation order, the
+/// first so many of those in the states and holding the values given, each
+/// as [`read_type_where`] reads it: the next of a read in order from a
+/// cursor, never the type whole, which each page of a query read again
+/// (READ-PAGES); none where a value has no column to compare in.
+pub(crate) fn read_type_from(
+    conn: &Connection,
+    lib: &Library,
+    type_: &str,
+    states: Option<&[String]>,
+    columns: &[(&str, &Value)],
+    after: i64,
+    first: usize,
+) -> Stored<Option<Vec<Object>>> {
+    if states.is_some_and(<[String]>::is_empty) {
+        return Ok(Some(Vec::new()));
+    }
+    let Some(mut narrowed) = narrowing(conn, lib, type_, states, columns)? else {
+        return Ok(None);
+    };
+    narrowed.bound = Some((table(type_), after, first));
+    Ok(Some(read_objects(
+        conn,
+        lib,
+        type_,
+        Scope::Where(table(type_), narrowed),
+    )?))
+}
+
 /// What [`read_type_where`] narrows a type's rows to, or none where a value
 /// has no column to compare in; a column the table holds no null in is
 /// compared alone, which its index serves (`storage-schema.md` §5).
@@ -3103,6 +3132,7 @@ fn narrowing(
     let mut narrowed = Narrowed {
         states: states.map(<[String]>::to_vec),
         columns: Vec::new(),
+        bound: None,
     };
     for (n, v) in columns {
         let Some(a) = t
@@ -3145,12 +3175,40 @@ fn not_null(conn: &Connection, name: &str) -> Stored<BTreeSet<String>> {
 struct Narrowed {
     states: Option<Vec<String>>,
     columns: Vec<(String, Sql, bool)>,
+    /// Where it reads from a place in creation order: its table, the place,
+    /// and how many rows at most (READ-PAGES).
+    bound: Option<(String, i64, usize)>,
 }
 
 impl Narrowed {
     /// The conditions on a row of the type's table, its columns prefixed as
-    /// given, and the parameters they bind.
+    /// given, and the parameters they bind: where it reads from a place, the
+    /// rows after it in creation order that meet the rest, the first so
+    /// many, which a read of each object's sets narrows to alike.
     fn conditions(&self, prefix: &str) -> (String, Vec<Sql>) {
+        let Some((table, after, first)) = &self.bound else {
+            return self.unbounded(prefix);
+        };
+        let (inner, mut bound) = self.unbounded("t2.");
+        bound.push(Sql::Integer(*after));
+        let place = bound.len();
+        bound.push(Sql::Integer(i64::try_from(*first).unwrap_or(i64::MAX)));
+        let most = bound.len();
+        let meets = if inner.is_empty() {
+            String::new()
+        } else {
+            format!("{inner} AND ")
+        };
+        (
+            format!(
+                "{prefix}id IN (SELECT t2.id FROM {table} t2 JOIN of_object o2 ON o2.id = t2.id WHERE {meets}o2.rowid > ?{place} ORDER BY o2.rowid LIMIT ?{most})"
+            ),
+            bound,
+        )
+    }
+
+    /// The conditions on its states and columns alone.
+    fn unbounded(&self, prefix: &str) -> (String, Vec<Sql>) {
         let mut parts = Vec::new();
         let mut bound = Vec::new();
         if let Some(states) = &self.states {
