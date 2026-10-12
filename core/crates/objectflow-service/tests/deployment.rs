@@ -553,7 +553,113 @@ fn maintain_names_an_actor_the_store_knows() {
         "/v1/maintain",
         &json!({"actor": {"id": "operator"}, "task": task}),
     );
-    assert_eq!(operator["refused"], json!("inside_retention"), "{operator}");
+    // a store started with no retention prunes nothing, which it says
+    assert_eq!(operator["refused"], json!("no_retention"), "{operator}");
+    drop(s);
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--port",
+        "0",
+        "--attempt-retention",
+        "30 days",
+    ]);
+    let now = call(&s, "GET", "/health", None).1["now"].clone();
+    let inside = post(
+        &s,
+        "/v1/maintain",
+        &json!({"actor": {"id": "operator"}, "task": {"name": "prune_attempts", "before": now}}),
+    );
+    assert_eq!(inside["refused"], json!("inside_retention"), "{inside}");
+    let outside = post(
+        &s,
+        "/v1/maintain",
+        &json!({"actor": {"id": "operator"}, "task": task}),
+    );
+    assert_eq!(outside["refused"], json!(null), "{outside}");
+}
+
+/// What the third production review's operator met at the edges of a
+/// deployment: a start that cannot make its store or socket names the
+/// path; a store whose file is damaged does not start, where a copy
+/// restored beside another state's `-wal` answered health while its reads
+/// failed (N5); an upgrade asked of a store with none due is still the
+/// operator's (`409`), where anyone was answered nothing was due; and
+/// `/metrics` gives the store's file and its write-ahead log (N6).
+#[test]
+fn a_deployments_edges_are_said() {
+    let dir = fresh_store("edges");
+    let dir = dir.parent().expect("its directory").to_path_buf();
+    let missing = dir.join("no-such-directory").join("store.sqlite");
+    let (code, said) = refused(&[
+        "--store",
+        missing.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    assert_eq!(code, Some(1));
+    assert!(said.contains(missing.to_str().expect("a path")), "{said}");
+    let long = dir.join("s".repeat(150));
+    let (code, said) = refused(&["--socket", long.to_str().expect("a path")]);
+    assert_eq!(code, Some(1));
+    assert!(said.contains(&"s".repeat(150)), "{said}");
+    // a store made, then damaged in its first table's page
+    let path = dir.join("store.sqlite");
+    {
+        let s = start(&[
+            "--store",
+            path.to_str().expect("a path"),
+            "--create",
+            "--port",
+            "0",
+        ]);
+        let op = json!({"id": "operator"});
+        let (status, said) = call(
+            &s,
+            "POST",
+            "/v1/upgrade",
+            Some(&json!({"actor": {"id": "alice"}})),
+        );
+        assert_eq!(status, 409, "{said}");
+        let upgraded = post(&s, "/v1/upgrade", &json!({"actor": op}));
+        assert_eq!(upgraded["upgraded"], json!(false), "{upgraded}");
+        let mut stream = TcpStream::connect(&s.addr).expect("a connection");
+        write!(
+            stream,
+            "GET /metrics HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        )
+        .expect("asked");
+        let mut metrics = String::new();
+        stream.read_to_string(&mut metrics).expect("the metrics");
+        let bytes = metrics
+            .lines()
+            .find_map(|l| l.strip_prefix("objectflow_store_bytes "))
+            .and_then(|v| v.trim().parse::<u64>().ok());
+        assert!(bytes.is_some_and(|b| b > 0), "{metrics}");
+        assert!(metrics.contains("objectflow_wal_bytes "), "{metrics}");
+    }
+    // the write-ahead log folded into the file first, so the damage is not
+    // read past from the log
+    {
+        let conn = rusqlite::Connection::open(&path).expect("the store");
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .expect("a checkpoint");
+    }
+    {
+        use std::io::{Seek, SeekFrom};
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .expect("the store");
+        // the second page's b-tree header, overwritten
+        file.seek(SeekFrom::Start(4096)).expect("its second page");
+        file.write_all(&[0xff; 64]).expect("damaged");
+    }
+    let (code, said) = refused(&["--store", path.to_str().expect("a path"), "--port", "0"]);
+    assert_eq!(code, Some(1));
+    assert!(said.contains("fails SQLite's quick check"), "{said}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A path that holds no store, absent or empty, is refused unless the start

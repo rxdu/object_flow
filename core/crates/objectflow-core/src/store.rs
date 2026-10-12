@@ -1478,6 +1478,10 @@ pub struct Store {
     busy: std::cell::Cell<std::time::Duration>,
 }
 
+/// What a checkpoint that empties the write-ahead log cuts it back to, in
+/// bytes (third production review N6).
+pub const WAL_LIMIT: i64 = 64 * 1024 * 1024;
+
 /// How many read connections a deployment keeps idle for the next reads;
 /// more are opened while more reads run at once (ADR-0178 decision 6).
 pub const IDLE_READERS: usize = 8;
@@ -1600,6 +1604,17 @@ impl Store {
         Ok(store)
     }
 
+    /// SQLite's quick check of the store's file read with its write-ahead
+    /// log: the first fault it finds, none where it holds. A copy restored
+    /// beside another state's `-wal` opened and answered health while its
+    /// reads failed (third production review N5).
+    pub fn quick_check(&self) -> Stored<Option<String>> {
+        let first: String = self
+            .conn
+            .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
+        Ok((first != "ok").then_some(first))
+    }
+
     /// A deployment's store, one SQLite file (ADR-0174 decision 2): created
     /// where the file holds none, at version 0, with the built-ins and the
     /// operator, its flow to arrive by a published `DeclarationChange`; and
@@ -1617,6 +1632,10 @@ impl Store {
         // among it, is zeroed in the file rather than left in free space
         // (D584)
         conn.execute_batch("PRAGMA secure_delete = ON;")?;
+        // the write-ahead log cut back to 64 MiB whenever a checkpoint
+        // empties it, where it grew to six times the store's file and stayed
+        // (third production review N6)
+        conn.execute_batch(&format!("PRAGMA journal_size_limit = {WAL_LIMIT};"))?;
         // another connection's write lock is waited for, not met at once
         // (storage-schema.md §7, ADR-0178 decision 2)
         conn.busy_timeout(BUSY_TIMEOUT)?;
@@ -1887,9 +1906,13 @@ impl Store {
             }
             _ => return Ok(Ok(Err("unknown_task"))),
         };
+        // a store given no retention for the task prunes nothing, which a
+        // refusal says rather than one inside a retention it does not have
+        // (second production review, minor)
         match retention {
+            None => return Ok(Ok(Err("no_retention"))),
             Some(kept) if task.before <= self.now - kept => {}
-            _ => return Ok(Ok(Err("inside_retention"))),
+            Some(_) => return Ok(Ok(Err("inside_retention"))),
         }
         let before = timestamp_text(task.before);
         let (tx, _) = begin_write!(self.conn);
@@ -4077,6 +4100,25 @@ fn write(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A deployment's store cuts its write-ahead log back to its limit when
+    /// a checkpoint empties it, where the log grew to 792 MB beside a 133 MB
+    /// store and stayed (third production review N6).
+    #[test]
+    fn a_deployments_write_ahead_log_is_cut_back() {
+        let dir = std::env::temp_dir().join(format!("of-wal-limit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = Store::open(&dir.join("store.sqlite"), 0).unwrap();
+        let limit: i64 = s
+            .conn
+            .query_row("PRAGMA journal_size_limit", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(limit, WAL_LIMIT);
+        assert_eq!(s.quick_check().unwrap(), None);
+        drop(s);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn a_sandbox_holds_its_operator() {

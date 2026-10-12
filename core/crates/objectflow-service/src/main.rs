@@ -218,6 +218,10 @@ struct Service {
     /// connections at the cap refused every newcomer, `/health` among them
     /// (third production review C-1).
     connections: Connections,
+    /// A deployment's store file, whose size and its write-ahead log's
+    /// `/metrics` gives, read without the writer (third production review
+    /// N6).
+    store_path: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Default)]
@@ -2217,6 +2221,18 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
 }
 
 /// `upgrade` (`storage-schema.md` §12, ADR-0177): a deployment's store
+/// Whether an actor names an operator of the store, by its id or its
+/// identity, as an upgrade reads it (ADR-0177).
+fn is_operator(world: &objectflow_core::world::World<'_>, actor: &str) -> Result<bool, NotRun> {
+    use objectflow_core::model::OPERATOR_TYPE;
+    if world.get(actor)?.is_some_and(|o| o.type_ == OPERATOR_TYPE) {
+        return Ok(true);
+    }
+    Ok(world.of_type(OPERATOR_TYPE)?.iter().any(
+        |o| matches!(o.attr("identity"), objectflow_core::value::Value::Text(t) if t == actor),
+    ))
+}
+
 /// carried from its release to this core's, the operator's act, or with
 /// `dry_run` every step run and rolled back; once upgraded the store is
 /// opened and served. A store at this release already answers that
@@ -2236,6 +2252,14 @@ async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
             ));
         };
         if sandbox.due.is_none() {
+            // an operator's act whether or not one is due: another actor was
+            // answered that nothing was due (third production review)
+            let s = store(&mut sandbox)?;
+            if !is_operator(&s.snapshot()?, actor)? {
+                return Err(Fault::Conflict(format!(
+                    "an upgrade is an operator's act, and {actor} is no operator of the store"
+                )));
+            }
             return Ok(Json(json!({"from": BUILTINS, "to": BUILTINS, "steps": [],
                               "dry_run": dry_run, "upgraded": false})));
         }
@@ -2433,6 +2457,21 @@ async fn metrics(State(shared): State<Shared>) -> Response {
         c.made_room.load(Ordering::SeqCst),
         c.refused.load(Ordering::SeqCst)
     ));
+    // the store's file and its write-ahead log, which a checkpoint cuts
+    // back to its limit, and a volume running out is watched by (N6)
+    if let Some(path) = &shared.store_path {
+        let size = |p: &std::path::Path| std::fs::metadata(p).map_or(0, |m| m.len());
+        let mut wal = path.clone().into_os_string();
+        wal.push("-wal");
+        out.push_str(&format!(
+            "# HELP objectflow_store_bytes The store's file.\n\
+             # TYPE objectflow_store_bytes gauge\nobjectflow_store_bytes {}\n\
+             # HELP objectflow_wal_bytes The store's write-ahead log.\n\
+             # TYPE objectflow_wal_bytes gauge\nobjectflow_wal_bytes {}\n",
+            size(path),
+            size(std::path::Path::new(&wal))
+        ));
+    }
     if let Some(bytes) = resident_bytes() {
         out.push_str(&format!(
             "# HELP objectflow_resident_bytes The process's resident memory.\n\
@@ -3023,7 +3062,8 @@ fn bind_socket(path: &std::path::Path) -> std::io::Result<tokio::net::UnixListen
                 path.display()
             )));
         }
-        Ok(m) if m.file_type().is_socket() => std::fs::remove_file(path)?,
+        Ok(m) if m.file_type().is_socket() => std::fs::remove_file(path)
+            .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?,
         Ok(_) => {
             return Err(std::io::Error::other(format!(
                 "{} holds a file that is not a socket, which the service does not replace",
@@ -3032,8 +3072,9 @@ fn bind_socket(path: &std::path::Path) -> std::io::Result<tokio::net::UnixListen
         }
         Err(_) => {}
     }
-    let listener = tokio::net::UnixListener::bind(path)?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o660))?;
+    let named = |e: std::io::Error| std::io::Error::other(format!("{}: {e}", path.display()));
+    let listener = tokio::net::UnixListener::bind(path).map_err(named)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o660)).map_err(named)?;
     Ok(listener)
 }
 
@@ -3063,13 +3104,17 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Option<St
                 path.display()
             )));
         }
+        // a directory that does not exist, among the faults, names the path
+        // it was asked for (third production review)
+        let named = |e: std::io::Error| std::io::Error::other(format!("{}: {e}", path.display()));
         std::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .open(path)?;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+            .open(path)
+            .map_err(named)?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(named)?;
         return Ok(Some(format!("a store made at {}", path.display())));
     }
     // a file that is a database but not a store, another application's, is
@@ -3081,7 +3126,10 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Option<St
             path.display()
         )));
     }
-    let mode = std::fs::metadata(path)?.permissions().mode();
+    let mode = std::fs::metadata(path)
+        .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?
+        .permissions()
+        .mode();
     Ok((mode & 0o077 != 0).then(|| {
         format!(
             "the store {} is readable by others than its owner (mode {:o}); its personal data is too",
@@ -3138,6 +3186,18 @@ async fn serve() -> std::io::Result<()> {
             _ => {
                 let mut s = Store::open(path, wall_clock())
                     .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
+                // a store whose file is damaged does not start, a copy
+                // restored beside another state's -wal among them, which
+                // answered health while its reads failed (N5)
+                let checked = s
+                    .quick_check()
+                    .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
+                if let Some(fault) = checked {
+                    return Err(std::io::Error::other(format!(
+                        "{} fails SQLite's quick check ({fault}); a copy restored beside the -wal or -shm of another state does this: restore the copy alone, with neither beside it (integrate.md §9)",
+                        path.display()
+                    )));
+                }
                 (s.attempt_retention, s.idempotency_retention) = a.retentions;
                 s.set_busy_timeout(busy)
                     .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
@@ -3160,7 +3220,9 @@ async fn serve() -> std::io::Result<()> {
             Listening::Unix(l)
         }
         None => {
-            let l = tokio::net::TcpListener::bind(&a.bind).await?;
+            let l = tokio::net::TcpListener::bind(&a.bind)
+                .await
+                .map_err(|e| std::io::Error::other(format!("{}: {e}", a.bind)))?;
             eprintln!("listening on http://{}", l.local_addr()?);
             Listening::Tcp(l)
         }
@@ -3233,6 +3295,7 @@ async fn serve() -> std::io::Result<()> {
         in_flight: std::sync::atomic::AtomicUsize::new(0),
         writer_since: AtomicI64::new(0),
         connections: Connections::default(),
+        store_path: a.store.clone(),
     };
     let shared = Arc::new(service);
     let router = app(shared.clone(), deployment);
@@ -3332,6 +3395,7 @@ mod tests {
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             writer_since: AtomicI64::new(0),
             connections: Connections::default(),
+            store_path: None,
         });
         let held = shared.clone();
         let panicked = std::thread::spawn(move || {

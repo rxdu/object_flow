@@ -9,6 +9,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 ### Changes that may refuse what 0.2.0 accepted
 
 - The operator's retirement is refused `not_requestable`, as its creation is, where it was irreversible (ADR-0184).
+- A store whose file fails SQLite's quick check does not start, where a copy restored beside another state's `-wal` answered health while its reads failed; a prune where the service has no retention for it is refused `no_retention`, where it said `inside_retention`; an upgrade asked of a store with none due is refused to anyone but an operator (`409`) (third production review).
 - A date or a timestamp is read as RFC 3339 writes it, each field its digits exactly and the year 0001 to 9999, at UTC: a space, a sign, a one-digit month, a year past 9999, the year 0 and the offset `+0000` are refused `malformed`, alike in the reference runner, which took a one-digit month and any offset.
 - A request's own `principal` is read, typed and checked as the actor is, a principal naming no one refused `actor_known`, where it was taken and dropped; it and `actor.principal` must agree (third production review PRINCIPAL).
 - A change's dry run that passes `--read-timeout`, a `submit`'s or a `publish` preview's, is answered `503 read_timeout` and records nothing, where a submit's was computed again under the writer's lock and a preview held the writer throughout (third production review PUBLISH-SCALE, D604).
@@ -28,6 +29,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Added
 
+- `/metrics` gives the store's file and its `-wal` in bytes; the `-wal` is cut back to 64 MiB when a checkpoint empties it, where it grew to six times the store and stayed; a start that cannot make its store or socket, or bind its address, names the path (third production review N6).
 - `--socket <path>`: the service on a Unix socket, made `0660`, in an address's place, so the socket's owner and group are its only callers (ADR-0183 decision 4).
 - One line on stderr for each answer, its time, method, route, status and duration; `GET /metrics`, the answers by route and status, the store's version and the clock's lead, in Prometheus's text format; `/health` reading the store's file and answering `clock_lead_seconds` (ADR-0183 decision 8).
 - On SIGTERM or SIGINT the service takes no new connection, answers the requests in flight for up to 30 s and exits, where it stopped at once (ADR-0183 decision 9).
