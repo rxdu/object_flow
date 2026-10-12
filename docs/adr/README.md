@@ -191,5 +191,6 @@
 | [0188](0188-a-text-bound-an-evaluators-token-and-the-disk.md) | A text's bound, an evaluator's token and the disk in health | Decided by the author; built |
 | [0189](0189-agents-closed-by-their-tools-reads-bounded-main-protected.md) | An agent's tools opt-in, heavy reads bounded, `main` protected | Decided by the author; built |
 | [0190](0190-the-fifth-reviews-findings-decided.md) | The fifth review's findings, decided | Decided on the author's standing instruction; built |
-| [0191](0191-the-fifth-reviews-minors-decided.md) | The fifth review's minors, decided | Decided on the author's standing instruction, but decision 7, the author's; building |
+| [0191](0191-the-fifth-reviews-minors-decided.md) | The fifth review's minors, decided | Decided on the author's standing instruction, but decision 7, the author's; built |
+| [0192](0192-the-sixth-reviews-findings-decided.md) | The sixth review's findings, decided | Decided on the author's standing instruction; building |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

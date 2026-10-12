@@ -1,6 +1,6 @@
 # Is ObjectFlow production-ready? The review before 1.0.0
 
-Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **The second review (§6), at commit `cd1b536` after the fixes, is NO-GO too**, as ADR-0183 decision 1 required it to find nothing.
+Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9) and the sixth at `fc6c0e7` (§10).
 
 ## 1. What "production" meant, and how it was reviewed
 
@@ -160,3 +160,30 @@ Minors: a stderr reader that exits loses answers for 5 s and leaves `/health` `l
 ### What the fifth review asks
 
 The author's standing instruction, "follow your recommendations", decides what the findings ask (ADR-0190); the blocker and the majors are fixed, then a sixth review, or the author's acceptance of what remains.
+
+## 10. The sixth review, after the fifth's fixes
+
+At commit `fc6c0e7`, 2026-10-13, not yet pushed, every gate of `scripts/check-all` passed on it: two new cold reviewers, an operator and an adversary, each in a checkout of its own with the release binary built from it (the operator found it byte-identical to a `--locked` build of the checkout), given the fifth review's findings to re-check, on copies of the same 37,154-object store and the six-year store, and the third review's go-live tools without their runs. Their logs and reports stayed in the session's scratch directory, which is not kept; what they found is here.
+
+**Verdicts: both NO-GO.** The operator found one blocker and two majors; the adversary no blocker and three majors. Neither lost an acknowledged write: `kill -9` and SIGTERM during writes and an approval lost none, idempotent retries applied once; 336 malformed bodies and 2,160 wrong-typed keys across all 21 operations answered no 5xx.
+
+### The fifth review's findings, re-checked
+
+Fixed, measured by both: BRICK; N-1 (16 saturating metrics on six years: writes p99 32 ms, worklists p99 60 ms); DRYRUN-MEMORY (one at a time, peak 1.58 GB where 6.2 and 9.3); NEW-CORRECTION; EVENTS; the refused restore (the file and its `-wal` byte-identical after a refused start); every minor but those below. Partly fixed: FILTER-COST (within the new bounds, a filter calling a metric per object and an `or`-tree of 10,000 comparisons still ran to the 30 s deadline, holding a worklist slot); IDENTITY (other invisible characters, a trailing or non-breaking space, case, NFC and NFD forms, a Cyrillic letter and the empty string still made distinct identities; an identity shaped as another actor's object id was taken; an import's `admit` wrote a second holder); ERASE-LIMIT (the notice's remedy, a bounding invariant, made every write sweep its type, P8 below; an erasure past a limit is still refused); derived times past 9999 (`get` answered null, `query`'s fields did not); a moved store (`/health` 503, a read 500); a supersession group's erasure (no longer the type's size, but superlinear in the group's). Not fixed: `--metrics-bind` refused at the main listener's connections (F9 below); the GitHub settings, the author's and undecided.
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| P8 | An invariant reading beyond its own object made every write of the store re-check every object of its type, under the one writer: on a go-live of the shipped `reimbursement.yaml`, whose `lines_within_reach` the fifth review's notice asks for, a draft took 2.8 s and a write to an unrelated type 2.3 s (13 ms without it), 0.4 writes a second with four writers; on six years 7.7 s; a one-hop path invariant, `category.name != ""`, 5.3 s a draft. `DESIGN.md` §5.6 says such an invariant is checked from the related objects; the core swept its type | measured by the operator; read | blocker |
+| F9 | `--metrics-bind`'s listener refused `/health` and `/metrics` `503 busy` once the main listener held 16 connections, idle keep-alive ones among them: the count both share was compared with the metrics listener's own cap | measured by the operator; read | major |
+| P5, FILTER-COST class | A person's worklist queued behind reads the same pool holds: four agent queries on a derived attribute (3.3 s each on six years) took a 9 ms read to p50 4.9 s, eight to 26 s and past 30 s 503; four of an agent's filters within the bounds held every worklist slot, a person waiting 28.6 s | measured by both | major |
+| ERASED-IDENTITY | An erased actor's identity stays in the store and is answered: a person's email as their identity, marked `personal`, erased with them from their object, stayed in the events' actor (7 rows), attempts, intervals' `entered_by` and an idempotency record, in the file and its `-wal`, and `history` and `export` answer it, which `SECURITY.md` names a vulnerability | measured by the adversary | major |
+| HISTORY | `history` answers an object's whole history unpaged, outside every read bound: 10,000 events of 16 KB each answered 164.6 MB, six at once took the service to 3.75 GB; `events` of 1,000 large positions answered 16.5 MB, eight at once 572 MB | measured by the adversary | major |
+
+Minors: an ill-typed filter answers `501` and writes a stored value, a personal one among them, into the log; agents on the wire take what a flow leaves open, approving a version among it, which the design leaves to the gateway; a metric in a guard runs under the writer, 0.12 s a submit; the one dry-run slot is not fair, an agent's looping previews holding it; the same idempotency key from an actor named by its object's id and then its identity answered `409`; an evaluator's answer naming a key twice took the last; a division by a money zero and a nested set answered empty pages; a store file the service cannot write starts and answers every write 500; a full disk the volume's free space does not show leaves `/health` 200; the clock pin has no recovery and the guide no `time-sync.target`; a second service on one store gets an ambiguous line; `--version` names no commit; a store an earlier build bricked is not found at start and its fault prints the stored value; an upgrade-due 503 has no `code`; the stalled write's wait is not stated; the CHANGELOG's count of reviews; no tag, release or CI run since `092f644` on GitHub; the binary needs glibc 2.34.
+
+### What the sixth review asks
+
+The author's standing instruction decides what the findings ask (ADR-0192); the blocker and the majors are fixed, then a seventh review, or the author's acceptance of what remains.
+

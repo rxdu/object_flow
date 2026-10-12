@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D48 and D49, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0171 — the traversal form reads through any relationship end, declared inverse or not; ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0062 — a normative statement must cite the check that enforces it.
+- **Refined by:** ADR-0171 — the traversal form reads through any relationship end, declared inverse or not; ADR-0060 — twelve decisions from the iteration-11 syntax review; ADR-0062 — a normative statement must cite the check that enforces it. ADR-0192 — the traversal form's affected set built as stated, walked back along each chain an invariant reads.
 - **Refines:** ADR-0045, ADR-0052, ADR-0046
 
 ## Context

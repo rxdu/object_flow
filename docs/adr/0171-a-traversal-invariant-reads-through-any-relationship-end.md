@@ -2,6 +2,7 @@
 
 - **Status:** Decided by the author, 2026-10-08 ("go with your recommendations on 1 and 2"), on a recommendation stated with the question (`TODO.md`).
 - **Date:** 2026-10-08
+- **Refined by:** ADR-0192 — a written object's related objects found through the end it stores or the indexed column of the other.
 - **Refines:** ADR-0045 (decision 3), ADR-0055 (decision 1, the traversal form)
 - **Relates to:** ADR-0056, ADR-0059 (one end stored, the inverse a view over it); D453 (`ServiceJob.engineer_active`); `DESIGN.md` §5.6; `design/declaration-syntax.md` §3.1, §3.4, §10 check 4; `design/core-checker.md` §2
 
