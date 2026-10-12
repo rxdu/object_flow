@@ -2522,7 +2522,13 @@ class Runner:
                     raise NotRunnable("an assignment of an absent value, which only an unsupplied optional input may be")
                 if self.owner_end(attrs.get(spec["location"])) and o.attrs.get(spec["location"]) not in (None, v):
                     raise NotRunnable("re-parenting a part by an effect, whose whole_open guard this runner does not yet evaluate")
-                o.attrs[spec["location"]] = at_declared_scale(attrs.get(spec["location"]), v)
+                written = at_declared_scale(attrs.get(spec["location"]), v)
+                # a decimal written past its p digits refuses the request, as an arithmetic past its bound does (ADR-0185)
+                digits = precision_of((attrs.get(spec["location"]) or {}).get("type"))
+                scale = int(str(attrs[spec["location"]]["type"]).rstrip(")").rsplit(",", 1)[1]) if digits else 0
+                if digits and isinstance(written, (int, Fraction)) and abs(Fraction(written) * 10 ** scale) > 10 ** digits - 1:
+                    raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
+                o.attrs[spec["location"]] = written
                 ctx.attr_writes.setdefault(o.id, set()).add(spec["location"])
                 if self.owner_end(attrs.get(spec["location"])):
                     ctx.wrote(v)
@@ -3549,12 +3555,19 @@ INPUT_UNITS = 999_999_999_999_999_999   # an amount or a decimal holds 18 digits
 NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
 
 
-def held_fault(amount, scale):
-    """Why a number does not fit its scale: more places than the scale, or more than 18 digits; None where it fits."""
+def held_fault(amount, scale, digits=18):
+    """Why a number does not fit its type: more places than the scale, or more digits than a decimal(p,s)'s p or an
+    amount's 18; None where it fits (declaration-syntax.md §4)."""
     units = Fraction(amount) * 10 ** scale
     if units.denominator != 1:
         return "malformed"
-    return "out_of_range" if abs(units) > INPUT_UNITS else None
+    return "out_of_range" if abs(units) > min(INPUT_UNITS, 10 ** digits - 1) else None
+
+
+def precision_of(typ):
+    """A decimal(p,s)'s p, none for another type."""
+    m = re.fullmatch(r"decimal\((\d+),\s*(\d+)\)", str(typ or ""))
+    return int(m.group(1)) if m else None
 
 
 FILE_HASH = re.compile(r"sha256:[0-9a-f]{64}")
@@ -3657,7 +3670,7 @@ def input_fault(spec, v, enums):
         text = str(v).strip()
         if not NUMBER.fullmatch(text):
             return "malformed"
-        return held_fault(text, int(typ.rstrip(")").rsplit(",", 1)[1]))
+        return held_fault(text, int(typ.rstrip(")").rsplit(",", 1)[1]), precision_of(typ))
     if typ == "file":
         # its wire form, or the name an example writes it by (flow-format.md §11.3)
         return file_fault(v) if isinstance(v, dict) else (None if isinstance(v, str) else "wrong_type")

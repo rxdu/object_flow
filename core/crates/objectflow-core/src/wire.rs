@@ -29,16 +29,26 @@ pub struct NotOfType(pub String, pub InputReason);
 /// which the store keeps in 64 bits (ADR-0143).
 const MAX_UNITS: i128 = 999_999_999_999_999_999;
 
+/// A `decimal(p,s)`'s digits and places.
+pub fn precision_and_scale(declared: &str) -> Option<(u32, u8)> {
+    let (p, s) = declared
+        .strip_prefix("decimal(")?
+        .strip_suffix(')')?
+        .split_once(',')?;
+    Some((p.trim().parse().ok()?, s.trim().parse().ok()?))
+}
+
 fn scalar(text: &str) -> &str {
     text.trim_end_matches("[]")
 }
 
 /// A decimal held at a scale, refused where it has more places than the
-/// scale, or more digits than the store holds.
-fn held_at(d: Decimal, scale: u8, what: &str) -> Result<Decimal, NotOfType> {
+/// scale, or more digits than its type holds: a `decimal(p,s)`'s `p`, an
+/// amount's 18, which the store keeps in 64 bits.
+fn held_at(d: Decimal, scale: u8, digits: u32, what: &str) -> Result<Decimal, NotOfType> {
     let range = || {
         NotOfType(
-            format!("{what} has more than 18 digits"),
+            format!("{what} has more than {digits} digits"),
             InputReason::OutOfRange,
         )
     };
@@ -49,7 +59,7 @@ fn held_at(d: Decimal, scale: u8, what: &str) -> Result<Decimal, NotOfType> {
             InputReason::Malformed,
         ));
     }
-    if held.units().abs() > MAX_UNITS {
+    if held.units().abs() > MAX_UNITS.min(10i128.pow(digits) - 1) {
         return Err(range());
     }
     Ok(held)
@@ -170,12 +180,7 @@ pub fn decode(
                     Ok(Value::Text(s.to_string()))
                 }
                 t if t.starts_with("decimal(") => {
-                    let scale = t
-                        .trim_end_matches(')')
-                        .rsplit(',')
-                        .next()
-                        .and_then(|s| s.trim().parse::<u8>().ok())
-                        .ok_or_else(wrong)?;
+                    let (digits, scale) = precision_and_scale(t).ok_or_else(wrong)?;
                     let d = match v {
                         Json::String(s) => Decimal::parse(s).ok_or_else(malformed)?,
                         Json::Number(n) if n.is_f64() => return Err(wrong()),
@@ -184,8 +189,10 @@ pub fn decode(
                         })?,
                         _ => return Err(wrong()),
                     };
-                    // more places than the scale is refused, never rounded
-                    Ok(Value::Decimal(held_at(d, scale, &v.to_string())?))
+                    // more places than the scale is refused, never rounded,
+                    // and more digits than `p`, as declaration-syntax.md §4
+                    // says it holds (third production review, minor)
+                    Ok(Value::Decimal(held_at(d, scale, digits, &v.to_string())?))
                 }
                 t if t.starts_with("money(") => {
                     let currency = t.trim_start_matches("money(").trim_end_matches(')');
@@ -203,7 +210,7 @@ pub fn decode(
                     }
                     Ok(Value::Money {
                         currency: currency.to_string(),
-                        amount: held_at(d, minor, s)?,
+                        amount: held_at(d, minor, 18, s)?,
                     })
                 }
                 other => Err(NotOfType(
@@ -420,6 +427,22 @@ mod tests {
             why(json!("10000000000000000.00"), "decimal(18,2)"),
             Some(InputReason::OutOfRange)
         );
+    }
+
+    /// A `decimal(p,s)` holds `p` digits, as declaration-syntax.md §4 says,
+    /// where 18 were taken whatever its `p` (third production review,
+    /// minor); an amount holds the store's 18.
+    #[test]
+    fn a_decimal_holds_its_precisions_digits() {
+        let l = lib();
+        let read = |v: Json, t: &str| decode(&v, &s(t), false, &l);
+        assert!(read(json!("99.99"), "decimal(4,2)").is_ok());
+        assert!(read(json!("-99.99"), "decimal(4,2)").is_ok());
+        let past = read(json!("100.00"), "decimal(4,2)").unwrap_err();
+        assert!(matches!(past.1, InputReason::OutOfRange), "{past:?}");
+        assert!(read(json!("100"), "decimal(4,2)").is_err());
+        assert!(read(json!("9999999999999999.99"), "decimal(18,2)").is_ok());
+        assert_eq!(precision_and_scale("decimal(12,2)"), Some((12, 2)));
     }
 
     #[test]

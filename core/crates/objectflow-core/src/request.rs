@@ -3574,6 +3574,22 @@ fn effects(
                     );
                 }
                 let v = at_declared_scale(t, location, v)?;
+                // a decimal written past its `p` digits refuses the request,
+                // as an arithmetic past its bound does (ADR-0185, third
+                // production review, minor)
+                if let Value::Decimal(d) = &v
+                    && let Some(Declared::Scalar(ty)) = t.attribute(location).map(|a| &a.declared)
+                    && let Some((digits, _)) = crate::wire::precision_and_scale(ty)
+                    && d.units().abs() > 10i128.pow(digits) - 1
+                {
+                    return refused_naming(
+                        Verdict::Unsatisfied {
+                            clause: "value_in_range".into(),
+                            remedy: Some(Remedy::UnreachableFromHere),
+                        },
+                        id,
+                    );
+                }
                 if let Some(o) = ctx.work.get_mut(id)? {
                     o.attrs.insert(location.clone(), v);
                 }

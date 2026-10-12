@@ -1351,10 +1351,21 @@ fn principal_of(body: &J) -> Result<Option<String>, Fault> {
     }
 }
 
+/// The most bytes an idempotency key holds, and a request's context.
+const KEY_BYTES: usize = 256;
+const CONTEXT_BYTES: usize = 16 * 1024;
+
 fn request_of(body: &J) -> Result<Request, Fault> {
     // the key that makes a retry safe, scoped to the actor (library-api.md §3)
     let idempotency_key = match body.get("idempotency_key") {
         None | Some(J::Null) => None,
+        // a key is a retry's handle, kept per actor: one of a megabyte was
+        // stored as given (third production review, minor)
+        Some(J::String(k)) if k.len() > KEY_BYTES => {
+            return Err(Fault::Bad(format!(
+                "idempotency_key takes at most {KEY_BYTES} bytes"
+            )));
+        }
         Some(J::String(k)) if !k.is_empty() => Some(k.clone()),
         Some(_) => {
             return Err(Fault::Bad(
@@ -1428,6 +1439,13 @@ fn request_of(body: &J) -> Result<Request, Fault> {
         // why the request was sent and by which route (library-api.md §3)
         context: match body.get("context") {
             None | Some(J::Null) => None,
+            // recorded on each event the request writes: 1.9 MB was stored
+            // as given (third production review, minor)
+            Some(J::String(c)) if c.len() > CONTEXT_BYTES => {
+                return Err(Fault::Bad(format!(
+                    "context takes at most {CONTEXT_BYTES} bytes"
+                )));
+            }
             Some(J::String(c)) => Some(c.clone()),
             Some(_) => return Err(Fault::Bad("context takes a string".to_string())),
         },

@@ -470,6 +470,37 @@ fn a_requests_principal_is_read_checked_and_recorded() {
     assert_eq!(history["events"][0]["principal"], "operator", "{history}");
 }
 
+/// An idempotency key holds at most 256 bytes and a request's context 16
+/// KiB, where a megabyte of each was stored as given (third production
+/// review, minor).
+#[test]
+fn a_key_and_a_context_are_bounded() {
+    let path = fresh_store("bounded");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish_service(&s);
+    let op = json!({"id": "operator"});
+    let add = |extra: Value| {
+        let mut body = json!({"actor": op, "type": "User", "transition": "add",
+                              "inputs": {"login": format!("u{}", extra.to_string().len()), "name": "U"}});
+        for (k, v) in extra.as_object().expect("keys") {
+            body[k] = v.clone();
+        }
+        call(&s, "POST", "/v1/request", Some(&body))
+    };
+    assert_eq!(add(json!({"idempotency_key": "k".repeat(256)})).0, 200);
+    let (status, said) = add(json!({"idempotency_key": "k".repeat(257)}));
+    assert_eq!(status, 400, "{said}");
+    assert_eq!(add(json!({"context": "c".repeat(16 * 1024)})).0, 200);
+    let (status, said) = add(json!({"context": "c".repeat(16 * 1024 + 1)}));
+    assert_eq!(status, 400, "{said}");
+}
+
 /// A value of another JSON type is refused on every key, never read as
 /// absent: a numeric `filter` returned every object unfiltered, a numeric
 /// `cursor` the first page again, a non-object `bind` the whole metric, and

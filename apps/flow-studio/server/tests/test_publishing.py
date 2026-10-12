@@ -2026,3 +2026,49 @@ def test_a_superseded_object_is_followed_alike(tee):
     with pytest.raises(Failed, match="follow takes true or false"):
         tee.post("/v1/get", {"id": a, "follow": "yes"})
     alike(tee)
+
+
+PRECISE = """module: precise
+categories: [live, closed]
+types:
+  Gauge:
+    description: A gauge.
+    tracking: record
+    attributes:
+      level: { type: "decimal(4,2)" }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      fit: { kind: initial, to: ON, required_inputs: [level] }
+      double:
+        kind: internal
+        from: ON
+        effect:
+          - assign: { location: level, expr: level * 2 }
+      off: { kind: external, from: ON, to: OFF }
+"""
+
+
+def test_a_decimal_holds_its_precisions_digits_alike(tee):
+    """A decimal(p,s) holds p digits, as declaration-syntax.md §4 says:
+    an input past them is refused out_of_range and an effect writing past
+    them refused value_in_range, alike through both backends, where both
+    took 18 whatever p (third production review, minor)."""
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "precise.yaml", "text": PRECISE}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+
+    def fit(level: str) -> dict:
+        return tee.post("/v1/request", {"transition": "fit", "actor": OP, "type": "Gauge",
+                                        "inputs": {"level": level}})
+
+    past = fit("100.00")
+    assert (past["kind"], past.get("inputs")) == ("invalid_input", ["level"]), past
+    small, large = fit("49.99")["object_id"], fit("50.00")["object_id"]
+    v = tee.post("/v1/request", {"transition": "double", "actor": OP, "object_id": small})
+    assert v["kind"] == "satisfied", v
+    v = tee.post("/v1/request", {"transition": "double", "actor": OP, "object_id": large})
+    assert (v["kind"], v.get("clause"), v.get("objects")) == ("unsatisfied", "value_in_range", [large]), v
+    alike(tee)

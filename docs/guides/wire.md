@@ -35,7 +35,7 @@ A value is JSON's own where JSON keeps it exactly, and otherwise a string in the
 | `bool` | a boolean | `true` |
 | `int` | a number within ±(2⁵³ − 1), else a string of digits | `3` |
 | `string`, an identity | a string; never U+0000 | `"Taxis"` |
-| `decimal(p,s)` | a string, at most `s` places, at most 18 digits | `"19.90"` |
+| `decimal(p,s)` | a string, at most `s` places and `p` digits in all, past which an input is `out_of_range` and an effect's write refused `value_in_range` | `"19.90"` |
 | `money(CCC)` | a string, the currency and the amount, at most its minor unit's places | `"USD 19.99"` |
 | `timestamp` | RFC 3339 at UTC, `Z` or `+00:00`, to the second or the minute, each field its digits exactly, no fraction of a second | `"2026-10-04T09:30:00Z"` |
 | `date` | `YYYY-MM-DD` exactly, the year 0001 to 9999 | `"2026-10-04"` |
@@ -101,9 +101,9 @@ POST /v1/request
 ```
 
 - `expected_version`, the version the caller read, refuses the request `stale` if the object has moved (ADR-0023).
-- `idempotency_key` makes a retry safe: the same request under the same key, from the same actor, answers its first verdict, `replayed: true`; a different request under it is a `409` fault. A key is the actor's: another actor's request under the same key is a request of its own, so a retry queue sends under the identity the first request named.
+- `idempotency_key`, at most 256 bytes, makes a retry safe: the same request under the same key, from the same actor, answers its first verdict, `replayed: true`; a different request under it is a `409` fault. A key is the actor's: another actor's request under the same key is a request of its own, so a retry queue sends under the identity the first request named.
 - `propose: true` files the request as a `Proposal` instead of taking it, for a transition marked `proposable`; the verdict names the proposal, and a person approves it with `{"object_id": "<proposal>", "transition": "approve"}`, which takes the request as the approver.
-- `context` is the caller's reason, kept with the event, and kept through an erasure, which erases only values marked `personal`: never put personal data in it (production review F7).
+- `context`, at most 16 KiB, is the caller's reason, kept with the event, and kept through an erasure, which erases only values marked `personal`: never put personal data in it (production review F7).
 
 ### Reads
 
