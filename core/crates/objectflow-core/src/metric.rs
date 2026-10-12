@@ -4230,12 +4230,12 @@ types:
                 Value::Int(2)
             )]
         );
-        // a store built with no retention prunes nothing
+        // a store built with no retention prunes nothing, and says so
         assert_eq!(
             s.maintain(crate::model::OPERATOR, &task("prune_attempts", first))
                 .unwrap()
                 .unwrap(),
-            Err("inside_retention")
+            Err("no_retention")
         );
         s.attempt_retention = Some(30 * DAY);
         s.now += 40 * DAY;

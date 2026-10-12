@@ -538,3 +538,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Adding F5's comparison test, I appended a module `TALLY = """…"""` to `test_publishing.py`, which already defined `TALLY` 160 lines earlier; Python rebinds the name at import, so an unrelated test that read `TALLY` loaded my module and failed `unknown_transition`, while my own test, run alone with `-k`, passed.
 - **Correction:** Before adding a module-level name to a test file, grep the file for it (`grep -n "^NAME = "`), and run the whole file, not only the new test, before calling it done.
 - **Context:** Python test modules with flows as module constants, the Flow Studio's server tests above all; 2026-10-12.
+
+### Read the gates' verdict before committing, never in the same command
+- **Pattern:** I ran `grep` over the gates' summary and `git commit` in one chained command, so the commit ran whatever the summary said: the gates had reported `FAILED core` (a library test asserting the answer `no_retention` replaced), and `d813e62` was committed failing; the fix followed in its own commit.
+- **Correction:** Read the gates' summary in one call; commit in the next, only on "every gate passed". Never chain `git commit` after a command whose output decides whether to commit.
+- **Context:** ObjectFlow's `scripts/check-all` before each commit, run in the background; 2026-10-12.
