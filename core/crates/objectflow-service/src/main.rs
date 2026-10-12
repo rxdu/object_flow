@@ -213,6 +213,18 @@ struct Service {
     /// minutes answered health 200 and showed nothing (OBSERVE-2).
     in_flight: std::sync::atomic::AtomicUsize,
     writer_since: AtomicI64,
+    /// The connections open, those the cap closed answering nothing to make
+    /// room, and those it refused, every one answering a request: silent
+    /// connections at the cap refused every newcomer, `/health` among them
+    /// (third production review C-1).
+    connections: Connections,
+}
+
+#[derive(Debug, Default)]
+struct Connections {
+    open: std::sync::atomic::AtomicUsize,
+    made_room: std::sync::atomic::AtomicU64,
+    refused: std::sync::atomic::AtomicU64,
 }
 
 /// Now, in milliseconds since 1970.
@@ -2119,7 +2131,8 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                               "now": timestamp_text(now), "store_release": BUILTINS,
                               "upgrade_due": false, "clock_lead_seconds": clock_lead(&shared),
                               "writer_held_seconds": writer_held(&shared),
-                              "requests_in_flight": shared.in_flight.load(Ordering::SeqCst)}),
+                              "requests_in_flight": shared.in_flight.load(Ordering::SeqCst),
+                              "connections_open": shared.connections.open.load(Ordering::SeqCst)}),
             )
             .into_response());
         }
@@ -2147,7 +2160,8 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
         Ok(Json(
             json!({"release": BUILTINS, "shape": shape, "version": version, "now": now,
                "store_release": BUILTINS, "upgrade_due": false, "clock_lead_seconds": 0,
-               "writer_held_seconds": 0, "requests_in_flight": shared.in_flight.load(Ordering::SeqCst)}),
+               "writer_held_seconds": 0, "requests_in_flight": shared.in_flight.load(Ordering::SeqCst),
+               "connections_open": shared.connections.open.load(Ordering::SeqCst)}),
         )
         .into_response())
     })
@@ -2357,6 +2371,18 @@ async fn metrics(State(shared): State<Shared>) -> Response {
          # TYPE objectflow_writer_held_seconds gauge\nobjectflow_writer_held_seconds {:.3}\n",
         shared.in_flight.load(Ordering::SeqCst),
         writer_held(&shared)
+    ));
+    let c = &shared.connections;
+    out.push_str(&format!(
+        "# HELP objectflow_connections_open The connections open.\n\
+         # TYPE objectflow_connections_open gauge\nobjectflow_connections_open {}\n\
+         # HELP objectflow_connections_made_room_total Connections answering nothing closed to make room at the cap.\n\
+         # TYPE objectflow_connections_made_room_total counter\nobjectflow_connections_made_room_total {}\n\
+         # HELP objectflow_connections_refused_total Connections refused at the cap, every one open answering a request.\n\
+         # TYPE objectflow_connections_refused_total counter\nobjectflow_connections_refused_total {}\n",
+        c.open.load(Ordering::SeqCst),
+        c.made_room.load(Ordering::SeqCst),
+        c.refused.load(Ordering::SeqCst)
     ));
     if let Some(bytes) = resident_bytes() {
         out.push_str(&format!(
@@ -2678,15 +2704,134 @@ impl tokio::io::AsyncWrite for Conn {
     }
 }
 
+/// A connection's requests being answered, each until its response's body
+/// is written, or [`CLOSING`] once the cap took it to make room, when none
+/// may begin (third production review C-1).
+type Busy = Arc<std::sync::atomic::AtomicIsize>;
+const CLOSING: isize = -1;
+
+/// Whether a request may take its connection: not once the cap has taken it
+/// to make room, which then begins nothing.
+fn taken(busy: &std::sync::atomic::AtomicIsize) -> bool {
+    busy.try_update(Ordering::SeqCst, Ordering::SeqCst, |b| {
+        (b >= 0).then_some(b + 1)
+    })
+    .is_ok()
+}
+
+/// A request's hold on its connection, let go when its response's body is
+/// written or dropped.
+#[derive(Debug)]
+struct Holding(Busy);
+
+impl Drop for Holding {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// A response's body, holding its connection until it is written, so the
+/// cap never closes a connection whose answer has not left.
+#[derive(Debug)]
+struct Held {
+    body: axum::body::Body,
+    _holding: Option<Holding>,
+}
+
+impl hyper::body::Body for Held {
+    type Data = hyper::body::Bytes;
+    type Error = axum::Error;
+
+    fn poll_frame(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
+        hyper::body::Body::poll_frame(std::pin::Pin::new(&mut self.get_mut().body), cx)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        hyper::body::Body::is_end_stream(&self.body)
+    }
+
+    fn size_hint(&self) -> hyper::body::SizeHint {
+        hyper::body::Body::size_hint(&self.body)
+    }
+}
+
+/// The router as one connection serves it: a request takes the connection
+/// for as long as it is answered, and one arriving once the cap has taken
+/// the connection is answered `503` and begins nothing, so closing a
+/// connection to make room never cuts a request short.
+#[derive(Clone, Debug)]
+struct OnConnection {
+    router: hyper_util::service::TowerToHyperService<Router>,
+    busy: Busy,
+}
+
+impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for OnConnection {
+    type Response = hyper::Response<Held>;
+    type Error = std::convert::Infallible;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+    >;
+
+    fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
+        if !taken(&self.busy) {
+            let answer =
+                busy("busy: this connection was closed to make room; send the request on another");
+            return Box::pin(async move { Ok(answer) });
+        }
+        let holding = Holding(self.busy.clone());
+        let answering = hyper::service::Service::call(&self.router, req);
+        Box::pin(async move {
+            let answer = answering.await?;
+            Ok(answer.map(|body| Held {
+                body,
+                _holding: Some(holding),
+            }))
+        })
+    }
+}
+
+/// A `503` that closes its connection, saying why the request was not
+/// answered.
+fn busy(fault: &str) -> hyper::Response<Held> {
+    let mut answer = hyper::Response::new(Held {
+        body: axum::body::Body::from(json!({ "fault": fault }).to_string()),
+        _holding: None,
+    });
+    *answer.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
+    let headers = answer.headers_mut();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    headers.insert(
+        axum::http::header::CONNECTION,
+        axum::http::HeaderValue::from_static("close"),
+    );
+    answer
+}
+
+/// At most this many connections past the cap are being told so at once,
+/// each for a second at most, so a flood of them holds no more descriptors
+/// than this beyond the cap.
+const REFUSING: usize = 16;
+
 /// Each connection served by hyper's HTTP/1 with a timer, so a connection
 /// whose request's head is not read within the idle timeout, silent, idle
 /// between requests or half-sent, is closed, which `axum::serve`, setting
-/// no timer, never did; past the cap a connection is refused and said; and
-/// once the service is stopping no connection is taken, those open finish
-/// the request they are answering and close (ADR-0184 decision 4).
+/// no timer, never did; once the service is stopping no connection is
+/// taken, those open finish the request they are answering and close
+/// (ADR-0184 decision 4). At the cap the oldest connection answering
+/// nothing is closed to make room, so silent connections, a leaking pool's
+/// or an agent's, never shut the application and `/health` out; only when
+/// every connection is answering a request is a newcomer refused, told so
+/// with a `503` (third production review C-1, ADR-0186).
 async fn served(
     listening: Listening,
     router: Router,
+    shared: Shared,
     stop: impl std::future::Future<Output = ()>,
     idle: std::time::Duration,
     cap: usize,
@@ -2695,7 +2840,12 @@ async fn served(
     http.timer(hyper_util::rt::TokioTimer::new())
         .header_read_timeout(idle);
     let (closing, closed) = tokio::sync::watch::channel(false);
-    let open = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    // the connections open, by the order they were taken: what each is
+    // answering, and how it is told to close
+    type Open = std::collections::BTreeMap<u64, (Busy, Arc<tokio::sync::Notify>)>;
+    let open: Arc<Mutex<Open>> = Arc::new(Mutex::new(Open::new()));
+    let refusing = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut taken: u64 = 0;
     let mut tasks = tokio::task::JoinSet::new();
     tokio::pin!(stop);
     loop {
@@ -2716,20 +2866,72 @@ async fn served(
                 continue;
             }
         };
-        if open.load(Ordering::SeqCst) >= cap {
-            eprintln!(
-                "{} a connection refused: {cap} are open, as --max-connections allows",
-                timestamp_text(wall_clock())
-            );
-            drop(io);
-            continue;
+        let at_cap = shared.connections.open.load(Ordering::SeqCst) >= cap;
+        if at_cap {
+            // the oldest answering nothing, which no request may begin on
+            // once taken, is closed to make room
+            let room = {
+                let held = open
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                held.values()
+                    .find(|(busy, _)| {
+                        busy.compare_exchange(0, CLOSING, Ordering::SeqCst, Ordering::SeqCst)
+                            .is_ok()
+                    })
+                    .map(|(_, close)| close.clone())
+            };
+            if let Some(close) = room {
+                close.notify_one();
+                shared.connections.made_room.fetch_add(1, Ordering::SeqCst);
+                eprintln!(
+                    "{} a connection answering nothing closed to make room: {cap} are open, as --max-connections allows",
+                    timestamp_text(wall_clock())
+                );
+            } else {
+                shared.connections.refused.fetch_add(1, Ordering::SeqCst);
+                eprintln!(
+                    "{} a connection refused: {cap} are open, every one answering a request, as --max-connections allows",
+                    timestamp_text(wall_clock())
+                );
+                if refusing.load(Ordering::SeqCst) < REFUSING {
+                    refusing.fetch_add(1, Ordering::SeqCst);
+                    let refusing = refusing.clone();
+                    // its request read and answered 503, so closing does
+                    // not reset the connection before the client reads why
+                    let telling = http.serve_connection(
+                        hyper_util::rt::TokioIo::new(io),
+                        hyper::service::service_fn(|_| async {
+                            Ok::<_, std::convert::Infallible>(busy(
+                                "busy: every connection --max-connections allows is answering a request",
+                            ))
+                        }),
+                    );
+                    tasks.spawn(async move {
+                        let _ =
+                            tokio::time::timeout(std::time::Duration::from_secs(1), telling).await;
+                        refusing.fetch_sub(1, Ordering::SeqCst);
+                    });
+                }
+                continue;
+            }
         }
-        open.fetch_add(1, Ordering::SeqCst);
+        shared.connections.open.fetch_add(1, Ordering::SeqCst);
+        let busy: Busy = Arc::new(std::sync::atomic::AtomicIsize::new(0));
+        let close = Arc::new(tokio::sync::Notify::new());
+        let id = taken;
+        taken += 1;
+        open.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(id, (busy.clone(), close.clone()));
         let serving = http.serve_connection(
             hyper_util::rt::TokioIo::new(io),
-            hyper_util::service::TowerToHyperService::new(router.clone()),
+            OnConnection {
+                router: hyper_util::service::TowerToHyperService::new(router.clone()),
+                busy,
+            },
         );
-        let (mut closed, open) = (closed.clone(), open.clone());
+        let (mut closed, open, shared) = (closed.clone(), open.clone(), shared.clone());
         tasks.spawn(async move {
             tokio::pin!(serving);
             tokio::select! {
@@ -2738,8 +2940,14 @@ async fn served(
                     serving.as_mut().graceful_shutdown();
                     let _ = serving.await;
                 }
+                // taken to make room: answering nothing, and nothing may
+                // begin, so it is dropped, which closes it
+                () = close.notified() => {}
             }
-            open.fetch_sub(1, Ordering::SeqCst);
+            open.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&id);
+            shared.connections.open.fetch_sub(1, Ordering::SeqCst);
         });
         while tasks.try_join_next().is_some() {}
     }
@@ -2975,11 +3183,20 @@ async fn serve() -> std::io::Result<()> {
         served: Mutex::new(std::collections::BTreeMap::new()),
         in_flight: std::sync::atomic::AtomicUsize::new(0),
         writer_since: AtomicI64::new(0),
+        connections: Connections::default(),
     };
     let shared = Arc::new(service);
     let router = app(shared.clone(), deployment);
     let _ = BODY_READ.set(a.idle_timeout);
-    served(listening, router, stop, a.idle_timeout, a.max_connections).await;
+    served(
+        listening,
+        router,
+        shared.clone(),
+        stop,
+        a.idle_timeout,
+        a.max_connections,
+    )
+    .await;
     // the socket goes with the service; a start replaces one left by a
     // service that was killed
     if let Some(path) = &a.socket {
@@ -3010,6 +3227,33 @@ async fn serve() -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    /// A connection's requests take it and let it go; one the cap has taken
+    /// to make room takes nothing, so closing it cuts no request short, and
+    /// one answering a request is never taken to make room (C-1).
+    #[test]
+    fn a_connection_taken_to_make_room_begins_nothing() {
+        let busy: Busy = Arc::new(std::sync::atomic::AtomicIsize::new(0));
+        assert!(taken(&busy));
+        let held = Held {
+            body: axum::body::Body::empty(),
+            _holding: Some(Holding(busy.clone())),
+        };
+        // answering: not closed to make room
+        assert!(
+            busy.compare_exchange(0, CLOSING, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+        );
+        // its body written, the connection answers nothing
+        drop(held);
+        assert_eq!(busy.load(Ordering::SeqCst), 0);
+        assert!(
+            busy.compare_exchange(0, CLOSING, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+        );
+        assert!(!taken(&busy));
+        assert_eq!(busy.load(Ordering::SeqCst), CLOSING);
+    }
+
     /// A request that panics holding the writer leaves it poisoned; the
     /// next write takes it back, and a deployment's store is opened again
     /// from its file, where every write after was refused 500 until a
@@ -3038,6 +3282,7 @@ mod tests {
             served: Mutex::new(std::collections::BTreeMap::new()),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             writer_since: AtomicI64::new(0),
+            connections: Connections::default(),
         });
         let held = shared.clone();
         let panicked = std::thread::spawn(move || {

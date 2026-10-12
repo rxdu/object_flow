@@ -30,6 +30,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 - On SIGTERM or SIGINT the service takes no new connection, answers the requests in flight for up to 30 s and exits, where it stopped at once (ADR-0183 decision 9).
 - `/health` and `/metrics` say how long the writer has been held and the requests in flight, `/metrics` the process's resident memory; `/health` is `503` while an upgrade is due; a 5xx's reason is logged (OBSERVE-2).
 - A clean stop carries the write-ahead log into the store's file; a socket a live service answers on is refused, never taken over; start errors are sentences.
+- At `--max-connections` the oldest connection answering nothing is closed to make room, where silent connections reset every newcomer, `/health` among them; a newcomer is answered `503 busy` only when every connection is answering a request; `/health` says `connections_open` and `/metrics` the connections open, closed to make room and refused (ADR-0186, third production review C-1).
 - `--idle-timeout`, `--max-connections` and `--read-timeout`: a connection whose request does not arrive is closed, a body that does not is `408`, connections are capped, and a deployment's read passing its deadline is stopped and answered `503 read_timeout` (ADR-0184).
 - A request that panics holding the writer no longer leaves every later write `500`: the next write takes the lock back and reopens the store from its file.
 - `--version`.

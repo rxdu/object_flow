@@ -1052,16 +1052,19 @@ fn idle_and_half_sent_connections_are_closed() {
         let _ = c.read_to_end(&mut got);
         (began.elapsed(), String::from_utf8_lossy(&got).to_string())
     };
-    // three silent connections, the cap; a fourth is closed at once
-    let silent: Vec<TcpStream> = (0..3)
+    // three silent connections, the cap; a fourth makes room, the oldest
+    // silent one closed at once (third production review C-1)
+    let mut silent: Vec<TcpStream> = (0..3)
         .map(|_| TcpStream::connect(&s.addr).expect("a connection"))
         .collect();
     std::thread::sleep(std::time::Duration::from_millis(200));
-    let (took, _) = closes(TcpStream::connect(&s.addr).expect("a connection"));
+    let fourth = TcpStream::connect(&s.addr).expect("a connection");
+    let (took, _) = closes(silent.remove(0));
     assert!(
         took < std::time::Duration::from_millis(900),
-        "the fourth waited {took:?}"
+        "the oldest silent one open {took:?}"
     );
+    silent.push(fourth);
     // the silent ones are closed after the idle timeout
     for c in silent {
         let (took, _) = closes(c);
@@ -1094,9 +1097,87 @@ fn idle_and_half_sent_connections_are_closed() {
         "a half-sent body open {took:?}"
     );
     assert!(
-        s.said().contains("a connection refused: 3 are open"),
+        s.said()
+            .contains("a connection answering nothing closed to make room: 3 are open"),
         "{}",
         s.said()
+    );
+}
+
+/// At the cap, connections answering nothing, a leaking pool's or silent
+/// sockets', are closed to make room, so the application and `/health` are
+/// answered, where every newcomer was reset; only when every connection is
+/// answering a request is a newcomer refused, told `503 busy` rather than
+/// reset, and `/metrics` counts both (third production review C-1,
+/// ADR-0186).
+#[test]
+fn a_connection_at_the_cap_makes_room_or_is_told_busy() {
+    let s = start(&[
+        "--port",
+        "0",
+        "--idle-timeout",
+        "2 s",
+        "--max-connections",
+        "3",
+    ]);
+    let silent: Vec<TcpStream> = (0..3)
+        .map(|_| TcpStream::connect(&s.addr).expect("a connection"))
+        .collect();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    for _ in 0..3 {
+        let (status, health) = call(&s, "GET", "/health", None);
+        assert_eq!(status, 200, "{health}");
+    }
+    drop(silent);
+    // three requests whose bodies are half-sent, each answering
+    let answering: Vec<TcpStream> = (0..3)
+        .map(|_| {
+            let mut c = TcpStream::connect(&s.addr).expect("a connection");
+            write!(
+                c,
+                "POST /v1/get HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{{\"actor\":"
+            )
+            .expect("half a body");
+            c
+        })
+        .collect();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let mut told = TcpStream::connect(&s.addr).expect("a connection");
+    told.set_read_timeout(Some(std::time::Duration::from_secs(3)))
+        .expect("a read timeout");
+    write!(told, "GET /health HTTP/1.1\r\nHost: x\r\n\r\n").expect("a request");
+    let mut said = Vec::new();
+    let _ = told.read_to_end(&mut said);
+    let said = String::from_utf8_lossy(&said).to_string();
+    assert!(said.starts_with("HTTP/1.1 503"), "{said}");
+    assert!(said.contains("busy: every connection"), "{said}");
+    // the half-sent bodies time out, and the service answers again
+    drop(answering);
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let mut stream = TcpStream::connect(&s.addr).expect("a connection");
+    write!(
+        stream,
+        "GET /metrics HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+    )
+    .expect("asked");
+    let mut metrics = String::new();
+    stream.read_to_string(&mut metrics).expect("the metrics");
+    assert!(metrics.starts_with("HTTP/1.1 200"), "{metrics}");
+    let count = |name: &str| -> u64 {
+        metrics
+            .lines()
+            .find_map(|l| l.strip_prefix(&format!("{name} ")))
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(0)
+    };
+    assert!(
+        // the first /health made room; it closed, so the others had it
+        count("objectflow_connections_made_room_total") >= 1,
+        "{metrics}"
+    );
+    assert!(
+        count("objectflow_connections_refused_total") >= 1,
+        "{metrics}"
     );
 }
 
