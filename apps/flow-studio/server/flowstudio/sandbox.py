@@ -526,6 +526,31 @@ class Sandbox:
                 "reason": why})
             return report
 
+        # a raise names a sequence a module declares, in a scope its
+        # identifiers take, with a last value that leaves a next, as the core
+        # refuses one (fourth production review A-15)
+        declared, scoped = set(), set()
+        for name, text in self.store.source.items():
+            doc = flows.load(text) if not name.endswith(".examples") else None
+            if isinstance(doc, dict):
+                declared |= set(doc.get("sequences") or {})
+        for spec in kinds.values():
+            for a in (spec.get("attributes") or {}).values():
+                ident = (a or {}).get("identifier") or {}
+                if ident.get("scope"):
+                    scoped.add(ident.get("sequence"))
+        for seq, last, scope in raises:
+            nobody = {"type": "", "legacy_key": ""}
+            if seq not in declared:
+                return refused(nobody, f"sequences: {seq} is no sequence the "
+                                       f"flow declares")
+            if last < 0 or last >= 2 ** 63 - 2:
+                return refused(nobody, f"sequences: {seq}'s last value "
+                                       f"{last} leaves it no next number")
+            if scope and seq not in scoped:
+                return refused(nobody, f"sequences: {seq} numbers in no "
+                                       f"scope, not {scope}")
+
         for o in objects:
             tn, key = o.get("type"), o.get("legacy_key")
             for k in ("entered", "created_at", "created_by_kind",

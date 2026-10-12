@@ -3898,7 +3898,7 @@ fn mint(
     alloc: &mut Allocator,
     t: &Type,
     o: &mut Object,
-) -> Result<(), NotRun> {
+) -> Result<(), Stop> {
     for (a, spec) in &t.attributes {
         let Some(ident) = &spec.identifier else {
             continue;
@@ -3907,12 +3907,20 @@ fn mint(
             None => String::new(),
             Some(attr) => match o.attr(attr) {
                 Value::Absent => {
-                    return not_run(format!("minting {}.{a} with its scope absent", t.name));
+                    return stop_not_run(format!("minting {}.{a} with its scope absent", t.name));
                 }
                 v => text_of(&v),
             },
         };
-        let n = alloc.draw(&ident.sequence, &scope);
+        // a sequence that has drawn its last number refuses the creation,
+        // a value past its bound, which names no object, the one created
+        // not existing (ADR-0185, D581)
+        let Some(n) = alloc.draw(&ident.sequence, &scope) else {
+            return refused(Verdict::Unsatisfied {
+                clause: "value_in_range".into(),
+                remedy: Some(Remedy::UnreachableFromHere),
+            });
+        };
         after.insert(o.clone())?;
         let field = |name: &str| -> Result<Value, NotRun> {
             let e = crate::expr::parse(name)
@@ -3948,12 +3956,12 @@ fn mint(
         let mut rest = ident.format.as_str();
         while let Some(open) = rest.find('[') {
             let Some(close) = rest[open..].find(']') else {
-                return not_run(format!("the format {}", ident.format));
+                return stop_not_run(format!("the format {}", ident.format));
             };
             match render(&rest[..open])? {
                 Some(t) => text.push_str(&t),
                 None => {
-                    return not_run(format!(
+                    return stop_not_run(format!(
                         "a format field of {}.{a} that is absent outside `[ … ]`",
                         t.name
                     ));
@@ -3968,7 +3976,7 @@ fn mint(
         match render(rest)? {
             Some(t) => text.push_str(&t),
             None => {
-                return not_run(format!(
+                return stop_not_run(format!(
                     "a format field of {}.{a} that is absent outside `[ … ]`",
                     t.name
                 ));
@@ -8958,6 +8966,62 @@ types:
         // a page of 7 spans about 700 objects, past the first chunk of 256
         // from each type's table: never the family's 3,000
         assert!(deepest < 2000, "a page held {deepest} objects");
+    }
+
+    /// A store an earlier release left with a sequence's next value wrapped
+    /// past 64 bits refuses only a creation that mints from it, as a value
+    /// past its bound, and takes every other write, where the allocator's
+    /// SQL overflowed to a REAL and every write answered 500 (fourth
+    /// production review A-15).
+    #[test]
+    fn a_wrapped_sequence_refuses_only_what_mints_from_it() {
+        let text = r#"
+module: desk
+categories: [open, closed]
+sequences:
+  ticket_number: { description: Tickets. }
+types:
+  Ticket:
+    attributes:
+      number: { type: string, identifier: { sequence: ticket_number, format: "T-{n}" }, unique: true }
+    states:
+      OPEN: { category: open }
+      DONE: { category: closed, final: true }
+    transitions:
+      raise: { kind: initial, to: OPEN }
+      close: { kind: external, from: OPEN, to: DONE }
+  Note:
+    attributes:
+      text: { type: string }
+    states:
+      KEPT: { category: open }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text] }
+"#;
+        let lib = Library::load(&[("desk.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let first = created(&req(&mut s, "raise", OPERATOR, ("Ticket", true), json!({})));
+        s.connection()
+            .execute(
+                "UPDATE of_sequence SET next_value = -9223372036854775808 WHERE name = 'ticket_number'",
+                [],
+            )
+            .unwrap();
+        let v = req(&mut s, "raise", OPERATOR, ("Ticket", true), json!({}));
+        assert!(
+            matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "value_in_range"),
+            "{v:?}"
+        );
+        let v = req(&mut s, "close", OPERATOR, (&first, false), json!({}));
+        assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+        let v = req(
+            &mut s,
+            "write",
+            OPERATOR,
+            ("Note", true),
+            json!({"text": "kept"}),
+        );
+        assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
     }
 
     /// An external identifier's uniqueness, checked on each object of a

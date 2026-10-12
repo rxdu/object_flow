@@ -618,6 +618,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D604](#d604) | A dry run's simulation ran past the read's deadline | Resolved |
 | [D605](#d605) | An exact lookup gathered every object holding no value | Resolved |
 | [D606](#d606) | An external identifier had no index unless marked | Resolved |
+| [D607](#d607) | One import batch could stop every write for good | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3935,3 +3936,8 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **An external identifier had no index unless marked**: the store indexed an attribute marked `indexed`, a reference and a single-attribute key, but not an external identifier, which every import batch's uniqueness and invariant checks, every publish's, and `lookup` read by value, so each such check scanned its type's table: a go-live's batch of 3,000 objects took 1.6 s at the start and 4.2 s at 36k objects, 12.1 s at 100k in the third production review (N7). Found 2026-10-12 timing the import by phase, after reading every identifier whole, the first suspect, measured 0.03 s.
 
 **Resolved** 2026-10-12: an external identifier's column is indexed, and a store opened without the index is given it (`an_indexed_attribute_is_read_by_its_index`, mutation-checked). The batch takes 1.5 to 1.7 s throughout a 36k-object go-live, the whole import 33 s to 19.9 s.
+
+### D607
+**One import batch could stop every write for good**: a batch's `sequences` raised any sequence it named, declared or not, to `last + 1`, which for `last` = i64::MAX wrapped to i64::MIN in a release build; every write's allocator then read `next_value - 1` in SQL, which overflowed to a REAL, so every write of any kind answered `500`, across restarts, with `/health` 200 and the file to be edited by hand. With the flow's own sequence one object was minted at i64::MAX first. Found 2026-10-12 by the fourth production review's adversary (A-15), from an agent's request.
+
+**Resolved** 2026-10-12: a raise names a sequence a module declares, in a scope its identifiers take, with a `last` from 0 to 2⁶³ − 3, or the batch is refused, in both backends; the store writes the next value checked; the allocator counts in Rust, a row an earlier release wrapped reading as an exhausted sequence; a sequence draws at most 2⁶³ − 2, and a creation minting from an exhausted one is refused `value_in_range`, every other write taken (`a_raise_naming_no_sequence_or_past_its_last_is_refused`, `a_wrapped_sequence_refuses_only_what_mints_from_it`, `test_a_raise_naming_no_sequence_or_past_its_last_is_refused_alike`, four mutations each failing one).

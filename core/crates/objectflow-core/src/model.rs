@@ -377,6 +377,8 @@ pub struct Module {
     /// The kinds of actor that approve a version, where it declares them
     /// (`publishing.taken_by`, ADR-0187 decision 1).
     pub publishing: Option<Vec<String>>,
+    /// The sequences it declares, by name (`flow-format.md` §4.12).
+    pub sequences: Vec<String>,
     /// Its `migration`: what a publish of it maps (`flow-format.md` §4.16).
     pub migration: Migration,
     pub enumerations: Vec<(String, Vec<String>)>,
@@ -1072,9 +1074,17 @@ impl Reader<'_> {
                 kinds.sort();
                 kinds
             });
+        let sequences = doc
+            .get("sequences")
+            .map(Node::entries)
+            .unwrap_or_default()
+            .iter()
+            .map(|(n, _)| n.clone())
+            .collect();
         Ok(Module {
             name: name.to_string(),
             publishing,
+            sequences,
             migration: self.migration(doc.get("migration"))?,
             enumerations,
             types,
@@ -1204,6 +1214,9 @@ pub struct Library {
     /// modules declare them, sorted; none where no module does, when the
     /// gateway alone decides (ADR-0187 decision 1).
     pub publishing: Option<Vec<String>>,
+    /// The sequences its modules declare, which an import may raise
+    /// (`flow-format.md` §4.12, fourth production review A-15).
+    pub sequences: BTreeSet<String>,
 }
 
 /// The line a name is declared on in a module's text, a key indented once
@@ -2082,6 +2095,7 @@ impl Library {
                     _ => lib.publishing = Some(kinds.clone()),
                 }
             }
+            lib.sequences.extend(m.sequences);
             lib.source.push((m.name.clone(), text.clone()));
             lib.migration.extend(m.migration);
             for (n, members) in m.enumerations {

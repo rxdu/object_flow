@@ -1481,6 +1481,10 @@ pub struct Store {
     busy: std::cell::Cell<std::time::Duration>,
 }
 
+/// The largest number a sequence draws, so the next value the store keeps
+/// for it always fits (fourth production review A-15).
+pub const SEQUENCE_MOST: i64 = i64::MAX - 1;
+
 /// What a checkpoint that empties the write-ahead log cuts it back to, in
 /// bytes (third production review N6).
 pub const WAL_LIMIT: i64 = 64 * 1024 * 1024;
@@ -2861,11 +2865,19 @@ impl Allocator {
         };
         let mut sequences = BTreeMap::new();
         // each sequence's last number drawn, the one before its next
-        let mut stmt = tx.prepare("SELECT name, scope_key, next_value - 1 FROM of_sequence")?;
+        // read whole and counted here, never in SQL, where a next value an
+        // earlier release wrapped overflowed to a REAL and failed every
+        // write; such a sequence reads as exhausted, so only a request
+        // minting from it is refused (fourth production review A-15)
+        let mut stmt = tx.prepare("SELECT name, scope_key, next_value FROM of_sequence")?;
         let rows = stmt.query_map([], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))?;
         for row in rows {
-            let (key, value): ((String, String), i64) = row?;
-            sequences.insert(key, value);
+            let (key, next): ((String, String), i64) = row?;
+            let last = next
+                .checked_sub(1)
+                .filter(|l| *l >= 0)
+                .unwrap_or(SEQUENCE_MOST);
+            sequences.insert(key, last);
         }
         Ok(Allocator {
             position: get("position")?,
@@ -2877,13 +2889,20 @@ impl Allocator {
         })
     }
 
-    /// The next number of a sequence in a scope, numbered from 1.
-    pub fn draw(&mut self, sequence: &str, scope: &str) -> i64 {
+    /// The next number of a sequence in a scope, numbered from 1; none once
+    /// it has drawn [`SEQUENCE_MOST`], when it is exhausted.
+    pub fn draw(&mut self, sequence: &str, scope: &str) -> Option<i64> {
         let key = (sequence.to_string(), scope.to_string());
-        let n = self.sequences.get(&key).copied().unwrap_or(0) + 1;
+        let n = self
+            .sequences
+            .get(&key)
+            .copied()
+            .unwrap_or(0)
+            .checked_add(1)
+            .filter(|n| *n <= SEQUENCE_MOST)?;
         self.sequences.insert(key.clone(), n);
         self.drawn.insert(key);
-        n
+        Some(n)
     }
 
     /// The numbers drawn, written whatever became of the request.
@@ -4117,11 +4136,17 @@ fn write(
     }
     for (sequence, scope, value) in &change.raised {
         // raised past the legacy system's last value, never lowered
-        // (storage-schema.md §6, ADR-0103)
+        // (storage-schema.md §6, ADR-0103); its next checked, which the
+        // import bounds already (A-15)
+        let next = value.checked_add(1).ok_or_else(|| {
+            StoreError(format!(
+                "the sequence {sequence} raised past its last number"
+            ))
+        })?;
         tx.execute(
             "INSERT INTO of_sequence (name, scope_key, next_value) VALUES (?1, ?2, ?3) \
              ON CONFLICT (name, scope_key) DO UPDATE SET next_value = max(next_value, excluded.next_value)",
-            params![sequence, scope, value + 1],
+            params![sequence, scope, next],
         )?;
     }
     for (id, invariant, position) in &change.discharged {

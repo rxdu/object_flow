@@ -75,3 +75,46 @@ def test_an_end_the_other_side_stores_is_never_required(tee):
                                     "value": "RobotModel:M-1"})
     tee.post("/v1/get", {"id": found["id"]})
     alike(tee)
+
+
+NUMBERED = """module: numbered
+categories: [live]
+sequences:
+  serial_no: { description: The legacy system's serial numbers. }
+types:
+  Part:
+    description: A part, the legacy system's.
+    mirror: true
+    tracking: record
+    attributes:
+      code: { type: string, external: erp }
+    states:
+      READY: { category: live }
+"""
+
+
+def test_a_raise_naming_no_sequence_or_past_its_last_is_refused_alike(tee):
+    """A batch's raise names a sequence a module declares, in a scope its
+    identifiers take, with a last value that leaves a next: one naming none,
+    past what a sequence draws, negative or scoped where none is, is
+    refused alike through both backends, where i64::MAX was stored wrapped
+    and stopped every write (fourth production review A-15)."""
+    assert tee.post("/sandbox/load", {"files": [
+        {"name": "numbered.yaml", "text": NUMBERED}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+
+    def raised(sequence: str, last: int, scope: str = "") -> dict:
+        return tee.post("/v1/import_batch", {"actor": OP, "batch": {
+            "objects": [],
+            "sequences": [{"sequence": sequence, "last": last, "scope": scope}]}})
+
+    for sequence, last, scope, why in (
+            ("junk", 7, "", "is no sequence the flow declares"),
+            ("serial_no", 9223372036854775807, "", "leaves it no next number"),
+            ("serial_no", -1, "", "leaves it no next number"),
+            ("serial_no", 7, "north", "numbers in no scope")):
+        report = raised(sequence, last, scope)
+        assert why in ((report.get("refusal") or {}).get("reason") or ""), report
+    assert raised("serial_no", 512).get("refusal") is None
+    alike(tee)

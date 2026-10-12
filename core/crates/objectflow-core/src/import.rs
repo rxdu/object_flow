@@ -345,6 +345,51 @@ fn decide(
             );
         }
     };
+    // a raise names a sequence the flow's identifiers number by, in a scope
+    // they take, with a last value that leaves a next: one naming no such
+    // sequence, or past what a sequence draws, is refused, where it was
+    // stored, wrapped, and stopped every write (fourth production review
+    // A-15)
+    for r in &batch.sequences {
+        let numbering: Vec<&crate::model::Identifier> = lib
+            .types
+            .values()
+            .flat_map(|t| {
+                t.attributes
+                    .iter()
+                    .filter_map(|(_, a)| a.identifier.as_ref())
+            })
+            .filter(|i| i.sequence == r.sequence)
+            .collect();
+        let why = if numbering.is_empty() && !lib.sequences.contains(&r.sequence) {
+            Some(format!(
+                "sequences: {} is no sequence the flow declares",
+                r.sequence
+            ))
+        } else if r.last < 0 || r.last >= crate::store::SEQUENCE_MOST {
+            Some(format!(
+                "sequences: {}'s last value {} leaves it no next number",
+                r.sequence, r.last
+            ))
+        } else if !r.scope.is_empty() && numbering.iter().all(|i| i.scope.is_none()) {
+            Some(format!(
+                "sequences: {} numbers in no scope, not {}",
+                r.sequence, r.scope
+            ))
+        } else {
+            None
+        };
+        if let Some(reason) = why {
+            return refused(
+                report,
+                ImportRefusal {
+                    type_: String::new(),
+                    legacy_key: String::new(),
+                    reason,
+                },
+            );
+        }
+    }
     // owned types, which the import may not write (C33); an observation or
     // a label it writes on a mirror's object (publish-and-import.md §4)
     let importable = |t: &Type| t.mirror || t.observation_on.is_some();
@@ -1946,12 +1991,65 @@ types:
         // a sequence is raised past the legacy value, never lowered
         let mut alloc_value = None;
         s.transact(|_, alloc| {
-            alloc_value = Some(alloc.draw("badge", ""));
+            alloc_value = alloc.draw("badge", "");
             Ok::<_, NotRun>(((), None))
         })
         .unwrap()
         .unwrap();
         assert_eq!(alloc_value, Some(513));
+    }
+
+    /// A raise names a sequence a module declares, with a last value that
+    /// leaves a next: one naming none, or past what a sequence draws, is
+    /// refused and nothing written, where i64::MAX was stored wrapped and
+    /// stopped every write; at its last number a sequence is exhausted
+    /// (fourth production review A-15).
+    #[test]
+    fn a_raise_naming_no_sequence_or_past_its_last_is_refused() {
+        let raise = |s: &mut Store, sequence: &str, last: i64| {
+            let batch = ImportBatch {
+                objects: Vec::new(),
+                sequences: vec![Raise {
+                    sequence: sequence.into(),
+                    scope: String::new(),
+                    last,
+                }],
+                ..ImportBatch::default()
+            };
+            import_batch(s, OPERATOR, &batch, &[], false)
+                .unwrap()
+                .unwrap()
+        };
+        let mut s = store();
+        for (sequence, last, why) in [
+            ("junk", 7, "is no sequence the flow declares"),
+            ("badge", i64::MAX, "leaves it no next number"),
+            (
+                "badge",
+                crate::store::SEQUENCE_MOST,
+                "leaves it no next number",
+            ),
+            ("badge", -1, "leaves it no next number"),
+        ] {
+            let r = raise(&mut s, sequence, last);
+            let refusal = r.refusal.expect("refused");
+            assert!(
+                refusal.reason.contains(why),
+                "{sequence} {last}: {}",
+                refusal.reason
+            );
+        }
+        let r = raise(&mut s, "badge", crate::store::SEQUENCE_MOST - 1);
+        assert!(r.refusal.is_none(), "{r:?}");
+        let mut drawn = Vec::new();
+        s.transact(|_, alloc| {
+            drawn.push(alloc.draw("badge", ""));
+            drawn.push(alloc.draw("badge", ""));
+            Ok::<_, NotRun>(((), None))
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(drawn, [Some(crate::store::SEQUENCE_MOST), None]);
     }
 
     #[test]
