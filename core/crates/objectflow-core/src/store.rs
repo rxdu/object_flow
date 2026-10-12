@@ -283,6 +283,10 @@ pub struct Change {
     /// written in its transaction so a retry replays only what committed
     /// (`storage-schema.md` §6).
     pub idempotency: Option<(String, String, String, Option<i64>, serde_json::Value)>,
+    /// Each erased actor's identity, with its object's id, which replaces it
+    /// in every event, attempt, interval, idempotency record and recorded
+    /// actor of a proposal or a change (ADR-0192 decision 4).
+    pub renamed_actors: Vec<(String, String)>,
 }
 
 /// A row of the attempt log (`library-api.md` §5, `of_attempt`): a request
@@ -1706,6 +1710,9 @@ impl Store {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(SCHEMA)?;
+        // the actor's columns an erasure rewrites, indexed beside the
+        // schema, whose fingerprint they leave as it was (ADR-0192)
+        conn.execute_batch(ACTOR_INDEXES)?;
         let mut store = Store {
             conn,
             lib: Arc::new(lib),
@@ -1823,6 +1830,7 @@ impl Store {
         };
         if created == 0 {
             store.conn.execute_batch(SCHEMA)?;
+            store.conn.execute_batch(ACTOR_INDEXES)?;
             for t in store.lib.types.values() {
                 store.conn.execute_batch(&store.type_ddl(t))?;
             }
@@ -1862,6 +1870,9 @@ impl Store {
                 store.conn.execute_batch(&ddl)?;
             }
         }
+        // the actor's columns an erasure rewrites, read by index, which a
+        // core before ADR-0192 never made
+        store.conn.execute_batch(ACTOR_INDEXES)?;
         // never earlier than the last time the store recorded (decision 4)
         let last: Option<String> =
             store
@@ -4059,6 +4070,15 @@ fn spans(
     Ok(())
 }
 
+/// The indexes on the actor's columns an erasure rewrites, which a store
+/// opened without them is given (ADR-0192 decision 4).
+const ACTOR_INDEXES: &str = "\
+CREATE INDEX IF NOT EXISTS of_event_by_actor ON of_event (actor_id);
+CREATE INDEX IF NOT EXISTS of_event_by_principal ON of_event (actor_principal) WHERE actor_principal IS NOT NULL;
+CREATE INDEX IF NOT EXISTS of_attempt_by_principal ON of_attempt (actor_principal) WHERE actor_principal IS NOT NULL;
+CREATE INDEX IF NOT EXISTS of_interval_by_entered ON of_interval (entered_by) WHERE entered_by IS NOT NULL;
+";
+
 fn write(
     tx: &Transaction<'_>,
     lib: &Library,
@@ -4304,6 +4324,40 @@ fn write(
                         )?;
                     }
                 }
+            }
+        }
+    }
+    // an erased actor's identity, wherever the store keeps it, replaced by
+    // its object's id, which names no person: the events' actor and
+    // principal, the attempts', the intervals' entries, the idempotency
+    // records and a proposal's or a change's recorded actors, this request's
+    // own among them, each by its index (ADR-0192 decision 4)
+    for (identity, id) in &change.renamed_actors {
+        for sql in [
+            "UPDATE of_event SET actor_id = ?2 WHERE actor_id = ?1",
+            "UPDATE of_event SET actor_principal = ?2 WHERE actor_principal = ?1",
+            "UPDATE of_attempt SET actor_id = ?2 WHERE actor_id = ?1",
+            "UPDATE of_attempt SET actor_principal = ?2 WHERE actor_principal = ?1",
+            "UPDATE of_interval SET entered_by = ?2 WHERE entered_by = ?1",
+            "UPDATE OR REPLACE of_idempotency SET actor_id = ?2 WHERE actor_id = ?1",
+        ] {
+            tx.execute(sql, params![identity, id])?;
+        }
+        for (tn, column) in [
+            (crate::model::PROPOSAL, "proposer"),
+            (crate::model::DECLARATION_CHANGE, "drafted_by"),
+            (crate::model::DECLARATION_CHANGE, "approved_by"),
+        ] {
+            if lib.type_(tn).is_some_and(|t| t.attribute(column).is_some()) {
+                tx.execute(
+                    &format!(
+                        "UPDATE {} SET {} = ?2 WHERE {} = ?1",
+                        table(tn),
+                        quote(column),
+                        quote(column)
+                    ),
+                    params![identity, id],
+                )?;
             }
         }
     }

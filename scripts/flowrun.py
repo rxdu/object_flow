@@ -562,6 +562,14 @@ def proposal_event(store, key, verb, before, after, actor, position=None):
         store.position += 1
         position = store.position
     marked = store.actor_attr(store.type_of(actor)) if actor in store.objects else None
+    if marked is None:
+        # named by its identity: the actor holding it, for its kind
+        holder = next((o for o in store.objects.values()
+                       if (store.actor_attr(o.type) or (None,))[0] is not None
+                       and o.attrs.get(store.actor_attr(o.type)[0]) == actor), None)
+        marked = store.actor_attr(holder.type) if holder is not None else None
+    elif isinstance(store.objects[actor].attrs.get(marked[0]), str):
+        actor = store.objects[actor].attrs[marked[0]]
     p = store.objects[key]
     p.state = after
     p.version += 1
@@ -1818,6 +1826,7 @@ class Ctx:
         self.observed = []          # their attempt rows, each linked to the event of the transition whose clause failed
         self.asserted, self.admits = None, set()    # the object an assertion set, and what it admits
         self.erased = {}            # object id -> the personal attributes this request erased on it
+        self.renamed = []           # each erased actor's identity and its object's id (ADR-0192 decision 4)
         self.position_of = {}       # object id -> the position of the event its current transition records
         self.causes = []            # the positions of the transitions being taken, the innermost last: each event's
                                     # cause is the one taken when it began (storage-schema.md §2, cause_position)
@@ -1968,6 +1977,7 @@ class Runner:
         try:
             root = self.take(ctx, tn, xn, oid, inputs, depth=0)
             self.clear_intervals(ctx)
+            self.rename_erased_actors(ctx)
             # 7. every invariant the writes could violate, in ascending id order of the object it fails on, except
             # a violation an admission lets stand, which is discharged once the invariant holds again (ADR-0054)
             requested = oid if oid is not None else root
@@ -2666,6 +2676,11 @@ class Runner:
         written_under = {e["position"]: e["declaration_version"] for e in work.events if e["object"] == o.id}
         erased |= {a for a in o.attrs if a not in erased and o.writes.get(a) in written_under
                    and self.personal_under(work, o.type, a, written_under[o.writes[a]])}
+        # an actor's identity, which the store keeps beside the actor's object, taken before it is cleared and
+        # replaced by the object's id once the request has written its own (ADR-0192 decision 4)
+        marked = work.actor_attr(o.type)
+        if marked and marked[0] in erased and isinstance(o.attrs.get(marked[0]), str):
+            ctx.renamed.append((o.attrs[marked[0]], o.id))
         for a in erased:
             spec = (t.get("attributes") or {}).get(a)       # none for a dropped attribute's kept value
             if is_set_attribute(spec) if spec is not None else isinstance(o.attrs[a], tuple):
@@ -2697,6 +2712,24 @@ class Runner:
                         a = frm
         spec = ((kinds.get(tn) or {}).get("attributes") or {}).get(a)
         return bool((spec or {}).get("personal"))
+
+    @staticmethod
+    def rename_erased_actors(ctx):
+        """Each erased actor's identity, wherever the store keeps it, replaced by its object's id, which names no
+        person: the events' actor, the attempts', and a proposal's or a change's recorded actors, this request's own
+        among them, as the core's (ADR-0192 decision 4)."""
+        work = ctx.work
+        for identity, oid in getattr(ctx, "renamed", ()):
+            for e in work.events:
+                if e.get("actor_id") == identity:
+                    e["actor_id"] = oid
+            for row in getattr(work, "attempts", ()):
+                if row.get("actor_id") == identity:
+                    row["actor_id"] = oid
+            for o in work.objects.values():
+                for a in ("proposer", "drafted_by", "approved_by"):
+                    if o.type in (PROPOSAL, DECLARATION_CHANGE) and o.attrs.get(a) == identity:
+                        o.attrs[a] = oid
 
     def clear_intervals(self, ctx):
         """Each erased object's intervals of an attribute personal now, or under the version that wrote the interval,

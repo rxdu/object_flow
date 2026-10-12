@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 612 entries and five cosmetics; 611 are closed and 1 is open. The PRD is at revision 24, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 613 entries and five cosmetics; 612 are closed and 1 is open. The PRD is at revision 24, with no revision awaiting the author.
 
 **Every ADR is accepted or superseded.** In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
@@ -569,7 +569,8 @@ Erasure follows the person, not only the id (ADR-0087). It erases every member o
 - it deletes the external identifiers held in the erased object's personal attributes, so `lookup` no longer finds them;
 - it redacts an affected proposal's personal inputs in the proposal's own event as well as its record, the invalidation and the redaction being one event;
 - it follows the erased object's events down to the events they caused, and erases what flowed from it into other objects' personal attributes, by the same taint analysis;
-- it reaches every observation in the subject's collections, corrected ones included.
+- it reaches every observation in the subject's collections, corrected ones included;
+- for an actor whose identity the flow marks personal, it replaces the identity by the actor's object's id wherever the store keeps it, in every event's actor and principal, attempt, interval entry, idempotency record and the actors a proposal and a change record, so a person's email given as their identity leaves the log (ADR-0192 decision 4).
 
 **Every object whose value an erasure redacts, an attribute it holds or a value in one of its past events, gets an event** (ADR-0147). The event has source `erased`, is caused by the erasure's own event, and names the attributes redacted and never their values. The object's version advances, so a subscriber sees the change and a request carrying the old `expected_version` is refused as `stale` (ADR-0105).
 

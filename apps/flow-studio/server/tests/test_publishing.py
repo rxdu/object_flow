@@ -2464,3 +2464,62 @@ def test_a_history_is_read_page_by_page_alike(tee):
             status, body = raw(base, "POST", "/v1/history", {"actor": OP, "id": t, **wrong})
             assert status == 400, (base, wrong, body)
 
+
+FORGOTTEN = """module: forgotten
+categories: [live, closed]
+types:
+  Person:
+    description: A person, signing in by email.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true, personal: true, optional: true }
+    states:
+      ON: { category: live, description: Here. }
+      OFF: { category: closed, final: true, description: Gone. }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [login] }
+      leave: { kind: external, from: ON, to: OFF }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Note:
+    description: A note.
+    tracking: record
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      write: { kind: initial, to: OPEN }
+      close: { kind: external, from: OPEN, to: DONE, proposable: true }
+"""
+
+
+def test_an_erased_actor_is_named_by_its_object_alike(tee):
+    """An erased person's identity, an email marked personal, leaves every
+    event they made and the proposal they filed, which name their object's id
+    instead, alike through both backends, where the email stayed in the log
+    and history answered it (sixth production review ERASED-IDENTITY,
+    ADR-0192 decision 4)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "forgotten.yaml", "text": FORGOTTEN}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    email = "ann.secret@corp.example"
+    ann = tee.post("/v1/request", {"transition": "add", "actor": OP, "type": "Person",
+                                   "inputs": {"login": email}})["object_id"]
+    note = tee.post("/v1/request", {"transition": "write", "actor": {"id": email}, "type": "Note"})["object_id"]
+    filed = tee.post("/v1/request", {"transition": "close", "actor": {"id": email}, "object_id": note,
+                                     "propose": True})
+    assert filed["kind"] == "satisfied", filed
+    proposal = filed["object_id"]
+    # before the erasure a proposal's own event names its actor by identity,
+    # as every event does, in both backends (D613)
+    before = tee.post("/v1/history", {"actor": OP, "id": proposal})["events"]
+    assert [e["actor_id"] for e in before] == [email], before
+    erased = tee.post("/v1/request", {"transition": "forget", "actor": OP, "object_id": ann,
+                                      "inputs": {"reason": "asked"}})
+    assert erased["kind"] == "satisfied", erased
+    for oid in (note, proposal):
+        events = tee.post("/v1/history", {"actor": OP, "id": oid})["events"]
+        assert email not in str(events), events
+        assert ann in [e["actor_id"] for e in events], events
+    assert tee.post("/v1/get", {"id": proposal})["attributes"]["proposer"] == ann
+    alike(tee)
+

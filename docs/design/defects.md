@@ -624,6 +624,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D610](#d610) | The core's checker took a source's byte-order mark into its first key | Resolved |
 | [D611](#d611) | A proposal's proposer named two ways, and one way in neither backend | Resolved |
 | [D612](#d612) | The reference's self-test reported a plant by another's result | Resolved |
+| [D613](#d613) | The reference runner named a proposal's actor by its object | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3971,4 +3972,9 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **The reference's self-test reported a plant by another's result**: patches of ADR-0190 inserted plants between the `taken_by_dropped` plant's check and its printed line, so the line printed the last inserted plant's result. The gate stayed right, since each plant's result joined the self-test's verdict where it was computed, but the line could say a plant was noticed when it was not. Found 2026-10-13 adding the `rule_changed` plant beside it.
 
 **Resolved** 2026-10-13: the line moved back beside its check.
+
+### D613
+**The reference runner named a proposal's actor by its object**: the runner recorded a proposal's own events, its filing, decision and invalidation, with the actor as the runner names actors internally, by object id, and sometimes by an identity it then could not find, its kind `unknown`; every other event, and every event of the core, names the actor by identity. No comparison read a proposal's history, so the backends' difference went unseen. Found 2026-10-13 writing ADR-0192 decision 4's test.
+
+**Resolved** 2026-10-13: `proposal_event` names the actor by identity and its kind, whichever way it was given; `test_an_erased_actor_is_named_by_its_object_alike` reads a proposal's history before its proposer's erasure, alike.
 

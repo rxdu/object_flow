@@ -99,6 +99,8 @@ CREATE TABLE of_event (
 CREATE INDEX of_event_by_object ON of_event (object_id, object_seq);
 CREATE INDEX of_event_by_cause  ON of_event (cause_position);
 CREATE INDEX of_event_by_cursor ON of_event (txn, position);
+CREATE INDEX of_event_by_actor ON of_event (actor_id);  -- an erased actor's events (§9 step 15)
+CREATE INDEX of_event_by_principal ON of_event (actor_principal) WHERE actor_principal IS NOT NULL;
 
 -- SQLite only: positions and transaction numbers, allocated by the
 -- transaction that holds the write lock from its first statement (§7).
@@ -616,6 +618,7 @@ CREATE TABLE of_interval (
 CREATE INDEX of_interval_current ON of_interval (dimension, value) WHERE left_position IS NULL;
 CREATE INDEX of_interval_entered ON of_interval (dimension, entered_at) WHERE left_position IS NULL;
 CREATE INDEX of_interval_by_object ON of_interval (object_id, dimension, left_position);
+CREATE INDEX of_interval_by_entered ON of_interval (entered_by) WHERE entered_by IS NOT NULL;  -- an erased actor's entries (§9 step 15)
 
 -- The attempt log: every request that did not apply, every observing
 -- clause's would-be refusal, and every raised flag. No personal value. Not history: pruned after a
@@ -651,6 +654,7 @@ CREATE TABLE of_attempt (
 );
 CREATE INDEX of_attempt_by_rule ON of_attempt (type, transition, clause, at);
 CREATE INDEX of_attempt_by_actor ON of_attempt (actor_id, at);
+CREATE INDEX of_attempt_by_principal ON of_attempt (actor_principal) WHERE actor_principal IS NOT NULL;  -- §9 step 15
 
 CREATE TABLE of_attempt_rollup (
   day          TEXT    NOT NULL,            -- UTC calendar day
@@ -745,6 +749,7 @@ Erasure (§8 of the model, ADR-0087) does these things to storage:
 12. Follows each erased object's events down their caused events, and erases what flowed from it into other objects' personal attributes, in those events and on those objects, by check 10's taint analysis (ADR-0100). Each object whose value it redacts gets an event with source `erased`, caused by the erasure's event and naming the attributes and never their values, and its `version` advances, so a subscriber sees the change and an old `expected_version` is refused (ADR-0105).
 13. Runs `forget` on every observation in the erased objects' collections, corrected ones included (ADR-0096, ADR-0100).
 14. Redacts the `note` of every label on an erased object, in its column and in the label's own creation event, since unclassified free text is treated as personal (ADR-0082). 
+15. Replaces an erased actor's identity, where its type's identity attribute is personal, by the actor's object's id wherever the store keeps it: `of_event`'s `actor_id` and `actor_principal`, `of_attempt`'s, `of_interval`'s `entered_by`, `of_idempotency`'s `actor_id`, and a proposal's `proposer` and a change's `drafted_by` and `approved_by`, the request's own rows among them, each by its index, which a store opened without them is given (ADR-0192 decision 4).
 It does **not** touch `of_attribute_write`, `of_attempt`, or `of_interval` beyond step 9:
 - redacting a value inside an event does not change which event last wrote the attribute, so `changed_since` answers the same after an erasure as before;
 - a tracked reference holds an id, and a personal enum's values are redacted by step 9;

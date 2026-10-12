@@ -74,6 +74,8 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Fixed
 
+- An erased actor's identity, where its type marks it personal, is replaced by the actor's object's id in every event, attempt, interval entry, idempotency record and a proposal's or a change's recorded actors, in both backends, where a person's email given as their identity stayed in the log and `history` and `export` answered it (ADR-0192 decision 4); a store opened by this release is given the indexes it reads by.
+- The reference runner names a proposal's own events' actor by identity, as every other event and the core, where it named the actor's object (D613).
 - An invariant reading related objects is checked from what a request wrote, along each chain of relationship ends it reads, as `DESIGN.md` §5.6 states, where every write of the store re-checked every object of its type: on a go-live of the shipped reimbursement flow a draft took 2.8 s, now 8.7 ms, and a write to an unrelated type 2.3 s, now 10 ms; with a one-hop path invariant on lines, 13 ms a draft (ADR-0192 decision 1).
 - `--metrics-bind` answers `/health` and `/metrics` whatever the main listener holds, where it refused them `503 busy` once the main listener held 16 connections (ADR-0192 decision 2).
 - A derived time past the calendar is answered `null` in both backends, where the core answered year 2,739,933 and the reference runner answered `500`; `/health` answers a store gone from its path `503 store_replaced`, as a write is, where it answered `500` (ADR-0191 decisions 3, 4).

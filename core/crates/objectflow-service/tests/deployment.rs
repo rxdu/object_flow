@@ -3677,3 +3677,125 @@ fn the_metrics_listener_answers_beside_a_busy_main_one() {
     }
     drop(held);
 }
+
+const FORGOTTEN: &str = "module: forgotten
+categories: [live, closed]
+types:
+  Person:
+    description: A person, signing in by email.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true, personal: true, optional: true }
+    states:
+      ON: { category: live, description: Here. }
+      OFF: { category: closed, final: true, description: Gone. }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [login] }
+      leave: { kind: external, from: ON, to: OFF }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Note:
+    description: A note.
+    tracking: record
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      write: { kind: initial, to: OPEN }
+      close: { kind: external, from: OPEN, to: DONE, proposable: true }
+";
+
+/// An erased actor's identity leaves the store: an email marked personal,
+/// erased with the person, is in no event, attempt, interval, idempotency
+/// record or proposal, which name the person's object instead, and neither
+/// the store's file nor its `-wal` holds it once the log is cut back (sixth
+/// production review ERASED-IDENTITY, ADR-0192 decision 4).
+#[test]
+fn an_erased_actors_identity_leaves_the_store() {
+    let file = fresh_store("forgotten");
+    let path = file.to_str().expect("a path");
+    let s = start(&["--store", path, "--create", "--port", "0"]);
+    publish(&s, &json!({"forgotten": FORGOTTEN}));
+    let email = "ann.secret@corp.example";
+    let op = json!({"id": "operator"});
+    let me = json!({"id": email});
+    let ann = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Person", "transition": "add", "inputs": {"login": email}}),
+    )["object_id"]
+        .as_str()
+        .expect("the person")
+        .to_string();
+    // a write under a key, a proposal, and a refusal, each recording her
+    let note = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": me, "type": "Note", "transition": "write", "idempotency_key": "k-1"}),
+    )["object_id"]
+        .as_str()
+        .expect("the note")
+        .to_string();
+    let filed = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": me, "object_id": note, "transition": "close", "propose": true}),
+    );
+    assert_eq!(filed["kind"], "satisfied", "{filed}");
+    let done = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": me, "type": "Note", "transition": "write"}),
+    )["object_id"]
+        .as_str()
+        .expect("a second note")
+        .to_string();
+    post(
+        &s,
+        "/v1/request",
+        &json!({"actor": me, "object_id": done, "transition": "close"}),
+    );
+    let refused = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": me, "object_id": done, "transition": "close"}),
+    );
+    assert_eq!(refused["kind"], "unavailable", "{refused}");
+    let erased = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": ann, "transition": "forget", "inputs": {"reason": "asked"}}),
+    );
+    assert_eq!(erased["kind"], "satisfied", "{erased}");
+    let conn = rusqlite::Connection::open(&file).expect("the store");
+    let count = |sql: &str, v: &str| -> i64 { conn.query_row(sql, [v], |r| r.get(0)).expect(sql) };
+    for sql in [
+        "SELECT count(*) FROM of_event WHERE actor_id = ?1 OR actor_principal = ?1",
+        "SELECT count(*) FROM of_attempt WHERE actor_id = ?1 OR actor_principal = ?1",
+        "SELECT count(*) FROM of_interval WHERE entered_by = ?1",
+        "SELECT count(*) FROM of_idempotency WHERE actor_id = ?1",
+        "SELECT count(*) FROM t_proposal WHERE proposer = ?1",
+    ] {
+        assert_eq!(count(sql, email), 0, "{sql}");
+    }
+    assert!(count("SELECT count(*) FROM of_event WHERE actor_id = ?1", &ann) >= 4);
+    assert!(count("SELECT count(*) FROM of_attempt WHERE actor_id = ?1", &ann) >= 1);
+    drop(conn);
+    // and the bytes: the log cut back after the erasure, within seconds
+    let wal = format!("{path}-wal");
+    let holds = || {
+        [path, wal.as_str()].iter().any(|f| {
+            std::fs::read(f)
+                .unwrap_or_default()
+                .windows(email.len())
+                .any(|w| w == email.as_bytes())
+        })
+    };
+    let began = std::time::Instant::now();
+    while holds() && began.elapsed() < std::time::Duration::from_secs(15) {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    assert!(
+        !holds(),
+        "the store's file or its -wal still holds the email"
+    );
+}

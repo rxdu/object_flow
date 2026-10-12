@@ -521,6 +521,9 @@ struct Ctx<'w> {
     admits: BTreeSet<String>,
     /// For each object this request erased, the personal attributes it erased.
     erased: BTreeMap<String, BTreeSet<String>>,
+    /// Each erased actor's identity, with its object's id, which replaces
+    /// it wherever the store keeps it (ADR-0192 decision 4).
+    renamed: Vec<(String, String)>,
     /// Each past event's personal input an erasure redacts, by the event's
     /// position and the input's name.
     redacted_inputs: Vec<(i64, String)>,
@@ -728,6 +731,7 @@ fn decide_or_stop(
         asserted: None,
         admits: BTreeSet::new(),
         erased: BTreeMap::new(),
+        renamed: Vec::new(),
         redacted_inputs: Vec::new(),
         external: Vec::new(),
         external_removed: Vec::new(),
@@ -923,6 +927,7 @@ fn decide_or_stop(
             external: ctx.external,
             external_removed: ctx.external_removed,
             redacted_spans: ctx.redacted_spans,
+            renamed_actors: ctx.renamed,
             ..Change::default()
         }),
     ))
@@ -1507,6 +1512,13 @@ fn take(
     // empty, and its values leave the interval index (DESIGN.md §8)
     if x.kind == Kind::Erasure {
         let mut erased = BTreeSet::new();
+        // an actor's identity, which the store keeps beside the actor's
+        // object, its events' actor among it, taken before it is cleared
+        // (sixth production review ERASED-IDENTITY, ADR-0192 decision 4)
+        let identity = t.actor_identity().and_then(|(a, _)| match o.attrs.get(a) {
+            Some(Value::Text(v)) => Some((a.to_string(), v.clone())),
+            _ => None,
+        });
         // personal under the installed version, or under the version of
         // the event that last wrote it, an attribute a later version no
         // longer marks keeping what it was written as (ADR-0146 decision 2)
@@ -1604,6 +1616,11 @@ fn take(
         // every other object whose value it redacted gets an event
         // (DESIGN.md §8)
         redact_others(ctx, alloc, &o.id, redacted_since)?;
+        if let Some((a, v)) = identity
+            && erased.contains(&a)
+        {
+            ctx.renamed.push((v, o.id.clone()));
+        }
         ctx.erased.entry(o.id.clone()).or_default().extend(erased);
         invalidate_proposals(ctx, alloc, &o.id)?;
     }
