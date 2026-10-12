@@ -37,8 +37,8 @@ A value is JSON's own where JSON keeps it exactly, and otherwise a string in the
 | `string`, an identity | a string; never U+0000 | `"Taxis"` |
 | `decimal(p,s)` | a string, at most `s` places, at most 18 digits | `"19.90"` |
 | `money(CCC)` | a string, the currency and the amount, at most its minor unit's places | `"USD 19.99"` |
-| `timestamp` | RFC 3339 at UTC | `"2026-10-04T09:30:00Z"` |
-| `date` | `YYYY-MM-DD` | `"2026-10-04"` |
+| `timestamp` | RFC 3339 at UTC, `Z` or `+00:00`, to the second or the minute, each field its digits exactly, no fraction of a second | `"2026-10-04T09:30:00Z"` |
+| `date` | `YYYY-MM-DD` exactly, the year 0001 to 9999 | `"2026-10-04"` |
 | `duration` | a count and a unit | `"30 min"`, `"2 days"` |
 | enumeration member, state | its name | `"NEW"` |
 | reference | the object's id | `"employee-1"` |

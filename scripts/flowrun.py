@@ -94,6 +94,10 @@ def seconds(duration):
     return Fraction(int(n)) * SECONDS[unit]
 
 
+DATE_TEXT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+TIMESTAMP_TEXT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?(Z|\+00:00)")
+
+
 def timestamp(text):
     t = datetime.datetime.strptime(text.replace("Z", "+0000"), "%Y-%m-%dT%H:%M%z" if text.count(":") == 1 else "%Y-%m-%dT%H:%M:%S%z")
     return Fraction(int((t - EPOCH).total_seconds()))
@@ -3618,6 +3622,8 @@ def input_fault(spec, v, enums):
             return None
         if re.fullmatch(r"now(?: [+-] [0-9]+ \w+)?", str(v)):
             return None                         # an example's clock (flow-format.md §11.3)
+        if not TIMESTAMP_TEXT.fullmatch(str(v)):
+            return "malformed"              # each field its digits exactly, at UTC, as the core reads one
         try:
             timestamp(str(v))
             return None
@@ -3626,6 +3632,8 @@ def input_fault(spec, v, enums):
     if typ == "date":
         if isinstance(v, datetime.date):
             return None
+        if not DATE_TEXT.fullmatch(str(v)):
+            return "malformed"              # YYYY-MM-DD exactly, as the core reads one
         try:
             datetime.date.fromisoformat(str(v))
             return None

@@ -304,12 +304,20 @@ pub fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 /// A calendar day written `2026-10-04`, in days since 1970-01-01.
+/// A date written `YYYY-MM-DD` exactly, its year 0001 to 9999, as RFC 3339
+/// writes one: a space, a sign, a one-digit month or a year past 9999 was
+/// read and stored (second production review, minor).
 pub fn parse_date(text: &str) -> Option<i64> {
-    let mut parts = text.trim().splitn(3, '-');
-    let y: i64 = parts.next()?.parse().ok()?;
-    let m: u32 = parts.next()?.parse().ok()?;
-    let d: u32 = parts.next()?.parse().ok()?;
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+    let digits = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_digit());
+    let mut parts = text.splitn(3, '-');
+    let (y, m, d) = (parts.next()?, parts.next()?, parts.next()?);
+    if !digits(y, 4) || !digits(m, 2) || !digits(d, 2) {
+        return None;
+    }
+    let y: i64 = y.parse().ok()?;
+    let m: u32 = m.parse().ok()?;
+    let d: u32 = d.parse().ok()?;
+    if y < 1 || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
         return None;
     }
     let days = days_from_civil(y, m, d);
@@ -321,21 +329,25 @@ pub fn date_text(days: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// An instant written in RFC 3339 at UTC, `2026-10-04T09:30:00Z`, or to the
-/// minute as examples write it, in seconds since 1970.
+/// An instant written in RFC 3339 at UTC, `2026-10-04T09:30:00Z` or with
+/// `+00:00`, or to the minute as examples write it, in seconds since 1970;
+/// each field its digits exactly, the date as [`parse_date`] reads it.
 pub fn parse_timestamp(text: &str) -> Option<i64> {
-    let text = text.trim();
     let body = text
         .strip_suffix('Z')
-        .or_else(|| text.strip_suffix("+00:00"))
-        .or_else(|| text.strip_suffix("+0000"))?;
+        .or_else(|| text.strip_suffix("+00:00"))?;
     let (date, time) = body.split_once('T')?;
     let days = parse_date(date)?;
+    let two = |s: &str| -> Option<i64> {
+        (s.len() == 2 && s.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| s.parse().ok())
+            .flatten()
+    };
     let mut hms = time.split(':');
-    let h: i64 = hms.next()?.parse().ok()?;
-    let mi: i64 = hms.next()?.parse().ok()?;
+    let h: i64 = two(hms.next()?)?;
+    let mi: i64 = two(hms.next()?)?;
     let s: i64 = match hms.next() {
-        Some(s) => s.parse().ok()?,
+        Some(s) => two(s)?,
         None => 0,
     };
     if hms.next().is_some()
@@ -589,6 +601,50 @@ mod tests {
         assert!(parse_timestamp("2026-01-01T00:00:00").is_none());
         assert_eq!(date_text(parse_date("2024-02-29").unwrap()), "2024-02-29");
         assert!(parse_date("2023-02-29").is_none());
+    }
+
+    /// A date and a timestamp are read as RFC 3339 writes them, each field
+    /// its digits exactly and the year 0001 to 9999: a space, a sign, a
+    /// one-digit field, a year past 9999 or the year 0 was read and stored
+    /// (second production review, minor).
+    #[test]
+    fn dates_and_timestamps_are_read_exactly() {
+        for good in ["0001-01-01", "9999-12-31", "2024-02-29"] {
+            assert!(parse_date(good).is_some(), "{good}");
+        }
+        for bad in [
+            "0000-01-01",
+            "10000-01-01",
+            "2026-2-3",
+            "2026-02-3",
+            " 2026-10-01",
+            "2026-10-01 ",
+            "+2026-10-01",
+            "-2026-10-01",
+            "20261001",
+            "2026-10-01T00:00:00Z",
+        ] {
+            assert!(parse_date(bad).is_none(), "{bad}");
+        }
+        for good in [
+            "9999-12-31T23:59:59Z",
+            "2026-10-04T09:30Z",
+            "2026-10-04T09:30:00+00:00",
+        ] {
+            assert!(parse_timestamp(good).is_some(), "{good}");
+        }
+        for bad in [
+            "10000-01-01T00:00:00Z",
+            "2026-10-04T9:30:00Z",
+            "2026-10-04T09:30:0Z",
+            " 2026-10-04T09:30:00Z",
+            "2026-10-04T09:30:00+0000",
+            "2026-10-04T09:30:00+08:00",
+            "2026-10-04T09:30:00.123Z",
+            "2026-10-04t09:30:00Z",
+        ] {
+            assert!(parse_timestamp(bad).is_none(), "{bad}");
+        }
     }
 
     #[test]

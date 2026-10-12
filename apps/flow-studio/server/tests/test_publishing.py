@@ -1841,3 +1841,52 @@ def test_an_effects_arithmetic_past_its_bound_is_refused_alike(tee):
     assert (guarded["kind"], guarded.get("clause"), guarded.get("unknown")) == ("unsatisfied", "small", True), guarded
     assert take("add", by=7)["kind"] == "satisfied"
     alike(tee)
+
+
+DATED = """module: dated
+categories: [live, closed]
+types:
+  Visit:
+    description: A visit.
+    tracking: record
+    attributes:
+      on: { type: date }
+      at: { type: timestamp }
+    states:
+      DUE: { category: live, description: Due. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      book: { kind: initial, to: DUE, required_inputs: [on, at] }
+      close: { kind: external, from: DUE, to: DONE }
+"""
+
+
+def test_a_date_and_a_timestamp_are_read_exactly_alike(tee):
+    """A date and a timestamp an input gives are read as RFC 3339 writes
+    them, each field its digits exactly, the year 0001 to 9999, at UTC,
+    alike through both backends: the core took a space, a sign, a one-digit
+    month and a year past 9999, and the runner a one-digit month and any
+    offset (second production review, minor)."""
+    loaded = tee.post("/sandbox/load", {"files": [
+        {"name": "dated.yaml", "text": DATED}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+
+    def book(on: str, at: str) -> dict:
+        return tee.post("/v1/request", {"transition": "book", "actor": OP, "type": "Visit",
+                                        "inputs": {"on": on, "at": at}})
+
+    good_at = "2026-10-04T09:30:00Z"
+    for on in ("0001-01-01", "9999-12-31", "2024-02-29"):
+        assert book(on, good_at)["kind"] == "satisfied", on
+    for at in ("2026-10-04T09:30Z", "2026-10-04T09:30:00+00:00"):
+        assert book("2026-10-04", at)["kind"] == "satisfied", at
+    for on in ("0000-01-01", "10000-01-01", "2026-2-3", " 2026-10-01", "+2026-10-01"):
+        v = book(on, good_at)
+        assert (v["kind"], v.get("inputs")) == ("invalid_input", ["on"]), (on, v)
+    for at in ("2026-10-04T9:30:00Z", "2026-10-04T09:30:00+08:00", "2026-10-04T09:30:00+0000",
+               "10000-01-01T00:00:00Z", "2026-2-4T09:30:00Z"):
+        v = book("2026-10-04", at)
+        assert (v["kind"], v.get("inputs")) == ("invalid_input", ["at"]), (at, v)
+    alike(tee)
