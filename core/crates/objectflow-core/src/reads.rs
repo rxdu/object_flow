@@ -23,6 +23,57 @@ pub struct View {
     pub open: bool,
 }
 
+/// Where an object's supersession chain ends: its successor's successor
+/// and on, the object itself where nothing succeeds it, which `get` and
+/// `history` answer with `follow` (`DESIGN.md` §5, ADR-0028). A chain that
+/// would close on itself, which `successor_not_superseded` refuses to make,
+/// ends where it would repeat.
+pub fn followed(world: &World<'_>, id: &str) -> Result<String, NotRun> {
+    let mut seen = BTreeSet::new();
+    let mut at = id.to_string();
+    while seen.insert(at.clone()) {
+        match world.get(&at)?.and_then(|o| o.superseded_by.clone()) {
+            Some(next) => at = next,
+            None => break,
+        }
+    }
+    Ok(at)
+}
+
+/// Every member of an object's supersession group, the objects whose chains
+/// end where its does, in creation order, which `history` reads with
+/// `follow` (`library-api.md` §5, ADR-0147).
+pub fn superseded_group(world: &World<'_>, id: &str) -> Result<Vec<String>, NotRun> {
+    let end = followed(world, id)?;
+    // the types whose states supersede, the only ones holding a successor
+    let superseding: Vec<&String> = world
+        .lib
+        .types
+        .iter()
+        .filter(|(_, t)| t.states.iter().any(|(_, st)| st.superseding))
+        .map(|(n, _)| n)
+        .collect();
+    let mut members = BTreeSet::from([end.clone()]);
+    let mut todo = vec![end];
+    while let Some(at) = todo.pop() {
+        for tn in &superseding {
+            for p in world.of_type(tn)? {
+                if p.superseded_by.as_deref() == Some(at.as_str()) && members.insert(p.id.clone()) {
+                    todo.push(p.id.clone());
+                }
+            }
+        }
+    }
+    let mut placed = Vec::new();
+    for m in members {
+        if let Some(o) = world.get(&m)? {
+            placed.push((o.order, m));
+        }
+    }
+    placed.sort();
+    Ok(placed.into_iter().map(|(_, m)| m).collect())
+}
+
 /// The object an id names, with what its type derives from it.
 pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
     let Some(o) = world.get(id)? else {

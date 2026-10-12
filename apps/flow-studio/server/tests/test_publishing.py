@@ -1967,3 +1967,62 @@ def test_a_version_is_approved_only_by_the_declared_kinds_alike(tee):
     approved = tee.post("/v1/publish", {"actor": OP, "change": c, "expected_version": version})
     assert approved["verdict"]["kind"] == "satisfied", approved
     alike(tee)
+
+
+CHAIN = """module: chain
+categories: [live, closed]
+types:
+  Card:
+    description: A card.
+    tracking: record
+    attributes:
+      title: { type: string }
+    states:
+      LIVE: { category: live, description: Live. }
+      MERGED: { category: closed, final: true, superseding: true, description: Merged into another. }
+    transitions:
+      open: { kind: initial, to: LIVE, required_inputs: [title] }
+      merge:
+        kind: external
+        from: LIVE
+        to: MERGED
+        inputs:
+          successor: { reference: Card }
+        effect:
+          - supersede: inputs.successor
+"""
+
+
+def test_a_superseded_object_is_followed_alike(tee):
+    """`get` and `history` with `follow`, which wire.md and library-api.md
+    promise and neither backend built, the key taken and ignored: get
+    answers where the supersession chain ends, history the whole group's
+    events in position order, alike through both backends; follow of
+    another type is a 400 (third production review, minor)."""
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "chain.yaml", "text": CHAIN}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+
+    def opened(title: str) -> str:
+        v = tee.post("/v1/request", {"transition": "open", "actor": OP, "type": "Card",
+                                     "inputs": {"title": title}})
+        assert v["kind"] == "satisfied", v
+        return v["object_id"]
+
+    a, b, c = opened("a"), opened("b"), opened("c")
+    for old, new in ((a, b), (b, c)):
+        v = tee.post("/v1/request", {"transition": "merge", "actor": OP, "object_id": old,
+                                     "inputs": {"successor": new}})
+        assert v["kind"] == "satisfied", v
+    assert tee.post("/v1/get", {"id": a})["id"] == a
+    assert tee.post("/v1/get", {"id": a, "follow": True})["id"] == c
+    assert tee.post("/v1/get", {"id": c, "follow": True})["id"] == c
+    own = tee.post("/v1/history", {"id": b})["events"]
+    group = tee.post("/v1/history", {"id": b, "follow": True})["events"]
+    assert {e["object_id"] for e in own} == {b}, own
+    assert [e["object_id"] for e in group] == [a, b, c, a, b], group
+    assert [e["position"] for e in group] == sorted(e["position"] for e in group)
+    with pytest.raises(Failed, match="follow takes true or false"):
+        tee.post("/v1/get", {"id": a, "follow": "yes"})
+    alike(tee)

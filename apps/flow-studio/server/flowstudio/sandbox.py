@@ -601,15 +601,40 @@ class Sandbox:
                 None)
         return self.get({"id": oid}) if oid else None
 
+    def followed(self, oid: str) -> str:
+        """Where an object's supersession chain ends: its successor's
+        successor and on, the object itself where nothing succeeds it, as the
+        core walks it (`DESIGN.md` §5, ADR-0028)."""
+        seen = set()
+        while oid not in seen:
+            seen.add(oid)
+            nxt = self.store.objects[oid].attrs.get("_successor") \
+                if oid in self.store.objects else None
+            if not isinstance(nxt, str):
+                break
+            oid = nxt
+        return oid
+
+    @staticmethod
+    def follow(body: dict) -> bool:
+        """`follow`, true or false, a fault otherwise, as the core types it."""
+        follow = body.get("follow")
+        if follow is not None and not isinstance(follow, bool):
+            raise Fault(400, "follow takes true or false")
+        return bool(follow)
+
     def get(self, body: dict) -> dict | None:
         self.loaded()
         oid = body.get("id")
         if not isinstance(oid, str):
             # the argument it needs, a fault and never an absent object (D570)
             raise Fault(400, "get names an object's id")
+        follow = self.follow(body)
         s = self.store
         if oid not in s.objects:
             return None
+        if follow:
+            oid = self.followed(oid)
         o = s.objects[oid]
         t = self.runner.kinds.get(o.type) or {}
         ev = flowrun.Evaluator(s, o.type, o.id)
@@ -669,10 +694,17 @@ class Sandbox:
         oid = body.get("id")
         if not isinstance(oid, str):
             raise Fault(400, "history names an object's id")
+        follow = self.follow(body)
         if oid not in self.store.objects:
             return None             # no object has no history (ADR-0173)
+        # with follow, every member whose chain ends where this one's does,
+        # their events in position order (library-api.md §5)
+        group = {oid}
+        if follow:
+            end = self.followed(oid)
+            group = {m for m in self.store.objects if self.followed(m) == end}
         events = [self.event(e) for e in self.store.events
-                  if e["object"] == oid]
+                  if e["object"] in group]
         return {"events": events, "not_computed": EVENT_NOT_COMPUTED}
 
     def availability(self, body: dict) -> list | None:

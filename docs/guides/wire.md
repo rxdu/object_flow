@@ -109,8 +109,8 @@ POST /v1/request
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `get` | `id`, `follow` | the object, or `null`; no `id` is a `400` |
-| `history` | `id`, `follow` | `{"events": [...], "not_computed": [...]}`, its legacy entries first, or `null`; no `id` is a `400` |
+| `get` | `id`, `follow` | the object, or `null`; no `id` is a `400`; with `"follow": true`, the object its supersession chain ends at, its successor's successor and on (`DESIGN.md` §5) |
+| `history` | `id`, `follow` | `{"events": [...], "not_computed": [...]}`, its legacy entries first, or `null`; no `id` is a `400`; with `"follow": true`, every member's whose chain ends where this one's does, their legacy entries first, then their events in position order (ADR-0147) |
 | `events` | `positions` | `{"events": [...]}`, each position's event or `null` |
 | `availability` | `actor`, `id` | each transition's offer to the actor, or `null` |
 | `query` | `actor`, `type`, `filter`, `order`, `fields`, `cursor`, `limit` | `{"items": [...], "cursor": "<next page>" or null, "refused": null}` |

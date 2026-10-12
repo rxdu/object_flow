@@ -30,6 +30,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Added
 
+- `get` and `history` follow a supersession with `"follow": true`, which the wire listed and neither backend built, the key taken and ignored: `get` answers where the chain ends, `history` the whole group's events in position order; `follow` of another type is a `400`.
 - `/metrics` gives the store's file and its `-wal` in bytes; the `-wal` is cut back to 64 MiB when a checkpoint empties it, where it grew to six times the store and stayed; a start that cannot make its store or socket, or bind its address, names the path (third production review N6).
 - `--socket <path>`: the service on a Unix socket, made `0660`, in an address's place, so the socket's owner and group are its only callers (ADR-0183 decision 4).
 - One line on stderr for each answer, its time, method, route, status and duration; `GET /metrics`, the answers by route and status, the store's version and the clock's lead, in Prometheus's text format; `/health` reading the store's file and answering `clock_lead_seconds` (ADR-0183 decision 8).

@@ -1734,8 +1734,15 @@ async fn get(State(shared): State<Shared>, Body(body): Body) -> Answer {
         // the argument it needs, a fault and never an absent object (D570)
         let id =
             text(&body, "id")?.ok_or_else(|| Fault::Bad("get names an object's id".to_string()))?;
+        let follow = flag(&body, "follow")?;
         let mut r = reading(&shared)?;
         let s = r.store()?;
+        // with follow, where its supersession chain ends: taken and ignored
+        // until the third production review read it (DESIGN.md §5)
+        if follow {
+            let end = reads::followed(&s.snapshot()?, id)?;
+            return object_json(s, &end);
+        }
         object_json(s, id)
     })
 }
@@ -1860,21 +1867,34 @@ async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
     tokio::task::block_in_place(move || {
         let id = text(&body, "id")?
             .ok_or_else(|| Fault::Bad("history names an object's id".to_string()))?;
+        let follow = flag(&body, "follow")?;
         let mut r = reading(&shared)?;
         let s = r.store()?;
         // an object that does not exist has no history, null as get's (ADR-0173)
         if reads::get(&s.snapshot()?, id)?.is_none() {
             return Ok(Json(J::Null));
         }
-        let events = s.history(id)?;
-        // its legacy entries first, which predate the store, then its events
-        // (library-api.md §6, ADR-0015)
-        let entries = s.legacy_entries(id)?.into_iter().map(|e| {
-            json!({"legacy": true, "object_id": id, "ordinal": e.ordinal, "kind": e.kind,
-               "occurred_at": timestamp_text(e.occurred_at), "payload": e.payload})
-        });
+        // with follow, the whole group supersession joins, every member
+        // whose chain ends where this one's does (library-api.md §5)
+        let members = if follow {
+            reads::superseded_group(&s.snapshot()?, id)?
+        } else {
+            vec![id.to_string()]
+        };
+        // their legacy entries first, which predate the store, by member,
+        // then their events in position order (library-api.md §6, ADR-0015)
+        let mut entries = Vec::new();
+        let mut events = Vec::new();
+        for m in &members {
+            entries.extend(s.legacy_entries(m)?.into_iter().map(|e| {
+                json!({"legacy": true, "object_id": m, "ordinal": e.ordinal, "kind": e.kind,
+                   "occurred_at": timestamp_text(e.occurred_at), "payload": e.payload})
+            }));
+            events.extend(s.history(m)?);
+        }
+        events.sort_by_key(|e| e.position);
         Ok(Json(json!({
-            "events": entries.chain(events.iter().map(event)).collect::<Vec<_>>(),
+            "events": entries.into_iter().chain(events.iter().map(event)).collect::<Vec<_>>(),
             "not_computed": EVENT_NOT_COMPUTED,
         })))
     })
