@@ -1113,6 +1113,19 @@ pub(crate) fn read_last_position(conn: &Connection) -> rusqlite::Result<i64> {
     })
 }
 
+/// The events a clause over one value selects, in position order: an
+/// event by its position, an object's own, or those one caused, each by
+/// the log's indexes (fourth production review).
+pub(crate) fn read_events(
+    conn: &Connection,
+    clause: &str,
+    value: &dyn rusqlite::ToSql,
+) -> rusqlite::Result<Vec<Event>> {
+    let mut read = conn.prepare(&format!("{EVENT_SELECT} WHERE {clause} ORDER BY position"))?;
+    let rows = read.query_map([value], event_row)?;
+    rows.collect()
+}
+
 /// An object's first event's position, by the index on its events.
 pub(crate) fn read_first_position(conn: &Connection, id: &str) -> rusqlite::Result<Option<i64>> {
     conn.query_row(
@@ -1897,6 +1910,39 @@ impl Store {
         };
         self.checkpoint_due = busy != 0;
         Ok(busy == 0)
+    }
+
+    /// The write-ahead log carried into the store's file and truncated,
+    /// waiting `wait` for the reads still open on it, which a service holding
+    /// back its long reads leaves short: whether it completed, an erasure's
+    /// truncation, due till then, done with it. Reads that always overlapped
+    /// kept the log growing, 3.2 GB in 150 s, and an erasure's frames in it
+    /// (fourth production review A-5, A-14).
+    pub fn truncate_log(&mut self, wait: std::time::Duration) -> Stored<bool> {
+        self.conn.busy_timeout(wait)?;
+        let tried: Result<i64, rusqlite::Error> =
+            self.conn
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0));
+        self.conn.busy_timeout(self.busy.get())?;
+        let busy = match tried {
+            Ok(busy) => busy,
+            Err(e) => {
+                let e = StoreError::from(e);
+                if !e.is_busy() {
+                    return Err(e);
+                }
+                1
+            }
+        };
+        if busy == 0 {
+            self.checkpoint_due = false;
+        }
+        Ok(busy == 0)
+    }
+
+    /// Whether an erasure's truncation of the log is still due.
+    pub fn checkpoint_due(&self) -> bool {
+        self.checkpoint_due
     }
 
     /// The write-ahead log carried into the store's file and truncated, as a

@@ -1501,19 +1501,22 @@ fn take(
         // personal under the installed version, or under the version of
         // the event that last wrote it, an attribute a later version no
         // longer marks keeping what it was written as (ADR-0146 decision 2)
-        // the log, read once for the erasure and its walks, this request's
-        // own events among it (ADR-0162 step 1)
-        let log: Vec<Event> = ctx.work.log()?.cloned().collect();
+        // the events the erasure and its walks read, each by the log's
+        // indexes, this request's own among them, where it read the whole
+        // log under the writer (ADR-0162 step 1, fourth production review)
         let writes = o.held_parts()?.writes.clone();
-        let written_personal = |a: &str| {
-            writes.get(a).is_some_and(|position| {
-                log.iter()
-                    .find(|e| e.position == *position)
-                    .is_some_and(|e| ctx.work.personal_under(e.declaration_version, &o.type_, a))
-            })
-        };
         for (a, spec) in &t.attributes {
-            if !(spec.personal || written_personal(a)) || !o.attrs.contains_key(a) {
+            if !o.attrs.contains_key(a) {
+                continue;
+            }
+            let personal = spec.personal
+                || match writes.get(a) {
+                    Some(position) => ctx.work.event_at(*position)?.is_some_and(|e| {
+                        ctx.work.personal_under(e.declaration_version, &o.type_, a)
+                    }),
+                    None => false,
+                };
+            if !personal {
                 continue;
             }
             if spec.stored_set() {
@@ -1542,11 +1545,8 @@ fn take(
         let redacted_since = ctx.redacted_inputs.len();
         // what the erased object holds that is personal, the source of
         // every value the walks follow
-        let own_versions: BTreeSet<i64> = log
-            .iter()
-            .filter(|e| e.object_id == o.id)
-            .map(|e| e.declaration_version)
-            .collect();
+        let own: Vec<Event> = ctx.work.events_of(&o.id)?;
+        let own_versions: BTreeSet<i64> = own.iter().map(|e| e.declaration_version).collect();
         let holding: BTreeSet<String> = t
             .attributes
             .iter()
@@ -1561,11 +1561,6 @@ fn take(
         // each input personal under the transition its event recorded,
         // redacted there alone, since an input personal in one transition
         // may not be in another (storage-schema.md §9 step 8)
-        let own: Vec<Event> = log
-            .iter()
-            .filter(|e| e.object_id == o.id)
-            .cloned()
-            .collect();
         for e in &own {
             // the transition as the version its event was written under
             // declared it (storage-schema.md §9 step 2, per version)
@@ -1593,13 +1588,13 @@ fn take(
                 }
             }
             // and what flowed down from it into other objects (§9 step 12)
-            walk_down(ctx, &log, e, &tainted, &holding)?;
+            walk_down(ctx, e, &tainted, &holding)?;
             // and the callers that passed one on (§9 step 3)
-            caller_taint(ctx, &log, e, tainted)?;
+            caller_taint(ctx, e, tainted)?;
         }
         // every other object whose value it redacted gets an event
         // (DESIGN.md §8)
-        redact_others(ctx, alloc, &log, &o.id, redacted_since)?;
+        redact_others(ctx, alloc, &o.id, redacted_since)?;
         ctx.erased.entry(o.id.clone()).or_default().extend(erased);
         invalidate_proposals(ctx, alloc, &o.id)?;
     }
@@ -1886,18 +1881,16 @@ pub(crate) fn external_text(v: &Value) -> Option<String> {
 /// read, as for every erasure here (TODO: an earlier version's).
 fn caller_taint(
     ctx: &mut Ctx<'_>,
-    log: &[Event],
     from: &Event,
     mut tainted: BTreeSet<String>,
 ) -> Result<(), NotRun> {
     let lib = ctx.work.lib;
     let mut callee = from.clone();
     while !tainted.is_empty() {
-        let Some(caller) = callee
-            .cause
-            .and_then(|c| log.iter().find(|e| e.position == c))
-            .cloned()
-        else {
+        let Some(caller) = (match callee.cause {
+            Some(c) => ctx.work.event_at(c)?,
+            None => None,
+        }) else {
             break;
         };
         let Some(cx) = ctx
@@ -1941,7 +1934,6 @@ fn caller_taint(
 /// event; and so on down.
 fn walk_down(
     ctx: &mut Ctx<'_>,
-    log: &[Event],
     from: &Event,
     tainted: &BTreeSet<String>,
     holding: &BTreeSet<String>,
@@ -1955,10 +1947,11 @@ fn walk_down(
     else {
         return Ok(());
     };
-    let caused: Vec<Event> = log
-        .iter()
-        .filter(|f| f.cause == Some(from.position) && f.object_id != from.object_id)
-        .cloned()
+    let caused: Vec<Event> = ctx
+        .work
+        .caused_by(from.position)?
+        .into_iter()
+        .filter(|f| f.object_id != from.object_id)
         .collect();
     for f in caused {
         let Some(p) = ctx.work.get(&f.object_id)? else {
@@ -1997,7 +1990,7 @@ fn walk_down(
             }
         }
         if !next_inputs.is_empty() {
-            walk_down(ctx, log, &f, &next_inputs, &next_holding)?;
+            walk_down(ctx, &f, &next_inputs, &next_holding)?;
         }
     }
     Ok(())
@@ -2064,13 +2057,12 @@ fn attributes_written(t: &Type, x: &Transition, input: &str) -> BTreeSet<String>
 fn redact_others(
     ctx: &mut Ctx<'_>,
     alloc: &mut Allocator,
-    log: &[Event],
     erased: &str,
     since: usize,
 ) -> Result<(), NotRun> {
     let mut names: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (position, n) in &ctx.redacted_inputs[since..] {
-        if let Some(e) = log.iter().find(|e| e.position == *position)
+        if let Some(e) = ctx.work.event_at(*position)?
             && e.object_id != erased
         {
             names
@@ -8381,6 +8373,71 @@ types:
                 "{guess}: {again:?}"
             );
         }
+    }
+
+    /// An erasure reads the events it walks, its object's own, those they
+    /// caused and those that called them, by the log's indexes, where it
+    /// read the whole log under the writer; what it redacts is the same
+    /// (fourth production review).
+    #[test]
+    fn an_erasure_reads_only_the_events_it_walks() {
+        const CRM: &str = r#"
+module: crm
+categories: [live]
+types:
+  Contact:
+    attributes:
+      title: { type: string }
+      name: { type: string, optional: true, personal: true }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [title], optional_inputs: [name] }
+      rename: { kind: internal, from: [ON], required_inputs: [name] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+        let lib = Library::load(&[("crm.yaml".into(), CRM.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let mut ids = Vec::new();
+        for i in 0..50 {
+            ids.push(created(&req(
+                &mut s,
+                "add",
+                OPERATOR,
+                ("Contact", true),
+                json!({"title": format!("Lead {i}"), "name": format!("Person {i}")}),
+            )));
+        }
+        created(&req(
+            &mut s,
+            "rename",
+            OPERATOR,
+            (&ids[7], false),
+            json!({"name": "Dana"}),
+        ));
+        let before = crate::world::whole_log_reads();
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&ids[7], false),
+            json!({"reason": "asked"}),
+        ));
+        assert_eq!(
+            crate::world::whole_log_reads(),
+            before,
+            "the erasure read the whole log"
+        );
+        let inputs: Vec<Json> = s
+            .history(&ids[7])
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.transition != "forget")
+            .map(|e| e.payload["inputs"]["name"].clone())
+            .collect();
+        assert_eq!(inputs, [Json::Null, Json::Null]);
+        let other = s.history(&ids[8]).unwrap();
+        assert_eq!(other[0].payload["inputs"]["name"], json!("Person 8"));
     }
 
     /// The store's operator (ADR-0126, ADR-0134): its creation, `install`,

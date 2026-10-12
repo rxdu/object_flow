@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes that may refuse what 0.2.0 accepted
 
+- An import refuses a record's creation, entry into a state, interval or silent span after the import, as it refused an occurred time, and any of its times before 1900-01-01, a legacy system's empty date, where one in 0001 skewed a metric for good (fourth production review).
 - A money input is a currency, one space and an amount, and a decimal one its digits, with nothing around them, as a date is read: `"USD  1.00"`, `"USD 1.00 "` and `" 1.00"` are `malformed`, in both backends, where they were taken (fourth production review).
 - A query filter calling an evaluator, reading the request's `actor`, `inputs` or `this_event`, or dividing by a literal zero is refused `malformed_filter`, where it answered an empty page, and one with a literal past its type's range, where it answered `501` (fourth production review).
 - `acknowledge` refuses `invalid_cursor` a cursor below 0 or past the log's last, where any integer was taken and one past the log skipped every later event; `export` refuses one past what the store has handed out, where a forged one answered an empty page for ever (fourth production review).
@@ -64,6 +65,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Performance
 
+- An erasure reads the events it walks by the log's indexes, its object's own, those they caused and those that called them, where it read the whole log under the writer (fourth production review).
 - `pull` and `export` read a page from their cursor by position, never the whole event log and every object: on six years of claims an empty pull takes 1 ms and 15 MB where 1.1 s and 462 MB, and twenty export pages of 1,000 1.4 s where 90.6 s and 1.9 GB; a subscription's lag reads its first pending event alone (fourth production review FEED).
 - An external identifier is indexed whatever its marking, and a store opened without the index is given it: a go-live's import batch takes the same time at its last batch as its first, where 3,000 objects took 1.6 s at the start and 4.2 s at 36k objects (D606).
 - After a publish, an import batch or any request of half a second or more, the service gives back to the system what it freed, which glibc kept: ten seconds after a publish it holds 25 MB on 37k objects where it held 975 MB, and 36 MB on 110k where 2.95 GB; `objectflow_memory_given_back_total` counts it (ADR-0187 decision 2).
@@ -76,6 +78,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Security
 
+- The write-ahead log is cut back within 5 s of an erasure, and whenever it passes 64 MiB, new long reads held back while those running end: reads that always overlapped kept an erasure's values in it, and kept it growing, 3.2 GB in 150 s; on six years at 124 writes a second beside two six-second reads it now peaks at about 300 MiB (fourth production review).
 - An idempotency key whose request an erasure redacted answers its first verdict whatever is sent under it, where it answered `409` to a wrong guess of the erased value and replayed the right one (fourth production review). A fault's reason is written to the log at most 1 KiB long, where a filter of 1.9 MB was written whole.
 - A release's workflow refuses a tag whose commit's `check-all` has not passed, and runs the core's and the service's tests on the runner that builds the binary it ships (third production review).
 - A store `--create` makes is `0600`, its `-wal` and `-shm` too; the service says at its start where a store's file is readable by others.

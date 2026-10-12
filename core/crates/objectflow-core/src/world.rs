@@ -330,6 +330,18 @@ pub(crate) const BATCH: usize = 8;
 /// built without them.
 static NO_EARLIER: BTreeMap<i64, Library> = BTreeMap::new();
 
+thread_local! {
+    /// How many times this thread has read the store's whole log: what a
+    /// test of an operation that must read only part of it reads (fourth
+    /// production review).
+    static WHOLE_LOG_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times this thread has read the store's whole log.
+pub fn whole_log_reads() -> u64 {
+    WHOLE_LOG_READS.with(std::cell::Cell::get)
+}
+
 /// The objects of a store, and the time a request reads.
 #[derive(Clone, Debug)]
 pub struct World<'l> {
@@ -465,13 +477,57 @@ impl<'l> World<'l> {
         self
     }
 
+    /// The events a clause over the log's indexes selects, the operation's
+    /// own among them, in position order; the held log filtered where it is
+    /// held already.
+    fn events_where(
+        &self,
+        clause: &str,
+        value: &dyn rusqlite::ToSql,
+        keep: impl Fn(&Event) -> bool,
+    ) -> Result<Vec<Event>, crate::eval::NotRun> {
+        let Some(conn) = self.conn.filter(|_| self.stored.get().is_none()) else {
+            return Ok(self.log()?.filter(|e| keep(e)).cloned().collect());
+        };
+        let mut out = crate::store::read_events(conn, clause, value).map_err(|e| {
+            crate::eval::NotRun::Unreadable(format!(
+                "the store's events where {clause}, which could not be read: {e}"
+            ))
+        })?;
+        out.extend(self.appended.iter().filter(|e| keep(e)).cloned());
+        Ok(out)
+    }
+
+    /// The event at a position, none where the log has none there.
+    pub fn event_at(&self, position: i64) -> Result<Option<Event>, crate::eval::NotRun> {
+        Ok(self
+            .events_where("position = ?1", &position, |e| e.position == position)?
+            .into_iter()
+            .next())
+    }
+
+    /// An object's events, in position order.
+    pub fn events_of(&self, id: &str) -> Result<Vec<Event>, crate::eval::NotRun> {
+        self.events_where("object_id = ?1", &id, |e| e.object_id == id)
+    }
+
+    /// The events one event caused, in position order.
+    pub fn caused_by(&self, position: i64) -> Result<Vec<Event>, crate::eval::NotRun> {
+        self.events_where("cause_position = ?1", &position, |e| {
+            e.cause == Some(position)
+        })
+    }
+
     /// The log, in position order: every event the store holds, read on first
     /// use, then those the operation appended (`storage-schema.md`, `of_event`,
     /// ADR-0162). A log that cannot be read stops the operation as not run,
     /// naming why, never as an empty log.
     pub fn log(&self) -> Result<impl DoubleEndedIterator<Item = &Event> + '_, crate::eval::NotRun> {
         let stored = self.stored.get_or_init(|| match self.conn {
-            Some(conn) => crate::store::read_log(conn).map_err(|e| e.to_string()),
+            Some(conn) => {
+                WHOLE_LOG_READS.with(|n| n.set(n.get() + 1));
+                crate::store::read_log(conn).map_err(|e| e.to_string())
+            }
             None => Ok(Vec::new()),
         });
         match stored {

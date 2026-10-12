@@ -202,6 +202,11 @@ pub struct ImportReport {
     pub refusal: Option<ImportRefusal>,
 }
 
+/// The earliest time an import takes, 1900-01-01: a legacy system's
+/// empty date, year 0001 among them, refused rather than taken as when
+/// something happened (fourth production review A-17).
+const IMPORT_FLOOR: i64 = -2_208_988_800;
+
 /// The shapes of a class, fixed texts, never a value (ADR-0154, C31).
 const DOES_NOT_HOLD: &str = "does not hold";
 const IS_ABSENT: &str = "is absent";
@@ -424,6 +429,36 @@ fn decide(
         }
         if o.occurred_at.is_some_and(|at| at > world.now) {
             return refused(report, refusal(o, "an occurred time after the import"));
+        }
+        // nor a creation, an entry into a state, an interval or a silent span
+        // after it, where a creation in 9999 was taken; and no time of the
+        // record before 1900, a legacy system's empty date rather than when
+        // anything happened, where one in 0001 skewed a metric for good
+        // (fourth production review A-17)
+        let times: Vec<i64> = o
+            .created_at
+            .into_iter()
+            .chain(o.occurred_at)
+            .chain(o.entered.values().map(|e| e.at))
+            .chain(
+                o.legacy_intervals
+                    .iter()
+                    .flat_map(|i| std::iter::once(i.entered_at).chain(i.left_at)),
+            )
+            .chain(o.silent_spans.iter().flat_map(|(a, b)| [*a, *b]))
+            .chain(o.legacy_entries.iter().map(|e| e.occurred_at))
+            .collect();
+        if times.iter().any(|at| *at > world.now) {
+            return refused(report, refusal(o, "a time after the import"));
+        }
+        if times.iter().any(|at| *at < IMPORT_FLOOR) {
+            return refused(
+                report,
+                refusal(
+                    o,
+                    "a time before 1900, which a legacy system writes for a date it lacks",
+                ),
+            );
         }
         // a legacy entry names its kind, and happened before the import and
         // not before a creation time the mapping supplies (§4)
@@ -2732,16 +2767,52 @@ types:
         let mut ahead = note;
         ahead.legacy_key = "N-2".into();
         ahead.occurred_at = Some(port + day);
+        // a creation, an entry into a state, an interval or a silent span
+        // after the import (fourth production review A-17)
+        let mut made = employee("E-3", "EMPLOYED", json!({"employee_id": "3"}));
+        made.created_at = Some(port + day);
+        let mut entered = employee("E-4", "EMPLOYED", json!({"employee_id": "4"}));
+        entered.entered.insert(
+            "EMPLOYED".into(),
+            EnteredAt {
+                at: port + day,
+                by: None,
+                by_kind: None,
+            },
+        );
+        let mut interval = employee("E-5", "EMPLOYED", json!({"employee_id": "5"}));
+        interval.legacy_intervals.push(LegacyInterval {
+            dimension: "state".into(),
+            value: json!("EMPLOYED"),
+            entered_at: port - day,
+            left_at: Some(port + day),
+            entered_by: None,
+            entered_by_kind: None,
+        });
+        let mut silent = employee("E-6", "EMPLOYED", json!({"employee_id": "6"}));
+        silent.silent_spans.push((port - day, port + day));
+        let mut empty = employee("E-7", "EMPLOYED", json!({"employee_id": "7"}));
+        empty.created_at = Some(-62_135_596_800);
         for (words, o) in [
             ("is undecided", bare),
             ("only an observation takes", dated),
             ("after the import", ahead),
+            ("a time after the import", made),
+            ("a time after the import", entered),
+            ("a time after the import", interval),
+            ("a time after the import", silent),
+            ("a time before 1900", empty),
         ] {
             let r = run(&mut s, vec![o], &[], false);
             let reason = r.refusal.map(|f| f.reason).unwrap_or_default();
             assert!(reason.contains(words), "{words}: {reason}");
             assert_eq!(r.written, 0, "{words}");
         }
+        // 1900 itself is taken
+        let mut floor = employee("E-8", "EMPLOYED", json!({"employee_id": "8"}));
+        floor.created_at = Some(IMPORT_FLOOR);
+        let r = run(&mut s, vec![floor], &[], false);
+        assert_eq!((r.written, r.refusal), (1, None));
     }
 
     /// Legacy entries (ADR-0163 decisions 2 to 4, `publish-and-import.md` §4):
