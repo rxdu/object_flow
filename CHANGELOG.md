@@ -4,7 +4,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased, toward 1.0.0
 
-Release 1.0.0 is held until a production review, on the same 36.7k-object store as the first, finds no blocker or major (ADR-0183 decision 1; `docs/design/production-review.md`); the first three found some.
+Release 1.0.0 is held until a production review, on the same 36.7k-object store as the first, finds no blocker or major (ADR-0183 decision 1; `docs/design/production-review.md`); each of the six so far found some.
 
 ### Changes that may refuse what 0.2.0 accepted
 
@@ -71,6 +71,8 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Fixed
 
+- An invariant reading related objects is checked from what a request wrote, along each chain of relationship ends it reads, as `DESIGN.md` §5.6 states, where every write of the store re-checked every object of its type: on a go-live of the shipped reimbursement flow a draft took 2.8 s, now 8.7 ms, and a write to an unrelated type 2.3 s, now 10 ms; with a one-hop path invariant on lines, 13 ms a draft (ADR-0192 decision 1).
+- `--metrics-bind` answers `/health` and `/metrics` whatever the main listener holds, where it refused them `503 busy` once the main listener held 16 connections (ADR-0192 decision 2).
 - A derived time past the calendar is answered `null` in both backends, where the core answered year 2,739,933 and the reference runner answered `500`; `/health` answers a store gone from its path `503 store_replaced`, as a write is, where it answered `500` (ADR-0191 decisions 3, 4).
 - A proposal names its proposer by identity in both backends, as every event names its actor, where the core kept what the request named and the reference runner the actor's object id (D611).
 - The core's checker reads a byte-order mark at a source's start as no part of it, as the reference checker does, where it took the mark into the first key and refused the file (D610).

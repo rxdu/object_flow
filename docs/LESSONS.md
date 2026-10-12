@@ -536,7 +536,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 
 ### A module constant appended to a test file can shadow one of the same name
 - **Pattern:** Adding F5's comparison test, I appended a module `TALLY = """…"""` to `test_publishing.py`, which already defined `TALLY` 160 lines earlier; Python rebinds the name at import, so an unrelated test that read `TALLY` loaded my module and failed `unknown_transition`, while my own test, run alone with `-k`, passed.
-- **Correction:** Before adding a module-level name to a test file, grep the file for it (`grep -n "^NAME = "`), and run the whole file, not only the new test, before calling it done.
+- **Correction:** Before adding a module-level name to a test file, grep the file for it (`grep -n "^NAME = "`), and run the whole file, not only the new test, before calling it done. *Recurred 2026-10-13 with a name that is a value*: a new deployment test took `fresh_store("beside")`, an older test's store, keyed by name and process, so each deleted the other's store when the tests ran together, and the gates failed on a store read empty; a store's, a socket's or a directory's name in a test is such a name, and grepped as one (`grep -n 'fresh_store("<name>")'`).
 - **Context:** Python test modules with flows as module constants, the Flow Studio's server tests above all; 2026-10-12.
 
 ### Read the gates' verdict before committing, never in the same command
@@ -568,4 +568,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The deployment tests' `start()` spawned the service and panicked when its first line was not the expected one, before wrapping the child in the guard that kills it on drop; a new warning line printed first, the test failed, and the orphaned service held the test command's pipe open, so the command hung for ten minutes (2026-10-13).
 - **Correction:** Kill and reap a spawned child on every path out of the helper, or wrap it in its guard before anything that can fail; and when a test command hangs, list the processes it started before anything else.
 - **Context:** Rust integration tests that spawn the service; any test harness that spawns processes.
+
+### A remedy recommended without measuring what it costs the engine
+- **Pattern:** The fifth review's ERASE-LIMIT fix had a notice recommend a bounding invariant, `count(x in lines) <= n`, and the samples declare it, trusting `DESIGN.md` §5.6 that such a traversal invariant is checked from the related objects; the core checked it on its whole type after every write, and a go-live of the shipped sample went from 13 ms a write to 2.8 s (sixth production review P8, 2026-10-13).
+- **Correction:** Before a notice, a guide or a sample recommends a construct, measure a write with it on a store of realistic size; and hold each cost a design document states with a test that fails when the implementation does more, as the whole-type reads now counted do.
+- **Context:** Any recommendation an engine makes to its authors; ObjectFlow's checker notices and samples.
 

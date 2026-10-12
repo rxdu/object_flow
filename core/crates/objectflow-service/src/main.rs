@@ -3976,7 +3976,15 @@ async fn served(
                 continue;
             }
         };
-        let at_cap = shared.connections.open.load(Ordering::SeqCst) >= cap;
+        // this listener's own connections against its own cap, where the
+        // count both listeners share left --metrics-bind refusing every
+        // health check once the main listener held 16 (sixth production
+        // review F9)
+        let at_cap = open
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
+            >= cap;
         if at_cap {
             // the oldest answering nothing, which no request may begin on
             // once taken, is closed to make room

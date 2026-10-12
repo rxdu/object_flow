@@ -4163,10 +4163,31 @@ enum Reach {
     /// The object alone.
     Itself,
     /// The objects sharing a key with the one written, which a uniqueness
-    /// or an external identifier compares.
-    Keys(Vec<Keyed>),
-    /// What no form here tells, taken as any object.
+    /// or an external identifier compares, and those a written object is
+    /// reached from along a chain of relationship ends an invariant reads
+    /// (`DESIGN.md` §5.6, the traversal form).
+    Related {
+        keys: Vec<Keyed>,
+        chains: BTreeSet<Vec<Hop>>,
+    },
+    /// What no form here tells, a type scan, a metric or an observation,
+    /// taken as any object.
     Anything,
+}
+
+/// A hop of a chain an invariant reads, from objects of one type to the
+/// objects one of its relationship ends reaches, or to those referring to
+/// them.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Hop {
+    /// `from.attr`, an end of a relationship of `from`, reaching `to`.
+    End {
+        from: String,
+        attr: String,
+        to: String,
+    },
+    /// `referrers`: any object holding a reference to one of `of`.
+    Referrers { of: String },
 }
 
 /// A key a type's invariants compare across objects: the attributes of a
@@ -4185,8 +4206,19 @@ struct Keyed {
 /// external identifiers compare. Its state invariants read the object alone.
 fn invariant_reach(lib: &Library, t: &Type) -> Reach {
     let own = |e: &Expr| reads_only_this(lib, t, e, &mut BTreeSet::new());
-    if !t.invariants.iter().all(|(_, e)| own(e)) {
-        return Reach::Anything;
+    // an invariant reading related objects is checked from them, along
+    // each chain of relationship ends it reads, never by its type whole,
+    // which every write of the store swept under the writer, 2.8 s a draft
+    // on a go-live's claims (sixth production review P8)
+    let mut chains = BTreeSet::new();
+    for (_, e) in &t.invariants {
+        if own(e) {
+            continue;
+        }
+        match traversals(lib, t, e) {
+            Some(found) => chains.extend(found),
+            None => return Reach::Anything,
+        }
     }
     let mut keys = Vec::new();
     for (a, spec) in &t.attributes {
@@ -4224,11 +4256,282 @@ fn invariant_reach(lib: &Library, t: &Type) -> Reach {
             source: Some(IDENTITY_SOURCE.to_string()),
         });
     }
-    if keys.is_empty() {
+    if keys.is_empty() && chains.is_empty() {
         Reach::Itself
     } else {
-        Reach::Keys(keys)
+        Reach::Related { keys, chains }
     }
+}
+
+/// What an expression denotes, as far as the chains it reads: no object,
+/// the objects at the end of a chain from the invariant's object, of a
+/// type, none known for a referrer's, an interval's rows, or a row's value,
+/// which may be any object.
+#[derive(Clone)]
+enum Denotes {
+    Nothing,
+    Objects(String, Vec<Hop>),
+    Rows,
+    Opaque,
+}
+
+/// Each chain of relationship ends an invariant of a type reads from its
+/// object, every prefix of each; none where it reads what no chain tells, a
+/// type scan, a metric, an observation or a call this does not know, which
+/// is then checked on its type whole.
+fn traversals(lib: &Library, t: &Type, e: &Expr) -> Option<BTreeSet<Vec<Hop>>> {
+    let mut walk = Walk {
+        lib,
+        chains: BTreeSet::new(),
+        deriving: Vec::new(),
+    };
+    walk.objects(e, &BTreeMap::new(), &(t.name.clone(), Vec::new()))
+        .ok()?;
+    Some(walk.chains)
+}
+
+struct Walk<'l> {
+    lib: &'l Library,
+    chains: BTreeSet<Vec<Hop>>,
+    /// The derived attributes being walked, so one reading itself is
+    /// taken whole.
+    deriving: Vec<(String, String)>,
+}
+
+/// The members every object has, which read the object alone.
+const BUILT_IN_MEMBERS: &[&str] = &[
+    "state",
+    "id",
+    "open",
+    "created_at",
+    "created_by_kind",
+    "closed",
+    "category",
+    "human",
+    "agent",
+    "service",
+];
+
+impl Walk<'_> {
+    fn objects(
+        &mut self,
+        e: &Expr,
+        env: &BTreeMap<String, Denotes>,
+        here: &(String, Vec<Hop>),
+    ) -> Result<Denotes, ()> {
+        Ok(match e {
+            Expr::Num(_) | Expr::Str(_) | Expr::Bool(_) | Expr::Dur(..) | Expr::Money(..) => {
+                Denotes::Nothing
+            }
+            Expr::Name(n) => match env.get(n) {
+                Some(d) => d.clone(),
+                None if n == "this" => Denotes::Objects(here.0.clone(), here.1.clone()),
+                None => self.member(&here.0, &here.1, n)?,
+            },
+            Expr::Path(base, m) => {
+                // a state of a type, or a member of an enumeration, by name
+                if let Expr::Name(b) = base.as_ref()
+                    && !env.contains_key(b)
+                    && b != "this"
+                    && (b == "state"
+                        || (self.lib.type_(&here.0).is_none_or(|ht| {
+                            ht.attribute(b).is_none() && !ht.derived.iter().any(|(d, _)| d == b)
+                        }) && (self.lib.type_(b).is_some()
+                            || self.lib.enumerations.contains_key(b))))
+                {
+                    return Ok(Denotes::Nothing);
+                }
+                match self.objects(base, env, here)? {
+                    Denotes::Objects(ty, path) => self.member(&ty, &path, m)?,
+                    Denotes::Rows => {
+                        if ["value", "object", "subject"].contains(&m.as_str()) {
+                            Denotes::Opaque
+                        } else {
+                            Denotes::Nothing
+                        }
+                    }
+                    Denotes::Opaque => return Err(()),
+                    Denotes::Nothing => Denotes::Nothing,
+                }
+            }
+            Expr::Call(f, args) => {
+                let Expr::Name(n) = f.as_ref() else {
+                    return Err(());
+                };
+                if !["length", "entered_at", "intervals"].contains(&n.as_str()) {
+                    return Err(());
+                }
+                for a in args {
+                    self.objects(a, env, here)?;
+                }
+                if n == "intervals" {
+                    Denotes::Rows
+                } else {
+                    Denotes::Nothing
+                }
+            }
+            Expr::Agg {
+                var,
+                collection,
+                filter,
+                body,
+                ..
+            } => {
+                let (Some(var), Some(c)) = (var, collection) else {
+                    return Err(());
+                };
+                let over = match self.objects(c, env, here)? {
+                    Denotes::Opaque => return Err(()),
+                    d => d,
+                };
+                let mut inner = env.clone();
+                inner.insert(var.clone(), over);
+                for x in [filter, body].into_iter().flatten() {
+                    self.objects(x, &inner, here)?;
+                }
+                Denotes::Nothing
+            }
+            Expr::Metric { .. } => return Err(()),
+            Expr::Changed(_, x) => {
+                self.objects(x, env, here)?;
+                Denotes::Nothing
+            }
+            Expr::If(c, a, b) => {
+                self.objects(c, env, here)?;
+                for x in [a, b] {
+                    if !matches!(self.objects(x, env, here)?, Denotes::Nothing) {
+                        return Err(());
+                    }
+                }
+                Denotes::Nothing
+            }
+            Expr::Set(_)
+            | Expr::Not(_)
+            | Expr::Neg(_)
+            | Expr::IsNull(..)
+            | Expr::In(..)
+            | Expr::Bin(..) => {
+                for c in e.children() {
+                    self.objects(c, env, here)?;
+                }
+                Denotes::Nothing
+            }
+        })
+    }
+
+    /// A member of the objects at the end of a chain, of a type: a
+    /// relationship end extends the chain, a derived attribute is walked
+    /// on those objects, and a value or a built-in member ends it.
+    fn member(&mut self, ty: &str, path: &[Hop], m: &str) -> Result<Denotes, ()> {
+        // a member the type declares first, so one named as a built-in,
+        // `category` among them, is never taken for it
+        let declared = self
+            .lib
+            .type_(ty)
+            .is_some_and(|t| t.attribute(m).is_some() || t.derived.iter().any(|(d, _)| d == m));
+        if !declared && BUILT_IN_MEMBERS.contains(&m) {
+            return Ok(Denotes::Nothing);
+        }
+        if m == "referrers" {
+            let mut chain = path.to_vec();
+            chain.push(Hop::Referrers { of: ty.to_string() });
+            self.chains.insert(chain.clone());
+            return Ok(Denotes::Objects(String::new(), chain));
+        }
+        // a referrer's type is not known, so only its built-ins are read
+        let Some(t) = self.lib.type_(ty) else {
+            return Err(());
+        };
+        if let Some(spec) = t.attribute(m) {
+            if let Declared::Reference(to) = &spec.declared {
+                let mut chain = path.to_vec();
+                chain.push(Hop::End {
+                    from: ty.to_string(),
+                    attr: m.to_string(),
+                    to: to.clone(),
+                });
+                self.chains.insert(chain.clone());
+                return Ok(Denotes::Objects(to.clone(), chain));
+            }
+            return Ok(Denotes::Nothing);
+        }
+        if let Some((_, d)) = t.derived.iter().find(|(n, _)| n == m) {
+            let key = (ty.to_string(), m.to_string());
+            if self.deriving.contains(&key) {
+                return Err(());
+            }
+            self.deriving.push(key);
+            let found = self.objects(d, &BTreeMap::new(), &(ty.to_string(), path.to_vec()));
+            self.deriving.pop();
+            return found;
+        }
+        if t.state(m).is_some() || t.states.iter().any(|(_, s)| s.category == m) {
+            return Ok(Denotes::Nothing);
+        }
+        Err(())
+    }
+}
+
+/// The objects of a step's `from` that reach an object through the step:
+/// through the end the object stores, its opposite, and through the end
+/// `from` stores, by its column and its index; for `referrers`, the
+/// objects it refers to.
+fn back_from(work: &World<'_>, step: &Hop, w: &Object) -> Result<BTreeSet<String>, NotRun> {
+    let lib = work.lib;
+    let ids = |v: &Value| -> Vec<String> {
+        match v {
+            Value::Object(id) => vec![id.clone()],
+            Value::Set(items) => items
+                .iter()
+                .filter_map(|x| match x {
+                    Value::Object(id) => Some(id.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    let mut out = BTreeSet::new();
+    match step {
+        Hop::End { from, attr, to } => {
+            if !lib.is_a(&w.type_, to) {
+                return Ok(out);
+            }
+            let Some(spec) = lib.type_(from).and_then(|ft| ft.attribute(attr)) else {
+                return Ok(out);
+            };
+            if let Some(back) = &spec.opposite {
+                out.extend(ids(&w.attr(back)));
+            }
+            if !spec.derived_end() {
+                let named = Value::Object(w.id.clone());
+                let by: Vec<(String, Value)> = if spec.many {
+                    Vec::new()
+                } else {
+                    vec![(attr.clone(), named.clone())]
+                };
+                for x in work.of_type_where(from, None, &by)? {
+                    if ids(&x.attr(attr)).contains(&w.id) {
+                        out.insert(x.id.clone());
+                    }
+                }
+            }
+        }
+        Hop::Referrers { of } => {
+            if let Some(wt) = lib.type_(&w.type_) {
+                for (a, spec) in &wt.attributes {
+                    if matches!(spec.declared, Declared::Reference(_)) {
+                        for id in ids(&w.attr(a)) {
+                            if work.get(&id)?.is_some_and(|o| lib.is_a(&o.type_, of)) {
+                                out.insert(id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Whether an expression on an object of a type reads that object alone:
@@ -4328,7 +4631,35 @@ fn affected_by_writes(work: &World<'_>, before: &World<'_>) -> Result<Vec<String
                     affected.insert(o.id.clone(), o.order);
                 }
             }
-            Reach::Keys(keys) => {
+            Reach::Related { keys, chains } => {
+                // back along each chain from each object written, as it is
+                // and as it was, to the objects of this type it is reached
+                // from (`DESIGN.md` §5.6)
+                for chain in &chains {
+                    let Some((last, rest)) = chain.split_last() else {
+                        continue;
+                    };
+                    let mut reached = BTreeSet::new();
+                    for w in &versions {
+                        reached.extend(back_from(work, last, w)?);
+                    }
+                    for step in rest.iter().rev() {
+                        let mut next = BTreeSet::new();
+                        for id in &reached {
+                            if let Some(o) = work.get(id)? {
+                                next.extend(back_from(work, step, o)?);
+                            }
+                        }
+                        reached = next;
+                    }
+                    for id in reached {
+                        if let Some(o) = work.get(&id)?
+                            && lib.is_a(&o.type_, tn)
+                        {
+                            affected.insert(o.id.clone(), o.order);
+                        }
+                    }
+                }
                 for k in &keys {
                     for w in &versions {
                         let values: Vec<Vec<Value>> = match &k.source {
@@ -8592,6 +8923,241 @@ types:
         assert_eq!(inputs, [Json::Null, Json::Null]);
         let other = s.history(&ids[8]).unwrap();
         assert_eq!(other[0].payload["inputs"]["name"], json!("Person 8"));
+    }
+
+    /// An invariant reading related objects is checked from them: a write
+    /// reads none of its type whole, where every write swept it under the
+    /// writer (sixth production review P8), and every way a write can break
+    /// one is still found: a bound over a part set, a sum over its parts, a
+    /// path through another type, a part moved between wholes and a chain
+    /// of two (`DESIGN.md` §5.6).
+    #[test]
+    fn a_traversal_invariant_is_checked_from_what_was_written() {
+        const CLAIMS: &str = r#"
+module: claims
+categories: [live]
+types:
+  Unit:
+    attributes:
+      code: { type: string }
+    states:
+      ON: { category: live }
+    invariants:
+      shared: { expression: "count(r in referrers) <= 2" }
+    transitions:
+      make: { kind: initial, to: ON, required_inputs: [code] }
+      recode: { kind: internal, from: [ON], required_inputs: [code] }
+  Category:
+    attributes:
+      name: { type: string }
+      unit: { reference: Unit }
+    states:
+      ON: { category: live }
+    transitions:
+      define: { kind: initial, to: ON, required_inputs: [name, unit] }
+      rename: { kind: internal, from: [ON], required_inputs: [name] }
+  Claim:
+    attributes:
+      cap: { type: int }
+      lines: { reference: "Line[]", aggregation: composite, opposite: claim }
+    states:
+      ON: { category: live }
+    invariants:
+      few: { expression: "count(l in lines) <= 3" }
+      under: { expression: "sum(l in lines: l.amount) <= cap" }
+      kept: { expression: "cap != 50 or count(l in lines) >= 1" }
+    transitions:
+      open: { kind: initial, to: ON, required_inputs: [cap] }
+      recap: { kind: internal, from: [ON], required_inputs: [cap] }
+  Line:
+    attributes:
+      claim: { reference: Claim, opposite: lines }
+      category: { reference: Category }
+      amount: { type: int }
+    states:
+      ON: { category: live }
+    invariants:
+      named: { expression: "category.name != \"\"" }
+      coded: { expression: "category.unit.code != \"X\"" }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [claim, category, amount] }
+      move: { kind: internal, from: [ON], required_inputs: [claim] }
+      reprice: { kind: internal, from: [ON], required_inputs: [amount] }
+"#;
+        let lib = Library::load(&[("claims.yaml".into(), CLAIMS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let unit = created(&req(
+            &mut s,
+            "make",
+            OPERATOR,
+            ("Unit", true),
+            json!({"code": "EA"}),
+        ));
+        let cat = created(&req(
+            &mut s,
+            "define",
+            OPERATOR,
+            ("Category", true),
+            json!({"name": "Travel", "unit": unit}),
+        ));
+        let mut claims = Vec::new();
+        for _ in 0..40 {
+            claims.push(created(&req(
+                &mut s,
+                "open",
+                OPERATOR,
+                ("Claim", true),
+                json!({"cap": 100}),
+            )));
+        }
+        let line = |s: &mut Store, claim: &str, amount: i64| {
+            req(
+                s,
+                "add",
+                OPERATOR,
+                ("Line", true),
+                json!({"claim": claim, "category": cat, "amount": amount}),
+            )
+        };
+        let mut lines = Vec::new();
+        for _ in 0..3 {
+            lines.push(created(&line(&mut s, &claims[0], 10)));
+        }
+        created(&line(&mut s, &claims[1], 10));
+        let violated = |v: &Verdict, n: &str| matches!(v, Verdict::InvariantViolated { failures, .. } if failures.iter().any(|f| f.invariant == n));
+        // no write reads the claims, or the lines, whole
+        let (claims_read, lines_read) = (
+            crate::world::whole_type_reads("Claim"),
+            crate::world::whole_type_reads("Line"),
+        );
+        created(&req(
+            &mut s,
+            "recap",
+            OPERATOR,
+            (&claims[5], false),
+            json!({"cap": 90}),
+        ));
+        created(&req(
+            &mut s,
+            "rename",
+            OPERATOR,
+            (&cat, false),
+            json!({"name": "Trips"}),
+        ));
+        created(&line(&mut s, &claims[2], 5));
+        assert_eq!(
+            (
+                crate::world::whole_type_reads("Claim"),
+                crate::world::whole_type_reads("Line")
+            ),
+            (claims_read, lines_read),
+            "a write read a type its invariants reach whole"
+        );
+        // a fourth line breaks its claim's bound, from the line
+        assert!(violated(&line(&mut s, &claims[0], 1), "few"));
+        // a line repriced past its claim's cap, from the line
+        assert!(violated(
+            &req(
+                &mut s,
+                "reprice",
+                OPERATOR,
+                (&lines[0], false),
+                json!({"amount": 95})
+            ),
+            "under"
+        ));
+        // a line moved into a full claim breaks it, from the line as it is
+        let spare = created(&line(&mut s, &claims[3], 10));
+        assert!(violated(
+            &req(
+                &mut s,
+                "move",
+                OPERATOR,
+                (&spare, false),
+                json!({"claim": claims[0]})
+            ),
+            "few"
+        ));
+        // a line moved out of a claim that needs one breaks the claim it
+        // left, from the line as it was
+        created(&req(
+            &mut s,
+            "recap",
+            OPERATOR,
+            (&claims[4], false),
+            json!({"cap": 60}),
+        ));
+        let only = created(&line(&mut s, &claims[4], 10));
+        created(&req(
+            &mut s,
+            "recap",
+            OPERATOR,
+            (&claims[4], false),
+            json!({"cap": 50}),
+        ));
+        assert!(violated(
+            &req(
+                &mut s,
+                "move",
+                OPERATOR,
+                (&only, false),
+                json!({"claim": claims[6]})
+            ),
+            "kept"
+        ));
+        // a third category of one unit breaks the unit, from the category
+        // that refers to it
+        created(&req(
+            &mut s,
+            "define",
+            OPERATOR,
+            ("Category", true),
+            json!({"name": "Meals", "unit": unit}),
+        ));
+        assert!(violated(
+            &req(
+                &mut s,
+                "define",
+                OPERATOR,
+                ("Category", true),
+                json!({"name": "Hotels", "unit": unit}),
+            ),
+            "shared"
+        ));
+        // a category renamed to nothing breaks every line naming it, along
+        // the path from the category
+        assert!(violated(
+            &req(
+                &mut s,
+                "rename",
+                OPERATOR,
+                (&cat, false),
+                json!({"name": ""})
+            ),
+            "named"
+        ));
+        // and a unit two hops away, along the chain from the unit
+        assert!(violated(
+            &req(
+                &mut s,
+                "recode",
+                OPERATOR,
+                (&unit, false),
+                json!({"code": "X"})
+            ),
+            "coded"
+        ));
+        // a claim's cap lowered under its lines, from the claim itself
+        assert!(violated(
+            &req(
+                &mut s,
+                "recap",
+                OPERATOR,
+                (&claims[0], false),
+                json!({"cap": 20})
+            ),
+            "under"
+        ));
     }
 
     /// A supersession group's erasure reads its members' predecessors by the

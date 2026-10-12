@@ -3629,3 +3629,44 @@ fn what_the_service_was_given_is_said() {
         "{first}"
     );
 }
+
+/// The metrics listener answers whatever the main one holds: twenty idle
+/// connections on the main listener leave `/health` on `--metrics-bind`
+/// answering 200, where it was refused 503 busy past sixteen, the count both
+/// listeners share compared with the metrics listener's own cap (sixth
+/// production review F9).
+#[test]
+fn the_metrics_listener_answers_beside_a_busy_main_one() {
+    let file = fresh_store("metrics-beside");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+        "--metrics-bind",
+        "127.0.0.1:0",
+    ]);
+    let said = s.said_within("metrics and health on http://");
+    let metrics_at = said
+        .lines()
+        .find_map(|l| {
+            l.split_once("metrics and health on http://")
+                .map(|(_, a)| a.trim().to_string())
+        })
+        .expect("the metrics address");
+    let held: Vec<TcpStream> = (0..20)
+        .map(|_| TcpStream::connect(&s.addr).expect("a connection"))
+        .collect();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let metrics = Service {
+        child: None,
+        addr: metrics_at,
+        said: std::sync::Arc::new(std::sync::Mutex::new(String::new())),
+    };
+    for _ in 0..3 {
+        let (status, health) = call(&metrics, "GET", "/health", None);
+        assert_eq!(status, 200, "{health}");
+    }
+    drop(held);
+}

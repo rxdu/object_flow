@@ -354,6 +354,19 @@ Found 2026-10-12 at `879fb2c` (`production-review.md` §9); decided by ADR-0190 
 - [ ] **An erasure reads every proposal and every label once** (found 2026-10-13 building ADR-0191 decision 5): `invalidate_proposals` (`core/crates/objectflow-core/src/request.rs`, `of_type(PROPOSAL)`) and `forget_observations` (`of_type` of the label kind) each read their type whole for each erasure, under the writer, so an erasure's cost grows with the store's proposals and labels; traced with a backtrace on each whole read during `a_groups_erasure_reads_no_type_whole`. To measure on the review store before deciding an index on a proposal's `target` and a label's subject.
 - [ ] **Author: question 16, the repository's settings** (ADR-0191 decision 7). The fifth review found `main` taking a push whose `check-all` failed, `v*` tags unprotected and Dependabot off. Options: (a) require `check-all` and `audit` on `main`, which holds every push, the author's included, until CI passes, about 17 minutes; (b) a ruleset that lets only the author create or move a `v*` tag; (c) Dependabot for cargo, pip, npm and the workflows' actions, which opens pull requests on the repository. Recommended: (b) and (c) now, and (a) when pushes go through pull requests, since today it would hold each of the author's pushes for the run. Each is a setting on GitHub, through `gh api`, on the author's word.
 
+### The sixth production review
+
+Found 2026-10-13 at `fc6c0e7` (`production-review.md` §10); decided by ADR-0192 on the author's standing instruction.
+
+- [x] A sixth production review. *Done 2026-10-13 at `fc6c0e7`: **NO-GO** from both, one blocker and four majors, below.*
+- [x] **P8** a traversal invariant checked from what was written, along each chain it reads (decision 1). *Done 2026-10-13 (`a_traversal_invariant_is_checked_from_what_was_written`: no write reads the invariant's type whole, and a bound, a sum, a path, a part moved in and out, two hops and `referrers` each caught; seven mutations each failing it; the operator's go-live rerun: a draft 8.7 ms where 2,783, a category's creation 10.4 ms where 2,268, with a one-hop path invariant 13.1 ms).*
+- [x] **F9** each listener counts its own connections (decision 2). *Done 2026-10-13 (`the_metrics_listener_answers_beside_a_busy_main_one`, failing with the shared count).*
+- [ ] **P5, FILTER-COST class** an agents' read pool; a filter calling no metric, at most 256 nodes (decision 3).
+- [ ] **ERASED-IDENTITY** an erased actor's identity replaced by its object's id wherever the store keeps it (decision 4).
+- [ ] **HISTORY** `history` paged, `history` and `events` waiting their turn (decision 5).
+- [ ] **IDENTITY** an identity that shows what it is, compared without case, not shaped as an id, not admitted by an import (decision 6).
+- [ ] The minors (decision 7).
+
 ## Flow Studio
 
 The first application built on the engine (ADR-0149): an editor, viewer and simulator of flows, the test case that follows the implementation and the sample a user can read ([`docs/design/flow-studio.md`](docs/design/flow-studio.md)). No code is written before the author has reviewed the design and approved its dependencies.
