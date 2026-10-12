@@ -240,6 +240,7 @@ The review before 1.0.0, 2026-10-11 ([`production-review.md`](docs/design/produc
 - [x] **POISON** a panic while the writer's lock is held poisons it until a restart: the service answers `500` to every write after; recovering the lock, or exiting so a supervisor restarts it, is to be decided. *Done 2026-10-12: the next write takes the lock back, and a deployment's store is opened again from its file, so nothing the panic left half-changed in memory stays, the file's transaction rolled back; said on stderr; `a_writer_a_panic_poisoned_is_taken_back`, two mutations each failing it.*
 - [x] A second production review on the same store, before 1.0.0 is cut. *Done 2026-10-11 at `cd1b536` ([`production-review.md`](docs/design/production-review.md) §6): **NO-GO** from both reviewers, four blockers and nine majors, below.*
 - [x] A third production review on the same store, before 1.0.0 is cut. *Done 2026-10-12 at `77ed874` ([`production-review.md`](docs/design/production-review.md) §7): **NO-GO** from the operator, GO from the adversary with C-1 fixed or accepted; one blocker, the author's to act on, and six majors, below.*
+- [x] A fourth production review, before 1.0.0 is cut. *Done 2026-10-12 at `092f644` ([`production-review.md`](docs/design/production-review.md) §8): **NO-GO** from both, one blocker, fixed the same day, and three majors, below.*
 
 ### The second production review
 
@@ -298,6 +299,22 @@ Found 2026-10-12 at `77ed874` (`production-review.md` §7). The blocker is the a
 8. **MEMORY-2's remedy.** Measured 2026-10-12 on the 37k-object store: after a publish the service holds 975 MB, and the same process after `malloc_trim(0)`, called through a preloaded test library, holds 23 MB. So nothing keeps that memory alive: glibc keeps what the publish freed in its per-thread arenas, and its tunables (`MALLOC_ARENA_MAX`, `MALLOC_TRIM_THRESHOLD_`, `MALLOC_MMAP_THRESHOLD_`) measured no different, since only an explicit trim returns pages from the middle of an arena. Options: (a) the service calls `malloc_trim(0)` after a request that held much, a publish, a submit, an import batch or a read past a second, on glibc targets: `libc` (0.2.190, already in the lockfile through tokio) becomes the service's direct dependency, adding no crate, and one `unsafe` call, the service's `forbid(unsafe_code)` lowered to `deny` with one `allow` and its safety comment; (b) a global allocator that returns memory itself, mimalloc or jemalloc, a new crate with C built from source; (c) a scheduled restart, documented, which a reviewer named the workaround. Recommended: (a), the smallest change that measured 975 MB to 23 MB, with a test that the resident memory after a publish falls back; a publish's peak, about 1.1 GB at 37k objects and 3 GB at 110k, is unchanged by any of them and stays recorded under MEMORY-2.
 
 **Questions for the author** (2026-10-12, after SIZES), each with a recommendation. **Decided 2026-10-12** ("go with your recommendations on questions 9, 10 and 11"), ADR-0188: 9, a string value at most 64 KiB; 10, `--evaluator-token <name>=<file>`; 11, the store's volume in `/health` and `/metrics`, `503` below 64 MiB. Question 12, a fourth production review once the repository is pushed, is open.
+
+### The fourth production review
+
+Found 2026-10-12 at `092f644` (`production-review.md` §8).
+
+- [x] **A-15** one import batch stopped every write for good. *Done 2026-10-12 (D607).*
+- [ ] **FEED** `pull` and `export` read from their cursor by position, a page's worth, never the whole log and every object (`world.rs` `log`, `subscription.rs` `pull_page`, `export.rs` `export_page`).
+- [ ] **READS** concurrent heavy reads bounded in number and so in memory, and `integrate.md`'s sizing measured against them (Author question 14).
+- [ ] **AGENTS-OPEN** an agent's bounds where a flow declares none (Author question 13).
+- [ ] The minors of `production-review.md` §8.
+
+**Questions for the author** (2026-10-12), each with a recommendation, open:
+
+13. **AGENTS-OPEN.** A transition with no `taken_by` is open to every kind of actor, by the design (PRD T6, N7: the engine reads a kind only where the flow's author declares one), so a flow that declares none, as the review store's, hands an agent every transition through its tools and the wire. Options: (a) as now, the author's `taken_by` and the gateway, with the checker noticing it: a notice for each type whose transitions an agent may take where a module declares an agent kind of actor, and, against the previous version, one for each `taken_by` or `publishing` rule a version drops; (b) (a), and an agent's generated tools offer only the transitions whose `taken_by` names `agent`, so an agent held to its tools is closed by default while the wire stays as the flow says; (c) a transition with no `taken_by` refused to an agent wherever a flow declares an agent kind, which reads a kind the author did not declare and needs a PRD revision. Recommended: (b), since it closes the documented defence, an agent held to its tools, without the engine reading a kind the author did not name, and the notices make the open default visible where a flow is written and reviewed; the samples mark the transitions agents take.
+14. **READS.** Heavy reads have no bound on how many run at once, so their memory has none: 32 per-person metrics on six years took 3.3 GB. Options: (a) document it and leave admission to the gateway; (b) `--max-reads <n>`, 4 unless given: at most n reads run at once, a read waiting for a slot within its own deadline and answered `503 read_timeout` past it, `/health` and `/metrics` never waiting; `integrate.md` sizing a unit by the store's peak and n reads. Recommended: (b), since the engine is the one place that sees every read, and the bound is the one a supervisor's `MemoryMax` can be sized against.
+15. **Branch protection.** `main` accepts force-pushes and deletion. Recommended: protect it against force-pushes and deletion only, leaving direct pushes as the author works, through `gh api` on your word.
 
 ## Flow Studio
 

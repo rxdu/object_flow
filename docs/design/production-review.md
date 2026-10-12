@@ -106,3 +106,28 @@ Minors: a restore leaving the old `-wal` starts and answers `/health` 200 while 
 ### What the third review asks
 
 RELEASE-3 is the author's to act on. The majors fixed, each with a test at the size that broke it, PUBLISH-SCALE and READ-PAGES measured at 3x; AGENT-APPROVE decided by the author; then a fourth review, or the author's acceptance of what remains. `TODO.md` holds the list and the questions.
+
+## 8. The fourth review, after the third's fixes
+
+At commit `092f644`, 2026-10-12, the first commit pushed and run on CI: two new cold reviewers, an operator and an adversary, the release binary built at that commit, each given the third review's findings to re-check and the items the authors had recorded as open, working in a detached checkout, on copies of the same 37,154-object store and of the six-year store of about 110k objects the third review built. Their logs stayed in the session's scratch directory, which is not kept; this section is the record.
+
+**Verdicts: both NO-GO.** The operator found no blocker; the adversary one, fixed the same day. Neither met a crash, a hang or a lost acknowledged write: kill -9 and SIGTERM during writes and publishes lost nothing acknowledged, restart took 0.8 to 1.6 s on six years, 2,838 fuzzed requests answered no 500, writes stayed 8 to 13 ms from two years to six and a 4-minute soak of 1,887 claim lifecycles ended with no error.
+
+### The third review's findings, re-checked
+
+Fixed, measured by both: PUBLISH-SCALE (a submit and a preview beside the writes, the slowest write 0.06 s; an approval 2.9 s on 37k objects and 8.6 to 9.4 s on six years, linear), MEMORY-2 (34 to 60 MB after a publish), PRINCIPAL, C-1, READ-PAGES (8.5 to 12.9 s for every claim of six years, page by page), and every minor named but the ones below. RELEASE-3: pushed, `check-all` and the advisory scan passed on their first runs; private vulnerability reporting was enabled at 16:41 during the review, which one reviewer read before and the other after; no release is cut yet, which is the author's act, and `main` is unprotected. AGENT-APPROVE partly: the approval is refused where a flow declares `publishing.taken_by`, even against a change deleting the line, but neither review store declares it, and an agent installed a version on each.
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| A-15 | One `import_batch`, raising an undeclared sequence to `last` = i64::MAX, stopped every write for good: `last + 1` wrapped, and every write's allocator read `next_value - 1` in SQL, which overflowed to a REAL; `/health` stayed 200 | measured by the adversary; read | blocker, fixed the same day (D607) |
+| AGENTS-OPEN | An agent's bounds fail open: a flow declaring no `taken_by`, as the review store's, hands an agent every transition through its generated tools, and as an agent the reviewer recorded a bill, raised a policy limit, onboarded people and agents, erased a name, moved an employee to a final state and dissolved a function; the checker says nothing of agents, nor of a version that drops every `taken_by` and the `publishing` rule | measured by the adversary | major |
+| READS | Nothing bounds concurrent heavy reads: a per-person metric on six years takes 310 MB alone, 8 at once 1.8 to 2.0 GB, 32 at once 3.3 GB and every one `503 read_timeout`; 16 `available` reads 3.7 GB; read connections open without a cap; `integrate.md`'s sizing would be killed by 12 to 16 such reads | measured by both | major |
+| FEED | `pull` and `export` read the whole event log on each call, and `export`'s `log` every object first: an empty pull 1.3 s and 640 MB on six years, an export page about 5 s whatever its size, a whole export about 12 minutes, quadratic | measured by the operator; read (`world.rs` `log`) | major |
+
+Minors: the `-wal` past its limit under sustained heavy load (3.2 to 3.4 GB in minutes at about 100 writes a second with reads always overlapping; held at 64 MiB at 3.7 writes a second); a malformed filter answered 501 and echoed whole into the log; a filter reading an evaluator, `actor` or `inputs`, or dividing by zero, answering an empty page; an idempotency replay confirming an erased value; `acknowledge` taking any cursor; a restore beside another state's `-wal` refused only after the copy is changed; an evaluator URL's password logged; implausible import timestamps taken; a `record` transition offered where it can never be taken; an erasure reading the whole log under the writer; memory given back only after a heavy request; `/health` 200 with the stderr pipe full or every write stale behind another process's lock; `--bind 0.0.0.0` without a warning; a store file moved under the service still written; a full disk answered 500 rather than 503; `--help` without `--evaluator-token`; start lines without a timestamp; `/metrics` without histograms, evaluator failures or refusal kinds; 503 kinds told apart by text alone; no `sd_notify`, no metrics listener beside `--socket`; the README's "not yet for production". The known items (a clock brought back, refusals as 200, durations as `30 s`, unsigned releases, the 0.2.0 fixture) were ranked minor.
+
+### What the fourth review asks
+
+A-15 is fixed. FEED needs no decision and is built next; AGENTS-OPEN and READS are the author's, as `TODO.md` asks; then a fifth review, or the author's acceptance of what remains.
