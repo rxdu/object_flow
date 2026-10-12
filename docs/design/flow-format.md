@@ -104,7 +104,7 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 | `external` | the system that owns the value, such as `xero`: its values are unique for each source, and it MAY be optional, as an object not yet matched to that system has none (§4.15) |
 | `unique` | `true` if no two objects of the type may hold the same value; `in_scope`, `with` and `where` restrict it (§4.12) |
 | `indexed`, `personal` | as `declaration-syntax.md` §3.1 defines them |
-| `actor_kind` | `human`, `agent` or `service`, on the `identity` attribute of a type whose objects make requests; the identity names one actor across every such type, a second holder refused by the generated invariant `identity_taken`, and holds no control, zero-width or bidirectional formatting character, else `malformed` (ADR-0190 decision 4) |
+| `actor_kind` | `human`, `agent` or `service`, on the `identity` attribute of a type whose objects make requests; the identity names one actor across every such type, compared without case, a second holder refused by the generated invariant `identity_taken`, and is not empty, holds no whitespace at its ends nor any but a space within, no character that shows nothing, and is not shaped as an object's id, else `malformed` (ADR-0190 decision 4, ADR-0192 decision 6) |
 | `assignee` | `true` on a reference that names who is responsible for the object |
 | `unit` | the unit of a measured value |
 | `description` | one sentence, where the name alone does not say what the attribute holds |

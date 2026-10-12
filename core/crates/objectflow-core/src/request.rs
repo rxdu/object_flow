@@ -4118,17 +4118,20 @@ fn identity_holders(world: &World<'_>, o: &Object) -> Result<Vec<String>, NotRun
     if !matches!(mine, Value::Text(_)) {
         return Ok(Vec::new());
     }
+    // compared without case, so `ADMIN` and `admin` name one actor (ADR-0192
+    // decision 6): each actor type read for it, an actor's write being rare
+    let folded = |v: &Value| match v {
+        Value::Text(t) => Some(t.to_lowercase()),
+        _ => None,
+    };
+    let want = folded(&mine);
     let mut out = Vec::new();
     for (tn, ot) in &world.lib.types {
         let Some((b, _)) = ot.actor_identity() else {
             continue;
         };
-        for other in world.with_key(
-            tn,
-            std::slice::from_ref(&b.to_string()),
-            std::slice::from_ref(&mine),
-        )? {
-            if other.type_ == *tn && other.id != o.id && other.attr(b).equals(&mine) {
+        for other in world.of_type(tn)? {
+            if other.type_ == *tn && other.id != o.id && folded(&other.attr(b)) == want {
                 out.push(other.id.clone());
             }
         }
@@ -4684,6 +4687,32 @@ fn affected_by_writes(work: &World<'_>, before: &World<'_>) -> Result<Vec<String
                     }
                 }
                 for k in &keys {
+                    // an actor's identity, compared without case, so every
+                    // actor holding it in any case is checked again
+                    // (ADR-0192 decision 6)
+                    if k.source.as_deref() == Some(IDENTITY_SOURCE) {
+                        let folded = |v: &Value| match v {
+                            Value::Text(t) => Some(t.to_lowercase()),
+                            _ => None,
+                        };
+                        let wanted: BTreeSet<String> = versions
+                            .iter()
+                            .filter_map(|w| {
+                                let wt = lib.type_(&w.type_)?;
+                                let (a, _) = wt.actor_identity()?;
+                                folded(&w.attr(a))
+                            })
+                            .collect();
+                        if !wanted.is_empty() {
+                            for o in work.of_type(&k.family)? {
+                                if folded(&o.attr(&k.attrs[0])).is_some_and(|v| wanted.contains(&v))
+                                {
+                                    affected.insert(o.id.clone(), o.order);
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     for w in &versions {
                         let values: Vec<Vec<Value>> = match &k.source {
                             None if lib.is_a(&w.type_, &k.family) => {

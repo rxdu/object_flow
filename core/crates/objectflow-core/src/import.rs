@@ -974,6 +974,16 @@ fn decide(
             (_, Disposition::CleanUpstream) => {
                 (!dry_run).then(|| "was to be cleaned upstream".to_string())
             }
+            // an identity two actors hold, the first made answering for both,
+            // which no reason makes right (ADR-0192 decision 6)
+            (ViolationKind::Invariant, Disposition::Admit)
+                if c.rule == crate::request::IDENTITY_TAKEN =>
+            {
+                Some(
+                    "is an actor's identity another actor holds, which nothing admits: the first made would answer for both"
+                        .to_string(),
+                )
+            }
             (ViolationKind::Invariant, Disposition::Admit) | (_, Disposition::Exclude)
                 if reason.is_none() =>
             {
@@ -1873,6 +1883,59 @@ types:
             false,
         );
         assert_eq!((r.written, r.refusal.clone()), (2, None), "{r:?}");
+    }
+
+    /// An identity two actors hold, in any case, is admitted by nothing: a
+    /// disposition admitting `identity_taken` refuses the batch, where it
+    /// wrote a second holder and the first made answered for both (sixth
+    /// production review IDENTITY, ADR-0192 decision 6).
+    #[test]
+    fn an_identity_two_actors_hold_is_admitted_by_nothing() {
+        const PEOPLE: &str = r#"
+module: people
+categories: [active]
+types:
+  Person:
+    mirror: true
+    attributes:
+      person_id: { type: string, external: hr }
+      login: { type: identity, actor_kind: human }
+    states:
+      HERE: { category: active }
+"#;
+        let lib = Library::load(&[("people.yaml".into(), PEOPLE.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let person = |key: &str, login: &str| ImportedObject {
+            type_: "Person".into(),
+            legacy_key: key.into(),
+            state: "HERE".into(),
+            attributes: [
+                ("person_id".to_string(), json!(key)),
+                ("login".to_string(), json!(login)),
+            ]
+            .into(),
+            ..ImportedObject::default()
+        };
+        let batch = vec![person("P-1", "ann"), person("P-2", "ANN")];
+        let dry = run(&mut s, batch.clone(), &[], true);
+        let taken = dry
+            .findings
+            .iter()
+            .find(|c| c.rule == crate::request::IDENTITY_TAKEN)
+            .unwrap()
+            .clone();
+        let r = run(
+            &mut s,
+            batch,
+            &[decided(
+                &taken,
+                Disposition::Admit,
+                "two logins of one person",
+            )],
+            false,
+        );
+        assert_eq!(r.written, 0, "{r:?}");
+        assert!(r.refusal.unwrap().reason.contains("nothing admits"));
     }
 
     #[test]

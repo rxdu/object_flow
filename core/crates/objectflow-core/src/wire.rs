@@ -81,14 +81,66 @@ pub fn formatting(c: char) -> bool {
         || matches!(
             c,
             '\u{00AD}'
+                | '\u{034F}'
+                | '\u{0600}'..='\u{0605}'
                 | '\u{061C}'
+                | '\u{06DD}'
+                | '\u{070F}'
+                | '\u{0890}'..='\u{0891}'
+                | '\u{08E2}'
+                | '\u{115F}'..='\u{1160}'
                 | '\u{180E}'
                 | '\u{200B}'..='\u{200F}'
-                | '\u{202A}'..='\u{202E}'
+                | '\u{2028}'..='\u{202E}'
                 | '\u{2060}'..='\u{2064}'
-                | '\u{2066}'..='\u{2069}'
+                | '\u{2066}'..='\u{206F}'
+                | '\u{3164}'
+                | '\u{FE00}'..='\u{FE0F}'
                 | '\u{FEFF}'
+                | '\u{FFA0}'
+                | '\u{FFF9}'..='\u{FFFB}'
+                | '\u{110BD}'
+                | '\u{110CD}'
+                | '\u{13430}'..='\u{1343F}'
+                | '\u{1BCA0}'..='\u{1BCA3}'
+                | '\u{1D173}'..='\u{1D17A}'
+                | '\u{E0000}'..='\u{E007F}'
+                | '\u{E0100}'..='\u{E01EF}'
         )
+}
+
+/// Why an identity names no actor as it shows, none where it does: one
+/// empty, with whitespace at an end or other than a space within, holding a
+/// character that shows nothing, a format character, a variation selector,
+/// a combining grapheme joiner, a Hangul filler, a tag or a separator, or
+/// shaped as an object's id, `<type>-<number>` for a type of the store,
+/// which a request's actor resolves to that object instead (sixth production
+/// review IDENTITY, ADR-0192 decision 6).
+pub fn identity_fault(s: &str, lib: &Library) -> Option<String> {
+    if s.is_empty() {
+        return Some("an identity is not empty".to_string());
+    }
+    if s.trim() != s || s.chars().any(|c| c.is_whitespace() && c != ' ') {
+        return Some(
+            "an identity holds no whitespace at its ends, and none but a space within".to_string(),
+        );
+    }
+    if s.chars().any(formatting) {
+        return Some(
+            "an identity holds no control, zero-width, bidirectional or other formatting character"
+                .to_string(),
+        );
+    }
+    if let Some((prefix, n)) = s.rsplit_once('-')
+        && !n.is_empty()
+        && n.chars().all(|c| c.is_ascii_digit())
+        && lib.types.keys().any(|t| t.to_lowercase() == prefix)
+    {
+        return Some(format!(
+            "an identity is not shaped as an object's id, as {s} is, which names that object instead"
+        ));
+    }
+    None
 }
 
 pub fn decode(
@@ -200,11 +252,10 @@ pub fn decode(
                     // character is refused, where it named another actor
                     // than the one it showed (fifth production review
                     // IDENTITY, ADR-0190 decision 4)
-                    if t == "identity" && s.chars().any(formatting) {
-                        return Err(NotOfType(
-                            "an identity holds no control, zero-width or bidirectional formatting character".to_string(),
-                            InputReason::Malformed,
-                        ));
+                    if t == "identity"
+                        && let Some(why) = identity_fault(s, lib)
+                    {
+                        return Err(NotOfType(why, InputReason::Malformed));
                     }
                     if s.contains('\0') {
                         return Err(NotOfType(

@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes that may refuse what 0.2.0 accepted
 
+- An identity is not empty, holds no whitespace at its ends nor any but a space within, no character that shows nothing, a variation selector, a combining grapheme joiner, a Hangul filler, a tag or a separator among them, and is not shaped as an object's id, `<type>-<number>`, else `malformed`; `identity_taken` compares identities without case; and an import may not admit `identity_taken`; in both backends, where each made another actor than the one it showed (ADR-0192 decision 6).
 - `history` answers pages, at most `limit` events, 100 unless asked, with the `cursor` of the next, its legacy entries on the first, where one object's history answered 164.6 MB at once; `history` and `events` wait their turn among the worklists (ADR-0192 decision 5).
 - A query filter calling a metric, or holding more than 256 terms, is refused `malformed_filter`, where a metric per object and an `or` of 10,000 comparisons ran to the read's deadline (ADR-0192 decision 3).
 - A proposal's `reject`, and its `withdraw` by any but its proposer, are held to the kinds of actor the proposed transition's `taken_by` names, refused as approving it would be, `invariant_violated`, `<transition>_taken_by`, `delegable`, in both backends, where an agent could reject what a person proposed (ADR-0191 decision 1).

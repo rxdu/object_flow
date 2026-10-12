@@ -364,7 +364,7 @@ Found 2026-10-13 at `fc6c0e7` (`production-review.md` §10); decided by ADR-0192
 - [x] **P5, FILTER-COST class** an agents' read pool; a filter calling no metric, at most 256 terms (decision 3). *Done 2026-10-13 (`an_agents_reads_wait_in_a_pool_of_their_own`, each pool held in turn; `a_filter_no_object_can_answer_is_malformed`, 64 comparisons taken and 65 refused, a metric refused; five mutations each failing them).*
 - [x] **ERASED-IDENTITY** an erased actor's identity replaced by its object's id wherever the store keeps it (decision 4). *Done 2026-10-13 (`an_erased_actors_identity_leaves_the_store`, no row of the five tables nor the file and its `-wal` holding the email; `test_an_erased_actor_is_named_by_its_object_alike`, through both backends; eight mutations each failing them); D613 found and resolved on the way.*
 - [x] **HISTORY** `history` paged, `history` and `events` waiting their turn (decision 5). *Done 2026-10-13 (`test_a_history_is_read_page_by_page_alike`, 251 events in pages of 100, 100 and 51 through both backends; `only_the_reads_that_grow_with_the_store_wait_their_turn`; the web's `wire.test.ts`; five mutations each failing them).*
-- [ ] **IDENTITY** an identity that shows what it is, compared without case, not shaped as an id, not admitted by an import (decision 6).
+- [x] **IDENTITY** an identity that shows what it is, compared without case, not shaped as an id, not admitted by an import (decision 6). *Done 2026-10-13 (`test_an_identity_shows_what_it_is_alike`, thirteen identities refused and a case variant taken by both holders, through both backends; `an_identity_two_actors_hold_is_admitted_by_nothing`; nine mutations each failing them).*
 - [ ] The minors (decision 7).
 
 ## Flow Studio

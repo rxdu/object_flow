@@ -2523,3 +2523,31 @@ def test_an_erased_actor_is_named_by_its_object_alike(tee):
     assert tee.post("/v1/get", {"id": proposal})["attributes"]["proposer"] == ann
     alike(tee)
 
+
+def test_an_identity_shows_what_it_is_alike(tee):
+    """An identity is not empty, holds no whitespace at its ends nor any but a
+    space within, no character that shows nothing, and is not shaped as an
+    object's id, else `malformed`; and one differing from another actor's by
+    case alone is `identity_taken`, alike through both backends, where each
+    made another actor than the one it showed (sixth production review
+    IDENTITY, ADR-0192 decision 6)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+
+    def issue(key: str) -> dict:
+        return tee.post("/v1/request", {"type": "Bot", "transition": "issue", "actor": OP, "inputs": {"key": key}})
+
+    for key in ("", " scout", "scout ", "sc\u00a0out", "sc\u034fout", "sc\ufe0fout", "sc\u3164out",
+                "sc\U000e0041out", "sc\u2028out", "sc\ufff9out", "sc\U0001d173out", "staff-7", "bill-2"):
+        v = issue(key)
+        assert (v["kind"], v.get("reasons")) == ("invalid_input", {"key": "malformed"}), (repr(key), v)
+    assert issue("Scout One")["kind"] == "satisfied"
+    assert issue("bills-2")["kind"] == "satisfied"
+    assert tee.post("/v1/request", {"type": "Staff", "transition": "add", "actor": OP,
+                                    "inputs": {"login": "Ana"}})["kind"] == "satisfied"
+    v = issue("ana")
+    assert (v["kind"], [(f["type"], f["invariant"]) for f in v.get("failures", [])]) == (
+        "invariant_violated", [("Staff", "identity_taken"), ("Bot", "identity_taken")]), v
+    alike(tee)
+

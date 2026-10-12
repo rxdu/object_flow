@@ -1962,7 +1962,7 @@ class Runner:
                     wrong.append((k, "wrong_type"))
                 continue
             spec = declared.get(k) if k in declared else attrs.get(k)
-            why = input_fault(spec, v, self.enums)
+            why = input_fault(spec, v, self.enums, self.kinds)
             if why:
                 wrong.append((k, why))
                 continue
@@ -3086,8 +3086,10 @@ class Runner:
         v = o.attrs.get(mine[0]) if mine else None
         if not isinstance(v, str):
             return []
+        # compared without case, as the core's (ADR-0192 decision 6)
         return [x for x in store.objects.values()
-                if x.id != o.id and (theirs := self.actor_attr(x.type)) and x.attrs.get(theirs[0]) == v]
+                if x.id != o.id and (theirs := self.actor_attr(x.type))
+                and isinstance(x.attrs.get(theirs[0]), str) and x.attrs[theirs[0]].lower() == v.lower()]
 
     def unique_scope(self, tn, a):
         """The type whose family a uniqueness spans: the one declaring the attribute, so a base's spans every subtype,
@@ -3469,7 +3471,7 @@ def file_proposal(runner, store, st, aliases):
             if k not in taken:
                 continue
             v, spec = given_inputs[k], declared.get(k) if k in declared else attrs.get(k)
-            why = input_fault(spec, v, runner.enums)
+            why = input_fault(spec, v, runner.enums, runner.kinds)
             if why is None and "reference" in (spec or {}) and not all(
                     a in aliases and store.is_a(store.type_of(aliases[a]), spec["reference"].rstrip("[]"))
                     for a in (v if isinstance(v, (list, tuple)) else [v])):
@@ -3690,7 +3692,7 @@ def file_fault(v):
     return None
 
 
-def input_fault(spec, v, enums):
+def input_fault(spec, v, enums, kinds=None):
     """Why a request's input is not valid as its spec declares (ADR-0173 decision 9), as the core's decoder says it,
     or None: a member of no enumeration it names, a time, a date or a duration that does not parse, an amount without
     its currency or in another, more places than its scale, more than 18 digits, a string holding U+0000. A wire value
@@ -3773,7 +3775,7 @@ def input_fault(spec, v, enums):
         if not isinstance(v, str):
             return "wrong_type"
         # an identity holds no control, zero-width or bidirectional formatting character, as the core's (ADR-0190)
-        if typ == "identity" and any(formatting(c) for c in v):
+        if typ == "identity" and identity_fault(v, kinds):
             return "malformed"
         if "\0" in v:
             return "malformed"
@@ -3782,11 +3784,27 @@ def input_fault(spec, v, enums):
 
 
 def formatting(c):
-    """A control character, or one that formats text without showing: zero-width, bidirectional and invisible marks, by
-    their code points, as the core's."""
+    """A control character, or one that shows nothing: a format character, a variation selector, a combining grapheme
+    joiner, a Hangul filler, a tag or a separator, by their code points, as the core's (ADR-0192 decision 6)."""
     o = ord(c)
-    return (o < 0x20 or 0x7F <= o <= 0x9F or o in (0x00AD, 0x061C, 0x180E, 0xFEFF)
-            or 0x200B <= o <= 0x200F or 0x202A <= o <= 0x202E or 0x2060 <= o <= 0x2064 or 0x2066 <= o <= 0x2069)
+    return (o < 0x20 or 0x7F <= o <= 0x9F
+            or o in (0x00AD, 0x034F, 0x061C, 0x06DD, 0x070F, 0x08E2, 0x180E, 0x3164, 0xFEFF, 0xFFA0, 0x110BD, 0x110CD)
+            or any(lo <= o <= hi for lo, hi in (
+                (0x0600, 0x0605), (0x0890, 0x0891), (0x115F, 0x1160), (0x200B, 0x200F), (0x2028, 0x202E),
+                (0x2060, 0x2064), (0x2066, 0x206F), (0xFE00, 0xFE0F), (0xFFF9, 0xFFFB), (0x13430, 0x1343F),
+                (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A), (0xE0000, 0xE007F), (0xE0100, 0xE01EF))))
+
+
+def identity_fault(v, kinds):
+    """Why an identity names no actor as it shows, as the core's: empty, whitespace at an end or other than a space
+    within, a character that shows nothing, or shaped as an object's id of a type the store has; None where it is
+    fine (ADR-0192 decision 6)."""
+    if v == "" or v != v.strip() or any(c.isspace() and c != " " for c in v) or any(formatting(c) for c in v):
+        return "malformed"
+    prefix, _, n = v.rpartition("-")
+    if prefix and n.isdigit() and n.isascii() and any(t.lower() == prefix for t in (kinds or {})):
+        return "malformed"
+    return None
 
 
 def spec_of_kind(kind):
