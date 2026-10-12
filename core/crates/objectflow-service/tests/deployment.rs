@@ -46,6 +46,20 @@ impl Service {
     fn said(&self) -> String {
         self.said.lock().map(|s| s.clone()).unwrap_or_default()
     }
+
+    /// What it has written, once it holds a line containing `want` or after
+    /// five seconds: a line the service wrote before answering may not yet
+    /// have been read from its pipe when the answer arrives.
+    fn said_within(&self, want: &str) -> String {
+        let began = std::time::Instant::now();
+        loop {
+            let said = self.said();
+            if said.contains(want) || began.elapsed() > std::time::Duration::from_secs(5) {
+                return said;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
 }
 
 impl Drop for Service {
@@ -293,7 +307,7 @@ fn a_deployments_store_survives_a_restart_on_the_wall_clock() {
         "/v1/get",
         &json!({"actor": {"id": "operator"}, "id": "operator"}),
     );
-    let said = s.said();
+    let said = s.said_within("POST /v1/get 200");
     assert!(
         said.contains("the store's clock leads the wall clock by"),
         "{said}"
@@ -721,7 +735,8 @@ fn a_path_holding_no_store_is_refused_unless_made() {
     {
         let s = start(&["--store", path, "--create", "--port", "0"]);
         publish_service(&s);
-        assert!(s.said().contains("a store made at"), "{}", s.said());
+        let said = s.said_within("a store made at");
+        assert!(said.contains("a store made at"), "{said}");
         for suffix in ["", "-wal", "-shm"] {
             let f = format!("{path}{suffix}");
             let mode = std::fs::metadata(&f)
@@ -847,7 +862,7 @@ fn each_answer_is_logged_and_counted_and_health_reads_the_store() {
     }
     let (status, said) = call(&s, "POST", "/v1/request", Some(&json!({"inputs": 1})));
     assert_eq!(status, 400, "{said}");
-    let log = s.said();
+    let log = s.said_within("POST /v1/request 400");
     let line = log
         .lines()
         .find(|l| l.contains("POST /v1/publish 200"))
@@ -937,7 +952,7 @@ fn a_stopped_service_answers_the_requests_in_flight() {
         .wait()
         .expect("it exits");
     assert!(status.success(), "{status}");
-    let said = s.said();
+    let said = s.said_within(" stopped");
     assert!(
         said.contains(" stopping: ") && said.contains(" stopped"),
         "{said}"
@@ -1422,11 +1437,10 @@ fn idle_and_half_sent_connections_are_closed() {
         took < std::time::Duration::from_secs(4),
         "a half-sent body open {took:?}"
     );
+    let said = s.said_within("a connection answering nothing closed to make room: 3 are open");
     assert!(
-        s.said()
-            .contains("a connection answering nothing closed to make room: 3 are open"),
-        "{}",
-        s.said()
+        said.contains("a connection answering nothing closed to make room: 3 are open"),
+        "{said}"
     );
 }
 
@@ -1692,7 +1706,7 @@ fn a_deployment_asks_its_evaluators_at_their_endpoints() {
     }
     // each said on stderr by its function, never its arguments or the
     // endpoint's answer, which may hold personal data (production review)
-    let said = s.said();
+    let said = s.said_within("bank.cleared of 1 argument(s) is unknown");
     assert!(
         said.contains("bank.cleared of 1 argument(s) is unknown"),
         "{said}"
