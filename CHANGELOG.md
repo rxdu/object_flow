@@ -4,7 +4,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased, toward 1.0.0
 
-Release 1.0.0 is held until a production review, on the same 36.7k-object store as the first, finds no blocker or major (ADR-0183 decision 1; `docs/design/production-review.md`); the first two found some.
+Release 1.0.0 is held until a production review, on the same 36.7k-object store as the first, finds no blocker or major (ADR-0183 decision 1; `docs/design/production-review.md`); the first three found some.
 
 ### Changes that may refuse what 0.2.0 accepted
 

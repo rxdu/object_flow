@@ -239,6 +239,7 @@ The review before 1.0.0, 2026-10-11 ([`production-review.md`](docs/design/produc
 - [ ] **F5-REST** the reference runner keeps durations, decimals and amounts as unbounded fractions, so a duration past 2⁶³ seconds, or a decimal or amount past 38 digits, is refused `value_in_range` by the core and stored by the runner; bounding them needs each value's type where two combine, which `Evaluator.combine` (`scripts/flowrun.py`) does not carry. Found 2026-10-12 building ADR-0185, by reading.
 - [x] **POISON** a panic while the writer's lock is held poisons it until a restart: the service answers `500` to every write after; recovering the lock, or exiting so a supervisor restarts it, is to be decided. *Done 2026-10-12: the next write takes the lock back, and a deployment's store is opened again from its file, so nothing the panic left half-changed in memory stays, the file's transaction rolled back; said on stderr; `a_writer_a_panic_poisoned_is_taken_back`, two mutations each failing it.*
 - [x] A second production review on the same store, before 1.0.0 is cut. *Done 2026-10-11 at `cd1b536` ([`production-review.md`](docs/design/production-review.md) §6): **NO-GO** from both reviewers, four blockers and nine majors, below.*
+- [x] A third production review on the same store, before 1.0.0 is cut. *Done 2026-10-12 at `77ed874` ([`production-review.md`](docs/design/production-review.md) §7): **NO-GO** from the operator, GO from the adversary with C-1 fixed or accepted; one blocker, the author's to act on, and six majors, below.*
 
 ### The second production review
 
@@ -270,6 +271,24 @@ Found 2026-10-11 at `cd1b536` (`production-review.md` §6). Blockers first, each
 **A question for the author** (2026-10-12), with a recommendation. **Decided 2026-10-12** ("go with your recommendation on F5"), ADR-0185:
 
 5. **F5, an overflow in an effect.** An effect's integer arithmetic past 64 bits makes its value unknown in the core, and the request stops `501`, saying an absent value was assigned; the reference runner's integers have no bound, so it stores the value. Recommended: refuse the request, and say why, as a generated clause `value_in_range`, `unsatisfied` with the remedy `unreachable_from_here` and the object named, in both backends, the runner bounding its integers to 64 bits as the core does; a new clause is an addition `/v1` takes before 1.0.0.
+
+### The third production review
+
+Found 2026-10-12 at `77ed874` (`production-review.md` §7). The blocker is the author's to act on; each major fixed with a test at the size or input that broke it, the publish and the reads measured at 3x (109.6k objects, 387 MB); then a fourth review, or the author's acceptance of what remains.
+
+- [ ] **RELEASE-3** the repository pushed, CI and the advisory scan run, private vulnerability reporting enabled (Author question 6).
+- [ ] **PUBLISH-SCALE** an approval and a `dry_run: true` preview hold the writer for a time linear in the store (6 s at 1x, 36 to 38 s at 3x now); a submit whose off-lock dry run passes `--read-timeout` is answered `503 read_timeout` and said, never computed again under the lock (`main.rs` `request_op`'s `prepare(…).unwrap_or(None)`, `request.rs` submit); a SIGTERM during a long approval, cut at 30 s, said in `integrate.md`.
+- [ ] **MEMORY-2** memory a publish took given back, and a read's memory bounded: 975 MB held after one publish at 1x, 2.48 GB after six, 3x peaks 6.3 GB, reads alone 1.48 GB at 3x; `integrate.md`'s sizing measured at 3x.
+- [ ] **PRINCIPAL** `request`'s top-level `principal` read, typed, recorded and checked `actor_active`, as `wire.md` and `wire-v1.json` list it; `actor.principal` beside it agreeing or refused (`main.rs` `request_of`).
+- [ ] **C-1** connections answering nothing never shut out the application and `/health` at the cap; a newcomer refused only when every connection is answering, told `503`.
+- [ ] **AGENT-APPROVE** an agent's approval of a version (Author question 7).
+- [ ] **READ-PAGES** a filter on a derived attribute read whole, page by page, linear in what it reads (12.6 s at 1x, 112.6 s at 3x).
+- [ ] The minors of `production-review.md` §7: a restore beside the old `-wal` refused at start, as `integrate.md` says; the `-wal`'s size bounded and the files' sizes in `/metrics`; an import batch's cost as the store grows; `export`'s last page answered as `wire.md`'s pages say, or `wire.md` saying what its cursor is; `upgrade` checking its actor before its release (`409`); `follow` typed; `decimal(p,s)`'s `p` enforced as `declaration-syntax.md` says; a full disk in `/health`; a store's clock brought back; a 0.2.0 upgrade fixture; `release.yml` running the gates on what it ships; a missing directory's and a long socket path's start errors naming the path; and the second review's minors still open (lenient dates, a year past 9999, key and text sizes, an unset retention's refusal, a refused submit's report, the evaluator's credential).
+
+**Questions for the author** (2026-10-12), each with a recommendation, open:
+
+6. **RELEASE-3.** The push of 2026-10-12 did not land: `git ls-remote origin` shows `main` at `f6ee6d6`, before both production reviews, so CI, the advisory scan and the release workflow have never run, and private vulnerability reporting is still disabled. Recommended: run `! git push origin main` in the working session, so its output shows why if it fails again, then enable private vulnerability reporting in the repository's settings (Security, "Private vulnerability reporting").
+7. **AGENT-APPROVE.** All three reviews ranked it: an agent through the wire approves a `DeclarationChange` and installs a version, and only the gateway stands in the way (ADR-0183 decision 7, ADR-0184, PRD UC-15 "the upper layer deciding who may"). Options: (a) the gateway alone, as decided twice; (b) a store's flow may declare which kinds of actor approve its versions, as `taken_by` declares it for the flow's own transitions (ADR-0182), so the engine refuses another kind `delegable` where the author said so, and nothing where the flow is silent, a format addition `/v1` takes before 1.0.0; (c) a deployment's flag naming the kinds that approve, outside the flow. Recommended: (b), because it reads an actor's kind only where the flow's author declared it, as `taken_by` already does, so it needs no PRD revision, it is in both backends and the record, and one missed gateway rule no longer installs a version; the details in an ADR once chosen.
 
 ## Flow Studio
 

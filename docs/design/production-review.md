@@ -48,7 +48,7 @@ The blockers first, each with a test at the size or the input that broke it: F1,
 
 ## 6. The second review, after the fixes
 
-At commit `cd1b536`, 2026-10-11, as ADR-0183 decision 1 requires before 1.0.0 is cut: two new cold reviewers, an operator and an adversary, on copies of the same 37,154-object store (39,443 events, flow version 3, its `-wal` empty when copied, so complete), the release binary built at that commit, each given the first review's findings to re-check and barred from the decisions on them (ADR-0183 among them). Their logs, reproductions and reports are in the session's scratchpad (`pr2/operator`, `pr2/adversary`); the machine was shared with another project's CI, at load 1.2 to 7.0. **Both: NO-GO.**
+At commit `cd1b536`, 2026-10-11, as ADR-0183 decision 1 requires before 1.0.0 is cut: two new cold reviewers, an operator and an adversary, on copies of the same 37,154-object store (39,443 events, flow version 3, its `-wal` empty when copied, so complete), the release binary built at that commit, each given the first review's findings to re-check and barred from the decisions on them (ADR-0183 among them). Their logs, reproductions and reports stayed in the session's scratch directory, which is not kept, so this section is their record; the machine was shared with another project's CI, at load 1.2 to 7.0. **Both: NO-GO.**
 
 ### The first review's findings, re-checked
 
@@ -78,3 +78,31 @@ Minors, as the reviewers listed them: a foreign SQLite file is converted and ser
 
 The blockers and the majors fixed, each with a test at the size or input that broke it, then a third production review. The adversary's point about ADR-0180 holds: several fixes change a status code or refuse what is accepted now (module bounds, the typed keys, a bound on reads), which the promise would make a major release's after 1.0.0, so they are made before it. `TODO.md` holds the list, and the questions it needs of the author.
 
+
+## 7. The third review, after the second's fixes
+
+At commit `77ed874`, 2026-10-12: two new cold reviewers, an operator and an adversary, the release binary built at that commit, each given the second review's findings to re-check and barred from the decisions on them, working in a detached checkout of the commit, which the repository's later changes did not reach. The operator worked on copies of the same 37,154-object store ("1x"), a fresh two-year go-live, and a six-year go-live it built to measure growth, 109,602 objects in 387 MB ("3x"). The harness refused the adversary reading the store's objects, which hold names, so its scale and privacy numbers are on a synthetic store of about 12k claims it built from the sample flows. Their logs stayed in the session's scratch directory, which is not kept; this section is the record of what they measured.
+
+**Verdicts: the operator NO-GO, the adversary GO from its reach with C-1 fixed or accepted.** Neither met a panic, a crash, a hang or a lost acknowledged write: kill -9 during writes lost none of 532 acknowledged, a killed approval rolled back, online backups, a full disk, the evaluator's failures, two services on one store and every hostile input held.
+
+### The second review's findings, re-checked
+
+Fixed, measured by one or both: YAML-DEPTH, ERASE-CHECKPOINT's write latency, OBSERVE-2, TYPES (but PRINCIPAL below), CONN as written (but C-1 below), STORE-ACTS' retirement, SAMPLE-AGENTS, ATTEMPT-INPUTS; READ-COST at 12k (0.2, 0.93 and 1.4 s, each linear per page); of the minors, a foreign file, start errors (but a missing directory and a long socket path name no path), a clean stop's `-wal`, a live socket, backups' modes, money past 18 digits, `actor`'s keys and the export source's name. Partly fixed: DRYRUN-ACTOR and DRYRUN-LOCK, a person's and the operator's publish now costing the same and a submit's dry run running beside the writes, but an approval and a `dry_run: true` preview still hold every write, about 6 s at 1x and 36 to 38 s at 3x, and a submit whose dry run passes the read deadline computes it again under the lock (PUBLISH-SCALE); a read bounded in time, not in memory; MEMORY (MEMORY-2); timestamps, milliseconds and offsets refused but a year past 9999 parsed; journald's limit documented, one line an answer still. Not fixed: RELEASE-2, which is the author's to act on; an agent's publishing, the gateway's by ADR-0183 decision 7 and ADR-0184; lenient dates, key and text sizes, an unset retention's refusal unexplained, a refused submit's report, the evaluator's credential.
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| RELEASE-3 | Nothing pushed, tagged or run: `77ed874` 25 commits past `origin/main`, at `f6ee6d6`; no workflow, run, tag or release on GitHub; private vulnerability reporting disabled. A push on 2026-10-12 did not land (`git ls-remote`) | read by the operator from GitHub; confirmed by `git ls-remote` | blocker |
+| PUBLISH-SCALE | An approval and a `dry_run: true` preview hold every write, 6 s at 1x and 36 to 38 s at 3x, six times for three times the data; a submit whose off-lock dry run passes `--read-timeout` computes it again under the lock, unbounded and unsaid (`main.rs` `prepare(…).unwrap_or(None)`, then `request.rs`): at 3x every write held 33 to 37 s from 30.7 s into the submit, so a publish freezes writes about 70 s; SIGTERM's 30 s drain cuts a 36 s approval, which rolls back | measured by the operator; read | major |
+| MEMORY-2 | Memory is never given back: 12 MB to 975 MB after one publish at 1x, 2.08 GB after six, 2.48 GB after 45 idle minutes; 3x peaks 6.3 GB; reads alone 1.48 GB at 3x; past `integrate.md`'s sizing | measured by the operator | major |
+| PRINCIPAL | `request`'s top-level `principal`, which `wire.md` and `wire-v1.json` list, is taken, untyped, and dropped: any value is satisfied, every event records none, and the principal's `actor_active` is never checked; only `actor.principal` is read | measured by the operator; read (`main.rs`) | major |
+| C-1 | Connections answering nothing fill the cap, and every connection after them, `/health` and `/metrics` among them, is reset until the idle timeout closes them: a leaking pool or stalled agents shut out the application and its monitoring for up to 30 s | measured by the adversary; reproduced | major |
+| AGENT-APPROVE | An agent approves a `DeclarationChange` and installs a version; "agents draft, people approve" holds only where the gateway refuses it | measured by the operator | major (design) |
+| READ-PAGES | A derived filter read whole, page by page, is quadratic: 12.6 s at 1x, 112.6 s at 3x | measured by the operator | major |
+
+Minors: a restore leaving the old `-wal` starts and answers `/health` 200 while queries and writes answer 500, where `integrate.md` says it does not start; the `-wal` grows unbounded (792 MB beside a 133 MB store) and no file size is in `/metrics`; an import batch's time grows with the store (3,000 objects 1.6 s at the start, 12.1 s at 100k); `export` never answers a `null` cursor, against `wire.md`'s pages; `upgrade` by a non-operator answers 200 where none is due, where `wire.md` says 409; `follow` not typed; `decimal(p,s)` enforcing its scale and 18 digits but not `p`; durations only as `30 s`; a full disk reported as `disk I/O error` with `/health` 200; refusals answered 200, so `/metrics` cannot count them; no way to bring a store's clock back; no 0.2.0 upgrade fixture; `release.yml` testing nothing, needing no CI pass and signing nothing; and the minors not fixed above.
+
+### What the third review asks
+
+RELEASE-3 is the author's to act on. The majors fixed, each with a test at the size that broke it, PUBLISH-SCALE and READ-PAGES measured at 3x; AGENT-APPROVE decided by the author; then a fourth review, or the author's acceptance of what remains. `TODO.md` holds the list and the questions.
