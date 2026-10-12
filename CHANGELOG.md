@@ -9,6 +9,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 ### Changes that may refuse what 0.2.0 accepted
 
 - The operator's retirement is refused `not_requestable`, as its creation is, where it was irreversible (ADR-0184).
+- A request's own `principal` is read, typed and checked as the actor is, a principal naming no one refused `actor_known`, where it was taken and dropped; it and `actor.principal` must agree (third production review PRINCIPAL).
 - An effect whose arithmetic of present values has no value, an integer past 64 bits, a negation of the least or a division by zero among them, refuses its request as the generated clause `value_in_range`, `unsatisfied` with the remedy `unreachable_from_here`, naming the object, where the core answered `501 not run` and the reference runner stored the value; a condition may not be named `value_in_range` (ADR-0185, production review F5). The least integer leaves the wire as a string, as every integer past 2⁵³ does, where a release build sent it as a number (D601).
 - `events` takes 1,000 positions at most.
 - A file that holds something other than a store, another application's database among them, is refused with `--create` too, where it was given the store's tables and served.

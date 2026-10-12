@@ -1317,6 +1317,25 @@ async fn acknowledge(State(shared): State<Shared>, Body(body): Body) -> Answer {
 }
 
 /// A request as the wire carries it (`library-api.md` §3).
+/// The principal the actor acts for, which the store records and checks as
+/// it checks the actor (library-api.md §3, ADR-0182): the request's own
+/// `principal`, as `wire.md` lists it, or the actor's, which must agree; the
+/// request's was taken and dropped, so a principal who had left was never
+/// refused (third production review PRINCIPAL).
+fn principal_of(body: &J) -> Result<Option<String>, Fault> {
+    let own = text(body, "principal")?;
+    let actors = object(body, "actor")?
+        .map(|_| text(&body["actor"], "principal"))
+        .transpose()?
+        .flatten();
+    match (own, actors) {
+        (Some(a), Some(b)) if a != b => Err(Fault::Bad(format!(
+            "principal {a} and actor.principal {b} name different principals; send one"
+        ))),
+        (a, b) => Ok(a.or(b).map(str::to_string)),
+    }
+}
+
 fn request_of(body: &J) -> Result<Request, Fault> {
     // the key that makes a retry safe, scoped to the actor (library-api.md §3)
     let idempotency_key = match body.get("idempotency_key") {
@@ -1389,12 +1408,7 @@ fn request_of(body: &J) -> Result<Request, Fault> {
         propose,
         expires_at,
         expected_version,
-        // the principal the actor acts for, which the store records (library-api.md §3)
-        principal: object(body, "actor")?
-            .map(|_| text(&body["actor"], "principal"))
-            .transpose()?
-            .flatten()
-            .map(str::to_string),
+        principal: principal_of(body)?,
         idempotency_key,
         // why the request was sent and by which route (library-api.md §3)
         context: match body.get("context") {

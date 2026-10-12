@@ -398,6 +398,64 @@ fn a_flag_or_inputs_of_another_type_is_refused() {
     );
 }
 
+/// A request's own `principal`, which `wire.md` lists, is read as the
+/// actor's is: typed, refused `actor_known` where it names no one, refused
+/// where the two disagree, and recorded on the event; it was taken and
+/// dropped, any value satisfied (third production review PRINCIPAL).
+#[test]
+fn a_requests_principal_is_read_checked_and_recorded() {
+    let path = fresh_store("principal");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish_service(&s);
+    let op = json!({"id": "operator"});
+    let ana = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "User", "transition": "add", "inputs": {"login": "ana", "name": "Ana"}}),
+    );
+    assert_eq!(ana["kind"], "satisfied", "{ana}");
+    let open = |extra: Value| {
+        let mut body = json!({"actor": {"id": "ana"}, "type": "ServiceJob", "transition": "open",
+                              "inputs": {"engineer": ana["object_id"]}});
+        for (k, v) in extra.as_object().expect("keys") {
+            body[k] = v.clone();
+        }
+        call(&s, "POST", "/v1/request", Some(&body))
+    };
+    for extra in [
+        json!({"principal": "nobody"}),
+        json!({"actor": {"id": "ana", "principal": "nobody"}}),
+    ] {
+        let (status, said) = open(extra.clone());
+        assert_eq!(
+            (status, said["kind"].as_str(), said["clause"].as_str()),
+            (200, Some("unsatisfied"), Some("actor_known")),
+            "{extra}: {said}"
+        );
+    }
+    for extra in [
+        json!({"principal": 7}),
+        json!({"principal": "operator", "actor": {"id": "ana", "principal": "ana"}}),
+    ] {
+        let (status, said) = open(extra.clone());
+        assert_eq!(status, 400, "{extra}: {said}");
+    }
+    let (status, opened) = open(json!({"principal": "operator"}));
+    assert_eq!(
+        (status, opened["kind"].as_str()),
+        (200, Some("satisfied")),
+        "{opened}"
+    );
+    let history = post(&s, "/v1/history", &json!({"id": opened["object_id"]}));
+    assert_eq!(history["events"][0]["principal"], "operator", "{history}");
+}
+
 /// A value of another JSON type is refused on every key, never read as
 /// absent: a numeric `filter` returned every object unfiltered, a numeric
 /// `cursor` the first page again, a non-object `bind` the whole metric, and

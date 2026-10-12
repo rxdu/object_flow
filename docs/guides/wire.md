@@ -83,7 +83,7 @@ A request's answer, and each refusal inside an offer. Every refusal carries `rem
 
 ## 4. Operations
 
-**The actor.** An operation that acts or reads as someone takes `"actor": {"id": "<who>"}`, the actor's identity (an `Employee`'s `user_id`, say) or its object's id; the store's first actor is `operator`. A request by an actor the store does not know is refused `unsatisfied`, clause `actor_known`; one by an actor, or for a principal, whose object is in a final state, a person who left or an agent retired, is refused `unsatisfied`, clause `actor_active`, each remedy `dependent` (ADR-0182). An object's built-in attributes that hold JSON, a `DeclarationChange`'s `source`, `report` and `evidence` and a `Proposal`'s `inputs`, are answered as JSON.
+**The actor.** An operation that acts or reads as someone takes `"actor": {"id": "<who>"}`, the actor's identity (an `Employee`'s `user_id`, say) or its object's id; the store's first actor is `operator`. A request made for someone else, an agent acting for a person, names that person as its `principal`, the request's own key or the actor's (`"actor": {"id": …, "principal": …}`), which must agree; it is checked as the actor is and recorded on the event. A request by an actor the store does not know is refused `unsatisfied`, clause `actor_known`; one by an actor, or for a principal, whose object is in a final state, a person who left or an agent retired, is refused `unsatisfied`, clause `actor_active`, each remedy `dependent` (ADR-0182). An object's built-in attributes that hold JSON, a `DeclarationChange`'s `source`, `report` and `evidence` and a `Proposal`'s `inputs`, are answered as JSON.
 
 ### Requests
 
