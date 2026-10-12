@@ -189,6 +189,7 @@ A numeric field's declared unit is metadata in `of_declaration`, not a column, s
 | `counter` | `BIGINT NOT NULL DEFAULT 0` | `INTEGER NOT NULL DEFAULT 0` | non-negativity is an invariant the type declares, not a property of the column (ADR-0072) |
 | `derive`, not indexed | **nothing** | **nothing** | evaluated on read |
 | `derive`, indexed | generated column + index | generated column + index | §3.4 |
+| a scalar marked `indexed`, or an external identifier | column + index | column + index | a filter by it, and an external identifier's uniqueness, which every import and publish checks, read through the index, not the table whole (D593, D606); a store opened that lacks one is given it |
 
 ### 3.2 Worked, from the specification's own types
 

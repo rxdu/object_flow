@@ -617,6 +617,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D603](#d603) | The reference runner held a string-carried integer input as a string | Resolved |
 | [D604](#d604) | A dry run's simulation ran past the read's deadline | Resolved |
 | [D605](#d605) | An exact lookup gathered every object holding no value | Resolved |
+| [D606](#d606) | An external identifier had no index unless marked | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3929,3 +3930,8 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **An exact lookup gathered every object holding no value**: the in-memory column index gives a narrowing the objects whose column is absent as well as those holding the value, which a narrowing needs; an exact lookup by value, a uniqueness's or an external identifier's, took them too and filtered them out, so on a store held whole each check of an optional identifier swept every object without one. A dry run's per-object pass grew with the square of the store: a publish adding one attribute held writes 6 s on 37k objects and 44 s on 110k, 36 s of it Claim's `xero_bill_id` checked. Found 2026-10-12 timing the third production review's PUBLISH-SCALE by phase.
 
 **Resolved** 2026-10-12: an exact lookup takes only the objects holding its value (`an_identifiers_check_gathers_only_its_matches`, mutation-checked). The submit 41.5 s to 6.4 s and the approval 44.5 s to 9.1 s on 110k objects, 5.0 s to 2.0 s and 6.1 s to 2.9 s on 37k, linear.
+
+### D606
+**An external identifier had no index unless marked**: the store indexed an attribute marked `indexed`, a reference and a single-attribute key, but not an external identifier, which every import batch's uniqueness and invariant checks, every publish's, and `lookup` read by value, so each such check scanned its type's table: a go-live's batch of 3,000 objects took 1.6 s at the start and 4.2 s at 36k objects, 12.1 s at 100k in the third production review (N7). Found 2026-10-12 timing the import by phase, after reading every identifier whole, the first suspect, measured 0.03 s.
+
+**Resolved** 2026-10-12: an external identifier's column is indexed, and a store opened without the index is given it (`an_indexed_attribute_is_read_by_its_index`, mutation-checked). The batch takes 1.5 to 1.7 s throughout a 36k-object go-live, the whole import 33 s to 19.9 s.

@@ -651,17 +651,20 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
     }
 }
 
-/// The index on each attribute a query may filter on, `indexed`, where a
-/// reference's or a single-attribute key's index does not already serve it
-/// (`storage-schema.md` §10). The core made none before D593, so every read
-/// by such an attribute, an import's legacy key among them, read its whole
-/// table; [`Store::open`] makes one a store lacks.
+/// The index on each attribute a query may filter on, `indexed`, and on each
+/// external identifier, which every import, publish and `lookup` reads by
+/// value, where a reference's or a single-attribute key's index does not
+/// already serve it (`storage-schema.md` §10). The core made none before
+/// D593, so every read by such an attribute, an import's legacy key among
+/// them, read its whole table, and none on an external identifier not marked
+/// `indexed` before D606, so each import batch's checks of them grew with
+/// the store; [`Store::open`] makes one a store lacks.
 fn attribute_indexes(lib: &Library, t: &Type) -> Vec<String> {
     let name = table(&t.name);
     t.attributes
         .iter()
         .filter(|(n, a)| {
-            a.indexed
+            (a.indexed || a.external.is_some())
                 && !a.many
                 && !a.derived_end()
                 && !matches!(a.declared, Declared::Reference(_))
@@ -4288,8 +4291,9 @@ types:
     }
 
     /// An attribute marked `indexed` has an index on its column, which a
-    /// read by it goes through; one whose reference or single-attribute key
-    /// is indexed already gets no second (D593).
+    /// read by it goes through, and so has an external identifier, which every
+    /// import and publish reads by value (D606); one whose reference or
+    /// single-attribute key is indexed already gets no second (D593).
     #[test]
     fn an_indexed_attribute_is_read_by_its_index() {
         let text = r#"
@@ -4309,10 +4313,11 @@ types:
       note: { type: string, optional: true }
       serial: { type: string, unique: true, indexed: true }
       depot: { reference: Depot, indexed: true }
+      bill: { type: string, external: ledger, optional: true }
     states:
       OPEN: { category: open }
     transitions:
-      send: { kind: initial, to: OPEN, required_inputs: [code, serial, depot], optional_inputs: [note] }
+      send: { kind: initial, to: OPEN, required_inputs: [code, serial, depot], optional_inputs: [note, bill] }
 "#;
         let lib = Library::load(&[("post.yaml".into(), text.into())]).unwrap();
         let store = Store::sandbox(lib, 1_767_225_600).unwrap();
@@ -4333,6 +4338,7 @@ types:
             indexes,
             [
                 "t_parcel_asserted_ix",
+                "t_parcel_bill_ix",
                 "t_parcel_code_ix",
                 "t_parcel_depot_id_ix",
                 "t_parcel_serial_key_ix",
