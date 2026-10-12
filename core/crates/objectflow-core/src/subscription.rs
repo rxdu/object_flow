@@ -3,8 +3,6 @@
 //! by a settled cursor, which on SQLite, whose writers are serial, is the
 //! position (ADR-0089).
 
-use std::collections::BTreeSet;
-
 use crate::eval::NotRun;
 use crate::model::SUBSCRIPTION;
 use crate::store::Event;
@@ -42,7 +40,7 @@ pub fn pull_page(
     cursor: Option<i64>,
     limit: usize,
 ) -> Result<EventPage, NotRun> {
-    let settled = world.log()?.map(|e| e.position).max().unwrap_or(0);
+    let settled = world.last_position()?;
     let refuse = |why: &str| EventPage {
         events: Vec::new(),
         settled,
@@ -58,13 +56,8 @@ pub fn pull_page(
         Some(c) => c,
         None => acknowledged(world, s)?,
     };
-    let targets = targets(world, s)?;
-    let mut events: Vec<Event> = world
-        .log()?
-        .filter(|e| e.position > from && selects(s, &targets, e))
-        .cloned()
-        .collect();
-    events.sort_by_key(|e| e.position);
+    // one past the page says another follows
+    let mut events = selected(world, s, from, limit.saturating_add(1))?;
     let settled = if events.len() > limit {
         events.truncate(limit);
         events.last().map_or(settled, |e| e.position)
@@ -85,33 +78,62 @@ pub fn acknowledged(world: &World<'_>, s: &Object) -> Result<i64, NotRun> {
     if let Some(at) = world.acknowledged.get(&s.id) {
         return Ok(*at);
     }
-    Ok(world
-        .log()?
-        .find(|e| e.object_id == s.id)
-        .map_or(0, |e| e.position))
+    Ok(world.first_position(&s.id)?.unwrap_or(0))
 }
 
-/// The objects its filter's type selects, by id: its target type's, or its
-/// family's where it says so, each type read in one fetch rather than an
-/// object an event.
-fn targets<'w>(world: &'w World<'_>, s: &Object) -> Result<BTreeSet<&'w str>, NotRun> {
+/// The types whose objects' events its filter selects: its target type, or
+/// its family where it says so; none where it names no type.
+fn types_of(world: &World<'_>, s: &Object) -> Vec<String> {
     let Value::Text(target) = s.attr("target_type") else {
-        return Ok(BTreeSet::new());
+        return Vec::new();
     };
     let family = s.attr("target_family") == Value::Bool(true);
-    Ok(world
-        .of_type(&target)?
-        .into_iter()
-        .filter(|o| family || o.type_ == target)
-        .map(|o| o.id.as_str())
-        .collect())
+    world
+        .lib
+        .types
+        .keys()
+        .filter(|t| {
+            if family {
+                world.lib.is_a(t, &target)
+            } else {
+                **t == target
+            }
+        })
+        .cloned()
+        .collect()
 }
 
-/// Whether its filter selects an event: one of an object its type selects;
-/// of a transition it names, or of any where it names none; and one
-/// changing the state where it asks only for those.
-fn selects(s: &Object, targets: &BTreeSet<&str>, e: &Event) -> bool {
-    let typed = targets.contains(e.object_id.as_str());
+/// The first `limit` events after a position its filter selects, read from
+/// the log by their objects' types a chunk at a time from the position,
+/// where each pull read the whole log and every object of the type (fourth
+/// production review FEED).
+fn selected(world: &World<'_>, s: &Object, from: i64, limit: usize) -> Result<Vec<Event>, NotRun> {
+    let types = types_of(world, s);
+    let mut out = Vec::new();
+    if types.is_empty() || limit == 0 {
+        return Ok(out);
+    }
+    let chunk = limit.saturating_add(1).max(256);
+    let mut at = from;
+    loop {
+        let page = world.log_after(at, Some(&types), chunk)?;
+        let done = page.len() < chunk;
+        for e in page {
+            at = e.position;
+            if selects(s, &e) {
+                out.push(e);
+                if out.len() >= limit {
+                    return Ok(out);
+                }
+            }
+        }
+        if done {
+            return Ok(out);
+        }
+    }
+}
+
+fn selects(s: &Object, e: &Event) -> bool {
     let named = match s.attr("transitions") {
         Value::Set(names) if !names.is_empty() => names
             .iter()
@@ -119,7 +141,7 @@ fn selects(s: &Object, targets: &BTreeSet<&str>, e: &Event) -> bool {
         _ => true,
     };
     let changing = s.attr("changes_state_only") != Value::Bool(true) || e.changes_state;
-    typed && named && changing
+    named && changing
 }
 
 /// Its lag, the age by recorded time of the oldest event its filter selects
@@ -128,12 +150,8 @@ fn selects(s: &Object, targets: &BTreeSet<&str>, e: &Event) -> bool {
 /// `dead_after`, derived and never moved into (`DESIGN.md` §7, ADR-0100).
 pub fn lag(world: &World<'_>, s: &Object) -> Result<(i64, bool, bool), NotRun> {
     let from = acknowledged(world, s)?;
-    let targets = targets(world, s)?;
-    let oldest = world
-        .log()?
-        .filter(|e| e.position > from && selects(s, &targets, e))
-        .map(|e| e.recorded_at)
-        .min();
+    // the oldest pending is the first, the store's clock never moving back
+    let oldest = selected(world, s, from, 1)?.first().map(|e| e.recorded_at);
     let lag = oldest.map_or(0, |at| (world.now - at).max(0));
     let reached = |threshold: &str| matches!(s.attr(threshold), Value::Duration(d) if lag >= d);
     Ok((lag, reached("lagging_after"), reached("dead_after")))
@@ -148,6 +166,49 @@ mod tests {
     use crate::store::Store;
     use crate::verdict::Verdict;
     use serde_json::{Value as Json, json};
+
+    /// A page of the feed reads from its cursor, never the whole log nor
+    /// every object: a pull with nothing new took 1.3 s and 640 MB on six
+    /// years, an export page about 5 s whatever its size (fourth production
+    /// review FEED).
+    #[test]
+    fn a_page_of_the_feed_reads_from_its_cursor() {
+        let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let object_id = req(
+            &mut s,
+            "Subscription",
+            "subscribe",
+            None,
+            json!({"target_type": "Repair"}),
+        );
+        for i in 0..300 {
+            req(
+                &mut s,
+                "Repair",
+                "open",
+                None,
+                json!({"title": format!("r{i}")}),
+            );
+        }
+        let w = s.snapshot().unwrap();
+        let page = pull_page(&w, &object_id, None, 10).unwrap();
+        assert_eq!(page.events.len(), 10);
+        assert!(!w.log_read_whole(), "a pull read the whole log");
+        let w = s.snapshot().unwrap();
+        let page = crate::export::export_page(&w, "log", Some("100"), 10).unwrap();
+        assert_eq!(page.lines.len(), 10);
+        assert!(!w.log_read_whole(), "an export read the whole log");
+        assert!(
+            w.held_count() < 100,
+            "an export page held {} objects",
+            w.held_count()
+        );
+        let w = s.snapshot().unwrap();
+        let page = crate::export::export_page(&w, "Repair.transitions", Some("100"), 10).unwrap();
+        assert_eq!(page.lines.len(), 10);
+        assert!(!w.log_read_whole(), "a type's export read the whole log");
+    }
 
     const JOBS: &str = r#"
 module: jobs

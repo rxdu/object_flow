@@ -482,6 +482,99 @@ impl<'l> World<'l> {
         }
     }
 
+    /// The events after a position, in position order, at most `limit`, of
+    /// the objects of the types given where some are, the operation's own
+    /// among them: a page read from a cursor, never the log whole, where the
+    /// log is not held already (fourth production review FEED).
+    pub fn log_after(
+        &self,
+        after: i64,
+        types: Option<&[String]>,
+        limit: usize,
+    ) -> Result<Vec<Event>, crate::eval::NotRun> {
+        let of_types = |e: &Event| -> Result<bool, crate::eval::NotRun> {
+            Ok(match types {
+                None => true,
+                Some(types) => self
+                    .get(&e.object_id)?
+                    .is_some_and(|o| types.contains(&o.type_)),
+            })
+        };
+        let mut out = Vec::new();
+        let held = self.stored.get().is_some();
+        if held || self.conn.is_none() {
+            for e in self.log()? {
+                if out.len() >= limit {
+                    break;
+                }
+                if e.position > after && of_types(e)? {
+                    out.push(e.clone());
+                }
+            }
+            return Ok(out);
+        }
+        if let Some(conn) = self.conn {
+            out = crate::store::read_log_after(conn, after, types, limit).map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the store's log after {after}, which could not be read: {e}"
+                ))
+            })?;
+        }
+        for e in &self.appended {
+            if out.len() >= limit {
+                break;
+            }
+            if e.position > after && of_types(e)? {
+                out.push(e.clone());
+            }
+        }
+        Ok(out)
+    }
+
+    /// Whether the operation has read the whole log, which a test holds a
+    /// page of the feed from doing (FEED).
+    pub fn log_read_whole(&self) -> bool {
+        self.stored.get().is_some()
+    }
+
+    /// The log's last position, the operation's own events among it.
+    pub fn last_position(&self) -> Result<i64, crate::eval::NotRun> {
+        let stored = match (self.stored.get(), self.conn) {
+            (Some(Ok(events)), _) => events.last().map_or(0, |e| e.position),
+            (_, Some(conn)) => crate::store::read_last_position(conn).map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the store's last position, which could not be read: {e}"
+                ))
+            })?,
+            _ => 0,
+        };
+        Ok(self
+            .appended
+            .last()
+            .map_or(stored, |e| e.position.max(stored)))
+    }
+
+    /// An object's first event's position, none where it has none.
+    pub fn first_position(&self, id: &str) -> Result<Option<i64>, crate::eval::NotRun> {
+        if self.stored.get().is_some() || self.conn.is_none() {
+            return Ok(self.log()?.find(|e| e.object_id == id).map(|e| e.position));
+        }
+        let stored = match self.conn {
+            Some(conn) => crate::store::read_first_position(conn, id).map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the first event of {id}, which could not be read: {e}"
+                ))
+            })?,
+            None => None,
+        };
+        Ok(stored.or_else(|| {
+            self.appended
+                .iter()
+                .find(|e| e.object_id == id)
+                .map(|e| e.position)
+        }))
+    }
+
     /// The attempt log, in the order written, read on first use; a log that
     /// cannot be read stops the operation as not run, naming why.
     pub fn attempts(&self) -> Result<&[crate::store::Attempt], crate::eval::NotRun> {

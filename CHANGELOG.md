@@ -51,6 +51,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Performance
 
+- `pull` and `export` read a page from their cursor by position, never the whole event log and every object: on six years of claims an empty pull takes 1 ms and 15 MB where 1.1 s and 462 MB, and twenty export pages of 1,000 1.4 s where 90.6 s and 1.9 GB; a subscription's lag reads its first pending event alone (fourth production review FEED).
 - An external identifier is indexed whatever its marking, and a store opened without the index is given it: a go-live's import batch takes the same time at its last batch as its first, where 3,000 objects took 1.6 s at the start and 4.2 s at 36k objects (D606).
 - After a publish, an import batch or any request of half a second or more, the service gives back to the system what it freed, which glibc kept: ten seconds after a publish it holds 25 MB on 37k objects where it held 975 MB, and 36 MB on 110k where 2.95 GB; `objectflow_memory_given_back_total` counts it (ADR-0187 decision 2).
 - A query's page in creation order reads from its cursor, a chunk at a time, where each page read and filtered its type whole: a filter on a derived attribute read page by page over 12k claims took 1.6 s where 44.4 s, and its first page 0.03 s where 1.03 s (third production review READ-PAGES).

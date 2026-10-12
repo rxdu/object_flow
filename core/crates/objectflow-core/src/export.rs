@@ -65,12 +65,12 @@ pub fn export_page(
         },
     };
     let mut rows: Vec<(i64, Json)> = if source == "log" {
-        // every object held first, a type at a time, rather than fetched
-        // one at a time as each event names it
-        world.in_order()?;
+        // a page of the log read from the cursor, each event's object
+        // fetched as its row is written, where every page read the whole log
+        // and every object first (fourth production review FEED)
         world
-            .log()?
-            .filter(|e| e.position > after)
+            .log_after(after, None, limit)?
+            .iter()
             .map(|e| Ok((e.position, event_row(world, e)?)))
             .collect::<Result<_, NotRun>>()?
     } else if world
@@ -96,12 +96,18 @@ pub fn export_page(
                 .filter(|a| a.type_.as_deref().is_some_and(|t| world.lib.is_a(t, type_)))
                 .map(|a| (a.txn, attempt_row(a)))
                 .collect(),
-            // the log of the type's family
+            // the log of the type's family, a page read from the cursor
             "transitions" => {
-                let family = family_of(world, type_)?;
+                let family: Vec<String> = world
+                    .lib
+                    .types
+                    .keys()
+                    .filter(|t| world.lib.is_a(t, type_))
+                    .cloned()
+                    .collect();
                 world
-                    .log()?
-                    .filter(|e| e.position > after && family.contains(e.object_id.as_str()))
+                    .log_after(after, Some(&family), limit)?
+                    .iter()
                     .map(|e| Ok((e.position, event_row(world, e)?)))
                     .collect::<Result<_, NotRun>>()?
             }

@@ -305,7 +305,7 @@ Found 2026-10-12 at `77ed874` (`production-review.md` §7). The blocker is the a
 Found 2026-10-12 at `092f644` (`production-review.md` §8).
 
 - [x] **A-15** one import batch stopped every write for good. *Done 2026-10-12 (D607).*
-- [ ] **FEED** `pull` and `export` read from their cursor by position, a page's worth, never the whole log and every object (`world.rs` `log`, `subscription.rs` `pull_page`, `export.rs` `export_page`).
+- [x] **FEED** `pull` and `export` read from their cursor by position, a page's worth, never the whole log and every object (`world.rs` `log`, `subscription.rs` `pull_page`, `export.rs` `export_page`). *Done 2026-10-12: the log read after a position, by type through the directory where a subscription or a type's export selects, a chunk at a time; a subscription's settled and first positions by the log's key; on six years an empty pull 1 ms and 15 MB where 1.1 s and 462 MB, twenty export pages 1.4 s where 90.6 s and 1.9 GB (`a_page_of_the_feed_reads_from_its_cursor`, three mutations each failing it). An erasure still reads the whole log under the writer, a minor.*
 - [ ] **READS** concurrent heavy reads bounded in number and so in memory, and `integrate.md`'s sizing measured against them (Author question 14).
 - [ ] **AGENTS-OPEN** an agent's bounds where a flow declares none (Author question 13).
 - [ ] The minors of `production-review.md` §8.

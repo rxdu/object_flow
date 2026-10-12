@@ -1037,6 +1037,60 @@ type RowFields = (String, i64, String, Option<String>, Vec<Sql>);
 
 /// The log the store holds, in position order, which a world reads where an
 /// operation reads it (ADR-0162 step 1).
+/// The events after a position, in position order, at most `limit`, of the
+/// objects of the types given where some are: a page of the log read from a
+/// cursor by its key, where every pull and export read the log whole
+/// (fourth production review FEED).
+pub(crate) fn read_log_after(
+    conn: &Connection,
+    after: i64,
+    types: Option<&[String]>,
+    limit: usize,
+) -> rusqlite::Result<Vec<Event>> {
+    let mut binds: Vec<Sql> = vec![Sql::Integer(after)];
+    let mut sql = EVENT_SELECT.to_string();
+    match types {
+        Some(types) => {
+            let marks: Vec<String> = types
+                .iter()
+                .map(|t| {
+                    binds.push(Sql::Text(t.clone()));
+                    format!("?{}", binds.len())
+                })
+                .collect();
+            sql.push_str(&format!(
+                " JOIN of_object o ON o.id = of_event.object_id WHERE of_event.position > ?1 AND o.type IN ({})",
+                marks.join(", ")
+            ));
+        }
+        None => sql.push_str(" WHERE of_event.position > ?1"),
+    }
+    binds.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
+    sql.push_str(&format!(
+        " ORDER BY of_event.position LIMIT ?{}",
+        binds.len()
+    ));
+    let mut page = conn.prepare(&sql)?;
+    let rows = page.query_map(rusqlite::params_from_iter(binds), event_row)?;
+    rows.collect()
+}
+
+/// The log's last position, 0 for an empty log.
+pub(crate) fn read_last_position(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.query_row("SELECT COALESCE(MAX(position), 0) FROM of_event", [], |r| {
+        r.get(0)
+    })
+}
+
+/// An object's first event's position, by the index on its events.
+pub(crate) fn read_first_position(conn: &Connection, id: &str) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT MIN(position) FROM of_event WHERE object_id = ?1",
+        params![id],
+        |r| r.get(0),
+    )
+}
+
 pub(crate) fn read_log(conn: &Connection) -> rusqlite::Result<Vec<Event>> {
     let mut log = conn.prepare(&format!("{EVENT_SELECT} ORDER BY position"))?;
     let rows = log.query_map([], event_row)?;
