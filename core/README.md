@@ -47,6 +47,6 @@ CI (`.github/workflows/check.yml`) runs `scripts/check-all` on every push and pu
 
 ## Releases
 
-A release is the author's act: the version raised in `core/Cargo.toml`'s `[workspace.package]`, `CHANGELOG.md`'s section for it written, the commit's check passed, and the commit tagged `v<version>` and pushed. The tag's workflow (`.github/workflows/release.yml`) builds the service from it on the oldest supported Ubuntu, refuses a tag that names another version than the binary's, and publishes the archive and its SHA-256 checksum as the tag's GitHub release. A vulnerability is reported as `SECURITY.md` says.
+A release is the author's act: the version raised in `core/Cargo.toml`'s `[workspace.package]`, `CHANGELOG.md`'s section for it written, the commit's check passed, and the commit tagged `v<version>` and pushed. The tag's workflow (`.github/workflows/release.yml`) refuses a tag whose commit's `check-all` has not passed, runs the core's and the service's tests on the oldest supported Ubuntu, builds the service from the tag there, refuses a tag that names another version than the binary's, and publishes the archive and its SHA-256 checksum as the tag's GitHub release. A vulnerability is reported as `SECURITY.md` says.
 
 The tests hold the core to the reference: `tests/checker_oracle.rs` replays every check the flow checker makes on its planted fixtures (`scripts/check-flows.py --export-plants` writes them), and the Flow Studio's server tests play every example of the design's modules through both the core and the runner and compare each answer whole.

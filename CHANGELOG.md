@@ -60,6 +60,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Security
 
+- A release's workflow refuses a tag whose commit's `check-all` has not passed, and runs the core's and the service's tests on the runner that builds the binary it ships (third production review).
 - A store `--create` makes is `0600`, its `-wal` and `-shm` too; the service says at its start where a store's file is readable by others.
 - An evaluator's failure is logged by its function, never its arguments or the endpoint's answer.
 - An erasure leaves nothing it erased in the store's files (ADR-0181 decision 4).

@@ -1,8 +1,10 @@
-# A release, from its tag (ADR-0183 decision 2): the service built from the
-# tagged commit, its version checked against the tag, and published with its
-# SHA-256 checksum as the tag's GitHub release. Tag only a commit whose
-# check has passed; the release is the author's act (core/README.md,
-# "Releases").
+# A release, from its tag (ADR-0183 decision 2): the tagged commit's CI run
+# required to have passed, the core's and the service's tests run on the
+# runner that builds the binary, the service built from the tag, its version
+# checked against the tag, and published with its SHA-256 checksum as the
+# tag's GitHub release; the release is the author's act (core/README.md,
+# "Releases"). A release that tested nothing and needed no passed check was
+# the third production review's finding.
 name: release
 
 on:
@@ -11,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  checks: read
 
 jobs:
   release:
@@ -19,11 +22,30 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: The tagged commit's check has passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          seen=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
+            --jq '[.check_runs[] | select(.name == "check-all") | .conclusion] | join(" ")')
+          echo "check-all on $GITHUB_SHA: ${seen:-none}"
+          case " $seen " in
+            *" success "*) ;;
+            *) echo "tag a commit whose check-all has passed; this one's is: ${seen:-none run}"; exit 1 ;;
+          esac
       - name: The pinned Rust toolchain
         working-directory: core
         run: |
           channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
           rustup toolchain install "$channel" --profile minimal
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: The scripts' Python environment, which the core's parity tests read
+        run: scripts/setup/python-env
+      - name: The core's and the service's tests, on this runner
+        working-directory: core
+        run: cargo test --release --locked -p objectflow-core -p objectflow-service
       - name: The service, built from the tag
         working-directory: core
         run: cargo build --release --locked -p objectflow-service
