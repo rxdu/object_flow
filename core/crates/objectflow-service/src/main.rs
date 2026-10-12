@@ -1035,9 +1035,16 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
             (Some(id), "submit" | "refresh") if shared.reads.is_some() => {
                 let mut r = reading(&shared)?;
                 let s = r.store()?;
-                // a read that cannot prepare it leaves it to the request,
-                // which computes it under the lock and says why it cannot
-                objectflow_core::publish::prepare(&s.snapshot()?, id, &req.actor).unwrap_or(None)
+                match objectflow_core::publish::prepare(&s.snapshot()?, id, &req.actor) {
+                    Ok(prepared) => prepared,
+                    // past the read's deadline it is answered so, never
+                    // computed again under the lock, where every write
+                    // waited for it unbounded and unsaid (PUBLISH-SCALE)
+                    Err(NotRun::TimedOut(_)) => return Err(dry_run_late(&shared)),
+                    // any other read that cannot prepare it leaves it to the
+                    // request, which says why it cannot
+                    Err(_) => None,
+                }
             }
             _ => None,
         };
@@ -1734,55 +1741,83 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "publish names its actor and the change".to_string(),
             ));
         };
-        let dry_run = flag(&body, "dry_run")?;
+        if flag(&body, "dry_run")? {
+            // a preview is a read: a deployment's runs beside the writes,
+            // under the read's deadline, where it held every write (third
+            // production review PUBLISH-SCALE); a sandbox's reads take the
+            // writer, as every one of its reads does
+            if shared.reads.is_some() {
+                let mut r = reading(&shared)?;
+                let s = r.store()?;
+                return preview(&s.snapshot()?, actor, change).map_err(|e| match e {
+                    Fault::TimedOut(_) => dry_run_late(&shared),
+                    other => other,
+                });
+            }
+            let mut sandbox = locked(&shared)?;
+            let s = store(&mut sandbox)?;
+            return preview(&s.snapshot()?, actor, change);
+        }
         let mut sandbox = locked(&shared)?;
         let s = store(&mut sandbox)?;
-        if !dry_run {
-            // the version of the change the approver read, required (ADR-0101)
-            let Some(expected) = int(&body, "expected_version")? else {
-                return Err(Fault::Bad(
-                    "a publish names the expected_version of the change it approves".to_string(),
-                ));
-            };
-            let (v, report) = s.publish(actor, change, expected)??;
-            // a publish's own refusal, current, fatal, impact_unchanged or
-            // decision_unresolved, names no object and takes no proposal
-            let told = Told::default();
-            return Ok(Json(json!({
-                "verdict": verdict_told(&v, Some(&told)),
-                "report": report.as_ref().map(objectflow_core::publish::report_json),
-            })));
-        }
-        let world = s.snapshot()?;
-        let Some(c) = world
-            .get(change)?
-            .filter(|c| c.type_ == objectflow_core::model::DECLARATION_CHANGE)
-        else {
-            return Err(Fault::Missing(format!("no change {change}")));
+        // the version of the change the approver read, required (ADR-0101)
+        let Some(expected) = int(&body, "expected_version")? else {
+            return Err(Fault::Bad(
+                "a publish names the expected_version of the change it approves".to_string(),
+            ));
         };
-        let attr = |a: &str| match c.attr(a) {
-            objectflow_core::value::Value::Text(t) => t,
-            _ => String::new(),
-        };
-        let source: Vec<(String, String)> = serde_json::from_str::<Map<String, J>>(&attr("source"))
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
-            .collect();
-        let report = objectflow_core::publish::dry_run(
-            &world,
-            &objectflow_core::publish::Draft {
-                change_id: Some(change),
-                source: &source,
-                source_ref: Some(&attr("source_ref")),
-                source_digest: Some(&attr("source_digest")),
-                actor,
-            },
-        )?;
-        Ok(Json(
-            json!({ "verdict": J::Null, "report": objectflow_core::publish::report_json(&report) }),
-        ))
+        let (v, report) = s.publish(actor, change, expected)??;
+        // a publish's own refusal, current, fatal, impact_unchanged or
+        // decision_unresolved, names no object and takes no proposal
+        let told = Told::default();
+        Ok(Json(json!({
+            "verdict": verdict_told(&v, Some(&told)),
+            "report": report.as_ref().map(objectflow_core::publish::report_json),
+        })))
     })
+}
+
+/// A change's dry run stopped at the read's deadline, said as such: a
+/// submit's and a preview's run on a read beside the writes, and are never
+/// computed again under the lock (PUBLISH-SCALE).
+fn dry_run_late(shared: &Shared) -> Fault {
+    Fault::TimedOut(format!(
+        "the change's dry run passed --read-timeout ({} s) and was stopped; on a store this size a publish needs a longer one",
+        shared.read_timeout.as_secs()
+    ))
+}
+
+/// A change's dry run as a publish previews it, over the store as `world`
+/// reads it.
+fn preview(world: &objectflow_core::world::World<'_>, actor: &str, change: &str) -> Answer {
+    let Some(c) = world
+        .get(change)?
+        .filter(|c| c.type_ == objectflow_core::model::DECLARATION_CHANGE)
+    else {
+        return Err(Fault::Missing(format!("no change {change}")));
+    };
+    let attr = |a: &str| match c.attr(a) {
+        objectflow_core::value::Value::Text(t) => t,
+        _ => String::new(),
+    };
+    let source: Vec<(String, String)> = serde_json::from_str::<Map<String, J>>(&attr("source"))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
+        .collect();
+    let report = objectflow_core::publish::dry_run(
+        world,
+        &objectflow_core::publish::Draft {
+            change_id: Some(change),
+            source: &source,
+            source_ref: Some(&attr("source_ref")),
+            source_digest: Some(&attr("source_digest")),
+            actor,
+        },
+    )?;
+    Ok(Json(
+        json!({ "verdict": J::Null, "report": objectflow_core::publish::report_json(&report) }),
+    ))
 }
 
 /// The object whose external identifier for a source has a value, a legacy

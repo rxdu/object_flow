@@ -8868,6 +8868,50 @@ types:
         assert!(keyed <= 3 * held, "{keyed} keyings for {held} held");
     }
 
+    /// An external identifier's uniqueness, checked on each object of a
+    /// store held whole, as a dry run checks it, is looked up among the
+    /// objects holding the same identifier only: the objects holding none
+    /// were gathered for every check, and a publish on 110k objects held
+    /// every write 44 s, 36 s of it there (PUBLISH-SCALE).
+    #[test]
+    fn an_identifiers_check_gathers_only_its_matches() {
+        let text = r#"
+module: bills
+categories: [open, closed]
+types:
+  Bill:
+    attributes:
+      ref: { type: string, external: ledger, optional: true }
+    states:
+      OPEN: { category: open }
+    transitions:
+      raise: { kind: initial, to: OPEN, optional_inputs: [ref] }
+"#;
+        let lib = Library::load(&[("bills.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        for i in 0..400 {
+            let inputs = if i % 20 == 0 {
+                json!({"ref": format!("L{i}")})
+            } else {
+                json!({})
+            };
+            created(&req(&mut s, "raise", OPERATOR, ("Bill", true), inputs));
+        }
+        let w = s.snapshot().unwrap();
+        let all = w.in_order().unwrap();
+        let mut checked = 0;
+        for o in all.iter().filter(|o| o.type_ == "Bill") {
+            assert!(failing_invariants(&w, o).unwrap().is_empty());
+            checked += usize::from(!o.attr("ref").is_absent());
+        }
+        assert_eq!(checked, 20);
+        let gathered = w.gathered_count();
+        assert!(
+            gathered <= 2 * checked,
+            "{gathered} gathered for {checked} checks"
+        );
+    }
+
     /// `available` reads the objects in a state its transition is taken
     /// from, by the state's index, and each one's offer of that transition
     /// alone: a worklist with nothing to find read every claim of the type,

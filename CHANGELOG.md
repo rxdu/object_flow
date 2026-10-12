@@ -10,6 +10,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 - The operator's retirement is refused `not_requestable`, as its creation is, where it was irreversible (ADR-0184).
 - A request's own `principal` is read, typed and checked as the actor is, a principal naming no one refused `actor_known`, where it was taken and dropped; it and `actor.principal` must agree (third production review PRINCIPAL).
+- A change's dry run that passes `--read-timeout`, a `submit`'s or a `publish` preview's, is answered `503 read_timeout` and records nothing, where a submit's was computed again under the writer's lock and a preview held the writer throughout (third production review PUBLISH-SCALE, D604).
 - An effect whose arithmetic of present values has no value, an integer past 64 bits, a negation of the least or a division by zero among them, refuses its request as the generated clause `value_in_range`, `unsatisfied` with the remedy `unreachable_from_here`, naming the object, where the core answered `501 not run` and the reference runner stored the value; a condition may not be named `value_in_range` (ADR-0185, production review F5). The least integer leaves the wire as a string, as every integer past 2⁵³ does, where a release build sent it as a number (D601).
 - `events` takes 1,000 positions at most.
 - A file that holds something other than a store, another application's database among them, is refused with `--create` too, where it was given the store's tables and served.
@@ -41,6 +42,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Performance
 
+- A publish's dry run is linear in the store, where checking each object's optional identifiers swept every object without one: on 110k objects a publish adding one attribute submitted in 6.4 s where 41.5 s, and its approval held writes 9.1 s where 44.5 s (D605).
 - A submit's dry run runs beside the writes, where every write waited for it: 83 s for a module of 3,000 types, which also checks ten times faster (D599, D600).
 - A person's or an agent's submit of a version, which resolved its submitter by reading every actor for each object, took 6 s where it passed 20 minutes on 37k objects (D594); a per-person metric and a filter on a derived attribute 1 to 1.5 s where 77 to 83 s (D595); `available` reads only the objects its transition is taken from (D596); an erasure's truncation of the write-ahead log waits on no reader, where it made every write take 5 s while a read was open (D597).
 - An attribute marked `indexed` has an index, which no release before made, and opening a store makes one it lacks: the go-live import of 36k objects took 36 s where 145 s (D593).

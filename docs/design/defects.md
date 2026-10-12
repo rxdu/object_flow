@@ -615,6 +615,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D601](#d601) | The least integer's magnitude overflowed in the core's encoders | Resolved |
 | [D602](#d602) | The reference runner refused the least integer as an input | Resolved |
 | [D603](#d603) | The reference runner held a string-carried integer input as a string | Resolved |
+| [D604](#d604) | A dry run's simulation ran past the read's deadline | Resolved |
+| [D605](#d605) | An exact lookup gathered every object holding no value | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3917,3 +3919,13 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **The reference runner held a string-carried integer input as a string**: an `int` or `counter` input past 2⁵³, which the wire carries as a string, was converted to check its bound and then stored as the string it arrived as, so an expression over it raised a type error and the runner answered `500` where the core answered. Found 2026-10-12 writing F5's comparison test.
 
 **Resolved** 2026-10-12: the runner holds it as the integer (`test_an_effects_arithmetic_past_its_bound_is_refused_alike`, mutation-checked).
+
+### D604
+**A dry run's simulation ran past the read's deadline**: the dry run evaluates the version under publish in a world it builds for it, which took no deadline, so a new rule whose cost over the objects was large ran to its end, 10 s past a 1 s deadline, before the read that held the deadline noticed. Found 2026-10-12 writing the test of the third production review's N1.
+
+**Resolved** 2026-10-12: the simulation takes the read's deadline (`a_submits_dry_run_past_the_deadline_is_answered_not_locked`, mutation-checked).
+
+### D605
+**An exact lookup gathered every object holding no value**: the in-memory column index gives a narrowing the objects whose column is absent as well as those holding the value, which a narrowing needs; an exact lookup by value, a uniqueness's or an external identifier's, took them too and filtered them out, so on a store held whole each check of an optional identifier swept every object without one. A dry run's per-object pass grew with the square of the store: a publish adding one attribute held writes 6 s on 37k objects and 44 s on 110k, 36 s of it Claim's `xero_bill_id` checked. Found 2026-10-12 timing the third production review's PUBLISH-SCALE by phase.
+
+**Resolved** 2026-10-12: an exact lookup takes only the objects holding its value (`an_identifiers_check_gathers_only_its_matches`, mutation-checked). The submit 41.5 s to 6.4 s and the approval 44.5 s to 9.1 s on 110k objects, 5.0 s to 2.0 s and 6.1 s to 2.9 s on 37k, linear.

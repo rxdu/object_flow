@@ -948,6 +948,92 @@ fn a_submits_dry_run_holds_no_write() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
+/// A submit whose dry run passes the read's deadline is answered
+/// `503 read_timeout` and records nothing, where it was computed again under
+/// the writer's lock, unbounded and unsaid, every write waiting for it
+/// (third production review PUBLISH-SCALE, N1).
+#[test]
+fn a_submits_dry_run_past_the_deadline_is_answered_not_locked() {
+    let file = fresh_store("submit-deadline");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+        "--read-timeout",
+        "1 s",
+    ]);
+    let note = |invariant: &str| {
+        format!(
+            "module: tally\ncategories: [live, closed]\ntypes:\n  Note:\n    description: A note.\n    tracking: record\n    attributes:\n      a: {{ type: int, indexed: true }}\n    states:\n      OPEN: {{ category: live }}\n      DONE: {{ category: closed, final: true }}\n{invariant}    transitions:\n      make: {{ kind: initial, to: OPEN, required_inputs: [a] }}\n      finish: {{ kind: external, from: OPEN, to: DONE }}\n"
+        )
+    };
+    publish(&s, &json!({"tally": note("")}));
+    let op = json!({"id": "operator"});
+    for i in 0..150 {
+        post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Note", "transition": "make", "inputs": {"a": i}}),
+        );
+    }
+    // an invariant whose cost over the notes is their cube
+    let slow = note(
+        "    invariants:\n      ranked:\n        description: Every note is ranked.\n        expression: \"count(x in Note where count(y in Note where y.a <= x.a) > 0) > 0\"\n",
+    );
+    let drafted = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
+        "inputs": {"source": {"tally": slow}, "source_ref": "test:slow"}}),
+    );
+    assert_eq!(drafted["kind"], "satisfied", "{drafted}");
+    let change = drafted["object_id"].as_str().expect("a change").to_string();
+    let began = std::time::Instant::now();
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/request",
+        Some(&json!({"actor": op, "object_id": change, "transition": "submit"})),
+    );
+    let took = began.elapsed();
+    assert_eq!(status, 503, "{said}");
+    assert!(
+        said["fault"]
+            .as_str()
+            .is_some_and(|f| f.starts_with("read_timeout: the change's dry run")),
+        "{said}"
+    );
+    assert!(
+        took < std::time::Duration::from_secs(5),
+        "answered after {took:?}"
+    );
+    let got = post(&s, "/v1/get", &json!({"id": change}));
+    assert_eq!(got["state"], "DRAFTED", "{got}");
+    // a preview is a read, under the same deadline, beside the writes
+    let began = std::time::Instant::now();
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/publish",
+        Some(&json!({"actor": op, "change": change, "dry_run": true})),
+    );
+    let took = began.elapsed();
+    assert_eq!(status, 503, "{said}");
+    assert!(
+        said["fault"]
+            .as_str()
+            .is_some_and(|f| f.starts_with("read_timeout: the change's dry run")),
+        "{said}"
+    );
+    assert!(
+        took < std::time::Duration::from_secs(5),
+        "answered after {took:?}"
+    );
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
 /// A held writer and the requests in flight are seen in `/health` and
 /// `/metrics` while an approval holds the writer, where a 21-minute stall
 /// answered health 200 in 1 ms and showed nothing (OBSERVE-2); and both

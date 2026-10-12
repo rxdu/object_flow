@@ -510,6 +510,9 @@ fn impact(
         mapped.insert(x.id.clone(), x);
     }
     let mut sim = World::new(&new, world.now);
+    // the read's deadline bounds the simulation too, where a new rule's
+    // cost over the objects ran on past it (PUBLISH-SCALE)
+    sim.deadline = world.deadline;
     for o in mapped.into_values() {
         sim.insert(o)?;
     }

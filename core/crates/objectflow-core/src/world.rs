@@ -266,6 +266,9 @@ struct Held {
     /// How many slots the columns have keyed, which a test holds linear in
     /// what is held.
     keyed: std::cell::Cell<usize>,
+    /// How many candidates the columns have given lookups, which a test
+    /// holds to what the lookups match.
+    gathered: std::cell::Cell<usize>,
 }
 
 /// The held objects of one type by one attribute's value, a key of each
@@ -661,7 +664,13 @@ impl<'l> World<'l> {
     /// The held objects of a type, its own or a subtype's, whose attribute
     /// holds the value given or none, by the index, in ascending id order;
     /// none where the value is one the index holds no key for.
-    fn held_where(&self, type_: &str, attr: &str, v: &Value) -> Option<Vec<&Object>> {
+    fn held_where(
+        &self,
+        type_: &str,
+        attr: &str,
+        v: &Value,
+        absent_too: bool,
+    ) -> Option<Vec<&Object>> {
         let key = index_key(v)?.map(Some)?;
         let mut idx = self.held.index.borrow_mut();
         let changed = self.held.changed.borrow();
@@ -681,7 +690,12 @@ impl<'l> World<'l> {
                 column.key(n, self.held.slots.get(n), t, attr);
             }
             (column.slots, column.changes) = (slots, changed.len());
-            for k in [key.clone(), None] {
+            // the objects holding no value, which a narrowing keeps and an
+            // exact match never wants: gathered for every lookup of an
+            // optional identifier, they made a dry run's check of each
+            // object's quadratic (PUBLISH-SCALE)
+            let absent = absent_too.then_some(None);
+            for k in std::iter::once(key.clone()).chain(absent) {
                 if let Some(ns) = column.by.get(&k) {
                     found.extend(ns);
                 }
@@ -691,6 +705,7 @@ impl<'l> World<'l> {
             .into_iter()
             .filter_map(|n| self.held.slots.get(n))
             .collect();
+        self.held.gathered.set(self.held.gathered.get() + out.len());
         out.sort_by_key(|o| o.order);
         Some(out)
     }
@@ -712,6 +727,14 @@ impl<'l> World<'l> {
     /// made a sweep of a store quadratic (READ-COST).
     pub fn keyed_count(&self) -> usize {
         self.held.keyed.get()
+    }
+
+    /// How many candidates the operation's column indexes have given its
+    /// lookups: what an exact lookup matches, where the objects holding no
+    /// value, given to every lookup of an optional identifier, made a dry
+    /// run's check of each object quadratic (PUBLISH-SCALE).
+    pub fn gathered_count(&self) -> usize {
+        self.held.gathered.get()
     }
 
     fn held_in_order(&self, of: impl Fn(&Object) -> bool) -> Vec<&Object> {
@@ -973,7 +996,10 @@ impl<'l> World<'l> {
         };
         // the held objects by the index on a pair's column, where its value
         // is one the index holds, never every held object (PERF-SCAN)
-        if let Some(found) = pairs.iter().find_map(|(a, v)| self.held_where(type_, a, v)) {
+        if let Some(found) = pairs
+            .iter()
+            .find_map(|(a, v)| self.held_where(type_, a, v, true))
+        {
             return Ok(found.into_iter().filter(|o| holds(o)).collect());
         }
         Ok(self.held_in_order(holds))
@@ -1019,7 +1045,10 @@ impl<'l> World<'l> {
         // is one the index holds, never every held object: a uniqueness
         // checked on each of a store's objects was a scan of all of them
         // for each (PERF-SCAN)
-        if let Some(found) = pairs.iter().find_map(|(a, v)| self.held_where(type_, a, v)) {
+        if let Some(found) = pairs
+            .iter()
+            .find_map(|(a, v)| self.held_where(type_, a, v, false))
+        {
             return Ok(found.into_iter().filter(|o| holds(o)).collect());
         }
         Ok(self.held_in_order(holds))
