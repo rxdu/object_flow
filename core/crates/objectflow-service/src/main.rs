@@ -222,6 +222,10 @@ struct Service {
     /// `/metrics` gives, read without the writer (third production review
     /// N6).
     store_path: Option<std::path::PathBuf>,
+    /// The memory given back after a request that held much, how many
+    /// times, and whether a giving back is running (ADR-0187 decision 2).
+    trims: std::sync::atomic::AtomicU64,
+    trimming: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Debug, Default)]
@@ -2380,6 +2384,12 @@ async fn logged(
         row.0 += 1;
         row.1 += took;
     }
+    // what a publish, an import or a long read freed, given back to the
+    // system, which glibc kept: 975 MB held after one publish on 37k
+    // objects, 23 MB once given back (third production review MEMORY-2)
+    if route == "/v1/publish" || route == "/v1/import_batch" || took >= HEAVY {
+        give_back(&shared);
+    }
     let quiet = (route == "/health" && status == 200) || route == "/metrics";
     if !quiet {
         let lead = clock_lead(&shared);
@@ -2396,6 +2406,43 @@ async fn logged(
     }
     answer
 }
+
+/// How long a request runs, in seconds, before what it freed is given back
+/// after it (ADR-0187 decision 2).
+const HEAVY: f64 = 0.5;
+
+/// The memory the allocator keeps of what was freed, given back to the
+/// system on a blocking thread, one giving back at a time, after the answer
+/// that freed it.
+fn give_back(shared: &Shared) {
+    if shared.trimming.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let shared = shared.clone();
+    tokio::task::spawn_blocking(move || {
+        trim();
+        shared.trims.fetch_add(1, Ordering::SeqCst);
+        shared.trimming.store(false, Ordering::SeqCst);
+    });
+}
+
+/// glibc's `malloc_trim(0)`: every free page of every arena returned, which
+/// its tunables never do for pages amid an arena (ADR-0187 decision 2).
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[allow(unsafe_code)]
+fn trim() {
+    // SAFETY: `malloc_trim` takes a size by value and touches only the
+    // allocator's own state, under its own locks, so any thread may call
+    // it at any time; it reads no pointer of ours and its result, whether
+    // memory was released, needs no handling.
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
+
+/// Elsewhere the allocator is not glibc's, and nothing is trimmed.
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn trim() {}
 
 /// `GET /metrics`: what the service has answered, by route and status, and
 /// its store's version and clock lead, in Prometheus's text format
@@ -2472,6 +2519,11 @@ async fn metrics(State(shared): State<Shared>) -> Response {
             size(std::path::Path::new(&wal))
         ));
     }
+    out.push_str(&format!(
+        "# HELP objectflow_memory_given_back_total Times the memory a heavy request freed was given back to the system.\n\
+         # TYPE objectflow_memory_given_back_total counter\nobjectflow_memory_given_back_total {}\n",
+        shared.trims.load(Ordering::SeqCst)
+    ));
     if let Some(bytes) = resident_bytes() {
         out.push_str(&format!(
             "# HELP objectflow_resident_bytes The process's resident memory.\n\
@@ -3296,6 +3348,8 @@ async fn serve() -> std::io::Result<()> {
         writer_since: AtomicI64::new(0),
         connections: Connections::default(),
         store_path: a.store.clone(),
+        trims: std::sync::atomic::AtomicU64::new(0),
+        trimming: std::sync::atomic::AtomicBool::new(false),
     };
     let shared = Arc::new(service);
     let router = app(shared.clone(), deployment);
@@ -3396,6 +3450,8 @@ mod tests {
             writer_since: AtomicI64::new(0),
             connections: Connections::default(),
             store_path: None,
+            trims: std::sync::atomic::AtomicU64::new(0),
+            trimming: std::sync::atomic::AtomicBool::new(false),
         });
         let held = shared.clone();
         let panicked = std::thread::spawn(move || {

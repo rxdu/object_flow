@@ -1054,6 +1054,82 @@ fn a_submits_dry_run_holds_no_write() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
+/// What a heavy request freed is given back to the system after it: glibc
+/// kept it, so a service held 975 MB after one publish on 37k objects and
+/// 23 MB once given back (third production review MEMORY-2, ADR-0187).
+#[test]
+fn what_a_heavy_request_freed_is_given_back() {
+    let file = fresh_store("given-back");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    let metric = |name: &str| -> u64 {
+        let mut stream = TcpStream::connect(&s.addr).expect("a connection");
+        write!(
+            stream,
+            "GET /metrics HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        )
+        .expect("asked");
+        let mut out = String::new();
+        stream.read_to_string(&mut out).expect("the metrics");
+        out.lines()
+            .find_map(|l| l.strip_prefix(&format!("{name} ")))
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(0)
+    };
+    let given_back = |at_least: u64| {
+        let began = std::time::Instant::now();
+        while metric("objectflow_memory_given_back_total") < at_least {
+            assert!(
+                began.elapsed() < std::time::Duration::from_secs(20),
+                "nothing given back"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    };
+    let note = "module: tally\ncategories: [live, closed]\ntypes:\n  Note:\n    description: A note.\n    tracking: record\n    attributes:\n      a: { type: string }\n    states:\n      OPEN: { category: live }\n      DONE: { category: closed, final: true }\n    transitions:\n      make: { kind: initial, to: OPEN, required_inputs: [a] }\n      finish: { kind: external, from: OPEN, to: DONE }\n";
+    publish(&s, &json!({"tally": note}));
+    given_back(1);
+    let before = metric("objectflow_resident_bytes");
+    let mut big = String::from("module: big\ncategories: [live, closed]\ntypes:\n");
+    for i in 0..600 {
+        big.push_str(&format!("  T{i}:\n    description: Type {i}.\n    tracking: record\n    attributes:\n      a: {{ type: string }}\n    states:\n      OPEN: {{ category: live }}\n      DONE: {{ category: closed, final: true }}\n    transitions:\n      make: {{ kind: initial, to: OPEN, required_inputs: [a] }}\n      finish: {{ kind: external, from: OPEN, to: DONE }}\n"));
+    }
+    let op = json!({"id": "operator"});
+    let drafted = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
+        "inputs": {"source": {"tally": note, "big": big}, "source_ref": "test:big"}}),
+    );
+    let change = drafted["object_id"].as_str().expect("a change").to_string();
+    let submitted = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": change, "transition": "submit"}),
+    );
+    assert_eq!(submitted["kind"], "satisfied", "{submitted}");
+    let approved = post(
+        &s,
+        "/v1/publish",
+        &json!({"actor": op, "change": change, "expected_version": submitted["version"]}),
+    );
+    assert_eq!(approved["verdict"]["kind"], "satisfied", "{approved}");
+    given_back(2);
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let after = metric("objectflow_resident_bytes");
+    eprintln!("resident before {before}, after {after}");
+    assert!(
+        after < before + 40 * 1024 * 1024,
+        "resident {after} after, {before} before"
+    );
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
 /// A submit whose dry run passes the read's deadline is answered
 /// `503 read_timeout` and records nothing, where it was computed again under
 /// the writer's lock, unbounded and unsaid, every write waiting for it

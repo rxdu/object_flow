@@ -2,7 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-28: "option 1", chosen from the four options put to the author the same day.
 - **Date:** 2026-09-28
-- **Refined by:** ADR-0134 — the operator's creation is recorded as the operator's own act, since an event's actor is required and a release is not one. ADR-0184 — `retire` is requested by nothing, refused `not_requestable` as `install` is.
+- **Refined by:** ADR-0134 — the operator's creation is recorded as the operator's own act, since an event's actor is required and a release is not one. ADR-0184 — `retire` is requested by nothing, refused `not_requestable` as `install` is. ADR-0187 — a store's flow may declare who approves its versions, `publishing.taken_by`, read from the installed version.
 - **Refines:** ADR-0105 (a store begins at declaration version 0), ADR-0110 (declared actor kinds), ADR-0114 (an unknown actor is refused)
 - **Relates to:** PRD F7, T3, T6; `DESIGN.md` §5.8, §5.9, §9, §10; `storage-schema.md` §6; `publish-and-import.md` §1
 

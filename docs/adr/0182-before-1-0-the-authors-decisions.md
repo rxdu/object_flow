@@ -2,6 +2,7 @@
 
 - **Status:** Decided by the author, 2026-10-11 ("go with your recommendations on the fifteen questions"), on the recommendation `design/before-1.0.md` §4 states with each question.
 - **Date:** 2026-10-11
+- **Refined by:** ADR-0187 — `taken_by` for the approval of a version, declared by a module as `publishing: { taken_by: [...] }` and read from the installed version.
 - **Accepts:** ADR-0174, ADR-0175, ADR-0177, ADR-0178, ADR-0179, ADR-0180, ADR-0181
 - **Refines:** ADR-0176 decision 1 (`taken_by`), ADR-0114 and `DESIGN.md` §5.8 (an actor's state), ADR-0048 (what a filter reads), ADR-0180 decision 6 (what a release maintains)
 - **Relates to:** `PRD.md` revision 24 (UC-22); `design/before-1.0.md`; `design/hiring-third-review.md`; `design/flow-format.md`; `guides/wire.md`; `guides/integrate.md`

@@ -45,6 +45,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Performance
 
+- After a publish, an import batch or any request of half a second or more, the service gives back to the system what it freed, which glibc kept: ten seconds after a publish it holds 25 MB on 37k objects where it held 975 MB, and 36 MB on 110k where 2.95 GB; `objectflow_memory_given_back_total` counts it (ADR-0187 decision 2).
 - A query's page in creation order reads from its cursor, a chunk at a time, where each page read and filtered its type whole: a filter on a derived attribute read page by page over 12k claims took 1.6 s where 44.4 s, and its first page 0.03 s where 1.03 s (third production review READ-PAGES).
 - A publish's dry run is linear in the store, where checking each object's optional identifiers swept every object without one: on 110k objects a publish adding one attribute submitted in 6.4 s where 41.5 s, and its approval held writes 9.1 s where 44.5 s (D605).
 - A submit's dry run runs beside the writes, where every write waited for it: 83 s for a module of 3,000 types, which also checks ten times faster (D599, D600).

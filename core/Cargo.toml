@@ -30,9 +30,14 @@ hyper-util = { version = "0.1.21", features = ["tokio", "server", "service"] }
 # a deployment's evaluators asked over HTTP, with rustls and the platform's
 # trust store (ADR-0175 decision 1)
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "platform-verifier"] }
+# malloc_trim, which gives back what glibc keeps of the memory a publish or
+# a long read freed: already resolved through tokio (ADR-0187 decision 2)
+libc = "0.2.190"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# denied everywhere; the service allows it at its one call into glibc, which
+# says why it is safe (ADR-0187 decision 2)
+unsafe_code = "deny"
 missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
@@ -41,3 +46,4 @@ expect_used = "deny"
 panic = "deny"
 todo = "deny"
 dbg_macro = "deny"
+undocumented_unsafe_blocks = "deny"
