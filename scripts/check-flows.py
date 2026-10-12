@@ -72,7 +72,7 @@ FORMAT = ROOT / "docs/design/flow-format"
 EXAMPLES = FORMAT / "examples"
 CHECKER = ROOT / "scripts/check-syntax-doc.py"
 
-MODULE_ORDER = ["module", "imports", "categories", "enumerations", "sequences", "evaluators", "machines", "types", "metrics", "migration"]
+MODULE_ORDER = ["module", "imports", "publishing", "categories", "enumerations", "sequences", "evaluators", "machines", "types", "metrics", "migration"]
 COMBINED_ORDER = ["description", "input_metrics", "group_by", "expression", "flag_when"]
 MACHINE_ORDER = ["description", "requires", "states", "conditions", "transitions"]
 # names the text language gives a meaning in the same position (declaration-syntax.md §9.2, check 33)
@@ -4638,6 +4638,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     machines = set()            # every machine declared, a type of the view that no object has
     modules, example_files = {}, []
     stored = {}                 # module -> its types, enumerations and machines, which one store holds together
+    approvers = {}              # module -> the kinds that approve a version, where it declares them (ADR-0187)
     for f, text in files:
         try:
             shallow(text)
@@ -4692,6 +4693,17 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
                               f"{n} is also declared by {m}, which is in this module's closure; a name is declared once across the closure (the model's check 33)"))
         # and across every module checked with it, since one store holds them all: a type, an enumeration or a
         # machine of a name once (ADR-0163 decision 5)
+        # who approves a version is declared alike by every module that declares it (ADR-0187 decision 1)
+        kinds = (doc.get("publishing") or {}).get("taken_by")
+        if kinds is not None:
+            kinds = sorted(kinds)
+            for m, theirs in approvers.items():
+                if theirs != kinds:
+                    found.append((f, line_of(idx, ("publishing", "taken_by")), "fatal", "names",
+                                  f"publishing.taken_by is [{', '.join(kinds)}], where {m} declares [{', '.join(theirs)}]; "
+                                  f"a version's approvers are declared alike by every module that declares them (ADR-0187)"))
+                    break
+            approvers[doc.get("module")] = kinds
         held = {n for n, k in mine.items() if k in ("enumerations", "machines", "types")}
         for m in sorted(set(stored) - closure):
             for n in sorted(held & stored[m]):
@@ -5059,6 +5071,13 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
         ok &= bool(hit)
         where = f"{hit[0][0]}:{hit[0][1]} {hit[0][4]}" if hit else f"MISSED ({found[:1]})"
         print(f"  planted {name}: {'caught' if hit else 'missed'} by {expect}, at {where}")
+    # two modules of one version that declare its approvers differently (ADR-0187 decision 1)
+    name = "two modules declaring their version's approvers differently"
+    found, _ = check([("people.yaml", people.replace("\ncategories:", "\npublishing: { taken_by: [human] }\ncategories:", 1)),
+                      ("service.yaml", service.replace("\ncategories:", "\npublishing: { taken_by: [agent, human] }\ncategories:", 1))])
+    differ = [x for x in found if x[3] == "names" and "publishing.taken_by" in x[4]]
+    ok &= len(differ) == 1 and not [x for x in found if x[3] != "names"]
+    print(f"  planted {name}: {'caught, at ' + differ[0][0] + ':' + str(differ[0][1]) + ' ' + differ[0][4][:70] if differ else 'MISSED ' + str(found[:2])}")
     no = "values: [YES, NO]\n"
     strict, loose = load(no)["values"], yaml.safe_load(no)["values"]
     hit = "NO" in strict and False in loose

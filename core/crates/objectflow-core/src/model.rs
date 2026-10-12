@@ -374,6 +374,9 @@ impl Type {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Module {
     pub name: String,
+    /// The kinds of actor that approve a version, where it declares them
+    /// (`publishing.taken_by`, ADR-0187 decision 1).
+    pub publishing: Option<Vec<String>>,
     /// Its `migration`: what a publish of it maps (`flow-format.md` §4.16).
     pub migration: Migration,
     pub enumerations: Vec<(String, Vec<String>)>,
@@ -1057,8 +1060,21 @@ impl Reader<'_> {
         for (m, declared) in doc.get("metrics").map(Node::entries).unwrap_or_default() {
             metrics.push((m.clone(), None, declared.to_json()));
         }
+        let publishing = doc
+            .get("publishing")
+            .and_then(|p| p.get("taken_by"))
+            .map(|kinds| {
+                let mut kinds: Vec<String> = kinds
+                    .items()
+                    .iter()
+                    .filter_map(|k| k.text().map(str::to_string))
+                    .collect();
+                kinds.sort();
+                kinds
+            });
         Ok(Module {
             name: name.to_string(),
+            publishing,
             migration: self.migration(doc.get("migration"))?,
             enumerations,
             types,
@@ -1184,6 +1200,10 @@ pub struct Library {
     /// declaring one, none for a combined one, and its declaration
     /// (`flow-format.md` §4.9).
     pub metrics: BTreeMap<String, BTreeMap<String, (Option<String>, serde_json::Value)>>,
+    /// The kinds of actor that approve the store's next version, as its
+    /// modules declare them, sorted; none where no module does, when the
+    /// gateway alone decides (ADR-0187 decision 1).
+    pub publishing: Option<Vec<String>>,
 }
 
 /// The line a name is declared on in a module's text, a key indented once
@@ -2039,6 +2059,27 @@ impl Library {
                             "the {kind} {n} is also declared by {other}; a store holds one type, enumeration or machine of a name (ADR-0163)"
                         ),
                     });
+                }
+            }
+            // who approves a version, declared alike by every module that
+            // declares it (ADR-0187 decision 1)
+            if let Some(kinds) = &m.publishing {
+                match &lib.publishing {
+                    Some(theirs) if theirs != kinds => {
+                        return Err(LoadError {
+                            file: file.clone(),
+                            line: text
+                                .lines()
+                                .position(|l| l.starts_with("publishing:"))
+                                .map_or(1, |i| i + 1),
+                            message: format!(
+                                "publishing.taken_by is [{}], where another module declares [{}]; a version's approvers are declared alike by every module that declares them (ADR-0187)",
+                                kinds.join(", "),
+                                theirs.join(", ")
+                            ),
+                        });
+                    }
+                    _ => lib.publishing = Some(kinds.clone()),
                 }
             }
             lib.source.push((m.name.clone(), text.clone()));

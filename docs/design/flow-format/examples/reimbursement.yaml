@@ -14,6 +14,8 @@
 #   charged in the home currency.
 module: reimbursement
 
+# a version of this flow is approved by a person, never an agent (ADR-0187)
+publishing: { taken_by: [human] }
 categories: [to_do, in_progress, in_service, closed]
 
 enumerations:

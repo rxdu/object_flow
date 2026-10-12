@@ -26,6 +26,21 @@
         }
       }
     },
+    "publishing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taken_by"],
+      "properties": {
+        "taken_by": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["human", "agent", "service"] },
+          "description": "The kinds of actor that may approve a version of the store, the built-in DeclarationChange's publish, read from the installed version; every module that declares it declares the same kinds (ADR-0187 decision 1)."
+        }
+      },
+      "description": "Who approves the store's versions."
+    },
     "categories": {
       "description": "The state categories the module's states use, such as live and closed.",
       "type": "array",

@@ -1482,6 +1482,21 @@ pub struct Store {
 /// bytes (third production review N6).
 pub const WAL_LIMIT: i64 = 64 * 1024 * 1024;
 
+/// Whether an actor names the store's operator, by its object's id or its
+/// identity (ADR-0126).
+fn is_the_operator(world: &World<'_>, actor: &str) -> Result<bool, NotRun> {
+    if world
+        .get(actor)?
+        .is_some_and(|o| o.type_ == crate::model::OPERATOR_TYPE)
+    {
+        return Ok(true);
+    }
+    Ok(world
+        .of_type(crate::model::OPERATOR_TYPE)?
+        .iter()
+        .any(|o| matches!(o.attr("identity"), Value::Text(t) if t == actor)))
+}
+
 /// How many read connections a deployment keeps idle for the next reads;
 /// more are opened while more reads run at once (ADR-0178 decision 6).
 pub const IDLE_READERS: usize = 8;
@@ -2121,6 +2136,25 @@ impl Store {
         }
         if c.attr("base_version") != Value::Int(self.lib.version) {
             return refusal(unreachable("current"));
+        }
+        // the approval taken only by the kinds the installed version
+        // declares, read from it and never from the version under approval,
+        // which could drop its own rule; the store's operator, answerable for
+        // it, always may, so no declaration shuts every approver out
+        // (ADR-0187 decision 1). Refused before the dry run is computed again.
+        if let Some(kinds) = &self.lib.publishing
+            && !kinds.contains(&who.kind)
+            && !is_the_operator(&world, actor)?
+        {
+            return refusal(Verdict::InvariantViolated {
+                failures: vec![crate::verdict::InvariantFailure {
+                    object_id: Some(c.id.clone()),
+                    type_: DECLARATION_CHANGE.to_string(),
+                    invariant: "publish_taken_by".to_string(),
+                    remedy: Some(Remedy::Delegable),
+                }],
+                remedy: Some(Remedy::Delegable),
+            });
         }
         let text = |a: &str| match c.attr(a) {
             Value::Text(t) => t,

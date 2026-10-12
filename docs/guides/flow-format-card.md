@@ -149,7 +149,7 @@ examples:
 
 | Where | Keys, in the order they are written |
 |---|---|
-| module (§4.1) | `module`, `imports`, `categories`, `enumerations`, `sequences`, `evaluators`, `machines`, `types`, `metrics`, `migration` |
+| module (§4.1) | `module`, `imports`, `publishing`, `categories`, `enumerations`, `sequences`, `evaluators`, `machines`, `types`, `metrics`, `migration` |
 | type (§4.2) | `description`, `abstract`, `extends`, `mirror`, `tracking`, `state_machine`, `taken_by`, `attributes`, `inherited_parts`, `observations`, `states`, `derived_attributes`, `summary`, `invariants`, `conditions`, `transitions`, `metrics` |
 | machine (§4.10) | `description`, `requires`, `states`, `conditions`, `transitions` |
 | metric (§4.9) | `description`, `measure`, `state`, `transition`, `source`, `item`, `split_by`, `filter`, `dimensions`, `group_by`, `time_dimension`, `expression`, `flag_when` |
@@ -162,6 +162,7 @@ Required: a module's `module`, `categories` and `types`; a type's `description` 
 |---|---|---|
 | `module` | the module's name, lower case | 4.1 |
 | `imports` | by module, the `types`, `machines`, `enumerations`, `sequences` and `evaluators` used from it | 4.1 |
+| `publishing` | `taken_by`: the kinds that approve the store's next version, read from the installed one; the operator always may | 4.1 |
 | `categories` | the state categories its states use, such as `[live, closed]` | 4.1 |
 | `enumerations` | each a list of upper-case values, read qualified, `Condition.WORN` | 4.1 |
 | `sequences` | counters minting identifiers, each with a `description` | 4.12 |

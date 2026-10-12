@@ -2,6 +2,8 @@
 # Customers: personal data that can be corrected and erased, a state that can be
 # overridden, and a customer that cannot be closed while an order is open.
 module: customers
+# a version of this flow is approved by a person, never an agent (ADR-0187)
+publishing: { taken_by: [human] }
 categories: [live, closed]
 
 enumerations:

@@ -19,6 +19,7 @@ use crate::yaml::Seg;
 const MODULE_ORDER: &[&str] = &[
     "module",
     "imports",
+    "publishing",
     "categories",
     "enumerations",
     "sequences",

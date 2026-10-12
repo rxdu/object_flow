@@ -1776,8 +1776,19 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let (v, report) = s.publish(actor, change, expected)??;
         // a publish's own refusal, current, fatal, impact_unchanged or
-        // decision_unresolved, names no object and takes no proposal
-        let told = Told::default();
+        // decision_unresolved, names no object and takes no proposal; one by
+        // the kinds that approve a version names the change, as a
+        // transition's taken_by names its object (ADR-0187 decision 1)
+        let told = match &v {
+            Verdict::InvariantViolated { failures, .. } => Told {
+                objects: failures
+                    .iter()
+                    .filter_map(|f| f.object_id.clone())
+                    .collect(),
+                ..Told::default()
+            },
+            _ => Told::default(),
+        };
         Ok(Json(json!({
             "verdict": verdict_told(&v, Some(&told)),
             "report": report.as_ref().map(objectflow_core::publish::report_json),

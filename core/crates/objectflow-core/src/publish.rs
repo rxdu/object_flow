@@ -1689,6 +1689,66 @@ types:
         );
     }
 
+    /// A version is approved only by the kinds of actor the installed
+    /// version declares in `publishing.taken_by`, refused another kind as
+    /// `publish_taken_by`, `delegable`: read from the installed version, so
+    /// a change dropping the rule is still refused to an agent; the store's
+    /// operator always may approve, so no declaration shuts every approver
+    /// out (third production review AGENT-APPROVE, ADR-0187 decision 1).
+    #[test]
+    fn a_version_is_approved_only_by_the_kinds_the_installed_one_declares() {
+        const ACTORS: &str = "  User:\n    description: A person who works the fleet.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n    states: { ACTIVE: { category: live }, GONE: { category: closed, final: true } }\n    transitions:\n      add: { kind: initial, to: ACTIVE, required_inputs: [login] }\n      leave: { kind: external, from: [ACTIVE], to: GONE }\n  Bot:\n    description: An agent of the fleet.\n    tracking: record\n    attributes:\n      handle: { type: identity, actor_kind: agent, unique: true }\n    states: { ACTIVE: { category: live }, GONE: { category: closed, final: true } }\n    transitions:\n      add: { kind: initial, to: ACTIVE, required_inputs: [handle] }\n      retire: { kind: external, from: [ACTIVE], to: GONE }\n  Robot:\n";
+        let with = |kinds: &str| {
+            V1.replacen("  Robot:\n", ACTORS, 1).replacen(
+                "module: fleet\n",
+                &format!("module: fleet\npublishing: {{ taken_by: [{kinds}] }}\n"),
+                1,
+            )
+        };
+        let humans = with("human");
+        let lib = Library::load(&[("fleet.yaml".into(), humans.clone())]).unwrap();
+        assert_eq!(lib.publishing, Some(vec!["human".to_string()]));
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let ana = created(&req(&mut s, "add", ("User", true), json!({"login": "ana"})));
+        let bot = created(&req(&mut s, "add", ("Bot", true), json!({"handle": "bot"})));
+        let refused = |v: &Verdict, change: &str| {
+            matches!(v, Verdict::InvariantViolated { failures, remedy: Some(Remedy::Delegable) }
+                if failures.len() == 1
+                    && failures[0].invariant == "publish_taken_by"
+                    && failures[0].object_id.as_deref() == Some(change))
+        };
+        // the rule dropped by the change, read from the installed version
+        let open = humans.replacen("publishing: { taken_by: [human] }\n", "", 1);
+        let (change, v) = submitted(&mut s, &open);
+        let (verdict, _) = s.publish(&bot, &change, v).unwrap().unwrap();
+        assert!(refused(&verdict, &change), "{verdict:?}");
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.whole(&change).unwrap().unwrap().state, "SUBMITTED");
+        drop(w);
+        // a person approves it, and the store then declares no rule
+        let (verdict, _) = s.publish(&ana, &change, v).unwrap().unwrap();
+        assert!(matches!(verdict, Verdict::Satisfied { .. }), "{verdict:?}");
+        assert_eq!(s.lib.publishing, None);
+        // with none declared, an agent's approval is the gateway's to refuse
+        let services = with("service");
+        let (change, v) = submitted(&mut s, &services);
+        let (verdict, _) = s.publish(&bot, &change, v).unwrap().unwrap();
+        assert!(matches!(verdict, Verdict::Satisfied { .. }), "{verdict:?}");
+        // under [service], a person is refused and the operator approves
+        let (change, v) = submitted(&mut s, &humans);
+        let (verdict, _) = s.publish(&ana, &change, v).unwrap().unwrap();
+        assert!(refused(&verdict, &change), "{verdict:?}");
+        let (verdict, _) = approve(&mut s, &change, v);
+        assert!(matches!(verdict, Verdict::Satisfied { .. }), "{verdict:?}");
+        // and two modules declaring it differently do not load
+        let other = "module: yard\npublishing: { taken_by: [agent] }\ncategories: [live]\ntypes:\n  Bay:\n    description: A bay.\n    tracking: record\n    states: { OPEN: { category: live } }\n    transitions:\n      open: { kind: initial, to: OPEN }\n";
+        let both = Library::load(&[
+            ("fleet.yaml".into(), humans),
+            ("yard.yaml".into(), other.into()),
+        ]);
+        assert!(both.is_err());
+    }
+
     #[test]
     fn an_erased_value_a_version_marks_is_never_indexed() {
         let lib = Library::load(&[("shop.yaml".into(), SHOP_V1.into())]).unwrap();

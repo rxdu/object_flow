@@ -1,6 +1,6 @@
 # ADR-0187: The third production review's two decisions
 
-- **Status:** **Decided by the author**, 2026-10-12 ("go with your recommendations on questions 7 and 8"), on the recommendations `TODO.md` states with each, after the third production review (`design/production-review.md` §7). Decision 2 built the same day; decision 1 is being built.
+- **Status:** **Decided by the author**, 2026-10-12 ("go with your recommendations on questions 7 and 8"), on the recommendations `TODO.md` states with each, after the third production review (`design/production-review.md` §7). Both built the same day.
 - **Date:** 2026-10-12
 - **Refines:** ADR-0182 (`taken_by`), ADR-0183 decision 7 and ADR-0184 decision 1 (the store's own acts), ADR-0126 (the built-in `DeclarationChange`)
 - **Relates to:** `PRD.md` T6, N7, UC-15; ADR-0176; `flow-format.md` §4; `guides/integrate.md` §6, §9
@@ -40,4 +40,7 @@ The third production review left two majors that needed the author.
 - **Decision 2, measured 2026-10-12 with a release build.** Ten seconds after a publish, the service holds 25 MB on the 37k-object store, where it held 975 MB, and 36 MB on 110k, where it held 2.95 GB. A publish's peak is unchanged (about 1.1 GB at 37k objects, 3 GB at 110k), and `integrate.md` §9 sizes a unit by it.
 - **No Miri job, though `rust.md` calls for one over code with `unsafe`.** Miri cannot execute a call into glibc, and this block reads no pointer, so the tests run it natively instead.
 - Held by `what_a_heavy_request_freed_is_given_back`. In it, resident memory rose 12 MB over a submit and approval of 600 types with the giving back, and 62 MB without it. Two mutations each fail it: no trim, and a publish that triggers none.
-- Decision 1 adds `publishing` to the flow format, to both checkers, to the engine's approval and the reference runner's, and to `integrate.md` §6. The sample flows declare it.
+- Decision 1 adds `publishing` to the flow format (§4.1, §10, the card), and to both checkers, which refuse modules that disagree (`names`). It also reaches the engine's approval and the reference runner's, which refuse before the dry run is computed again, so a refused approval costs nothing.
+- **The store's operator always may approve.** The decision did not state this exception; it was added while building it. The operator's kind is `human`, so a version declaring `[agent]` or `[service]` alone would otherwise shut out every approver wherever no actor of those kinds exists, with no way to undo it.
+- `integrate.md` §6, `wire.md` and `DESIGN.md` §9 and §10 say all this, and the samples declare `[human]`.
+- Decision 1 is held by `a_version_is_approved_only_by_the_kinds_the_installed_one_declares`, by `test_a_version_is_approved_only_by_the_declared_kinds_alike` (both backends), and by a plant of two modules disagreeing that the oracle holds in both checkers. Each of five mutations fails one of them.

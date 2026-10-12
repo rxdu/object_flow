@@ -144,6 +144,9 @@ pub fn checked_reading(
     let mut modules: Vec<(usize, crate::yaml::Node, Value)> = Vec::new();
     let mut parsed = 0usize;
     let mut declared: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // each module that declares who approves a version, in the order
+    // checked, with the kinds it declares, sorted (ADR-0187 decision 1)
+    let mut approvers: Vec<(String, Vec<String>)> = Vec::new();
     // every type of the modules checked so far, as the view holds it
     let mut library = doc::Obj::new();
     // every machine declared, a type of the view that no object has
@@ -298,6 +301,32 @@ pub fn checked_reading(
                     );
                 }
             }
+        }
+        // who approves a version is declared alike by every module that
+        // declares it (ADR-0187 decision 1)
+        if let Some(kinds) = doc
+            .get("publishing")
+            .and_then(|p| p.get("taken_by"))
+            .and_then(Value::as_array)
+        {
+            let mut kinds: Vec<String> = kinds
+                .iter()
+                .filter_map(|k| k.as_str().map(str::to_string))
+                .collect();
+            kinds.sort();
+            if let Some((m, theirs)) = approvers.iter().find(|(_, t)| *t != kinds) {
+                fatal(
+                    found,
+                    node.line_at(&[Seg::Key("publishing".into()), Seg::Key("taken_by".into())]),
+                    "names",
+                    format!(
+                        "publishing.taken_by is [{}], where {m} declares [{}]; a version's approvers are declared alike by every module that declares them (ADR-0187)",
+                        kinds.join(", "),
+                        theirs.join(", ")
+                    ),
+                );
+            }
+            approvers.push((module.clone(), kinds));
         }
         // and across every module checked with it, since one store holds them
         // all: a type, an enumeration or a machine of a name once (ADR-0163)

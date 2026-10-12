@@ -187,5 +187,5 @@
 | [0184](0184-the-second-reviews-four-decisions.md) | The second production review's four decisions | Decided by the author; 1, 3 and 4 built |
 | [0185](0185-an-effects-arithmetic-past-its-bound-is-refused.md) | An effect's arithmetic past its bound is refused | Decided by the author; built |
 | [0186](0186-a-connection-at-the-cap-makes-room.md) | A connection at the cap makes room | Accepted under the author's mandate; built |
-| [0187](0187-the-third-reviews-two-decisions.md) | The third production review's two decisions | Decided by the author; 2 built, 1 being built |
+| [0187](0187-the-third-reviews-two-decisions.md) | The third production review's two decisions | Decided by the author; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

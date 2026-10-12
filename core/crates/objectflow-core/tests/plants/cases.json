@@ -1048,7 +1048,7 @@
    ],
    [
     "customers.yaml",
-    "4dc41b6c012757a7"
+    "87ea0734322fe10e"
    ],
    [
     "customers.examples.yaml",
@@ -1435,7 +1435,7 @@
    ],
    [
     "reimbursement.yaml",
-    "609abc5b2a042548"
+    "f35914d1517da0ad"
    ],
    [
     "reimbursement.examples.yaml",
@@ -1460,21 +1460,21 @@
    ],
    [
     "reimbursement.yaml",
-    365,
+    367,
     "notice",
     "warn",
     "lines_within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    582,
+    584,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    594,
+    596,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
@@ -3761,14 +3761,14 @@
    ],
    [
     "customers.yaml",
-    "b78d0989ce2ee5cb"
+    "3c59e163c5df1b9c"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    155,
+    157,
     "fatal",
     "names",
     "Customer.correct_state's reason is not an enumeration; an assertion's reasons are counted, so they are declared values"
@@ -3831,14 +3831,14 @@
    ],
    [
     "customers.yaml",
-    "87b031eeeac80b34"
+    "3dd449ccdd179feb"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    157,
+    159,
     "fatal",
     "names",
     "Customer.correct_state may admit 'active_rule', which is not an invariant of Customer"
@@ -3901,14 +3901,14 @@
    ],
    [
     "customers.yaml",
-    "64f3b0ece932131b"
+    "6fffbea41258bd0a"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    158,
+    160,
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
@@ -3971,14 +3971,14 @@
    ],
    [
     "customers.yaml",
-    "39b0cb9ed89d1b86"
+    "35b63b675234a90b"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    142,
+    144,
     "fatal",
     "names",
     "Customer.correct_email writes 'name', which it does not list in corrects; a correction writes exactly what it corrects"
@@ -4041,14 +4041,14 @@
    ],
    [
     "customers.yaml",
-    "4730d6f14730e476"
+    "7210ed0b6e2b8623"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    38,
+    40,
     "fatal",
     "names",
     "Customer.name is personal and required; erasure writes absence, so a personal attribute is optional"
@@ -4111,14 +4111,14 @@
    ],
    [
     "customers.yaml",
-    "6cbf3a809af8d4bc"
+    "b1194dd07748fe7e"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    158,
+    160,
     "fatal",
     "schema",
     "an erasure declares neither `from` nor `to`: it runs at any state"
@@ -4242,14 +4242,14 @@
    ],
    [
     "customers.yaml",
-    "1ef1d6cc4a053434"
+    "6c6f1bd4c5a1d3d4"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    99,
+    101,
     "fatal",
     "schema",
     "`from` is a state, a list of states, or any, alone"
@@ -5712,14 +5712,14 @@
    ],
    [
     "customers.yaml",
-    "e4e7049a067c9ae6"
+    "20ffde3bd2b9e66b"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    75,
+    77,
     "fatal",
     "names",
     "condition contact_in_xero calls xero.contact_known, which xero does not declare"
@@ -5782,14 +5782,14 @@
    ],
    [
     "customers.yaml",
-    "c077f7c3c1e537ec"
+    "c7a82e3437e0e14f"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    75,
+    77,
     "fatal",
     "names",
     "condition contact_in_xero calls an evaluator inside a larger expression; a verdict is the whole condition or its negation (check 24)"
@@ -5852,14 +5852,14 @@
    ],
    [
     "customers.yaml",
-    "f1f8109479fc85bd"
+    "0af6da2718c74018"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    75,
+    77,
     "fatal",
     "names",
     "in_xero calls xero.contact_exists; only a guard asks an evaluator"
@@ -5922,14 +5922,14 @@
    ],
    [
     "customers.yaml",
-    "9f37c0074f4a54f6"
+    "c3defb3e6d90f501"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    115,
+    117,
     "fatal",
     "names",
     "Customer.merged_into enters the superseding state MERGED and names no successor with supersede"
@@ -5992,14 +5992,14 @@
    ],
    [
     "customers.yaml",
-    "4be5b8317b42cddf"
+    "10dca586dddfb077"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    121,
+    123,
     "fatal",
     "names",
     "Customer.merged_into supersedes the object with itself"
@@ -6062,14 +6062,14 @@
    ],
    [
     "customers.yaml",
-    "383bd1581d754208"
+    "c725bd6b1ccfa449"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    178,
+    180,
     "fatal",
     "names",
     "metric overrides compares t.transition with \"corect_state\", which is not a transition of Customer"
@@ -6132,14 +6132,14 @@
    ],
    [
     "customers.yaml",
-    "7c45ce35e8a7d256"
+    "830ae19a3702680f"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    103,
+    105,
     "fatal",
     "names",
     "Customer.close writes OverrideReason.MIS_KEYED, enumeration OverrideReason, to note_kind, which holds string: a write's value must fit its target (the model's check 17)"
@@ -6202,14 +6202,14 @@
    ],
    [
     "customers.yaml",
-    "07266f30a8cc3adf"
+    "84be9c631f76ccce"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    34,
+    36,
     "fatal",
     "names",
     "note_kind is of the type frobnicate, which is neither built in, nor an enumeration this module declares, nor a name it imports"
@@ -6272,14 +6272,14 @@
    ],
    [
     "customers.yaml",
-    "b603438a4e6e4b22"
+    "444831825d3886d5"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    103,
+    105,
     "fatal",
     "names",
     "Customer.close writes actor.kind, actor_kind, to note_kind, which holds string: a write's value must fit its target (the model's check 17)"
@@ -6413,14 +6413,14 @@
    ],
    [
     "customers.yaml",
-    "b6f11af3f475c1a4"
+    "42324fc206ebd910"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    45,
+    47,
     "fatal",
     "names",
     "Customer.correct_state enters the final state CLOSED, and Customer.contacts neither cascades on it nor survives it"
@@ -6483,14 +6483,14 @@
    ],
    [
     "customers.yaml",
-    "eb5490b79eeacda5"
+    "5b922ff4d53f562d"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    77,
+    79,
     "fatal",
     "names",
     "'not_erased' is the name of a guard the engine generates, so a refusal naming it would not say which it was; choose another name"
@@ -6553,14 +6553,14 @@
    ],
    [
     "customers.yaml",
-    "70dc9b6c5eedfb50"
+    "ba905368bf520cae"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    121,
+    123,
     "fatal",
     "names",
     "Customer.merged_into supersedes with inputs.successor, which is optional, so a request leaving it out would name no successor"
@@ -6623,14 +6623,14 @@
    ],
    [
     "customers.yaml",
-    "65059058a8793cb6"
+    "352f5442f289722f"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    121,
+    123,
     "fatal",
     "names",
     "Customer.merged_into supersedes inside a foreach, which may name no successor or several"
@@ -6693,14 +6693,14 @@
    ],
    [
     "customers.yaml",
-    "ff301343773752f9"
+    "35b115efc19c9756"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    122,
+    124,
     "fatal",
     "names",
     "Customer.merged_into names more than one successor, and an object has one"
@@ -6763,21 +6763,21 @@
    ],
    [
     "customers.yaml",
-    "18ecbc9795299056"
+    "12f902d2c2d6e00d"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    121,
+    123,
     "fatal",
     "names",
     "Customer.merged_into supersedes with survivor, which is neither an input nor a name a create at the top level of the effect binds (check 49)"
    ],
    [
     "customers.yaml",
-    121,
+    123,
     "fatal",
     "names",
     "merged_into reads 'survivor', which Customer does not declare"
@@ -6840,14 +6840,14 @@
    ],
    [
     "customers.yaml",
-    "c46c9948fa66e710"
+    "f23559c049495567"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    99,
+    101,
     "fatal",
     "names",
     "Customer.lapse supersedes, and does not enter a superseding state"
@@ -6910,14 +6910,14 @@
    ],
    [
     "customers.yaml",
-    "80402a3e6bf1f4d2"
+    "919affc82dbdd220"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    29,
+    31,
     "fatal",
     "names",
     "Customer holds personal data and declares no erasure, and takes part in supersession, through which a superseded chain is erased (check 60)"
@@ -8422,14 +8422,14 @@
    ],
    [
     "customers.yaml",
-    "1dd2e511edb36ca5"
+    "8087d1a12e9e18a4"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    111,
+    113,
     "fatal",
     "names",
     "Customer.merge_in calls Customer.correct_state, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"
@@ -8492,14 +8492,14 @@
    ],
    [
     "customers.yaml",
-    "61386d71b404702f"
+    "af1e57c26f6d20bd"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    51,
+    53,
     "fatal",
     "names",
     "Customer.contacts cascades to Contact.discard, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"
@@ -9282,7 +9282,74 @@
   }
  },
  {
-  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "people.yaml",
+    "081515c74bbdef64"
+   ],
+   [
+    "service.yaml",
+    "45ecdad0afcd53a0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.yaml",
+    5,
+    "fatal",
+    "names",
+    "publishing.taken_by is [agent, human], where people declares [human]; a version's approvers are declared alike by every module that declares them (ADR-0187)"
+   ],
+   [
+    "service.yaml",
+    124,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [
     "notes.yaml",
@@ -9304,7 +9371,7 @@
   "could_violate": {}
  },
  {
-  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [
     "notes.yaml",
@@ -9327,7 +9394,7 @@
   "could_violate": {}
  },
  {
-  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [
     "notes.yaml",
@@ -9349,7 +9416,7 @@
   "could_violate": {}
  },
  {
-  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [
     "m.yaml",
@@ -9378,7 +9445,7 @@
   "could_violate": {}
  },
  {
-  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [
     "cut.yaml",
@@ -9400,7 +9467,7 @@
   "could_violate": {}
  },
  {
-  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [
     "bare.yaml",
@@ -9492,7 +9559,7 @@
   "could_violate": {}
  },
  {
-  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [
     "taken.yaml",
@@ -9622,7 +9689,7 @@
   }
  },
  {
-  "label": "self_test: a step's expression written as a mapping, reported at its own line",
+  "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [
     "ring.yaml",
@@ -13805,7 +13872,7 @@
    ],
    [
     "module.yaml",
-    "4dc41b6c012757a7"
+    "87ea0734322fe10e"
    ],
    [
     "module.examples.yaml",
@@ -14988,7 +15055,7 @@
    ],
    [
     "customers.yaml",
-    "4dc41b6c012757a7"
+    "87ea0734322fe10e"
    ],
    [
     "customers.examples.yaml",
@@ -19437,7 +19504,7 @@
    ],
    [
     "customers.yaml",
-    "63e88f0ae83e74e9"
+    "711c04fc9fe523e8"
    ],
    [
     "customers.examples.yaml",
@@ -19897,7 +19964,7 @@
    ],
    [
     "reimbursement.yaml",
-    "609abc5b2a042548"
+    "f35914d1517da0ad"
    ],
    [
     "reimbursement.examples.yaml",
@@ -19915,21 +19982,21 @@
    ],
    [
     "reimbursement.yaml",
-    365,
+    367,
     "notice",
     "warn",
     "lines_within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    582,
+    584,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    594,
+    596,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
@@ -20272,28 +20339,28 @@
    ],
    [
     "customers.yaml",
-    "e04236ce250101b3"
+    "cc44a69bf333ff2c"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    111,
+    113,
     "fatal",
     "names",
     "Customer.merge_in passes this, reference Customer, to Customer.merged_into's input 'successor', which takes reference Contact: an argument must fit its input (the model's check 2)"
    ],
    [
     "customers.yaml",
-    121,
+    123,
     "fatal",
     "names",
     "Customer.merged_into supersedes with a Contact, whose erasure takes reason, ticket where Customer's takes reason; a group's erasures receive one request's inputs, so they require the same, by name, type and optionality"
    ],
    [
     "customers.yaml",
-    165,
+    167,
     "fatal",
     "names",
     "Customer.forget calls Contact.forget without the input 'ticket', which it requires"
@@ -20356,28 +20423,28 @@
    ],
    [
     "customers.yaml",
-    "ada6fe4e4ecb6308"
+    "7c7474a160d903ad"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    111,
+    113,
     "fatal",
     "names",
     "Customer.merge_in passes this, reference Customer, to Customer.merged_into's input 'successor', which takes reference Contact: an argument must fit its input (the model's check 2)"
    ],
    [
     "customers.yaml",
-    121,
+    123,
     "fatal",
     "names",
     "Customer.merged_into supersedes with a Contact, whose erasure takes reason where Customer's takes reason; a group's erasures receive one request's inputs, so they require the same, by name, type and optionality"
    ],
    [
     "customers.yaml",
-    165,
+    167,
     "fatal",
     "names",
     "Customer.forget passes inputs.reason, string, to Contact.forget's input 'reason', which takes enumeration OverrideReason: an argument must fit its input (the model's check 2)"
@@ -20440,28 +20507,28 @@
    ],
    [
     "customers.yaml",
-    "42df1323be8e043c"
+    "206055d0fa30b270"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    158,
+    160,
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ],
    [
     "customers.yaml",
-    165,
+    167,
     "fatal",
     "names",
     "Customer.forget binds 'email', which is a member of Customer; a bound name shares no name with a member"
    ],
    [
     "customers.yaml",
-    165,
+    167,
     "fatal",
     "names",
     "forget reads 'c', which Customer does not declare"
@@ -20791,14 +20858,14 @@
    ],
    [
     "customers.yaml",
-    "bb650fbb4cb13056"
+    "c08eaae623575238"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    264,
+    266,
     "fatal",
     "names",
     "the migration moves Customer.LAPSED to MERGED, a superseding state, which would leave its objects superseded by nothing (ADR-0146)"
@@ -21232,28 +21299,28 @@
    ],
    [
     "customers.yaml",
-    "c55742beb1fd2280"
+    "9987a5c36b5c988b"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    158,
+    160,
     "fatal",
     "names",
     "Customer.purge erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ],
    [
     "customers.yaml",
-    158,
+    160,
     "fatal",
     "names",
     "Customer.purge is an erasure, and declares no input 'reason'"
    ],
    [
     "customers.yaml",
-    161,
+    163,
     "fatal",
     "names",
     "Customer declares the erasures purge, forget; a type declares at most one, which a group's erasure takes (ADR-0147)"
@@ -21316,21 +21383,21 @@
    ],
    [
     "customers.yaml",
-    "74e60846311c8d84"
+    "ed0e0afc3fee4d8a"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    45,
+    47,
     "fatal",
     "names",
     "Customer.correct_state enters the final state MERGED, and Customer.contacts neither cascades on it nor survives it"
    ],
    [
     "customers.yaml",
-    152,
+    154,
     "fatal",
     "names",
     "Customer.correct_state asserts a superseding state, which would name no successor; a merge is a declared transition (the model's check 26, ADR-0147)"
@@ -21417,28 +21484,28 @@
    ],
    [
     "customers.yaml",
-    "1a84dbe3448a9278"
+    "e9f4a28ff04e1428"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    158,
+    160,
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ],
    [
     "customers.yaml",
-    165,
+    167,
     "fatal",
     "names",
     "Customer.forget binds 'now', a word an expression resolves first or every object has (ADR-0147)"
    ],
    [
     "customers.yaml",
-    165,
+    167,
     "fatal",
     "names",
     "forget reads 'c', which Customer does not declare"
@@ -22236,7 +22303,7 @@
    ],
    [
     "customers.yaml",
-    "4f2c9f6ac838337d"
+    "9675ff14fb143333"
    ]
   ],
   "previous": {},
@@ -22323,14 +22390,14 @@
    ],
    [
     "customers.yaml",
-    "e1a386901f715c0f"
+    "de6a905457455eec"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    138,
+    140,
     "fatal",
     "names",
     "'redact' cannot name a transition: the engine's own events carry that name (ADR-0148)"

@@ -183,7 +183,7 @@ There is no push: a consumer polls `pull` and acknowledges what it has handled.
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `publish` | `actor`, `change`, `dry_run`, `expected_version` | `{"verdict": …, "report": {...}}`: a `DeclarationChange`'s dry run and its impact report, or its approval at the version read, which installs the version |
+| `publish` | `actor`, `change`, `dry_run`, `expected_version` | `{"verdict": …, "report": {...}}`: a `DeclarationChange`'s dry run and its impact report, or its approval at the version read, which installs the version; an approver of a kind the installed version's `publishing.taken_by` does not name, the operator excepted, is refused `invariant_violated`, the invariant `publish_taken_by` on the change, `delegable` (ADR-0187) |
 | `import_batch` | `actor`, `batch`, `disposition`, `dry_run` | `{"written": …, "findings": [...], "refused_types": [...], "refusal": …}` |
 | `maintain` | `actor`, `task` | `{"moved": …, "refused": …}`: `task` is `{"name": "prune_attempts" \| "prune_idempotency" \| "archive_events", "before": "<timestamp>"}`; its actor resolved as a request's is, so one the store does not know is refused `actor_known` and one in a final state `actor_active`; a prune inside the retention the service was started with is refused `inside_retention`, and one where it was started with none for the task `no_retention`, and `archive_events` is a `501`, since one SQLite file has no tier to move events to |
 

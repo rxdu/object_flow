@@ -1890,3 +1890,80 @@ def test_a_date_and_a_timestamp_are_read_exactly_alike(tee):
         v = book("2026-10-04", at)
         assert (v["kind"], v.get("inputs")) == ("invalid_input", ["at"]), (at, v)
     alike(tee)
+
+
+ROSTER = """module: roster
+publishing: { taken_by: [human] }
+categories: [live, closed]
+types:
+  User:
+    description: A person who works the roster.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { category: live, description: Active. }
+      GONE: { category: closed, final: true, description: Gone. }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: ACTIVE, to: GONE }
+  Bot:
+    description: An agent of the roster.
+    tracking: record
+    attributes:
+      handle: { type: identity, actor_kind: agent, unique: true }
+    states:
+      ACTIVE: { category: live, description: Active. }
+      GONE: { category: closed, final: true, description: Gone. }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [handle] }
+      retire: { kind: external, from: ACTIVE, to: GONE }
+"""
+
+
+def test_a_version_is_approved_only_by_the_declared_kinds_alike(tee):
+    """A version the installed one says only a person approves is refused
+    to an agent as publish_taken_by, delegable, naming the change, and
+    approved by a person, alike through both backends (third production
+    review AGENT-APPROVE, ADR-0187 decision 1)."""
+    loaded = tee.post("/sandbox/load", {"files": [
+        {"name": "roster.yaml", "text": ROSTER}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    for tn, key, name in (("User", "login", "ana"), ("Bot", "handle", "bot")):
+        v = tee.post("/v1/request", {"transition": "add", "actor": OP, "type": tn,
+                                     "inputs": {key: name}})
+        assert v["kind"] == "satisfied", v
+    roomier = ROSTER.replace("      login: { type: identity, actor_kind: human, unique: true }\n",
+                             "      login: { type: identity, actor_kind: human, unique: true }\n"
+                             "      team: { type: string, optional: true }\n", 1)
+    c = change(tee, "draft", source={"roster": roomier}, source_ref="git:roster@2")["object_id"]
+    assert tee.post("/v1/request", {"transition": "submit", "actor": OP,
+                                    "object_id": c})["kind"] == "satisfied"
+    version = tee.post("/v1/get", {"id": c})["version"]
+    refused = tee.post("/v1/publish", {"actor": {"id": "bot"}, "change": c,
+                                       "expected_version": version})
+    v = refused["verdict"]
+    assert (v["kind"], v.get("remedy"), v.get("objects")) == ("invariant_violated", "delegable", [c]), refused
+    assert [f["invariant"] for f in v["failures"]] == ["publish_taken_by"], refused
+    # the version approved declares service, read only once it is installed
+    services = roomier.replace("publishing: { taken_by: [human] }", "publishing: { taken_by: [service] }", 1)
+    c = change(tee, "draft", source={"roster": services}, source_ref="git:roster@3")["object_id"]
+    assert tee.post("/v1/request", {"transition": "submit", "actor": OP,
+                                    "object_id": c})["kind"] == "satisfied"
+    version = tee.post("/v1/get", {"id": c})["version"]
+    approved = tee.post("/v1/publish", {"actor": {"id": "ana"}, "change": c,
+                                        "expected_version": version})
+    assert approved["verdict"]["kind"] == "satisfied", approved
+    # under it a person is refused, and the store's operator approves
+    c = change(tee, "draft", source={"roster": roomier}, source_ref="git:roster@4")["object_id"]
+    assert tee.post("/v1/request", {"transition": "submit", "actor": OP,
+                                    "object_id": c})["kind"] == "satisfied"
+    version = tee.post("/v1/get", {"id": c})["version"]
+    refused = tee.post("/v1/publish", {"actor": {"id": "ana"}, "change": c,
+                                       "expected_version": version})
+    assert refused["verdict"]["kind"] == "invariant_violated", refused
+    approved = tee.post("/v1/publish", {"actor": OP, "change": c, "expected_version": version})
+    assert approved["verdict"]["kind"] == "satisfied", approved
+    alike(tee)

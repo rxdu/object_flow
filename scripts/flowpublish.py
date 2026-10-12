@@ -108,6 +108,19 @@ def change_source(inputs):
     return files, reference, source_digest(files), evidence
 
 
+def installed_approvers(store, flows):
+    """The kinds of actor the installed version's modules declare approve its next version, `publishing.taken_by`,
+    sorted; none where no module declares them (ADR-0187 decision 1)."""
+    for name, text in sorted(store.source.items()):
+        if name.endswith(".examples"):
+            continue
+        doc = flows.load(text)
+        kinds = (doc.get("publishing") or {}).get("taken_by") if isinstance(doc, dict) else None
+        if kinds is not None:
+            return sorted(kinds)
+    return None
+
+
 def who(store, actor):
     """The actor's identity and kind, or the refusal of an actor the store does not hold (DESIGN.md §6 step 1)."""
     if actor not in store.objects or store.actor_attr(store.type_of(actor)) is None:
@@ -715,6 +728,13 @@ def approve(store, change_id, actor, expected_version, flows):
         raise r
     if c.attrs.get("base_version") != store.version:
         return Refused("unsatisfied", "current", "unreachable_from_here"), None
+    # the approval taken only by the kinds the installed version declares, read from it and never from the version
+    # under approval; the store's operator always may (ADR-0187 decision 1), refused before the dry run runs again
+    approvers = installed_approvers(store, flows)
+    if approvers is not None and kind not in approvers and store.type_of(actor) != "Operator":
+        raise Refused("invariant_violated", "publish_taken_by", "delegable", object_id=change_id,
+                      object_type=DECLARATION_CHANGE, objects=[change_id],
+                      failures=[(change_id, DECLARATION_CHANGE, "publish_taken_by", "delegable")])
     attached = json.loads(c.attrs.get("report") or "{}")
     at = copy.deepcopy(store)
     if attached.get("now"):
