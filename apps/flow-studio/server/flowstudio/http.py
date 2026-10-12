@@ -51,7 +51,7 @@ TAKES = {
     "/v1/lookup": ("actor", "source", "value"),
     "/v1/availability": ("actor", "id"),
     "/v1/available": ("actor", "type", "transition", "cursor", "limit"),
-    "/v1/history": ("actor", "id", "follow"),
+    "/v1/history": ("actor", "id", "follow", "limit", "cursor"),
     "/v1/events": ("actor", "positions"),
     "/v1/exceptions": ("actor", "type", "cursor"),
     "/v1/declaration": ("actor", "type", "version"),

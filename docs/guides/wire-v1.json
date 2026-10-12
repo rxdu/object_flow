@@ -77,7 +77,9 @@
     "/v1/history": [
       "actor",
       "id",
-      "follow"
+      "follow",
+      "limit",
+      "cursor"
     ],
     "/v1/import_batch": [
       "actor",

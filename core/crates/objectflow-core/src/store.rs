@@ -3007,6 +3007,33 @@ impl Store {
             .map_err(StoreError::from)
     }
 
+    /// A page of the events of objects, after a position, in position
+    /// order, at most `limit` of them, read by the object's index, never the
+    /// object's history whole, which a `history` of 10,000 events of 16 KB
+    /// each answered at 164.6 MB (sixth production review HISTORY, ADR-0192
+    /// decision 5).
+    pub fn history_page(&self, ids: &[String], after: i64, limit: usize) -> Stored<Vec<Event>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let marks: Vec<String> = (0..ids.len()).map(|i| format!("?{}", i + 3)).collect();
+        let mut stmt = self.conn.prepare(&format!(
+            "{EVENT_SELECT} WHERE object_id IN ({}) AND position > ?1 ORDER BY position LIMIT ?2",
+            marks.join(", ")
+        ))?;
+        let mut values: Vec<rusqlite::types::Value> = vec![
+            rusqlite::types::Value::Integer(after),
+            rusqlite::types::Value::Integer(i64::try_from(limit).unwrap_or(i64::MAX)),
+        ];
+        values.extend(
+            ids.iter()
+                .map(|id| rusqlite::types::Value::Text(id.clone())),
+        );
+        let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), event_row)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
+    }
+
     /// The event at each position, in the order given (ADR-0151).
     pub fn events(&self, positions: &[i64]) -> Stored<Vec<Option<Event>>> {
         let mut stmt = self

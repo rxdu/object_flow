@@ -430,7 +430,28 @@ export function httpWire(base = ""): Wire {
   return {
     request: (body) => post("/v1/request", body),
     get: (id) => post("/v1/get", { id }),
-    history: (id) => post("/v1/history", { id }),
+    // every page, its cursor followed to the last (ADR-0192 decision 5)
+    history: async (id) => {
+      type Page = {
+        events: HistoryItem[];
+        cursor: string | null;
+        not_computed: string[];
+      } | null;
+      const events: HistoryItem[] = [];
+      let cursor: string | null = null;
+      let notComputed: string[];
+      do {
+        const page: Page = await post<Page>(
+          "/v1/history",
+          cursor === null ? { id } : { id, cursor },
+        );
+        if (page === null) return null;
+        events.push(...page.events);
+        notComputed = page.not_computed;
+        cursor = page.cursor;
+      } while (cursor !== null);
+      return { events, not_computed: notComputed };
+    },
     events: (positions) => post("/v1/events", { positions }),
     declaration: (type) => post("/v1/declaration", { type }),
     importBatch: (actor, objects, sequences = []) =>

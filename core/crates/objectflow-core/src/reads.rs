@@ -463,6 +463,37 @@ const MISMATCHED: &str =
     "an object of the type cannot answer it: it compares values of different types";
 pub const FILTER_MEMBERS: usize = 1_000;
 
+/// The most terms a query filter holds, past which it is refused, where an
+/// `or` of 10,000 comparisons, balanced under the depth bound, ran to the
+/// read's deadline (sixth production review, ADR-0192 decision 3).
+pub const FILTER_NODES: usize = 256;
+
+/// The terms of an expression, each node of its tree, a set of literals
+/// one term, which `FILTER_MEMBERS` bounds.
+fn nodes(e: &Expr) -> usize {
+    let literal = |x: &&Expr| {
+        matches!(
+            x,
+            Expr::Num(_) | Expr::Str(_) | Expr::Bool(_) | Expr::Dur(..) | Expr::Money(..)
+        )
+    };
+    match e {
+        Expr::Set(items) => {
+            1 + items
+                .iter()
+                .filter(|x| !literal(x))
+                .map(nodes)
+                .sum::<usize>()
+        }
+        _ => 1 + e.children().into_iter().map(nodes).sum::<usize>(),
+    }
+}
+
+/// Whether an expression calls a metric anywhere within it.
+fn calls_metric(e: &Expr) -> bool {
+    matches!(e, Expr::Metric { .. }) || e.children().into_iter().any(calls_metric)
+}
+
 /// Whether a filter nests aggregates deeper, or writes a larger set, than a
 /// query takes.
 fn costly(e: &Expr) -> bool {
@@ -646,6 +677,16 @@ pub fn query_page(
             return malformed(
                 "no stored object can answer it: it calls an evaluator, reads the request's actor, inputs or this_event, or divides by a literal zero".to_string(),
             );
+        }
+        Some(Ok(e)) if calls_metric(&e) => {
+            return malformed(
+                "it calls a metric, which a query filter does not: a metric read per object ran to the read's deadline; read the metric itself (ADR-0192)".to_string(),
+            );
+        }
+        Some(Ok(e)) if nodes(&e) > FILTER_NODES => {
+            return malformed(format!(
+                "it holds more than {FILTER_NODES} terms; a long list of alternatives is written as a set, `number in {{\"C-1\", \"C-2\"}}` (ADR-0192)"
+            ));
         }
         Some(Ok(e)) if costly(&e) => {
             return malformed(format!(
@@ -1588,6 +1629,17 @@ types:
         };
         assert_eq!(refused(&set(FILTER_MEMBERS)), None);
         assert_eq!(refused(&set(FILTER_MEMBERS + 1)), malformed);
+        // a metric called per object, and past 256 terms, refused; an `or`
+        // of 64 comparisons, 255 terms, taken (ADR-0192 decision 3)
+        assert_eq!(refused("metric(Payment.work_in_progress) > 0"), malformed);
+        let chain = |n: usize| {
+            (0..n)
+                .map(|i| format!("count == {i}"))
+                .collect::<Vec<_>>()
+                .join(" or ")
+        };
+        assert_eq!(refused(&chain(64)), None);
+        assert_eq!(refused(&chain(65)), malformed);
         assert_eq!(refused("count / 2 > 0"), None);
         assert_eq!(refused(r#"payee == "Ana""#), None);
         assert_eq!(

@@ -8,6 +8,8 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes that may refuse what 0.2.0 accepted
 
+- `history` answers pages, at most `limit` events, 100 unless asked, with the `cursor` of the next, its legacy entries on the first, where one object's history answered 164.6 MB at once; `history` and `events` wait their turn among the worklists (ADR-0192 decision 5).
+- A query filter calling a metric, or holding more than 256 terms, is refused `malformed_filter`, where a metric per object and an `or` of 10,000 comparisons ran to the read's deadline (ADR-0192 decision 3).
 - A proposal's `reject`, and its `withdraw` by any but its proposer, are held to the kinds of actor the proposed transition's `taken_by` names, refused as approving it would be, `invariant_violated`, `<transition>_taken_by`, `delegable`, in both backends, where an agent could reject what a person proposed (ADR-0191 decision 1).
 - Money an effect writes past what an input holds, eighteen digits at its currency's minor unit, refuses its request `value_in_range`, in both backends, where an amount no request could send back was stored; a metric's `over` and a diagnostics' `window` are a positive duration, else `400`, where "-5 days" answered an empty page (ADR-0191 decision 3).
 - An actor's identity names one actor: a creation or a write giving an identity another actor holds, of any type whose objects are actors, is refused `invariant_violated`, `identity_taken`, the holder named first, in both backends, where an agent issued a person's login was taken and the first made of the two answered for both; an identity holding a control, zero-width or bidirectional formatting character is `malformed`; and no module's invariant may be named `identity_taken` (ADR-0190 decision 4).
@@ -47,6 +49,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Added
 
+- An agents' read pool: every read that waits its turn, made by an actor of the kind `agent`, waits among the agents' own `--max-reads`, never in a person's worklist slot; `/metrics`' pools name `agents` (ADR-0192 decision 3).
 - The checkers' notice `rule_changed`, naming against the previous version each type's conditions and invariants removed or rewritten and guards that no longer refuse, so whoever approves a version reads them (ADR-0191 decision 2).
 - `/metrics`' `objectflow_build_info` and `objectflow_start_time_seconds`; `WATCHDOG=1` under a unit's `WatchdogSec`; a `malformed_filter` page's `reason`; at the start, a `--create` over a store that exists, an unclean last stop and an evaluator's token over plain http beyond loopback said, and argument errors stamped (ADR-0191 decision 4).
 - The checker's notices `unbounded_reach`, for an erasure's reach a limit may stop, a set no invariant holds within the limit, and `publishing_open`, for a version declaring an agent kind of actor and no rule for who approves its versions; the samples bound their erasures' sets and `people.yaml` declares `publishing: { taken_by: [human] }` (ADR-0190 decisions 7, 10).

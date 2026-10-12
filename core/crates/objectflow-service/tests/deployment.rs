@@ -2394,7 +2394,11 @@ fn concurrent_writes_lose_no_update() {
     let got = post(&s, "/v1/get", &json!({"actor": op, "id": tally}));
     assert_eq!(got["attributes"]["count"], json!(threads * each));
     assert_eq!(got["version"], json!(threads * each + 1));
-    let history = post(&s, "/v1/history", &json!({"actor": op, "id": tally}));
+    let history = post(
+        &s,
+        "/v1/history",
+        &json!({"actor": op, "id": tally, "limit": 1000}),
+    );
     let positions: std::collections::BTreeSet<i64> = history["events"]
         .as_array()
         .expect("its events")
@@ -3058,6 +3062,9 @@ fn a_filter_past_the_parsers_bounds_is_refused_and_the_service_answers_on() {
     };
     for wrong in [
         chain(3000),
+        // past 256 terms, an `or` of 120 comparisons, which a set says
+        // (ADR-0192 decision 3)
+        chain(120),
         format!("{}balance > 0{}", "(".repeat(600), ")".repeat(600)),
         format!("{}true", "not ".repeat(5000)),
         set(3000),
@@ -3071,7 +3078,7 @@ fn a_filter_past_the_parsers_bounds_is_refused_and_the_service_answers_on() {
         );
     }
     for right in [
-        chain(120),
+        chain(40),
         format!("{}balance >= 0{}", "(".repeat(60), ")".repeat(60)),
         set(1000),
     ] {

@@ -711,6 +711,8 @@ class Store(Protocol):
     # None where no object has the id, as get's (ADR-0173 decision 12)
     # follow: the whole group supersession joins, every member whose chain ends where
     # this object's does, in position order (ADR-0147)
+    # on the wire the iterator is read a page at a time, `limit` events and the cursor of
+    # the next, as a query's (`guides/wire.md`, ADR-0192 decision 5)
 
     # one entry per position, in the order given: the event the log holds there, or None
     # where it holds none, as `get` gives None for an id no object has (ADR-0151)

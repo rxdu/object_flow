@@ -361,9 +361,9 @@ Found 2026-10-13 at `fc6c0e7` (`production-review.md` §10); decided by ADR-0192
 - [x] A sixth production review. *Done 2026-10-13 at `fc6c0e7`: **NO-GO** from both, one blocker and four majors, below.*
 - [x] **P8** a traversal invariant checked from what was written, along each chain it reads (decision 1). *Done 2026-10-13 (`a_traversal_invariant_is_checked_from_what_was_written`: no write reads the invariant's type whole, and a bound, a sum, a path, a part moved in and out, two hops and `referrers` each caught; seven mutations each failing it; the operator's go-live rerun: a draft 8.7 ms where 2,783, a category's creation 10.4 ms where 2,268, with a one-hop path invariant 13.1 ms).*
 - [x] **F9** each listener counts its own connections (decision 2). *Done 2026-10-13 (`the_metrics_listener_answers_beside_a_busy_main_one`, failing with the shared count).*
-- [ ] **P5, FILTER-COST class** an agents' read pool; a filter calling no metric, at most 256 nodes (decision 3).
+- [x] **P5, FILTER-COST class** an agents' read pool; a filter calling no metric, at most 256 terms (decision 3). *Done 2026-10-13 (`an_agents_reads_wait_in_a_pool_of_their_own`, each pool held in turn; `a_filter_no_object_can_answer_is_malformed`, 64 comparisons taken and 65 refused, a metric refused; five mutations each failing them).*
 - [ ] **ERASED-IDENTITY** an erased actor's identity replaced by its object's id wherever the store keeps it (decision 4).
-- [ ] **HISTORY** `history` paged, `history` and `events` waiting their turn (decision 5).
+- [x] **HISTORY** `history` paged, `history` and `events` waiting their turn (decision 5). *Done 2026-10-13 (`test_a_history_is_read_page_by_page_alike`, 251 events in pages of 100, 100 and 51 through both backends; `only_the_reads_that_grow_with_the_store_wait_their_turn`; the web's `wire.test.ts`; five mutations each failing them).*
 - [ ] **IDENTITY** an identity that shows what it is, compared without case, not shaped as an id, not admitted by an import (decision 6).
 - [ ] The minors (decision 7).
 

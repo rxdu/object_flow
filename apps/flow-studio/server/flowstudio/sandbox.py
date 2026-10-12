@@ -734,9 +734,27 @@ class Sandbox:
         if follow:
             end = self.followed(oid)
             group = {m for m in self.store.objects if self.followed(m) == end}
-        events = [self.event(e) for e in self.store.events
-                  if e["object"] in group]
-        return {"events": events, "not_computed": EVENT_NOT_COMPUTED}
+        # a page after the cursor's position, at most limit, as the core's
+        # (ADR-0192 decision 5)
+        limit = body.get("limit")
+        if limit is None:
+            limit = 100
+        if isinstance(limit, bool) or not isinstance(limit, int) \
+                or not 1 <= limit <= 1000:
+            raise Fault(400, "limit takes a page size, 1 to 1000")
+        cursor = body.get("cursor")
+        after = 0
+        if cursor is not None:
+            if not (isinstance(cursor, str) and cursor.isdigit()):
+                raise Fault(400, "history's cursor is the position its last "
+                                 f"page ended at: {cursor}")
+            after = int(cursor)
+        page = [e for e in self.store.events
+                if e["object"] in group and e["position"] > after][:limit]
+        return {"events": [self.event(e) for e in page],
+                "cursor": str(page[-1]["position"]) if len(page) == limit
+                else None,
+                "not_computed": EVENT_NOT_COMPUTED}
 
     def availability(self, body: dict) -> list | None:
         """What each requestable transition of an object offers its actor

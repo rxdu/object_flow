@@ -174,6 +174,12 @@ fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
 /// an actor identity (`DESIGN.md` §6 step 1), named by its id or by its
 /// identity, the earliest created where several hold it. Only the types that
 /// mark an identity are read.
+/// The kind of actor a name resolves to, none where it names none: what a
+/// deployment admits a read by (ADR-0192 decision 3).
+pub fn actor_kind(world: &World<'_>, actor: &str) -> Result<Option<String>, NotRun> {
+    Ok(resolve_actor(world, actor)?.map(|w| w.kind))
+}
+
 pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Result<Option<Who>, NotRun> {
     let identity = |o: &Object| -> Option<Who> {
         let t = world.lib.type_(&o.type_)?;

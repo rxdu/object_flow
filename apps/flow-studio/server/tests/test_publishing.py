@@ -2421,3 +2421,46 @@ def test_a_proposal_is_decided_by_those_who_may_take_it_alike(tee):
     assert decide(open_, "reject", scout)["kind"] == "satisfied"
     alike(tee)
 
+
+TICKS = """module: ticks
+categories: [live, closed]
+types:
+  Ticker:
+    description: A ticker that ticks.
+    tracking: record
+    states:
+      ON: { category: live, description: Ticking. }
+      OFF: { category: closed, final: true, description: Stopped. }
+    transitions:
+      start: { kind: initial, to: ON }
+      tick: { kind: internal, from: ON }
+      stop: { kind: external, from: ON, to: OFF }
+"""
+
+
+def test_a_history_is_read_page_by_page_alike(tee):
+    """An object's history answers at most a page of its events, 100 unless
+    asked, with the cursor of the next, null on the last, alike through both
+    backends, where it answered every event at once, 164.6 MB for one
+    object (sixth production review HISTORY, ADR-0192 decision 5)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "ticks.yaml", "text": TICKS}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    t = tee.post("/v1/request", {"transition": "start", "actor": OP, "type": "Ticker"})["object_id"]
+    for _ in range(250):
+        assert tee.post("/v1/request", {"transition": "tick", "actor": OP, "object_id": t})["kind"] == "satisfied"
+    pages, cursor = [], None
+    while True:
+        page = tee.post("/v1/history", {"actor": OP, "id": t, **({"cursor": cursor} if cursor else {})})
+        pages.append(len(page["events"]))
+        cursor = page["cursor"]
+        if cursor is None:
+            break
+    assert pages == [100, 100, 51], pages
+    assert len(tee.post("/v1/history", {"actor": OP, "id": t, "limit": 1000})["events"]) == 251
+    alike(tee)
+    for base in (tee.core, tee.runner):
+        for wrong in ({"limit": 1001}, {"limit": 0}, {"cursor": "-1"}, {"cursor": "x"}):
+            status, body = raw(base, "POST", "/v1/history", {"actor": OP, "id": t, **wrong})
+            assert status == 400, (base, wrong, body)
+
