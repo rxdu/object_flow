@@ -73,7 +73,12 @@ const MAX_CALLS: usize = 16;
 /// decision 4): `satisfied` or `unsatisfied` as it answers, and
 /// `unanswered`, its unknown, for any other answer, a fault, a timeout or no
 /// connection, each said on stderr.
-fn asked(endpoint: &str, timeout: std::time::Duration, call: &Call) -> &'static str {
+fn asked(
+    endpoint: &str,
+    token: Option<&str>,
+    timeout: std::time::Duration,
+    call: &Call,
+) -> &'static str {
     let body = json!({"evaluator": call.evaluator, "function": call.function, "arguments": call.arguments})
         .to_string();
     let agent: ureq::Agent = ureq::Agent::config_builder()
@@ -99,11 +104,14 @@ fn asked(endpoint: &str, timeout: std::time::Duration, call: &Call) -> &'static 
         );
         "unanswered"
     };
-    let mut answer = match agent
+    let mut posting = agent
         .post(endpoint)
-        .header("content-type", "application/json")
-        .send(&body)
-    {
+        .header("content-type", "application/json");
+    // the evaluator's token, where it is given one, never said (ADR-0188)
+    if let Some(token) = token {
+        posting = posting.header("authorization", format!("Bearer {token}"));
+    }
+    let mut answer = match posting.send(&body) {
         Ok(a) => a,
         Err(e) => return unknown(format!("{endpoint} was not reached: {e}")),
     };
@@ -175,7 +183,12 @@ fn consulting<T>(
             return out;
         };
         let verdict = match endpoint {
-            Some(endpoint) if calls < MAX_CALLS => asked(&endpoint, timeout, &call),
+            Some(endpoint) if calls < MAX_CALLS => asked(
+                &endpoint,
+                shared.tokens.get(&call.evaluator).map(String::as_str),
+                timeout,
+                &call,
+            ),
             _ => "unanswered",
         };
         calls += 1;
@@ -200,6 +213,8 @@ struct Service {
     /// A deployment's evaluator endpoints, by namespace, and how long an
     /// answer is waited for, fixed when it starts (ADR-0175 decision 5).
     endpoints: std::collections::BTreeMap<String, String>,
+    /// Each evaluator's bearer token (ADR-0188 decision 2).
+    tokens: std::collections::BTreeMap<String, String>,
     evaluator_timeout: std::time::Duration,
     deployment: bool,
     /// How long a deployment's read may take before it is stopped
@@ -2232,15 +2247,24 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
             s.snapshot()?.get(objectflow_core::model::OPERATOR)?;
             let now = s.now;
             drop(r);
-            return Ok(Json(
-                json!({"release": BUILTINS, "shape": "deployment", "version": version,
+            let free = disk_free(&reads.path);
+            let mut body = json!({"release": BUILTINS, "shape": "deployment", "version": version,
                               "now": timestamp_text(now), "store_release": BUILTINS,
                               "upgrade_due": false, "clock_lead_seconds": clock_lead(&shared),
                               "writer_held_seconds": writer_held(&shared),
                               "requests_in_flight": shared.in_flight.load(Ordering::SeqCst),
-                              "connections_open": shared.connections.open.load(Ordering::SeqCst)}),
-            )
-            .into_response());
+                              "connections_open": shared.connections.open.load(Ordering::SeqCst),
+                              "disk_free_bytes": free});
+            // a volume too full for a checkpoint answers 503, said, where a
+            // full disk answered 200 and a write then failed (ADR-0188
+            // decision 3)
+            if let Some(bytes) = free.filter(|b| disk_low(*b)) {
+                body["fault"] = json!(format!(
+                    "disk_low: {bytes} byte(s) free on the store's volume, below the {DISK_FLOOR} a checkpoint needs"
+                ));
+                return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response());
+            }
+            return Ok(Json(body).into_response());
         }
         let mut sandbox = locked(&shared)?;
         let shape = if sandbox.deployment {
@@ -2456,6 +2480,44 @@ async fn logged(
     answer
 }
 
+/// The free bytes below which `/health` answers 503: the space a checkpoint
+/// needs at the write-ahead log's limit (ADR-0188 decision 3).
+const DISK_FLOOR: u64 = objectflow_core::store::WAL_LIMIT.unsigned_abs();
+
+/// Whether a volume holds too little for a checkpoint.
+fn disk_low(free: u64) -> bool {
+    free < DISK_FLOOR
+}
+
+/// The bytes an unprivileged writer has free on the volume a path is on,
+/// read through `statvfs`; none where it cannot be read (ADR-0188 decision
+/// 3).
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code, clippy::unnecessary_cast)]
+fn disk_free(path: &std::path::Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    let mut st = std::mem::MaybeUninit::<libc::statvfs>::zeroed();
+    // SAFETY: `c` is a NUL-terminated path that outlives the call, and `st`
+    // points to a statvfs-sized buffer, zeroed, which the call fills on
+    // success; neither is kept past it.
+    let rc = unsafe { libc::statvfs(c.as_ptr(), st.as_mut_ptr()) };
+    if rc != 0 {
+        return None;
+    }
+    // SAFETY: the buffer was zeroed, a valid statvfs of integers, and the
+    // call that returned 0 filled it.
+    let st = unsafe { st.assume_init() };
+    // the field types differ between targets, hence the casts
+    Some((st.f_bavail as u64).saturating_mul(st.f_frsize as u64))
+}
+
+/// Elsewhere the volume is not read.
+#[cfg(not(target_os = "linux"))]
+fn disk_free(_path: &std::path::Path) -> Option<u64> {
+    None
+}
+
 /// How long a request runs, in seconds, before what it freed is given back
 /// after it (ADR-0187 decision 2).
 const HEAVY: f64 = 0.5;
@@ -2554,7 +2616,13 @@ async fn metrics(State(shared): State<Shared>) -> Response {
         c.refused.load(Ordering::SeqCst)
     ));
     // the store's file and its write-ahead log, which a checkpoint cuts
-    // back to its limit, and a volume running out is watched by (N6)
+    // back to its limit, and the volume they are on (N6, ADR-0188)
+    if let Some(free) = shared.store_path.as_deref().and_then(disk_free) {
+        out.push_str(&format!(
+            "# HELP objectflow_disk_free_bytes Free bytes on the store's volume.\n\
+             # TYPE objectflow_disk_free_bytes gauge\nobjectflow_disk_free_bytes {free}\n"
+        ));
+    }
     if let Some(path) = &shared.store_path {
         let size = |p: &std::path::Path| std::fs::metadata(p).map_or(0, |m| m.len());
         let mut wal = path.clone().into_os_string();
@@ -2631,6 +2699,9 @@ struct Args {
     create: bool,
     retentions: (Option<i64>, Option<i64>),
     endpoints: std::collections::BTreeMap<String, String>,
+    /// Each evaluator's bearer token, read from its file at start, never
+    /// said (ADR-0188 decision 2).
+    tokens: std::collections::BTreeMap<String, String>,
     evaluator_timeout: Option<std::time::Duration>,
     busy_timeout: Option<std::time::Duration>,
     read_timeout: Option<std::time::Duration>,
@@ -2649,6 +2720,7 @@ fn args() -> Result<Args, String> {
         create: false,
         retentions: (None, None),
         endpoints: std::collections::BTreeMap::new(),
+        tokens: std::collections::BTreeMap::new(),
         evaluator_timeout: None,
         busy_timeout: None,
         read_timeout: None,
@@ -2695,6 +2767,15 @@ fn args() -> Result<Args, String> {
                     })
                     .ok_or_else(|| format!("--evaluator takes <name>=<http(s) url>: {named}"))?;
                 out.endpoints.insert(name.to_string(), url.to_string());
+            }
+            "--evaluator-token" => {
+                let named = value()?;
+                let (name, file) = named
+                    .split_once('=')
+                    .filter(|(n, f)| !n.is_empty() && !f.is_empty())
+                    .ok_or_else(|| format!("--evaluator-token takes <name>=<file>: {named}"))?;
+                out.tokens
+                    .insert(name.to_string(), token_from(std::path::Path::new(file))?);
             }
             "--evaluator-timeout" => {
                 let d = value()?;
@@ -2755,7 +2836,37 @@ fn args() -> Result<Args, String> {
     if (!out.endpoints.is_empty() || out.evaluator_timeout.is_some()) && out.store.is_none() {
         return Err("an evaluator's endpoint is a deployment's; a sandbox's evaluators answer as it sets them".to_string());
     }
+    if let Some(name) = out.tokens.keys().find(|n| !out.endpoints.contains_key(*n)) {
+        return Err(format!(
+            "--evaluator-token names {name}, which no --evaluator gives"
+        ));
+    }
     Ok(out)
+}
+
+/// An evaluator's bearer token, from a file its owner alone reads: one
+/// others may read is refused, as is an empty one (ADR-0188 decision 2).
+fn token_from(file: &std::path::Path) -> Result<String, String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(file)
+        .map_err(|e| format!("{}: {e}", file.display()))?
+        .permissions()
+        .mode();
+    if mode & 0o077 != 0 {
+        return Err(format!(
+            "{} is readable by others than its owner (mode {:o}); an evaluator's token is its owner's alone, 0600",
+            file.display(),
+            mode & 0o777
+        ));
+    }
+    let token = std::fs::read_to_string(file)
+        .map_err(|e| format!("{}: {e}", file.display()))?
+        .trim()
+        .to_string();
+    if token.is_empty() {
+        return Err(format!("{} holds no token", file.display()));
+    }
+    Ok(token)
 }
 
 /// The stack each thread of the service runs a request on: an expression
@@ -3371,7 +3482,12 @@ async fn serve() -> std::io::Result<()> {
             );
         }
         for (name, url) in &a.endpoints {
-            eprintln!("the evaluator {name} asked at {url}");
+            let token = if a.tokens.contains_key(name) {
+                ", with its token"
+            } else {
+                ""
+            };
+            eprintln!("the evaluator {name} asked at {url}{token}");
         }
     }
     // a deployment's reads, beside its writer (ADR-0178)
@@ -3387,6 +3503,7 @@ async fn serve() -> std::io::Result<()> {
     });
     let service = Service {
         endpoints: sandbox.endpoints.clone(),
+        tokens: a.tokens.clone(),
         evaluator_timeout: sandbox.evaluator_timeout,
         read_timeout: a.read_timeout.unwrap_or(std::time::Duration::from_secs(30)),
         deployment,
@@ -3442,6 +3559,19 @@ async fn serve() -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    /// A volume holding less than a checkpoint needs is low; one holding
+    /// that much is not (ADR-0188 decision 3).
+    #[test]
+    fn a_volume_is_low_below_what_a_checkpoint_needs() {
+        assert!(disk_low(DISK_FLOOR - 1));
+        assert!(!disk_low(DISK_FLOOR));
+        assert!(disk_free(std::path::Path::new(".")).is_some_and(|b| b > 0));
+        assert_eq!(
+            disk_free(std::path::Path::new("/no/such/volume/here")),
+            None
+        );
+    }
+
     /// A connection's requests take it and let it go; one the cap has taken
     /// to make room takes nothing, so closing it cuts no request short, and
     /// one answering a request is never taken to make room (C-1).
@@ -3491,6 +3621,7 @@ mod tests {
             writer: Mutex::new(sandbox),
             reads: None,
             endpoints: std::collections::BTreeMap::new(),
+            tokens: std::collections::BTreeMap::new(),
             evaluator_timeout: std::time::Duration::from_secs(5),
             deployment: true,
             read_timeout: std::time::Duration::from_secs(30),

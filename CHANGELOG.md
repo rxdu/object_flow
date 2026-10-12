@@ -10,6 +10,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 - The operator's retirement is refused `not_requestable`, as its creation is, where it was irreversible (ADR-0184).
 - A flow may declare who approves its versions, `publishing: { taken_by: [human] }`: read from the installed version, it refuses an approver of another kind `invariant_violated`, `publish_taken_by`, `delegable`, the store's operator always excepted; modules of a version that declare it differently are refused by both checkers; the samples declare `[human]` (ADR-0187 decision 1, third production review AGENT-APPROVE).
+- A string value holds at most 64 KiB in UTF-8, past which an input or an import's value is refused `out_of_range`, alike in the reference runner; `/health` answers `503 disk_low` below 64 MiB free on the store's volume (ADR-0188).
 - A `decimal(p,s)` holds `p` digits, as the syntax says: an input past them is refused `out_of_range` and an effect's write `value_in_range`, alike in the reference runner, where 18 were taken whatever `p`; an `idempotency_key` holds at most 256 bytes and a request's `context` 16 KiB, past which they are `400` (third production review, minors).
 - A store whose file fails SQLite's quick check does not start, where a copy restored beside another state's `-wal` answered health while its reads failed; a prune where the service has no retention for it is refused `no_retention`, where it said `inside_retention`; an upgrade asked of a store with none due is refused to anyone but an operator (`409`) (third production review).
 - A date or a timestamp is read as RFC 3339 writes it, each field its digits exactly and the year 0001 to 9999, at UTC: a space, a sign, a one-digit month, a year past 9999, the year 0 and the offset `+0000` are refused `malformed`, alike in the reference runner, which took a one-digit month and any offset.
@@ -31,6 +32,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Added
 
+- `--evaluator-token <name>=<file>`: an evaluator's bearer token, read at start from a file its owner alone reads and sent with every call, never logged; `/health`'s `disk_free_bytes` and `/metrics`' `objectflow_disk_free_bytes`, the free space on the store's volume (ADR-0188).
 - `get` and `history` follow a supersession with `"follow": true`, which the wire listed and neither backend built, the key taken and ignored: `get` answers where the chain ends, `history` the whole group's events in position order; `follow` of another type is a `400`.
 - `/metrics` gives the store's file and its `-wal` in bytes; the `-wal` is cut back to 64 MiB when a checkpoint empties it, where it grew to six times the store and stayed; a start that cannot make its store or socket, or bind its address, names the path (third production review N6).
 - `--socket <path>`: the service on a Unix socket, made `0660`, in an address's place, so the socket's owner and group are its only callers (ADR-0183 decision 4).

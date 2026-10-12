@@ -188,4 +188,5 @@
 | [0185](0185-an-effects-arithmetic-past-its-bound-is-refused.md) | An effect's arithmetic past its bound is refused | Decided by the author; built |
 | [0186](0186-a-connection-at-the-cap-makes-room.md) | A connection at the cap makes room | Accepted under the author's mandate; built |
 | [0187](0187-the-third-reviews-two-decisions.md) | The third production review's two decisions | Decided by the author; built |
+| [0188](0188-a-text-bound-an-evaluators-token-and-the-disk.md) | A text's bound, an evaluator's token and the disk in health | Decided by the author; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

@@ -29,6 +29,9 @@ pub struct NotOfType(pub String, pub InputReason);
 /// which the store keeps in 64 bits (ADR-0143).
 const MAX_UNITS: i128 = 999_999_999_999_999_999;
 
+/// The most bytes a string value holds, in UTF-8 (ADR-0188 decision 1).
+pub const TEXT_BYTES: usize = 64 * 1024;
+
 /// A `decimal(p,s)`'s digits and places.
 pub fn precision_and_scale(declared: &str) -> Option<(u32, u8)> {
     let (p, s) = declared
@@ -175,6 +178,14 @@ pub fn decode(
                         return Err(NotOfType(
                             "a string never holds U+0000".to_string(),
                             InputReason::Malformed,
+                        ));
+                    }
+                    // at most 64 KiB, where a title of 1.9 MB was stored
+                    // (third production review, ADR-0188 decision 1)
+                    if s.len() > TEXT_BYTES {
+                        return Err(NotOfType(
+                            format!("a string holds at most {TEXT_BYTES} bytes, not {}", s.len()),
+                            InputReason::OutOfRange,
                         ));
                     }
                     Ok(Value::Text(s.to_string()))

@@ -3551,6 +3551,7 @@ class WrongKind:
         self.value = value
 
 
+TEXT_BYTES = 64 * 1024              # the most bytes a string value holds, in UTF-8 (ADR-0188 decision 1)
 INPUT_UNITS = 999_999_999_999_999_999   # an amount or a decimal holds 18 digits at its scale, as the store does (ADR-0143)
 NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
 
@@ -3677,7 +3678,9 @@ def input_fault(spec, v, enums):
     if typ in ("string", "text", "identity", "actor_kind"):
         if not isinstance(v, str):
             return "wrong_type"
-        return "malformed" if "\0" in v else None
+        if "\0" in v:
+            return "malformed"
+        return "out_of_range" if len(v.encode("utf-8")) > TEXT_BYTES else None   # 64 KiB, as the core's (ADR-0188)
     return None
 
 

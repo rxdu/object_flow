@@ -683,6 +683,13 @@ fn a_deployments_edges_are_said() {
             .and_then(|v| v.trim().parse::<u64>().ok());
         assert!(bytes.is_some_and(|b| b > 0), "{metrics}");
         assert!(metrics.contains("objectflow_wal_bytes "), "{metrics}");
+        // and the volume they are on (ADR-0188 decision 3)
+        assert!(metrics.contains("objectflow_disk_free_bytes "), "{metrics}");
+        let (_, health) = call(&s, "GET", "/health", None);
+        assert!(
+            health["disk_free_bytes"].as_u64().is_some_and(|b| b > 0),
+            "{health}"
+        );
     }
     // the write-ahead log folded into the file first, so the damage is not
     // read past from the log
@@ -940,7 +947,7 @@ fn each_answer_is_logged_and_counted_and_health_reads_the_store() {
 /// (ADR-0183 decision 9).
 #[test]
 fn a_stopped_service_answers_the_requests_in_flight() {
-    let (url, _) = bank();
+    let (url, _, _) = bank();
     let file = fresh_store("stopping");
     let named = format!("bank={url}");
     let mut s = start(&[
@@ -1576,7 +1583,12 @@ fn a_retention_without_a_store_is_refused() {
 /// A bank whose transfers clear by their reference: `T-1` cleared, `T-2` not,
 /// `T-3` a fault, `T-4` an answer slower than the service waits, and `T-5`
 /// an answer with no verdict. Each call it is posted is kept, as it arrives.
-fn bank() -> (String, std::sync::Arc<std::sync::Mutex<Vec<Value>>>) {
+#[allow(clippy::type_complexity)]
+fn bank() -> (
+    String,
+    std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+    std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>>,
+) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
     let url = format!(
         "http://{}/evaluate",
@@ -1584,15 +1596,20 @@ fn bank() -> (String, std::sync::Arc<std::sync::Mutex<Vec<Value>>>) {
     );
     let posted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let kept = posted.clone();
+    // each call's Authorization header, none where it carried none
+    let authorized = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let heard = authorized.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
             let kept = kept.clone();
+            let heard = heard.clone();
             // each call answered on its own thread, so a slow answer holds
             // up no other
             std::thread::spawn(move || {
                 let mut reader = BufReader::new(stream.try_clone().expect("the stream"));
                 let mut length = 0;
+                let mut authorization = None;
                 loop {
                     let mut line = String::new();
                     if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
@@ -1601,7 +1618,11 @@ fn bank() -> (String, std::sync::Arc<std::sync::Mutex<Vec<Value>>>) {
                     if let Some(n) = line.to_ascii_lowercase().strip_prefix("content-length:") {
                         length = n.trim().parse().unwrap_or(0);
                     }
+                    if line.to_ascii_lowercase().starts_with("authorization:") {
+                        authorization = line.split_once(':').map(|(_, v)| v.trim().to_string());
+                    }
                 }
+                heard.lock().expect("the headers").push(authorization);
                 let mut body = vec![0; length];
                 let _ = reader.read_exact(&mut body);
                 let call: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
@@ -1625,7 +1646,7 @@ fn bank() -> (String, std::sync::Arc<std::sync::Mutex<Vec<Value>>>) {
             });
         }
     });
-    (url, posted)
+    (url, posted, authorized)
 }
 
 const PAYMENTS: &str = "module: payments
@@ -1664,6 +1685,89 @@ types:
           cleared: deny
 ";
 
+/// An evaluator given a bearer token is sent it with every call, never
+/// said, the token read from a file its owner alone reads; a file others
+/// may read, an empty one, or a token for no evaluator, is refused at start
+/// (third production review, ADR-0188 decision 2).
+#[test]
+fn an_evaluator_is_sent_its_token() {
+    use std::os::unix::fs::PermissionsExt;
+    let (url, _, authorized) = bank();
+    let file = fresh_store("token");
+    let dir = file.parent().expect("its directory").to_path_buf();
+    let secret = dir.join("bank.token");
+    std::fs::write(&secret, "s3cret-token\n").expect("the token");
+    std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).expect("0600");
+    let named = format!("bank={url}");
+    let token = format!("bank={}", secret.display());
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+        "--evaluator",
+        &named,
+        "--evaluator-token",
+        &token,
+    ]);
+    publish(&s, &json!({"payments": PAYMENTS}));
+    let v = settle(&s, "T-1");
+    assert_eq!(v["kind"], "satisfied", "{v}");
+    assert_eq!(
+        authorized.lock().expect("the headers").last().cloned(),
+        Some(Some("Bearer s3cret-token".to_string()))
+    );
+    let said = s.said_within("the evaluator bank asked at");
+    assert!(said.contains("with its token"), "{said}");
+    assert!(!said.contains("s3cret"), "{said}");
+    drop(s);
+    // a file others may read, an empty one, a token for no evaluator
+    std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o644)).expect("0644");
+    let path = file.to_str().expect("a path");
+    let (code, said) = refused(&[
+        "--store",
+        path,
+        "--port",
+        "0",
+        "--evaluator",
+        &named,
+        "--evaluator-token",
+        &token,
+    ]);
+    assert_eq!(code, Some(2), "{said}");
+    assert!(said.contains("readable by others"), "{said}");
+    std::fs::write(&secret, "  \n").expect("emptied");
+    std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).expect("0600");
+    let (code, said) = refused(&[
+        "--store",
+        path,
+        "--port",
+        "0",
+        "--evaluator",
+        &named,
+        "--evaluator-token",
+        &token,
+    ]);
+    assert_eq!(code, Some(2), "{said}");
+    assert!(said.contains("holds no token"), "{said}");
+    std::fs::write(&secret, "s3cret-token\n").expect("the token again");
+    let other = format!("ledger={}", secret.display());
+    let (code, said) = refused(&[
+        "--store",
+        path,
+        "--port",
+        "0",
+        "--evaluator",
+        &named,
+        "--evaluator-token",
+        &other,
+    ]);
+    assert_eq!(code, Some(2), "{said}");
+    assert!(said.contains("which no --evaluator gives"), "{said}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A transfer sent, and settling it requested, the bank asked by the service.
 fn settle(s: &Service, reference: &str) -> Value {
     let op = json!({"id": "operator"});
@@ -1682,7 +1786,7 @@ fn settle(s: &Service, reference: &str) -> Value {
 
 #[test]
 fn a_deployment_asks_its_evaluators_at_their_endpoints() {
-    let (url, posted) = bank();
+    let (url, posted, authorized) = bank();
     let file = fresh_store("evaluators");
     let path = file.to_str().expect("a path");
     let named = format!("bank={url}");
@@ -1713,6 +1817,11 @@ fn a_deployment_asks_its_evaluators_at_their_endpoints() {
     assert_eq!(
         posted.lock().expect("the calls").last().cloned(),
         Some(json!({"evaluator": "bank", "function": "cleared", "arguments": ["T-1"]}))
+    );
+    // given no token, it sends no Authorization header (ADR-0188)
+    assert_eq!(
+        authorized.lock().expect("the headers").last().cloned(),
+        Some(None)
     );
     // not cleared: refused by the guard, with the remedy it declares
     let v = settle(&s, "T-2");

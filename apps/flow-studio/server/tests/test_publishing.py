@@ -2072,3 +2072,42 @@ def test_a_decimal_holds_its_precisions_digits_alike(tee):
     v = tee.post("/v1/request", {"transition": "double", "actor": OP, "object_id": large})
     assert (v["kind"], v.get("clause"), v.get("objects")) == ("unsatisfied", "value_in_range", [large]), v
     alike(tee)
+
+
+TEXTUAL = """module: textual
+categories: [live, closed]
+types:
+  Memo:
+    description: A memo.
+    tracking: record
+    attributes:
+      note: { type: string }
+    states:
+      OPEN: { category: live, description: Open. }
+      FILED: { category: closed, final: true, description: Filed. }
+    transitions:
+      write: { kind: initial, to: OPEN, required_inputs: [note] }
+      file: { kind: external, from: OPEN, to: FILED }
+"""
+
+
+def test_a_string_holds_at_most_64_kib_alike(tee):
+    """A string value holds at most 64 KiB in UTF-8, where a 1.9 MB title
+    was stored: past it an input is refused out_of_range, alike through
+    both backends, counted in bytes, not characters (ADR-0188 decision
+    1)."""
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "textual.yaml", "text": TEXTUAL}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+
+    def write(note: str) -> dict:
+        return tee.post("/v1/request", {"transition": "write", "actor": OP, "type": "Memo",
+                                        "inputs": {"note": note}})
+
+    assert write("n" * 65536)["kind"] == "satisfied"
+    assert write("é" * 32768)["kind"] == "satisfied"
+    for note in ("n" * 65537, "é" * 32769):
+        v = write(note)
+        assert (v["kind"], v.get("inputs")) == ("invalid_input", ["note"]), v["kind"]
+    alike(tee)
