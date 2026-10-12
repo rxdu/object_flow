@@ -1,0 +1,30 @@
+module: m
+categories: [live]
+types:
+  Claim:
+    description: A claim of lines.
+    tracking: record
+    attributes:
+      lines: { reference: "Line[]", aggregation: composite, opposite: claim, cascade: [ { on: [forget], transition: forget, limit: 20 } ] }
+      who: { type: string, optional: true, personal: true }
+    invariants: { few: { expression: count(l in lines) <= 20 } }
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
+    transitions:
+      t: { kind: initial, to: S }
+      close: { kind: external, from: S, to: E }
+      forget:
+        kind: erasure
+        inputs: { reason: { type: string } }
+        effect:
+          - foreach: { item: l, array: lines, limit: 20, steps: [ { call: { target: l, transition: forget, inputs: { reason: inputs.reason } } } ] }
+  Line:
+    description: A line.
+    tracking: record
+    attributes:
+      claim: { reference: Claim, opposite: lines }
+      note: { type: string, optional: true, personal: true }
+    states: { L: { category: live, description: Listed. }, D: { category: live, final: true, description: Dropped. } }
+    transitions:
+      add: { kind: initial, to: L, required_inputs: [claim] }
+      drop: { kind: external, from: L, to: D, only_via: [Claim.close] }
+      forget: { kind: erasure, inputs: { reason: { type: string } }, only_via: [Claim.forget] }

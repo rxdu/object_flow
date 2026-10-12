@@ -91,6 +91,123 @@ pub fn agent_open(doc: &Value, v: &Value) -> BTreeMap<String, usize> {
     out
 }
 
+/// The most of a type's set its invariants hold it to, `count(x in a) <= n`
+/// or `count(x in a) < n + 1`, the least where several do; none where none
+/// does.
+fn reach_bound(t: &Value, a: &str) -> Option<i64> {
+    let form = super::doc::re(&format!(
+        r"^count\(\w+ in (?:this\.)?{}\) (<=|<) (\d+)$",
+        regex::escape(a)
+    ));
+    let mut most: Option<i64> = None;
+    for spec in obj(t, "invariants").values() {
+        let text = spec
+            .get("expression")
+            .map(py_str)
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if let Some(c) = form.captures(&text)
+            && let Ok(n) = c[2].parse::<i64>()
+        {
+            let n = if &c[1] == "<" { n - 1 } else { n };
+            most = Some(most.map_or(n, |m| m.min(n)));
+        }
+    }
+    most
+}
+
+/// An erasure's reach a limit may stop: a foreach of an erasure, or a
+/// cascade an erasure sets off, declaring a limit over a set of its type that
+/// no invariant of the type holds at or below it, so past the limit the
+/// erasure is refused `over_limit` and cannot be carried out; a limit, which
+/// every loop declares, on any other transition is the author's rule (fifth
+/// production review ERASE-LIMIT, ADR-0190 decision 7).
+pub fn reaches(doc: &Value) -> Found {
+    let mut out = Found::new();
+    let add = |out: &mut Found, found: (Path, String, String)| {
+        if !out.contains(&found) {
+            out.push(found);
+        }
+    };
+    let limit_of = |v: &Value| -> Option<i64> {
+        v.get("limit")
+            .filter(|l| !l.is_boolean())
+            .and_then(Value::as_i64)
+    };
+    for (tn, t) in types(doc) {
+        if flag(t, "abstract") {
+            continue;
+        }
+        let attrs = obj(t, "attributes");
+        let transitions = obj(t, "transitions");
+        let erasures: Vec<&String> = transitions
+            .iter()
+            .filter(|(_, x)| x.is_object() && text(x, "kind") == Some("erasure"))
+            .map(|(xn, _)| xn)
+            .collect();
+        for (a, spec) in attrs {
+            for c in list(spec, "cascade") {
+                let erasing: Vec<String> = list(c, "on")
+                    .iter()
+                    .map(py_str)
+                    .filter(|e| erasures.contains(&e))
+                    .collect();
+                let Some(n) = limit_of(c) else {
+                    continue;
+                };
+                if !erasing.is_empty() && reach_bound(t, a).is_none_or(|most| most > n) {
+                    add(
+                        &mut out,
+                        finding(
+                            segs!["types", tn.as_str(), "attributes", a.as_str(), "cascade"],
+                            "unbounded_reach",
+                            format!(
+                                "{tn}.{a}'s cascade on {} takes at most {n} of it, and no invariant of {tn} holds it to {n}: past {n}, the erasure is refused over_limit and cannot be carried out; declare one such as count(x in {a}) <= {n} (ADR-0190)",
+                                erasing.join(", ")
+                            ),
+                        ),
+                    );
+                }
+            }
+        }
+        let word = super::doc::re(r"^(?:this\.)?(\w+)$");
+        for (xn, x) in transitions {
+            if !x.is_object() || text(x, "kind") != Some("erasure") {
+                continue;
+            }
+            for s in super::steps::walk(x.get("effect")) {
+                if s.kind != "foreach" {
+                    continue;
+                }
+                let f = s.body();
+                let array = f.get("array").map(py_str).unwrap_or_default();
+                let Some(m) = word.captures(array.trim()) else {
+                    continue;
+                };
+                let a = m[1].to_string();
+                let Some(n) = limit_of(f) else {
+                    continue;
+                };
+                if attrs.contains_key(&a) && reach_bound(t, &a).is_none_or(|most| most > n) {
+                    add(
+                        &mut out,
+                        finding(
+                            segs!["types", tn.as_str(), "transitions", xn.as_str()],
+                            "unbounded_reach",
+                            format!(
+                                "{tn}.{xn} takes at most {n} of {a}, and no invariant of {tn} holds it to {n}: past {n}, the erasure is refused over_limit and cannot be carried out; declare one such as count(x in {a}) <= {n} (ADR-0190)"
+                            ),
+                        ),
+                    );
+                }
+            }
+        }
+    }
+    out
+}
+
 pub fn vetoes(doc: &Value, library: &Obj) -> Found {
     let mut kinds = library.clone();
     for (tn, t) in types(doc) {

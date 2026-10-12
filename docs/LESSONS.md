@@ -554,3 +554,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Test a fix along the path the finding was reported on, end to end where the finding was end to end, here a refused start leaving the files byte for byte, and mutate the finding's own cause back in; claim the fix only from that test.
 - **Context:** Any finding a reviewer reproduced through the service; ObjectFlow's production reviews.
 
+### A notice's scope fixed from the decision's words, before it ran over the samples
+- **Pattern:** ADR-0190's notice `unbounded_reach` was written to take every declared limit, as the decision read; only the scenarios' check, run late, showed it firing fourteen times on one version's ordinary loops, where the refusal past a limit is the author's own rule (2026-10-13).
+- **Correction:** Run a new notice over every sample bundle and the scenarios' versions before fixing its scope in the ADR; a notice that fires where nothing is wrong teaches authors to ignore the one that matters.
+- **Context:** ObjectFlow's checkers; any lint or warning added to a corpus.
+
+### A form advised in a message written from memory, not from the language
+- **Pattern:** The notice told authors to declare `count(<set>) <= n`, which is not the language's form for a set's size (`count(x in <set>)`); the samples bounded that way stopped their examples from running, and the checkers recognised only the wrong form (2026-10-13).
+- **Correction:** Before a message advises a fix in the flow's language, write the fix into a sample and run it; check the form in `declaration-syntax.md` rather than recalling it.
+- **Context:** Any checker message or doc that prescribes code.
+

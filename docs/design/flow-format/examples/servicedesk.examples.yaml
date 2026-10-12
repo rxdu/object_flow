@@ -274,6 +274,13 @@ examples:
     request: { type: Alert, transition: create, inputs: { alias: db-down, message: Database unreachable, priority: AlertPriority.P1 } }
     expect: { verdict: invariant_violated, clause: alias_unique, remedy: self_serviceable }
 
+  an_agent_takes_no_persons_identity:
+    description: An agent issued the identity a person already signs in with is refused, so no request the agent makes is recorded as the person's; the refusal names the person holding it first, a fix that depends on someone else (ADR-0190).
+    steps:
+      - request: { type: User, transition: add, inputs: { login: pat, name: Pat Lee } }
+    request: { type: Agent, transition: issue, inputs: { key_id: pat, name: Triage bot } }
+    expect: { verdict: invariant_violated, clause: User.identity_taken, remedy: dependent }
+
   a_closed_alert_frees_its_alias:
     description: Once the first alert is closed, a new one with its alias opens.
     steps:

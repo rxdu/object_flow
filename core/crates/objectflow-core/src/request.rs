@@ -316,6 +316,9 @@ fn invariant_objects(world: &World<'_>, o: &Object, n: &str) -> Result<BTreeSet<
             .eval(e)?;
         return Ok(named.into_inner().objects);
     }
+    if n == IDENTITY_TAKEN {
+        return Ok(identity_holders(world, o)?.into_iter().collect());
+    }
     if n.ends_with("_unique") {
         let reading = std::cell::RefCell::new(Reading::default());
         failing_invariants_reading(world, o, Some(&reading))?;
@@ -3419,6 +3422,12 @@ fn erasure_broke(ctx: &Ctx<'_>, obj: &Object, n: &str) -> bool {
 /// The attributes an invariant reads, generated ones included: an
 /// attribute's uniqueness, a state's requirement.
 pub(crate) fn invariant_reads(t: &Type, n: &str) -> BTreeSet<String> {
+    if n == IDENTITY_TAKEN {
+        return t
+            .actor_identity()
+            .map(|(a, _)| BTreeSet::from([a.to_string()]))
+            .unwrap_or_default();
+    }
     if let Some(a) = n.strip_suffix("_unique") {
         return [a.to_string()].into();
     }
@@ -4009,6 +4018,43 @@ pub fn failing_invariants(world: &World<'_>, o: &Object) -> Result<Vec<String>, 
     failing_invariants_reading(world, o, None)
 }
 
+/// The generated invariant an actor's identity another actor holds fails,
+/// named apart from an attribute's `<name>_unique` (ADR-0190 decision 4).
+pub(crate) const IDENTITY_TAKEN: &str = "identity_taken";
+
+/// The source a reach's key names an actor's identity by, which no external
+/// identifier's source can be, a source being a word.
+const IDENTITY_SOURCE: &str = "actor identity";
+
+/// The other actors, of any type whose objects are actors, holding an
+/// object's identity, by each type's indexed identity; none where it holds
+/// none (ADR-0190 decision 4).
+fn identity_holders(world: &World<'_>, o: &Object) -> Result<Vec<String>, NotRun> {
+    let Some((a, _)) = world.lib.type_(&o.type_).and_then(|t| t.actor_identity()) else {
+        return Ok(Vec::new());
+    };
+    let mine = o.attr(a);
+    if !matches!(mine, Value::Text(_)) {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for (tn, ot) in &world.lib.types {
+        let Some((b, _)) = ot.actor_identity() else {
+            continue;
+        };
+        for other in world.with_key(
+            tn,
+            std::slice::from_ref(&b.to_string()),
+            std::slice::from_ref(&mine),
+        )? {
+            if other.type_ == *tn && other.id != o.id && other.attr(b).equals(&mine) {
+                out.push(other.id.clone());
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// An attribute's uniqueness as the invariants check it: its own, or, for
 /// a singular stored end whose opposite is singular too, one to one.
 pub(crate) fn effective_unique(lib: &Library, spec: &crate::model::Attribute) -> Unique {
@@ -4110,6 +4156,15 @@ fn invariant_reach(lib: &Library, t: &Type) -> Reach {
                 }
             }
         }
+    }
+    // an actor's identity, which a write of any actor holding the same
+    // identity breaks (ADR-0190 decision 4)
+    if let Some((a, _)) = t.actor_identity() {
+        keys.push(Keyed {
+            family: t.name.clone(),
+            attrs: vec![a.to_string()],
+            source: Some(IDENTITY_SOURCE.to_string()),
+        });
     }
     if keys.is_empty() {
         Reach::Itself
@@ -4223,6 +4278,14 @@ fn affected_by_writes(work: &World<'_>, before: &World<'_>) -> Result<Vec<String
                                 vec![k.attrs.iter().map(|a| w.attr(a)).collect()]
                             }
                             None => Vec::new(),
+                            // an actor's identity, read from the written
+                            // object's own identity attribute (ADR-0190
+                            // decision 4)
+                            Some(source) if source == IDENTITY_SOURCE => lib
+                                .type_(&w.type_)
+                                .and_then(|wt| wt.actor_identity())
+                                .map(|(a, _)| vec![vec![w.attr(a)]])
+                                .unwrap_or_default(),
                             Some(source) => lib
                                 .type_(&w.type_)
                                 .map(|wt| {
@@ -4378,6 +4441,16 @@ fn failing_invariants_reading(
             out.push(name);
         }
     }
+    // an actor's identity names one actor, across every type whose objects
+    // are actors, where the first made of two answered for both, an agent
+    // passing as a person (fifth production review IDENTITY, ADR-0190
+    // decision 4)
+    if let Some((a, _)) = t.actor_identity()
+        && !out.contains(&format!("{a}_unique"))
+        && !identity_holders(world, o)?.is_empty()
+    {
+        out.push(IDENTITY_TAKEN.to_string());
+    }
     Ok(out)
 }
 
@@ -4478,7 +4551,10 @@ fn invariant_remedy(
     let lib: &Library = world.lib;
     let unique_other = obj.id != requested && n.ends_with("_unique") && mine == obj.type_;
     let t = lib.type_(&obj.type_)?;
-    let (reads, other): (BTreeSet<String>, bool) = if let Some(a) = n.strip_suffix("_unique") {
+    let (reads, other): (BTreeSet<String>, bool) = if n == IDENTITY_TAKEN {
+        // what another actor holds, as a uniqueness reads it
+        (invariant_reads(t, n), true)
+    } else if let Some(a) = n.strip_suffix("_unique") {
         let mut reads = BTreeSet::from([a.to_string()]);
         if let Some(Unique::With(others)) = t.attribute(a).map(|s| &s.unique) {
             reads.extend(others.iter().cloned());

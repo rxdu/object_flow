@@ -252,6 +252,7 @@ types:
         expression: count(l in lines where l.state != ClaimLine.REMOVED and l.over_policy)
     summary: [number, state, claimant, total, over_policy_lines]
     invariants:
+      lines_within_reach: { description: A claim holds at most the 200 lines its cascade and its erasure take, expression: "count(l in lines) <= 200" }
       has_title:
         description: Every claim has a title, until erasure removes it.
         expression: title is not null

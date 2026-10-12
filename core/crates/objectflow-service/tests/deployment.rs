@@ -3037,10 +3037,20 @@ fn a_filter_past_the_parsers_bounds_is_refused_and_the_service_answers_on() {
             .collect::<Vec<_>>()
             .join(" or ")
     };
+    // a set of more than 1,000 members is refused, as the fifth production
+    // review's FILTER-COST had one of 10,000 hold a read's slot for 7.8 s
+    // (ADR-0190 decision 3)
+    let set = |n: usize| {
+        format!(
+            "balance in {{{}}}",
+            (0..n).map(|i| i.to_string()).collect::<Vec<_>>().join(", ")
+        )
+    };
     for wrong in [
         chain(3000),
         format!("{}balance > 0{}", "(".repeat(600), ")".repeat(600)),
         format!("{}true", "not ".repeat(5000)),
+        set(3000),
     ] {
         let page = read(&wrong);
         assert_eq!(
@@ -3053,13 +3063,7 @@ fn a_filter_past_the_parsers_bounds_is_refused_and_the_service_answers_on() {
     for right in [
         chain(120),
         format!("{}balance >= 0{}", "(".repeat(60), ")".repeat(60)),
-        format!(
-            "balance in {{{}}}",
-            (0..3000)
-                .map(|i| i.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        set(1000),
     ] {
         let page = read(&right);
         assert!(

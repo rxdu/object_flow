@@ -2,6 +2,8 @@
 # Actors: who can make requests, declared once for every workflow.
 # Declares no roles: what an actor may do is decided by the application (ADR-0114).
 module: people
+# a version of the flow is approved by a person, never an agent (ADR-0187, ADR-0190)
+publishing: { taken_by: [human] }
 categories: [live, closed]
 
 types:

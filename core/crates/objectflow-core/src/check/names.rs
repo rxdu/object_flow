@@ -678,6 +678,13 @@ fn reserved_name_errors(doc: &Value) -> Found {
                     format!("'{i}' is the name of the invariant a unique attribute or a one-to-one end generates; choose another name"),
                 ));
             }
+            if i == "identity_taken" {
+                out.push(finding(
+                    segs!["types", &tn, "invariants", &i],
+                    "names",
+                    format!("'{i}' is the name of the invariant an actor's identity generates (ADR-0190); choose another name"),
+                ));
+            }
         }
     }
     out

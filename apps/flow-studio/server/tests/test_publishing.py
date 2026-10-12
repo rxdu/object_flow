@@ -2266,3 +2266,25 @@ def test_a_correction_held_to_people_refuses_an_agent_alike(tee):
     assert tee.post("/v1/request", {**fix, "actor": {"id": "ana"}})["kind"] == "satisfied"
     alike(tee)
 
+
+def test_an_identity_names_one_actor_alike(tee):
+    """An identity another actor holds, of any type whose objects are
+    actors, is refused identity_taken, and one holding a zero-width or
+    bidirectional character is malformed, alike through both backends,
+    where the first made of two answered for both, an agent passing as a
+    person (fifth production review IDENTITY, ADR-0190 decision 4)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    made = tee.post("/v1/request", {"type": "Staff", "transition": "add", "actor": OP, "inputs": {"login": "ana"}})
+    assert made["kind"] == "satisfied", made
+    # both now share it: the person who held it, and the agent asking for it
+    v = tee.post("/v1/request", {"type": "Bot", "transition": "issue", "actor": OP, "inputs": {"key": "ana"}})
+    assert (v["kind"], [(f["type"], f["invariant"]) for f in v.get("failures", [])]) == (
+        "invariant_violated", [("Staff", "identity_taken"), ("Bot", "identity_taken")]), v
+    v = tee.post("/v1/request", {"type": "Bot", "transition": "issue", "actor": OP, "inputs": {"key": "an\u200ba"}})
+    assert (v["kind"], v.get("reasons")) == ("invalid_input", {"key": "malformed"}), v
+    assert tee.post("/v1/request", {"type": "Bot", "transition": "issue", "actor": OP,
+                                    "inputs": {"key": "scout"}})["kind"] == "satisfied"
+    alike(tee)
+

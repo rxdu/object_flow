@@ -1,0 +1,76 @@
+# yaml-language-server: $schema=../flow.schema.json
+# Actors: who can make requests, declared once for every workflow.
+# Declares no roles: what an actor may do is decided by the application (ADR-0114).
+module: people
+# a version of the flow is approved by a person, never an agent (ADR-0187, ADR-0190)
+publishing: { taken_by: [human] }
+categories: [live, closed]
+
+types:
+  User:
+    description: A person who can make requests, as the upper layer's user system holds them and its sync keeps in step; only the sync requests add, rename and leave, which the upper layer ensures, since the engine evaluates no actor (ADR-0080, ADR-0114). It holds who the person is, never their roles.
+    tracking: record
+    # the sync, a service, or a person; never an agent, which would be handed
+    # who may act (production review F2)
+    taken_by: [human, service]
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+      name:  { type: string }
+    states:
+      ACTIVE: { category: live }
+      LEFT:   { category: closed, final: true }
+    transitions:
+      add:
+        kind: initial
+        to: ACTIVE
+        description: The sync adds a person the user system has added.
+        required_inputs: [login, name]
+      rename:
+        kind: internal
+        from: ACTIVE
+        description: The sync carries a change of name the user system made.
+        required_inputs: [name]
+      leave:
+        kind: external
+        from: ACTIVE
+        to: LEFT
+        description: The sync records that the user system has removed the person.
+
+  Agent:
+    description: An AI agent that can make requests.
+    tracking: record
+    taken_by: [human, service]
+    attributes:
+      key_id: { type: identity, actor_kind: agent, unique: true }
+      name:   { type: string }
+    states:
+      ACTIVE:  { category: live }
+      REVOKED: { category: closed, final: true }
+    transitions:
+      issue:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [key_id, name]
+      revoke:
+        kind: external
+        from: ACTIVE
+        to: REVOKED
+
+  Service:
+    description: A system that can make requests, such as an application built on ObjectFlow.
+    tracking: record
+    taken_by: [human, service]
+    attributes:
+      name: { type: identity, actor_kind: service, unique: true }
+    states:
+      ACTIVE:  { category: live }
+      RETIRED: { category: closed, final: true }
+    transitions:
+      register:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [name]
+      retire:
+        kind: external
+        from: ACTIVE
+        to: RETIRED

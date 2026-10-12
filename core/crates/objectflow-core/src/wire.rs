@@ -70,6 +70,23 @@ fn held_at(d: Decimal, scale: u8, digits: u32, what: &str) -> Result<Decimal, No
 
 /// A wire value as a value of a declared type. A reference is read as an id
 /// and checked against the store by the request, not here.
+/// A control character, or one that formats text without showing:
+/// zero-width, bidirectional and invisible marks, by their code points.
+pub fn formatting(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{00AD}'
+                | '\u{061C}'
+                | '\u{180E}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2060}'..='\u{2064}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{FEFF}'
+        )
+}
+
 pub fn decode(
     v: &Json,
     declared: &Declared,
@@ -174,6 +191,17 @@ pub fn decode(
                 }),
                 "string" | "text" | "identity" | "actor_kind" => {
                     let s = v.as_str().ok_or_else(wrong)?;
+                    // an identity names one actor as it reads: one holding
+                    // a control, zero-width or bidirectional formatting
+                    // character is refused, where it named another actor
+                    // than the one it showed (fifth production review
+                    // IDENTITY, ADR-0190 decision 4)
+                    if t == "identity" && s.chars().any(formatting) {
+                        return Err(NotOfType(
+                            "an identity holds no control, zero-width or bidirectional formatting character".to_string(),
+                            InputReason::Malformed,
+                        ));
+                    }
                     if s.contains('\0') {
                         return Err(NotOfType(
                             "a string never holds U+0000".to_string(),

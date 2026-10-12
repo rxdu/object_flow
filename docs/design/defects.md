@@ -621,6 +621,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D607](#d607) | One import batch could stop every write for good | Resolved |
 | [D608](#d608) | A publish report kept one of the checks' findings of each code | Resolved |
 | [D609](#d609) | A refused restore's fix claimed and not made whole | Resolved |
+| [D610](#d610) | The core's checker took a source's byte-order mark into its first key | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -3954,3 +3955,7 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 
 **Resolved** 2026-10-12: every connection the start opens before serving, the release's and the check's, is one that carries no log into the file as it closes (`store::looking`); the start's own test now leaves a damaged file and a `-wal` holding frames, and requires both byte for byte unchanged after the refusal (`a_deployments_edges_are_said`, failing with the release's plain connection restored); the changelog entry says the first fix was partial.
 
+### D610
+**The core's checker took a source's byte-order mark into its first key**: a source saved with a byte-order mark, as some editors on Windows write UTF-8, was read by the reference checker, whose YAML loader drops the mark, and refused by the core's, whose loader kept it as part of `module`, so the key was missing and the file refused `schema`; the two checkers disagreed on a valid file. Found 2026-10-13 by the plant of ADR-0190 decision 9, which checks that a mark at a file's start is not refused as a hidden character.
+
+**Resolved** 2026-10-13: `yaml::load` drops a byte-order mark at the text's start before parsing, as YAML reads it; the plant holds both checkers to it through the oracle.

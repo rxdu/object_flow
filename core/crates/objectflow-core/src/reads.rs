@@ -431,6 +431,31 @@ fn unanswerable(lib: &Library, t: &Type, e: &Expr) -> bool {
     here || e.children().into_iter().any(|c| unanswerable(lib, t, c))
 }
 
+/// The most aggregates a query filter nests, and the most members a set
+/// it writes holds: past either it is refused, where aggregates nested six
+/// deep over a claim's lines ran past 30 s each and a set of 10,000 values
+/// took 7.8 s, each holding a read's slot while the worklists waited
+/// (fifth production review FILTER-COST, ADR-0190 decision 3).
+pub const FILTER_AGGREGATES: usize = 2;
+pub const FILTER_MEMBERS: usize = 1_000;
+
+/// Whether a filter nests aggregates deeper, or writes a larger set, than a
+/// query takes.
+fn costly(e: &Expr) -> bool {
+    fn depth(e: &Expr) -> usize {
+        let inner = e.children().into_iter().map(depth).max().unwrap_or(0);
+        inner + usize::from(matches!(e, Expr::Agg { .. }))
+    }
+    fn widest(e: &Expr) -> usize {
+        let inner = e.children().into_iter().map(widest).max().unwrap_or(0);
+        match e {
+            Expr::Set(items) => inner.max(items.len()),
+            _ => inner,
+        }
+    }
+    depth(e) > FILTER_AGGREGATES || widest(e) > FILTER_MEMBERS
+}
+
 /// Whether a number written in an expression is zero.
 fn zero(n: &crate::expr::Number) -> bool {
     match n {
@@ -577,6 +602,7 @@ pub fn query_page(
         Some(Ok(e)) if misread_reference(world.lib, t, &e) => return refuse("malformed_filter"),
         Some(Ok(e)) if mistyped_literal(world.lib, t, &e) => return refuse("malformed_filter"),
         Some(Ok(e)) if unanswerable(world.lib, t, &e) => return refuse("malformed_filter"),
+        Some(Ok(e)) if costly(&e) => return refuse("malformed_filter"),
         Some(Ok(e)) if literal_out_of_range(world, t, &e)? => return refuse("malformed_filter"),
         Some(Ok(e)) => Some(e),
         Some(Err(_)) => return refuse("malformed_filter"),
@@ -1490,6 +1516,26 @@ types:
         );
         let empty = query(&w, "Refund", Some(huge.as_str()), &[], None).unwrap();
         assert_eq!(empty.refused, malformed);
+        // aggregates nested two deep and a set of 1,000 members are taken,
+        // three deep and 1,001 refused (fifth production review FILTER-COST)
+        let nested = |depth: usize| {
+            let mut f = "p0.count > 0".to_string();
+            for i in (1..=depth).rev() {
+                f = format!("count(p{i} in Payment where {f}) > 0")
+                    .replace("p0.", &format!("p{i}."));
+            }
+            f
+        };
+        assert_eq!(refused(&nested(2)), None, "{}", nested(2));
+        assert_eq!(refused(&nested(3)), malformed, "{}", nested(3));
+        let set = |n: usize| {
+            format!(
+                "count in {{{}}}",
+                (0..n).map(|i| i.to_string()).collect::<Vec<_>>().join(", ")
+            )
+        };
+        assert_eq!(refused(&set(FILTER_MEMBERS)), None);
+        assert_eq!(refused(&set(FILTER_MEMBERS + 1)), malformed);
         assert_eq!(refused("count / 2 > 0"), None);
         assert_eq!(refused(r#"payee == "Ana""#), None);
         assert_eq!(

@@ -1,0 +1,21 @@
+module: m
+publishing: { taken_by: [human] }
+categories: [live]
+types:
+  Bot:
+    description: An agent.
+    tracking: record
+    taken_by: [human]
+    attributes:
+      key: { type: identity, actor_kind: agent }
+    states: { ON: { category: live, description: On. }, OFF: { category: live, final: true, description: Off. } }
+    transitions:
+      issue: { kind: initial, to: ON, required_inputs: [key] }
+      off: { kind: external, from: ON, to: OFF }
+  T:
+    description: A record.
+    tracking: record
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
+    transitions:
+      t: { kind: initial, to: S }
+      e: { kind: external, from: S, to: E }

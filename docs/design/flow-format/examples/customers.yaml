@@ -71,6 +71,8 @@ types:
         final: true
         superseding: true
 
+    invariants:
+      contacts_within_reach: { description: A customer holds at most the 50 contacts its cascade and its erasure take, expression: "count(c in contacts) <= 50" }
     conditions:
       contact_in_xero:
         description: The Xero contact being linked exists in Xero.

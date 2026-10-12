@@ -39,6 +39,10 @@ const COVERED: &[&str] = &[
     // longer or widened against the previous version (ADR-0189)
     "agent_open",
     "taken_by_dropped",
+    // a version an agent may approve, and a reach no invariant bounds
+    // (ADR-0190)
+    "publishing_open",
+    "unbounded_reach",
     // step 4 (C2), by group as each is ported
     "check 2",
     "check 7",

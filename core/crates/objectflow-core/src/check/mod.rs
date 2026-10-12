@@ -99,6 +99,22 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
 
 /// The findings, with the figures beside them, over the files `check` takes,
 /// given with no directory, so an example's `publish` step is not run.
+/// A character that shows nothing or reorders what follows: a
+/// bidirectional control, a zero-width or invisible mark, by its code point.
+fn hiding(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{061C}'
+            | '\u{180E}'
+            | '\u{FEFF}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{2069}'
+    )
+}
+
 pub fn checked(files: &[(String, String)], previous: &BTreeMap<String, String>) -> Checked {
     checked_reading(files, previous, &run::no_files)
 }
@@ -169,6 +185,24 @@ pub fn checked_reading(
                 message,
             });
         };
+        // a source shows what it says: a bidirectional control or an
+        // invisible formatting character can make it read otherwise than it
+        // shows (fifth production review, ADR-0190 decision 9)
+        if let Some((i, c)) = text
+            .char_indices()
+            .find(|(i, c)| hiding(*c) && !(*i == 0 && *c == '\u{FEFF}'))
+        {
+            fatal(
+                found,
+                text[..i].matches('\n').count() + 1,
+                "yaml",
+                format!(
+                    "a bidirectional control or invisible formatting character, U+{:04X}, which can make a source read otherwise than it shows (ADR-0190)",
+                    u32::from(c)
+                ),
+            );
+            continue;
+        }
         let node = match crate::yaml::load(text) {
             Ok(n) => n,
             Err(e) => {
@@ -431,6 +465,7 @@ pub fn checked_reading(
             .chain(notices::unknowns(&v.doc, &library))
             .chain(notices::befores(&v.doc))
             .chain(notices::vetoes(&v.doc, &library))
+            .chain(notices::reaches(&v.doc))
         {
             if let Some(p) = v.back(&p) {
                 notice(found, node.line_at(&p), code, message);
@@ -447,6 +482,26 @@ pub fn checked_reading(
     // where the version declares an agent kind of actor, each module's
     // transitions an agent may take on the wire, which name no taken_by; its
     // generated tools offer them only for proposing (ADR-0189 decision 1)
+    // and where none declares who approves a version, that an agent may: an
+    // approval's rule the engine reads only where a module declares it
+    // (ADR-0187, ADR-0190 decision 10)
+    if !agents.is_empty()
+        && approvers.is_empty()
+        && let Some((file, line, _)) = opened.first()
+    {
+        let mut kinds = agents.clone();
+        kinds.sort();
+        found.push(Finding {
+            file: file.clone(),
+            line: *line,
+            severity: Severity::Notice,
+            code: "publishing_open".into(),
+            message: format!(
+                "the version declares an agent kind of actor ({}) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: {{ taken_by: [human] }} (ADR-0190)",
+                kinds.join(", ")
+            ),
+        });
+    }
     if !agents.is_empty() {
         agents.sort();
         for (file, line, counts) in opened {

@@ -1728,6 +1728,9 @@ def reserved_name_errors(doc):
             if i.endswith("_unique") and i[:-len("_unique")] in attrs:
                 out.append((("types", tn, "invariants", i), "names",
                             f"'{i}' is the name of the invariant a unique attribute or a one-to-one end generates; choose another name"))
+            if i == "identity_taken":
+                out.append((("types", tn, "invariants", i), "names",
+                            f"'{i}' is the name of the invariant an actor's identity generates (ADR-0190); choose another name"))
     return out
 
 
@@ -3473,6 +3476,75 @@ def notices(doc):
     return out
 
 
+def hiding(c):
+    """A character that shows nothing or reorders what follows: a bidirectional control, a zero-width or invisible
+    mark, by its code point, as the core's checker reads one."""
+    o = ord(c)
+    return (o in (0x00AD, 0x061C, 0x180E, 0xFEFF) or 0x200B <= o <= 0x200F or 0x202A <= o <= 0x202E
+            or 0x2060 <= o <= 0x2064 or 0x2066 <= o <= 0x2069)
+
+
+def reach_bound(t, a):
+    """The most of a type's set its invariants hold it to, `count(x in a) <= n` or `count(x in a) < n + 1`, the least
+    where several do; none where none does."""
+    most = None
+    for spec in (t.get("invariants") or {}).values():
+        text = " ".join(str((spec or {}).get("expression") or "").split())
+        m = re.fullmatch(r"count\(\w+ in (?:this\.)?" + re.escape(a) + r"\) (<=|<) (\d+)", text)
+        if m:
+            n = int(m.group(2)) - (1 if m.group(1) == "<" else 0)
+            most = n if most is None else min(most, n)
+    return most
+
+
+def reaches(doc):
+    """An erasure's reach a limit may stop: a foreach of an erasure, or a cascade an erasure sets off, declaring a
+    limit over a set of its type that no invariant of the type holds at or below it, so past the limit the erasure is
+    refused over_limit and cannot be carried out; a limit, which every loop declares, on any other transition is the
+    author's rule (fifth production review ERASE-LIMIT, ADR-0190 decision 7)."""
+    out = []
+    for tn, t in types(doc):
+        if t.get("abstract"):
+            continue
+        attrs = t.get("attributes") or {}
+        transitions = t.get("transitions") or {}
+        erasures = [xn for xn, x in transitions.items() if isinstance(x, dict) and x.get("kind") == "erasure"]
+        for a, spec in attrs.items():
+            for c in ((spec or {}).get("cascade") or []) if isinstance(spec, dict) else []:
+                n = c.get("limit") if isinstance(c, dict) else None
+                on = [str(x) for x in (c.get("on") or [])] if isinstance(c, dict) else []
+                erasing = [e for e in on if e in erasures]
+                most = reach_bound(t, a)
+                if erasing and isinstance(n, int) and not isinstance(n, bool) and (most is None or most > n):
+                    found = (("types", tn, "attributes", a, "cascade"), "unbounded_reach",
+                             f"{tn}.{a}'s cascade on {', '.join(erasing)} takes at most {n} of it, and no invariant of "
+                             f"{tn} holds it to {n}: past {n}, the erasure is refused over_limit and cannot be carried "
+                             f"out; declare one such as count(x in {a}) <= {n} (ADR-0190)")
+                    if found not in out:
+                        out.append(found)
+        for xn, x in transitions.items():
+            if not isinstance(x, dict) or x.get("kind") != "erasure":
+                continue
+            for st, k, _p, _d in walk(x.get("effect")):
+                if k != "foreach":
+                    continue
+                f = st["foreach"] if isinstance(st.get("foreach"), dict) else {}
+                m = re.fullmatch(r"(?:this\.)?(\w+)", str(f.get("array") or "").strip())
+                n = f.get("limit")
+                if not m or m.group(1) not in attrs or not isinstance(n, int) or isinstance(n, bool):
+                    continue
+                a = m.group(1)
+                most = reach_bound(t, a)
+                if most is None or most > n:
+                    found = (("types", tn, "transitions", xn), "unbounded_reach",
+                             f"{tn}.{xn} takes at most {n} of {a}, and no invariant of {tn} holds it to {n}: past {n}, "
+                             f"the erasure is refused over_limit and cannot be carried out; declare one such as "
+                             f"count(x in {a}) <= {n} (ADR-0190)")
+                    if found not in out:
+                        out.append(found)
+    return out
+
+
 def vetoes(doc, library):
     """An invariant that can only refuse other objects' changes: one a type declares whose every state is final, so
     no transition of its own can break it once it is created, reading through a reference or its referrers, so it is
@@ -4647,6 +4719,9 @@ def example_errors(doc, kinds, modules):
             t = kinds.get(ct) or {}
             generated = {f"{s.lower()}_invariant" for s, v in (t.get("states") or {}).items() if v.get("required_attributes")}
             generated |= {f"{a}_unique" for a, v in (t.get("attributes") or {}).items() if v.get("unique")}
+            # an actor's identity another actor holds (ADR-0190 decision 4)
+            generated |= {"identity_taken"} if any(isinstance(v, dict) and v.get("actor_kind")
+                                                   for v in (t.get("attributes") or {}).values()) else set()
             if cn not in (t.get("invariants") or {}) and cn not in generated:
                 out.append((here + ("clause",), "names", f"{clause} is not an invariant of {ct}"))
         elif verdict == "call_refused" and "clause" in want:
@@ -4705,6 +4780,15 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     approvers = {}              # module -> the kinds that approve a version, where it declares them (ADR-0187)
     agents, opened = [], []     # the agent kinds of actor declared, and each module's transitions open to them (ADR-0189)
     for f, text in files:
+        # a source shows what it says: a bidirectional control or an invisible formatting character can make it read
+        # otherwise than it shows (fifth production review, ADR-0190 decision 9)
+        hidden = next(((i, c) for i, c in enumerate(text) if hiding(c) and not (i == 0 and c == "\ufeff")), None)
+        if hidden is not None:
+            i, c = hidden
+            found.append((f, text.count("\n", 0, i) + 1, "fatal", "yaml",
+                          f"a bidirectional control or invisible formatting character, U+{ord(c):04X}, which can make a "
+                          f"source read otherwise than it shows (ADR-0190)"))
+            continue
         try:
             shallow(text)
             idx = line_index(text)
@@ -4810,11 +4894,20 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
                     if not inherited(t, "invariants", i):
                         violators[f"{tn}.{i}"] = could_violate(library, tn, (spec or {}).get("expression", ""), machines)
         notes += [(f, line_of(idx, back(p)), "notice", c, m)
-                  for p, c, m in notices(v) + unknowns(v, library) + befores(v) + vetoes(v, library) if back(p) is not None]
+                  for p, c, m in notices(v) + unknowns(v, library) + befores(v) + vetoes(v, library) + reaches(v)
+                  if back(p) is not None]
         agents += agent_kinds(doc, v)
         opened.append((f, line_of(idx, ("module",)), agent_open(doc, v)))
     # where the version declares an agent kind of actor, each module's transitions an agent may take on the wire, which
     # name no taken_by; its generated tools offer them only for proposing (ADR-0189 decision 1)
+    # and where none declares who approves a version, that an agent may: an approval's rule the engine reads only
+    # where a module declares it (ADR-0187, ADR-0190 decision 10)
+    if agents and not approvers and opened:
+        f, line, _ = opened[0]
+        notes.append((f, line, "notice", "publishing_open",
+                      f"the version declares an agent kind of actor ({', '.join(sorted(agents))}) and no module "
+                      f"declares publishing.taken_by, so an agent may approve the next version; declare publishing: "
+                      f"{{ taken_by: [human] }} (ADR-0190)"))
     if agents:
         for f, line, counts in opened:
             if counts:
@@ -5150,7 +5243,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
         print(f"  planted {name}: {'caught' if hit else 'missed'} by {expect}, at {where}")
     # two modules of one version that declare its approvers differently (ADR-0187 decision 1)
     name = "two modules declaring their version's approvers differently"
-    found, _ = check([("people.yaml", people.replace("\ncategories:", "\npublishing: { taken_by: [human] }\ncategories:", 1)),
+    # people.yaml declares [human] itself (ADR-0190 decision 10)
+    found, _ = check([("people.yaml", people),
                       ("service.yaml", service.replace("\ncategories:", "\npublishing: { taken_by: [agent, human] }\ncategories:", 1))])
     differ = [x for x in found if x[3] == "names" and "publishing.taken_by" in x[4]]
     ok &= len(differ) == 1 and not [x for x in found if x[3] != "names"]
@@ -5253,6 +5347,56 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                for name, text in (("changed", after), ("unchanged", before))]
     hit = dropped == [["T.e is taken by", "T.t was taken by", "publishing.taken_by was"], []]
     ok &= hit
+    # a source holding a bidirectional control is refused at its line, a byte-order mark at its start is not; and a
+    # version with an agent kind and no publishing rule is noticed, one with the rule is not (ADR-0190 decisions 9, 10)
+    shown = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A record.\n    tracking: record\n"
+             "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
+             "    transitions:\n      t: { kind: initial, to: S }\n      e: { kind: external, from: S, to: E }\n")
+    hid = shown.replace("A record.", "A record\u202e.")
+    seen = [[(x[1], x[3]) for x in check([(f"{name}.yaml", text)])[0] if x[3] == "yaml"]
+            for name, text in (("hid", hid), ("shown", "\ufeff" + shown))]
+    hit = seen == [[(5, "yaml")], []]
+    ok &= hit
+    print(f"  planted a bidirectional control in a source: {'refused at its line, a byte-order mark not' if hit else 'MISSED ' + str(seen)}")
+    agent = shown.replace("types:\n", "types:\n  Bot:\n    description: An agent.\n    tracking: record\n    taken_by: [human]\n"
+                          "    attributes:\n      key: { type: identity, actor_kind: agent }\n"
+                          "    states: { ON: { category: live, description: On. }, OFF: { category: live, final: true, description: Off. } }\n"
+                          "    transitions:\n      issue: { kind: initial, to: ON, required_inputs: [key] }\n      off: { kind: external, from: ON, to: OFF }\n", 1)
+    ruled = agent.replace("categories: [live]\n", "publishing: { taken_by: [human] }\ncategories: [live]\n", 1)
+    open_ = [[x for x in check([(f"{name}.yaml", text)])[1] if x[3] == "publishing_open"]
+             for name, text in (("agent", agent), ("ruled", ruled))]
+    hit = len(open_[0]) == 1 and open_[1] == []
+    ok &= hit
+    print(f"  planted a version an agent may approve: {'noticed, and not with the rule' if hit else 'MISSED ' + str(open_)}")
+    # an invariant named as the one an actor's identity generates is refused (ADR-0190 decision 4)
+    named = shown.replace("    tracking: record\n", "    tracking: record\n    invariants: { identity_taken: { description: Taken., expression: \"true\" } }\n", 1)
+    taken = [x[4] for x in check([("named.yaml", named)])[0] if x[3] == "names"]
+    hit = len(taken) == 1 and "an actor's identity generates" in taken[0]
+    ok &= hit
+    print(f"  planted an invariant named as an actor's identity's: {'refused' if hit else 'MISSED ' + str(taken)}")
+    # a cascade or a foreach whose limit no invariant holds its set to is noticed, and one bounded at or below it is
+    # not (fifth production review ERASE-LIMIT, ADR-0190 decision 7)
+    reach = ("module: m\ncategories: [live]\ntypes:\n  Claim:\n    description: A claim of lines.\n    tracking: record\n"
+             "    attributes:\n      lines: { reference: \"Line[]\", aggregation: composite, opposite: claim,"
+             " cascade: [ { on: [forget], transition: forget, limit: 20 } ] }\n"
+             "      who: { type: string, optional: true, personal: true }\n"
+             "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
+             "    transitions:\n      t: { kind: initial, to: S }\n      close: { kind: external, from: S, to: E }\n"
+             "      forget:\n        kind: erasure\n        inputs: { reason: { type: string } }\n"
+             "        effect:\n          - foreach: { item: l, array: lines, limit: 20, steps: [ { call: { target: l, transition: forget, inputs: { reason: inputs.reason } } } ] }\n"
+             "  Line:\n    description: A line.\n    tracking: record\n"
+             "    attributes:\n      claim: { reference: Claim, opposite: lines }\n      note: { type: string, optional: true, personal: true }\n"
+             "    states: { L: { category: live, description: Listed. }, D: { category: live, final: true, description: Dropped. } }\n"
+             "    transitions:\n      add: { kind: initial, to: L, required_inputs: [claim] }\n"
+             "      drop: { kind: external, from: L, to: D, only_via: [Claim.close] }\n"
+             "      forget: { kind: erasure, inputs: { reason: { type: string } }, only_via: [Claim.forget] }\n")
+    bounded = reach.replace("    states: { S:", "    invariants: { few: { expression: count(l in lines) <= 20 } }\n    states: { S:", 1)
+    reached = [[x[4][:40] for x in check([(f"{name}.yaml", text)])[1] if x[3] == "unbounded_reach"]
+               for name, text in (("reach", reach), ("bounded", bounded))]
+    hit = len(reached[0]) == 2 and reached[1] == []
+    ok &= hit
+    print(f"  planted a cascade and an erasure's foreach over a set no invariant bounds: "
+          f"{'noticed, and not once bounded' if hit else 'MISSED ' + str(reached)}")
     # a correction taking taken_by, its own or its type's, is no correction writing more than it corrects (ADR-0190
     # decision 5)
     held = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A record a person corrects.\n"

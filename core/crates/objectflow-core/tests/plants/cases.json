@@ -4,7 +4,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ]
   ],
   "previous": {},
@@ -65,7 +65,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -153,7 +153,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory-v2.yaml",
@@ -257,7 +257,7 @@
   "files": [
    [
     "people",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service",
@@ -265,7 +265,7 @@
    ]
   ],
   "previous": {
-   "people": "ed616a83e6085b5b",
+   "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
    "service.examples": "b5b6bd173d23b779"
   },
@@ -362,7 +362,7 @@
   "files": [
    [
     "people",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service",
@@ -370,7 +370,7 @@
    ]
   ],
   "previous": {
-   "people": "ed616a83e6085b5b",
+   "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
    "service.examples": "b5b6bd173d23b779"
   },
@@ -467,7 +467,7 @@
   "files": [
    [
     "people",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service",
@@ -475,7 +475,7 @@
    ]
   ],
   "previous": {
-   "people": "ed616a83e6085b5b",
+   "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
    "service.examples": "b5b6bd173d23b779"
   },
@@ -572,7 +572,7 @@
   "files": [
    [
     "people",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service",
@@ -580,7 +580,7 @@
    ]
   ],
   "previous": {
-   "people": "ed616a83e6085b5b",
+   "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
    "service.examples": "b5b6bd173d23b779"
   },
@@ -677,7 +677,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -778,7 +778,7 @@
    ]
   },
   "reads": {
-   "people.yaml": "ed616a83e6085b5b",
+   "people.yaml": "b11fb2a62f4cf338",
    "service-v2.yaml": "518220b4397faa50"
   }
  },
@@ -787,7 +787,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service-v2.yaml",
@@ -908,7 +908,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -1037,7 +1037,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "approvals.yaml",
@@ -1122,11 +1122,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "87ea0734322fe10e"
+    "46591cc994e0c73c"
    ],
    [
     "customers.examples.yaml",
@@ -1186,6 +1186,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -1201,6 +1202,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -1235,7 +1240,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "issues.yaml",
@@ -1379,7 +1384,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -1387,7 +1392,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "5cd3cb6a242a06ab"
+    "4401e00a6d64751e"
    ]
   ],
   "previous": {},
@@ -1530,11 +1535,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "reimbursement.yaml",
-    "b63322e0cc8e8710"
+    "3f5be0301e594230"
    ],
    [
     "reimbursement.examples.yaml",
@@ -1566,21 +1571,21 @@
    ],
    [
     "reimbursement.yaml",
-    367,
+    368,
     "notice",
     "warn",
     "lines_within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    584,
+    585,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    596,
+    597,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
@@ -1635,6 +1640,7 @@
    "Claim.complete_review_taken_by": "local",
    "Claim.erase_personal_data_taken_by": "local",
    "Claim.has_title": "local",
+   "Claim.lines_within_reach": "traversal",
    "Claim.pay_taken_by": "local",
    "Claim.reject_taken_by": "local",
    "ClaimLine.confirmed_by_a_person": "local",
@@ -1691,6 +1697,10 @@
    "Claim.has_title": [
     "Claim.draft",
     "Claim.erase_personal_data"
+   ],
+   "Claim.lines_within_reach": [
+    "Claim.draft",
+    "ClaimLine.add"
    ],
    "Claim.pay_taken_by": [
     "Claim.draft",
@@ -1768,7 +1778,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -1828,7 +1838,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -1902,7 +1912,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -1976,7 +1986,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -2036,7 +2046,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -2096,7 +2106,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -2156,7 +2166,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -2216,7 +2226,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -2297,7 +2307,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -2382,7 +2392,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -2467,7 +2477,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -2552,7 +2562,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -2644,7 +2654,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -2729,7 +2739,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -2803,7 +2813,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "approvals.yaml",
@@ -2870,7 +2880,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -2944,7 +2954,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -3025,7 +3035,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -3099,7 +3109,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -3173,7 +3183,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -3247,7 +3257,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -3332,7 +3342,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -3417,7 +3427,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -3502,7 +3512,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -3587,7 +3597,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -3672,7 +3682,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -3750,7 +3760,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -3824,7 +3834,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -3898,7 +3908,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -3972,7 +3982,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -4046,7 +4056,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -4120,11 +4130,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "3c59e163c5df1b9c"
+    "cce7979d25126239"
    ]
   ],
   "previous": {},
@@ -4138,7 +4148,7 @@
    ],
    [
     "customers.yaml",
-    157,
+    159,
     "fatal",
     "names",
     "Customer.correct_state's reason is not an enumeration; an assertion's reasons are counted, so they are declared values"
@@ -4148,6 +4158,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -4163,6 +4174,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -4197,11 +4212,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "3dd449ccdd179feb"
+    "fb12a9568f2923ce"
    ]
   ],
   "previous": {},
@@ -4215,7 +4230,7 @@
    ],
    [
     "customers.yaml",
-    159,
+    161,
     "fatal",
     "names",
     "Customer.correct_state may admit 'active_rule', which is not an invariant of Customer"
@@ -4225,6 +4240,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -4240,6 +4256,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -4274,11 +4294,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "6fffbea41258bd0a"
+    "8e2f167997ee6ccc"
    ]
   ],
   "previous": {},
@@ -4292,7 +4312,7 @@
    ],
    [
     "customers.yaml",
-    160,
+    162,
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
@@ -4302,6 +4322,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -4317,6 +4338,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -4351,11 +4376,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "35b63b675234a90b"
+    "db0a9e0c3bfb70a1"
    ]
   ],
   "previous": {},
@@ -4369,7 +4394,7 @@
    ],
    [
     "customers.yaml",
-    144,
+    146,
     "fatal",
     "names",
     "Customer.correct_email writes 'name', which it does not list in corrects; a correction writes exactly what it corrects"
@@ -4379,6 +4404,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -4394,6 +4420,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -4428,11 +4458,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "7210ed0b6e2b8623"
+    "c5353ea8acdf2fd4"
    ]
   ],
   "previous": {},
@@ -4456,6 +4486,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -4471,6 +4502,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -4505,18 +4540,18 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "b1194dd07748fe7e"
+    "523a9b90debef803"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    160,
+    162,
     "fatal",
     "schema",
     "an erasure declares neither `from` nor `to`: it runs at any state"
@@ -4565,7 +4600,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -4650,18 +4685,18 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "6c6f1bd4c5a1d3d4"
+    "9a9aaccd749d0991"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "customers.yaml",
-    101,
+    103,
     "fatal",
     "schema",
     "`from` is a state, a list of states, or any, alone"
@@ -4710,7 +4745,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -4770,7 +4805,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -4859,7 +4894,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -4934,7 +4969,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -5016,7 +5051,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -5098,7 +5133,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -5173,7 +5208,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -5248,7 +5283,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -5323,7 +5358,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service-v2.yaml",
@@ -5412,7 +5447,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service-v2.yaml",
@@ -5522,7 +5557,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service-v2.yaml",
@@ -5611,7 +5646,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service-v2.yaml",
@@ -5693,7 +5728,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service-v2.yaml",
@@ -5782,7 +5817,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -5857,7 +5892,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -5932,7 +5967,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -6021,7 +6056,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -6096,7 +6131,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -6171,7 +6206,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -6246,11 +6281,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "20ffde3bd2b9e66b"
+    "ce5c53d287afc2f7"
    ]
   ],
   "previous": {},
@@ -6264,7 +6299,7 @@
    ],
    [
     "customers.yaml",
-    77,
+    79,
     "fatal",
     "names",
     "condition contact_in_xero calls xero.contact_known, which xero does not declare"
@@ -6274,6 +6309,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -6289,6 +6325,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -6323,11 +6363,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "c7a82e3437e0e14f"
+    "cde756e27bb01db4"
    ]
   ],
   "previous": {},
@@ -6341,7 +6381,7 @@
    ],
    [
     "customers.yaml",
-    77,
+    79,
     "fatal",
     "names",
     "condition contact_in_xero calls an evaluator inside a larger expression; a verdict is the whole condition or its negation (check 24)"
@@ -6351,6 +6391,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -6366,6 +6407,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -6400,11 +6445,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "0af6da2718c74018"
+    "a8290b042707a2cc"
    ]
   ],
   "previous": {},
@@ -6418,7 +6463,14 @@
    ],
    [
     "customers.yaml",
-    77,
+    76,
+    "fatal",
+    "order",
+    "in Customer, 'derived_attributes' comes after 'invariants'; declare description, tracking, attributes, states, derived_attributes, invariants, conditions, transitions, metrics in that order"
+   ],
+   [
+    "customers.yaml",
+    79,
     "fatal",
     "names",
     "in_xero calls xero.contact_exists; only a guard asks an evaluator"
@@ -6428,6 +6480,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -6443,6 +6496,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -6477,11 +6534,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "c3defb3e6d90f501"
+    "b369d26f0e84fc7b"
    ]
   ],
   "previous": {},
@@ -6495,7 +6552,7 @@
    ],
    [
     "customers.yaml",
-    117,
+    119,
     "fatal",
     "names",
     "Customer.merged_into enters the superseding state MERGED and names no successor with supersede"
@@ -6505,6 +6562,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -6520,6 +6578,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -6554,11 +6616,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "10dca586dddfb077"
+    "a20266d8d1e40015"
    ]
   ],
   "previous": {},
@@ -6572,7 +6634,7 @@
    ],
    [
     "customers.yaml",
-    123,
+    125,
     "fatal",
     "names",
     "Customer.merged_into supersedes the object with itself"
@@ -6582,6 +6644,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -6597,6 +6660,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -6631,11 +6698,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "c725bd6b1ccfa449"
+    "a763c586544a3e4d"
    ]
   ],
   "previous": {},
@@ -6649,7 +6716,7 @@
    ],
    [
     "customers.yaml",
-    180,
+    182,
     "fatal",
     "names",
     "metric overrides compares t.transition with \"corect_state\", which is not a transition of Customer"
@@ -6659,6 +6726,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -6674,6 +6742,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -6708,11 +6780,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "830ae19a3702680f"
+    "8a586ff3fc58f68a"
    ]
   ],
   "previous": {},
@@ -6726,7 +6798,7 @@
    ],
    [
     "customers.yaml",
-    105,
+    107,
     "fatal",
     "names",
     "Customer.close writes OverrideReason.MIS_KEYED, enumeration OverrideReason, to note_kind, which holds string: a write's value must fit its target (the model's check 17)"
@@ -6736,6 +6808,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -6751,6 +6824,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -6785,11 +6862,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "84be9c631f76ccce"
+    "c3a5acdd21d43895"
    ]
   ],
   "previous": {},
@@ -6813,6 +6890,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -6828,6 +6906,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -6862,11 +6944,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "444831825d3886d5"
+    "c1d44ac70a1f8b0c"
    ]
   ],
   "previous": {},
@@ -6880,7 +6962,7 @@
    ],
    [
     "customers.yaml",
-    105,
+    107,
     "fatal",
     "names",
     "Customer.close writes actor.kind, actor_kind, to note_kind, which holds string: a write's value must fit its target (the model's check 17)"
@@ -6890,6 +6972,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -6905,6 +6988,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -6939,7 +7026,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -7017,11 +7104,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "42324fc206ebd910"
+    "5e954d7326e0c090"
    ]
   ],
   "previous": {},
@@ -7045,6 +7132,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -7060,6 +7148,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -7094,11 +7186,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "5b922ff4d53f562d"
+    "2d688101f444072c"
    ]
   ],
   "previous": {},
@@ -7112,7 +7204,7 @@
    ],
    [
     "customers.yaml",
-    79,
+    81,
     "fatal",
     "names",
     "'not_erased' is the name of a guard the engine generates, so a refusal naming it would not say which it was; choose another name"
@@ -7122,6 +7214,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -7137,6 +7230,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -7171,11 +7268,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "ba905368bf520cae"
+    "9d80733fab9d5174"
    ]
   ],
   "previous": {},
@@ -7189,7 +7286,7 @@
    ],
    [
     "customers.yaml",
-    123,
+    125,
     "fatal",
     "names",
     "Customer.merged_into supersedes with inputs.successor, which is optional, so a request leaving it out would name no successor"
@@ -7199,6 +7296,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -7214,6 +7312,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -7248,11 +7350,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "352f5442f289722f"
+    "a22d96ac81d9c841"
    ]
   ],
   "previous": {},
@@ -7266,7 +7368,7 @@
    ],
    [
     "customers.yaml",
-    123,
+    125,
     "fatal",
     "names",
     "Customer.merged_into supersedes inside a foreach, which may name no successor or several"
@@ -7276,6 +7378,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -7291,6 +7394,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -7325,11 +7432,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "35b115efc19c9756"
+    "a9b26868eb68015c"
    ]
   ],
   "previous": {},
@@ -7343,7 +7450,7 @@
    ],
    [
     "customers.yaml",
-    124,
+    126,
     "fatal",
     "names",
     "Customer.merged_into names more than one successor, and an object has one"
@@ -7353,6 +7460,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -7368,6 +7476,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -7402,11 +7514,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "12f902d2c2d6e00d"
+    "1891a176a0839dd2"
    ]
   ],
   "previous": {},
@@ -7420,14 +7532,14 @@
    ],
    [
     "customers.yaml",
-    123,
+    125,
     "fatal",
     "names",
     "Customer.merged_into supersedes with survivor, which is neither an input nor a name a create at the top level of the effect binds (check 49)"
    ],
    [
     "customers.yaml",
-    123,
+    125,
     "fatal",
     "names",
     "merged_into reads 'survivor', which Customer does not declare"
@@ -7437,6 +7549,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -7452,6 +7565,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -7486,11 +7603,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "f23559c049495567"
+    "56fed131a0140cd6"
    ]
   ],
   "previous": {},
@@ -7504,7 +7621,7 @@
    ],
    [
     "customers.yaml",
-    101,
+    103,
     "fatal",
     "names",
     "Customer.lapse supersedes, and does not enter a superseding state"
@@ -7514,6 +7631,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -7529,6 +7647,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -7563,11 +7685,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "919affc82dbdd220"
+    "983227cfb54ce713"
    ]
   ],
   "previous": {},
@@ -7591,6 +7713,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -7606,6 +7729,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -7640,7 +7767,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -7725,7 +7852,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -7810,7 +7937,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -7892,7 +8019,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -7967,7 +8094,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -8042,7 +8169,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -8117,7 +8244,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -8192,7 +8319,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "approvals.yaml",
@@ -8259,7 +8386,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "approvals.yaml",
@@ -8326,7 +8453,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "approvals.yaml",
@@ -8393,7 +8520,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -8467,7 +8594,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -8541,7 +8668,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -8615,7 +8742,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -8696,7 +8823,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -8770,7 +8897,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -8848,7 +8975,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -8922,7 +9049,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -8996,7 +9123,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -9091,7 +9218,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -9169,7 +9296,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -9243,11 +9370,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "8087d1a12e9e18a4"
+    "5ec5558d9d255b7e"
    ]
   ],
   "previous": {},
@@ -9261,7 +9388,7 @@
    ],
    [
     "customers.yaml",
-    113,
+    115,
     "fatal",
     "names",
     "Customer.merge_in calls Customer.correct_state, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"
@@ -9271,6 +9398,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -9286,6 +9414,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -9320,11 +9452,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "af1e57c26f6d20bd"
+    "e7b10c1d22bffa9e"
    ]
   ],
   "previous": {},
@@ -9348,6 +9480,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -9363,6 +9496,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -9397,7 +9534,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -9472,7 +9609,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -9557,7 +9694,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -9617,7 +9754,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -9698,7 +9835,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -9772,7 +9909,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -9846,7 +9983,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -9920,7 +10057,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -9994,7 +10131,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -10068,7 +10205,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -10128,7 +10265,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -10188,7 +10325,7 @@
   "files": [
    [
     "people.yaml",
-    "081515c74bbdef64"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -10487,6 +10624,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Task (1), since the version declares an agent kind of actor (Bot.bot_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "tasks.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Bot.bot_id) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: { taken_by: [human] } (ADR-0190)"
    ]
   ],
   "analysed": {
@@ -10638,6 +10782,238 @@
     "T.t"
    ]
   }
+ },
+ {
+  "label": "<listcomp>: hid",
+  "files": [
+   [
+    "hid.yaml",
+    "665fd62cdfc9cfb7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "hid.yaml",
+    5,
+    "fatal",
+    "yaml",
+    "a bidirectional control or invisible formatting character, U+202E, which can make a source read otherwise than it shows (ADR-0190)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<listcomp>: shown",
+  "files": [
+   [
+    "shown.yaml",
+    "584f0341ff95d1ab"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<listcomp>: agent",
+  "files": [
+   [
+    "agent.yaml",
+    "f20c99a4423bcd4e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "agent.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: T (2), since the version declares an agent kind of actor (Bot.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "agent.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Bot.key) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: { taken_by: [human] } (ADR-0190)"
+   ]
+  ],
+  "analysed": {
+   "Bot": [
+    0,
+    0
+   ],
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Bot.issue_taken_by": "local",
+   "Bot.off_taken_by": "local"
+  },
+  "could_violate": {
+   "Bot.issue_taken_by": [
+    "Bot.issue"
+   ],
+   "Bot.off_taken_by": [
+    "Bot.issue",
+    "Bot.off"
+   ]
+  }
+ },
+ {
+  "label": "<listcomp>: ruled",
+  "files": [
+   [
+    "ruled.yaml",
+    "a819b4f9444b8b42"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ruled.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: T (2), since the version declares an agent kind of actor (Bot.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
+  "analysed": {
+   "Bot": [
+    0,
+    0
+   ],
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Bot.issue_taken_by": "local",
+   "Bot.off_taken_by": "local"
+  },
+  "could_violate": {
+   "Bot.issue_taken_by": [
+    "Bot.issue"
+   ],
+   "Bot.off_taken_by": [
+    "Bot.issue",
+    "Bot.off"
+   ]
+  }
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "named.yaml",
+    "9c6974261598e3d0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "named.yaml",
+    7,
+    "fatal",
+    "names",
+    "'identity_taken' is the name of the invariant an actor's identity generates (ADR-0190); choose another name"
+   ],
+   [
+    "named.yaml",
+    8,
+    "fatal",
+    "order",
+    "in T, 'states' comes after 'invariants'; declare description, tracking, states, invariants, transitions in that order"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "T.identity_taken": "local"
+  },
+  "could_violate": {
+   "T.identity_taken": [
+    "T.t"
+   ]
+  }
+ },
+ {
+  "label": "<listcomp>: reach",
+  "files": [
+   [
+    "reach.yaml",
+    "308a5e8a0fc22dc2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "reach.yaml",
+    8,
+    "fatal",
+    "names",
+    "Claim.close enters the final state E, and Claim.lines neither cascades on it nor survives it"
+   ],
+   [
+    "reach.yaml",
+    8,
+    "fatal",
+    "names",
+    "Claim.lines cascades to Line.forget without the input 'reason', which it requires"
+   ],
+   [
+    "reach.yaml",
+    8,
+    "notice",
+    "unbounded_reach",
+    "Claim.lines's cascade on forget takes at most 20 of it, and no invariant of Claim holds it to 20: past 20, the erasure is refused over_limit and cannot be carried out; declare one such as count(x in lines) <= 20 (ADR-0190)"
+   ],
+   [
+    "reach.yaml",
+    14,
+    "notice",
+    "unbounded_reach",
+    "Claim.forget takes at most 20 of lines, and no invariant of Claim holds it to 20: past 20, the erasure is refused over_limit and cannot be carried out; declare one such as count(x in lines) <= 20 (ADR-0190)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<listcomp>: bounded",
+  "files": [
+   [
+    "bounded.yaml",
+    "5b9bddea53b0520e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bounded.yaml",
+    10,
+    "fatal",
+    "schema",
+    "'description' is a required property"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "self_test: two modules declaring their version's approvers differently",
@@ -10850,7 +11226,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -10910,7 +11286,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -10998,7 +11374,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -11093,7 +11469,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -11220,7 +11596,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -11347,7 +11723,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -11565,7 +11941,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -11692,7 +12068,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -11889,7 +12265,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -12086,7 +12462,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -12164,7 +12540,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -12242,7 +12618,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -12327,7 +12703,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -12405,7 +12781,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -12483,7 +12859,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -12561,7 +12937,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -12653,7 +13029,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -12731,7 +13107,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -12809,7 +13185,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -12887,7 +13263,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -12965,7 +13341,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -13074,7 +13450,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -13183,7 +13559,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -13261,7 +13637,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -13356,7 +13732,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -13434,7 +13810,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -13570,7 +13946,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -13741,7 +14117,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -13830,7 +14206,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -13919,7 +14295,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -14046,7 +14422,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -14182,7 +14558,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -14318,7 +14694,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -14410,7 +14786,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -14537,7 +14913,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -14664,7 +15040,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -14791,7 +15167,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -14918,7 +15294,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -15045,7 +15421,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -15172,7 +15548,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -15299,11 +15675,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
-    "87ea0734322fe10e"
+    "46591cc994e0c73c"
    ],
    [
     "module.examples.yaml",
@@ -15370,6 +15746,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -15385,6 +15762,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -15419,7 +15800,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -15511,7 +15892,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -15662,7 +16043,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -15670,7 +16051,7 @@
    ],
    [
     "module.examples.yaml",
-    "b8aa1325bac41b59"
+    "cf4ce32ba6bb9459"
    ]
   ],
   "previous": {},
@@ -15691,7 +16072,7 @@
    ],
    [
     "module.examples.yaml",
-    347,
+    354,
     "fatal",
     "example",
     "a_negative_receipt_is_refused: expected the remedy unreachable_from_here, and it is refused as invariant_violated reserved_bounded self_serviceable"
@@ -15820,7 +16201,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -15898,7 +16279,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -15976,7 +16357,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -16054,7 +16435,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -16139,7 +16520,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -16228,7 +16609,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "fe442ab30c8b6b1d"
+    "4e8374712613b6d5"
    ]
   ],
   "previous": {},
@@ -16239,6 +16620,20 @@
     "fatal",
     "names",
     "'major' is a bool"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    280,
+    "fatal",
+    "names",
+    "creates a User, which no module checked declares as a type"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    281,
+    "fatal",
+    "names",
+    "creates a Agent, which no module checked declares as a type"
    ]
   ],
   "analysed": {},
@@ -16264,7 +16659,7 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "5c34843f680bf976"
+    "cdb9add69990ccd4"
    ]
   ],
   "previous": {},
@@ -16275,6 +16670,20 @@
     "fatal",
     "names",
     "'tier' is an int"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    280,
+    "fatal",
+    "names",
+    "creates a User, which no module checked declares as a type"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    281,
+    "fatal",
+    "names",
+    "creates a Agent, which no module checked declares as a type"
    ]
   ],
   "analysed": {},
@@ -16296,7 +16705,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -16378,14 +16787,28 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "33e948441e5f60f9"
+    "1386d72fb1ead599"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.examples.yaml",
-    296,
+    280,
+    "fatal",
+    "names",
+    "creates a User, which no module checked declares as a type"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    281,
+    "fatal",
+    "names",
+    "creates a Agent, which no module checked declares as a type"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    303,
     "fatal",
     "names",
     "creates a Asset, which is abstract and has no objects"
@@ -16410,7 +16833,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -16488,7 +16911,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -16566,11 +16989,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "87ea0734322fe10e"
+    "46591cc994e0c73c"
    ],
    [
     "customers.examples.yaml",
@@ -16598,6 +17021,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -16613,6 +17037,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -16647,7 +17075,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -16746,7 +17174,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -16824,7 +17252,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -16906,14 +17334,28 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "b17c8aad0c3f5d37"
+    "0d99d811b1db5862"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.examples.yaml",
-    302,
+    280,
+    "fatal",
+    "names",
+    "creates a User, which no module checked declares as a type"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    281,
+    "fatal",
+    "names",
+    "creates a Agent, which no module checked declares as a type"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    309,
     "fatal",
     "names",
     "raises the sequence asset_keys, which no module checked declares"
@@ -16942,14 +17384,28 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "a0afc48922d47c5d"
+    "08054a075e3710a9"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.examples.yaml",
-    302,
+    280,
+    "fatal",
+    "names",
+    "creates a User, which no module checked declares as a type"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    281,
+    "fatal",
+    "names",
+    "creates a Agent, which no module checked declares as a type"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    309,
     "fatal",
     "names",
     "raises asset_key in a scope, and asset_key numbers one series, with no scope"
@@ -16978,14 +17434,28 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "5cd3cb6a242a06ab"
+    "4401e00a6d64751e"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.examples.yaml",
-    302,
+    280,
+    "fatal",
+    "names",
+    "creates a User, which no module checked declares as a type"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    281,
+    "fatal",
+    "names",
+    "creates a Agent, which no module checked declares as a type"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    309,
     "fatal",
     "names",
     "raises asset_key with no scope, and Asset.key numbers it in each value of service"
@@ -17028,14 +17498,28 @@
    ],
    [
     "servicedesk.examples.yaml",
-    "abcd5a138836f97e"
+    "f078c8100a68e5c8"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "servicedesk.examples.yaml",
-    302,
+    280,
+    "fatal",
+    "names",
+    "creates a User, which no module checked declares as a type"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    281,
+    "fatal",
+    "names",
+    "creates a Agent, which no module checked declares as a type"
+   ],
+   [
+    "servicedesk.examples.yaml",
+    309,
     "fatal",
     "names",
     "'scope' is a reference to RegisteredService, and 'nobody' is not an alias an earlier step gave one"
@@ -17074,7 +17558,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "issues.yaml",
@@ -17173,7 +17657,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -17251,7 +17735,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -17329,7 +17813,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -17407,7 +17891,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -17485,7 +17969,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -17563,7 +18047,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -17641,7 +18125,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -17719,7 +18203,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -17797,7 +18281,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -17875,7 +18359,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -17953,7 +18437,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -18031,7 +18515,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -18109,7 +18593,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -18187,7 +18671,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -18265,7 +18749,7 @@
   "files": [
    [
     "people",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service",
@@ -18273,7 +18757,7 @@
    ]
   ],
   "previous": {
-   "people": "ed616a83e6085b5b",
+   "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
    "service.examples": "b5b6bd173d23b779"
   },
@@ -18363,7 +18847,7 @@
   "files": [
    [
     "people",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service",
@@ -18371,7 +18855,7 @@
    ]
   ],
   "previous": {
-   "people": "ed616a83e6085b5b",
+   "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
    "service.examples": "b5b6bd173d23b779"
   },
@@ -18461,7 +18945,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -18576,7 +19060,7 @@
    ]
   },
   "reads": {
-   "people.yaml": "ed616a83e6085b5b",
+   "people.yaml": "b11fb2a62f4cf338",
    "service-v2.yaml": "53f2b40fda247ff8"
   }
  },
@@ -18585,7 +19069,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -18718,7 +19202,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -18858,7 +19342,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -18949,7 +19433,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -19033,7 +19517,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -19107,7 +19591,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -19209,7 +19693,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -19297,7 +19781,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -19385,7 +19869,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "module.yaml",
@@ -19473,7 +19957,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -19561,7 +20045,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -19635,7 +20119,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -19709,7 +20193,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -19790,7 +20274,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -19878,7 +20362,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -20185,6 +20669,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: { taken_by: [human] } (ADR-0190)"
    ]
   ],
   "analysed": {
@@ -20250,6 +20741,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: { taken_by: [human] } (ADR-0190)"
    ]
   ],
   "analysed": {
@@ -20325,6 +20823,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Agent (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: { taken_by: [human] } (ADR-0190)"
    ]
   ],
   "analysed": {
@@ -20384,6 +20889,13 @@
    ],
    [
     "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: { taken_by: [human] } (ADR-0190)"
+   ],
+   [
+    "taken.yaml",
     49,
     "fatal",
     "names",
@@ -20432,6 +20944,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Agent (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: { taken_by: [human] } (ADR-0190)"
    ],
    [
     "taken.yaml",
@@ -20485,6 +21004,13 @@
    ],
    [
     "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: { taken_by: [human] } (ADR-0190)"
+   ],
+   [
+    "taken.yaml",
     32,
     "fatal",
     "order",
@@ -20535,6 +21061,13 @@
    ],
    [
     "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: { taken_by: [human] } (ADR-0190)"
+   ],
+   [
+    "taken.yaml",
     35,
     "fatal",
     "names",
@@ -20573,6 +21106,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: { taken_by: [human] } (ADR-0190)"
    ],
    [
     "taken.yaml",
@@ -20639,6 +21179,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: { taken_by: [human] } (ADR-0190)"
    ]
   ],
   "analysed": {
@@ -20924,7 +21471,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -21008,7 +21555,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -21151,7 +21698,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -21233,7 +21780,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -21366,11 +21913,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "711c04fc9fe523e8"
+    "26a1d2513c8db8b2"
    ],
    [
     "customers.examples.yaml",
@@ -21430,6 +21977,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -21445,6 +21993,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -21479,7 +22031,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -21575,7 +22127,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -21664,7 +22216,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -21753,7 +22305,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "inventory.yaml",
@@ -21889,11 +22441,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "reimbursement.yaml",
-    "b63322e0cc8e8710"
+    "3f5be0301e594230"
    ],
    [
     "reimbursement.examples.yaml",
@@ -21918,21 +22470,21 @@
    ],
    [
     "reimbursement.yaml",
-    367,
+    368,
     "notice",
     "warn",
     "lines_within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    584,
+    585,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    596,
+    597,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
@@ -21950,6 +22502,7 @@
    "Claim.complete_review_taken_by": "local",
    "Claim.erase_personal_data_taken_by": "local",
    "Claim.has_title": "local",
+   "Claim.lines_within_reach": "traversal",
    "Claim.pay_taken_by": "local",
    "Claim.reject_taken_by": "local",
    "ClaimLine.confirmed_by_a_person": "local",
@@ -22006,6 +22559,10 @@
    "Claim.has_title": [
     "Claim.draft",
     "Claim.erase_personal_data"
+   ],
+   "Claim.lines_within_reach": [
+    "Claim.draft",
+    "ClaimLine.add"
    ],
    "Claim.pay_taken_by": [
     "Claim.draft",
@@ -22083,7 +22640,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -22158,7 +22715,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -22291,11 +22848,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "cc44a69bf333ff2c"
+    "ad249c4fd369e7b9"
    ]
   ],
   "previous": {},
@@ -22309,21 +22866,21 @@
    ],
    [
     "customers.yaml",
-    113,
+    115,
     "fatal",
     "names",
     "Customer.merge_in passes this, reference Customer, to Customer.merged_into's input 'successor', which takes reference Contact: an argument must fit its input (the model's check 2)"
    ],
    [
     "customers.yaml",
-    123,
+    125,
     "fatal",
     "names",
     "Customer.merged_into supersedes with a Contact, whose erasure takes reason, ticket where Customer's takes reason; a group's erasures receive one request's inputs, so they require the same, by name, type and optionality"
    ],
    [
     "customers.yaml",
-    167,
+    169,
     "fatal",
     "names",
     "Customer.forget calls Contact.forget without the input 'ticket', which it requires"
@@ -22333,6 +22890,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -22348,6 +22906,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -22382,11 +22944,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "7c7474a160d903ad"
+    "7f1270dba9a88bc9"
    ]
   ],
   "previous": {},
@@ -22400,21 +22962,21 @@
    ],
    [
     "customers.yaml",
-    113,
+    115,
     "fatal",
     "names",
     "Customer.merge_in passes this, reference Customer, to Customer.merged_into's input 'successor', which takes reference Contact: an argument must fit its input (the model's check 2)"
    ],
    [
     "customers.yaml",
-    123,
+    125,
     "fatal",
     "names",
     "Customer.merged_into supersedes with a Contact, whose erasure takes reason where Customer's takes reason; a group's erasures receive one request's inputs, so they require the same, by name, type and optionality"
    ],
    [
     "customers.yaml",
-    167,
+    169,
     "fatal",
     "names",
     "Customer.forget passes inputs.reason, string, to Contact.forget's input 'reason', which takes enumeration OverrideReason: an argument must fit its input (the model's check 2)"
@@ -22424,6 +22986,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -22439,6 +23002,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -22473,11 +23040,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "206055d0fa30b270"
+    "e09278a1c45eb7ba"
    ]
   ],
   "previous": {},
@@ -22491,21 +23058,21 @@
    ],
    [
     "customers.yaml",
-    160,
+    162,
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ],
    [
     "customers.yaml",
-    167,
+    169,
     "fatal",
     "names",
     "Customer.forget binds 'email', which is a member of Customer; a bound name shares no name with a member"
    ],
    [
     "customers.yaml",
-    167,
+    169,
     "fatal",
     "names",
     "forget reads 'c', which Customer does not declare"
@@ -22515,6 +23082,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -22530,6 +23098,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -22564,7 +23136,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -22624,7 +23196,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -22757,7 +23329,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service-v2.yaml",
@@ -22846,11 +23418,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "c08eaae623575238"
+    "eab2394f692591d3"
    ]
   ],
   "previous": {},
@@ -22864,7 +23436,7 @@
    ],
    [
     "customers.yaml",
-    266,
+    268,
     "fatal",
     "names",
     "the migration moves Customer.LAPSED to MERGED, a superseding state, which would leave its objects superseded by nothing (ADR-0146)"
@@ -22874,6 +23446,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -22889,6 +23462,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -22923,7 +23500,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -22997,7 +23574,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -23085,7 +23662,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "delivery.yaml",
@@ -23159,7 +23736,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "delivery.yaml",
@@ -23233,7 +23810,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "delivery.yaml",
@@ -23329,11 +23906,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "9987a5c36b5c988b"
+    "6cb33c00c6ab47e9"
    ]
   ],
   "previous": {},
@@ -23347,21 +23924,21 @@
    ],
    [
     "customers.yaml",
-    160,
+    162,
     "fatal",
     "names",
     "Customer.purge erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ],
    [
     "customers.yaml",
-    160,
+    162,
     "fatal",
     "names",
     "Customer.purge is an erasure, and declares no input 'reason'"
    ],
    [
     "customers.yaml",
-    163,
+    165,
     "fatal",
     "names",
     "Customer declares the erasures purge, forget; a type declares at most one, which a group's erasure takes (ADR-0147)"
@@ -23371,6 +23948,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -23386,6 +23964,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -23420,11 +24002,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "ed0e0afc3fee4d8a"
+    "bc4c08ec9e4acd15"
    ]
   ],
   "previous": {},
@@ -23445,7 +24027,7 @@
    ],
    [
     "customers.yaml",
-    154,
+    156,
     "fatal",
     "names",
     "Customer.correct_state asserts a superseding state, which would name no successor; a merge is a declared transition (the model's check 26, ADR-0147)"
@@ -23455,6 +24037,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -23470,6 +24053,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -23528,11 +24115,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "e9f4a28ff04e1428"
+    "432b5fe114b85b93"
    ]
   ],
   "previous": {},
@@ -23546,21 +24133,21 @@
    ],
    [
     "customers.yaml",
-    160,
+    162,
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
    ],
    [
     "customers.yaml",
-    167,
+    169,
     "fatal",
     "names",
     "Customer.forget binds 'now', a word an expression resolves first or every object has (ADR-0147)"
    ],
    [
     "customers.yaml",
-    167,
+    169,
     "fatal",
     "names",
     "forget reads 'c', which Customer does not declare"
@@ -23570,6 +24157,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -23585,6 +24173,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -23619,7 +24211,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "delivery.yaml",
@@ -23693,7 +24285,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service-v2.yaml",
@@ -23796,7 +24388,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service-v2.yaml",
@@ -23906,7 +24498,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service-v2.yaml",
@@ -24002,7 +24594,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service-v2.yaml",
@@ -24091,7 +24683,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service-v2.yaml",
@@ -24194,7 +24786,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -24268,7 +24860,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -24342,7 +24934,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -24417,11 +25009,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "9675ff14fb143333"
+    "67971d9ba0e9a736"
    ]
   ],
   "previous": {},
@@ -24463,6 +25055,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -24478,6 +25071,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -24512,11 +25109,11 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "customers.yaml",
-    "de6a905457455eec"
+    "9acf32ee5941aed6"
    ]
   ],
   "previous": {},
@@ -24530,7 +25127,7 @@
    ],
    [
     "customers.yaml",
-    140,
+    142,
     "fatal",
     "names",
     "'redact' cannot name a transition: the engine's own events carry that name (ADR-0148)"
@@ -24540,6 +25137,7 @@
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
+   "Customer.contacts_within_reach": "traversal",
    "Customer.correct_state_taken_by": "local",
    "Customer.forget_taken_by": "local",
    "Service.register_taken_by": "local",
@@ -24555,6 +25153,10 @@
    "Agent.revoke_taken_by": [
     "Agent.issue",
     "Agent.revoke"
+   ],
+   "Customer.contacts_within_reach": [
+    "Contact.add",
+    "Customer.register"
    ],
    "Customer.correct_state_taken_by": [
     "Customer.correct_state",
@@ -24589,7 +25191,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "servicedesk.yaml",
@@ -24678,7 +25280,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -24798,7 +25400,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "service.yaml",
@@ -24876,7 +25478,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "shop.yaml",
@@ -24943,7 +25545,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "shop.yaml",
@@ -25010,7 +25612,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "shop.yaml",
@@ -25077,7 +25679,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "shop.yaml",
@@ -25151,7 +25753,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "mini.yaml",
@@ -25218,7 +25820,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "fleet.yaml",
@@ -25285,7 +25887,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "shop.yaml",
@@ -25366,7 +25968,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "mini.yaml",
@@ -25437,7 +26039,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "mini.yaml",
@@ -25508,7 +26110,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "mini.yaml",
@@ -25579,7 +26181,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "mini.yaml",
@@ -25650,7 +26252,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "mini.yaml",
@@ -25721,7 +26323,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "shop.yaml",
@@ -25792,7 +26394,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "mini.yaml",
@@ -25877,7 +26479,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "rack.yaml",
@@ -25944,7 +26546,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "rack.yaml",
@@ -26025,7 +26627,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26092,7 +26694,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26159,7 +26761,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26226,7 +26828,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26293,7 +26895,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26360,7 +26962,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26427,7 +27029,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26494,7 +27096,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26561,7 +27163,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26628,7 +27230,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26695,7 +27297,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26762,7 +27364,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26829,7 +27431,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "shop.yaml",
@@ -26896,7 +27498,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -26965,7 +27567,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -27046,7 +27648,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -27113,7 +27715,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "kit.yaml",
@@ -27180,7 +27782,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "kit.yaml",
@@ -27247,7 +27849,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "kit.yaml",
@@ -27321,7 +27923,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "kit.yaml",
@@ -27402,7 +28004,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "kit.yaml",
@@ -27483,7 +28085,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "rack.yaml",
@@ -27564,7 +28166,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "kit.yaml",
@@ -27631,7 +28233,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -27702,7 +28304,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -27773,7 +28375,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -27859,7 +28461,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -27940,7 +28542,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -28052,7 +28654,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "kit.yaml",
@@ -28137,7 +28739,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -28249,7 +28851,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "shop.yaml",
@@ -28340,7 +28942,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "office.yaml",
@@ -28426,7 +29028,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "desk.yaml",
@@ -28512,7 +29114,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "desk.yaml",
@@ -28597,7 +29199,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "desk.yaml",
@@ -28682,7 +29284,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "desk.yaml",
@@ -28754,7 +29356,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "desk.yaml",
@@ -28826,7 +29428,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "desk.yaml",
@@ -28897,7 +29499,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "desk.yaml",
@@ -28968,7 +29570,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "desk.yaml",
@@ -29040,7 +29642,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "desk.yaml",
@@ -29111,7 +29713,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "desk.yaml",
@@ -29182,7 +29784,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -29249,7 +29851,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -29316,7 +29918,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -29383,7 +29985,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -29450,7 +30052,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -29517,7 +30119,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -29598,7 +30200,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "crm.yaml",
@@ -29679,7 +30281,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -29746,7 +30348,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -29813,7 +30415,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -29880,7 +30482,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -29947,7 +30549,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30014,7 +30616,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30081,7 +30683,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30148,7 +30750,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30215,7 +30817,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30282,7 +30884,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30349,7 +30951,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30416,7 +31018,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30483,7 +31085,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30550,7 +31152,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30617,7 +31219,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30684,7 +31286,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30755,7 +31357,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30822,7 +31424,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30889,7 +31491,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -30956,7 +31558,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -31023,7 +31625,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -31090,7 +31692,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -31167,7 +31769,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -31244,7 +31846,7 @@
   "files": [
    [
     "people.yaml",
-    "ed616a83e6085b5b"
+    "b11fb2a62f4cf338"
    ],
    [
     "ledger.yaml",
@@ -31829,6 +32431,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Job (2), since the version declares an agent kind of actor (Job.also); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "plant.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Job.also) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: { taken_by: [human] } (ADR-0190)"
    ],
    [
     "plant.yaml",

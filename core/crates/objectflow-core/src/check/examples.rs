@@ -1276,6 +1276,13 @@ fn expect_errors(
                     .filter(|(_, v)| flag(v, "unique"))
                     .map(|(a, _)| format!("{a}_unique")),
             );
+            // an actor's identity another actor holds (ADR-0190 decision 4)
+            if obj(&t, "attributes")
+                .values()
+                .any(|v| v.get("actor_kind").is_some_and(|k| !k.is_null()))
+            {
+                generated.insert("identity_taken".to_string());
+            }
             if !obj(&t, "invariants").contains_key(&cn) && !generated.contains(&cn) {
                 c.out.push(finding(
                     ext(here, segs!["clause"]),

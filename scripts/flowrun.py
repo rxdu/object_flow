@@ -2825,7 +2825,10 @@ class Runner:
             work.is_a(mine, self.unique_scope(obj.type, n[:-len("_unique")]))
         t = self.kinds.get(obj.type) or {}
         attrs = t.get("attributes") or {}
-        if n.endswith("_unique"):
+        if n == "identity_taken":
+            # what another actor holds, as a uniqueness reads it (ADR-0190 decision 4)
+            reads, other = self.reads(obj.type, n), True
+        elif n.endswith("_unique"):
             unique = (attrs.get(n[:-len("_unique")]) or {}).get("unique")
             reads, other = {n[:-len("_unique")]} | set(unique.get("with", []) if isinstance(unique, dict) else []), True
         elif n.endswith("_invariant"):
@@ -2950,6 +2953,9 @@ class Runner:
     def reads(self, tn, n):
         """The attributes an invariant reads, generated ones included: an attribute's uniqueness, a state's requirement."""
         t = self.kinds.get(tn) or {}
+        if n == "identity_taken":
+            mine = self.actor_attr(tn)
+            return {mine[0]} if mine else set()
         if n.endswith("_unique"):
             return {n[:-len("_unique")]}
         if n.endswith("_invariant"):
@@ -2968,6 +2974,8 @@ class Runner:
             e = Evaluator(store, o.type, o.id).noting(o.id)
             e.value(flowexpr.parse(invariants[n]["expression"]), {})
             return set(e.naming["objects"])
+        if n == "identity_taken":
+            return {x.id for x in self.identity_holders(store, o)}
         if n.endswith("_unique"):
             return {x.id for x in self.unique_holders(store, o, n[:-len("_unique")])}
         return set()
@@ -3021,7 +3029,25 @@ class Runner:
         for a in (t.get("attributes") or {}):
             if self.unique_holders(store, o, a):
                 out.append(f"{a}_unique")
+        # an actor's identity names one actor, across every type whose objects are actors (ADR-0190 decision 4)
+        mine = self.actor_attr(o.type)
+        if mine and f"{mine[0]}_unique" not in out and self.identity_holders(store, o):
+            out.append("identity_taken")
         return out
+
+    def actor_attr(self, tn):
+        """The attribute holding an actor's identity, and its kind, if the type's objects are actors, as the store reads
+        it from the same kinds."""
+        return Store.actor_attr(self, tn)
+
+    def identity_holders(self, store, o):
+        """The other actors, of any type whose objects are actors, holding an object's identity (ADR-0190 decision 4)."""
+        mine = self.actor_attr(o.type)
+        v = o.attrs.get(mine[0]) if mine else None
+        if not isinstance(v, str):
+            return []
+        return [x for x in store.objects.values()
+                if x.id != o.id and (theirs := self.actor_attr(x.type)) and x.attrs.get(theirs[0]) == v]
 
     def unique_scope(self, tn, a):
         """The type whose family a uniqueness spans: the one declaring the attribute, so a base's spans every subtype,
@@ -3691,10 +3717,21 @@ def input_fault(spec, v, enums):
     if typ in ("string", "text", "identity", "actor_kind"):
         if not isinstance(v, str):
             return "wrong_type"
+        # an identity holds no control, zero-width or bidirectional formatting character, as the core's (ADR-0190)
+        if typ == "identity" and any(formatting(c) for c in v):
+            return "malformed"
         if "\0" in v:
             return "malformed"
         return "out_of_range" if len(v.encode("utf-8")) > TEXT_BYTES else None   # 64 KiB, as the core's (ADR-0188)
     return None
+
+
+def formatting(c):
+    """A control character, or one that formats text without showing: zero-width, bidirectional and invisible marks, by
+    their code points, as the core's."""
+    o = ord(c)
+    return (o < 0x20 or 0x7F <= o <= 0x9F or o in (0x00AD, 0x061C, 0x180E, 0xFEFF)
+            or 0x200B <= o <= 0x200F or 0x202A <= o <= 0x202E or 0x2060 <= o <= 0x2064 or 0x2066 <= o <= 0x2069)
 
 
 def spec_of_kind(kind):

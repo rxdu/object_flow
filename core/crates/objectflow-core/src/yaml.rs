@@ -209,6 +209,9 @@ pub const NESTING: usize = 64;
 
 /// The document a text holds, as a tree; an empty text is a null scalar.
 pub fn load(text: &str) -> Result<Node, YamlError> {
+    // a byte-order mark at the start is no part of the text, as YAML reads
+    // it, where it became part of the first key (fifth production review)
+    let text = text.strip_prefix('\u{FEFF}').unwrap_or(text);
     let mut parser = Parser::new_from_str(text);
     let chars: Vec<char> = text.chars().collect();
     // for each open collection written in flow style, the character that
