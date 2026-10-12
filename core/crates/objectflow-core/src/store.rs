@@ -2157,12 +2157,20 @@ impl Store {
         world.parts(c)?;
         let change_obj = c.clone();
         // every object whole, the identifiers each held before the version
-        // read from its record, the actor's among them, read by id before
-        let all = world.in_order()?;
-        world.with_parts(&all)?;
-        let old_objects: BTreeMap<String, Object> =
-            all.into_iter().map(|o| (o.id.clone(), o.clone())).collect();
+        // read from its record, the actor's among them: the objects the
+        // simulation read, taken out of it, which reading the store whole a
+        // second time and copying it made an approval's largest step in
+        // memory (MEMORY)
         drop(world);
+        {
+            let all = at.in_order()?;
+            at.with_parts(&all)?;
+        }
+        let old_objects: BTreeMap<String, Object> = at
+            .into_objects()
+            .into_iter()
+            .map(|o| (o.id.clone(), o))
+            .collect();
         self.conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
         let installed = self.install(
             &new,

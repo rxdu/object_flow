@@ -192,6 +192,17 @@ impl<T> Slots<T> {
         Some((usize::try_from(k).ok()?, one - 1usize.checked_shl(k)?))
     }
 
+    /// Every value written, taken out, in the order of their slots.
+    fn into_values(self) -> Vec<T> {
+        self.chunks
+            .into_iter()
+            .filter_map(std::cell::OnceCell::into_inner)
+            .flat_map(|chunk| chunk.into_vec())
+            .filter_map(std::cell::OnceCell::into_inner)
+            .map(|b| *b)
+            .collect()
+    }
+
     /// A slot written with the value given, and its number; none past the
     /// last chunk.
     fn push(&self, value: T) -> Option<usize> {
@@ -682,6 +693,11 @@ impl<'l> World<'l> {
             .collect();
         out.sort_by_key(|o| o.order);
         Some(out)
+    }
+
+    /// Every object the world holds, taken out of it, never copied.
+    pub fn into_objects(self) -> Vec<Object> {
+        self.held.slots.into_values()
     }
 
     /// How many objects the operation holds, which a read of one object's
