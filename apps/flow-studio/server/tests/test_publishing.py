@@ -2172,6 +2172,25 @@ def test_an_approval_naming_what_its_approver_read_is_held_to_it_alike(tee):
     alike(tee)
 
 
+def test_a_decimal_written_past_its_digits_is_refused_alike(tee):
+    """An effect writing a decimal past its 18 digits refuses its request value_in_range, alike through both
+    backends, where the core answered 501 not run (eleventh production review)."""
+    flow = PAY.replace("      amount: { type: int }\n", "      amount: { type: int }\n      ratio: { type: \"decimal(18,2)\", optional: true }\n", 1) \
+        .replace("      send: { kind: external, from: [DRAFT], to: SENT, proposable: true }\n",
+                 "      send: { kind: external, from: [DRAFT], to: SENT, proposable: true }\n"
+                 "      rate: { kind: internal, from: [DRAFT], required_inputs: [ratio] }\n"
+                 "      square: { kind: internal, from: [DRAFT], effect: [ { assign: { location: ratio, expr: \"ratio * ratio\" } } ] }\n", 1)
+    assert tee.post("/sandbox/load", {"files": [{"name": "pay.yaml", "text": flow}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    pay = tee.post("/v1/request", {"transition": "make", "actor": OP, "type": "Payment", "inputs": {"amount": 5}})["object_id"]
+    assert tee.post("/v1/request", {"transition": "rate", "actor": OP, "object_id": pay,
+                                    "inputs": {"ratio": "9999999999.99"}})["kind"] == "satisfied"
+    v = tee.post("/v1/request", {"transition": "square", "actor": OP, "object_id": pay})
+    assert (v["kind"], v.get("clause")) == ("unsatisfied", "value_in_range"), v
+    alike(tee)
+
+
 CHAIN = """module: chain
 categories: [live, closed]
 types:

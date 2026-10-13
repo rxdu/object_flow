@@ -2,7 +2,7 @@
 
 - **Status:** **Decided** 2026-10-13 on the author's standing instruction, "continue the loop to get the stack ready for production, follow your recommendations", each decision the recommendation stated here
 - **Date:** 2026-10-13
-- **Refined by:** ADR-0197 — the checks and a dry run's impact linear in a type's transitions and a change's types, a page's memory bounded by reading its events as it goes, a submit of another's draft refused.
+- **Refined by:** ADR-0197 — the checks and a dry run's impact linear in a type's transitions and a change's types, a page's memory bounded by reading its events as it goes, a submit of another's draft refused. ADR-0198 — what an expression unfolds to bounded, and a dry run's checks held to its deadline.
 - **Refines:** ADR-0195 decisions 1, 4, 6 and 7; ADR-0179 (paging); ADR-0189 decision 2 and ADR-0190 decision 2 (the read pools)
 - **Relates to:** `design/production-review.md` §13; `guides/operate.md`; `guides/wire.md`; `guides/agents.md`
 

@@ -1035,6 +1035,39 @@ pub(crate) fn read_attempts(conn: &Connection) -> rusqlite::Result<Vec<Attempt>>
     rows.collect()
 }
 
+/// The attempts on objects of the types given after a place in the order
+/// written, `(txn, id)`, and in a transaction at most `upto`: at most `limit`,
+/// each with its id, read by the transaction's index, where a page of a
+/// type's attempts read the whole attempt log (eleventh production review).
+pub(crate) fn read_attempts_after(
+    conn: &Connection,
+    types: &[String],
+    after: (i64, i64),
+    upto: i64,
+    limit: usize,
+) -> rusqlite::Result<Vec<(i64, Attempt)>> {
+    let marks: Vec<String> = (0..types.len()).map(|n| format!("?{}", n + 5)).collect();
+    let mut binds: Vec<Sql> = vec![
+        Sql::Integer(after.0),
+        Sql::Integer(after.1),
+        Sql::Integer(upto),
+        Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)),
+    ];
+    binds.extend(types.iter().map(|t| Sql::Text(t.clone())));
+    let mut attempts = conn.prepare(&format!(
+        "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
+         flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn, call, context, \
+         proposal, id FROM of_attempt \
+         WHERE (txn > ?1 OR (txn = ?1 AND id > ?2)) AND txn <= ?3 AND type IN ({}) \
+         ORDER BY txn, id LIMIT ?4",
+        marks.join(", ")
+    ))?;
+    let rows = attempts.query_map(rusqlite::params_from_iter(binds), |r| {
+        Ok((r.get::<_, i64>(22)?, attempt_row(r)?))
+    })?;
+    rows.collect()
+}
+
 /// The pruned attempt rows' daily counts, as rows of the `attempt_counts`
 /// source, which a world reads where an operation reads them.
 pub(crate) fn read_rollup(
@@ -1854,6 +1887,7 @@ impl Store {
         // the actor's columns an erasure rewrites, indexed beside the
         // schema, whose fingerprint they leave as it was (ADR-0192)
         conn.execute_batch(ACTOR_INDEXES)?;
+        conn.execute_batch(EXPORT_INDEXES)?;
         let mut store = Store {
             conn,
             lib: Arc::new(lib),
@@ -1976,6 +2010,7 @@ impl Store {
         if created == 0 {
             store.conn.execute_batch(SCHEMA)?;
             store.conn.execute_batch(ACTOR_INDEXES)?;
+            store.conn.execute_batch(EXPORT_INDEXES)?;
             for t in store.lib.types.values() {
                 store.conn.execute_batch(&store.type_ddl(t))?;
             }
@@ -2018,6 +2053,9 @@ impl Store {
         // the actor's columns an erasure rewrites, read by index, which a
         // core before ADR-0192 never made
         store.conn.execute_batch(ACTOR_INDEXES)?;
+        // the intervals' and the imported events' indexes an export reads
+        // by, which a core before the eleventh production review never made
+        store.conn.execute_batch(EXPORT_INDEXES)?;
         // never earlier than the last time the store recorded (decision 4)
         let last: Option<String> =
             store
@@ -3542,6 +3580,14 @@ pub(crate) fn read_imported(conn: &Connection) -> Stored<std::collections::BTree
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
+/// The type of an object the store holds, from its directory row alone; none
+/// where the directory holds no such id.
+pub(crate) fn read_type_of(conn: &Connection, id: &str) -> Stored<Option<String>> {
+    let mut directory = conn.prepare_cached("SELECT type FROM of_object WHERE id = ?1")?;
+    let mut types = directory.query_map(params![id], |r| r.get::<_, String>(0))?;
+    Ok(types.next().transpose()?)
+}
+
 /// An object the store holds, with every part of its record; none where
 /// the directory holds no such id (ADR-0162 step 2).
 pub(crate) fn read_object(conn: &Connection, lib: &Library, id: &str) -> Stored<Option<Object>> {
@@ -4266,85 +4312,236 @@ fn spans(
 ) -> Stored<()> {
     let only = scope.bound();
     let mut stmt = conn.prepare(&format!(
-        "SELECT object_id, dimension, value, entered_position, left_position, entered_at, left_at, \
-         entered_by, entered_by_kind, migrated, declaration_version, legacy, corrected_by FROM of_interval\
-         {} ORDER BY object_id, dimension, entered_position, entered_at",
+        "SELECT {SPAN_COLUMNS} FROM of_interval i{} \
+         ORDER BY i.object_id, i.dimension, i.entered_position, i.entered_at",
         scope.on_object("WHERE")
     ))?;
-    let rows = stmt.query_map(rusqlite::params_from_iter(&only), |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, Sql>(2)?,
-            r.get::<_, i64>(3)?,
-            r.get::<_, Option<i64>>(4)?,
-            r.get::<_, String>(5)?,
-            r.get::<_, Option<String>>(6)?,
-            r.get::<_, Option<String>>(7)?,
-            r.get::<_, String>(8)?,
-            r.get::<_, i64>(9)? != 0,
-            r.get::<_, i64>(10)?,
-            r.get::<_, i64>(11)? != 0,
-            r.get::<_, Option<i64>>(12)?,
-        ))
-    })?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(&only), |r| raw_span(r, 0))?;
     for row in rows {
-        let (
-            id,
-            dimension,
-            value,
-            entered_position,
-            left_position,
-            entered_at,
-            left_at,
-            by,
-            kind,
-            migrated,
-            declaration_version,
-            legacy,
-            corrected_by,
-        ) = row?;
-        let (Some(type_), Some(p)) = (types.get(&id), parts.get_mut(&id)) else {
+        let raw = row?;
+        let (Some(type_), Some(p)) = (types.get(&raw.id), parts.get_mut(&raw.id)) else {
             return Err(StoreError(format!(
-                "an interval of {id}, which the directory lacks"
+                "an interval of {}, which the directory lacks",
+                raw.id
             )));
         };
-        let value = if dimension == "state" {
-            match value {
-                Sql::Text(name) => Value::State {
-                    type_: type_.clone(),
-                    name,
-                },
-                other => return Err(StoreError(format!("{id}'s state interval holds {other:?}"))),
-            }
-        } else {
-            // a dropped attribute's intervals, and a set-aside's, stay as
-            // history, and nothing the version declares reads them (§10)
-            let Some(a) = lib.type_(type_).and_then(|t| t.attribute(&dimension)) else {
-                continue;
-            };
-            from_sql(value, &a.declared, lib)?
-        };
-        let at = |text: &str| {
-            parse_timestamp(text).ok_or_else(|| StoreError(format!("an interval time {text}")))
-        };
-        let span = Span {
-            value,
-            entered_position,
-            left_position,
-            entered_at: at(&entered_at)?,
-            left_at: left_at.as_deref().map(at).transpose()?,
-            entered_by: by,
-            entered_by_kind: kind,
-            migrated,
-            declaration_version,
-            legacy,
-            corrected_by,
-        };
-        p.spans.entry(dimension).or_default().push(span);
+        if let Some((dimension, span)) = decoded_span(lib, type_, raw)? {
+            p.spans.entry(dimension).or_default().push(span);
+        }
     }
     Ok(())
 }
+
+/// An interval's columns, as [`raw_span`] reads them.
+const SPAN_COLUMNS: &str = "i.object_id, i.dimension, i.value, i.entered_position, i.left_position, \
+     i.entered_at, i.left_at, i.entered_by, i.entered_by_kind, i.migrated, i.declaration_version, \
+     i.legacy, i.corrected_by";
+
+/// An interval's row as the store holds it, its value not yet decoded.
+struct RawSpan {
+    id: String,
+    dimension: String,
+    value: Sql,
+    entered_position: i64,
+    left_position: Option<i64>,
+    entered_at: String,
+    left_at: Option<String>,
+    by: Option<String>,
+    kind: String,
+    migrated: bool,
+    declaration_version: i64,
+    legacy: bool,
+    corrected_by: Option<i64>,
+}
+
+/// [`SPAN_COLUMNS`] read from a row, starting at the column given.
+fn raw_span(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<RawSpan> {
+    Ok(RawSpan {
+        id: r.get(at)?,
+        dimension: r.get(at + 1)?,
+        value: r.get(at + 2)?,
+        entered_position: r.get(at + 3)?,
+        left_position: r.get(at + 4)?,
+        entered_at: r.get(at + 5)?,
+        left_at: r.get(at + 6)?,
+        by: r.get(at + 7)?,
+        kind: r.get(at + 8)?,
+        migrated: r.get::<_, i64>(at + 9)? != 0,
+        declaration_version: r.get(at + 10)?,
+        legacy: r.get::<_, i64>(at + 11)? != 0,
+        corrected_by: r.get(at + 12)?,
+    })
+}
+
+/// An interval of an object of the type given, its value decoded as the
+/// type declares its dimension; none for a dimension the installed version
+/// no longer declares, whose intervals stay as history and nothing the
+/// version declares reads (§10).
+fn decoded_span(lib: &Library, type_: &str, raw: RawSpan) -> Stored<Option<(String, Span)>> {
+    let RawSpan {
+        id,
+        dimension,
+        value,
+        entered_position,
+        left_position,
+        entered_at,
+        left_at,
+        by,
+        kind,
+        migrated,
+        declaration_version,
+        legacy,
+        corrected_by,
+    } = raw;
+    let value = if dimension == "state" {
+        match value {
+            Sql::Text(name) => Value::State {
+                type_: type_.to_string(),
+                name,
+            },
+            other => return Err(StoreError(format!("{id}'s state interval holds {other:?}"))),
+        }
+    } else {
+        let Some(a) = lib.type_(type_).and_then(|t| t.attribute(&dimension)) else {
+            return Ok(None);
+        };
+        from_sql(value, &a.declared, lib)?
+    };
+    let at = |text: &str| {
+        parse_timestamp(text).ok_or_else(|| StoreError(format!("an interval time {text}")))
+    };
+    let span = Span {
+        value,
+        entered_position,
+        left_position,
+        entered_at: at(&entered_at)?,
+        left_at: left_at.as_deref().map(at).transpose()?,
+        entered_by: by,
+        entered_by_kind: kind,
+        migrated,
+        declaration_version,
+        legacy,
+        corrected_by,
+    };
+    Ok(Some((dimension, span)))
+}
+
+/// A span as a page of `export`'s intervals reads it: by the event that
+/// last wrote it, its object and its type, and the transition whose event
+/// opened it.
+#[derive(Clone, Debug)]
+pub struct CursoredSpan {
+    pub cursor: i64,
+    pub object_id: String,
+    pub type_: String,
+    pub dimension: String,
+    pub span: Span,
+    pub transition: Option<String>,
+    /// The object's place in creation order, which orders the spans one
+    /// event wrote.
+    pub order: i64,
+}
+
+/// The event that last wrote an interval: the one that opened it, closed it
+/// or relabelled it in a correction, as `of_interval_by_cursor` indexes it.
+const SPAN_CURSOR: &str =
+    "max(i.entered_position, coalesce(i.left_position, 0), coalesce(i.corrected_by, 0))";
+
+/// The intervals of the types given whose cursor is past `after` and at
+/// most `upto`, each with its object's type and the transition that opened
+/// it: a span an event wrote by the cursor's index, and a legacy span, which
+/// no event opened, by its object's first imported event, read by the index
+/// on imported events. Neither reads the log or a type whole, where a page
+/// of a type's intervals read every event into memory and walked it once
+/// for each of the type's objects, 15 s and a gigabyte a page at six years
+/// (eleventh production review N1).
+pub(crate) fn read_interval_page(
+    conn: &Connection,
+    lib: &Library,
+    types: &[String],
+    after: i64,
+    upto: i64,
+) -> Stored<Vec<CursoredSpan>> {
+    let marks: Vec<String> = (0..types.len()).map(|n| format!("?{}", n + 3)).collect();
+    let mut binds: Vec<Sql> = vec![Sql::Integer(after), Sql::Integer(upto)];
+    binds.extend(types.iter().map(|t| Sql::Text(t.clone())));
+    let opened = "(SELECT t.transition FROM of_event t WHERE t.position = i.entered_position)";
+    let written = format!(
+        "SELECT {SPAN_CURSOR}, o.type, o.rowid, {opened}, {SPAN_COLUMNS} \
+         FROM of_interval i JOIN of_object o ON o.id = i.object_id \
+         WHERE {SPAN_CURSOR} > ?1 AND {SPAN_CURSOR} <= ?2 AND i.legacy = 0 AND o.type IN ({})",
+        marks.join(", ")
+    );
+    let legacy = format!(
+        "SELECT e.position, o.type, o.rowid, NULL, {SPAN_COLUMNS} \
+         FROM of_event e JOIN of_object o ON o.id = e.object_id \
+         JOIN of_interval i ON i.object_id = e.object_id \
+         WHERE e.imported = 1 AND e.position > ?1 AND e.position <= ?2 AND i.legacy = 1 \
+         AND o.type IN ({}) \
+         AND NOT EXISTS (SELECT 1 FROM of_event f WHERE f.object_id = e.object_id \
+         AND f.imported = 1 AND f.position < e.position)",
+        marks.join(", ")
+    );
+    let mut out = Vec::new();
+    for sql in [written, legacy] {
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(&binds), |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                raw_span(r, 4)?,
+            ))
+        })?;
+        for row in rows {
+            let (cursor, type_, order, transition, raw) = row?;
+            let object_id = raw.id.clone();
+            if let Some((dimension, span)) = decoded_span(lib, &type_, raw)? {
+                out.push(CursoredSpan {
+                    cursor,
+                    object_id,
+                    type_,
+                    dimension,
+                    span,
+                    transition,
+                    order,
+                });
+            }
+        }
+    }
+    // in cursor order, and the spans one event wrote in its objects' order,
+    // each object's by dimension and then as it was entered, as the
+    // object's own read orders them
+    out.sort_by(|a, b| {
+        (
+            a.cursor,
+            a.order,
+            &a.dimension,
+            a.span.entered_position,
+            a.span.entered_at,
+        )
+            .cmp(&(
+                b.cursor,
+                b.order,
+                &b.dimension,
+                b.span.entered_position,
+                b.span.entered_at,
+            ))
+    });
+    Ok(out)
+}
+
+/// The indexes an export of a type's intervals and attempts reads by, which a
+/// store opened without them is given: the event that last wrote each
+/// interval, the imported events, whose positions are a legacy span's
+/// cursor, and each attempt's transaction (eleventh production review N1).
+/// Beside the schema, as the actor's are.
+const EXPORT_INDEXES: &str = "\
+CREATE INDEX IF NOT EXISTS of_interval_by_cursor ON of_interval (max(entered_position, coalesce(left_position, 0), coalesce(corrected_by, 0)));
+CREATE INDEX IF NOT EXISTS of_event_imported ON of_event (position) WHERE imported = 1;
+CREATE INDEX IF NOT EXISTS of_attempt_by_txn ON of_attempt (txn);
+";
 
 /// The indexes on the actor's columns an erasure rewrites, which a store
 /// opened without them is given (ADR-0192 decision 4).

@@ -1227,6 +1227,17 @@ fn a_stopped_service_answers_the_requests_in_flight() {
         "2 s",
     ]);
     publish(&s, &json!({"payments": PAYMENTS}));
+    // SIGHUP, as a log rotation sends it, is said and ignored, where it
+    // ended the service at once (eleventh production review)
+    let pid = s.child.as_ref().expect("its process").id();
+    let hup = Command::new("kill")
+        .args(["-HUP", &pid.to_string()])
+        .status()
+        .expect("kill runs");
+    assert!(hup.success());
+    let said = s.said_within("SIGHUP ignored");
+    assert!(said.contains("SIGHUP ignored"), "{said}");
+    assert!(TcpStream::connect(&s.addr).is_ok(), "{said}");
     // a settle the bank answers too slowly, held for the timeout's 2 s
     let flight = at(&s);
     let held = std::thread::spawn(move || settle(&flight, "T-4"));
@@ -3848,14 +3859,28 @@ fn a_log_no_one_reads_is_said_and_stops_no_request() {
         (503, Some("log_blocked")),
         "{health}"
     );
-    // read, the log takes lines again and health is 200
+    // read, the log takes lines again and health is 200, and the log says
+    // how many lines it dropped, where only a counter did (eleventh
+    // production review)
+    let read = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let reading = read.clone();
     std::thread::spawn(move || {
-        let mut sink = String::new();
-        let _ = stderr.read_to_string(&mut sink);
+        let mut line = String::new();
+        while stderr.read_line(&mut line).is_ok_and(|n| n > 0) {
+            if let Ok(mut r) = reading.lock() {
+                r.push_str(&line);
+            }
+            line.clear();
+        }
     });
     std::thread::sleep(std::time::Duration::from_millis(500));
     let (status, health) = call(&s, "GET", "/health", None);
     assert_eq!(status, 200, "{health}");
+    let told = read
+        .lock()
+        .map(|r| r.contains(" the log dropped "))
+        .unwrap_or(false);
+    assert!(told, "the log did not say it dropped lines");
 }
 
 /// A unit of `Type=notify` is told the service is ready once it answers,
@@ -4429,6 +4454,19 @@ fn what_a_filter_a_key_and_a_store_are_told() {
         "a store it cannot write was served: {said}"
     );
     assert!(said.contains("is not writable by the service"), "{said}");
+    // a directory named as the store is said to be one, where it was told
+    // to get write permission (eleventh production review)
+    let dir = locked.parent().expect("its directory");
+    let out = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
+        .args(["--store", dir.to_str().expect("a path"), "--port", "0"])
+        .output()
+        .expect("it runs");
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{said}");
+    assert!(
+        said.contains("is a directory; --store names the store's file in it"),
+        "{said}"
+    );
 }
 
 const TILLS: &str = "module: tills

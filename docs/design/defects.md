@@ -642,6 +642,12 @@ Findings from every review of this design. It began as the implementation-readin
 | [D628](#d628) | A request's panic kept its connection's place for good | Resolved |
 | [D629](#d629) | A change's checks and a dry run's impact grew faster than what they read | Resolved |
 | [D630](#d630) | A log reader that stopped reading froze every request | Resolved |
+| [D631](#d631) | A chain of derived attributes each reading the one before twice held the dry run's slot | Resolved |
+| [D632](#d632) | A page of a type's intervals read the whole log for each of its objects | Resolved |
+| [D633](#d633) | A derived attribute reading itself through a set still aborted the service | Resolved |
+| [D634](#d634) | A published chain of derived attributes cost a second of a core on each read | Resolved |
+| [D635](#d635) | A decimal written past its digits answered `501` | Resolved |
+| [D636](#d636) | A page of the log's export held each event's object whole | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4079,3 +4085,33 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **A log reader that stopped reading froze every request**: each line was written by its caller holding standard error's lock, so with the pipe full two requests stopped both of the runtime's threads and every request with them, `/health` on `--metrics-bind` included, where the guide said no request waits on the log. Found 2026-10-13 by the tenth production review's operator (LOG-FREEZE).
 
 **Resolved** 2026-10-13: a thread of its own writes the log from a queue of 4,096 lines, a line past it dropped and counted; `/health` reads the thread's write as `log_blocked`, and the service drains the queue as it ends (ADR-0197 decision 6). `a_log_no_one_reads_is_said_and_stops_no_request`, four clients at once, fails with the line written by its caller.
+
+### D631
+**A chain of derived attributes each reading the one before twice held the dry run's slot**: `d1: d0 + d0` on to `d40` passed every bound ADR-0197 set, since it is 40 deep, and each check that reads a derived attribute through those it reads walked each again, 2^n times. The core's typing held the store's one dry-run slot past six minutes on a core, and any later change's submit waited the whole `--dry-run-timeout` and was refused. The reference checker hung the same way. An invariant or a condition reading the chain's top was walked exponentially by the optional reads, the inliner and the logic solver, and an invariant reading one derived attribute a thousand times was inlined a thousand times. The dry run's deadline was not read during its checks. Found 2026-10-13 by the eleventh production review's adversary (F1), and in measuring its fix.
+
+**Resolved** 2026-10-13: no expression may unfold to more than 10,000 reads of derived attributes, refused in both checkers before any later step reads its module; a module's derived attributes are typed once; a dry run's checks are held to its deadline (ADR-0198 decisions 1 and 2). `a_changes_checks_and_its_parse_grow_with_what_it_holds` checks a chain of 40 read by an invariant in milliseconds, naming its 14th link alone, refuses an invariant reading a link twice by its path, and ends checks past a deadline of 50 ms as late within 5 s. With the gate removed it hangs; with the expressions' bound removed, or the deadline unread, it fails; without the typing cache a chain of 22 checked in 167 s. Plants in the reference checker, held over the core by the oracle, fail with its gate or its expressions' bound removed.
+
+### D632
+**A page of a type's intervals read the whole log for each of its objects**: `export` of `<Type>.intervals` read every event into memory and walked the log once for each object of the type to find its import, whatever the page's cursor or limit. A page cost 15 to 19 s and about a gigabyte on the six-year store, past `--read-timeout`, and an erased name stayed in the `-wal` for 43 s, past the erasure's urgent cut. A page of `<Type>.attempts` likewise read the whole attempt log, which one actor's refusals in a loop grow by millions a day. Found 2026-10-13 by the eleventh production review's operator (N1), and its minor on attempts.
+
+**Resolved** 2026-10-13: intervals are read by an index on the event that last wrote each, legacy spans by their object's first import, and attempts by their transaction, a window at a time under the read's deadline and stop, never a transaction split; the indexes are made when a store opens (ADR-0198 decision 4). The intervals and attempts of the export test, of a legacy import with a refresh, and of a transaction of twenty attempts, paged at four limits, match the old reads row for row. Mutants dropping the legacy spans, the window's end, the first import, the resume within a transaction or either deadline each fail a test.
+
+### D633
+**A derived attribute reading itself through a set still aborted the service**: `size: count(c in children) + sum(c in children: c.size)`, which ADR-0197's checkers refuse and an earlier version may have installed, aborted the process on a read of any node whose set is empty. Giving the empty sum's zero its type recursed through the derived attribute's own expression with no bound. Found 2026-10-13 by the eleventh production review's operator (the D-RECURSE residual).
+
+**Resolved** 2026-10-13: the type of a derived value is found once per member, never through itself or past 64 derived members (ADR-0198 decision 3). `a_derived_value_reading_itself_through_a_set_answers_a_leaf` aborts on a stack overflow with the cycle mark removed.
+
+### D634
+**A published chain of derived attributes cost a second of a core on each read**: an evaluation computed a derived value again at each read of it, so a chain of 20 attributes each reading the one before twice computed the first a million times, 1.11 s for one `get`, and typing a zero result walked the chain again. Found 2026-10-13 by the eleventh production review's adversary (F2).
+
+**Resolved** 2026-10-13: an evaluation computes each derived value once, shared with the evaluations inside it, and types each once (ADR-0198 decision 3). `a_derived_chain_is_computed_once_per_read` reads a chain of 22 at 1 and at 0 within 2 s; without either cache it took 16 s and 43 s.
+
+### D635
+**A decimal written past its digits answered `501`**: an effect squaring a `decimal(18,2)` past 18 digits answered `501 not_run`, where an integer and money past their bounds refuse `value_in_range`, as `errors.md` says. Found 2026-10-13 by the eleventh production review's adversary (F3).
+
+**Resolved** 2026-10-13: it refuses its request `value_in_range`, naming the object, as the reference runner already did (ADR-0198 decision 5). `test_a_decimal_written_past_its_digits_is_refused_alike` holds both backends to it.
+
+### D636
+**A page of the log's export held each event's object whole**: a page of `export log` read each event's object to learn its type, holding it for the page, so 310 events of changes with 1.9 MB sources used about 550 MB for an answer of 178 KB. The tenth review's entry said such a page read its events "as it goes", which held for the events and not their objects. Found 2026-10-13 by the eleventh production review's operator (the MEM-EVENTS residual).
+
+**Resolved** 2026-10-13: a row reads its object's type from the store's directory and holds nothing (ADR-0198 decision 4). The export test holds a page of the log to no object held, failing with the object read whole.

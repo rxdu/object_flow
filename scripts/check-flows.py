@@ -55,6 +55,7 @@ from fractions import Fraction
 import subprocess
 import sys
 import tempfile
+import time
 
 import jsonschema
 import yaml
@@ -620,6 +621,81 @@ def derived_cycle_errors(doc):
                 state[nxt] = 1
                 trail.append(nxt)
                 stack.append((nxt, 0))
+    return out
+
+
+UNFOLD_LIMIT = 10_000   # the most reads of derived attributes a derived attribute may unfold to, repeats counted
+NAMED = re.compile(r"(\.)?\b([A-Za-z_]\w*)\b")
+
+
+def fan_out_errors(doc, exprs):
+    """No expression MAY unfold to more than UNFOLD_LIMIT reads of derived attributes, each counted as often as it is
+    made: one reading another twice reads everything that one reads twice, so `d1: d0 + d0` on to `d40` unfolds to
+    2^41 reads, and every check that reads a derived attribute through those it reads walked each again, forty holding
+    a dry run's slot past six minutes; an invariant reading one a thousand times is inlined a thousand times (eleventh
+    production review). A name after a dot reads every derived attribute of that name the module declares, as
+    derived_cycle_errors reads it, and a bare name the one its own type declares; a read back into a cycle counts one,
+    the cycle refused by its own check. Each derived attribute's count is found once, iteratively, and capped past the
+    limit. The first derived attribute past it on each path is refused, and any other expression past it through none
+    that is; a module holding one is refused before any later step walks it, as one that does not parse is."""
+    order = [(tn, d) for tn, t in types(doc) for d in (t.get("derived_attributes") or {})]
+    index = {node: i for i, node in enumerate(order)}
+    by_name = {}
+    for i, node in enumerate(order):
+        by_name.setdefault(node[1], []).append(i)
+    typed = dict(types(doc))
+
+    def reads_of(own, text):
+        """An expression's reads, in its text's order, a repeated read repeated, a bare name read of the type given."""
+        to = []
+        for m in NAMED.finditer(" ".join(str(text).split())):
+            if m.group(1):
+                to += by_name.get(m.group(2), [])
+            elif (own, m.group(2)) in index:
+                to.append(index[(own, m.group(2))])
+        return to
+    reads = [reads_of(tn, ((typed[tn].get("derived_attributes") or {}).get(d) or {}).get("expression", ""))
+             for tn, d in order]
+    cap = UNFOLD_LIMIT + 1
+    size, on = [None] * len(order), [False] * len(order)
+    for start in range(len(order)):
+        if size[start] is not None:
+            continue
+        stack = [[start, 0, 1]]
+        on[start] = True
+        while stack:
+            node, k, total = stack[-1]
+            if k == len(reads[node]):
+                stack.pop()
+                on[node] = False
+                size[node] = total
+                if stack:
+                    stack[-1][2] = min(cap, stack[-1][2] + total)
+                continue
+            nxt = reads[node][k]
+            add = size[nxt] if size[nxt] is not None else (1 if on[nxt] else None)
+            stack[-1][1] = k + 1
+            if add is not None:
+                stack[-1][2] = min(cap, total + add)
+            else:
+                on[nxt] = True
+                stack.append([nxt, 0, 1])
+    past = [s is not None and s > UNFOLD_LIMIT for s in size]
+    unfolds = (f"unfolds to more than {UNFOLD_LIMIT} reads of derived attributes, each counted as often as it is made: "
+               f"one reading another twice reads all that one reads twice")
+    out = [(("types", tn, "derived_attributes", d, "expression"), "order", f"{tn}.{d} {unfolds}")
+           for i, (tn, d) in enumerate(order) if past[i] and not any(past[r] for r in reads[i])]
+    # every other expression, its reads unfolded as a derived attribute's
+    for p, text in exprs:
+        own = p[1] if len(p) > 1 and p[0] == "types" else None
+        if own is not None and len(p) > 2 and p[2] == "derived_attributes":
+            continue
+        read = reads_of(own, text)
+        total = 1
+        for r in read:
+            total = min(cap, total + (size[r] if size[r] is not None else 1))
+        if total > UNFOLD_LIMIT and not any(past[r] for r in read):
+            out.append((tuple(p), "order", f"{'.'.join(str(s) for s in p)} {unfolds}"))
     return out
 
 
@@ -2226,9 +2302,13 @@ class Typing:
     wherever it cannot be told; a rule is decided only where every operand it reads is known, so nothing is refused for
     what the inference does not reach."""
 
-    def __init__(self, kinds, enums, categories, evaluators):
+    def __init__(self, kinds, enums, categories, evaluators, known=None):
         self.kinds, self.enums, self.categories, self.evaluators = kinds, enums, categories, evaluators
         self.broken = []
+        # each derived attribute's type, by its type and name, once typed: a chain of attributes each reading the one
+        # before twice typed each 2^n times, forty holding the dry run's slot past six minutes (eleventh production
+        # review)
+        self.known = {} if known is None else known
 
     def member(self, tn, m, seen):
         t = self.kinds.get(tn) or {}
@@ -2243,13 +2323,17 @@ class Typing:
         # a derived attribute typed through at most TYPING_DEPTH others, past which its type is unknown: each typed the
         # whole chain below it again, a chain of 1,000 taking minutes and one of 3,000 deeper than a stack (tenth
         # production review)
+        if (tn, m) in self.known:
+            return self.known[(tn, m)]
         if derived is not None and (tn, m) not in seen and len(seen) < TYPING_DEPTH:
             try:
                 tree = flowexpr.parse(" ".join(str((derived or {}).get("expression", "")).split()))
             except flowexpr.ParseError:
                 return None
-            quiet = Typing(self.kinds, self.enums, self.categories, self.evaluators)
-            return quiet.of(tree, tn, None, {}, seen | {(tn, m)})
+            quiet = Typing(self.kinds, self.enums, self.categories, self.evaluators, self.known)
+            ty = quiet.of(tree, tn, None, {}, seen | {(tn, m)})
+            self.known[(tn, m)] = ty
+            return ty
         return None
 
     def fail(self, detail):
@@ -4903,13 +4987,20 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
             continue
         literals(doc)
         bad = []
-        for p, text in flowexpr.expressions(doc):
+        exprs = list(flowexpr.expressions(doc))
+        for p, text in exprs:
             try:
                 flowexpr.parse(text)
             except flowexpr.ParseError as e:
                 bad.append((f, line_of(idx, p), "fatal", "syntax", f"{e}: not an expression of declaration-syntax.md §8"))
         if bad:
             found += bad
+            continue
+        # a derived attribute unfolding past its bound is refused before any later step walks it (eleventh production
+        # review)
+        wide = fan_out_errors(doc, exprs)
+        if wide:
+            found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in wide]
             continue
         for mod, names in (doc.get("imports") or {}).items():
             if mod not in declared:
@@ -5591,10 +5682,32 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                                               "    attributes:\n      code: { type: string, identifier: { sequence: s, format: \"T-{n:1000000}\" } }\n"
                                               + end + "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n")])[0]
             if x[3] == "names" and "wider than" in x[4]]
-    hit = len(selfring) == 1 and chained == [] and len(wide) == 1
+    # a chain of derived attributes each reading the one before twice unfolds to 2^n reads, and every check reading
+    # one walked each again, forty holding the dry run's slot past six minutes: refused at its first link past the
+    # bound, before any later step walks it, as is an invariant whose reads unfold past it; within it, checked clean
+    # (eleventh production review)
+    def diamond(n, invariants=""):
+        return ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A thing.\n    tracking: record\n"
+                "    attributes:\n      x: { type: int }\n" + end + "    derived_attributes:\n"
+                + "      d0: { description: The first., expression: this.x + this.x }\n"
+                + "".join(f"      d{i}: {{ description: One., expression: this.d{i - 1} + this.d{i - 1} }}\n" for i in range(1, n))
+                + invariants
+                + "    transitions: { t: { kind: initial, to: S, required_inputs: [x] }, e: { kind: external, from: S, to: E } }\n")
+    began = time.time()
+    fanned = [(x[3], x[4]) for x in check([("diamond.yaml", diamond(40, "    invariants:\n      big: { description: Big., expression: d39 > 0 }\n"))])[0]
+              if x[2] == "fatal"]
+    twice = [(x[3], x[4]) for x in check([("twice.yaml", diamond(13, "    invariants:\n      big: { description: Big., expression: d12 + d12 > 0 }\n"))])[0]
+             if x[2] == "fatal"]
+    within = [x for x in check([("within.yaml", diamond(12, "    invariants:\n      big: { description: Big., expression: d11 > 0 }\n"))])[0]
+              if x[2] == "fatal"]
+    quick = time.time() - began < 20
+    unfolds = (f"unfolds to more than {UNFOLD_LIMIT} reads of derived attributes, each counted as often as it is made: "
+               f"one reading another twice reads all that one reads twice")
+    hit = (len(selfring) == 1 and chained == [] and len(wide) == 1 and fanned == [("order", f"T.d13 {unfolds}")]
+           and twice == [("order", f"types.T.invariants.big.expression {unfolds}")] and within == [] and quick)
     ok &= hit
-    print(f"  planted a derived attribute reading itself through a reference, a long chain, and a wide identifier: "
-          f"{'caught, the chain clean' if hit else 'MISSED ' + str((selfring, chained[:1], wide))}")
+    print(f"  planted a derived attribute reading itself through a reference, a long chain, a wide identifier, and "
+          f"diamond chains: {'caught, the chains within the bound clean and all quick' if hit else 'MISSED ' + str((selfring, chained[:1], wide, fanned[:2], twice[:2], within[:1], quick))}")
     written = load("module: m\ntypes:\n  T:\n    description: d\n    tracking: record\n"
                    "    attributes: { a: { type: bool, default: false }, b: { type: int, default: 0, indexed: true } }\n"
                    "    states: { S: { category: live, final: true } }\n"

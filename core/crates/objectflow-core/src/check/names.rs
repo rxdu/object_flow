@@ -1011,6 +1011,7 @@ fn inline_derived(e: &Expr, t: &Value, seen: &BTreeSet<String>) -> Expr {
     };
     if let Some(n) = name
         && !seen.contains(n)
+        && !super::late()
         && let Some(spec) = obj(t, "derived_attributes").get(n)
         && let Ok(tree) = parse(&spec.get("expression").map(py_str).unwrap_or_default())
     {
@@ -3028,6 +3029,11 @@ struct Typing<'a> {
     categories: &'a BTreeSet<String>,
     evaluators: &'a BTreeSet<String>,
     broken: Vec<String>,
+    /// Each derived attribute's type, by its type and name, once typed: a
+    /// chain of attributes each reading the one before twice typed each
+    /// 2^n times, forty holding the dry run's slot past six minutes
+    /// (eleventh production review).
+    known: &'a std::cell::RefCell<BTreeMap<(String, String), Option<Ty>>>,
 }
 
 type TyEnv = BTreeMap<String, Option<Ty>>;
@@ -3047,6 +3053,9 @@ impl Typing<'_> {
             return attribute_type(Some(spec), self.enums);
         }
         let pair = (tn.to_string(), m.to_string());
+        if let Some(known) = self.known.borrow().get(&pair) {
+            return known.clone();
+        }
         // a derived attribute typed through at most TYPING_DEPTH others,
         // past which its type is unknown: each typed the whole chain below
         // it again, a chain of 1,000 taking 171 s and one of 3,000 deeper
@@ -3054,6 +3063,7 @@ impl Typing<'_> {
         if let Some(derived) = obj(t, "derived_attributes").get(m)
             && !seen.contains(&pair)
             && seen.len() < TYPING_DEPTH
+            && !super::late()
         {
             let text = squash(&derived.get("expression").map(py_str).unwrap_or_default());
             let tree = parse(&text).ok()?;
@@ -3063,10 +3073,13 @@ impl Typing<'_> {
                 categories: self.categories,
                 evaluators: self.evaluators,
                 broken: Vec::new(),
+                known: self.known,
             };
             let mut deeper = seen.clone();
-            deeper.insert(pair);
-            return quiet.of(&tree, tn, None, &TyEnv::new(), &deeper);
+            deeper.insert(pair.clone());
+            let ty = quiet.of(&tree, tn, None, &TyEnv::new(), &deeper);
+            self.known.borrow_mut().insert(pair, ty.clone());
+            return ty;
         }
         None
     }
@@ -3536,12 +3549,14 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
     }
     let cats = categories(doc);
     let evaluators = evaluator_names(doc);
+    let known = std::cell::RefCell::new(BTreeMap::new());
     let mut typing = Typing {
         kinds: &kinds,
         enums: &enums,
         categories: &cats,
         evaluators: &evaluators,
         broken: Vec::new(),
+        known: &known,
     };
     let mut out = Found::new();
     #[allow(clippy::too_many_arguments)]

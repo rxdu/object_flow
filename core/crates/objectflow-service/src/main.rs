@@ -133,15 +133,30 @@ static LOG: std::sync::OnceLock<std::sync::mpsc::SyncSender<String>> = std::sync
 static LOG_QUEUED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// The log's thread: each queued line written to standard error, the time
-/// its writing began marked while it is written.
+/// its writing began marked while it is written; lines dropped since the
+/// last it wrote said first, where the log said nothing of them, only a
+/// counter in `/metrics` (eleventh production review).
 fn start_log() -> std::sync::mpsc::SyncSender<String> {
     let (send, lines) = std::sync::mpsc::sync_channel::<String>(LOG_QUEUE);
     let _ = std::thread::Builder::new()
         .name("log".into())
         .spawn(move || {
             use std::io::Write;
+            let mut told = 0;
             for text in lines {
                 LOGGING_SINCE.store(wall_millis(), Ordering::SeqCst);
+                let dropped = LINES_DROPPED.load(Ordering::SeqCst);
+                if dropped > told
+                    && writeln!(
+                        std::io::stderr().lock(),
+                        "{} the log dropped {} lines while it could not be written (objectflow_log_lines_dropped_total)",
+                        timestamp_text(wall_clock()),
+                        dropped - told
+                    )
+                    .is_ok()
+                {
+                    told = dropped;
+                }
                 // a log whose reader has gone drops the line: `eprintln!`
                 // panicked on the broken pipe, losing answers already
                 // committed (fifth production review)
@@ -2642,8 +2657,9 @@ fn dry_running(
         };
         (read, s.shared().0)
     };
-    let checked = objectflow_core::publish::checks_of(&lib, wall_clock(), &read.draft(actor))
-        .map_err(late)?;
+    let checked =
+        objectflow_core::publish::checks_until(&lib, wall_clock(), &read.draft(actor), Some(until))
+            .map_err(late)?;
     if std::time::Instant::now() >= until {
         return Err(dry_run_late(shared));
     }
@@ -4082,15 +4098,25 @@ const GRACE: std::time::Duration = std::time::Duration::from_secs(30);
 /// Resolved when the service is asked to stop, by SIGTERM as a supervisor
 /// asks or SIGINT as a terminal does: it takes no new connection, answers
 /// the requests in flight, and exits; past [`GRACE`] it exits without them
-/// (ADR-0183 decision 9).
+/// (ADR-0183 decision 9). SIGHUP, which a log rotation's `kill -HUP` sends,
+/// is said and ignored, where it ended the service at once with nothing in
+/// flight answered, an end systemd's `Restart=on-failure` counts clean and
+/// does not restart (eleventh production review): the log goes to standard
+/// error, and there is nothing to reopen.
 fn stopping() -> std::io::Result<impl std::future::Future<Output = ()>> {
     use tokio::signal::unix::{SignalKind, signal};
     let mut term = signal(SignalKind::terminate())?;
     let mut int = signal(SignalKind::interrupt())?;
+    let mut hup = signal(SignalKind::hangup())?;
     Ok(async move {
-        tokio::select! {
-            _ = term.recv() => {}
-            _ = int.recv() => {}
+        loop {
+            tokio::select! {
+                _ = term.recv() => break,
+                _ = int.recv() => break,
+                _ = hup.recv() => say!(
+                    "SIGHUP ignored: the log goes to standard error, and there is nothing to reopen; SIGTERM stops the service"
+                ),
+            }
         }
         notify("STOPPING=1");
         say!(
@@ -4889,6 +4915,15 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
             )));
         }
     }
+    // a directory is no store, where it was told to get write permission
+    // (eleventh production review)
+    if path.is_dir() {
+        return Err(std::io::Error::other(format!(
+            "{} is a directory; --store names the store's file in it, such as {}",
+            path.display(),
+            path.join("store.sqlite").display()
+        )));
+    }
     // a store the service cannot write is refused, where it started, said
     // 200 at /health and answered every write 500 (ADR-0192 decision 7)
     std::fs::OpenOptions::new()
@@ -4902,12 +4937,14 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
         })?;
     // a file that is a database but not a store, another application's, is
     // never made one: its tables are not ours to add to (second production
-    // review, minor)
+    // review, minor); and a store read through another state's -wal may
+    // read as no database at all, which is said with the restore's advice,
+    // as every check that finds that is (eleventh production review)
     if !is_store(path)? {
-        return Err(std::io::Error::other(format!(
-            "{} holds a file that is not an ObjectFlow store, which the service does not make one",
-            path.display()
-        )));
+        return Err(refused_start(
+            path,
+            &"it holds a file that is not an ObjectFlow store, which the service does not make one",
+        ));
     }
     let mode = std::fs::metadata(path)
         .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?

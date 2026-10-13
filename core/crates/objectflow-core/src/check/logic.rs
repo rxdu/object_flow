@@ -684,7 +684,11 @@ impl<'m, 'a> Analysis<'m, 'a> {
                 };
                 return Ok(one(vec![Atom::Dom(Var::State, allowed)]));
             }
-            Expr::Name(n) if self.m.derived.contains_key(n) && !self.inlining.contains(n) => {
+            Expr::Name(n)
+                if self.m.derived.contains_key(n)
+                    && !self.inlining.contains(n)
+                    && !super::late() =>
+            {
                 let text = str_or(&self.m.derived[n.as_str()], "expression", "");
                 let Ok(tree) = parse(&text) else {
                     return Ok(self.opaque(e, want));

@@ -271,6 +271,159 @@ fn derived_cycle_errors(doc: &Value) -> Found {
     out
 }
 
+/// The most reads of derived attributes a derived attribute may unfold to,
+/// each counted as often as it is made.
+pub const UNFOLD_LIMIT: usize = 10_000;
+
+/// No expression MAY unfold to more than [`UNFOLD_LIMIT`] reads of derived
+/// attributes, each counted as often as it is made: one reading another
+/// twice reads everything that one reads twice, so `d1: d0 + d0` on to `d40`
+/// unfolds to 2^41 reads, and every check that reads a derived attribute
+/// through those it reads walked each again, forty holding a dry run's slot
+/// past six minutes; an invariant reading one a thousand times is inlined a
+/// thousand times (eleventh production review). A name after a dot reads
+/// every derived attribute of that name the module declares, as
+/// [`derived_cycle_errors`] reads it, and a bare name the one its own type
+/// declares; a read back into a cycle counts one, the cycle refused by its
+/// own check. Each derived attribute's count is found once, iteratively, and
+/// capped past the limit. The first derived attribute past it on each path
+/// is refused, and any other expression past it through none that is; a
+/// module holding one is refused before any later step walks it, as one
+/// that does not parse is.
+pub fn fan_out_errors(doc: &Value, expressions: &[(Path, String)]) -> Found {
+    let order: Vec<(String, String)> = types(doc)
+        .into_iter()
+        .flat_map(|(tn, t)| {
+            keys(t, "derived_attributes")
+                .into_iter()
+                .map(move |d| (tn.clone(), d))
+        })
+        .collect();
+    let index: BTreeMap<&(String, String), usize> =
+        order.iter().enumerate().map(|(i, n)| (n, i)).collect();
+    let mut by_name: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+    for (i, node) in order.iter().enumerate() {
+        by_name.entry(node.1.as_str()).or_default().push(i);
+    }
+    let typed: BTreeMap<String, &Value> = types(doc).into_iter().collect();
+    // an expression's reads, in its text's order, a repeated read repeated,
+    // a bare name read of the type given
+    let reads_of = |own: Option<&str>, text: &str| {
+        let mut to = Vec::new();
+        for m in NAMED.captures_iter(&squash(text)) {
+            let Some(name) = m.get(2).map(|g| g.as_str()) else {
+                continue;
+            };
+            if m.get(1).is_some() {
+                to.extend(by_name.get(name).into_iter().flatten().copied());
+            } else if let Some(i) =
+                own.and_then(|tn| index.get(&(tn.to_string(), name.to_string())))
+            {
+                to.push(*i);
+            }
+        }
+        to
+    };
+    let reads: Vec<Vec<usize>> = order
+        .iter()
+        .map(|(tn, d)| {
+            let text = typed
+                .get(tn)
+                .and_then(|t| obj(t, "derived_attributes").get(d))
+                .and_then(|s| s.get("expression"))
+                .map(py_str)
+                .unwrap_or_default();
+            reads_of(Some(tn), &text)
+        })
+        .collect();
+    let cap = UNFOLD_LIMIT + 1;
+    let mut size: Vec<Option<usize>> = vec![None; order.len()];
+    let mut on = vec![false; order.len()];
+    for start in 0..order.len() {
+        if size[start].is_some() {
+            continue;
+        }
+        // each attribute on the search's path, the read it is at, and what
+        // it unfolds to so far
+        let mut stack: Vec<(usize, usize, usize)> = vec![(start, 0, 1)];
+        on[start] = true;
+        while let Some(&(node, k, total)) = stack.last() {
+            if k == reads[node].len() {
+                stack.pop();
+                on[node] = false;
+                size[node] = Some(total);
+                if let Some(parent) = stack.last_mut() {
+                    parent.2 = (parent.2 + total).min(cap);
+                }
+                continue;
+            }
+            let next = reads[node][k];
+            let add = match size[next] {
+                Some(s) => Some(s),
+                None if on[next] => Some(1),
+                None => None,
+            };
+            if let Some(top) = stack.last_mut() {
+                top.1 = k + 1;
+                if let Some(s) = add {
+                    top.2 = (total + s).min(cap);
+                }
+            }
+            if add.is_none() {
+                on[next] = true;
+                stack.push((next, 0, 1));
+            }
+        }
+    }
+    let past = |i: usize| size[i].is_some_and(|s| s > UNFOLD_LIMIT);
+    let unfolds = format!(
+        "unfolds to more than {UNFOLD_LIMIT} reads of derived attributes, each counted as often as it is made: one reading another twice reads all that one reads twice"
+    );
+    let mut out = Found::new();
+    for (i, (tn, d)) in order.iter().enumerate() {
+        if past(i) && !reads[i].iter().any(|r| past(*r)) {
+            out.push(finding(
+                segs!["types", tn, "derived_attributes", d, "expression"],
+                "order",
+                format!("{tn}.{d} {unfolds}"),
+            ));
+        }
+    }
+    // every other expression, its reads unfolded as a derived attribute's
+    for (path, text) in expressions {
+        let own = match (path.first(), path.get(1)) {
+            (Some(Seg::Key(k)), Some(Seg::Key(tn))) if k == "types" => Some(tn.as_str()),
+            _ => None,
+        };
+        if own.is_some() && matches!(path.get(2), Some(Seg::Key(k)) if k == "derived_attributes") {
+            continue;
+        }
+        let read = reads_of(own, text);
+        let total = read
+            .iter()
+            .fold(1, |n, r| (n + size[*r].unwrap_or(1)).min(cap));
+        if total > UNFOLD_LIMIT && !read.iter().any(|r| past(*r)) {
+            let at: Vec<String> = path
+                .iter()
+                .map(|s| match s {
+                    Seg::Key(k) => k.clone(),
+                    Seg::Index(i) => i.to_string(),
+                })
+                .collect();
+            out.push(finding(
+                path.clone(),
+                "order",
+                format!("{} {unfolds}", at.join(".")),
+            ));
+        }
+    }
+    out
+}
+
+/// A name, after a dot or bare, as [`fan_out_errors`] reads it.
+static NAMED: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| re(r"(\.)?\b([A-Za-z_]\w*)\b"));
+
 /// A name after a dot, as an expression reads a member.
 static AFTER_DOT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| re(r"\.(\w+)"));
 

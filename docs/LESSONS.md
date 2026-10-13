@@ -617,3 +617,18 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Measuring the eighth review's fix, a dry run of 3,000 types took 8.4 s, 4,500 took 20.3 s and 8,000 ran past eleven minutes; the run was stopped and the size lowered to fit the benchmark's time, and the growth itself was not looked into. The ninth review then found the dry run's slot held 229 s, and profiling showed the checks quadratic in the types.
 - **Correction:** Where a cost grows faster than its input in a measurement, stop and find why before going on: compare call-count profiles at N and 2N (callgrind needs no privileges), and the function whose cost quadruples is the one.
 - **Context:** Any benchmark of the engine; 2026-10-13.
+
+### A bound on a walk's depth is no bound on its work
+- **Pattern:** ADR-0197 bounded derived typing at 64 attributes deep, for a chain of 3,000 that overflowed the stack, and measured the chain linear. The eleventh review's adversary wrote a chain only 40 deep, each link reading the one before twice: 2^40 typings held the dry run's slot past six minutes. Measuring the fix found the same unbounded fan-out in four more walks over the same structure (the optional reads, the inliner, the logic solver, the run-time typing of a zero) and in evaluation itself.
+- **Correction:** When a recursive walk is bounded, bound its total work, by a memo per node or a bound on what it unfolds to, not its depth alone. Find every walk over the same structure by searching for its accessor (`derived_attributes`, `t.derived`), and test each with the widest shape (a diamond), not only the deepest (a chain).
+- **Context:** Checkers and evaluators over derived attributes, any recursive walk over a declared graph; 2026-10-13.
+
+### A command chain written across lines runs on after a failure
+- **Pattern:** A backgrounded command joined its first steps with `&&` but put a mutation runner on later lines. When the first script failed an assertion, the later lines still ran, and a second mutation run started over the first. Two scripts mutated the same sources at once, one's "as built" test failed against the other's mutant, and either could have restored the other's mutant as the original.
+- **Correction:** Join every step of a script that mutates sources with `&&`, or run it under `set -e`. Never start a mutation run while another may be running. After any interrupted run, search the sources for the mutants' marks before going on.
+- **Context:** Mutation testing in this repository; 2026-10-13.
+
+### A timing test passed on an input refused for another reason
+- **Pattern:** The first test of the typing memo timed `checks_of` on a 22-link diamond and discarded its result. Its flow declared `derived_attributes` before `states`, an order error, so it timed whatever ran on an invalid module, and passed. Only rewriting it to assert the findings showed it.
+- **Correction:** A test that bounds how long something takes also asserts what it produced: the findings expected, and no others. A refused or malformed input is fast for reasons of its own.
+- **Context:** Scaling tests of the checkers and the engine; 2026-10-13.

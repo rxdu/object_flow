@@ -100,6 +100,7 @@ CREATE INDEX of_event_by_object ON of_event (object_id, object_seq);
 CREATE INDEX of_event_by_cause  ON of_event (cause_position);
 CREATE INDEX of_event_by_cursor ON of_event (txn, position);
 CREATE INDEX of_event_by_actor ON of_event (actor_id);  -- an erased actor's events (§9 step 15)
+CREATE INDEX of_event_imported ON of_event (position) WHERE imported = 1;  -- a legacy span's export cursor, made at open (ADR-0198)
 CREATE INDEX of_event_by_principal ON of_event (actor_principal) WHERE actor_principal IS NOT NULL;
 
 -- SQLite only: positions and transaction numbers, allocated by the
@@ -619,6 +620,8 @@ CREATE INDEX of_interval_current ON of_interval (dimension, value) WHERE left_po
 CREATE INDEX of_interval_entered ON of_interval (dimension, entered_at) WHERE left_position IS NULL;
 CREATE INDEX of_interval_by_object ON of_interval (object_id, dimension, left_position);
 CREATE INDEX of_interval_by_entered ON of_interval (entered_by) WHERE entered_by IS NOT NULL;  -- an erased actor's entries (§9 step 15)
+CREATE INDEX of_interval_by_cursor ON of_interval (max(entered_position, coalesce(left_position, 0), coalesce(corrected_by, 0)));
+                                            -- the event that last wrote it, an export's cursor, made at open (ADR-0198)
 
 -- The attempt log: every request that did not apply, every observing
 -- clause's would-be refusal, and every raised flag. No personal value. Not history: pruned after a
@@ -655,6 +658,7 @@ CREATE TABLE of_attempt (
 CREATE INDEX of_attempt_by_rule ON of_attempt (type, transition, clause, at);
 CREATE INDEX of_attempt_by_actor ON of_attempt (actor_id, at);
 CREATE INDEX of_attempt_by_principal ON of_attempt (actor_principal) WHERE actor_principal IS NOT NULL;  -- §9 step 15
+CREATE INDEX of_attempt_by_txn ON of_attempt (txn);  -- an export's cursor, made at open (ADR-0198)
 
 CREATE TABLE of_attempt_rollup (
   day          TEXT    NOT NULL,            -- UTC calendar day

@@ -240,7 +240,17 @@ pub struct Evaluator<'a> {
     /// `parent.depth + 1`, overflowed the stack and aborted the service on a
     /// `get` (tenth production review).
     hops: usize,
+    /// Each derived value this evaluation has computed, by its object and
+    /// name, shared with the evaluations inside it: a chain of attributes
+    /// each reading the one before twice computed each 2^n times, a read of
+    /// twenty taking a second of a core (eleventh production review). An
+    /// evaluator borrows its world, so none outlives a write that would make
+    /// a value stale.
+    known: std::cell::OnceCell<Known>,
 }
+
+/// The derived values an evaluation has computed, by object and name.
+type Known = std::rc::Rc<std::cell::RefCell<BTreeMap<(String, String), Value>>>;
 
 /// The most derived attributes reached through references one evaluation
 /// goes inside before the next has no value: far below what a request's
@@ -355,6 +365,7 @@ impl<'a> Evaluator<'a> {
             aside: std::cell::Cell::new(0),
             naming: None,
             hops: 0,
+            known: std::cell::OnceCell::new(),
         }
     }
 
@@ -815,15 +826,23 @@ impl<'a> Evaluator<'a> {
                     if self.hops >= DERIVED_HOPS {
                         return Ok(Term::absent());
                     }
+                    let known = self.known.get_or_init(Default::default).clone();
+                    let key = (o.id.clone(), m.to_string());
+                    if let Some(v) = known.borrow().get(&key) {
+                        return Ok(Term::Value(v.clone()));
+                    }
                     // asked with the same answers, as the runner asks it
                     let mut derived = Evaluator::new(self.world, Some(t), Some(&o.id));
                     derived.answers = self.answers;
                     derived.metrics = self.metrics;
                     derived.reading = self.reading;
                     derived.hops = self.hops + 1;
+                    let _ = derived.known.set(known.clone());
                     // what it reads, the clause reads (DESIGN.md §5.5)
                     derived.naming = self.naming;
-                    crate::metric::typed_derived(self.world, t, e, derived.eval(e)?)
+                    let v = crate::metric::typed_derived(self.world, t, e, derived.eval(e)?);
+                    known.borrow_mut().insert(key, v.clone());
+                    v
                 } else {
                     return not_run(format!("the member `{}.{m}`", o.type_));
                 }

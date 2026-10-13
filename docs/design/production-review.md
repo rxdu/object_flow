@@ -1,6 +1,6 @@
 # Is ObjectFlow production-ready? The review before 1.0.0
 
-Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10), the seventh at `7d050a6` (§11), the eighth at `13f9bbf` (§12), the ninth at `0ce1b3c` (§13) and the tenth at `093d743` (§14).
+Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10), the seventh at `7d050a6` (§11), the eighth at `13f9bbf` (§12), the ninth at `0ce1b3c` (§13), the tenth at `093d743` (§14) and the eleventh at `3d0e07f` (§15).
 
 ## 1. What "production" meant, and how it was reviewed
 
@@ -285,4 +285,55 @@ Measuring the fixes found two more of N-8's kind: a chain of derived attributes 
 ### What the tenth review asks
 
 The author's standing instruction decides what the findings ask (ADR-0197); the blocker and the majors are fixed, then an eleventh review, or the author's acceptance of what remains.
+
+## 15. The eleventh review, after the tenth's fixes
+
+At commit `3d0e07f`, 2026-10-13, not yet pushed, every gate of `scripts/check-all` passed on it. Two new cold reviewers, an operator and an adversary, each worked in a checkout of its own with the release binary built from it. They were given the tenth review's findings to re-check, on copies of the same 37,154-object store and the six-year store, and the third review's go-live tools without their runs. Their logs and reports stayed in the session's scratch directory, which is not kept; what they found is here.
+
+**Verdicts: both NO-GO; no blocker, a major each.**
+
+Neither met a corrupted store or a lost acknowledged write:
+- `kill -9` during writes lost none of 595 acknowledged writes, and a publish killed or stopped rolled back or finished.
+- A fuzz of every operation by every key with about 25 JSON shapes, 2,509 cases, answered no `500`.
+- Online backup of 409 MB took 0.78 s, without stalling a write.
+- A full disk, a clock ahead, evaluators down, hung or refusing, and the connection cap were each handled.
+- An erasure's value left the store's files, answers and exports once cut, except under N1.
+
+### The tenth review's findings, re-checked
+
+- **Fixed, measured by both:**
+  - D-RECURSE on every path that publishes: both checkers refuse a self-read through a reference, a cycle across types and a recursion through a set, and a 5,000-node chain and a two-node cycle answer `null`.
+  - LOG-FREEZE: about 280 requests a second into an unread pipe, and `/health` on `--metrics-bind` answering `503 log_blocked`.
+  - PROPOSAL-RACE, as the opt-in decided.
+  - N-8: 8,000 transitions check in 0.55 s, and a chain of 1,000 derived attributes in 0.39 s.
+  - The minors decided, and the guides.
+- **Fixed by reading:** PANIC-SLOT; no panic was found to trigger.
+- **Partly fixed:**
+  - MEM-EVENTS: a page of the log's export still held each event's object (D636).
+  - D-RECURSE where a store was installed before the fix: a recursion through a set still aborted the process on a leaf's read (D633).
+  - The approval's hold on writes: 16.2 s under load at six years, 8.9 s idle.
+  - The backup and `maintain` schedules: advice, with no unit given.
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| F1 | A chain of derived attributes each reading the one before twice, `d1: d0 + d0` on to `d40`, held the store's one dry-run slot past six minutes on a core: typed 2^n times, past every bound on depth, the reference checker hanging alike, and a later change's submit refused after `--dry-run-timeout` | measured by the adversary; read | major |
+| N1 | A page of a type's intervals read every event into memory and walked them once for each of the type's objects: 15 to 19 s and a gigabyte a page at six years, past `--read-timeout`, and an erased name left in the `-wal` 43 s, past the urgent cut | measured by the operator; read | major |
+| F2 | A published chain of 20 cost 1.11 s of a core on each `get` | measured by the adversary | minor |
+| F3 | A decimal written past its 18 digits answered `501 not_run`, where an integer and money answer `value_in_range` | measured by the adversary | minor |
+
+Measuring F1's fix found the same unbounded fan-out in four more walks over derived attributes, and an invariant reading one derived attribute many times inlined as often (D631).
+
+The minors:
+- **Signals and the log:** SIGHUP ended the service at once, an end systemd's `Restart=on-failure` counts clean. The log never said it had dropped lines.
+- **Load:** a refused request is a durable write, so one actor's refusals in a loop slowed a person's writes. At six years, half of 24 concurrent per-person metrics timed out. Erasures at one a second stopped long reads.
+- **`/health`:** it answered `200` while the clock led by three days, and while an evaluator refused the token. Its `disk_full` was in neither guide.
+- **The store at start:** a second service on the store was said only at its own start, and a restore's reissued ids not at all. A directory given as `--store` was told to get write permission. The `.attempts` export read every attempt on each page.
+- **The guides:** the backup check needed the `sqlite3` program and left `-wal` and `-shm` beside the copy; the unit's `StateDirectory` reset its directory's mode; there was no shell recipe for a deployment's first publish.
+- **Outside the engine:** an agent's `forget` and `corrects` of a person's label, left to the gateway.
+
+### What the eleventh review asks
+
+The author's standing instruction decides what the findings ask (ADR-0198); the majors and the minors that cost little are fixed, then a twelfth review, or the author's acceptance of what remains.
 

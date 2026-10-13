@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-13 on the author's standing instruction, "continue the loop to get the stack ready for production, follow your recommendations", each decision the recommendation stated here; built the same day
 - **Date:** 2026-10-13
+- **Refined by:** ADR-0198 — an expression's unfolding of derived attributes bounded, the dry run's checks held to its deadline, a derived value computed once in an evaluation, and an export page read by the store's indexes.
 - **Refines:** ADR-0196 decisions 1 and 2; ADR-0179 (paging); the derived attributes of `flow-format.md` §4 and the proposal's approval of `DESIGN.md` §9
 - **Relates to:** `design/production-review.md` §14; `guides/operate.md`; `guides/wire.md`; `guides/agents.md`; `guides/integrate.md`
 

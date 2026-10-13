@@ -11593,6 +11593,75 @@
   "could_violate": {}
  },
  {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "diamond.yaml",
+    "d22795c296c7b83a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "diamond.yaml",
+    26,
+    "fatal",
+    "order",
+    "T.d13 unfolds to more than 10000 reads of derived attributes, each counted as often as it is made: one reading another twice reads all that one reads twice"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "twice.yaml",
+    "6f0e3f9197f651c2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "twice.yaml",
+    27,
+    "fatal",
+    "order",
+    "types.T.invariants.big.expression unfolds to more than 10000 reads of derived attributes, each counted as often as it is made: one reading another twice reads all that one reads twice"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "within.yaml",
+    "ce9edf50ec69a6ed"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "T.big": "local"
+  },
+  "could_violate": {
+   "T.big": [
+    "T.t"
+   ]
+  }
+ },
+ {
   "label": "mirror_identifier_self_test",
   "files": [
    [

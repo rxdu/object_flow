@@ -2334,6 +2334,26 @@ types:
         let w = s.snapshot().unwrap();
         let o = w.whole(&id).unwrap().unwrap();
         assert_eq!(o.held_parts().unwrap().spans["state"].len(), 2);
+        drop(w);
+        // a refresh moving it is a second imported event, and its legacy span
+        // is still exported by the first, its object's import, as the walk of
+        // every event read it (eleventh production review N1)
+        let mut moved = batch();
+        moved[0].state = "LEFT".into();
+        moved[0].entered.insert("state".into(), entered_at(port));
+        let refreshed = run(&mut s, moved, &[], false);
+        assert!(
+            refreshed.refusal.is_none() && refreshed.written == 1,
+            "{refreshed:?}"
+        );
+        let imports = s
+            .history(&id)
+            .unwrap()
+            .iter()
+            .filter(|e| e.imported)
+            .count();
+        assert_eq!(imports, 2);
+        crate::export::assert_intervals_as_walked(&s, "Employee");
     }
 
     #[test]
@@ -2394,6 +2414,11 @@ types:
         )];
         let r = run(&mut s, vec![e1, e2, e3, e4, team, quiet], &[], false);
         assert!(r.refusal.is_none(), "{r:?}");
+        // a legacy span exported by its object's import, read by the index
+        // on imported events, as the walk of every event read it (eleventh
+        // production review N1)
+        crate::export::assert_intervals_as_walked(&s, "Employee");
+        crate::export::assert_intervals_as_walked(&s, "Team");
         let w = s.snapshot().unwrap();
         let (e1, e2, e3, e4) = (
             id_of(&s, "E-1"),

@@ -170,6 +170,7 @@ impl<'l> OptionalReads<'l> {
         }
         if let Some(d) = obj(t, "derived_attributes").get(m)
             && !self.derived_seen.contains(&seen)
+            && !super::late()
         {
             let mut chain = self.derived_seen.clone();
             chain.push(seen);

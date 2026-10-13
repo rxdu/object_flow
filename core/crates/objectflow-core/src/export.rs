@@ -12,10 +12,10 @@ use serde_json::{Value as Json, json};
 
 use crate::eval::NotRun;
 use crate::model::Library;
-use crate::store::{Attempt, Event};
+use crate::store::{Attempt, CursoredSpan, Event};
 use crate::value::timestamp_text;
 use crate::wire;
-use crate::world::{Object, Span, World};
+use crate::world::{Object, World};
 
 /// A page of an export (`library-api.md` §6): its rows, one JSON object per
 /// line, and the cursor to continue from; or a refusal, a value, with no
@@ -102,14 +102,8 @@ pub fn export_page(
             return refuse("unknown_source");
         }
         match kind {
-            "intervals" => interval_rows(world, type_, after)?,
-            "attempts" => world
-                .attempts()?
-                .iter()
-                .filter(|a| a.txn > after)
-                .filter(|a| a.type_.as_deref().is_some_and(|t| world.lib.is_a(t, type_)))
-                .map(|a| (a.txn, attempt_row(a)))
-                .collect(),
+            "intervals" => interval_rows(world, type_, after, limit)?,
+            "attempts" => attempt_rows(world, type_, after, limit)?,
             // the log of the type's family, a page read from the cursor
             "transitions" => {
                 let family: Vec<String> = world
@@ -327,11 +321,14 @@ fn family_of<'w>(
 /// An event as the log exports it, its personal inputs and corrected
 /// values omitted (ADR-0094 §3).
 fn event_row(world: &World<'_>, e: &Event) -> Result<Json, NotRun> {
-    let type_ = world.get(&e.object_id)?.map(|o| o.type_.as_str());
+    // the object's type alone, where its whole object was held for the page,
+    // a change's source of 1.9 MB with each of its events, 550 MB for a page
+    // of 178 KB (eleventh production review)
+    let type_ = world.type_of(&e.object_id)?;
     let mut payload = e.payload.clone();
     for part in ["inputs", "corrected"] {
         if let Some(values) = payload.get_mut(part).and_then(Json::as_object_mut) {
-            values.retain(|k, _| !personal(world.lib, type_, &e.transition, k));
+            values.retain(|k, _| !personal(world.lib, type_.as_deref(), &e.transition, k));
         }
     }
     Ok(json!({
@@ -372,26 +369,67 @@ fn personal(lib: &Library, type_: Option<&str>, transition: &str, name: &str) ->
 /// Each span of each object of the type, after the cursor, by the event that
 /// last wrote it: the one that opened it, closed it, or relabelled it in a
 /// correction; a legacy span, which no event opened, by the import event
-/// that wrote its object (`library-api.md` §6).
-fn interval_rows(world: &World<'_>, type_: &str, after: i64) -> Result<Vec<(i64, Json)>, NotRun> {
-    let log: Vec<&Event> = world.log()?.collect();
-    let transition_at = |position: i64| {
-        log.binary_search_by_key(&position, |e| e.position)
-            .ok()
-            .map(|i| log[i].transition.clone())
-    };
+/// that wrote its object (`library-api.md` §6). It reads the store's
+/// intervals a window of positions at a time, by their index, to the page's
+/// limit and bytes, the read's deadline and stop read between windows,
+/// where a page read every event into memory and walked them once for each
+/// of the type's objects, past its deadline and an erasure's cut (eleventh
+/// production review N1). A window that finds nothing doubles, so a type
+/// written seldom crosses the log in few reads.
+fn interval_rows(
+    world: &World<'_>,
+    type_: &str,
+    after: i64,
+    limit: usize,
+) -> Result<Vec<(i64, Json)>, NotRun> {
+    const FIRST: i64 = 4_096;
+    const WIDEST: i64 = 65_536;
+    let family = world.family(type_);
+    let last = world.last_position()?;
     let mut rows = Vec::new();
-    let objects = world.of_type(type_)?;
-    world.with_parts(&objects)?;
+    let mut bytes = 0;
+    let mut at = after;
+    let mut window = FIRST;
+    while at < last && rows.len() < limit && bytes < crate::reads::PAGE_BYTES {
+        world.due()?;
+        let upto = at.saturating_add(window).min(last);
+        let spans = world.intervals_between(&family, at, upto)?;
+        window = if spans.is_empty() {
+            window.saturating_mul(2).min(WIDEST)
+        } else {
+            FIRST
+        };
+        for s in &spans {
+            let personal = s.dimension != "state"
+                && world
+                    .lib
+                    .type_(&s.type_)
+                    .and_then(|t| t.attribute(&s.dimension))
+                    .is_some_and(|a| a.personal);
+            let row = span_row(s, personal);
+            bytes += row.to_string().len() + 1;
+            rows.push((s.cursor, row));
+        }
+        at = upto;
+    }
+    Ok(rows)
+}
+
+/// The rows a page of a type's intervals held as it read them before the
+/// eleventh production review, every event into memory and each object's
+/// parts walked: the oracle the indexed read is compared with.
+#[cfg(test)]
+pub(crate) fn intervals_as_walked(world: &World<'_>, type_: &str) -> Vec<String> {
+    let log: Vec<&Event> = world.log().unwrap().collect();
+    let mut rows = Vec::new();
+    let objects = world.of_type(type_).unwrap();
     for o in objects {
         let imported = log
             .iter()
             .find(|e| e.object_id == o.id && e.imported)
             .map_or(0, |e| e.position);
-        let Some(t) = world.lib.type_(&o.type_) else {
-            continue;
-        };
-        for (dimension, spans) in &world.parts(o)?.spans {
+        let t = world.lib.type_(&o.type_).unwrap();
+        for (dimension, spans) in &world.parts(o).unwrap().spans {
             let personal =
                 dimension != "state" && t.attribute(dimension).is_some_and(|a| a.personal);
             for sp in spans {
@@ -404,33 +442,102 @@ fn interval_rows(world: &World<'_>, type_: &str, after: i64) -> Result<Vec<(i64,
                         .max()
                         .unwrap_or(0)
                 };
-                if cursor <= after {
+                if cursor == 0 {
                     continue;
                 }
-                rows.push((cursor, span_row(o, dimension, sp, personal, &transition_at)));
+                let transition = log
+                    .iter()
+                    .find(|e| e.position == sp.entered_position)
+                    .map(|e| e.transition.clone());
+                let s = CursoredSpan {
+                    cursor,
+                    object_id: o.id.clone(),
+                    type_: o.type_.clone(),
+                    dimension: dimension.clone(),
+                    span: sp.clone(),
+                    transition,
+                    order: o.order,
+                };
+                rows.push((cursor, span_row(&s, personal).to_string()));
             }
         }
     }
-    Ok(rows)
+    rows.sort_by_key(|(c, _)| *c);
+    rows.into_iter().map(|(_, r)| r).collect()
+}
+
+/// Whether a type's attempts, paged at each of several limits, give the
+/// rows the whole attempt log filtered gives, as a page read them before the
+/// eleventh production review, in its order.
+#[cfg(test)]
+pub(crate) fn assert_attempts_as_listed(s: &crate::store::Store, type_: &str) {
+    let w = s.snapshot().unwrap();
+    let listed: Vec<String> = w
+        .attempts()
+        .unwrap()
+        .iter()
+        .filter(|a| a.type_.as_deref().is_some_and(|t| w.lib.is_a(t, type_)))
+        .map(|a| attempt_row(a).to_string())
+        .collect();
+    drop(w);
+    assert!(listed.len() > 3, "{type_} has too few attempts to compare");
+    let source = format!("{type_}.attempts");
+    for limit in [1, 2, 3, usize::MAX] {
+        let mut read = Vec::new();
+        let mut cursor = "0".to_string();
+        loop {
+            let w = s.snapshot().unwrap();
+            let page = export_page(&w, &source, Some(&cursor), limit).unwrap();
+            assert_eq!(page.refused, None);
+            if page.lines.is_empty() {
+                break;
+            }
+            read.extend(page.lines);
+            cursor = page.cursor;
+        }
+        assert_eq!(read, listed, "{source} paged by {limit}");
+    }
+}
+
+/// Whether a type's intervals, paged at each of several limits, give the
+/// rows the walk of [`intervals_as_walked`] gives, in its order, no page
+/// ending among one cursor's rows, and reading neither the log nor a type
+/// whole (eleventh production review N1).
+#[cfg(test)]
+pub(crate) fn assert_intervals_as_walked(s: &crate::store::Store, type_: &str) {
+    let walked = intervals_as_walked(&s.snapshot().unwrap(), type_);
+    assert!(!walked.is_empty(), "{type_} has no intervals to compare");
+    let source = format!("{type_}.intervals");
+    for limit in [1, 2, 3, usize::MAX] {
+        let mut read = Vec::new();
+        let mut cursor = "0".to_string();
+        loop {
+            let w = s.snapshot().unwrap();
+            let page = export_page(&w, &source, Some(&cursor), limit).unwrap();
+            assert_eq!(page.refused, None);
+            assert!(!w.log_read_whole(), "a page of {source} read the log whole");
+            if page.lines.is_empty() {
+                break;
+            }
+            read.extend(page.lines);
+            cursor = page.cursor;
+        }
+        assert_eq!(read, walked, "{source} paged by {limit}");
+    }
 }
 
 /// A span as the export writes it, in `Interval`'s shape
 /// (`library-api.md` §4), its value omitted where the member is personal.
-fn span_row(
-    o: &Object,
-    dimension: &str,
-    sp: &Span,
-    personal: bool,
-    transition_at: &dyn Fn(i64) -> Option<String>,
-) -> Json {
+fn span_row(s: &CursoredSpan, personal: bool) -> Json {
+    let sp = &s.span;
     let mut row = json!({
-        "object_id": o.id,
-        "dimension": dimension,
+        "object_id": s.object_id,
+        "dimension": s.dimension,
         "entered_at": timestamp_text(sp.entered_at),
         "left_at": sp.left_at.map(timestamp_text),
         "entered_by": sp.entered_by,
         "entered_by_kind": sp.entered_by_kind,
-        "transition": if sp.legacy { None } else { transition_at(sp.entered_position) },
+        "transition": if sp.legacy { None } else { s.transition.clone() },
         "declaration_version": sp.declaration_version,
         "legacy": sp.legacy,
     });
@@ -441,6 +548,68 @@ fn span_row(
         };
     }
     row
+}
+
+/// A type's attempts after the cursor, by the transaction that wrote each: a
+/// window of transactions at a time, read by their index a few attempts at a
+/// time, to the page's limit and bytes and then to the end of the last
+/// transaction read, so a page never ends among one transaction's attempts;
+/// the read's deadline and stop read between windows. A page read the whole
+/// attempt log, which one actor's refusals in a loop grow by millions a day
+/// (eleventh production review). A window that finds nothing doubles.
+fn attempt_rows(
+    world: &World<'_>,
+    type_: &str,
+    after: i64,
+    limit: usize,
+) -> Result<Vec<(i64, Json)>, NotRun> {
+    const CHUNK: usize = 16;
+    const FIRST: i64 = 4_096;
+    const WIDEST: i64 = 1 << 20;
+    let family = world.family(type_);
+    let last = world.last_txn()?;
+    let mut rows = Vec::new();
+    let mut bytes = 0;
+    // the place read to, in the order written: past every attempt of `after`
+    let mut from = (after, i64::MAX);
+    let mut window = FIRST;
+    let full = |rows: &Vec<(i64, Json)>, bytes: usize| {
+        rows.len() >= limit || bytes >= crate::reads::PAGE_BYTES
+    };
+    while from.0 < last && !full(&rows, bytes) {
+        world.due()?;
+        let upto = from.0.saturating_add(window).min(last);
+        let mut found = 0;
+        loop {
+            let chunk = world.attempts_after(&family, from, upto, CHUNK)?;
+            for (id, a) in &chunk {
+                from = (a.txn, *id);
+                let row = attempt_row(a);
+                bytes += row.to_string().len() + 1;
+                rows.push((a.txn, row));
+                found += 1;
+            }
+            if chunk.len() < CHUNK || full(&rows, bytes) {
+                break;
+            }
+        }
+        if full(&rows, bytes) {
+            // the rest of the last transaction read, which the next page,
+            // reading after it, would pass over
+            for (_, a) in world.attempts_after(&family, from, from.0, usize::MAX)? {
+                let row = attempt_row(&a);
+                rows.push((a.txn, row));
+            }
+            break;
+        }
+        from = (upto, i64::MAX);
+        window = if found == 0 {
+            window.saturating_mul(2).min(WIDEST)
+        } else {
+            FIRST
+        };
+    }
+    Ok(rows)
 }
 
 /// An attempt as the export writes it, in `Attempt`'s shape
@@ -555,6 +724,72 @@ types:
         (rows, p.cursor)
     }
 
+    /// A transaction's attempts are never split between pages, however many
+    /// there are: a request audited by twenty conditions records twenty in
+    /// its transaction, more than a page reads at once (eleventh production
+    /// review).
+    #[test]
+    fn a_transactions_attempts_are_read_whole_on_one_page() {
+        let conditions: String = (0..20)
+            .map(|i| format!("      c{i}:\n        description: Large.\n        expression: n > {}\n        remedy: self_serviceable\n", 100 + i))
+            .collect();
+        let guards: Vec<String> = (0..20).map(|i| format!("c{i}: audit")).collect();
+        let text = format!(
+            "module: gates\ncategories: [live]\ntypes:\n  Gate:\n    description: A gate.\n    tracking: record\n    attributes:\n      n: {{ type: int }}\n    states:\n      ON: {{ category: live, description: On. }}\n    conditions:\n{conditions}    transitions:\n      make: {{ kind: initial, to: ON, required_inputs: [n] }}\n      poke: {{ kind: internal, from: [ON], guards: {{ {} }} }}\n",
+            guards.join(", ")
+        );
+        let lib = Library::load(&[("gates.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask = |s: &mut Store, xn: &str, object: Option<&str>, inputs: Json| {
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: object.map(str::to_string),
+                type_: object.is_none().then(|| "Gate".to_string()),
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            request(s, &r).unwrap().unwrap()
+        };
+        let gate = match ask(&mut s, "make", None, json!({"n": 1})) {
+            Verdict::Satisfied { object_id, .. } => object_id,
+            other => panic!("{other:?}"),
+        };
+        for _ in 0..2 {
+            assert!(matches!(
+                ask(&mut s, "poke", Some(&gate), json!({})),
+                Verdict::Satisfied { .. }
+            ));
+        }
+        let w = s.snapshot().unwrap();
+        let mut txns: BTreeMap<i64, usize> = BTreeMap::new();
+        for a in w.attempts().unwrap() {
+            *txns.entry(a.txn).or_default() += 1;
+        }
+        drop(w);
+        assert!(txns.values().any(|n| *n > 16), "{txns:?}");
+        assert_attempts_as_listed(&s, "Gate");
+        // and a page of them stops at its read's deadline
+        let mut w = s.snapshot().unwrap();
+        w.deadline = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(1));
+        assert!(matches!(
+            export_page(&w, "Gate.attempts", None, 10),
+            Err(NotRun::TimedOut(_))
+        ));
+    }
+
     /// `library-api.md` §6, ADR-0094, ADR-0100 §6: the log pages by
     /// position and an attempt source by writing transaction; an interval
     /// source by the event that last wrote each row, so a closing, and a
@@ -580,6 +815,14 @@ types:
         assert_eq!(opened["payload"]["inputs"], json!({"crew": "NORTH"}));
         assert_eq!(at, log.last().unwrap()["position"].to_string());
         assert_eq!(page(&s, "log", Some(&at)).0, Vec::<Json>::new());
+        // a page of the log reads each event's object's type, never the
+        // object, which a change's source made 550 MB for a page of 178 KB
+        // (eleventh production review)
+        let w = s.snapshot().unwrap();
+        let p = export_page(&w, "log", None, 100).unwrap();
+        assert!(!p.lines.is_empty());
+        assert_eq!(w.held_count(), 0);
+        drop(w);
         // a declared input marked personal is left out too
         req(
             &mut s,
@@ -639,6 +882,25 @@ types:
             ]
         );
         assert_eq!(page(&s, "Job.intervals", Some(&c3)), (Vec::new(), c3));
+        // read by the store's indexes, a page at a time, as the walk of every
+        // event read them (eleventh production review N1)
+        assert_intervals_as_walked(&s, "Job");
+        // a page of intervals stops at its read's deadline and at an
+        // erasure's cut, where a page read on past both, 45 s against a
+        // deadline of 5 and an erased name left in the store's files
+        let mut w = s.snapshot().unwrap();
+        w.deadline = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(1));
+        assert!(matches!(
+            export_page(&w, "Job.intervals", None, 10),
+            Err(NotRun::TimedOut(_))
+        ));
+        w.deadline = None;
+        w.stop = Some((std::sync::Arc::new(std::sync::atomic::AtomicU64::new(1)), 0));
+        assert!(matches!(
+            export_page(&w, "Job.intervals", None, 10),
+            Err(NotRun::TimedOut(_))
+        ));
+        drop(w);
         // a refusal is a row of its type's attempt source, by its
         // transaction, and of no other type's
         assert!(matches!(
@@ -745,6 +1007,15 @@ types:
                     .iter()
                     .all(|e| e["object_id"] == json!(calm) || e["object_id"] == json!(cross))
         );
+        // read by the transaction's index, a page at a time, as the whole
+        // attempt log filtered read them (eleventh production review)
+        for _ in 0..4 {
+            assert!(matches!(
+                req(&mut s, "start", Some(&cross), json!({})),
+                Verdict::Unsatisfied { .. }
+            ));
+        }
+        assert_attempts_as_listed(&s, "Job");
         // an observation kind's records, and a type's labels, each without
         // its personal field
         let record = |s: &mut Store, type_: &str, inputs: Json| {

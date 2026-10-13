@@ -1,0 +1,28 @@
+module: m
+categories: [live]
+types:
+  T:
+    description: A thing.
+    tracking: record
+    attributes:
+      x: { type: int }
+    states:
+      S: { category: live, description: Open. }
+      E: { category: live, final: true, description: Done. }
+    derived_attributes:
+      d0: { description: The first., expression: this.x + this.x }
+      d1: { description: One., expression: this.d0 + this.d0 }
+      d2: { description: One., expression: this.d1 + this.d1 }
+      d3: { description: One., expression: this.d2 + this.d2 }
+      d4: { description: One., expression: this.d3 + this.d3 }
+      d5: { description: One., expression: this.d4 + this.d4 }
+      d6: { description: One., expression: this.d5 + this.d5 }
+      d7: { description: One., expression: this.d6 + this.d6 }
+      d8: { description: One., expression: this.d7 + this.d7 }
+      d9: { description: One., expression: this.d8 + this.d8 }
+      d10: { description: One., expression: this.d9 + this.d9 }
+      d11: { description: One., expression: this.d10 + this.d10 }
+      d12: { description: One., expression: this.d11 + this.d11 }
+    invariants:
+      big: { description: Big., expression: d12 + d12 > 0 }
+    transitions: { t: { kind: initial, to: S, required_inputs: [x] }, e: { kind: external, from: S, to: E } }

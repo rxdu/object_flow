@@ -377,7 +377,7 @@ fn invariant_objects(world: &World<'_>, o: &Object, n: &str) -> Result<BTreeSet<
 /// does (`declaration-syntax.md` §8.3, F4), and a value past the store's
 /// 18 digits is not written. Any other value, or an attribute of another
 /// type, is written as it is.
-pub(crate) fn at_declared_scale(t: &Type, name: &str, v: Value) -> Result<Value, NotRun> {
+fn at_declared_scale(t: &Type, name: &str, v: Value, id: &str) -> Result<Value, Stop> {
     let Value::Decimal(d) = &v else {
         return Ok(v);
     };
@@ -393,10 +393,16 @@ pub(crate) fn at_declared_scale(t: &Type, name: &str, v: Value) -> Result<Value,
     };
     match d.rescale(scale) {
         Some(held) if held.units().abs() <= 999_999_999_999_999_999 => Ok(Value::Decimal(held)),
-        _ => Err(NotRun::Unsupported(format!(
-            "{}.{name} given a decimal past its 18 digits",
-            t.name
-        ))),
+        // past the store's 18 digits it refuses the request, as an
+        // arithmetic past its bound does, where it was answered 501 not run
+        // (eleventh production review)
+        _ => refused_naming(
+            Verdict::Unsatisfied {
+                clause: "value_in_range".into(),
+                remedy: Some(Remedy::UnreachableFromHere),
+            },
+            id,
+        ),
     }
 }
 
@@ -1526,7 +1532,7 @@ fn take(
                         .with_actor(&ctx.who)
                         .eval(d)?;
                     if !v.is_absent() {
-                        o.attrs.insert(a.clone(), at_declared_scale(t, a, v)?);
+                        o.attrs.insert(a.clone(), at_declared_scale(t, a, v, &id)?);
                     }
                 }
             }
@@ -1664,7 +1670,7 @@ fn take(
     for k in x.required_inputs.iter().chain(&x.optional_inputs) {
         if let Some(v) = inputs.get(k) {
             o.attrs
-                .insert(k.clone(), at_declared_scale(t, k, v.clone())?);
+                .insert(k.clone(), at_declared_scale(t, k, v.clone(), &o.id)?);
         }
     }
     // the event records every input the transition took, those that write
@@ -3733,7 +3739,7 @@ fn effects(
                         "an assignment of an absent value, which only an unsupplied optional input may be",
                     );
                 }
-                let v = at_declared_scale(t, location, v)?;
+                let v = at_declared_scale(t, location, v, id)?;
                 // a date or a time past the calendar refuses the request, as
                 // an arithmetic past its bound does, where it was written as
                 // text no read takes back (fifth production review BRICK,
@@ -10482,6 +10488,87 @@ types:
             "an export of {} read {read}",
             out.lines.len()
         );
+    }
+
+    /// A derived value computed once in one evaluation, where a chain of
+    /// attributes each reading the one before twice computed each 2^n times
+    /// and a read of twenty took a second of a core (eleventh production
+    /// review).
+    #[test]
+    fn a_derived_chain_is_computed_once_per_read() {
+        let mut text = String::from(
+            "\nmodule: chain\ncategories: [live]\ntypes:\n  T:\n    attributes:\n      x: { type: int, optional: true }\n    derived_attributes:\n      d0: { expression: \"x + x\" }\n",
+        );
+        for i in 1..22 {
+            text.push_str(&format!(
+                "      d{i}: {{ expression: \"d{} + d{}\" }}\n",
+                i - 1,
+                i - 1
+            ));
+        }
+        text.push_str("    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, optional_inputs: [x] }\n");
+        let lib = Library::load(&[("chain.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let o = created(&req(&mut s, "make", OPERATOR, ("T", true), json!({"x": 1})));
+        let w = s.snapshot().unwrap();
+        let t = std::time::Instant::now();
+        let read = crate::reads::get(&w, &o).unwrap().unwrap();
+        let took = t.elapsed().as_secs_f64();
+        let d21 = read
+            .derived
+            .iter()
+            .find(|(d, _)| d == "d21")
+            .map(|(_, v)| v.clone());
+        assert_eq!(d21, Some(Value::Int(1 << 22)), "{read:?}");
+        assert!(took < 2.0, "a read of a chain of 22 took {took:.2} s");
+        // at zero each value is given its type by its expression's, typed
+        // once each too
+        let zero = created(&req(&mut s, "make", OPERATOR, ("T", true), json!({"x": 0})));
+        let w = s.snapshot().unwrap();
+        let t = std::time::Instant::now();
+        let read = crate::reads::get(&w, &zero).unwrap().unwrap();
+        let took = t.elapsed().as_secs_f64();
+        assert!(
+            read.derived
+                .iter()
+                .any(|(d, v)| d == "d21" && *v == Value::Int(0)),
+            "{read:?}"
+        );
+        assert!(
+            took < 2.0,
+            "a read of a chain of 22 at zero took {took:.2} s"
+        );
+    }
+
+    /// A derived attribute reading itself through a set, which a version
+    /// installed before the checkers refused it may hold, answers a read of
+    /// a leaf, where typing its sum over nothing recursed until the stack
+    /// overflowed and aborted the service (eleventh production review).
+    #[test]
+    fn a_derived_value_reading_itself_through_a_set_answers_a_leaf() {
+        let text = "\nmodule: tree\ncategories: [live]\ntypes:\n  Node:\n    attributes:\n      parent: { reference: Node, optional: true, opposite: children }\n      children: { reference: \"Node[]\", opposite: parent }\n    derived_attributes:\n      size: { expression: \"count(c in children) + sum(c in children: c.size)\" }\n    states:\n      LIVE: { category: live }\n    transitions:\n      make: { kind: initial, to: LIVE, optional_inputs: [parent] }\n";
+        let lib = Library::load(&[("tree.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let root = created(&req(&mut s, "make", OPERATOR, ("Node", true), json!({})));
+        let leaf = created(&req(
+            &mut s,
+            "make",
+            OPERATOR,
+            ("Node", true),
+            json!({"parent": root}),
+        ));
+        let w = s.snapshot().unwrap();
+        let size = |id: &str| {
+            crate::reads::get(&w, id)
+                .unwrap()
+                .unwrap()
+                .derived
+                .into_iter()
+                .find(|(d, _)| d == "size")
+                .map(|(_, v)| v)
+        };
+        assert_eq!(size(&leaf), Some(Value::Int(0)));
+        assert_eq!(size(&root), Some(Value::Int(1)));
     }
 
     /// A derived attribute reading itself through a reference, which a

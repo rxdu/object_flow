@@ -357,6 +357,31 @@ pub struct Checked {
 
 /// The checks of a draft against the installed version `old`, at `now`.
 pub fn checks_of(old: &Library, now: i64, draft: &Draft<'_>) -> Result<Checked, NotRun> {
+    checks_until(old, now, draft, None)
+}
+
+/// [`checks_of`] by a deadline, where one is given: a dry run's, whose one
+/// slot a change's checks held as long as they took, past every deadline
+/// (eleventh production review). Checks past it are not run as a read past
+/// its deadline is not, their findings incomplete.
+pub fn checks_until(
+    old: &Library,
+    now: i64,
+    draft: &Draft<'_>,
+    until: Option<std::time::Instant>,
+) -> Result<Checked, NotRun> {
+    let deadline = crate::check::until(until);
+    let checked = checks_by(old, now, draft)?;
+    if deadline.passed() {
+        return Err(NotRun::TimedOut(
+            "the change's checks passed the dry run's deadline; a change this large needs a longer --dry-run-timeout"
+                .into(),
+        ));
+    }
+    Ok(checked)
+}
+
+fn checks_by(old: &Library, now: i64, draft: &Draft<'_>) -> Result<Checked, NotRun> {
     let mut found = Found::default();
     let report = PublishReport {
         version: old.version + 1,
@@ -456,7 +481,7 @@ fn simulate_checked(
     let checked = if checked.at == world.lib.version {
         checked
     } else {
-        checks_of(world.lib, world.now, draft)?
+        checks_until(world.lib, world.now, draft, world.deadline)?
     };
     let Checked { found, report, .. } = checked;
     let report = PublishReport {
@@ -1704,6 +1729,124 @@ types:
             took < 10.0,
             "checks: a condition of 20,000 states {took:.2} s"
         );
+        // a chain of derived attributes each reading the one before twice
+        // unfolds to 2^n reads, and every check that reads one through those
+        // it reads walked each again, forty holding a dry run's slot past six
+        // minutes (eleventh production review): a change's own is refused
+        // before any check walks it, its first link past the bound named once
+        let diamond = |n: usize| {
+            (1..n)
+                .map(|i| {
+                    format!(
+                        "      d{i}: {{ description: One., expression: this.d{} + this.d{} }}\n",
+                        i - 1,
+                        i - 1
+                    )
+                })
+                .collect::<String>()
+        };
+        let own = NOTE.replace(
+            "    transitions:",
+            &format!(
+                "    derived_attributes:\n      d0: {{ description: The first., expression: this.x + this.x }}\n{}    invariants:\n      big: {{ description: Big., expression: d39 > 0 }}\n    transitions:",
+                diamond(40)
+            ),
+        )
+        .replace(
+            "    tracking: record\n    states:",
+            "    tracking: record\n    attributes:\n      x: { type: int, optional: true }\n    states:",
+        );
+        let source = [("n".to_string(), own)];
+        let d = Draft {
+            change_id: None,
+            source: &source,
+            source_ref: Some("test"),
+            source_digest: None,
+            actor: OPERATOR,
+        };
+        let t = std::time::Instant::now();
+        let checked = checks_of(&lib, 0, &d).unwrap();
+        let took = t.elapsed().as_secs_f64();
+        assert!(took < 10.0, "checks: a diamond chain of 40 {took:.2} s");
+        let fatal: Vec<&str> = checked
+            .found
+            .0
+            .iter()
+            .filter(|f| f.severity == Severity::Fatal)
+            .map(|f| f.message.as_str())
+            .collect();
+        assert!(
+            fatal.len() == 1
+                && fatal[0].ends_with(": Note.d13 unfolds to more than 10000 reads of derived attributes, each counted as often as it is made: one reading another twice reads all that one reads twice"),
+            "{:?}",
+            checked.found.0
+        );
+        // an invariant reading a derived attribute is unfolded as one: past
+        // the bound through none past it, the invariant is refused by its path
+        let chain = |n: usize, invariants: &str| {
+            NOTE.replace(
+                "    tracking: record\n    states:",
+                "    tracking: record\n    attributes:\n      x: { type: int, optional: true }\n    states:",
+            )
+            .replace(
+                "    transitions:",
+                &format!(
+                    "    derived_attributes:\n      d0: {{ description: The first., expression: this.x + this.x }}\n{}    invariants:\n{invariants}    transitions:",
+                    diamond(n)
+                ),
+            )
+        };
+        let source = [(
+            "n".to_string(),
+            chain(
+                13,
+                "      big: { description: Big., expression: d12 + d12 > 0 }\n",
+            ),
+        )];
+        let d = Draft {
+            change_id: None,
+            source: &source,
+            source_ref: Some("test"),
+            source_digest: None,
+            actor: OPERATOR,
+        };
+        let checked = checks_of(&lib, 0, &d).unwrap();
+        let fatal: Vec<&str> = checked
+            .found
+            .0
+            .iter()
+            .filter(|f| f.severity == Severity::Fatal)
+            .map(|f| f.message.as_str())
+            .collect();
+        assert!(
+            fatal.len() == 1
+                && fatal[0].ends_with(": types.Note.invariants.big.expression unfolds to more than 10000 reads of derived attributes, each counted as often as it is made: one reading another twice reads all that one reads twice"),
+            "{:?}",
+            checked.found.0
+        );
+        // and many expressions, each within it, are checked to the dry run's
+        // deadline, never past it
+        let many: String = (0..200)
+            .map(|i| format!("      big{i}: {{ description: Big., expression: d12 > {i} }}\n"))
+            .collect();
+        let source = [("n".to_string(), chain(13, &many))];
+        let d = Draft {
+            change_id: None,
+            source: &source,
+            source_ref: Some("test"),
+            source_digest: None,
+            actor: OPERATOR,
+        };
+        let t = std::time::Instant::now();
+        let late = checks_until(
+            &lib,
+            0,
+            &d,
+            Some(std::time::Instant::now() + std::time::Duration::from_millis(50)),
+        );
+        let took = t.elapsed().as_secs_f64();
+        assert!(matches!(late, Err(NotRun::TimedOut(_))), "{took:.2} s");
+        assert!(took < 5.0, "checks past their deadline {took:.2} s");
     }
 
     /// A dry run over a store's objects grows with the types a change

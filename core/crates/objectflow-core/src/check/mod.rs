@@ -115,6 +115,64 @@ fn hiding(c: char) -> bool {
     )
 }
 
+thread_local! {
+    /// When the checks running on this thread must end by, if they must.
+    static UNTIL: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+    /// Whether they passed it, after which nothing more is unfolded.
+    static LATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static STEPS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// The checks this thread runs held to a deadline while the guard lives: a
+/// dry run's, whose slot a change's checks held as long as they took, every
+/// expression a derived attribute reads unfolded at each read (eleventh
+/// production review).
+#[derive(Debug)]
+pub struct Until {
+    before: Option<std::time::Instant>,
+}
+
+/// Holds the checks on this thread to `at`, where it is given.
+pub fn until(at: Option<std::time::Instant>) -> Until {
+    LATE.set(false);
+    Until {
+        before: UNTIL.replace(at),
+    }
+}
+
+impl Until {
+    /// Whether the checks passed the deadline, their findings incomplete.
+    pub fn passed(&self) -> bool {
+        LATE.get()
+    }
+}
+
+impl Drop for Until {
+    fn drop(&mut self) {
+        UNTIL.set(self.before);
+        LATE.set(false);
+    }
+}
+
+/// Whether the checks have passed their deadline: read at each step that
+/// unfolds a derived attribute into what reads it, the clock every 256 such
+/// steps. Once late, no such step unfolds anything, so the checks end in
+/// time linear in the change, their findings discarded.
+pub(crate) fn late() -> bool {
+    if LATE.get() {
+        return true;
+    }
+    let Some(at) = UNTIL.get() else {
+        return false;
+    };
+    let n = STEPS.get().wrapping_add(1);
+    STEPS.set(n);
+    if n.is_multiple_of(256) && std::time::Instant::now() > at {
+        LATE.set(true);
+    }
+    LATE.get()
+}
+
 pub fn checked(files: &[(String, String)], previous: &BTreeMap<String, String>) -> Checked {
     checked_reading(files, previous, &run::no_files)
 }
@@ -234,18 +292,28 @@ pub fn checked_reading(
         }
         literals(&schema, &mut doc);
         let mut bad = false;
-        for (path, text) in expressions(&schema, &doc) {
-            if let Err(e) = crate::expr::parse(&text) {
+        let exprs = expressions(&schema, &doc);
+        for (path, text) in &exprs {
+            if let Err(e) = crate::expr::parse(text) {
                 bad = true;
                 fatal(
                     found,
-                    node.line_at(&path),
+                    node.line_at(path),
                     "syntax",
                     format!("{e}: not an expression of declaration-syntax.md §8"),
                 );
             }
         }
         if bad {
+            continue;
+        }
+        // a derived attribute unfolding past its bound is refused before any
+        // later step walks it (eleventh production review)
+        let wide = raw::fan_out_errors(&doc, &exprs);
+        if !wide.is_empty() {
+            for (path, code, message) in wide {
+                fatal(found, node.line_at(&path), &code, message);
+            }
             continue;
         }
         let module = doc

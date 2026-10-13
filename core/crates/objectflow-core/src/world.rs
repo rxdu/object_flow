@@ -526,6 +526,13 @@ impl<'l> World<'l> {
         if !n.is_multiple_of(TICKS) {
             return Ok(());
         }
+        self.due()
+    }
+
+    /// Whether the read is within its deadline and not stopped, read now:
+    /// for a step that reads much of the store at once, where
+    /// [`World::on_time`] reads it every [`TICKS`] steps.
+    pub fn due(&self) -> Result<(), crate::eval::NotRun> {
         if let Some((epoch, began)) = &self.stop
             && epoch.load(std::sync::atomic::Ordering::SeqCst) != *began
         {
@@ -745,6 +752,28 @@ impl<'l> World<'l> {
         Ok(out)
     }
 
+    /// The intervals of the types given whose cursor, the event that last
+    /// wrote each, is past `after` and at most `upto`, read by the store's
+    /// indexes (`store::read_interval_page`), never the log or a type whole
+    /// (eleventh production review N1). A world reading no store holds none.
+    pub fn intervals_between(
+        &self,
+        types: &[String],
+        after: i64,
+        upto: i64,
+    ) -> Result<Vec<crate::store::CursoredSpan>, crate::eval::NotRun> {
+        let Some(conn) = self.conn else {
+            return Err(crate::eval::NotRun::Unsupported(
+                "an export of intervals by a world that reads no store".into(),
+            ));
+        };
+        crate::store::read_interval_page(conn, self.lib, types, after, upto).map_err(|e| {
+            crate::eval::NotRun::Unreadable(format!(
+                "the intervals written after {after}, which could not be read: {e}"
+            ))
+        })
+    }
+
     /// Whether the operation has read the whole log, which a test holds a
     /// page of the feed from doing (FEED).
     pub fn log_read_whole(&self) -> bool {
@@ -812,6 +841,29 @@ impl<'l> World<'l> {
         stored.as_deref().map_err(|e| {
             crate::eval::NotRun::Unreadable(format!(
                 "the store's attempt log, which could not be read: {e}"
+            ))
+        })
+    }
+
+    /// The attempts on objects of the types given after a place in the order
+    /// written and in a transaction at most `upto`, at most `limit`, each with
+    /// its id (`store::read_attempts_after`), never the attempt log whole.
+    pub fn attempts_after(
+        &self,
+        types: &[String],
+        after: (i64, i64),
+        upto: i64,
+        limit: usize,
+    ) -> Result<Vec<(i64, crate::store::Attempt)>, crate::eval::NotRun> {
+        let Some(conn) = self.conn else {
+            return Err(crate::eval::NotRun::Unsupported(
+                "an export of attempts by a world that reads no store".into(),
+            ));
+        };
+        crate::store::read_attempts_after(conn, types, after, upto, limit).map_err(|e| {
+            crate::eval::NotRun::Unreadable(format!(
+                "the attempts after transaction {}, which could not be read: {e}",
+                after.0
             ))
         })
     }
@@ -929,6 +981,27 @@ impl<'l> World<'l> {
         };
         self.held.by_id.borrow_mut().insert(id.to_string(), slot);
         Ok(slot.and_then(|n| self.held.slots.get(n)))
+    }
+
+    /// The type of the object an id names: the held object's, or the store's
+    /// directory's, holding nothing more, where [`World::get`] holds the
+    /// object whole, a change's source and all (eleventh production review).
+    pub fn type_of(&self, id: &str) -> Result<Option<String>, crate::eval::NotRun> {
+        self.on_time()?;
+        let known = self.held.by_id.borrow().get(id).copied();
+        if let Some(slot) = known {
+            return Ok(slot
+                .and_then(|n| self.held.slots.get(n))
+                .map(|o| o.type_.clone()));
+        }
+        match self.conn {
+            Some(conn) => crate::store::read_type_of(conn, id).map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the store's object {id}, which could not be read: {e}"
+                ))
+            }),
+            None => Ok(None),
+        }
     }
 
     /// The object an id names where one is given, as [`World::get`] reads

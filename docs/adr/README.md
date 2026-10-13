@@ -198,4 +198,5 @@
 | [0195](0195-the-eighth-reviews-findings-decided.md) | The eighth review's findings, decided | Decided on the author's standing instruction |
 | [0196](0196-the-ninth-reviews-findings-decided.md) | The ninth review's findings, decided | Decided on the author's standing instruction |
 | [0197](0197-the-tenth-reviews-findings-decided.md) | The tenth review's findings, decided | Decided on the author's standing instruction |
+| [0198](0198-the-eleventh-reviews-findings-decided.md) | The eleventh review's findings, decided | Decided on the author's standing instruction |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

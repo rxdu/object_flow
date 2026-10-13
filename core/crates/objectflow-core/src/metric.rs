@@ -539,6 +539,7 @@ pub fn typed_derived(world: &World<'_>, t: &Type, e: &Expr, v: Value) -> Value {
     let reader = Reader {
         world,
         answers: None,
+        typing: Default::default(),
     };
     let this = BTreeMap::from([("this".to_string(), Kind::Object(t.name.clone()))]);
     match reader.kind(e, &this, Some(t)) {
@@ -555,7 +556,18 @@ pub fn typed_derived(world: &World<'_>, t: &Type, e: &Expr, v: Value) -> Value {
 struct Reader<'w> {
     world: &'w World<'w>,
     answers: Option<&'w BTreeMap<String, String>>,
+    /// Each derived member's kind, by its type and name, once found, and
+    /// `None` while it is being found: a derived attribute reading itself
+    /// through a set, `count(c in children) + sum(c in children: c.size)`,
+    /// recursed until the stack overflowed and aborted the service on a read
+    /// of a leaf, and a chain of attributes each reading the one before twice
+    /// was typed 2^n times (eleventh production review).
+    typing: std::cell::RefCell<BTreeMap<(String, String), Option<Kind>>>,
 }
+
+/// The most derived members one kind is found through, as the checkers type
+/// through at most as many (`check::names`'s `TYPING_DEPTH`).
+const TYPING_DEPTH: usize = 64;
 
 /// The observations given that are on an object of the family and that
 /// none corrects, as rows, in the order given.
@@ -1383,7 +1395,27 @@ impl<'w> Reader<'w> {
                     });
                 }
                 if let Some((_, e)) = t.derived.iter().find(|(d, _)| d == m) {
-                    return self.kind(e, &BTreeMap::new(), Some(t));
+                    let key = (tn.clone(), m.to_string());
+                    {
+                        let typing = self.typing.borrow();
+                        match typing.get(&key) {
+                            Some(Some(known)) => return Ok(known.clone()),
+                            // reading itself, or past the depth the
+                            // checkers type to: a kind not found
+                            Some(None) => return Ok(Kind::Other),
+                            None if typing.values().filter(|k| k.is_none()).count()
+                                >= TYPING_DEPTH =>
+                            {
+                                return Ok(Kind::Other);
+                            }
+                            None => {}
+                        }
+                    }
+                    self.typing.borrow_mut().insert(key.clone(), None);
+                    let found = self.kind(e, &BTreeMap::new(), Some(t));
+                    let known = found.as_ref().map_or(Kind::Other, Clone::clone);
+                    self.typing.borrow_mut().insert(key, Some(known));
+                    return found;
                 }
                 Kind::Other
             }
@@ -1675,7 +1707,11 @@ pub fn read(
     bound: &BTreeMap<String, Value>,
     window: Option<i64>,
 ) -> Result<Value, NotRun> {
-    let reader = Reader { world, answers };
+    let reader = Reader {
+        world,
+        answers,
+        typing: Default::default(),
+    };
     let bound: Bound = bound
         .iter()
         .map(|(d, v)| (d.clone(), Want::Value(v.clone())))
@@ -2279,7 +2315,11 @@ pub fn page(
             ..Page::default()
         })
     };
-    let reader = Reader { world, answers };
+    let reader = Reader {
+        world,
+        answers,
+        typing: Default::default(),
+    };
     let lib = world.lib;
     let Ok(reference) = parse(name) else {
         return refused("unknown_metric");
@@ -2480,6 +2520,7 @@ pub fn person_dimensions(lib: &Library, tn: &str) -> Result<Vec<String>, NotRun>
     let r = Reader {
         world: &world,
         answers: None,
+        typing: Default::default(),
     };
     // the type's own metrics, declared under it in its module (flow-format.md §4.9)
     let mut names: Vec<String> = lib

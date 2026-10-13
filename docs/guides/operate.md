@@ -36,6 +36,26 @@ It makes the store and then serves it: once its first line says where it listens
 
 A new store is at version 0, with no flow. Publish its first version as you would any later one: a `DeclarationChange` drafted, submitted and approved (see [Build an application](integrate.md#changing-the-flow)).
 
+From a shell on the host, as the operator, with `curl` and `jq`, a module `leave.yaml` checked first with `scripts/check-flows.py`:
+
+```sh
+SOCK=/run/objectflow/objectflow.sock
+of() { curl -s --unix-socket "$SOCK" "http://objectflow/v1/$1" -H 'Content-Type: application/json' -d "$2"; echo; }
+# 1. draft the change: each module's text under its name
+CHANGE=$(jq -n --rawfile leave leave.yaml \
+    '{actor: {id: "operator"}, type: "DeclarationChange", transition: "draft",
+      inputs: {source: {leave: $leave}, source_ref: "first"}}' \
+  | curl -s --unix-socket "$SOCK" http://objectflow/v1/request -H 'Content-Type: application/json' -d @- \
+  | jq -r .object_id)
+# 2. submit it, which runs the dry run
+of request "{\"actor\": {\"id\": \"operator\"}, \"object_id\": \"$CHANGE\", \"transition\": \"submit\"}"
+# 3. approve the change at the version you read, which installs it
+VERSION=$(of get "{\"actor\": {\"id\": \"operator\"}, \"id\": \"$CHANGE\"}" | jq .version)
+of publish "{\"actor\": {\"id\": \"operator\"}, \"change\": \"$CHANGE\", \"expected_version\": $VERSION}"
+```
+
+Once it is approved, `/health` answers the new `version`. A submit refused `dry_run_clean` says why in a preview: `of publish "{\"actor\": {\"id\": \"operator\"}, \"change\": \"$CHANGE\", \"dry_run\": true}"`.
+
 ## Run it under systemd
 
 A unit that serves the store on a Unix socket only the service's group can open:
@@ -50,6 +70,7 @@ Type=notify
 User=objectflow
 Group=objectflow
 StateDirectory=objectflow
+StateDirectoryMode=0750
 RuntimeDirectory=objectflow
 RuntimeDirectoryMode=0750
 UMask=0077
@@ -140,6 +161,7 @@ It answers `503` with a `code` when an operator must act:
 | `disk_low` | Under 64 MiB free on the store's volume, the space a checkpoint needs. | Free space. |
 | `store_replaced` | The store's file was moved, removed or replaced under the running service. Writes are refused too. | Restart the service on the right file. |
 | `store_unreadable` | The store's file cannot be read as a store, as after one written over in place while the service ran. | Stop the service and restore the store. |
+| `disk_full` | The last write failed for a full volume, though its free space may not show it (a quota or a reserve), and none has committed since. | Free space; it clears with the next write that commits. |
 | `log_blocked` | A log line has waited over 5 s to be written: nothing is reading the service's standard error. | Fix the log reader. journald does this for you. |
 | `writes_stalled` | A write is waiting for another process's lock on the store, from its first retry; or the last write was refused after its retries, and none has committed since, within the minute. | Find the other process holding the store. |
 | `writes_failing` | Three writes or more in a row failed for the service's own fault, answered `500`, the last within the minute, and none has succeeded since. | Read the log for the fault; check the store's file was not changed under the service. |
@@ -199,7 +221,7 @@ The service writes to its standard error, each line stamped with its time:
 - at start: `--create` given for a store that exists, a last stop that was not clean, a `-wal` holding frames before opening, a store readable by others, another service holding the store, actors whose identities are equal but for case (see [Upgrading the engine](#upgrading-the-engine)), no `--attempt-retention`, an evaluator token to be sent over plain `http://` beyond loopback, and a clock that leads;
 - writes waiting for another process's lock on the store, once, as the wait begins.
 
-Read the standard error to its end, as journald does. The service writes the log from a thread of its own, through a queue of 4,096 lines, so no request ever waits on it: if nothing reads it, the queue fills, later lines are dropped (counted in `objectflow_log_lines_dropped_total`), and after 5 s `/health` answers `503 log_blocked`. Every answer is one line of 45 to 55 bytes, so a service answering 100 requests a second writes about 450 MB a day: size journald's limits, or `StandardError=append:<file>` with rotation, to it.
+Read the standard error to its end, as journald does. The service writes the log from a thread of its own, through a queue of 4,096 lines, so no request ever waits on it: if nothing reads it, the queue fills, later lines are dropped (counted in `objectflow_log_lines_dropped_total`, and said in the next line written once the log is read again), and after 5 s `/health` answers `503 log_blocked`. Every answer is one line of 45 to 55 bytes, so a service answering 100 requests a second writes about 450 MB a day: size journald's limits, or `StandardError=append:<file>` with rotation, to it.
 
 ## Capacity
 
@@ -242,7 +264,7 @@ Some flow constructs cost more than they look:
 
 A publish holds the store's objects in memory while it simulates and installs the version: plan for about ten times the store's file size. Reads that grow with the store add their own, at most `--max-reads` per pool at once. On 110k objects, sixteen per-person metrics sent at once peaked at 1.15 GB with the default limit of 4.
 
-Size `MemoryMax` at twice a publish's peak, since one change's dry run may run beside another's approval, plus three times `--max-reads` times your heaviest read's peak, for the worklists, analytics and agents pools, plus `--max-reads` times about 25 MB for the objects pool (forty pages of history held at once peaked at 1.07 GB). A page of `query`, `history`, `pull` or `export` stops at 8 MiB, though building one costs more than its size (an `export` page of 8.5 MB added about 200 MB while it was answered), so a read's peak is about its page's size times three, plus what it reads to choose it. On six years of a 600-person company's claims a publish beside saturated reads peaked at 3.97 GB: give such a store 8G. Measure your own. After a publish, an import or any request of half a second or more, the service returns freed memory to the system (`objectflow_memory_given_back_total`).
+Size `MemoryMax` at twice a publish's peak, since one change's dry run may run beside another's approval, plus three times `--max-reads` times your heaviest read's peak, for the worklists, analytics and agents pools, plus `--max-reads` times about 25 MB for the objects pool (forty pages of history held at once peaked at 1.07 GB). A page of `query`, `history`, `pull` or `export` stops at 8 MiB, though building one costs more than its size (an `export` page of 8.5 MB added about 200 MB while it was answered), so a read's peak is about its page's size times three, plus what it reads to choose it. A page of `export` reads the store by its indexes, a few rows or a window of the log at a time, never the log or a type whole: a type's intervals by the event that last wrote each, its attempts by their transaction, the log's rows by position. On six years of a 600-person company's claims a publish beside saturated reads peaked at 3.97 GB: give such a store 8G. Measure your own. After a publish, an import or any request of half a second or more, the service returns freed memory to the system (`objectflow_memory_given_back_total`).
 
 ## Backups and restore
 
@@ -257,7 +279,7 @@ python3 -c "import sqlite3; sqlite3.connect('/var/lib/objectflow/store.sqlite').
 
 Copying the file alone is safe only with the service stopped: a clean stop folds the `-wal` into the file. A backup holds personal data, and an erasure cannot reach it: keep backups `0600`, and expire or encrypt them within the period your privacy rules allow.
 
-**Schedule them.** There is no replica: what you can recover is the last backup. Run the backup from a timer as often as the data you can afford to lose allows (every 15 minutes is a common choice), copy each off the machine, encrypted, and check each copy by opening it, `sqlite3 <copy> 'PRAGMA quick_check'`, before trusting it. Expire copies on the schedule your privacy rules set, so a value erased in the store does not outlive it in a backup.
+**Schedule them.** There is no replica: what you can recover is the last backup. Run the backup from a timer as often as the data you can afford to lose allows (every 15 minutes is a common choice), copy each off the machine, encrypted, and check each copy before trusting it, opened as immutable so the check leaves no `-wal` or `-shm` beside it and needs no `sqlite3` program: `python3 -c "import sqlite3; print(sqlite3.connect('file:/backup/store.sqlite?immutable=1', uri=True).execute('PRAGMA quick_check').fetchone()[0])"` prints `ok`. Expire copies on the schedule your privacy rules set, so a value erased in the store does not outlive it in a backup.
 
 **Restore:**
 
@@ -297,7 +319,7 @@ A deployment uses the wall clock, but the store's clock never moves back. If the
 
 ## Stopping
 
-On SIGTERM or SIGINT the service stops taking connections, answers the requests in flight, and exits, saying so. One still running after 30 s is cut, and rolled back. A process killed outright loses no acknowledged write: every acknowledged write is durable. Its clients may get no answer, so send every write with an idempotency key and retry an unanswered one with it.
+On SIGTERM or SIGINT the service stops taking connections, answers the requests in flight, and exits, saying so. SIGHUP, as a log rotation's `kill -HUP` sends it, is logged and ignored: the log goes to standard error, so there is nothing to reopen; rotate a log file with `copytruncate`. One still running after 30 s is cut, and rolled back. A process killed outright loses no acknowledged write: every acknowledged write is durable. Its clients may get no answer, so send every write with an idempotency key and retry an unanswered one with it.
 
 ## Housekeeping
 
