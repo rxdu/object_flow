@@ -647,6 +647,13 @@ fn decide_or_stop(
     let (tn, oid) = match &req.object_id {
         Some(id) => match world.get(id)? {
             None => return refused(Verdict::NotFound),
+            // an object named beside a type is found only as one of that
+            // type's family, so a tool bound to a type takes no other type's
+            // object of the id it is given: an agent's `customer_revoke`
+            // revoked a person's subscription (thirteenth production review B)
+            Some(o) if req.type_.as_deref().is_some_and(|t| !lib.is_a(&o.type_, t)) => {
+                return refused(Verdict::NotFound);
+            }
             Some(o) => (o.type_.clone(), Some(id.clone())),
         },
         None => match &req.type_ {
@@ -2436,7 +2443,9 @@ fn record_spans(
 
 /// Every proposal still pending on an erased object is invalidated, its
 /// inputs redacted, the two one event, which is no transition the request
-/// took (`DESIGN.md` §8, `storage-schema.md` §9 steps 7 and 11).
+/// took (`DESIGN.md` §8, `storage-schema.md` §9 steps 7 and 11); and every
+/// one decided on it loses the inputs personal to its transition, one
+/// `redact` event each.
 fn invalidate_proposals(
     ctx: &mut Ctx<'_>,
     alloc: &mut Allocator,
@@ -2499,6 +2508,81 @@ fn invalidate_proposals(
         ctx.erased.entry(id.clone()).or_default().extend(names);
         ctx.work.insert(p)?;
     }
+    // and every one decided on it, approved, rejected or withdrawn, keeps its
+    // inputs but those personal to the transition it proposed, which an
+    // erasure of its object left in the proposal, its history and the log
+    // (thirteenth production review A)
+    let decided: Vec<String> = ctx
+        .work
+        .of_type(PROPOSAL)?
+        .iter()
+        .filter(|p| p.state != "PENDING" && p.attr("target") == target)
+        .map(|p| p.id.clone())
+        .collect();
+    for id in decided {
+        let Some(mut p) = ctx.work.whole(&id)?.cloned() else {
+            continue;
+        };
+        let (Value::Text(tt), Value::Text(xn), Value::Text(held)) = (
+            p.attr("target_type"),
+            p.attr("transition"),
+            p.attr("inputs"),
+        ) else {
+            continue;
+        };
+        let (Some(t), Ok(mut inputs)) = (
+            lib.type_(&tt),
+            serde_json::from_str::<serde_json::Map<String, Json>>(&held),
+        ) else {
+            continue;
+        };
+        let Some(x) = t.transition(&xn) else {
+            continue;
+        };
+        let personal: BTreeSet<String> = inputs
+            .keys()
+            .filter(|k| input_personal(t, x, k))
+            .cloned()
+            .collect();
+        if personal.is_empty() {
+            continue;
+        }
+        inputs.retain(|k, _| !personal.contains(k));
+        let position = alloc.position();
+        let before = tracked_values(lib, pt, &p);
+        p.attrs.insert(
+            "inputs".into(),
+            Value::Text(Json::Object(inputs).to_string()),
+        );
+        record_spans(lib, pt, &mut p, Some(&before), position, ctx.at, &ctx.who)?;
+        p.version += 1;
+        let redacted = Event {
+            position,
+            retries: 0,
+            object_id: id.clone(),
+            object_seq: p.version,
+            transition: "redact".into(),
+            from_state: Some(p.state.clone()),
+            to_state: p.state.clone(),
+            changes_state: false,
+            source: "erased".into(),
+            actor_id: ctx.who.id.clone(),
+            actor_kind: ctx.who.kind.clone(),
+            principal: ctx.who.principal.clone(),
+            cause: ctx.causes.last().copied(),
+            declaration_version: ctx.work.lib.version,
+            recorded_at: ctx.work.now,
+            occurred_at: Some(ctx.at),
+            context: ctx.context.clone(),
+            imported: false,
+            payload: json!({ "redacted": personal.iter().collect::<Vec<_>>() }),
+            reads: json!({}),
+        };
+        ctx.work.appended.push(redacted.clone());
+        ctx.events.push(redacted);
+        ctx.erased.entry(id.clone()).or_default().extend(personal);
+        ctx.work.insert(p)?;
+    }
     Ok(())
 }
 
@@ -2516,6 +2600,13 @@ fn file(
     let (tn, oid) = match &req.object_id {
         Some(id) => match world.get(id)? {
             None => return refused(Verdict::NotFound),
+            // an object named beside a type is found only as one of that
+            // type's family, so a tool bound to a type takes no other type's
+            // object of the id it is given: an agent's `customer_revoke`
+            // revoked a person's subscription (thirteenth production review B)
+            Some(o) if req.type_.as_deref().is_some_and(|t| !lib.is_a(&o.type_, t)) => {
+                return refused(Verdict::NotFound);
+            }
             Some(o) => (o.type_.clone(), Some(id.clone())),
         },
         None => match &req.type_ {
@@ -10551,6 +10642,101 @@ types:
             took < 2.0,
             "a read of a chain of 22 at zero took {took:.2} s"
         );
+    }
+
+    /// A personal value passed to an evaluator is recorded as `(personal)`
+    /// in what a guard consulted, on the event, a refusal's attempt and the
+    /// log's export, where the address was written and outlived an erasure
+    /// (thirteenth production review A).
+    #[test]
+    fn a_personal_argument_is_consulted_as_personal() {
+        let text = "\nmodule: crm\ncategories: [live]\nevaluators:\n  crm:\n    functions:\n      known: { arguments: { email: { type: string } } }\ntypes:\n  Customer:\n    attributes:\n      email: { type: string, personal: true }\n    states:\n      ON: { category: live }\n    conditions:\n      known: { expression: crm.known(email), remedy: dependent }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [email] }\n      check: { kind: internal, from: [ON], guards: { known: deny } }\n";
+        let lib = Library::load(&[("crm.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let c = created(&req(
+            &mut s,
+            "make",
+            OPERATOR,
+            ("Customer", true),
+            json!({"email": "zelda.secret@example.com"}),
+        ));
+        s.answers.insert("crm.known".into(), "satisfied".into());
+        assert_eq!(
+            created(&req(&mut s, "check", OPERATOR, (&c, false), json!({}))),
+            c
+        );
+        let checked = s.history(&c).unwrap().pop().unwrap();
+        assert_eq!(
+            checked.payload["consulted"]["known"]["values"],
+            json!({ "crm.known((personal))": "satisfied" })
+        );
+        s.answers.insert("crm.known".into(), "unsatisfied".into());
+        assert!(matches!(
+            req(&mut s, "check", OPERATOR, (&c, false), json!({})),
+            Verdict::Unsatisfied { .. }
+        ));
+        let w = s.snapshot().unwrap();
+        let row = w.attempts().unwrap().last().unwrap();
+        assert_eq!(
+            row.consulted["known"]["values"],
+            json!({ "crm.known((personal))": "unsatisfied" })
+        );
+        let page = crate::export::export_page(&w, "log", None, 100).unwrap();
+        assert!(
+            !page.lines.iter().any(|l| l.contains("zelda")),
+            "{:?}",
+            page.lines
+        );
+    }
+
+    /// An object named beside a type is found only as one of that type's
+    /// family, so a tool bound to a type takes no other type's object of the
+    /// id it is given: an agent's `customer_revoke` revoked a person's
+    /// subscription (thirteenth production review B).
+    #[test]
+    fn an_object_named_beside_another_type_is_not_found() {
+        let text = "\nmodule: two\ncategories: [live, closed]\ntypes:\n  Base:\n    abstract: true\n    attributes:\n      n: { type: int, optional: true }\n  Customer:\n    extends: Base\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      make: { kind: initial, to: ON }\n      revoke: { kind: external, from: [ON], to: OFF }\n  Pass:\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      make: { kind: initial, to: ON }\n      revoke: { kind: external, from: [ON], to: OFF }\n";
+        let lib = Library::load(&[("two.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let customer = created(&req(
+            &mut s,
+            "make",
+            OPERATOR,
+            ("Customer", true),
+            json!({}),
+        ));
+        let pass = created(&req(&mut s, "make", OPERATOR, ("Pass", true), json!({})));
+        let revoke = |s: &mut Store, id: &str, type_: Option<&str>| {
+            request(
+                s,
+                &Request {
+                    transition: "revoke".into(),
+                    actor: OPERATOR.into(),
+                    object_id: Some(id.to_string()),
+                    type_: type_.map(str::to_string),
+                    inputs: BTreeMap::new(),
+                    occurred_at: None,
+                    propose: false,
+                    expires_at: None,
+                    expected_version: None,
+                    target_version: None,
+                    principal: None,
+                    idempotency_key: None,
+                    context: None,
+                },
+            )
+            .unwrap()
+            .unwrap()
+        };
+        assert_eq!(revoke(&mut s, &pass, Some("Customer")), Verdict::NotFound);
+        assert!(matches!(
+            revoke(&mut s, &customer, Some("Base")),
+            Verdict::Satisfied { .. }
+        ));
+        assert!(matches!(
+            revoke(&mut s, &pass, Some("Pass")),
+            Verdict::Satisfied { .. }
+        ));
     }
 
     /// A transition calling itself down a reference chain, which both

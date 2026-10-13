@@ -25,7 +25,7 @@ An agent's loop:
 
 ## Keep it in bounds: in the flow
 
-**On the wire, an agent may take any transition the flow does not restrict.** State in the flow what a person must do. The leave flow made agent-ready:
+**On the wire, an agent may take any transition the flow does not restrict.** A flow naming no `taken_by` leaves every transition open to it: given the wire and such a flow, a reviewer's agent recorded payments, erased personal data and made employees. State in the flow what a person must do. The leave flow made agent-ready:
 
 - `taken_by: [human]` on each type makes a person the default for its transitions;
 - `taken_by: [human, agent]` opens the transitions an agent may take: here, opening and submitting a request;
@@ -132,7 +132,7 @@ of tools '{"actor_kind": "agent"}' | jq -c '[.tools[].name]'
 ["get_object", "leave_request_approve", "leave_request_open", "leave_request_submit", "object_availability", "query_objects", "read_metric"]
 ```
 
-Each tool is `{name, description, input_schema}`, the schema in JSON Schema ([`renderers.md`](../design/renderers.md) §3 defines them). Hand them to your model; send each write it calls as a request in the agent's name, and each read as the operation it names.
+Each tool is `{name, description, request, input_schema}`, the schema in JSON Schema ([`renderers.md`](../design/renderers.md) §3 defines them). Hand them to your model; send each write it calls as a request in the agent's name, its `type` and `transition` the tool's `request` and the rest the call's arguments, and each read as the operation it names. Always send the `type` beside the `object_id`: the store then refuses, `not_found`, an object of any other type the id names, so `customer_revoke` cannot revoke a subscription, nor a label's `forget` reach another type's object of a same-named transition.
 
 The agent drafts and submits a request for Ana. Naming her as `principal` records whom it acted for:
 
@@ -188,7 +188,7 @@ of history '{"id": "leaverequest-4"}' | jq -c '.events[] | {transition, actor_id
 
 ## Keep it in bounds: in your gateway
 
-The flow governs objects. Some operations govern the store itself, and the engine does not read an actor's kind to refuse them. The generated tools offer none of them, so an agent held to its tools cannot ask. If an agent can reach the wire directly, your gateway must refuse it:
+The flow governs objects. Some operations govern the store itself, and the engine does not read an actor's kind to refuse them. The generated tools offer none of them, so an agent held to its tools, each call sent with its tool's `type`, cannot ask. If an agent can reach the wire directly, your gateway must refuse it:
 
 - `maintain`, `upgrade` and `import_batch`;
 - `pull`, `acknowledge`, and the `revoke` transition, on a subscription that is not the agent's own;

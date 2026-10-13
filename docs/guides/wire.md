@@ -47,7 +47,7 @@ Dates and times stay within 0001-01-01 to 9999-12-31T23:59:59Z. An effect that w
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `request` | `actor`, `transition`; `type` to create, or `object_id`; `inputs`, `expected_version`, `target_version`, `idempotency_key`, `occurred_at`, `propose`, `expires_at`, `principal`, `context` | a verdict |
+| `request` | `actor`, `transition`; `type` to create, or `object_id`, with `type` beside it to require the object be of that type (else `not_found`); `inputs`, `expected_version`, `target_version`, `idempotency_key`, `occurred_at`, `propose`, `expires_at`, `principal`, `context` | a verdict |
 | `check` | the same | `{"verdict": …, "unevaluated": […]}`: the verdict the request would get, nothing written; `unevaluated` names the evaluators it did not ask, whose guards may still refuse the request |
 
 ```json

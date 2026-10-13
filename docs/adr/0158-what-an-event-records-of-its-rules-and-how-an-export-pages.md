@@ -2,6 +2,7 @@
 
 - **Status:** Decided by the author, 2026-10-06 ("go with your recommendations on 1 to 3"), given three questions the core's read sets and export raised. Decision 3 withdrawn the same day: ADR-0100 §6 had already decided it (see there).
 - **Date:** 2026-10-06
+- **Refined by:** ADR-0200 — an argument or binding reading anything personal written `(personal)` in a consulted key.
 - **Refines:** ADR-0088 (the read set)
 - **Relates to:** ADR-0049 and ADR-0084 (a consulted value recorded beside its guard); ADR-0100 §6 (the export's order, which decision 3 restated); `DESIGN.md` §6, §7; `design/storage-schema.md` §4; `design/library-api.md` §4, §6; `design/metric-scenarios.md` §9, §16
 

@@ -7,6 +7,7 @@ It builds the core's service with the pinned toolchain, and fails, not skips,
 without it.
 """
 
+import json
 import pathlib
 import tempfile
 import urllib.error
@@ -2188,6 +2189,87 @@ def test_a_decimal_written_past_its_digits_is_refused_alike(tee):
                                     "inputs": {"ratio": "9999999999.99"}})["kind"] == "satisfied"
     v = tee.post("/v1/request", {"transition": "square", "actor": OP, "object_id": pay})
     assert (v["kind"], v.get("clause")) == ("unsatisfied", "value_in_range"), v
+    alike(tee)
+
+
+TWO = """module: two
+categories: [live, closed]
+types:
+  Customer:
+    description: A customer.
+    tracking: record
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      make: { kind: initial, to: ON }
+      revoke: { kind: external, from: [ON], to: OFF }
+  Pass:
+    description: A pass.
+    tracking: record
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      make: { kind: initial, to: ON }
+      revoke: { kind: external, from: [ON], to: OFF }
+"""
+
+
+def test_an_object_named_beside_another_type_is_not_found_alike(tee):
+    """An object named beside a type is found only as one of that type's family, alike through both backends, so a
+    tool bound to a type takes no other type's object of the id it is given (thirteenth production review B)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "two.yaml", "text": TWO}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    tee.post("/v1/request", {"transition": "make", "actor": OP, "type": "Customer"})
+    pass_ = tee.post("/v1/request", {"transition": "make", "actor": OP, "type": "Pass"})["object_id"]
+    v = tee.post("/v1/request", {"transition": "revoke", "actor": OP, "object_id": pass_, "type": "Customer"})
+    assert v["kind"] == "not_found", v
+    v = tee.post("/v1/request", {"transition": "revoke", "actor": OP, "object_id": pass_, "type": "Pass"})
+    assert v["kind"] == "satisfied", v
+    alike(tee)
+
+
+MEMO = """module: memo
+categories: [live, closed]
+types:
+  Payment:
+    description: A payment to send.
+    tracking: record
+    attributes:
+      amount: { type: int }
+    states:
+      DRAFT: { category: live, description: Drafted. }
+      SENT: { category: closed, final: true, description: Sent. }
+    transitions:
+      make: { kind: initial, to: DRAFT, required_inputs: [amount] }
+      note: { kind: internal, from: [DRAFT], proposable: true, inputs: { memo: { type: string, personal: true } } }
+      send: { kind: external, from: [DRAFT], to: SENT, proposable: true, inputs: { memo: { type: string, personal: true } } }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"""
+
+
+def test_an_erasure_redacts_every_proposal_on_its_object_alike(tee):
+    """An erasure invalidates a pending proposal on its object and empties its inputs, and redacts the personal inputs
+    of one already decided, alike through both backends, where a decided proposal kept a personal memo in its get, its
+    history and the log (thirteenth production review A)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "memo.yaml", "text": MEMO}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    pay = tee.post("/v1/request", {"transition": "make", "actor": OP, "type": "Payment", "inputs": {"amount": 5}})["object_id"]
+    decided = tee.post("/v1/request", {"transition": "note", "actor": OP, "object_id": pay, "propose": True,
+                                       "inputs": {"memo": "zelda.secret@example.com"}})["object_id"]
+    assert tee.post("/v1/request", {"transition": "approve", "actor": OP, "object_id": decided})["kind"] == "satisfied"
+    pending = tee.post("/v1/request", {"transition": "send", "actor": OP, "object_id": pay, "propose": True,
+                                       "inputs": {"memo": "zelda.other@example.com"}})["object_id"]
+    v = tee.post("/v1/request", {"transition": "forget", "actor": OP, "object_id": pay, "inputs": {"reason": "asked"}})
+    assert v["kind"] == "satisfied", v
+    for p in (decided, pending):
+        read = tee.post("/v1/get", {"id": p})
+        assert "zelda" not in json.dumps(read), read
+        history = tee.post("/v1/history", {"id": p})
+        assert "zelda" not in json.dumps(history), history
     alike(tee)
 
 

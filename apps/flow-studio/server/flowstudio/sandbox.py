@@ -277,14 +277,19 @@ class Sandbox:
         if not actor or not xn:
             raise Fault(400, "a request names its transition and its actor")
         oid, tn = body.get("object_id"), body.get("type")
-        if (oid is None) == (tn is None):
-            raise Fault(400, "a request names an object_id or, to create, a type")
+        if oid is None and tn is None:
+            raise Fault(400, "a request names an object_id, a type to create one, or both")
+        # the type an object is named beside, which it must be of (thirteenth production review B)
+        named = tn if oid is not None else None
         s = self.store
+        if oid in s.proposals and named not in (None, "Proposal"):
+            return {"kind": "not_found", "remedy": "unreachable_from_here"}
         if oid in s.proposals or (body.get("propose") and xn):
             return self.proposal(body, actor)
-        if tn == flowrun.DECLARATION_CHANGE or (
+        if (oid is None and tn == flowrun.DECLARATION_CHANGE) or (
                 oid in s.objects
-                and s.objects[oid].type == flowrun.DECLARATION_CHANGE):
+                and s.objects[oid].type == flowrun.DECLARATION_CHANGE
+                and named in (None, flowrun.DECLARATION_CHANGE)):
             return self.change(body, actor)
         if oid is not None:
             tn = s.objects[oid].type if oid in s.objects else None
@@ -300,7 +305,7 @@ class Sandbox:
         before = s.position
         try:
             result = self.runner.attempt(
-                s, tn, xn, oid, actor, inputs, aliases, self.stubs, at
+                s, tn, xn, oid, actor, inputs, aliases, self.stubs, at, named=named
             )
         except flowrun.Refused as r:
             return self.refusal(r, tn, oid, x, xn)
@@ -430,7 +435,8 @@ class Sandbox:
         if body.get("propose"):
             st = {"transition": xn, "actor": actor, "proposal": "__new__"}
             if oid is not None:
-                if oid not in s.objects:
+                if oid not in s.objects or (body.get("type") is not None
+                                            and not s.is_a(s.objects[oid].type, body["type"])):
                     return {"kind": "not_found",
                             "remedy": "unreachable_from_here"}
                 st["object"] = oid

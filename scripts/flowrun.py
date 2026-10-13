@@ -1906,19 +1906,20 @@ class Runner:
         return back.get("aggregation") == "composite"
 
     # ── a request ─────────────────────────────────────────────────────────────
-    def attempt(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred=None, filed_at=None, proposal=None):
+    def attempt(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred=None, filed_at=None, proposal=None,
+                named=None):
         """The request's result, ("applied", object id, flags, the transitions it caused), or a Refused, which the
         attempt log records: one row of the requested transition, or for an approval of the proposed one on its
         object naming the proposal (DESIGN.md §6, §9). The store changes only if the request applies. `occurred` is the
         time the request says the change happened."""
         try:
-            return self.attempted(store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred, filed_at)
+            return self.attempted(store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred, filed_at, named)
         except Refused as r:
             store.attempts.append(attempt_row(store, tn if oid is None or oid in store.objects else None,
                                               oid if oid in store.objects else None, xn, actor, r, proposal=proposal))
             raise
 
-    def attempted(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred=None, filed_at=None):
+    def attempted(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred=None, filed_at=None, named=None):
         work = copy.deepcopy(store)
         # 1. the actor: an object of a type that marks an actor identity, in a state that is not final (DESIGN.md §6
         # step 1, ADR-0182 decision 6)
@@ -1936,6 +1937,10 @@ class Runner:
         x = (t.get("transitions") or {}).get(xn)
         # 3. not found, and unknown transition; 4. not requestable, unavailable, invalid input, in that order
         if oid is not None and oid not in work.objects:
+            raise Refused("not_found", remedy="unreachable_from_here")
+        # an object named beside a type is found only as one of that type's family, so a tool bound to a type takes
+        # no other type's object of the id it is given (thirteenth production review B)
+        if oid is not None and named is not None and not work.is_a(work.type_of(oid), named):
             raise Refused("not_found", remedy="unreachable_from_here")
         # the operator's creation is taken only by creating the store, and its retirement by nothing, which would leave
         # the store with no operator (ADR-0126, ADR-0184 decision 1)
@@ -2699,7 +2704,32 @@ class Runner:
             if proposal["state"] == "pending" and proposal["object"] == o.id:
                 proposal["state"] = "invalidated"
                 if key in work.objects:
+                    held = work.objects[key].attrs.get("inputs")
+                    names = set(json.loads(held)) if isinstance(held, str) and held.startswith("{") else set()
+                    work.objects[key].attrs["inputs"] = "{}"
                     proposal_event(work, key, "invalidate", "PENDING", "INVALIDATED", ctx.who["id"])
+                    ctx.erased.setdefault(key, set()).update(names)
+        # and every one decided on it keeps its inputs but those personal to the transition it proposed, one redact
+        # event each, which an erasure left in the proposal, its history and the log (thirteenth production review A)
+        for key, proposal in work.proposals.items():
+            if proposal["state"] == "pending" or proposal["object"] != o.id or key not in work.objects:
+                continue
+            p = work.objects[key]
+            held = p.attrs.get("inputs")
+            try:
+                inputs = json.loads(held) if isinstance(held, str) else None
+            except ValueError:
+                inputs = None
+            x = ((self.kinds.get(t_name := o.type) or {}).get("transitions") or {}).get(proposal["transition"])
+            if not isinstance(inputs, dict) or x is None:
+                continue
+            personal = {k for k in inputs if input_personal(self.kinds.get(t_name) or {}, x, k)}
+            if not personal:
+                continue
+            p.attrs["inputs"] = json.dumps({k: v for k, v in inputs.items() if k not in personal},
+                                           sort_keys=True, separators=(",", ":"))
+            proposal_event(work, key, "redact", p.state, p.state, ctx.who["id"])
+            ctx.erased.setdefault(key, set()).update(personal)
 
     def personal_under(self, store, tn, a, version):
         """Whether attribute `a` of type `tn`, named as the installed version names it, was personal under a version:

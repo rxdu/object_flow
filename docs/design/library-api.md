@@ -386,7 +386,8 @@ class Event:
     imported: bool                        # written by import_batch (ADR-0100)
     payload: Mapping[str, Any]
     reads: ReadSet
-    consulted: Mapping[str, Any]          # per evaluator or metric guard: the verdict or value given
+    consulted: Mapping[str, Any]          # per evaluator or metric guard, by its call: the verdict or value given; an
+                                          # argument or binding reading anything personal written (personal) (ADR-0200)
     as_of: Mapping[str, datetime]         # per evaluator or metric guard: when its value was given
     flags: Sequence[str] = ()             # the clauses marked flag that failed for it (ADR-0111)
 

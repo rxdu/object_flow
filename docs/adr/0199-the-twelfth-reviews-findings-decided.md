@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-13 on the author's standing instruction, "keep the bar and continue the loop", each decision the recommendation stated here; built the same day
 - **Date:** 2026-10-13
+- **Refined by:** ADR-0200 — a page reads the records of its objects alone, and object reads that grow wait among the analytics.
 - **Refines:** ADR-0198 decision 1; ADR-0196 decision 4 (the read pools)
 - **Relates to:** `design/production-review.md` §16; `guides/operate.md`; `design/flow-format.md`
 

@@ -1050,10 +1050,10 @@ fn decide(
             );
         }
     }
-    if dry_run {
-        return Ok((report, None));
-    }
-    // the writes, in the batch's order
+    // the writes, in the batch's order, which a dry run decides too, every
+    // check of them among its own, where it answered clean a batch whose
+    // legacy interval of an untracked dimension the run refused (thirteenth
+    // production review); it writes nothing
     let mut change = Change::default();
     let port = world.now;
     // the legacy entries: each entry's own fields stay with its object, a
@@ -1253,6 +1253,10 @@ fn decide(
         change
             .raised
             .push((r.sequence.clone(), r.scope.clone(), r.last));
+    }
+    if dry_run {
+        report.written = 0;
+        return Ok((report, None));
     }
     Ok((report, Some(change)))
 }
@@ -2354,6 +2358,27 @@ types:
             .count();
         assert_eq!(imports, 2);
         crate::export::assert_intervals_as_walked(&s, "Employee");
+    }
+
+    /// A dry run refuses what the run refuses, a legacy interval of a
+    /// dimension the type does not track among them, where it answered the
+    /// batch clean (thirteenth production review).
+    #[test]
+    fn a_dry_run_refuses_what_the_run_refuses() {
+        let mut s = store();
+        let port = s.now;
+        let mut e1 = employee("E-1", "EMPLOYED", json!({"employee_id": "1"}));
+        e1.legacy_intervals = vec![earlier(
+            "nickname",
+            json!("Ed"),
+            port - 100,
+            Some(port - 50),
+        )];
+        let dry = run(&mut s, vec![e1.clone()], &[], true);
+        let wet = run(&mut s, vec![e1], &[], false);
+        assert!(wet.refusal.is_some(), "{wet:?}");
+        assert_eq!(dry.refusal, wet.refusal, "{dry:?}");
+        assert_eq!(dry.written, 0);
     }
 
     #[test]

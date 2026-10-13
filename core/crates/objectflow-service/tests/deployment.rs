@@ -220,6 +220,15 @@ fn publish(s: &Service, source: &Value) {
         &json!({"actor": op, "object_id": change, "transition": "submit"}),
     );
     assert_eq!(submitted["kind"], "satisfied", "{submitted}");
+    // a preview's expected_version is a version too, where one of any JSON
+    // type was taken (thirteenth production review)
+    let (status, said) = call(
+        s,
+        "POST",
+        "/v1/publish",
+        Some(&json!({"actor": op, "change": change, "dry_run": true, "expected_version": "two"})),
+    );
+    assert_eq!(status, 400, "{said}");
     let approved = post(
         s,
         "/v1/publish",
@@ -668,6 +677,14 @@ fn a_deployments_edges_are_said() {
     assert_eq!(code, Some(2));
     assert!(
         said.contains("--max-reads takes a count, 1 or more: 0"),
+        "{said}"
+    );
+    // past the threads the runtime keeps for requests, where /health waited
+    // behind 700 requests holding them (thirteenth production review N4)
+    let (code, said) = refused(&["--max-connections", "5000", "--port", "0"]);
+    assert_eq!(code, Some(2));
+    assert!(
+        said.contains("--max-connections takes a count from 1 to 4096: 5000"),
         "{said}"
     );
     let (code, said) = refused(&["--max-reads", "2", "--port", "0"]);

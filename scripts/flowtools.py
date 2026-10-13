@@ -201,7 +201,9 @@ def transition_tool(tn, xn, t, x, enums, proposing=False):
     own = (x.get("description") or "").strip()
     text = " ".join(p for p in (own or lead, PROPOSING if proposing else "", "" if creation else AVAILABILITY) if p)
     required = (["inputs"] if creation else ["inputs", "object_id"]) + (["propose"] if proposing else [])
-    return {"name": f"{snake(tn)}_{xn}", "description": text,
+    # the request a call is sent as, its type named beside the object it names, so a call takes no other type's
+    # object of the id it is given (thirteenth production review B)
+    return {"name": f"{snake(tn)}_{xn}", "description": text, "request": {"type": tn, "transition": xn},
             "input_schema": {"type": "object", "properties": props, "required": required,
                              "additionalProperties": False}}
 
@@ -213,7 +215,7 @@ def observation_tool(tn, ob, enums):
     props["corrects"] = {"type": "string", "description": f"the {ob['kind']} on this {tn} that this one replaces"}
     required = sorted({"subject"} | {f for f, spec in fields.items() if not (spec or {}).get("optional")})
     own = (ob.get("description") or "").strip()
-    return {"name": f"record_{snake(ob['kind'])}",
+    return {"name": f"record_{snake(ob['kind'])}", "request": {"type": ob["kind"], "transition": "record"},
             "description": " ".join(p for p in (own or f"Records a new {ob['kind']} about its subject.",
                                                 "availability(subject) offers recording it beside the subject's own "
                                                 "transitions, and says whether it is available now.") if p),

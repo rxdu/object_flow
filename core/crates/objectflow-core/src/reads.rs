@@ -699,6 +699,64 @@ pub fn query_scans(lib: &Library, type_: &str, filter: Option<&str>, order: &[St
     })
 }
 
+/// Whether reading an object of a type, or what it offers, computes what
+/// grows with the store: a rule of the type, a derived attribute, a
+/// condition or an invariant, reading a metric, a type scan or the objects
+/// referring to it, itself or through a derived attribute it reads by name.
+/// Such a `get`, `availability` or `check` waits among the analytics, where
+/// it ran in no pool: 64 `availability`s of a type guarded by a monthly
+/// limit's metric peaked at 4.49 GB (thirteenth production review C).
+pub fn grows_with_store(lib: &Library, type_: &str) -> bool {
+    fn wide(lib: &Library, e: &Expr) -> bool {
+        match e {
+            Expr::Metric { .. } => true,
+            // a type scan: an aggregate over a type's objects by its name
+            Expr::Agg {
+                collection: Some(c),
+                ..
+            } if matches!(&**c, Expr::Name(n) if lib.type_(n).is_some()) => true,
+            Expr::Name(n) if n == "referrers" => true,
+            Expr::Path(_, m) if m == "referrers" => true,
+            _ => e.children().into_iter().any(|c| wide(lib, c)),
+        }
+    }
+    fn reads(e: &Expr, names: &BTreeSet<String>) -> bool {
+        match e {
+            Expr::Name(n) if names.contains(n) => true,
+            Expr::Path(_, m) if names.contains(m) => true,
+            _ => e.children().into_iter().any(|c| reads(c, names)),
+        }
+    }
+    // the derived attributes that grow, by name in any type, to a fixpoint
+    let mut growing: BTreeSet<String> = BTreeSet::new();
+    loop {
+        let mut grew = false;
+        for t in lib.types.values() {
+            for (d, e) in &t.derived {
+                if !growing.contains(d) && (wide(lib, e) || reads(e, &growing)) {
+                    growing.insert(d.clone());
+                    grew = true;
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    let Some(t) = lib.type_(type_) else {
+        return false;
+    };
+    let rules = t
+        .derived
+        .iter()
+        .map(|(_, e)| e)
+        .chain(t.conditions.iter().map(|(_, c)| &c.expression))
+        .chain(t.invariants.iter().map(|(_, e)| e));
+    rules
+        .into_iter()
+        .any(|e| wide(lib, e) || reads(e, &growing))
+}
+
 /// Whether an expression aggregates over a collection, itself or through a
 /// derived attribute of the type it reads by name, each read once.
 fn aggregates(lib: &Library, type_: &str, e: &Expr, seen: &mut BTreeSet<String>) -> bool {
@@ -1682,6 +1740,78 @@ mod tests {
             }
         }
         assert_eq!(paged, whole);
+    }
+
+    /// A page that reads its objects' records, ordered by when each entered
+    /// its state or offering a transition, reads the records of the objects
+    /// it holds, never every object of the type: a worklist of 50 read 110k
+    /// records, 0.8 s a page on six years whatever its limit (thirteenth
+    /// production review N3).
+    #[test]
+    fn a_page_reads_the_records_of_its_objects_alone() {
+        let text = "\nmodule: work\ncategories: [live, closed]\ntypes:\n  Job:\n    attributes:\n      n: { type: int }\n    states:\n      OPEN: { category: live }\n      DONE: { category: closed, final: true }\n    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [n] }\n      finish: { kind: external, from: [OPEN], to: DONE }\n";
+        let lib = Library::load(&[("work.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask = |s: &mut Store, xn: &str, id: Option<String>, inputs: serde_json::Value| {
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                type_: id.is_none().then(|| "Job".to_string()),
+                object_id: id,
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            match request(s, &r).unwrap().unwrap() {
+                crate::verdict::Verdict::Satisfied { object_id, .. } => object_id,
+                other => panic!("{other:?}"),
+            }
+        };
+        for n in 0..1_000 {
+            let id = ask(&mut s, "open", None, json!({"n": n}));
+            if n >= 10 {
+                ask(&mut s, "finish", Some(id), json!({}));
+            }
+        }
+        let w = s.snapshot().unwrap();
+        let before = crate::world::records_read();
+        let order = ["entered_at(state)".to_string()];
+        let page = query_page(&w, "Job", Some("state == OPEN"), &order, None, None, 5).unwrap();
+        assert_eq!(page.items.len(), 5);
+        let read = crate::world::records_read() - before;
+        assert!(read <= 20, "a page of five read {read} records");
+        drop(w);
+        let w = s.snapshot().unwrap();
+        let before = crate::world::records_read();
+        let open = available_page(&w, OPERATOR, "Job", "finish", None, 100).unwrap();
+        assert_eq!(open.items.len(), 10);
+        let read = crate::world::records_read() - before;
+        assert!(read <= 20, "a page of available read {read} records");
+    }
+
+    /// A type whose rules read a metric, a type scan or its referrers, itself
+    /// or through a derived attribute read by name from another type, grows
+    /// with the store; one comparing its state does not (thirteenth
+    /// production review C).
+    #[test]
+    fn a_types_reads_grow_where_its_rules_read_the_store() {
+        let text = "\nmodule: g\ncategories: [live]\ntypes:\n  Scan:\n    derived_attributes:\n      peers: { expression: count(s in Scan) }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON }\n  Refs:\n    derived_attributes:\n      pointed: { expression: count(r in referrers) }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON }\n  Metered:\n    states:\n      ON: { category: live }\n    conditions:\n      calm: { expression: metric(Metered.open_work) < 5, remedy: dependent }\n    transitions:\n      make: { kind: initial, to: ON }\n  Reader:\n    attributes:\n      scan: { reference: Scan, optional: true }\n    states:\n      ON: { category: live }\n    invariants:\n      few: { expression: scan is null or scan.peers < 9 }\n    transitions:\n      make: { kind: initial, to: ON }\n  Plain:\n    states:\n      ON: { category: live }\n    conditions:\n      on: { expression: state == Plain.ON, remedy: dependent }\n    transitions:\n      make: { kind: initial, to: ON }\n";
+        let lib = Library::load(&[("g.yaml".into(), text.into())]).unwrap();
+        for tn in ["Scan", "Refs", "Metered", "Reader"] {
+            assert!(grows_with_store(&lib, tn), "{tn}");
+        }
+        assert!(!grows_with_store(&lib, "Plain"));
     }
 
     /// A query whose filter aggregates over a collection for each object,

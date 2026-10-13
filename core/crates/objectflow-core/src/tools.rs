@@ -405,7 +405,11 @@ fn transition_tool(
     if proposing {
         required.push("propose");
     }
+    // the request a call is sent as, its type named beside the object it
+    // names, so a call takes no other type's object of the id it is given
+    // (thirteenth production review B)
     json!({"name": format!("{}_{xn}", snake(tn)), "description": description,
+           "request": {"type": tn, "transition": xn},
            "input_schema": {"type": "object", "properties": props, "required": required,
                             "additionalProperties": false}})
 }
@@ -442,6 +446,7 @@ fn observation_tool(tn: &str, ob: &Json, enums: &BTreeMap<String, Vec<String>>) 
     };
     json!({"name": format!("record_{}", snake(kind)),
            "description": format!("{lead} availability(subject) offers recording it beside the subject's own transitions, and says whether it is available now."),
+           "request": {"type": kind, "transition": "record"},
            "input_schema": {"type": "object", "properties": {
                "idempotency_key": {"type": "string", "description": RETRY},
                "occurred_at": {"type": "string", "format": "date-time", "description": BACKDATED},

@@ -1,6 +1,6 @@
 # Is ObjectFlow production-ready? The review before 1.0.0
 
-Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10), the seventh at `7d050a6` (§11), the eighth at `13f9bbf` (§12), the ninth at `0ce1b3c` (§13), the tenth at `093d743` (§14), the eleventh at `3d0e07f` (§15) and the twelfth at `f6de08a` (§16).
+Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10), the seventh at `7d050a6` (§11), the eighth at `13f9bbf` (§12), the ninth at `0ce1b3c` (§13), the tenth at `093d743` (§14), the eleventh at `3d0e07f` (§15), the twelfth at `f6de08a` (§16) and the thirteenth at `1e5633f` (§17).
 
 ## 1. What "production" meant, and how it was reviewed
 
@@ -383,4 +383,52 @@ The operator also found a service the authors had left running from a check of t
 ### What the twelfth review asks
 
 The author's standing instruction decides what the findings ask (ADR-0199); the major and the minors that cost little are fixed, then a thirteenth review, or the author's acceptance of what remains.
+
+## 17. The thirteenth review, after the twelfth's fixes
+
+At commit `1e5633f`, 2026-10-14, not yet pushed, every gate of `scripts/check-all` passed on it. The same two roles each worked in a checkout of their own with the release binary built from it. The operator's copy of the provided stores was refused by the environment's privacy check, and it did not work around that: it built stores of the same size with the go-live tools and synthetic people, two years of 36.6k objects and six of 110k. The adversary worked on copies of the provided stores. Their logs and reports stayed in the session's scratch directory, which is not kept.
+
+**Verdicts: both NO-GO; no blocker; the operator one major, the adversary five.**
+
+Neither met a corrupted store or a lost acknowledged write:
+- `kill -9` during writes lost none of 712 acknowledged writes, and one during an approval came back at the old version.
+- 18,893 fuzzed requests answered no `500`.
+- Races left one winner each, across two services on one store too.
+- Erasures reached the store's files within 3 s, except where A found otherwise.
+
+### The twelfth review's findings, re-checked
+
+- **Fixed, measured by both:**
+  - the split chain, refused in milliseconds, its modules published together or one after another;
+  - the aggregating filter;
+  - the call depth;
+  - the `"EU"` default;
+  - the socket's limit and the store's mode;
+  - the guides.
+- **Partly fixed:**
+  - `available`, past eight items paying for the whole type (D642), and where few objects qualify reading on through the state;
+  - a filter narrowed by a crowded state, still in the worklists pool, eight at once making a worklist wait 22.7 s.
+- **Not fixed, documented:** clients holding back a body; a backfill's approval hold.
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| D642 | Reading eight records of a type one by one read every object's record of it: a worklist ordered by `entered_at(state)` 0.8 s a page on six years at any limit, sixteen at once making worklists wait 10 to 18 s; `available` and cascades under the writer the same | measured by the operator; read | major |
+| D643 | An erasure missed an evaluator's argument, written into its consulted key, and a decided proposal's personal inputs, in history, the log, exports and the store's file | measured by the adversary | major |
+| D644 | An agent's tool took any object of the id it was given, a request not naming a type beside it: `customer_revoke` revoked a person's subscription | measured by the adversary | major |
+| D645 | `get`, `availability` and `check` of a type whose rules read a metric or count referrers ran in no pool: 64 at once 4.49 GB on six years | measured by the adversary | major |
+| D646 | A change's checks grew with the square of the types they refused: 60,000 in 374 s, past `--dry-run-timeout`, its deadline read only while derived attributes unfold | measured by the adversary; read | major |
+| D647 | 700 requests waiting on an evaluator, at a cap of 2,000, held every runtime thread and `/health` 17.9 s | measured by the adversary | minor |
+| D648 | An import's dry run answered clean a batch the run refused | measured by the adversary | minor |
+
+The minors not given an entry:
+- **Load and timing:** concurrent heavy reads cost CPU superlinearly, eight queries 83 CPU-s against one's 3, the cause unmeasured. Erasures in a loop stop long reads. A backfill's approval held writes 48.7 s under load on six years.
+- **The wire:** a publish preview took an `expected_version` of any type. A proposal could be filed already expired.
+- **Operations:** an evaluator token is read only at start. The log says nothing as free space falls low. The backup timer's directory and volume, and a `-wal` replicator, went unsaid. The changelog said releases are tagged.
+- **Outside the engine:** whoever reaches the socket is the operator; and on the wire an agent takes any transition a flow leaves open, as designed.
+
+### What the thirteenth review asks
+
+The author's standing instruction decides what the findings ask (ADR-0200); the majors and the minors that cost little are fixed, then a fourteenth review, or the author's acceptance of what remains.
 

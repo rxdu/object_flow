@@ -653,6 +653,13 @@ Findings from every review of this design. It began as the implementation-readin
 | [D639](#d639) | A page of `available` read every object in its states | Resolved |
 | [D640](#d640) | A chain of calls had no depth bound at run time | Resolved |
 | [D641](#d641) | Both checkers read a string literal's upper-case text as a state | Resolved |
+| [D642](#d642) | Reading the records of more than eight objects of a type read every object's | Resolved |
+| [D643](#d643) | An erasure missed an evaluator's argument and a decided proposal's inputs | Resolved |
+| [D644](#d644) | An agent's tool was not bound to its type | Resolved |
+| [D645](#d645) | Object reads whose rules grow with the store ran in no pool | Resolved |
+| [D646](#d646) | A change's checks grew with the square of the types they refused | Resolved |
+| [D647](#d647) | Requests holding every runtime thread kept `/health` waiting | Resolved |
+| [D648](#d648) | An import's dry run answered clean a batch the run refused | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4145,3 +4152,38 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **Both checkers read a string literal's upper-case text as a state**: a default of `"EU"` or `"HQ"` was refused as "names EU, which is not a state", the scan for bare state names reading inside quotes, where `"eu"` passed. Found 2026-10-13 by the twelfth production review's operator.
 
 **Resolved** 2026-10-13: a string literal's text is blanked before the scan, in both checkers (ADR-0199 decision 4). A plant holds a quoted `"HQ"` clean and a bare `HQ` refused; the oracle fails with the core's blanking removed.
+
+### D642
+**Reading the records of more than eight objects of a type read every object's**: once an operation had read eight records of a type one by one, the world read the records of every object of the type, `SELECT id FROM` its table. A worklist ordered by `entered_at(state)`, the guides' example, cost 0.8 s a page on six years at any limit, sixteen at once making unrelated worklists wait 10 to 18 s. A page of `available` past eight items paid the same, and so did a cascade under the writer: a write waited 1.37 s behind a withdrawal of a claim with 60 lines. Found 2026-10-14 by the thirteenth production review's operator (N3).
+
+**Resolved** 2026-10-14: the records of the objects the operation holds are read by id, a few hundred to a read (ADR-0200 decision 1). `a_page_reads_the_records_of_its_objects_alone` reads a page of five of 1,000 objects, and a page of `available`, in about ten records each, failing with the type read whole.
+
+### D643
+**An erasure missed an evaluator's argument and a decided proposal's inputs**: a guard `crm.known(email)` wrote the address into its consulted key, which outlived the erasure in history, the log, the attempts, the export, which left the personal input out beside it, and the store's file. A proposal approved or rejected kept its personal inputs in `get`, its history and the log. The reference runner kept even a pending one's. Found 2026-10-14 by the thirteenth production review's adversary (A).
+
+**Resolved** 2026-10-14: a consulted key writes `(personal)` for an argument or a binding reading anything personal, and an erasure redacts the personal inputs of every proposal decided on its object, emptying those pending in both backends (ADR-0200 decision 2). `a_personal_argument_is_consulted_as_personal` holds the event, the attempt and the export; `test_an_erasure_redacts_every_proposal_on_its_object_alike` holds both backends, failing with either side's redaction removed.
+
+### D644
+**An agent's tool was not bound to its type**: a tool took a free `object_id`, and a request could not name a type beside it, so the store ran whatever object the id named. An agent handed `customer_revoke` revoked a person's subscription and forgot another's label. Found 2026-10-14 by the thirteenth production review's adversary (B).
+
+**Resolved** 2026-10-14: a request may name `type` beside `object_id`, refused `not_found` where the object is of another family, and each write tool names its `request` (ADR-0200 decision 3). `an_object_named_beside_another_type_is_not_found` and its two-backend counterpart fail with the check removed from either side.
+
+### D645
+**Object reads whose rules grow with the store ran in no pool**: a `get`, `availability` or `check` of a type guarded by a monthly limit's metric, or deriving a count of its referrers, waited for nothing. 64 `availability`s at once peaked at 4.49 GB on six years, and 32 `get`s of the referrers' count took 30 s each. Found 2026-10-14 by the thirteenth production review's adversary (C).
+
+**Resolved** 2026-10-14: such reads wait among the analytics (ADR-0200 decision 4). `a_read_of_an_object_whose_rules_grow_waits_among_the_analytics` holds the analytics' one slot and finds the three reads of a scanning type waiting and a plain type's answered; `a_types_reads_grow_where_its_rules_read_the_store` holds the four kinds of rule.
+
+### D646
+**A change's checks grew with the square of the types they refused**: each finding was compared with every one before it, and each finding's line was found by searching every key of its mapping, so a draft of 60,000 bare types checked in 374 s. ADR-0198 decision 2's deadline, read only while derived attributes unfold, did not stop it, and another change's submit waited and was refused. Found 2026-10-14 by the thirteenth production review's adversary (D).
+
+**Resolved** 2026-10-14: findings kept once by a set, and a large mapping's keys found by an index (ADR-0200 decision 5). 60,000 types check in 5.9 s on a release build. The growth test fails with the comparison restored, and `a_keys_line_in_a_large_mapping_is_found_by_its_index` with the search restored.
+
+### D647
+**Requests holding every runtime thread kept `/health` waiting**: every handler runs on a thread of the runtime's blocking pool, tokio's default 512. With `--max-connections 2000`, 700 requests waiting on a slow evaluator held `/health` on `--metrics-bind` 17.9 s. Found 2026-10-14 by the thirteenth production review's adversary (N4).
+
+**Resolved** 2026-10-14: the runtime keeps a thread for every request the cap lets run and room beside, the cap at most 4,096 (ADR-0200 decision 6). The start's refusal of a larger cap is held by a test; the pool's size, which no test exercises under 4,000 requests, is read.
+
+### D648
+**An import's dry run answered clean a batch the run refused**: the dry run returned before the write path, whose checks refuse a legacy interval of an untracked dimension and a refresh's intermediate values, so it said clean what the run would refuse. Found 2026-10-14 by the thirteenth production review's adversary.
+
+**Resolved** 2026-10-14: a dry run decides every check of the writes and writes nothing (ADR-0200 decision 6). `a_dry_run_refuses_what_the_run_refuses` fails with the early return restored.

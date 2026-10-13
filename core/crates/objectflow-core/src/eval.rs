@@ -1636,11 +1636,83 @@ impl<'a> Evaluator<'a> {
         };
         let bindings: Vec<String> = bound
             .iter()
-            .map(|(d, v)| format!("{d}: {}", text_of_value(v)))
+            .map(|(d, v)| {
+                let personal = binds
+                    .iter()
+                    .any(|(b, x)| b == d && reads_personal(committed.lib, x));
+                if personal {
+                    format!("{d}: {PERSONAL}")
+                } else {
+                    format!("{d}: {}", text_of_value(v))
+                }
+            })
             .collect();
         self.consult(format!("{written}({})", bindings.join(", ")), &value);
         Ok(value)
     }
+}
+
+/// What a consulted reference writes for a value an expression reads from
+/// anything personal, in place of the value.
+const PERSONAL: &str = "(personal)";
+
+/// The names the library marks personal, by name in any type: an attribute
+/// marked so, an input marked so or written into a personal attribute, and
+/// a derived attribute that reads one, to a fixpoint.
+fn personal_names(lib: &crate::model::Library) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for t in lib.types.values() {
+        out.extend(
+            t.attributes
+                .iter()
+                .filter(|(_, a)| a.personal)
+                .map(|(n, _)| n.clone()),
+        );
+        for (_, x) in &t.transitions {
+            let named = x
+                .required_inputs
+                .iter()
+                .chain(&x.optional_inputs)
+                .chain(x.inputs.iter().map(|(n, _)| n));
+            for n in named {
+                if crate::request::input_personal(t, x, n) {
+                    out.insert(n.clone());
+                }
+            }
+        }
+    }
+    loop {
+        let mut grew = false;
+        for t in lib.types.values() {
+            for (d, e) in &t.derived {
+                if !out.contains(d) && reads_any(e, &out) {
+                    out.insert(d.clone());
+                    grew = true;
+                }
+            }
+        }
+        if !grew {
+            return out;
+        }
+    }
+}
+
+/// Whether an expression reads, by name, any of those given.
+fn reads_any(e: &Expr, names: &BTreeSet<String>) -> bool {
+    match e {
+        Expr::Name(n) if names.contains(n) => true,
+        Expr::Path(_, m) if names.contains(m) => true,
+        _ => e.children().into_iter().any(|c| reads_any(c, names)),
+    }
+}
+
+/// Whether an evaluator's argument or a metric's binding reads anything the
+/// library marks personal, which a consulted reference then writes as
+/// `(personal)`: a consulted key wrote the value, `crm.known(an address)`,
+/// which an erasure did not reach, and the log's export, which leaves
+/// personal inputs out, carried it (thirteenth production review A).
+fn reads_personal(lib: &crate::model::Library, e: &Expr) -> bool {
+    reads_any(e, &personal_names(lib))
 }
 
 /// A bound value as a consulted reference writes it: as the wire does,
@@ -1740,12 +1812,18 @@ impl Evaluator<'_> {
     ) -> Result<Value, NotRun> {
         let key = format!("{evaluator}.{function}");
         let mut written = Vec::new();
+        let mut recorded = Vec::new();
         for a in args {
             let v = self.value(a, env)?;
             if v.is_absent() {
                 return Ok(Value::Absent);
             }
             written.push(text_of_value(&v));
+            recorded.push(if reads_personal(self.world.lib, a) {
+                PERSONAL.to_string()
+            } else {
+                text_of_value(&v)
+            });
         }
         // an offer asks no evaluator: the call is left unanswered (ADR-0048)
         let Some(answers) = self.answers else {
@@ -1783,7 +1861,7 @@ impl Evaluator<'_> {
         // value (ADR-0069, ADR-0158)
         if let Some(a) = answer {
             self.consult(
-                format!("{key}({})", written.join(", ")),
+                format!("{key}({})", recorded.join(", ")),
                 &Value::Text(a.to_string()),
             );
         }

@@ -4,7 +4,7 @@
 //! impact report a person approves (`publish-and-import.md` §1 steps 1 to 4,
 //! §2, ADR-0155).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::eval::{Evaluator, NotRun, truth};
 use crate::model::{Declared, Enforce, Kind, Library, PROPOSAL, Type};
@@ -235,24 +235,6 @@ pub fn prepare(world: &World<'_>, change: &str, actor: &str) -> Result<Option<Pr
 struct Found(Vec<Finding>);
 
 impl Found {
-    /// A finding of its own, never merged with another of its code: each
-    /// of the checks' findings says a different thing, where merging them by
-    /// code kept the first module's alone (D608); an exact repeat once.
-    fn own(&mut self, severity: Severity, code: String, message: String) {
-        if !self
-            .0
-            .iter()
-            .any(|f| f.code == code && f.message == message)
-        {
-            self.0.push(Finding {
-                severity,
-                code,
-                message,
-                affected: Vec::new(),
-            });
-        }
-    }
-
     fn add(
         &mut self,
         severity: Severity,
@@ -425,6 +407,17 @@ fn checks_by(old: &Library, now: i64, draft: &Draft<'_>) -> Result<Checked, NotR
         person_dimensions,
         ..report
     };
+    // each of the checks' findings of its own, never merged with another
+    // of its code: each says a different thing, where merging them by code
+    // kept the first module's alone (D608); an exact repeat once, found by a
+    // set, where each was compared with every one before it, so a change of
+    // 60,000 types checked in 374 s, past the dry run's deadline (thirteenth
+    // production review D)
+    let mut seen: BTreeSet<(String, String)> = found
+        .0
+        .iter()
+        .map(|f| (f.code.clone(), f.message.clone()))
+        .collect();
     for f in checks.findings {
         let severity = match f.severity {
             crate::check::Severity::Fatal => Severity::Fatal,
@@ -451,7 +444,14 @@ fn checks_by(old: &Library, now: i64, draft: &Draft<'_>) -> Result<Checked, NotR
         } else {
             format!("{}:{}: {}", f.file, f.line, f.message)
         };
-        found.own(severity, code, message);
+        if seen.insert((code.clone(), message.clone())) {
+            found.0.push(Finding {
+                severity,
+                code,
+                message,
+                affected: Vec::new(),
+            });
+        }
     }
     Ok(Checked {
         found,
@@ -1681,6 +1681,33 @@ types:
         assert!(
             large < small * 5.5,
             "checks: 1,000 types {small:.2} s, 4,000 types {large:.2} s"
+        );
+        // and types the checks refuse, each with findings of its own: each
+        // finding was compared with every one before it, and its line found
+        // by searching every type's key, so 60,000 checked in 374 s
+        // (thirteenth production review D)
+        let refused = |n: usize| {
+            let text = "module: m\ncategories: [live, closed]\ntypes:\n".to_string()
+                + &(0..n)
+                    .map(|i| format!("  T{i}: {{ description: x }}\n"))
+                    .collect::<String>();
+            let source = [("m".to_string(), text)];
+            let d = Draft {
+                change_id: None,
+                source: &source,
+                source_ref: Some("test"),
+                source_digest: None,
+                actor: OPERATOR,
+            };
+            let t = std::time::Instant::now();
+            let checked = checks_of(&lib, 0, &d).unwrap();
+            assert!(checked.found.0.len() > n, "{}", checked.found.0.len());
+            t.elapsed().as_secs_f64()
+        };
+        let (small, large) = (refused(1000), refused(4000));
+        assert!(
+            large < small * 5.5,
+            "checks: 1,000 refused types {small:.2} s, 4,000 {large:.2} s"
         );
         let keys = format!(
             "{{{}}}",

@@ -2,7 +2,7 @@
 
 - **Status:** **Decided** 2026-10-13 on the author's standing instruction, "continue the loop to get the stack ready for production, follow your recommendations", each decision the recommendation stated here; built the same day
 - **Date:** 2026-10-13
-- **Refined by:** ADR-0199 — the bound on what an expression unfolds to counted across modules.
+- **Refined by:** ADR-0199 — the bound on what an expression unfolds to counted across modules. ADR-0200 — the checks linear in what a change holds, the deadline read while derived attributes unfold.
 - **Refines:** ADR-0197 decisions 1, 2 and 5; ADR-0196 decision 1; ADR-0179 (paging); the derived attributes of `flow-format.md` §4 and its check table
 - **Relates to:** `design/production-review.md` §15; `guides/operate.md`; `guides/errors.md`
 

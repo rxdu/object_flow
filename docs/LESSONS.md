@@ -634,3 +634,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The first test of the typing memo timed `checks_of` on a 22-link diamond and discarded its result. Its flow declared `derived_attributes` before `states`, an order error, so it timed whatever ran on an invalid module, and passed. Only rewriting it to assert the findings showed it.
 - **Correction:** A test that bounds how long something takes also asserts what it produced: the findings expected, and no others. A refused or malformed input is fast for reasons of its own.
 - **Context:** Scaling tests of the checkers and the engine; 2026-10-13.
+
+### A decision claimed a bound wider than its code enforces
+- **Pattern:** ADR-0198 decision 2 and the changelog said a dry run's checks are held to `--dry-run-timeout`. The deadline was read only where derived attributes unfold, the one place the review had found slow. The next review drafted 60,000 bare types, a shape no derived attribute is in, and the checks ran 374 s, past the deadline the documents promised.
+- **Correction:** State a bound exactly where the code enforces it ("read while derived attributes unfold"), and test the claim with a shape outside the mechanism that enforces it, not only the shape that prompted it.
+- **Context:** Deadlines and bounds in the checker and the service; ADR text and the changelog; 2026-10-14.
+
+### A growth test over valid inputs misses what refused inputs cost
+- **Pattern:** The checks' growth test timed 1,000 and 4,000 valid types, which produce no findings, so two quadratics that grow with the findings went unseen: each finding compared with every one before it, and each finding's line found by searching every key. 60,000 refused types took 374 s.
+- **Correction:** A scaling test of a checker times the shapes it refuses too, where each element makes findings, and asserts the findings it made.
+- **Context:** The checkers' and the publish path's scaling tests; 2026-10-14.

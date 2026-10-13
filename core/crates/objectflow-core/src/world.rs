@@ -385,6 +385,20 @@ thread_local! {
     /// test of a read that must hold few events in memory reads (tenth
     /// production review).
     static EVENTS_READ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// How many objects' records this thread has read from the store: what
+    /// a test of a read that must read the records of its page alone reads
+    /// (thirteenth production review N3).
+    static RECORDS_READ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many objects' records this thread has read from the store.
+pub fn records_read() -> u64 {
+    RECORDS_READ.with(std::cell::Cell::get)
+}
+
+/// Counts objects' records read from the store (`store::read_parts`).
+pub(crate) fn records_counted(n: usize) {
+    RECORDS_READ.with(|c| c.set(c.get() + n as u64));
 }
 
 /// How many events this thread has read whole from the store.
@@ -1334,19 +1348,22 @@ impl<'l> World<'l> {
         Ok(())
     }
 
-    /// The records of objects of one concrete type, in one read of each
-    /// part's table.
+    /// The records of objects of one concrete type, these alone, a few
+    /// hundred to each read of each part's table.
     fn read_together(
         &self,
         conn: &rusqlite::Connection,
         type_: &str,
         objects: &[&Object],
     ) -> Result<(), crate::eval::NotRun> {
-        let mut read = crate::store::read_type_parts(conn, self.lib, type_).map_err(|e| {
-            crate::eval::NotRun::Unreadable(format!(
-                "the records of {type_}, which could not be read: {e}"
-            ))
-        })?;
+        let ids: Vec<String> = objects.iter().map(|o| o.id.clone()).collect();
+        let mut read =
+            crate::store::read_parts_of_ids(conn, self.lib, type_, &ids).map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the records of {type_}, which could not be read: {e}"
+                ))
+            })?;
+
         for o in objects {
             let p = read.remove(&o.id).unwrap_or_default();
             let _ = o.parts.set(p);

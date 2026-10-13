@@ -3822,6 +3822,8 @@ pub(crate) fn read_all(conn: &Connection, lib: &Library) -> Stored<Vec<Object>> 
 /// table holds, those of a type's table it narrows to, or every one.
 enum Scope<'a> {
     One(&'a str),
+    /// The objects of one concrete type named, each by its id.
+    Ids(&'a [String]),
     Type(String),
     Where(String, Narrowed),
     All,
@@ -3832,6 +3834,7 @@ impl Scope<'_> {
     fn on_row(&self) -> String {
         match self {
             Scope::One(_) => "WHERE t.id = ?1".into(),
+            Scope::Ids(ids) => format!("WHERE t.id IN ({})", marks(ids.len())),
             Scope::Where(_, narrowed) => format!("WHERE {}", narrowed.conditions("t.").0),
             Scope::Type(_) | Scope::All => String::new(),
         }
@@ -3843,6 +3846,7 @@ impl Scope<'_> {
     fn on_object(&self, keyword: &str) -> String {
         match self {
             Scope::One(_) => format!(" {keyword} object_id = ?1"),
+            Scope::Ids(ids) => format!(" {keyword} object_id IN ({})", marks(ids.len())),
             Scope::Type(table) => format!(" {keyword} object_id IN (SELECT id FROM {table})"),
             Scope::Where(table, narrowed) => format!(
                 " {keyword} object_id IN (SELECT id FROM {table} WHERE {})",
@@ -3856,6 +3860,7 @@ impl Scope<'_> {
     fn bound(&self) -> Vec<Sql> {
         match self {
             Scope::One(id) => vec![Sql::Text((*id).to_string())],
+            Scope::Ids(ids) => ids.iter().map(|id| Sql::Text(id.clone())).collect(),
             Scope::Where(_, narrowed) => narrowed.conditions("").1,
             Scope::Type(_) | Scope::All => Vec::new(),
         }
@@ -4063,20 +4068,38 @@ pub(crate) fn read_parts_of(
         .unwrap_or_default())
 }
 
-/// The parts of the records of every object of a concrete type, by id, in
-/// one read of each part's table (ADR-0165).
-pub(crate) fn read_type_parts(
+/// How many objects' records one read of each part's table takes, by id.
+const PARTS_CHUNK: usize = 400;
+
+/// `?1, ?2, …` for a list of `n` values bound in order.
+fn marks(n: usize) -> String {
+    (1..=n)
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The parts of the records of the objects of a concrete type given, by
+/// id, a few hundred to each read of each part's table (ADR-0165), where
+/// it read the records of every object of the type: a worklist of 50
+/// ordered by when each entered its state read 110k records, 0.8 s a page,
+/// and a cascade over a claim's lines held the writer seconds (thirteenth
+/// production review N3).
+pub(crate) fn read_parts_of_ids(
     conn: &Connection,
     lib: &Library,
     type_: &str,
+    ids: &[String],
 ) -> Stored<BTreeMap<String, crate::world::Parts>> {
-    let name = table(type_);
-    let mut ids = conn.prepare(&format!("SELECT id FROM {name}"))?;
-    let types: BTreeMap<String, String> = ids
-        .query_map([], |r| r.get::<_, String>(0))?
-        .map(|id| id.map(|id| (id, type_.to_string())))
-        .collect::<Result<_, _>>()?;
-    read_parts(conn, lib, &Scope::Type(name), &types)
+    let mut out = BTreeMap::new();
+    for chunk in ids.chunks(PARTS_CHUNK) {
+        let types: BTreeMap<String, String> = chunk
+            .iter()
+            .map(|id| (id.clone(), type_.to_string()))
+            .collect();
+        out.extend(read_parts(conn, lib, &Scope::Ids(chunk), &types)?);
+    }
+    Ok(out)
 }
 
 /// The highest place in creation order the store holds, 0 where it holds
@@ -4125,7 +4148,7 @@ fn read_rows(
     // a type's sets are read whole with its rows, an object's alone, and
     // those of a type's objects in some states by the same condition
     let of_set = match scope {
-        Scope::One(_) | Scope::Where(..) => scope.on_object("WHERE"),
+        Scope::One(_) | Scope::Ids(_) | Scope::Where(..) => scope.on_object("WHERE"),
         Scope::Type(_) | Scope::All => String::new(),
     };
     let scalars: Vec<&(String, Attribute)> = t.attributes.iter().filter(|(_, a)| !a.many).collect();
@@ -4251,6 +4274,7 @@ fn read_parts(
     types: &BTreeMap<String, String>,
 ) -> Stored<BTreeMap<String, crate::world::Parts>> {
     let only = scope.bound();
+    crate::world::records_counted(types.len());
     let mut parts: BTreeMap<String, crate::world::Parts> = types
         .keys()
         .map(|id| (id.clone(), crate::world::Parts::default()))

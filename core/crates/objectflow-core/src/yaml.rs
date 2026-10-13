@@ -35,7 +35,46 @@ pub enum Node {
         entries: Vec<(String, Node)>,
         key_lines: Vec<usize>,
         line: usize,
+        /// Each key's place among the entries, made on the first lookup of a
+        /// large mapping.
+        index: KeyIndex,
     },
+}
+
+/// A mapping's keys by their place among its entries, made once on the
+/// first lookup, where each lookup searched the entries: a line found for
+/// each finding of a module of 60,000 types searched them all, quadratic in
+/// the types (thirteenth production review D). It is a cache, so it takes
+/// no part in a node's equality.
+#[derive(Clone, Debug, Default)]
+pub struct KeyIndex(std::sync::OnceLock<std::collections::HashMap<String, usize>>);
+
+impl PartialEq for KeyIndex {
+    fn eq(&self, _: &KeyIndex) -> bool {
+        true
+    }
+}
+
+/// How many entries a mapping holds before a lookup reads its index.
+const INDEXED_PAST: usize = 16;
+
+/// The place of a key among a mapping's entries, its first where it is
+/// written twice.
+fn place(entries: &[(String, Node)], index: &KeyIndex, key: &str) -> Option<usize> {
+    if entries.len() <= INDEXED_PAST {
+        return entries.iter().position(|(n, _)| n == key);
+    }
+    index
+        .0
+        .get_or_init(|| {
+            let mut places = std::collections::HashMap::with_capacity(entries.len());
+            for (i, (n, _)) in entries.iter().enumerate() {
+                places.entry(n.clone()).or_insert(i);
+            }
+            places
+        })
+        .get(key)
+        .copied()
 }
 
 /// A step of a path from a document's root: a mapping's key or a sequence's
@@ -109,10 +148,13 @@ impl Node {
             match (node, seg) {
                 (
                     Node::Map {
-                        entries, key_lines, ..
+                        entries,
+                        key_lines,
+                        index,
+                        ..
                     },
                     Seg::Key(k),
-                ) => match entries.iter().position(|(n, _)| n == k) {
+                ) => match place(entries, index, k) {
                     Some(i) => {
                         line = key_lines.get(i).copied().unwrap_or(line);
                         node = &entries[i].1;
@@ -132,7 +174,7 @@ impl Node {
     /// A mapping's value for a key.
     pub fn get(&self, key: &str) -> Option<&Node> {
         match self {
-            Node::Map { entries, .. } => entries.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            Node::Map { entries, index, .. } => place(entries, index, key).map(|i| &entries[i].1),
             _ => None,
         }
     }
@@ -351,6 +393,7 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
                         entries,
                         key_lines,
                         line,
+                        index: KeyIndex::default(),
                     },
                     None => {
                         return Err(YamlError {
@@ -373,6 +416,23 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A key's line in a large mapping is found by an index, where each
+    /// lookup searched the keys: a line for each finding of a module of
+    /// 60,000 types was quadratic in them (thirteenth production review D).
+    #[test]
+    fn a_keys_line_in_a_large_mapping_is_found_by_its_index() {
+        let n = 50_000;
+        let text: String = (0..n).map(|i| format!("k{i}: {i}\n")).collect();
+        let doc = load(&text).unwrap();
+        let t = std::time::Instant::now();
+        for i in (0..n).rev() {
+            assert_eq!(doc.line_at(&[Seg::Key(format!("k{i}"))]), i + 1);
+        }
+        assert!(matches!(doc.get("k7"), Some(Node::Scalar { text, .. }) if text == "7"));
+        let took = t.elapsed().as_secs_f64();
+        assert!(took < 3.0, "50,000 keys' lines found in {took:.2} s");
+    }
 
     /// A description nested past the bound is refused with its line, and
     /// one nested 300,000 deep, which aborted the service, is refused as
