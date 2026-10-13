@@ -234,7 +234,18 @@ pub struct Evaluator<'a> {
     /// Where the objects a clause names are noted, for its refusal; none
     /// where nothing notes them.
     naming: Option<&'a std::cell::RefCell<Named>>,
+    /// How many derived attributes, each of an object another's reference
+    /// reached, this evaluation is inside: past [`DERIVED_HOPS`] the value is
+    /// none, where a derived attribute reading itself through a reference,
+    /// `parent.depth + 1`, overflowed the stack and aborted the service on a
+    /// `get` (tenth production review).
+    hops: usize,
 }
+
+/// The most derived attributes reached through references one evaluation
+/// goes inside before the next has no value: far below what a request's
+/// stack holds, and far above what a flow a checker accepts reaches.
+pub const DERIVED_HOPS: usize = 64;
 
 /// What the rules evaluated for an event read and consulted (`DESIGN.md`
 /// §6, ADR-0088, ADR-0158): each object read, with the version read; each
@@ -343,6 +354,7 @@ impl<'a> Evaluator<'a> {
             quiet: std::cell::Cell::new(0),
             aside: std::cell::Cell::new(0),
             naming: None,
+            hops: 0,
         }
     }
 
@@ -797,11 +809,18 @@ impl<'a> Evaluator<'a> {
                 } else if let Some((_, kind)) = t.observations.iter().find(|(c, _)| c == m) {
                     self.collection(o, kind)?
                 } else if let Some((_, e)) = t.derived.iter().find(|(d, _)| d == m) {
+                    // past its bound of hops a derived value has none, where
+                    // its recursion overflowed the stack (tenth production
+                    // review)
+                    if self.hops >= DERIVED_HOPS {
+                        return Ok(Term::absent());
+                    }
                     // asked with the same answers, as the runner asks it
                     let mut derived = Evaluator::new(self.world, Some(t), Some(&o.id));
                     derived.answers = self.answers;
                     derived.metrics = self.metrics;
                     derived.reading = self.reading;
+                    derived.hops = self.hops + 1;
                     // what it reads, the clause reads (DESIGN.md §5.5)
                     derived.naming = self.naming;
                     crate::metric::typed_derived(self.world, t, e, derived.eval(e)?)

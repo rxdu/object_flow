@@ -1,0 +1,14 @@
+module: m
+categories: [live]
+types:
+  Node:
+    description: A node.
+    tracking: record
+    attributes:
+      parent: { reference: Node, optional: true }
+    states:
+      S: { category: live, description: Open. }
+      E: { category: live, final: true, description: Done. }
+    derived_attributes:
+      depth: { description: Its depth., expression: parent.depth + 1 }
+    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }

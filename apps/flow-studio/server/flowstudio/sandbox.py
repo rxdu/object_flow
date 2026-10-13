@@ -266,6 +266,12 @@ class Sandbox:
         for k in UNSUPPORTED:
             if body.get(k) is not None:
                 raise not_run(f"a request's {k}")
+        tv = body.get("target_version")
+        if tv is not None and (not isinstance(tv, int) or isinstance(tv, bool)):
+            raise Fault(400, "target_version takes an object's version, an integer")
+        if tv is not None and (body.get("propose") or body.get("transition") != "approve"):
+            raise Fault(400, "target_version is a proposal's approval's: the version of the proposed object its "
+                             "approver read")
         actor = self.who(body)
         xn = body.get("transition")
         if not actor or not xn:
@@ -457,6 +463,17 @@ class Sandbox:
                     "remedy": "self_serviceable"}
         before = s.position
         st = {xn: {"proposal": oid, "actor": actor}}
+        # the proposed object as its approver read it: one moved since is
+        # refused stale, as the core refuses it (tenth production review)
+        tv = body.get("target_version")
+        held = s.proposals.get(oid) or {}
+        target = held.get("object")
+        if (xn == "approve" and tv is not None and held.get("state") == "pending"
+                and target in s.objects and s.objects[target].version != tv):
+            stale = flowrun.Refused("stale", remedy="self_serviceable")
+            stale.expected, stale.actual = tv, s.objects[target].version
+            stale.on_proposal = True
+            return self.refusal(stale, flowrun.PROPOSAL, oid, {}, xn)
         try:
             outcome = flowrun.step(self.runner, s, st, aliases, self.stubs,
                                    under_test=True)

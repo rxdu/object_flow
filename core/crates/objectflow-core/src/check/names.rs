@@ -1602,8 +1602,8 @@ fn reparent_errors(doc: &Value, library: &Obj) -> Found {
 /// the reference runner's `input_personal` has it (`check-flows.py`'s
 /// `personal_inputs`).
 fn personal_inputs(kinds: &Obj, tn: &str, x: &Value) -> BTreeSet<String> {
-    let t = kinds.get(tn).cloned().unwrap_or(Value::Null);
-    let attrs = obj(&t, "attributes");
+    let t = kinds.get(tn).unwrap_or(&super::doc::NULL);
+    let attrs = obj(t, "attributes");
     let personal = |n: &str| attrs.get(n).is_some_and(|s| flag(s, "personal"));
     let mut out: BTreeSet<String> = obj(x, "inputs")
         .iter()
@@ -1675,10 +1675,10 @@ impl Personal<'_> {
         if let Some((u, m)) = walker.members.iter().find(|(u, m)| self.personal(u, m)) {
             return Some(format!("the personal {u}.{m}"));
         }
-        let own = self.kinds.get(tn).cloned().unwrap_or(Value::Null);
+        let own = self.kinds.get(tn).unwrap_or(&super::doc::NULL);
         let mut derived = walker.derived.clone();
         for n in &read {
-            if obj(&own, "derived_attributes").contains_key(n) {
+            if obj(own, "derived_attributes").contains_key(n) {
                 derived.insert((tn.to_string(), n.clone()));
             }
         }
@@ -1702,8 +1702,8 @@ impl Personal<'_> {
     /// Each composite end of a type, its own or inherited, with its cascade
     /// clauses and where they are given.
     fn parts(&self, tn: &str) -> Vec<(Value, Vec<Value>, Path)> {
-        let t = self.kinds.get(tn).cloned().unwrap_or(Value::Null);
-        let mut out: Vec<(Value, Vec<Value>, Path)> = obj(&t, "attributes")
+        let t = self.kinds.get(tn).unwrap_or(&super::doc::NULL);
+        let mut out: Vec<(Value, Vec<Value>, Path)> = obj(t, "attributes")
             .iter()
             .filter(|(_, spec)| text(spec, "aggregation") == Some("composite"))
             .map(|(an, spec)| {
@@ -1722,7 +1722,7 @@ impl Personal<'_> {
                 }
             }
         }
-        for (an, ip) in obj(&t, "inherited_parts") {
+        for (an, ip) in obj(t, "inherited_parts") {
             if let Some(spec) = inherited.get(an) {
                 out.push((
                     spec.clone(),
@@ -1736,7 +1736,7 @@ impl Personal<'_> {
 
     /// Each argument a transition passes by a `call` or a `create`.
     fn passes(&self, tn: &str, x: &Value) -> Vec<Passed> {
-        let t = self.kinds.get(tn).cloned().unwrap_or(Value::Null);
+        let t = self.kinds.get(tn).unwrap_or(&super::doc::NULL);
         let mut out = Vec::new();
         for step in walk(x.get("effect")) {
             if !matches!(step.kind, "call" | "create") {
@@ -1745,7 +1745,7 @@ impl Personal<'_> {
             let body = &step.st[step.kind];
             let env = binders(self.kinds, tn, x, &step.path);
             let k = if step.kind == "call" {
-                call_target(self.kinds, &t, tn, x, body, &env)
+                call_target(self.kinds, t, tn, x, body, &env)
             } else {
                 body.get("type").map(py_str)
             };
@@ -3018,6 +3018,10 @@ fn object_member_type(m: &str) -> Option<Ty> {
 /// The types of a module's expressions as far as a publish can tell them,
 /// and each rule of `declaration-syntax.md` §8.3 an expression breaks (the
 /// model's check 24; `check-flows.py`'s `Typing`).
+/// The most derived attributes one typing goes through, as an evaluation
+/// goes through at most `eval::DERIVED_HOPS` (tenth production review).
+const TYPING_DEPTH: usize = 64;
+
 struct Typing<'a> {
     kinds: &'a Obj,
     enums: &'a BTreeSet<String>,
@@ -3030,19 +3034,26 @@ type TyEnv = BTreeMap<String, Option<Ty>>;
 
 impl Typing<'_> {
     fn member(&self, tn: &str, m: &str, seen: &BTreeSet<(String, String)>) -> Option<Ty> {
-        let t = self.kinds.get(tn).cloned().unwrap_or(Value::Null);
+        // the type read where it is, where each member cloned it whole
+        static NONE: Value = Value::Null;
+        let t = self.kinds.get(tn).unwrap_or(&NONE);
         if m == "state" {
             return Some(Ty::State(tn.to_string()));
         }
         if let Some(k) = object_member_type(m) {
             return Some(k);
         }
-        if let Some(spec) = obj(&t, "attributes").get(m) {
+        if let Some(spec) = obj(t, "attributes").get(m) {
             return attribute_type(Some(spec), self.enums);
         }
         let pair = (tn.to_string(), m.to_string());
-        if let Some(derived) = obj(&t, "derived_attributes").get(m)
+        // a derived attribute typed through at most TYPING_DEPTH others,
+        // past which its type is unknown: each typed the whole chain below
+        // it again, a chain of 1,000 taking 171 s and one of 3,000 deeper
+        // than a stack (tenth production review)
+        if let Some(derived) = obj(t, "derived_attributes").get(m)
             && !seen.contains(&pair)
+            && seen.len() < TYPING_DEPTH
         {
             let text = squash(&derived.get("expression").map(py_str).unwrap_or_default());
             let tree = parse(&text).ok()?;
@@ -3993,7 +4004,14 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
     }
     let request_only = set(REQUEST_ONLY);
     let without_request: BTreeSet<String> = members.difference(&request_only).cloned().collect();
-    let mut exprs: Vec<(Path, String, String, BTreeSet<String>)> = Vec::new();
+    // each derived attribute's place, so one reads those after it without a
+    // set of them made for each (tenth production review)
+    let placed: BTreeMap<&str, usize> = derived
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (d.as_str(), i))
+        .collect();
+    let mut exprs: Vec<(Path, String, String, Scope<'_>)> = Vec::new();
     for sec in ["conditions", "invariants"] {
         // an invariant is checked after a write, where no request's inputs
         // or event are (the model's check 5)
@@ -4007,7 +4025,7 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
                 segs!["types", tn, sec, n, "expression"],
                 n.clone(),
                 c.get("expression").map(py_str).unwrap_or_default(),
-                readable.clone(),
+                Scope::Of(readable, None),
             ));
         }
     }
@@ -4019,7 +4037,7 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
                 segs!["types", tn, "attributes", a, "unique", "where"],
                 format!("{tn}.{a}'s uniqueness condition"),
                 py_str(w),
-                without_request.clone(),
+                Scope::Of(&without_request, None),
             ));
         }
     }
@@ -4031,8 +4049,11 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
             .and_then(|s| s.get("expression"))
             .map(py_str)
             .unwrap_or_default();
-        let later: BTreeSet<String> = derived[i..].iter().cloned().collect();
-        for r in reads(&expr).intersection(&later) {
+        let read = reads(&expr);
+        for r in read
+            .iter()
+            .filter(|r| placed.get(r.as_str()).is_some_and(|at| *at >= i))
+        {
             let message = if r == d {
                 format!("derived attribute '{d}' reads itself")
             } else {
@@ -4042,9 +4063,12 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
             };
             out.push(finding(p.clone(), "order", message));
         }
-        let mut scope = without_request.clone();
-        scope.extend(later);
-        exprs.push((p, format!("derived attribute '{d}'"), expr, scope));
+        exprs.push((
+            p,
+            format!("derived attribute '{d}'"),
+            expr,
+            Scope::Later(&without_request, &placed, i),
+        ));
     }
     for (xn, x) in obj(t, "transitions") {
         let walked = walk(x.get("effect"));
@@ -4062,8 +4086,7 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
                 binds.insert(py_str(r));
             }
         }
-        let mut scope = members.clone();
-        scope.extend(binds);
+        let binds = std::rc::Rc::new(binds);
         for s in &walked {
             for e in step_expressions(s) {
                 exprs.push((
@@ -4073,7 +4096,7 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
                     ),
                     xn.clone(),
                     e,
-                    scope.clone(),
+                    Scope::Of(&members, Some(binds.clone())),
                 ));
             }
         }
@@ -4094,13 +4117,13 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
                 ],
                 n.clone(),
                 i.get("expression").map(py_str).unwrap_or_default(),
-                fields.clone(),
+                Scope::Own(std::rc::Rc::new(fields.clone())),
             ));
         }
     }
     for (p, name, text, scope) in exprs {
         let in_observation = p.contains(&Seg::Key("observations".into()));
-        for r in reads(&text).difference(&scope) {
+        for r in reads(&text).iter().filter(|r| !scope.holds(r)) {
             let message = if request_only.contains(r) {
                 format!("{name} reads '{r}', which only a transition has")
             } else if r == "labels" {
@@ -4120,6 +4143,33 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
         }
     }
     out
+}
+
+/// The names an expression of a type may read, described rather than
+/// copied for each expression, where a set of every member made for each
+/// derived attribute made a type's check quadratic in them (tenth production
+/// review).
+enum Scope<'s> {
+    /// A set, and the names its expression binds beside it.
+    Of(&'s BTreeSet<String>, Option<std::rc::Rc<BTreeSet<String>>>),
+    /// A set, and the derived attributes from a place on.
+    Later(&'s BTreeSet<String>, &'s BTreeMap<&'s str, usize>, usize),
+    /// A set of its own.
+    Own(std::rc::Rc<BTreeSet<String>>),
+}
+
+impl Scope<'_> {
+    fn holds(&self, name: &str) -> bool {
+        match self {
+            Scope::Of(set, bound) => {
+                set.contains(name) || bound.as_ref().is_some_and(|b| b.contains(name))
+            }
+            Scope::Later(set, placed, from) => {
+                set.contains(name) || placed.get(name).is_some_and(|at| at >= from)
+            }
+            Scope::Own(set) => set.contains(name),
+        }
+    }
 }
 
 /// Whether a single reference end holds the value (§3.3).
@@ -4623,6 +4673,22 @@ fn identifier_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
                         "names",
                         format!(
                             "{tn}.{a}'s format has {{{ph}}}, whose width is not a number of digits"
+                        ),
+                    ));
+                } else if ph
+                    .strip_prefix("n:")
+                    .and_then(|w| w.parse::<u64>().ok().or(Some(u64::MAX)))
+                    .is_some_and(|w| w > crate::model::IDENTIFIER_WIDTH as u64)
+                {
+                    // a width a number can fill, where one of a million
+                    // panicked as each object was made (tenth production
+                    // review)
+                    out.push(finding(
+                        fw.clone(),
+                        "names",
+                        format!(
+                            "{tn}.{a}'s format has {{{ph}}}, wider than the {} digits a number is padded to at most",
+                            crate::model::IDENTIFIER_WIDTH
                         ),
                     ));
                 }

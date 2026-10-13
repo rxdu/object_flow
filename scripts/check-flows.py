@@ -121,6 +121,11 @@ StrictLoader.add_implicit_resolver(
     "tag:yaml.org,2002:bool", re.compile(r"^(?:true|false)$"), list("tf"))
 
 
+# The widest an identifier's number is padded, an int having at most 19 digits (tenth production review).
+IDENTIFIER_WIDTH = 20
+# The most derived attributes one typing goes through, as the core's evaluation goes through at most 64.
+TYPING_DEPTH = 64
+
 def load(text):
     # StrictLoader is a SafeLoader: it builds only plain data, never Python objects
     return yaml.load(text, Loader=StrictLoader)
@@ -569,34 +574,52 @@ def order_errors(doc):
 
 
 def derived_cycle_errors(doc):
-    """A derived attribute reads one of another type, through a relationship
-    or a type scan, wherever that one is declared; such reads MUST NOT form a
-    cycle (the model's check 3). `.<name>` of a derived attribute another type
-    of the module declares is taken as a read of it: two types' derived
-    attributes of one name are then both read, which can only add a cycle. An
-    imported module cannot read back into this one, so none passes through it."""
-    derived = {tn: list(t.get("derived_attributes") or {}) for tn, t in types(doc)}
+    """A derived attribute reads one of another type, through a relationship or a type scan, wherever that one is
+    declared, or one of its own type's through a reference; such reads MUST NOT form a cycle (the model's check 3):
+    `depth: parent.depth + 1` on a Node whose parent is a Node reads itself through each node above, and a cycle of
+    parents or a chain of thousands overflowed the core's stack on a read (tenth production review). `.<name>` of a
+    derived attribute the module declares is taken as a read of it: two types' derived attributes of one name are
+    then both read, which can only add a cycle. An imported module cannot read back into this one, so none passes
+    through it. The reads are found by each expression's names after a dot, and the search visits each attribute
+    once, iteratively, so neither a long chain nor many paths makes it long."""
+    order = [(tn, d) for tn, t in types(doc) for d in (t.get("derived_attributes") or {})]
+    index = {node: i for i, node in enumerate(order)}
+    by_name = {}
+    for node in order:
+        by_name.setdefault(node[1], []).append(node)
     edges = {}
     for tn, t in types(doc):
         for d, spec in (t.get("derived_attributes") or {}).items():
             text = " ".join(str(spec["expression"]).split())
-            edges[(tn, d)] = [(u, e) for u, names in derived.items() if u != tn
-                              for e in names if re.search(rf"\.{e}\b", text)]
-    out, done = [], set()
-
-    def visit(node, trail):
-        if node in trail:
-            ring = trail[trail.index(node):] + [node]
-            if not set(ring) <= done:
-                done.update(ring)
-                out.append((("types", node[0], "derived_attributes", node[1], "expression"), "order",
-                            "derived attributes read each other in a cycle: " + " → ".join(f"{u}.{e}" for u, e in ring)))
-            return
-        for nxt in edges.get(node, []):
-            visit(nxt, trail + [node])
-
-    for node in edges:
-        visit(node, [])
+            named = set(re.findall(r"\.(\w+)", text))
+            edges[(tn, d)] = sorted((x for nm in named for x in by_name.get(nm, [])), key=index.get)
+    out, reported, state = [], set(), {}
+    for start in order:
+        if state.get(start):
+            continue
+        trail, stack = [], [(start, 0)]
+        state[start] = 1
+        trail.append(start)
+        while stack:
+            node, k = stack[-1]
+            nexts = edges.get(node, [])
+            if k == len(nexts):
+                stack.pop()
+                trail.pop()
+                state[node] = 2
+                continue
+            stack[-1] = (node, k + 1)
+            nxt = nexts[k]
+            if state.get(nxt) == 1:
+                ring = trail[trail.index(nxt):] + [nxt]
+                if not set(ring) <= reported:
+                    reported.update(ring)
+                    out.append((("types", nxt[0], "derived_attributes", nxt[1], "expression"), "order",
+                                "derived attributes read each other in a cycle: " + " → ".join(f"{u}.{e}" for u, e in ring)))
+            elif not state.get(nxt):
+                state[nxt] = 1
+                trail.append(nxt)
+                stack.append((nxt, 0))
     return out
 
 
@@ -2217,7 +2240,10 @@ class Typing:
         if spec is not None:
             return attribute_type(spec, self.enums)
         derived = (t.get("derived_attributes") or {}).get(m)
-        if derived is not None and (tn, m) not in seen:
+        # a derived attribute typed through at most TYPING_DEPTH others, past which its type is unknown: each typed the
+        # whole chain below it again, a chain of 1,000 taking minutes and one of 3,000 deeper than a stack (tenth
+        # production review)
+        if derived is not None and (tn, m) not in seen and len(seen) < TYPING_DEPTH:
             try:
                 tree = flowexpr.parse(" ".join(str((derived or {}).get("expression", "")).split()))
             except flowexpr.ParseError:
@@ -2956,6 +2982,11 @@ def identifier_errors(doc, tn, t, library):
                 numbered = True
                 if not re.fullmatch(r"n(:\d+)?", ph):
                     out.append((where + ("format",), "names", f"{tn}.{a}'s format has {{{ph}}}, whose width is not a number of digits"))
+                elif ph.startswith("n:") and int(ph[2:]) > IDENTIFIER_WIDTH:
+                    # a width a number can fill, where one of a million panicked as each object was made (tenth
+                    # production review)
+                    out.append((where + ("format",), "names", f"{tn}.{a}'s format has {{{ph}}}, wider than the "
+                                                              f"{IDENTIFIER_WIDTH} digits a number is padded to at most"))
                 continue
             hops = ph.split(".")
             if not all(re.fullmatch(r"[a-z][a-z0-9_]*", h) for h in hops):
@@ -5540,6 +5571,30 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
             if x[3] == "order" and "cycle" in x[4]]
     ok &= len(ring) == 1
     print(f"  planted derived attributes of two types that read each other: {'caught, ' + ring[0][4] if len(ring) == 1 else 'MISSED'}")
+    # a derived attribute reading itself through a reference of its own type is a cycle, where it overflowed the core's
+    # stack on a read; a chain of 1,500 derived attributes each reading the one above is checked clean without a deep
+    # search; and
+    # an identifier's width past 20 digits is refused (tenth production review)
+    node = ("module: m\ncategories: [live]\ntypes:\n  Node:\n    description: A node.\n    tracking: record\n"
+            "    attributes:\n      parent: { reference: Node, optional: true }\n" + end +
+            "    derived_attributes:\n      depth: { description: Its depth., expression: parent.depth + 1 }\n"
+            "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n")
+    selfring = [x for x in check([("node.yaml", node)])[0] if x[3] == "order" and "cycle" in x[4]]
+    chain = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A thing.\n    tracking: record\n"
+             "    attributes:\n      n: { type: int }\n" + end + "    derived_attributes:\n"
+             + "      d0: { description: The first., expression: this.n }\n"
+             + "".join(f"      d{i}: {{ description: One., expression: this.d{i - 1} + 1 }}\n" for i in range(1, 1500))
+             + "    transitions: { t: { kind: initial, to: S, required_inputs: [n] }, e: { kind: external, from: S, to: E } }\n")
+    chained = check([("chain.yaml", chain)])[0]
+    wide = [x[4] for x in check([("wide.yaml", "module: m\ncategories: [live]\nsequences:\n  s:\n    description: A series.\n"
+                                              "types:\n  T:\n    description: A thing.\n    tracking: record\n"
+                                              "    attributes:\n      code: { type: string, identifier: { sequence: s, format: \"T-{n:1000000}\" } }\n"
+                                              + end + "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n")])[0]
+            if x[3] == "names" and "wider than" in x[4]]
+    hit = len(selfring) == 1 and chained == [] and len(wide) == 1
+    ok &= hit
+    print(f"  planted a derived attribute reading itself through a reference, a long chain, and a wide identifier: "
+          f"{'caught, the chain clean' if hit else 'MISSED ' + str((selfring, chained[:1], wide))}")
     written = load("module: m\ntypes:\n  T:\n    description: d\n    tracking: record\n"
                    "    attributes: { a: { type: bool, default: false }, b: { type: int, default: 0, indexed: true } }\n"
                    "    states: { S: { category: live, final: true } }\n"

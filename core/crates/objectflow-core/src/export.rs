@@ -83,12 +83,10 @@ pub fn export_page(
     let mut rows: Vec<(i64, Json)> = if source == "log" {
         // a page of the log read from the cursor, each event's object
         // fetched as its row is written, where every page read the whole log
-        // and every object first (fourth production review FEED)
-        world
-            .log_after(after, None, limit)?
-            .iter()
-            .map(|e| Ok((e.position, event_row(world, e)?)))
-            .collect::<Result<_, NotRun>>()?
+        // and every object first (fourth production review FEED); a few
+        // events at a time, to the page's bytes, where a page read its limit
+        // of events whole first (tenth production review)
+        log_rows(world, after, None, limit)?
     } else if world
         .lib
         .type_(source)
@@ -121,11 +119,7 @@ pub fn export_page(
                     .filter(|t| world.lib.is_a(t, type_))
                     .cloned()
                     .collect();
-                world
-                    .log_after(after, Some(&family), limit)?
-                    .iter()
-                    .map(|e| Ok((e.position, event_row(world, e)?)))
-                    .collect::<Result<_, NotRun>>()?
+                log_rows(world, after, Some(&family), limit)?
             }
             // the labels on the type's family's objects
             "labels" => {
@@ -162,8 +156,10 @@ pub fn export_page(
         let cut = lines[fit].0;
         if lines.iter().any(|(c, _)| *c > cut) {
             lines.retain(|(c, _)| *c <= cut);
-            more = true;
         }
+        // reaching its bytes, the page says more may follow, where its rows
+        // were read only up to them (tenth production review)
+        more = true;
     }
     let next = lines.last().map_or(after, |(c, _)| *c);
     Ok(ExportPage {
@@ -172,6 +168,39 @@ pub fn export_page(
         refused: None,
         more,
     })
+}
+
+/// The log's rows after a position, of the types given or of any: at most
+/// `limit`, read a few events at a time and ending once they reach a page's
+/// bytes, so no page reads more events whole than it holds and one more
+/// chunk (tenth production review).
+fn log_rows(
+    world: &World<'_>,
+    after: i64,
+    types: Option<&[String]>,
+    limit: usize,
+) -> Result<Vec<(i64, Json)>, NotRun> {
+    const CHUNK: usize = 16;
+    let mut rows = Vec::new();
+    let mut bytes = 0;
+    let mut at = after;
+    while rows.len() < limit && bytes < crate::reads::PAGE_BYTES {
+        let page = world.log_after(at, types, CHUNK.min(limit - rows.len()))?;
+        let done = page.len() < CHUNK.min(limit - rows.len());
+        for e in &page {
+            at = e.position;
+            let row = event_row(world, e)?;
+            bytes += row.to_string().len() + 1;
+            rows.push((e.position, row));
+            if bytes >= crate::reads::PAGE_BYTES {
+                break;
+            }
+        }
+        if done {
+            break;
+        }
+    }
+    Ok(rows)
 }
 
 /// A type's attempt counts after the cursor's day, a day's once the day is
@@ -506,6 +535,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,
@@ -625,6 +655,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,
@@ -732,6 +763,7 @@ types:
                 propose: false,
                 expires_at: None,
                 expected_version: None,
+                target_version: None,
                 principal: None,
                 idempotency_key: None,
                 context: None,

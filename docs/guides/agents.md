@@ -192,7 +192,7 @@ The flow governs objects. Some operations govern the store itself, and the engin
 
 - `maintain`, `upgrade` and `import_batch`;
 - `pull`, `acknowledge`, and the `revoke` transition, on a subscription that is not the agent's own;
-- recording a label (`"type": "label"`, `record`), which anyone may put on any object, unless your agent should, and a label's `forget` on a label another recorded;
+- recording a label (`"type": "label"`, `record`), which anyone may put on any object, unless your agent should, and a label's `forget`, or a label recorded with `corrects`, on a label another recorded;
 - every operation on a `DeclarationChange`, its `check` among them, unless your agent drafts flow changes: the engine already refuses an agent's approval, and its moving on a change another drafted, but drafting is for whoever authors your flows;
 - the identity `operator`, in any case of its letters, which is the store's operator: never let a user or an agent name an actor so.
 

@@ -153,6 +153,10 @@ pub fn optional(spec: &Value) -> bool {
     flag(spec, "optional")
 }
 
+/// The value an absent member reads as, borrowed where a type or its
+/// member was cloned whole to read it (tenth production review).
+pub static NULL: Value = Value::Null;
+
 /// `" ".join(str(text).split())`.
 pub fn squash(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")

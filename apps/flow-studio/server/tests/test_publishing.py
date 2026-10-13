@@ -2106,6 +2106,12 @@ def test_an_agent_moves_on_only_its_own_change_alike(tee):
         v = tee.post("/v1/request", {"transition": xn, "actor": bot, "object_id": theirs})
         assert (v["kind"], [f["invariant"] for f in v.get("failures", [])]) == \
             ("invariant_violated", ["publish_taken_by"]), (xn, v)
+    # nor submit a person's draft (tenth production review)
+    draft = tee.post("/v1/request", {"transition": "draft", "actor": ana, "type": "DeclarationChange",
+                                     "inputs": {"source": {"roster": roomier}, "source_ref": "git:roster@3"}})
+    v = tee.post("/v1/request", {"transition": "submit", "actor": bot, "object_id": draft["object_id"]})
+    assert (v["kind"], [f["invariant"] for f in v.get("failures", [])]) == \
+        ("invariant_violated", ["publish_taken_by"]), v
     # a person moves it on, and the request of its approval names its operation
     v = tee.post("/v1/request", {"transition": "publish", "actor": ana, "object_id": theirs})
     assert (v["kind"], v.get("parents")) == ("not_requestable", ["publish"]), v
@@ -2115,6 +2121,54 @@ def test_an_agent_moves_on_only_its_own_change_alike(tee):
     mine = drafted(bot)
     assert tee.post("/v1/request", {"transition": "withdraw", "actor": bot,
                                     "object_id": mine})["kind"] == "satisfied"
+    alike(tee)
+
+
+PAY = """module: pay
+categories: [live, closed]
+types:
+  Payment:
+    description: A payment to send.
+    tracking: record
+    attributes:
+      amount: { type: int }
+    states:
+      DRAFT: { category: live, description: Drafted. }
+      SENT: { category: closed, final: true, description: Sent. }
+    transitions:
+      make: { kind: initial, to: DRAFT, required_inputs: [amount] }
+      grow: { kind: internal, from: [DRAFT], required_inputs: [amount] }
+      send: { kind: external, from: [DRAFT], to: SENT, proposable: true }
+"""
+
+
+def test_an_approval_naming_what_its_approver_read_is_held_to_it_alike(tee):
+    """An approval naming target_version, the version of the proposed object its approver read, is refused stale
+    where the object moved since, and approved where it did not, alike through both backends; one naming none runs
+    on the object as it stands, as the design says; target_version elsewhere is a 400 (tenth production review,
+    ADR-0197)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "pay.yaml", "text": PAY}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    made = tee.post("/v1/request", {"transition": "make", "actor": OP, "type": "Payment", "inputs": {"amount": 5}})
+    pay = made["object_id"]
+    proposal = tee.post("/v1/request", {"transition": "send", "actor": OP, "object_id": pay, "propose": True})
+    assert proposal["kind"] == "satisfied", proposal
+    read = tee.post("/v1/get", {"id": pay})["version"]
+    # the object grown after the proposal was filed and its approver read it
+    assert tee.post("/v1/request", {"transition": "grow", "actor": OP, "object_id": pay,
+                                    "inputs": {"amount": 5000000}})["kind"] == "satisfied"
+    v = tee.post("/v1/request", {"transition": "approve", "actor": OP, "object_id": proposal["object_id"],
+                                 "target_version": read})
+    assert (v["kind"], v.get("expected"), v.get("actual")) == ("stale", read, read + 1), v
+    # read again, it is approved
+    v = tee.post("/v1/request", {"transition": "approve", "actor": OP, "object_id": proposal["object_id"],
+                                 "target_version": read + 1})
+    assert v["kind"] == "satisfied", v
+    for body in ({"transition": "grow", "actor": OP, "object_id": pay, "target_version": 1, "inputs": {"amount": 1}},
+                 {"transition": "send", "actor": OP, "object_id": pay, "propose": True, "target_version": 1}):
+        with pytest.raises(Failed, match="400"):
+            tee.post("/v1/request", body)
     alike(tee)
 
 

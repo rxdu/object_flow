@@ -1736,6 +1736,10 @@ fn declaration_change_type() -> Type {
 /// §6.8), and the type it is sugar for.
 pub const LABEL: &str = "label";
 
+/// The widest an identifier's number is padded, `{n:<width>}`: an `i64`
+/// has at most 19 digits (tenth production review).
+pub const IDENTIFIER_WIDTH: usize = 20;
+
 /// The type a label's `subject` names: any, since every type carries labels.
 pub const ANY_TYPE: &str = "*";
 

@@ -473,6 +473,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,

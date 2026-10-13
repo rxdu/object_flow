@@ -363,7 +363,7 @@ impl Checker {
         seen: &mut BTreeSet<(String, String)>,
     ) -> BTreeSet<String> {
         let mut out = BTreeSet::new();
-        let t = self.kinds.get(tn).cloned().unwrap_or(Value::Null);
+        let t = self.kinds.get(tn).unwrap_or(&super::doc::NULL);
         for step in super::steps::walk(x.get("effect")) {
             let body = step.body();
             let next = match step.kind {
@@ -374,7 +374,7 @@ impl Checker {
                 }
                 "call" => {
                     let env = super::names::binders(&self.kinds, tn, x, &step.path);
-                    let Some(k) = super::names::call_target(&self.kinds, &t, tn, x, body, &env)
+                    let Some(k) = super::names::call_target(&self.kinds, t, tn, x, body, &env)
                     else {
                         continue;
                     };
@@ -1069,7 +1069,7 @@ fn expect_errors(
             ),
         ));
     }
-    let t = c.kinds.get(tn).cloned().unwrap_or(Value::Null);
+    let t = c.kinds.get(tn).unwrap_or(&super::doc::NULL);
     if verdict == "applied" {
         for k in ["clause", "remedy"] {
             if want.get(k).is_some() {
@@ -1091,7 +1091,7 @@ fn expect_errors(
                     "initial" | "external" => [str_or(x, "to", "None")].into(),
                     "internal" => sources(x).into_iter().collect(),
                     "assertion" => targets(x).into_iter().collect(),
-                    _ => keys(&t, "states").into_iter().collect(),
+                    _ => keys(t, "states").into_iter().collect(),
                 };
                 if !allowed.contains(&st) {
                     c.out.push(finding(
@@ -1102,10 +1102,10 @@ fn expect_errors(
                 }
             }
         }
-        let attrs = obj(&t, "attributes");
+        let attrs = obj(t, "attributes");
         for k in super::doc::as_obj(want.get("values").unwrap_or(&Value::Null)).keys() {
             let known = attrs.contains_key(k)
-                || obj(&t, "derived_attributes").contains_key(k)
+                || obj(t, "derived_attributes").contains_key(k)
                 || BUILT_IN_MEMBERS.contains(&k.as_str())
                 || (k == "recorded_by_kind" && attrs.contains_key("subject"));
             if !known {
@@ -1264,26 +1264,26 @@ fn expect_errors(
                 Some((a, b)) => (a.to_string(), b.to_string()),
                 None => (tn.to_string(), clause.clone()),
             };
-            let t = c.kinds.get(&ct).cloned().unwrap_or(Value::Null);
-            let mut generated: BTreeSet<String> = obj(&t, "states")
+            let t = c.kinds.get(&ct).unwrap_or(&super::doc::NULL);
+            let mut generated: BTreeSet<String> = obj(t, "states")
                 .iter()
                 .filter(|(_, v)| flag(v, "required_attributes"))
                 .map(|(s, _)| format!("{}_invariant", s.to_lowercase()))
                 .collect();
             generated.extend(
-                obj(&t, "attributes")
+                obj(t, "attributes")
                     .iter()
                     .filter(|(_, v)| flag(v, "unique"))
                     .map(|(a, _)| format!("{a}_unique")),
             );
             // an actor's identity another actor holds (ADR-0190 decision 4)
-            if obj(&t, "attributes")
+            if obj(t, "attributes")
                 .values()
                 .any(|v| v.get("actor_kind").is_some_and(|k| !k.is_null()))
             {
                 generated.insert("identity_taken".to_string());
             }
-            if !obj(&t, "invariants").contains_key(&cn) && !generated.contains(&cn) {
+            if !obj(t, "invariants").contains_key(&cn) && !generated.contains(&cn) {
                 c.out.push(finding(
                     ext(here, segs!["clause"]),
                     "names",
@@ -1294,9 +1294,9 @@ fn expect_errors(
         "call_refused" if want.get("clause").is_some() => {
             let clause = str_or(want, "clause", "");
             let (ct, cn) = clause.split_once('.').unwrap_or((&clause, ""));
-            let t = c.kinds.get(ct).cloned().unwrap_or(Value::Null);
-            let known = obj(&t, "conditions").contains_key(cn)
-                || obj(&t, "invariants").contains_key(cn)
+            let t = c.kinds.get(ct).unwrap_or(&super::doc::NULL);
+            let known = obj(t, "conditions").contains_key(cn)
+                || obj(t, "invariants").contains_key(cn)
                 || GENERATED_GUARDS.contains(&cn);
             if cn.is_empty()
                 || (!known

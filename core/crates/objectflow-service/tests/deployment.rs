@@ -3799,34 +3799,50 @@ fn a_log_no_one_reads_is_said_and_stops_no_request() {
         addr,
         said: std::sync::Arc::new(std::sync::Mutex::new(String::new())),
     };
-    // answers logged until the pipe, unread, is full and a line waits
+    // answers logged by four clients at once until the pipe, unread, and the
+    // log's queue are full: every request still answered, where two that
+    // each met the full pipe stopped both of the runtime's threads and every
+    // request, /health included (tenth production review LOG-FREEZE)
     let get = json!({"actor": {"id": "operator"}, "id": "nothing-1"});
-    let blocked = std::thread::spawn({
-        let addr = s.addr.clone();
-        move || {
-            for _ in 0..20_000 {
-                let mut stream = TcpStream::connect(&addr).expect("a connection");
-                let body = get.to_string();
-                write!(
-                    stream,
-                    "POST /v1/get HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                )
-                .expect("asked");
-                stream
-                    .set_read_timeout(Some(std::time::Duration::from_secs(2)))
-                    .expect("a timeout");
-                let mut answer = String::new();
-                if stream.read_to_string(&mut answer).is_err() || answer.is_empty() {
-                    return true;
+    let flood: Vec<_> = (0..4)
+        .map(|_| {
+            let addr = s.addr.clone();
+            let get = get.clone();
+            std::thread::spawn(move || {
+                for _ in 0..2_500 {
+                    let mut stream = TcpStream::connect(&addr).expect("a connection");
+                    let body = get.to_string();
+                    write!(
+                        stream,
+                        "POST /v1/get HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .expect("asked");
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                        .expect("a timeout");
+                    let mut answer = String::new();
+                    if stream.read_to_string(&mut answer).is_err() || answer.is_empty() {
+                        return false;
+                    }
                 }
-            }
-            false
-        }
-    });
-    assert!(blocked.join().expect("the flood"), "the log never filled");
+                true
+            })
+        })
+        .collect();
+    for client in flood {
+        assert!(
+            client.join().expect("a client"),
+            "a request waited on the log"
+        );
+    }
     std::thread::sleep(std::time::Duration::from_secs(6));
+    let began = std::time::Instant::now();
     let (status, health) = call(&s, "GET", "/health", None);
+    assert!(
+        began.elapsed() < std::time::Duration::from_secs(2),
+        "health waited on the log"
+    );
     assert_eq!(
         (status, health["code"].as_str()),
         (503, Some("log_blocked")),

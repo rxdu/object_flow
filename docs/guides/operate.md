@@ -88,6 +88,14 @@ Why each setting:
 
 You may add `WatchdogSec=`: the service pings at half the interval while its runtime answers. That says nothing about whether writes move; `/health`'s `writes_stalled` does.
 
+Call it over the socket with `curl`, the body's type named, as every operation takes JSON:
+
+```sh
+curl -s --unix-socket /run/objectflow/objectflow.sock http://localhost/health
+curl -s --unix-socket /run/objectflow/objectflow.sock http://localhost/v1/get \
+  -H 'Content-Type: application/json' -d '{"id": "operator"}'
+```
+
 ## Flags
 
 Durations are a count and a unit, with a space: `30 s`, `2 min`, `1 h`, `90 days`, `2 weeks`.
@@ -191,7 +199,7 @@ The service writes to its standard error, each line stamped with its time:
 - at start: `--create` given for a store that exists, a last stop that was not clean, a `-wal` holding frames before opening, a store readable by others, another service holding the store, actors whose identities are equal but for case (see [Upgrading the engine](#upgrading-the-engine)), no `--attempt-retention`, an evaluator token to be sent over plain `http://` beyond loopback, and a clock that leads;
 - writes waiting for another process's lock on the store, once, as the wait begins.
 
-Read the standard error to its end, as journald does. If nothing reads it, a line waits; after 5 s the service drops lines (counted in `objectflow_log_lines_dropped_total`) so no request waits on the log, and `/health` answers `503 log_blocked`.
+Read the standard error to its end, as journald does. The service writes the log from a thread of its own, through a queue of 4,096 lines, so no request ever waits on it: if nothing reads it, the queue fills, later lines are dropped (counted in `objectflow_log_lines_dropped_total`), and after 5 s `/health` answers `503 log_blocked`. Every answer is one line of 45 to 55 bytes, so a service answering 100 requests a second writes about 450 MB a day: size journald's limits, or `StandardError=append:<file>` with rotation, to it.
 
 ## Capacity
 
@@ -222,7 +230,7 @@ Read the standard error to its end, as journald does. If nothing reads it, a lin
 | peak memory: submit / approval | 0.5 GB / 1.1 GB | 1.5 GB / 3 GB |
 | a go-live import of 36k objects, 3,000 a batch | 36 s, each batch about 1.6 s | |
 
-Publishing grows linearly with the store: do it outside the busiest hours. Its approval holds writes for its whole run, and a stop waits only 30 s, so stop the service after a publish, never during one. A dry run has a deadline of its own, `--dry-run-timeout` (2 min unless given); one that passes it is answered `503 read_timeout` and records nothing: give a store whose dry run takes longer a longer one, which leaves every other read's deadline as it is.
+Publishing grows linearly with the store: do it outside the busiest hours. Its approval holds writes for its whole run, longer while the read pools are busy (25 s on six years under load, against 9 s idle), and a stop waits only 30 s, so stop the service after a publish, never during one. A dry run has a deadline of its own, `--dry-run-timeout` (2 min unless given); one that passes it is answered `503 read_timeout` and records nothing: give a store whose dry run takes longer a longer one, which leaves every other read's deadline as it is.
 
 Some flow constructs cost more than they look:
 
@@ -234,7 +242,7 @@ Some flow constructs cost more than they look:
 
 A publish holds the store's objects in memory while it simulates and installs the version: plan for about ten times the store's file size. Reads that grow with the store add their own, at most `--max-reads` per pool at once. On 110k objects, sixteen per-person metrics sent at once peaked at 1.15 GB with the default limit of 4.
 
-Size `MemoryMax` at twice a publish's peak, since one change's dry run may run beside another's approval, plus three times `--max-reads` times your heaviest read's peak, for the worklists, analytics and agents pools, plus `--max-reads` times about 25 MB for the objects pool (forty pages of history held at once peaked at 1.07 GB). A page of `query`, `history`, `pull` or `export` stops at 8 MiB, so a read's peak is about its page's size times three, plus what it reads to choose it. On six years of a 600-person company's claims a publish beside saturated reads peaked at 3.97 GB: give such a store 8G. Measure your own. After a publish, an import or any request of half a second or more, the service returns freed memory to the system (`objectflow_memory_given_back_total`).
+Size `MemoryMax` at twice a publish's peak, since one change's dry run may run beside another's approval, plus three times `--max-reads` times your heaviest read's peak, for the worklists, analytics and agents pools, plus `--max-reads` times about 25 MB for the objects pool (forty pages of history held at once peaked at 1.07 GB). A page of `query`, `history`, `pull` or `export` stops at 8 MiB, though building one costs more than its size (an `export` page of 8.5 MB added about 200 MB while it was answered), so a read's peak is about its page's size times three, plus what it reads to choose it. On six years of a 600-person company's claims a publish beside saturated reads peaked at 3.97 GB: give such a store 8G. Measure your own. After a publish, an import or any request of half a second or more, the service returns freed memory to the system (`objectflow_memory_given_back_total`).
 
 ## Backups and restore
 
@@ -248,6 +256,8 @@ python3 -c "import sqlite3; sqlite3.connect('/var/lib/objectflow/store.sqlite').
 `VACUUM INTO '/backup/store.sqlite'`, run on a connection of your own, works too, and writes a compacted copy.
 
 Copying the file alone is safe only with the service stopped: a clean stop folds the `-wal` into the file. A backup holds personal data, and an erasure cannot reach it: keep backups `0600`, and expire or encrypt them within the period your privacy rules allow.
+
+**Schedule them.** There is no replica: what you can recover is the last backup. Run the backup from a timer as often as the data you can afford to lose allows (every 15 minutes is a common choice), copy each off the machine, encrypted, and check each copy by opening it, `sqlite3 <copy> 'PRAGMA quick_check'`, before trusting it. Expire copies on the schedule your privacy rules set, so a value erased in the store does not outlive it in a backup.
 
 **Restore:**
 
@@ -298,7 +308,7 @@ POST /v1/maintain
 {"actor": {"id": "operator"}, "task": {"name": "prune_attempts", "before": "2026-07-01T00:00:00Z"}}
 ```
 
-`prune_idempotency` works the same way. A prune inside the retention is refused `inside_retention`, and one for a task the service has no retention for, `no_retention`. The event log is kept whole: `archive_events` answers `501`.
+`prune_idempotency` works the same way. A prune inside the retention is refused `inside_retention`, and one for a task the service has no retention for, `no_retention`. The event log is kept whole: `archive_events` answers `501`. Run both from a daily timer, `before` set to the retention's edge; a prune of 15,000 attempts took 0.1 s.
 
 ## Personal data on disk
 

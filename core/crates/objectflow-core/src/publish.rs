@@ -1254,6 +1254,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,
@@ -1302,6 +1303,7 @@ types:
             propose: true,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,
@@ -1704,6 +1706,53 @@ types:
         );
     }
 
+    /// A dry run over a store's objects grows with the types a change
+    /// declares only as they add work of their own, where each object's
+    /// lookup by key walked every type of the library: a change adding 1,000
+    /// types to a store of 37k objects took 14.5 s, about 13 ms a type
+    /// (tenth production review).
+    #[test]
+    fn a_dry_runs_impact_does_not_walk_every_type_for_each_object() {
+        const SHOP: &str = "module: shop\ncategories: [live, closed]\ntypes:\n  Item:\n    description: An item.\n    tracking: record\n    attributes:\n      sku: { type: string, unique: true }\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    transitions:\n      add: { kind: initial, to: ON, required_inputs: [sku] }\n      drop: { kind: external, from: ON, to: OFF }\n";
+        let lib = Library::load(&[("shop.yaml".into(), SHOP.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        for i in 0..6000 {
+            created(&req(
+                &mut s,
+                "add",
+                ("Item", true),
+                json!({"sku": format!("S{i}")}),
+            ));
+        }
+        let timed = |n: usize| {
+            let extra = "module: extra\ncategories: [live, closed]\ntypes:\n".to_string()
+                + &(0..n)
+                    .map(|i| format!("  T{i}:\n    description: A thing.\n    tracking: record\n    states:\n      ON: {{ category: live, description: On. }}\n      OFF: {{ category: closed, final: true, description: Off. }}\n    transitions:\n      make: {{ kind: initial, to: ON }}\n      stop: {{ kind: external, from: ON, to: OFF }}\n"))
+                    .collect::<String>();
+            let source = [
+                ("shop".to_string(), SHOP.to_string()),
+                ("extra".to_string(), extra),
+            ];
+            let d = Draft {
+                change_id: None,
+                source: &source,
+                source_ref: Some("test"),
+                source_digest: None,
+                actor: OPERATOR,
+            };
+            let w = s.snapshot().unwrap();
+            let t = std::time::Instant::now();
+            assert!(dry_run(&w, &d).is_ok());
+            t.elapsed().as_secs_f64()
+        };
+        let (few, many) = (timed(50), timed(800));
+        // sixteen times the types: well under sixteen times the time
+        assert!(
+            many < few * 8.0,
+            "50 types {few:.2} s, 800 types {many:.2} s"
+        );
+    }
+
     /// A dry run's checks run apart from any read of the store, and its
     /// impact on a world that carries its read's stop, so an urgent cut of
     /// the log stops it as it stops every read, where an erasure's values
@@ -1842,6 +1891,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,

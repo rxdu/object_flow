@@ -102,35 +102,64 @@ fn log_blocked(since: i64, now: i64) -> bool {
 }
 
 /// A line on the log, standard error, stamped with the wall clock, every
-/// line the service writes among them, where its start's carried no time;
-/// dropped and counted while the log has been blocked longer than
-/// `LOG_BLOCKED_MS`, so a reader of the log that stopped reading stops no
-/// request beyond it (fourth production review).
+/// line the service writes among them, where its start's carried no time:
+/// handed to the log's own thread through a bounded queue, never written by
+/// the caller, and dropped and counted where the queue is full, so a reader
+/// of the log that stopped reading stops no request; where two requests
+/// each wrote their own line, holding standard error's lock, a full pipe
+/// stopped both of the runtime's threads and every request with them,
+/// `/health` included (tenth production review LOG-FREEZE). The log's
+/// thread marks when the line it writes began, which `/health` reads as
+/// `log_blocked` past `LOG_BLOCKED_MS` (fourth production review).
 fn say(line: std::fmt::Arguments<'_>) {
-    let now = wall_millis();
-    if log_blocked(LOGGING_SINCE.load(Ordering::SeqCst), now) {
-        LINES_DROPPED.fetch_add(1, Ordering::SeqCst);
-        return;
+    let text = format!("{} {line}", timestamp_text(wall_clock()));
+    match LOG.get_or_init(start_log).try_send(text) {
+        Ok(()) => {
+            LOG_QUEUED.fetch_add(1, Ordering::SeqCst);
+        }
+        Err(_) => {
+            LINES_DROPPED.fetch_add(1, Ordering::SeqCst);
+        }
     }
-    let mine = LOGGING_SINCE
-        .compare_exchange(0, now, Ordering::SeqCst, Ordering::SeqCst)
-        .is_ok();
-    // a log whose reader has gone drops the line: `eprintln!` panicked on
-    // the broken pipe, losing answers already committed and leaving the
-    // log held blocked until a restart (fifth production review)
-    let written = {
-        use std::io::Write;
-        writeln!(
-            std::io::stderr().lock(),
-            "{} {line}",
-            timestamp_text(wall_clock())
-        )
-    };
-    if written.is_err() {
-        LINES_DROPPED.fetch_add(1, Ordering::SeqCst);
-    }
-    if mine {
-        LOGGING_SINCE.store(0, Ordering::SeqCst);
+}
+
+/// How many lines the log's queue holds before a line is dropped.
+const LOG_QUEUE: usize = 4096;
+
+/// The log's queue, its thread started with the first line.
+static LOG: std::sync::OnceLock<std::sync::mpsc::SyncSender<String>> = std::sync::OnceLock::new();
+
+/// The lines queued and not yet written.
+static LOG_QUEUED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The log's thread: each queued line written to standard error, the time
+/// its writing began marked while it is written.
+fn start_log() -> std::sync::mpsc::SyncSender<String> {
+    let (send, lines) = std::sync::mpsc::sync_channel::<String>(LOG_QUEUE);
+    let _ = std::thread::Builder::new()
+        .name("log".into())
+        .spawn(move || {
+            use std::io::Write;
+            for text in lines {
+                LOGGING_SINCE.store(wall_millis(), Ordering::SeqCst);
+                // a log whose reader has gone drops the line: `eprintln!`
+                // panicked on the broken pipe, losing answers already
+                // committed (fifth production review)
+                if writeln!(std::io::stderr().lock(), "{text}").is_err() {
+                    LINES_DROPPED.fetch_add(1, Ordering::SeqCst);
+                }
+                LOGGING_SINCE.store(0, Ordering::SeqCst);
+                LOG_QUEUED.fetch_sub(1, Ordering::SeqCst);
+            }
+        });
+    send
+}
+
+/// The lines queued written, waited for up to `within`, as the service ends.
+fn log_drained(within: std::time::Duration) {
+    let until = std::time::Instant::now() + within;
+    while LOG_QUEUED.load(Ordering::SeqCst) > 0 && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 }
 
@@ -1145,6 +1174,7 @@ const REQUEST_KEYS: &[&str] = &[
     "propose",
     "expires_at",
     "expected_version",
+    "target_version",
     "principal",
     "idempotency_key",
     "context",
@@ -1280,6 +1310,22 @@ impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
         actor_id(&body)?;
         Ok(Body(body))
     }
+}
+
+/// A request's work, run where it may block, a panic in it answered `500`
+/// and said by the log's panic line, never left to unwind the connection's
+/// task, which kept its place among the open ones for good: twelve panics
+/// under --max-connections 8 answered every request `503 busy` (tenth
+/// production review). A writer it held is poisoned, and opened again by
+/// the next write, as before.
+fn answering<T>(work: impl FnOnce() -> Result<T, Fault>) -> Result<T, Fault> {
+    tokio::task::block_in_place(move || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).unwrap_or_else(|_| {
+            Err(Fault::Internal(
+                "a request panicked; the line above says where".to_string(),
+            ))
+        })
+    })
 }
 
 fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
@@ -1596,7 +1642,7 @@ fn offer(o: &Offer, actor_dependent: bool) -> J {
 
 // ── the sandbox's controls ────────────────────────────────────────────────
 async fn load(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         // the deployment's attempt and idempotency retentions, durations
         let retention = |k: &str| -> Result<Option<i64>, Fault> {
             match text(&body, k)? {
@@ -1648,7 +1694,7 @@ async fn load(State(shared): State<Shared>, Body(body): Body) -> Answer {
 }
 
 async fn reset(State(shared): State<Shared>) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let mut sandbox = locked(&shared)?;
         if sandbox.files.is_empty() {
             return Err(Fault::Conflict(
@@ -1666,7 +1712,7 @@ async fn reset(State(shared): State<Shared>) -> Answer {
 }
 
 async fn clock(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let mut sandbox = locked(&shared)?;
         let s = store(&mut sandbox)?;
         let target = if let Some(by) = text(&body, "advance")? {
@@ -1691,7 +1737,7 @@ async fn clock(State(shared): State<Shared>, Body(body): Body) -> Answer {
 }
 
 async fn evaluators(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let mut sandbox = locked(&shared)?;
         store(&mut sandbox)?;
         if let Some(answers) = object(&body, "answers")? {
@@ -1710,7 +1756,7 @@ async fn evaluators(State(shared): State<Shared>, Body(body): Body) -> Answer {
 
 // ── the library's operations ──────────────────────────────────────────────
 async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let req = request_of(&body)?;
         // a change's dry run, which a `submit` or `refresh` records, computed
         // on a read beside the writes, so no write waits for it; the request
@@ -1759,7 +1805,7 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// The verdict a request would receive, simulated and never written, with
 /// the guards it did not evaluate (`library-api.md` §6, ADR-0054).
 async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let req = request_of(&body)?;
         if req.propose {
             return Err(Fault::Bad(
@@ -1825,7 +1871,7 @@ fn cursor_of(body: &J) -> Result<Option<i64>, Fault> {
 /// A page of the events a subscription selects after a cursor, or its
 /// acknowledged one, and the settled cursor (`library-api.md` §6).
 async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let (Some(_actor), Some(subscription)) = (actor_id(&body)?, text(&body, "subscription")?)
         else {
             return Err(Fault::Bad(
@@ -1888,7 +1934,7 @@ fn limit_of(body: &J) -> Result<usize, Fault> {
 /// The objects an assertion put in their state, the import's excepted, and
 /// those holding an admitted violation (`DESIGN.md` §10).
 async fn exceptions(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let (Some(_actor), Some(type_)) = (actor_id(&body)?, text(&body, "type")?) else {
             return Err(Fault::Bad(
                 "exceptions names its actor and the type".to_string(),
@@ -1904,7 +1950,7 @@ async fn exceptions(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// The objects of a type a transition is offered to, asking no evaluator
 /// (`DESIGN.md` §10, ADR-0048).
 async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let (Some(actor), Some(type_), Some(transition)) = (
             actor_id(&body)?,
             text(&body, "type")?,
@@ -1941,7 +1987,7 @@ async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// Where a type's flow and reality disagree, over a window (`DESIGN.md`
 /// §10, ADR-0160); a type it does not declare is refused, a value.
 async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let (Some(_actor), Some(type_), Some(window)) = (
             actor_id(&body)?,
             text(&body, "type")?,
@@ -1974,7 +2020,7 @@ async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// A maintenance task run outside the retention the store was built with:
 /// the rows it moved or removed, or its refusal, a value (`DESIGN.md` §10).
 async fn maintain(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let task = object(&body, "task")?.map(|_| &body["task"]);
         let (Some(actor), Some(name), Some(before)) = (
             actor_id(&body)?,
@@ -2004,7 +2050,7 @@ async fn maintain(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// A source's rows after a cursor, as JSON lines, every personal value
 /// omitted; a refusal is a value (`library-api.md` §6, ADR-0094).
 async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let (Some(_actor), Some(source)) = (actor_id(&body)?, text(&body, "source")?) else {
             return Err(Fault::Bad(
                 "export names its actor and the source".to_string(),
@@ -2031,7 +2077,7 @@ async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// A subscription's progress moved, back as well as forward; a refusal is
 /// a value (`library-api.md` §6).
 async fn acknowledge(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let (Some(_actor), Some(subscription), Some(cursor)) = (
             actor_id(&body)?,
             text(&body, "subscription")?,
@@ -2097,7 +2143,20 @@ fn request_of(body: &J) -> Result<Request, Fault> {
             Fault::Bad("expected_version takes an object's version, an integer".to_string())
         })?),
     };
+    // for a proposal's approval, the version of the proposed object its
+    // approver read (tenth production review)
+    let target_version = match body.get("target_version") {
+        None | Some(J::Null) => None,
+        Some(v) => Some(v.as_i64().ok_or_else(|| {
+            Fault::Bad("target_version takes an object's version, an integer".to_string())
+        })?),
+    };
     let propose = flag(body, "propose")?;
+    if target_version.is_some() && (propose || text(body, "transition")? != Some("approve")) {
+        return Err(Fault::Bad(
+            "target_version is a proposal's approval's: the version of the proposed object its approver read".to_string(),
+        ));
+    }
     // a proposal's expiry, with `propose` only (library-api.md §3)
     let expires_at =
         match text(body, "expires_at")? {
@@ -2151,6 +2210,7 @@ fn request_of(body: &J) -> Result<Request, Fault> {
         propose,
         expires_at,
         expected_version,
+        target_version,
         principal: principal_of(body)?,
         idempotency_key,
         // why the request was sent and by which route (library-api.md §3)
@@ -2349,7 +2409,7 @@ fn report(r: &ImportReport) -> J {
 }
 
 async fn import_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let Some(actor) = actor_id(&body)? else {
             return Err(Fault::Bad("an import names its actor".to_string()));
         };
@@ -2465,7 +2525,7 @@ fn object_json(s: &Store, id: &str) -> Answer {
 }
 
 async fn get(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         // the argument it needs, a fault and never an absent object (D570)
         let id =
             text(&body, "id")?.ok_or_else(|| Fault::Bad("get names an object's id".to_string()))?;
@@ -2485,7 +2545,7 @@ async fn get(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// A change's dry run, its report the impact a publish would have, or its
 /// approval, which installs it (`library-api.md` §6, ADR-0155).
 async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let (Some(actor), Some(change)) = (actor_id(&body)?, text(&body, "change")?) else {
             return Err(Fault::Bad(
                 "publish names its actor and the change".to_string(),
@@ -2603,7 +2663,7 @@ fn dry_run_late(shared: &Shared) -> Fault {
     // where it blamed the store when the module was (ninth production
     // review)
     Fault::TimedOut(format!(
-        "the change's dry run passed --dry-run-timeout ({} s) and was stopped; a large store or a large change needs a longer one",
+        "the change's dry run passed --dry-run-timeout ({} s), waiting for its slot and running, and was stopped; a large store or a large change needs a longer one, and one that waited behind another's may be sent again",
         shared.dry_run_timeout.as_secs()
     ))
 }
@@ -2644,7 +2704,7 @@ fn preview(world: &objectflow_core::world::World<'_>, actor: &str, change: &str)
 /// The object whose external identifier for a source has a value, a legacy
 /// key among them (`library-api.md` §6, ADR-0154).
 async fn lookup(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let (Some(source), Some(value)) = (text(&body, "source")?, text(&body, "value")?) else {
             return Err(Fault::Bad("lookup names a source and a value".to_string()));
         };
@@ -2659,7 +2719,7 @@ async fn lookup(State(shared): State<Shared>, Body(body): Body) -> Answer {
 }
 
 async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let id = text(&body, "id")?
             .ok_or_else(|| Fault::Bad("history names an object's id".to_string()))?;
         let follow = flag(&body, "follow")?;
@@ -2713,7 +2773,7 @@ async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
 }
 
 async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let Some(positions) = array(&body, "positions")?
             .and_then(|ps| ps.iter().map(J::as_i64).collect::<Option<Vec<i64>>>())
         else {
@@ -2762,7 +2822,7 @@ async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// The tool schemas an agent of a kind is handed, rendered from the
 /// installed version's declaration (`renderers.md` §3, ADR-0173 decision 10).
 async fn tools(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let kind = text(&body, "actor_kind")?
             .filter(|k| objectflow_core::tools::ACTOR_KINDS.contains(k))
             .ok_or_else(|| {
@@ -2778,7 +2838,7 @@ async fn tools(State(shared): State<Shared>, Body(body): Body) -> Answer {
 }
 
 async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let mut r = reading(&shared)?;
         let s = r.store()?;
         let name = text(&body, "type")?.unwrap_or_default();
@@ -2837,7 +2897,7 @@ async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
 }
 
 async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let (Some(actor), Some(id)) = (actor_id(&body)?, text(&body, "id")?) else {
             return Err(Fault::Bad(
                 "availability names its actor and an object's id".to_string(),
@@ -2909,7 +2969,7 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
 /// (`library-api.md` §6, ADR-0127): every object the filter holds for, on
 /// one page, so no cursor; a refusal is a value.
 async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let (Some(_actor), Some(type_)) = (actor_id(&body)?, text(&body, "type")?) else {
             return Err(Fault::Bad("query names its actor and the type".to_string()));
         };
@@ -2974,7 +3034,7 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
 }
 
 async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let (Some(_actor), Some(name)) = (actor_id(&body)?, text(&body, "name")?) else {
             return Err(Fault::Bad(
                 "metric names its actor and the metric".to_string(),
@@ -3047,7 +3107,7 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
     // a store due an upgrade serves nothing but the upgrade, so its health
     // is 503, with what is due (OBSERVE-2)
     let due = |body: J| Ok((StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response());
-    tokio::task::block_in_place(move || {
+    answering(move || {
         // a deployment's health is read beside its writes, never behind one
         // (ADR-0178), from what the writer last held
         if let Some(reads) = &shared.reads {
@@ -3219,7 +3279,7 @@ fn is_operator(world: &objectflow_core::world::World<'_>, actor: &str) -> Result
 /// opened and served. A store at this release already answers that
 /// nothing is due; a sandbox's store is always this release's.
 async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    tokio::task::block_in_place(move || {
+    answering(move || {
         let Some(actor) = actor_id(&body)? else {
             return Err(Fault::Bad(
                 "an upgrade names its actor, an operator of the store".to_string(),
@@ -3963,9 +4023,15 @@ fn main() {
     // debug form (second production review, minor)
     if let Err(e) = ran {
         say!("objectflow-service: {e}");
+        log_drained(LOG_DRAIN);
         std::process::exit(1);
     }
+    // the log's last lines written before the process ends
+    log_drained(LOG_DRAIN);
 }
+
+/// How long the service waits, as it ends, for the log's queued lines.
+const LOG_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// A store refused at its start, its fault said once, and where a `-wal`
 /// or `-shm` lies beside it what a copy restored beside another state's
@@ -4037,6 +4103,7 @@ fn stopping() -> std::io::Result<impl std::future::Future<Output = ()>> {
                 "stopped with requests still in flight after {} s",
                 GRACE.as_secs()
             );
+            log_drained(LOG_DRAIN);
             std::process::exit(1);
         });
     })
@@ -4416,6 +4483,28 @@ fn taken(busy: &std::sync::atomic::AtomicIsize) -> bool {
     .is_ok()
 }
 
+/// A connection's place among the open ones, let go when its task ends,
+/// however it ends.
+struct Leaving {
+    open: Arc<Mutex<Opened>>,
+    id: u64,
+    shared: Shared,
+}
+
+/// The connections open, by the order they were taken: what each is
+/// answering, and how it is told to close.
+type Opened = std::collections::BTreeMap<u64, (Busy, Arc<tokio::sync::Notify>)>;
+
+impl Drop for Leaving {
+    fn drop(&mut self) {
+        self.open
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.id);
+        self.shared.connections.open.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// A request's hold on its connection, let go when its response's body is
 /// written or dropped.
 #[derive(Debug)]
@@ -4635,6 +4724,13 @@ async fn served(
         );
         let (mut closed, open, shared) = (closed.clone(), open.clone(), shared.clone());
         tasks.spawn(async move {
+            // its place among the open ones let go however the task ends, a
+            // panic's unwinding included (tenth production review)
+            let _leaving = Leaving {
+                open: open.clone(),
+                id,
+                shared: shared.clone(),
+            };
             tokio::pin!(serving);
             tokio::select! {
                 _ = serving.as_mut() => {}
@@ -4646,10 +4742,6 @@ async fn served(
                 // begin, so it is dropped, which closes it
                 () = close.notified() => {}
             }
-            open.lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .remove(&id);
-            shared.connections.open.fetch_sub(1, Ordering::SeqCst);
         });
         while tasks.try_join_next().is_some() {}
     }
@@ -4750,7 +4842,15 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
         }
         // a directory that does not exist, among the faults, names the path
         // it was asked for (third production review)
-        let named = |e: std::io::Error| std::io::Error::other(format!("{}: {e}", path.display()));
+        // with what to do, where it gave the system's words alone (tenth
+        // production review)
+        let named = |e: std::io::Error| {
+            std::io::Error::other(format!(
+                "{}: {e}; give the service's user the directory {} and its write permission",
+                path.display(),
+                dir.display()
+            ))
+        };
         std::fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -4893,6 +4993,7 @@ async fn serve() -> std::io::Result<()> {
         Err(why) => {
             // stamped as every other line (fifth production review)
             say!("objectflow-service: {why}");
+            log_drained(LOG_DRAIN);
             eprintln!("{USAGE}");
             std::process::exit(2);
         }
@@ -6339,6 +6440,71 @@ mod tests {
                 "a metric in a filter".into()
             ))),
             StatusCode::NOT_IMPLEMENTED
+        );
+    }
+
+    /// A request's panic is answered `500`, never left to unwind its
+    /// connection's task, and a connection's place among the open ones is let
+    /// go however its task ends, where each panic kept one for good and
+    /// twelve under --max-connections 8 answered every request `503 busy`
+    /// (tenth production review).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::panic)]
+    async fn a_panic_is_answered_and_its_connection_lets_go_of_its_place() {
+        let answered: Result<(), Fault> = answering(|| panic!("a planted panic"));
+        assert!(matches!(answered, Err(Fault::Internal(_))));
+        let shared: Shared = Arc::new(Service {
+            writer: Mutex::new(Sandbox::default()),
+            reads: None,
+            endpoints: std::collections::BTreeMap::new(),
+            tokens: std::collections::BTreeMap::new(),
+            evaluator_timeout: std::time::Duration::from_secs(5),
+            deployment: false,
+            read_timeout: std::time::Duration::from_secs(30),
+            dry_run_timeout: std::time::Duration::from_secs(30),
+            admission: Admission::new(MAX_READS),
+            worklists: Admission::new(MAX_READS),
+            objects: Admission::new(MAX_READS),
+            dry_runs: Admission::for_dry_runs(),
+            agents: Admission::new(MAX_READS),
+            served: Mutex::new(std::collections::BTreeMap::new()),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
+            writer_since: AtomicI64::new(0),
+            connections: Connections::default(),
+            store_path: None,
+            trims: std::sync::atomic::AtomicU64::new(0),
+            trimming: std::sync::atomic::AtomicBool::new(false),
+            store_identity: None,
+            watch: Watch::default(),
+        });
+        let open: Arc<Mutex<Opened>> = Arc::new(Mutex::new(Opened::new()));
+        shared.connections.open.fetch_add(1, Ordering::SeqCst);
+        open.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                7,
+                (
+                    Arc::new(std::sync::atomic::AtomicIsize::new(0)),
+                    Arc::new(tokio::sync::Notify::new()),
+                ),
+            );
+        let task = tokio::spawn({
+            let (open, shared) = (open.clone(), shared.clone());
+            async move {
+                let _leaving = Leaving {
+                    open,
+                    id: 7,
+                    shared,
+                };
+                panic!("a connection's task panicking");
+            }
+        });
+        assert!(task.await.is_err());
+        assert_eq!(shared.connections.open.load(Ordering::SeqCst), 0);
+        assert!(
+            open.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty()
         );
     }
 }

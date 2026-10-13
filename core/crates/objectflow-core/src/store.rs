@@ -1157,6 +1157,73 @@ pub(crate) fn read_log_after(
     rows.collect()
 }
 
+/// An event's head: what a subscription's filter reads of it, and when it
+/// was recorded, without its payload, so choosing a page reads no event
+/// whole that the page does not hold (tenth production review).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Head {
+    pub position: i64,
+    pub transition: String,
+    pub changes_state: bool,
+    pub recorded_at: i64,
+}
+
+impl Head {
+    pub fn of(e: &Event) -> Head {
+        Head {
+            position: e.position,
+            transition: e.transition.clone(),
+            changes_state: e.changes_state,
+            recorded_at: e.recorded_at,
+        }
+    }
+}
+
+/// The heads of the events after a position, of objects of the types
+/// given or of any, in position order, at most `limit`.
+pub(crate) fn read_log_heads_after(
+    conn: &Connection,
+    after: i64,
+    types: Option<&[String]>,
+    limit: usize,
+) -> rusqlite::Result<Vec<Head>> {
+    let mut binds: Vec<Sql> = vec![Sql::Integer(after)];
+    let mut sql = "SELECT of_event.position, of_event.transition, of_event.changes_state, of_event.recorded_at FROM of_event".to_string();
+    match types {
+        Some(types) => {
+            let marks: Vec<String> = types
+                .iter()
+                .map(|t| {
+                    binds.push(Sql::Text(t.clone()));
+                    format!("?{}", binds.len())
+                })
+                .collect();
+            sql.push_str(&format!(
+                " JOIN of_object o ON o.id = of_event.object_id WHERE of_event.position > ?1 AND o.type IN ({})",
+                marks.join(", ")
+            ));
+        }
+        None => sql.push_str(" WHERE of_event.position > ?1"),
+    }
+    binds.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
+    sql.push_str(&format!(
+        " ORDER BY of_event.position LIMIT ?{}",
+        binds.len()
+    ));
+    let mut page = conn.prepare(&sql)?;
+    let rows = page.query_map(rusqlite::params_from_iter(binds), |r| {
+        let position: i64 = r.get(0)?;
+        let recorded: String = r.get(3)?;
+        Ok(Head {
+            position,
+            transition: r.get(1)?,
+            changes_state: r.get::<_, i64>(2)? != 0,
+            recorded_at: time_column(3, &recorded, &format!("event {position}'s recorded_at"))?,
+        })
+    })?;
+    rows.collect()
+}
+
 /// The digest an idempotency record holds once an erasure redacted what its
 /// request sent: the key replays its verdict whatever is sent under it
 /// (fourth production review A-5).
@@ -4802,6 +4869,7 @@ mod tests {
                     propose: false,
                     expires_at: None,
                     expected_version: None,
+                    target_version: None,
                     principal: None,
                     idempotency_key: None,
                     context: None,
@@ -5316,6 +5384,7 @@ types:
                 propose: false,
                 expires_at: None,
                 expected_version: None,
+                target_version: None,
                 principal: None,
                 idempotency_key: None,
                 context: None,

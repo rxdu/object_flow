@@ -64,6 +64,7 @@ fn ask(s: &mut Store, xn: &str, object: Option<&str>, inputs: Json) -> String {
         propose: false,
         expires_at: None,
         expected_version: None,
+        target_version: None,
         principal: None,
         idempotency_key: None,
         context: None,

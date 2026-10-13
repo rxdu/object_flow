@@ -5,7 +5,7 @@
 
 use crate::eval::NotRun;
 use crate::model::SUBSCRIPTION;
-use crate::store::Event;
+use crate::store::{Event, Head};
 use crate::value::Value;
 use crate::world::{Object, World};
 
@@ -62,20 +62,25 @@ pub fn pull_page(
         None => acknowledged(world, s)?,
     };
     // one past the page says another follows
-    let mut events = selected(world, s, from, limit.saturating_add(1))?;
-    let mut more = events.len() > limit;
-    events.truncate(limit);
-    // a page ends at its bytes as at its limit, one event at least, where
-    // 1,000 events of large inputs answered 197 MB (ninth production review
-    // N-9)
+    let mut heads = selected(world, s, from, limit.saturating_add(1))?;
+    let mut more = heads.len() > limit;
+    heads.truncate(limit);
+    // the page's events read whole one at a time, ending at its bytes as at
+    // its limit, one event at least, where 1,000 events of large inputs
+    // answered 197 MB (ninth production review N-9) and every one was read
+    // before the page was cut (tenth production review)
+    let mut events = Vec::new();
     let mut bytes = 0;
-    if let Some(fit) = events.iter().position(|e| {
-        bytes += crate::store::event_bytes(e);
-        bytes >= crate::reads::PAGE_BYTES
-    }) && fit + 1 < events.len()
-    {
-        events.truncate(fit + 1);
-        more = true;
+    for (i, h) in heads.iter().enumerate() {
+        let Some(e) = world.event_at(h.position)? else {
+            continue;
+        };
+        bytes += crate::store::event_bytes(&e);
+        events.push(e);
+        if bytes >= crate::reads::PAGE_BYTES && i + 1 < heads.len() {
+            more = true;
+            break;
+        }
     }
     let settled = if more {
         events.last().map_or(settled, |e| e.position)
@@ -122,11 +127,13 @@ fn types_of(world: &World<'_>, s: &Object) -> Vec<String> {
         .collect()
 }
 
-/// The first `limit` events after a position its filter selects, read from
-/// the log by their objects' types a chunk at a time from the position,
-/// where each pull read the whole log and every object of the type (fourth
-/// production review FEED).
-fn selected(world: &World<'_>, s: &Object, from: i64, limit: usize) -> Result<Vec<Event>, NotRun> {
+/// The heads of the first `limit` events after a position its filter
+/// selects, read from the log by their objects' types a chunk at a time from
+/// the position, where each pull read the whole log and every object of the
+/// type (fourth production review FEED); their heads alone, so choosing them
+/// reads no event whole, where a `get` of a lagging subscription read 256
+/// events of 2 MB (tenth production review).
+fn selected(world: &World<'_>, s: &Object, from: i64, limit: usize) -> Result<Vec<Head>, NotRun> {
     let types = types_of(world, s);
     let mut out = Vec::new();
     if types.is_empty() || limit == 0 {
@@ -135,12 +142,12 @@ fn selected(world: &World<'_>, s: &Object, from: i64, limit: usize) -> Result<Ve
     let chunk = limit.saturating_add(1).max(256);
     let mut at = from;
     loop {
-        let page = world.log_after(at, Some(&types), chunk)?;
+        let page = world.log_heads_after(at, Some(&types), chunk)?;
         let done = page.len() < chunk;
-        for e in page {
-            at = e.position;
-            if selects(s, &e) {
-                out.push(e);
+        for h in page {
+            at = h.position;
+            if selects(s, &h) {
+                out.push(h);
                 if out.len() >= limit {
                     return Ok(out);
                 }
@@ -152,14 +159,14 @@ fn selected(world: &World<'_>, s: &Object, from: i64, limit: usize) -> Result<Ve
     }
 }
 
-fn selects(s: &Object, e: &Event) -> bool {
+fn selects(s: &Object, h: &Head) -> bool {
     let named = match s.attr("transitions") {
         Value::Set(names) if !names.is_empty() => names
             .iter()
-            .any(|n| *n == Value::Text(e.transition.clone())),
+            .any(|n| *n == Value::Text(h.transition.clone())),
         _ => true,
     };
-    let changing = s.attr("changes_state_only") != Value::Bool(true) || e.changes_state;
+    let changing = s.attr("changes_state_only") != Value::Bool(true) || h.changes_state;
     named && changing
 }
 
@@ -169,8 +176,9 @@ fn selects(s: &Object, e: &Event) -> bool {
 /// `dead_after`, derived and never moved into (`DESIGN.md` §7, ADR-0100).
 pub fn lag(world: &World<'_>, s: &Object) -> Result<(i64, bool, bool), NotRun> {
     let from = acknowledged(world, s)?;
-    // the oldest pending is the first, the store's clock never moving back
-    let oldest = selected(world, s, from, 1)?.first().map(|e| e.recorded_at);
+    // the oldest pending is the first, the store's clock never moving back,
+    // its head read and never the event whole (tenth production review)
+    let oldest = selected(world, s, from, 1)?.first().map(|h| h.recorded_at);
     let lag = oldest.map_or(0, |at| (world.now - at).max(0));
     let reached = |threshold: &str| matches!(s.attr(threshold), Value::Duration(d) if lag >= d);
     Ok((lag, reached("lagging_after"), reached("dead_after")))
@@ -307,6 +315,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,

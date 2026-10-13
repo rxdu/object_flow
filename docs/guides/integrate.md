@@ -87,7 +87,7 @@ An `unsatisfied` refusal also says whether its rule was `unknown` (a value nobod
 
 ## Proposals
 
-A transition marked `proposable` can be filed instead of taken: send the request with `"propose": true`, and optionally `expires_at`. The answer names the new `Proposal`. Someone approves it with `{"object_id": "<proposal>", "transition": "approve"}`, which takes the original request as the approver, and `reject` or `withdraw` end it.
+A transition marked `proposable` can be filed instead of taken: send the request with `"propose": true`, and optionally `expires_at`. The answer names the new `Proposal`. Someone approves it with `{"object_id": "<proposal>", "transition": "approve"}`, which takes the original request as the approver, and `reject` or `withdraw` end it. An approval screen shows the proposed object; send its version as `"target_version"`, so an approval of an object that moved since, a payment grown after it was proposed, is refused `stale` rather than run on what the approver never saw.
 
 ## Screens
 

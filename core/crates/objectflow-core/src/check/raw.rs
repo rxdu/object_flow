@@ -164,77 +164,115 @@ pub fn order_errors(doc: &Value) -> Found {
     out
 }
 
-/// Derived attributes of two types MUST NOT read each other in a cycle (the
-/// model's check 3); `.<name>` of another type's derived attribute counts as
-/// a read of it.
+/// Derived attributes MUST NOT read each other in a cycle (the model's check
+/// 3): `.<name>` of a derived attribute the module declares counts as a read
+/// of it, another type's or its own type's through a reference, where
+/// `depth: parent.depth + 1` on a Node whose parent is a Node, a cycle of
+/// parents or a chain of thousands, overflowed the stack on a read (tenth
+/// production review). The reads are found by each expression's names after
+/// a dot, and the search visits each attribute once, iteratively, so neither
+/// a long chain nor many paths makes it long.
 fn derived_cycle_errors(doc: &Value) -> Found {
-    let derived: Vec<(String, Vec<String>)> = types(doc)
+    let order: Vec<(String, String)> = types(doc)
         .into_iter()
-        .map(|(tn, t)| (tn, keys(t, "derived_attributes")))
+        .flat_map(|(tn, t)| {
+            keys(t, "derived_attributes")
+                .into_iter()
+                .map(move |d| (tn.clone(), d))
+        })
         .collect();
-    let mut edges: BTreeMap<(String, String), Vec<(String, String)>> = BTreeMap::new();
-    let mut order: Vec<(String, String)> = Vec::new();
-    for (tn, t) in types(doc) {
-        for (d, spec) in obj(t, "derived_attributes") {
-            let text = squash(&spec.get("expression").map(py_str).unwrap_or_default());
-            let mut to = Vec::new();
-            for (u, names) in &derived {
-                if *u == tn {
-                    continue;
-                }
-                for e in names {
-                    if re(&format!(r"\.{}\b", regex::escape(e))).is_match(&text) {
-                        to.push((u.clone(), e.clone()));
-                    }
-                }
-            }
-            edges.insert((tn.clone(), d.clone()), to);
-            order.push((tn.clone(), d.clone()));
-        }
+    let index: BTreeMap<&(String, String), usize> =
+        order.iter().enumerate().map(|(i, n)| (n, i)).collect();
+    let mut by_name: BTreeMap<&str, Vec<&(String, String)>> = BTreeMap::new();
+    for node in &order {
+        by_name.entry(node.1.as_str()).or_default().push(node);
+    }
+    let typed: BTreeMap<String, &Value> = types(doc).into_iter().collect();
+    let mut edges: BTreeMap<&(String, String), Vec<&(String, String)>> = BTreeMap::new();
+    for node in &order {
+        let spec = typed
+            .get(&node.0)
+            .and_then(|t| obj(t, "derived_attributes").get(&node.1).cloned());
+        let text = squash(
+            &spec
+                .as_ref()
+                .and_then(|s| s.get("expression"))
+                .map(py_str)
+                .unwrap_or_default(),
+        );
+        let named: BTreeSet<&str> = AFTER_DOT
+            .captures_iter(&text)
+            .filter_map(|m| m.get(1).map(|g| g.as_str()))
+            .collect();
+        let mut to: Vec<&(String, String)> = named
+            .iter()
+            .flat_map(|nm| by_name.get(nm).into_iter().flatten().copied())
+            .collect();
+        to.sort_by_key(|n| index.get(n).copied().unwrap_or(usize::MAX));
+        edges.insert(node, to);
     }
     let mut out = Found::new();
-    let mut done: BTreeSet<(String, String)> = BTreeSet::new();
-    fn visit(
-        node: &(String, String),
-        trail: &mut Vec<(String, String)>,
-        edges: &BTreeMap<(String, String), Vec<(String, String)>>,
-        done: &mut BTreeSet<(String, String)>,
-        out: &mut Found,
-    ) {
-        if let Some(at) = trail.iter().position(|n| n == node) {
-            let mut ring: Vec<(String, String)> = trail[at..].to_vec();
-            ring.push(node.clone());
-            if !ring.iter().all(|r| done.contains(r)) {
-                done.extend(ring.iter().cloned());
-                let names: Vec<String> = ring.iter().map(|(u, e)| format!("{u}.{e}")).collect();
-                out.push(finding(
-                    segs![
-                        "types",
-                        &node.0,
-                        "derived_attributes",
-                        &node.1,
-                        "expression"
-                    ],
-                    "order",
-                    format!(
-                        "derived attributes read each other in a cycle: {}",
-                        names.join(" → ")
-                    ),
-                ));
+    let mut reported: BTreeSet<&(String, String)> = BTreeSet::new();
+    // 1 on the search's path, 2 done
+    let mut state: BTreeMap<&(String, String), u8> = BTreeMap::new();
+    for start in &order {
+        if state.contains_key(start) {
+            continue;
+        }
+        let mut trail: Vec<&(String, String)> = vec![start];
+        let mut stack: Vec<(&(String, String), usize)> = vec![(start, 0)];
+        state.insert(start, 1);
+        while let Some((node, k)) = stack.last().copied() {
+            let nexts = edges.get(node).map_or(&[][..], Vec::as_slice);
+            if k == nexts.len() {
+                stack.pop();
+                trail.pop();
+                state.insert(node, 2);
+                continue;
             }
-            return;
+            if let Some(top) = stack.last_mut() {
+                top.1 = k + 1;
+            }
+            let next = nexts[k];
+            match state.get(next) {
+                Some(1) => {
+                    let at = trail.iter().position(|n| *n == next).unwrap_or(0);
+                    let mut ring: Vec<&(String, String)> = trail[at..].to_vec();
+                    ring.push(next);
+                    if !ring.iter().all(|r| reported.contains(r)) {
+                        reported.extend(ring.iter().copied());
+                        let names: Vec<String> =
+                            ring.iter().map(|(u, e)| format!("{u}.{e}")).collect();
+                        out.push(finding(
+                            segs![
+                                "types",
+                                &next.0,
+                                "derived_attributes",
+                                &next.1,
+                                "expression"
+                            ],
+                            "order",
+                            format!(
+                                "derived attributes read each other in a cycle: {}",
+                                names.join(" → ")
+                            ),
+                        ));
+                    }
+                }
+                Some(_) => {}
+                None => {
+                    state.insert(next, 1);
+                    trail.push(next);
+                    stack.push((next, 0));
+                }
+            }
         }
-        trail.push(node.clone());
-        for next in edges.get(node).into_iter().flatten() {
-            visit(next, trail, edges, done, out);
-        }
-        trail.pop();
-    }
-    for node in &order {
-        visit(node, &mut Vec::new(), &edges, &mut done, &mut out);
     }
     out
 }
+
+/// A name after a dot, as an expression reads a member.
+static AFTER_DOT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| re(r"\.(\w+)"));
 
 /// A base is declared and abstract, extending never comes back to itself, a
 /// subtype does not redeclare what it inherits, a type with objects has a

@@ -41,7 +41,7 @@ MAX_BODY = 4 * 1024 * 1024
 # outside them is a fault, so a misspelt one is never read as absent
 # (ADR-0173 decision 12, D555)
 REQUEST_KEYS = ("transition", "actor", "object_id", "type", "inputs",
-                "occurred_at", "propose", "expires_at", "expected_version",
+                "occurred_at", "propose", "expires_at", "expected_version", "target_version",
                 "principal", "idempotency_key", "context")
 TAKES = {
     "/v1/request": REQUEST_KEYS, "/v1/check": REQUEST_KEYS,

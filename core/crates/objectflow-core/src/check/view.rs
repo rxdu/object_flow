@@ -369,12 +369,12 @@ impl View {
         if first != "types" {
             return Some(path.to_vec());
         }
-        let kind = obj(&self.doc, "types")
-            .get(name)
-            .cloned()
-            .unwrap_or(Value::Null);
+        // read where they are, where each path mapped back cloned its type
+        // whole, twice (tenth production review)
+        static NONE: Value = Value::Null;
+        let kind = obj(&self.doc, "types").get(name).unwrap_or(&NONE);
         if let (Some(Seg::Key(k)), Some(Seg::Key(n))) = (path.get(2), path.get(3))
-            && inherited(&kind, k, n)
+            && inherited(kind, k, n)
         {
             return None;
         }
@@ -386,11 +386,11 @@ impl View {
             out.extend(path[2..].iter().cloned());
             return Some(out);
         }
-        let raw = self.raw_types.get(name).cloned().unwrap_or(Value::Null);
-        if flag(&raw, "state_machine")
+        let raw = self.raw_types.get(name).unwrap_or(&NONE);
+        if flag(raw, "state_machine")
             && let (Some(Seg::Key(section)), Some(Seg::Key(member))) = (path.get(2), path.get(3))
             && ["states", "transitions", "conditions"].contains(&section.as_str())
-            && !obj(&raw, section).contains_key(member)
+            && !obj(raw, section).contains_key(member)
         {
             return None;
         }

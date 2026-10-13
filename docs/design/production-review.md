@@ -1,6 +1,6 @@
 # Is ObjectFlow production-ready? The review before 1.0.0
 
-Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10), the seventh at `7d050a6` (§11), the eighth at `13f9bbf` (§12) and the ninth at `0ce1b3c` (§13).
+Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10), the seventh at `7d050a6` (§11), the eighth at `13f9bbf` (§12), the ninth at `0ce1b3c` (§13) and the tenth at `093d743` (§14).
 
 ## 1. What "production" meant, and how it was reviewed
 
@@ -258,4 +258,31 @@ Minors: an agent on the wire rejecting, withdrawing, reopening, refreshing and r
 ### What the ninth review asks
 
 The author's standing instruction decides what the findings ask (ADR-0196); the majors are fixed, then a tenth review, or the author's acceptance of what remains.
+
+## 14. The tenth review, after the ninth's fixes
+
+At commit `093d743`, 2026-10-13, not yet pushed, every gate of `scripts/check-all` passed on it: two new cold reviewers, an operator and an adversary, each in a checkout of its own with the release binary built from it, given the ninth review's findings to re-check, on copies of the same 37,154-object store and the six-year store, and the third review's go-live tools without their runs. Their logs and reports stayed in the session's scratch directory, which is not kept; what they found is here.
+
+**Verdicts: both NO-GO; the adversary found one blocker and four majors, the operator one major.** Neither met a corrupted store or a lost acknowledged write: `kill -9` and SIGTERM during writes and a publish lost nothing, about 3,400 hostile values on every key answered without a `500`, an erasure left nothing in files, answers, exports, attempts or the log once cut, and with `taken_by` and `publishing` declared the flow failed closed for agents.
+
+### The ninth review's findings, re-checked
+
+Fixed, measured by both: N-4 (a draft of 100,000 keys answered in 0.14 to 0.18 s, writes beside it at most 0.16 s), N-10 (an erasure beside a long check gone from both files within 5.2 s, the `-wal` cut back), the stall's log line as the wait begins, `publish` as a request `not_requestable`, a metric filter that is no boolean `malformed_filter`, whole-type queries among the analytics, the operator as `OPERATOR` for `upgrade`, `personal_dropped`, the dry-run slot's message, a token's line break, the evaluator's timeout, the query's bounds, the start's notices and the guides. N-9 fixed for answers and open for memory (a page read its limit whole before cutting at 8 MiB); N-8 fixed for the shapes named and open for a type's transitions (8,000 checked in 70 s and their approval held writes 71 s). Still open as decided: a backup copied over a running service's file.
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| D-RECURSE | A derived attribute reading itself through a reference, which both checkers accepted, overflowed the stack and aborted the whole service on a `get`: a chain of about 4,000 nodes, or two nodes in a cycle, which persists, so every restart died at the next read | measured by the adversary; read | blocker |
+| MEM-EVENTS | A subscription's lag read 256 events whole on every `get` and `availability` (eight `get`s at once 3.3 GB on 2 MB events), and `pull` and `export` read their limit before cutting a page (four exports at once 4.4 GB) | measured by the adversary; read | major |
+| PROPOSAL-RACE | A proposal executed on its object as approval found it: an agent proposed sending USD 5.00, grew the payment, and a person's approval sent USD 5,000,000; the `expected_version` sent with the proposal was not kept | measured by the adversary | major |
+| PANIC-SLOT | A panic in a request kept its connection's place for good: an identifier's width of a million, which the checkers accepted, panicked each creation, and twelve panics under `--max-connections 8` answered every request `503 busy` until a restart | measured by the adversary; read | major |
+| N-8 rest | A change's checks quadratic in a type's transitions, 8,000 checked in 70 s and their approval holding every write 71 s | measured by the adversary | major |
+| LOG-FREEZE | A log reader that stopped reading froze every request, `/health` included, for as long as it stopped: two requests each holding standard error's lock stop both of the runtime's threads | measured by the operator; read | major |
+
+Measuring the fixes found two more of N-8's kind: a chain of derived attributes typed in cubic time (1,000 in 171 s), and a dry run on the 37k-object store growing about 13 ms for each type a change adds (1,000 types in 14.5 s). Minors: an agent's `submit` of a person's draft and its `corrects` of a person's label; a failed `--create` in an unwritable directory said in the system's words; a small change waiting behind a large one's dry run told its store or change was large; an export page's memory 24 times its size; the approval holding writes 25 s on six years under load; a check answering `satisfied` beside an evaluator it did not ask; derived money past 18 digits; `history` with `follow` reading the group on each page; an idempotency key outliving an erasure; an imported identifier not matching its format; refused attempts and ids after a restore; `--create` before the socket's path is checked; a copied-in store's `-wal` and `-shm` modes; a failed checkpoint blamed on a read; logs without a request's id; `/metrics` and the log unpromised; the guides' call over the socket, backup schedule, `maintain` schedule and log volume.
+
+### What the tenth review asks
+
+The author's standing instruction decides what the findings ask (ADR-0197); the blocker and the majors are fixed, then an eleventh review, or the author's acceptance of what remains.
 

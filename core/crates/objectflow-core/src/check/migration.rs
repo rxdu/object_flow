@@ -272,9 +272,9 @@ pub fn final_admission_notes(doc: &Value, v: &Value) -> Found {
     {
         let invariant = str_or(adm, "invariant", "");
         let (tn, inv) = invariant.split_once('.').unwrap_or((&invariant, ""));
-        let t = kinds.get(tn).cloned().unwrap_or(Value::Null);
-        let states = obj(&t, "states");
-        let expr = obj(&t, "invariants")
+        let t = kinds.get(tn).unwrap_or(&super::doc::NULL);
+        let states = obj(t, "states");
+        let expr = obj(t, "invariants")
             .get(inv)
             .map(|i| str_or(i, "expression", ""))
             .unwrap_or_default();

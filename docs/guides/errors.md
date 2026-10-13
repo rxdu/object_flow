@@ -51,7 +51,7 @@ Every refusal carries a `remedy`: what the caller can do about it.
 | `unknown_transition` | The type has no transition of that name. | `transition` |
 | `not_requestable` | The transition runs only as part of another, or through its own operation, as a change's `publish` runs through `publish`. | `parents` (the transitions or operation that run it) |
 | `not_proposable` | A proposal (`"propose": true`) of a transition not marked `proposable`. | none |
-| `stale` | The object moved on, or the store stayed locked. | `cause`: `expected_version` with `expected` and `actual` (re-read, then decide again), or `retries_exhausted` (remedy `temporal`: another process held the store's write lock too long) |
+| `stale` | The object moved on, or the store stayed locked. | `cause`: `expected_version` with `expected` and `actual` (re-read, then decide again; an approval's `target_version` is refused the same way), or `retries_exhausted` (remedy `temporal`: another process held the store's write lock too long) |
 | `not_found` | The object does not exist. | none |
 | `over_limit` | A loop or cascade would pass its declared bound. Nothing was done. | `loop`, `bound` |
 | `call_refused` | A transition this one calls on another object was refused. | `step`, `object_id`, `verdict` (that transition's own verdict, whole) |

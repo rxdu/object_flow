@@ -11530,6 +11530,69 @@
   "could_violate": {}
  },
  {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "node.yaml",
+    "ea2e7f92051bb13b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "node.yaml",
+    13,
+    "fatal",
+    "order",
+    "derived attributes read each other in a cycle: Node.depth → Node.depth"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "chain.yaml",
+    "2d4c200734a2722d"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "wide.yaml",
+    "237c3dec17d3cf6d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "wide.yaml",
+    11,
+    "fatal",
+    "names",
+    "T.code's format has {n:1000000}, wider than the 20 digits a number is padded to at most"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "mirror_identifier_self_test",
   "files": [
    [

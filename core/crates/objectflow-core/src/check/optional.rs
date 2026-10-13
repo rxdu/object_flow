@@ -34,7 +34,7 @@ pub struct OptionalReads<'l> {
     lib: &'l Obj,
     tn: String,
     x: Value,
-    t: Value,
+    t: &'l Value,
     derived_seen: Vec<(String, String)>,
     present: BTreeSet<String>,
     /// Each optional read, by the text it is matched on, with why.
@@ -70,7 +70,7 @@ impl<'l> OptionalReads<'l> {
         derived_seen: Vec<(String, String)>,
     ) -> OptionalReads<'l> {
         let x = x.cloned().unwrap_or(Value::Object(Default::default()));
-        let t = lib.get(tn).cloned().unwrap_or(Value::Null);
+        let t = lib.get(tn).unwrap_or(&super::doc::NULL);
         let froms = if matches!(kind(&x), "external" | "internal") {
             sources(&x)
         } else {
@@ -79,7 +79,7 @@ impl<'l> OptionalReads<'l> {
         let required: Vec<BTreeSet<String>> = froms
             .iter()
             .map(|st| {
-                let state = obj(&t, "states").get(st).cloned().unwrap_or(Value::Null);
+                let state = obj(t, "states").get(st).cloned().unwrap_or(Value::Null);
                 super::doc::strings(&state, "required_attributes")
                     .into_iter()
                     .collect()
@@ -152,8 +152,8 @@ impl<'l> OptionalReads<'l> {
     /// The type of a member read, noting it if it may be absent.
     fn attribute(&mut self, tn: &str, m: &str, key: &str, own: bool) -> Option<String> {
         self.members.insert((tn.to_string(), m.to_string()));
-        let t = self.lib.get(tn).cloned().unwrap_or(Value::Null);
-        if let Some(spec) = obj(&t, "attributes").get(m).filter(|s| !s.is_null()) {
+        let t = self.lib.get(tn).unwrap_or(&super::doc::NULL);
+        if let Some(spec) = obj(t, "attributes").get(m).filter(|s| !s.is_null()) {
             let reference = spec.get("reference").map(py_str).unwrap_or_default();
             if flag(spec, "optional")
                 && spec.get("default").is_none()
@@ -165,10 +165,10 @@ impl<'l> OptionalReads<'l> {
             return (!reference.is_empty()).then_some(reference);
         }
         let seen = (tn.to_string(), m.to_string());
-        if obj(&t, "derived_attributes").contains_key(m) {
+        if obj(t, "derived_attributes").contains_key(m) {
             self.derived.insert(seen.clone());
         }
-        if let Some(d) = obj(&t, "derived_attributes").get(m)
+        if let Some(d) = obj(t, "derived_attributes").get(m)
             && !self.derived_seen.contains(&seen)
         {
             let mut chain = self.derived_seen.clone();
@@ -240,7 +240,7 @@ impl<'l> OptionalReads<'l> {
                         let r = declared.get("reference").map(py_str).unwrap_or_default();
                         return (!r.is_empty()).then_some(r);
                     }
-                    let spec = obj(&self.t, "attributes")
+                    let spec = obj(self.t, "attributes")
                         .get(m)
                         .cloned()
                         .unwrap_or(Value::Null);

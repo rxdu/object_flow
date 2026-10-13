@@ -636,6 +636,12 @@ Findings from every review of this design. It began as the implementation-readin
 | [D622](#d622) | A page of `query`, `pull` or `export` had no bound in bytes | Resolved |
 | [D623](#d623) | A change's checks grew with the square of the types it declares | Resolved |
 | [D624](#d624) | A stalled write's log line waited for the writer it was about | Resolved |
+| [D625](#d625) | A derived attribute reading itself through a reference aborted the service | Resolved |
+| [D626](#d626) | A subscription's reads held whole events they did not answer | Resolved |
+| [D627](#d627) | An approval ran on what its approver never saw | Resolved |
+| [D628](#d628) | A request's panic kept its connection's place for good | Resolved |
+| [D629](#d629) | A change's checks and a dry run's impact grew faster than what they read | Resolved |
+| [D630](#d630) | A log reader that stopped reading froze every request | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4043,3 +4049,33 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **A stalled write's log line waited for the writer it was about**: ADR-0195 decision 6's line was said on the log's cut's tick, which then took the writer, so a tick that fell within a write's first wait found no stall and waited for the whole of it; the line came only once the write gave up, and never in a stall of 30 s; its test asserted the line eventually, not while the write waited. Found 2026-10-13 by both of the ninth production review's reviewers.
 
 **Resolved** 2026-10-13: the stall is looked for on a tick of its own, every second, reading only what the store tells (ADR-0196 decision 3). `a_stall_is_said_in_the_log_as_it_waits`, with a busy timeout as long as the cut's look, fails twice in two runs with the line moved back.
+
+### D625
+**A derived attribute reading itself through a reference aborted the service**: `depth: parent.depth + 1` on a `Node` whose `parent` is a `Node` passed both checkers, which counted cycles among derived attributes of different types only, and its evaluation recursed once per node: a chain of about 4,000 overflowed the stack and aborted the service on a `get`, and two nodes in a cycle, which persists, aborted every restart at the next read. Found 2026-10-13 by the tenth production review's adversary (D-RECURSE).
+
+**Resolved** 2026-10-13: both checkers refuse such a cycle, finding reads by an expression's names after a dot and searching iteratively, each attribute once; an evaluation inside 64 derived attributes reached through references gives the next no value (ADR-0197 decision 1). `a_recursive_derived_value_and_a_wide_identifier_stop_without_a_crash` overflows the stack with the bound removed; a plant in the reference checker, held over the core by the oracle, fails with the same-type reads skipped.
+
+### D626
+**A subscription's reads held whole events they did not answer**: its lag read 256 events whole on every `get` and `availability`, in no pool, and `pull` and `export` read their limit of events before cutting a page at 8 MiB: eight `get`s of a lagging subscription peaked at 3.3 GB on events of 2 MB, four exports at once at 4.4 GB. Found 2026-10-13 by the tenth production review's adversary (MEM-EVENTS), the rest of D622.
+
+**Resolved** 2026-10-13: the selection reads events' heads, the lag never an event, a page of `pull` its events one at a time and of `export` the log 16 at a time, each to its bytes (ADR-0197 decision 2). `a_subscriptions_reads_hold_only_the_events_they_answer`, by a count of events read whole, fails with heads read whole and with an export reading its limit first.
+
+### D627
+**An approval ran on what its approver never saw**: a proposal executes on its object as approval finds it, so an agent proposed sending USD 5.00, grew the payment by a transition open to it, and a person's approval sent USD 5,000,000, with no way for the approval to name what it read. Found 2026-10-13 by the tenth production review's adversary (PROPOSAL-RACE).
+
+**Resolved** 2026-10-13: an approval may name `target_version`, refused `stale` where the object moved since, in both backends; a pin at filing was built first and withdrawn, as it refused a proposal filed before its object reached its transition's state, which the design allows (ADR-0197 decision 3). `test_an_approval_naming_what_its_approver_read_is_held_to_it_alike` fails in either backend with the check removed.
+
+### D628
+**A request's panic kept its connection's place for good**: a connection's place was let go by the last line of its task, which a panic unwound past, and an identifier's width of a million, which both checkers accepted, panicked each creation in the formatter: twelve panics under `--max-connections 8` answered every request `503 busy` until a restart. Found 2026-10-13 by the tenth production review's adversary (PANIC-SLOT).
+
+**Resolved** 2026-10-13: every handler's panic is answered `500`, a guard lets the place go however its task ends, and a width is at most 20 digits, refused by both checkers and as not run at run time (ADR-0197 decision 4). `a_panic_is_answered_and_its_connection_lets_go_of_its_place` fails with either half removed; the recursion test panics with the run-time bound removed.
+
+### D629
+**A change's checks and a dry run's impact grew faster than what they read**: the checkers cloned a type whole for each transition, attribute and finding and copied every name for each expression's scope, so 8,000 transitions on one type checked in 70 s and their approval held every write 71 s, and a chain of 1,000 derived attributes typed in 171 s; and each object's lookup by key walked every type of the library, so a change adding 1,000 types dry-ran in 14.5 s on the 37k-object store. Found 2026-10-13 by the tenth production review's adversary (the rest of N-8) and the operator, and in measuring the fix.
+
+**Resolved** 2026-10-13: types read in place, scopes described, derived typing bounded at 64, and a world finding each type's family once (ADR-0197 decision 5). On release builds 8,000 transitions check in 0.57 s, a 3,000-attribute chain in 0.81 s, and 1,000 added types dry-run in 2.2 s on the store; six other shapes measured linear. `a_dry_runs_impact_does_not_walk_every_type_for_each_object` fails with the family cache removed.
+
+### D630
+**A log reader that stopped reading froze every request**: each line was written by its caller holding standard error's lock, so with the pipe full two requests stopped both of the runtime's threads and every request with them, `/health` on `--metrics-bind` included, where the guide said no request waits on the log. Found 2026-10-13 by the tenth production review's operator (LOG-FREEZE).
+
+**Resolved** 2026-10-13: a thread of its own writes the log from a queue of 4,096 lines, a line past it dropped and counted; `/health` reads the thread's write as `log_blocked`, and the service drains the queue as it ends (ADR-0197 decision 6). `a_log_no_one_reads_is_said_and_stops_no_request`, four clients at once, fails with the line written by its caller.

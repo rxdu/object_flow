@@ -47,8 +47,8 @@ Dates and times stay within 0001-01-01 to 9999-12-31T23:59:59Z. An effect that w
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `request` | `actor`, `transition`; `type` to create, or `object_id`; `inputs`, `expected_version`, `idempotency_key`, `occurred_at`, `propose`, `expires_at`, `principal`, `context` | a verdict |
-| `check` | the same | `{"verdict": …, "unevaluated": […]}`: the verdict the request would get, nothing written |
+| `request` | `actor`, `transition`; `type` to create, or `object_id`; `inputs`, `expected_version`, `target_version`, `idempotency_key`, `occurred_at`, `propose`, `expires_at`, `principal`, `context` | a verdict |
+| `check` | the same | `{"verdict": …, "unevaluated": […]}`: the verdict the request would get, nothing written; `unevaluated` names the evaluators it did not ask, whose guards may still refuse the request |
 
 ```json
 POST /v1/request
@@ -60,7 +60,8 @@ POST /v1/request
 
 - `inputs`: the transition's inputs, by name, in the notation above.
 - `expected_version`: the version the caller read. If the object has moved on, the request is refused `stale`.
-- `idempotency_key`: at most 256 bytes. The same request under the same key, from the same actor, answers its first verdict with `"replayed": true`; a different request under it is a `409 key_reused` fault. The key belongs to the actor: another actor's request under it is a request of its own. Once an erasure has removed what a request sent, its key answers its first verdict whatever is sent under it, so a key confirms no guess of an erased value.
+- `idempotency_key`: at most 256 bytes. The same request under the same key, from the same actor, answers its first verdict with `"replayed": true`; a different request under it is a `409 key_reused` fault. The key belongs to the actor: another actor's request under it is a request of its own. Once an erasure has removed what a request sent, its key answers its first verdict whatever is sent under it, so a key confirms no guess of an erased value. An erasure does not reach the key itself: make keys of ids or random values, never of a name or other personal data.
+- `target_version`: on a proposal's `approve` only, the version of the proposed object its approver read. An approval finding the object moved since is refused `stale`, so what a person approves is what runs; without it, the approval runs on the object as it stands. On any other request it is a `400`.
 - `occurred_at`: when the change happened, if earlier than now, within the transition's `backdating_limit`.
 - `propose`: `true` files the request as a `Proposal` instead of taking it, for a transition marked `proposable`. The verdict names the proposal. A person approves it with `{"object_id": "<proposal>", "transition": "approve"}`, which takes the request as the approver. `reject`, and `withdraw` by anyone but its proposer, are held to the kinds the transition's `taken_by` names. The proposal records its `proposer` by identity.
 - `expires_at`: when a proposal lapses, with `propose` only.

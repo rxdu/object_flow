@@ -183,7 +183,7 @@ def requested(store, xn, oid, actor, inputs, flows=None, read_evidence=None):
     # a change another actor drafted is moved on only by one that may approve the next version, as approving it is
     # refused, where an agent rejected, reopened and revised a person's (ninth production review N-1, ADR-0196
     # decision 5)
-    if (oid is not None and xn in ("revise", "reopen", "refresh", "withdraw", "reject")
+    if (oid is not None and xn in ("revise", "submit", "reopen", "refresh", "withdraw", "reject")
             and store.objects[oid].attrs.get("drafted_by") != identity
             and not may_approve(installed_approvers(store, flows) if flows is not None else None, kind)
             and store.type_of(actor) != "Operator"):

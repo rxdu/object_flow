@@ -52,6 +52,12 @@ pub struct Request {
     /// The version of the object its caller read, the optimistic check of
     /// ADR-0023: a request finding it moved is refused as `stale`.
     pub expected_version: Option<i64>,
+    /// For a proposal's approval, the version of the proposed object its
+    /// approver read: an approval finding it moved is refused as `stale`,
+    /// where an agent grew a payment it had proposed to send and a person's
+    /// approval sent the grown amount (tenth production review). Read by no
+    /// other request.
+    pub target_version: Option<i64>,
     /// The principal its actor acts for, an object's id or the identity it
     /// holds, recorded and never read by a rule (`DESIGN.md` §5.8).
     pub principal: Option<String>,
@@ -2899,7 +2905,10 @@ fn decide_change(
     // reopened and revised a person's (ninth production review N-1, ADR-0196
     // decision 5)
     if let Some(h) = held
-        && matches!(xn, "revise" | "reopen" | "refresh" | "withdraw" | "reject")
+        && matches!(
+            xn,
+            "revise" | "submit" | "reopen" | "refresh" | "withdraw" | "reject"
+        )
         && h.attr("drafted_by") != Value::Text(who.id.clone())
         && !crate::store::may_approve(lib, &who.kind)
         && !crate::store::is_the_operator(world, &req.actor)?
@@ -3234,6 +3243,20 @@ fn decide_proposal(
             state: "expired".into(),
         });
     }
+    // the proposed object as its approver read it: one moved since is
+    // refused `stale`, so what a person approves is what runs (tenth
+    // production review)
+    if to == "EXECUTED"
+        && let Some(read) = req.target_version
+        && let Value::Text(target) = p.attr("target")
+        && let Some(now) = world.get(&target)?.map(|o| o.version)
+        && now != read
+    {
+        return refused(Verdict::Stale {
+            expected: read,
+            actual: now,
+        });
+    }
     // the proposal's own event, first
     let position = alloc.position();
     alloc.txn();
@@ -3316,6 +3339,7 @@ fn decide_proposal(
         propose: false,
         expires_at: None,
         expected_version: None,
+        target_version: None,
         principal: req.principal.clone(),
         idempotency_key: None,
         // the proposer's reason, which its execution records
@@ -4113,6 +4137,15 @@ fn mint(
                 let (name, width) = inner.split_once(':').unwrap_or((inner, ""));
                 if name == "n" {
                     let w: usize = width.parse().unwrap_or(0);
+                    // a width a number can fill, where one of a million
+                    // panicked in the formatter (tenth production review)
+                    if w > crate::model::IDENTIFIER_WIDTH {
+                        return not_run(format!(
+                            "the format {}, whose width passes {}",
+                            ident.format,
+                            crate::model::IDENTIFIER_WIDTH
+                        ));
+                    }
                     out.push_str(&format!("{n:0w$}"));
                 } else {
                     match field(name)? {
@@ -5670,6 +5703,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,
@@ -5765,6 +5799,7 @@ types:
                 propose,
                 expires_at: None,
                 expected_version: version,
+                target_version: None,
                 principal: None,
                 idempotency_key: None,
                 context: None,
@@ -5782,6 +5817,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: Some(7),
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,
@@ -5841,6 +5877,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,
@@ -6021,6 +6058,7 @@ types:
                 propose: false,
                 expires_at: None,
                 expected_version: None,
+                target_version: None,
                 principal: principal.map(str::to_string),
                 idempotency_key: None,
                 context: None,
@@ -6148,6 +6186,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,
@@ -6195,6 +6234,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,
@@ -6951,6 +6991,7 @@ types:
                 propose: false,
                 expires_at: None,
                 expected_version: None,
+                target_version: None,
                 principal: None,
                 idempotency_key: None,
                 context: None,
@@ -7814,6 +7855,7 @@ types:
                 propose: true,
                 expires_at,
                 expected_version: None,
+                target_version: None,
                 principal: None,
                 idempotency_key: None,
                 context: None,
@@ -7957,6 +7999,7 @@ types:
                 propose: true,
                 expires_at: Some(s.now + 60),
                 expected_version: None,
+                target_version: None,
                 principal: None,
                 idempotency_key: None,
                 context: None,
@@ -8176,6 +8219,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: None,
             context: None,
@@ -8363,6 +8407,7 @@ types:
                     propose: false,
                     expires_at: None,
                     expected_version: None,
+                    target_version: None,
                     principal: None,
                     idempotency_key: None,
                     context: None,
@@ -8463,6 +8508,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: version,
+            target_version: None,
             principal: None,
             idempotency_key: Some(key.to_string()),
             context: None,
@@ -8787,6 +8833,7 @@ types:
                 propose,
                 expires_at: None,
                 expected_version: None,
+                target_version: None,
                 principal: None,
                 idempotency_key: None,
                 context: Some(context.to_string()),
@@ -8910,6 +8957,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: Some("k".into()),
             context: Some("first".into()),
@@ -8959,6 +9007,7 @@ types:
             propose: false,
             expires_at: None,
             expected_version: None,
+            target_version: None,
             principal: None,
             idempotency_key: Some("k".into()),
             context: None,
@@ -10368,6 +10417,171 @@ types:
         assert!(s.events_within(&positions[..10]).unwrap().is_ok());
     }
 
+    /// A subscription's lag reads no event whole, and a page of `pull` or of
+    /// the log's `export` reads whole only the events it holds and one chunk
+    /// more, where a `get` of a lagging subscription read 256 events whole
+    /// and a page read its limit before cutting at its bytes (tenth
+    /// production review).
+    #[test]
+    fn a_subscriptions_reads_hold_only_the_events_they_answer() {
+        let text = r#"
+module: notes
+categories: [live]
+types:
+  Note:
+    attributes:
+      text: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      jot: { kind: initial, to: OPEN, optional_inputs: [text] }
+"#;
+        let lib = Library::load(&[("notes.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let sub = created(&req(
+            &mut s,
+            "subscribe",
+            OPERATOR,
+            (crate::model::SUBSCRIPTION, true),
+            json!({"target_type": "Note", "target_family": false}),
+        ));
+        let big = "x".repeat(60_000);
+        for _ in 0..300 {
+            created(&req(
+                &mut s,
+                "jot",
+                OPERATOR,
+                ("Note", true),
+                json!({"text": big}),
+            ));
+        }
+        s.now += 3600;
+        let w = s.snapshot().unwrap();
+        let o = w.get(&sub).unwrap().unwrap().clone();
+        let before = crate::world::events_read();
+        let (lag, _, _) = crate::subscription::lag(&w, &o).unwrap();
+        assert!(lag >= 3600, "{lag}");
+        assert_eq!(
+            crate::world::events_read() - before,
+            0,
+            "the lag read events whole"
+        );
+        let before = crate::world::events_read();
+        let page = crate::subscription::pull_page(&w, &sub, None, 30).unwrap();
+        assert_eq!(page.events.len(), 30);
+        assert!(
+            crate::world::events_read() - before <= 30,
+            "a pull of 30 read {}",
+            crate::world::events_read() - before
+        );
+        let before = crate::world::events_read();
+        let out = crate::export::export_page(&w, "log", Some("0"), 1000).unwrap();
+        let read = crate::world::events_read() - before;
+        assert!(
+            read <= out.lines.len() as u64 + 16,
+            "an export of {} read {read}",
+            out.lines.len()
+        );
+    }
+
+    /// A derived attribute reading itself through a reference, which a
+    /// version installed before the checkers refused it may hold, has no
+    /// value past [`crate::eval::DERIVED_HOPS`] references, where a cycle of
+    /// two nodes, or a chain of thousands, overflowed the stack and aborted
+    /// the service on a `get`; and an identifier's width past what a number
+    /// fills refuses its creation as not run, where it panicked (tenth
+    /// production review).
+    #[test]
+    fn a_recursive_derived_value_and_a_wide_identifier_stop_without_a_crash() {
+        let text = r#"
+module: tree
+categories: [live]
+sequences:
+  node_number:
+    description: Numbers nodes.
+types:
+  Node:
+    attributes:
+      code: { type: string, identifier: { sequence: node_number, format: "N-{n:1000000}" } }
+      parent: { reference: Node, optional: true }
+    derived_attributes:
+      depth: { expression: "parent.depth + 1" }
+    states:
+      ON: { category: live }
+    transitions:
+      make: { kind: initial, to: ON, optional_inputs: [parent] }
+      hang: { kind: internal, from: ON, required_inputs: [parent] }
+"#;
+        let lib = Library::load(&[("tree.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        // the identifier's width: refused as not run, never a panic
+        let r = Request {
+            transition: "make".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Node".into()),
+            inputs: BTreeMap::new(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| request(&mut s, &r)));
+        assert!(matches!(made, Ok(Err(_)) | Ok(Ok(Err(_)))), "{made:?}");
+        // the same flow without the identifier, so nodes can be made
+        let lib = Library::load(&[(
+            "tree.yaml".into(),
+            text.replace(
+                "      code: { type: string, identifier: { sequence: node_number, format: \"N-{n:1000000}\" } }\n",
+                "",
+            ),
+        )])
+        .unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let a = created(&req(&mut s, "make", OPERATOR, ("Node", true), json!({})));
+        let b = created(&req(
+            &mut s,
+            "make",
+            OPERATOR,
+            ("Node", true),
+            json!({"parent": a}),
+        ));
+        // a cycle of two
+        created(&req(
+            &mut s,
+            "hang",
+            OPERATOR,
+            (&a, false),
+            json!({"parent": b}),
+        ));
+        let w = s.snapshot().unwrap();
+        let read = crate::reads::get(&w, &a).unwrap().unwrap();
+        let depth = read
+            .derived
+            .iter()
+            .find(|(d, _)| d == "depth")
+            .map(|(_, v)| v.clone());
+        assert_eq!(depth, Some(Value::Absent), "{read:?}");
+        drop(w);
+        // and a chain of 200, its deep end read
+        let mut last = b.clone();
+        for _ in 0..200 {
+            last = created(&req(
+                &mut s,
+                "make",
+                OPERATOR,
+                ("Node", true),
+                json!({"parent": last}),
+            ));
+        }
+        let w = s.snapshot().unwrap();
+        assert!(crate::reads::get(&w, &last).unwrap().is_some());
+    }
+
     /// A page of `query`, `pull` and `export` ends at [`PAGE_BYTES`] as at
     /// its limit, one item at least, its cursor going on, and the next page
     /// takes up where it ended: nothing passed over, nothing twice; `pull`
@@ -10741,6 +10955,7 @@ types:
                 propose: false,
                 expires_at: None,
                 expected_version: None,
+                target_version: None,
                 principal: None,
                 idempotency_key: None,
                 context: None,

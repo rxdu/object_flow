@@ -381,6 +381,19 @@ thread_local! {
     /// the store (ADR-0191 decision 5).
     static WHOLE_TYPE_READS: std::cell::RefCell<BTreeMap<String, u64>> =
         const { std::cell::RefCell::new(BTreeMap::new()) };
+    /// How many events this thread has read whole from the store: what a
+    /// test of a read that must hold few events in memory reads (tenth
+    /// production review).
+    static EVENTS_READ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many events this thread has read whole from the store.
+pub fn events_read() -> u64 {
+    EVENTS_READ.with(std::cell::Cell::get)
+}
+
+fn counted(n: usize) {
+    EVENTS_READ.with(|c| c.set(c.get() + n as u64));
 }
 
 /// How many times this thread has read the store's whole log.
@@ -396,6 +409,12 @@ pub fn whole_type_reads(type_: &str) -> u64 {
 /// The objects of a store, and the time a request reads.
 #[derive(Clone, Debug)]
 pub struct World<'l> {
+    /// Each type's family, itself and the types extending it in the
+    /// library's order, found once per world, where each lookup walked every
+    /// type of the library: a change adding thousands of types made each of
+    /// a store's objects' checks walk them all, about 13 ms a type on 37k
+    /// objects (tenth production review).
+    families: std::cell::RefCell<BTreeMap<String, std::sync::Arc<Vec<String>>>>,
     pub lib: &'l Library,
     /// Each earlier version's library, by version, which an erasure reads
     /// what was personal under (ADR-0146 decision 2); empty where the store
@@ -455,6 +474,7 @@ const TICKS: u32 = 256;
 impl<'l> World<'l> {
     pub fn new(lib: &'l Library, now: i64) -> World<'l> {
         World {
+            families: std::cell::RefCell::new(BTreeMap::new()),
             lib,
             earlier: &NO_EARLIER,
             held: Held::default(),
@@ -472,6 +492,26 @@ impl<'l> World<'l> {
             stop: None,
             ticks: std::cell::Cell::new(0),
         }
+    }
+
+    /// A type's family, itself and the types extending it, in the library's
+    /// order.
+    pub fn family(&self, type_: &str) -> std::sync::Arc<Vec<String>> {
+        if let Some(f) = self.families.borrow().get(type_) {
+            return f.clone();
+        }
+        let f: std::sync::Arc<Vec<String>> = std::sync::Arc::new(
+            self.lib
+                .types
+                .keys()
+                .filter(|t| self.lib.is_a(t, type_))
+                .cloned()
+                .collect(),
+        );
+        self.families
+            .borrow_mut()
+            .insert(type_.to_string(), f.clone());
+        f
     }
 
     /// Whether the read is within its deadline, where it has one: a filter,
@@ -565,7 +605,53 @@ impl<'l> World<'l> {
                 "the store's events where {clause}, which could not be read: {e}"
             ))
         })?;
+        counted(out.len());
         out.extend(self.appended.iter().filter(|e| keep(e)).cloned());
+        Ok(out)
+    }
+
+    /// The heads of the events after a position, as `log_after` reads their
+    /// events, without their payloads (tenth production review).
+    pub fn log_heads_after(
+        &self,
+        after: i64,
+        types: Option<&[String]>,
+        limit: usize,
+    ) -> Result<Vec<crate::store::Head>, crate::eval::NotRun> {
+        let held = self.stored.get().is_some();
+        if held || self.conn.is_none() {
+            return Ok(self
+                .log_after(after, types, limit)?
+                .iter()
+                .map(crate::store::Head::of)
+                .collect());
+        }
+        let of_types = |e: &Event| -> Result<bool, crate::eval::NotRun> {
+            Ok(match types {
+                None => true,
+                Some(types) => self
+                    .get(&e.object_id)?
+                    .is_some_and(|o| types.contains(&o.type_)),
+            })
+        };
+        let mut out = match self.conn {
+            Some(conn) => {
+                crate::store::read_log_heads_after(conn, after, types, limit).map_err(|e| {
+                    crate::eval::NotRun::Unreadable(format!(
+                        "the store's log after {after}, which could not be read: {e}"
+                    ))
+                })?
+            }
+            None => Vec::new(),
+        };
+        for e in &self.appended {
+            if out.len() >= limit {
+                break;
+            }
+            if e.position > after && of_types(e)? {
+                out.push(crate::store::Head::of(e));
+            }
+        }
         Ok(out)
     }
 
@@ -646,6 +732,7 @@ impl<'l> World<'l> {
                     "the store's log after {after}, which could not be read: {e}"
                 ))
             })?;
+            counted(out.len());
         }
         for e in &self.appended {
             if out.len() >= limit {
@@ -911,7 +998,7 @@ impl<'l> World<'l> {
         let changed = self.held.changed.borrow();
         let slots = self.held.slots.len.get();
         let mut found: BTreeSet<usize> = BTreeSet::new();
-        for t in self.lib.types.keys().filter(|t| self.lib.is_a(t, type_)) {
+        for t in self.family(type_).iter() {
             let column = idx.entry((t.clone(), keying.named(attr))).or_default();
             // the slots held since it last looked, then those changed since
             let fresh = changed.get(column.changes..).unwrap_or_default();
@@ -1037,7 +1124,7 @@ impl<'l> World<'l> {
     pub fn corrected(&self, kind: &str) -> Result<BTreeSet<String>, crate::eval::NotRun> {
         let mut out = BTreeSet::new();
         if let Some(conn) = self.conn {
-            for t in self.lib.types.keys().filter(|t| self.lib.is_a(t, kind)) {
+            for t in self.family(kind).iter() {
                 out.extend(
                     crate::store::read_corrected(conn, self.lib, t).map_err(|e| {
                         crate::eval::NotRun::Unreadable(format!(
@@ -1219,12 +1306,9 @@ impl<'l> World<'l> {
     ) -> Result<Vec<&Object>, crate::eval::NotRun> {
         let wanted: Option<Vec<String>> = states.map(|s| s.iter().cloned().collect());
         let pairs: Vec<(&str, &Value)> = columns.iter().map(|(a, v)| (a.as_str(), v)).collect();
-        for t in self.lib.types.keys() {
+        for t in self.family(type_).iter() {
             let whole = self.held.whole.borrow().contains(t);
-            if self.lib.is_a(t, type_)
-                && !whole
-                && let Some(conn) = self.conn
-            {
+            if !whole && let Some(conn) = self.conn {
                 let fetched =
                     crate::store::read_type_where(conn, self.lib, t, wanted.as_deref(), &pairs)
                         .map_err(|e| {
@@ -1278,12 +1362,9 @@ impl<'l> World<'l> {
         let pairs: Vec<(&str, &Value)> = columns.iter().map(|(a, v)| (a.as_str(), v)).collect();
         // the earliest last place among the tables read to their limit
         let mut cut: Option<i64> = None;
-        for t in self.lib.types.keys() {
+        for t in self.family(type_).iter() {
             let whole = self.held.whole.borrow().contains(t);
-            if self.lib.is_a(t, type_)
-                && !whole
-                && let Some(conn) = self.conn
-            {
+            if !whole && let Some(conn) = self.conn {
                 let fetched = crate::store::read_type_from(
                     conn,
                     self.lib,
@@ -1336,12 +1417,9 @@ impl<'l> World<'l> {
         key: &[Value],
     ) -> Result<Vec<&Object>, crate::eval::NotRun> {
         let pairs: Vec<(&str, &Value)> = attrs.iter().map(String::as_str).zip(key).collect();
-        for t in self.lib.types.keys() {
+        for t in self.family(type_).iter() {
             let whole = self.held.whole.borrow().contains(t);
-            if self.lib.is_a(t, type_)
-                && !whole
-                && let Some(conn) = self.conn
-            {
+            if !whole && let Some(conn) = self.conn {
                 let ids = crate::store::read_ids_with(conn, self.lib, t, &pairs).map_err(|e| {
                     crate::eval::NotRun::Unreadable(format!(
                         "the store's objects of {t} by {attrs:?}, which could not be read: {e}"
@@ -1386,12 +1464,9 @@ impl<'l> World<'l> {
         attr: &str,
         text: &str,
     ) -> Result<Vec<&Object>, crate::eval::NotRun> {
-        for t in self.lib.types.keys() {
+        for t in self.family(type_).iter() {
             let whole = self.held.whole.borrow().contains(t);
-            if self.lib.is_a(t, type_)
-                && !whole
-                && let Some(conn) = self.conn
-            {
+            if !whole && let Some(conn) = self.conn {
                 let ids = crate::store::read_ids_folded(conn, self.lib, t, attr, text).map_err(|e| {
                     crate::eval::NotRun::Unreadable(format!(
                         "the store's objects of {t} by {attr} without case, which could not be read: {e}"
