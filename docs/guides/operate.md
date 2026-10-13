@@ -8,7 +8,7 @@ One process, `objectflow-service`, serving one **store**: a SQLite file and the 
 
 **It authenticates nobody.** Whoever can reach it can act as any actor. Put it behind the application that authenticates your users: on a Unix socket only your application can open, or on loopback. Never put it on a network your users reach.
 
-**Requirements:** Linux on x86-64 with the glibc of Ubuntu 22.04 or later (`ldd --version`), and disk for the store, its `-wal` (up to 64 MiB in steady state) and your backups.
+**Requirements:** Linux on x86-64 with the glibc of Ubuntu 22.04 or later (`ldd --version`), and disk for the store, its `-wal` (64 MiB in steady state, up to about 256 MiB while long reads overlap) and your backups.
 
 ## Install
 
@@ -146,6 +146,7 @@ It answers `503` with a `code` when an operator must act:
 | `objectflow_wal_bytes` | The `-wal` file's size. |
 | `objectflow_wal_cuts_total` | Times the `-wal` was cut back. |
 | `objectflow_wal_cuts_missed_total` | Cuts a long read held off past their wait. |
+| `objectflow_wal_cuts_deferred_total` | Cuts left for the next look, because a read was still running after the second a cut holds new reads. |
 | `objectflow_disk_free_bytes` | Free bytes on the store's volume. |
 | `objectflow_clock_lead_seconds` | How far the store's clock is ahead of the wall clock. |
 | `objectflow_resident_bytes` | The process's resident memory. |
@@ -279,7 +280,7 @@ POST /v1/maintain
 
 ## Personal data on disk
 
-An erasure overwrites what it erased in the store's file and truncates the `-wal` after it commits, so neither file holds an erased value. A read open at that moment keeps the `-wal`'s earlier frames: within 5 s, the service holds back new reads that grow with the store, waits for the running ones (up to their deadline), and truncates the log. It logs any read that held it longer, counted in `objectflow_wal_cuts_missed_total`. The same cut runs whenever the `-wal` passes 64 MiB. **While a cut is due, a new read that grows with the store waits for the longest one running**, a person's worklist behind an agent's sweep included: a short `--read-timeout` bounds that wait.
+An erasure overwrites what it erased in the store's file and truncates the `-wal` after it commits, so neither file holds an erased value. A read open at that moment keeps the `-wal`'s earlier frames, so the service cuts the log back: within 5 s it holds new reads that grow with the store for at most a second, for the running ones to end, and truncates the log. The same cut runs whenever the `-wal` passes 64 MiB. Where a read is still running after that second, the cut is left for the next look, 5 s later, and the held reads go on (`objectflow_wal_cuts_deferred_total`); a person's read waits about a second for a cut, never for an agent's long sweep. A cut is urgent after an erasure, or once the `-wal` passes 256 MiB: then the reads still running are stopped, each answered `503 read_timeout` to be sent again, and the log is cut. A cut a read still held off is logged and counted in `objectflow_wal_cuts_missed_total`.
 
 What an erasure reaches is what the flow marks `personal`, and nothing else. Free text in inputs not marked `personal`, and a request's `context`, keep what was typed, refused attempts included. Where an actor's identity attribute is `personal`, erasing the actor replaces its identity with its object id everywhere the store keeps it. Better: give actors opaque identities, such as an employee number, never an email or a name, written in one Unicode form (the engine compares identities as written, ignoring only the case of ASCII letters).
 

@@ -370,9 +370,14 @@ struct Watch {
     verdicts: Mutex<std::collections::BTreeMap<&'static str, u64>>,
     durations: Mutex<std::collections::BTreeMap<String, [u64; BUCKETS.len()]>>,
     answered: std::sync::atomic::AtomicU64,
-    /// The write-ahead log's cuts, and those a read prevented.
+    /// The write-ahead log's cuts, those a read prevented, and those left
+    /// for the next look where a read ran past a moment's hold.
     cuts: std::sync::atomic::AtomicU64,
     cuts_missed: std::sync::atomic::AtomicU64,
+    cuts_deferred: std::sync::atomic::AtomicU64,
+    /// The epoch each read begins in, moved to stop the reads running when
+    /// a cut is urgent (ADR-0194 decision 4).
+    cut_epoch: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// The upper bounds, in seconds, of `/metrics`' duration histogram.
@@ -789,8 +794,13 @@ fn reading_until(shared: &Shared, until: std::time::Instant) -> Result<Reading<'
     let mut store = reads.pool.read(lib, earlier, now, answers)?;
     // a read answers within its deadline or is stopped there, so no read
     // holds a reader, and an erasure's truncation behind it, without bound
-    // (ADR-0184 decision 3)
+    // (ADR-0184 decision 3); and is stopped where an urgent cut of the log
+    // moves the epoch it began in (ADR-0194 decision 4)
     store.deadline = Some(until);
+    store.stop = Some((
+        shared.watch.cut_epoch.clone(),
+        shared.watch.cut_epoch.load(Ordering::SeqCst),
+    ));
     Ok(Reading::Own(Some(Box::new(store)), reads))
 }
 
@@ -3285,9 +3295,12 @@ async fn metrics(State(shared): State<Shared>) -> Response {
         "# HELP objectflow_wal_cuts_total The write-ahead log's cuts back past its limit or after an erasure.\n\
          # TYPE objectflow_wal_cuts_total counter\nobjectflow_wal_cuts_total {}\n\
          # HELP objectflow_wal_cuts_missed_total Cuts a read held the log through.\n\
-         # TYPE objectflow_wal_cuts_missed_total counter\nobjectflow_wal_cuts_missed_total {}\n",
+         # TYPE objectflow_wal_cuts_missed_total counter\nobjectflow_wal_cuts_missed_total {}\n\
+         # HELP objectflow_wal_cuts_deferred_total Cuts left for the next look, a read running past a moment's hold.\n\
+         # TYPE objectflow_wal_cuts_deferred_total counter\nobjectflow_wal_cuts_deferred_total {}\n",
         shared.watch.cuts.load(Ordering::SeqCst),
-        shared.watch.cuts_missed.load(Ordering::SeqCst)
+        shared.watch.cuts_missed.load(Ordering::SeqCst),
+        shared.watch.cuts_deferred.load(Ordering::SeqCst)
     ));
     out.push_str(&format!(
         "# HELP objectflow_log_lines_dropped_total Lines not written while the log was blocked.\n\
@@ -3715,6 +3728,15 @@ const CUT_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 /// How long a truncation waits for the short reads still open on the log.
 const CUT_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
 
+/// How long a cut holds new reads that grow with the store, and gives those
+/// running to end, before it is left for the next look or, urgent, stops
+/// them (ADR-0194 decision 4).
+const CUT_HOLD: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// How many times its limit the log grows before a cut stops the reads
+/// running rather than wait for a moment none runs (ADR-0194 decision 4).
+const WAL_URGENT: u64 = 4;
+
 /// The write-ahead log looked at every `CUT_EVERY`, and cut back where due.
 async fn keep_the_log_short(shared: Shared) {
     let mut every = tokio::time::interval(CUT_EVERY);
@@ -3730,11 +3752,17 @@ async fn keep_the_log_short(shared: Shared) {
 
 /// The write-ahead log cut back where it holds more than `limit` bytes or
 /// an erasure's truncation is still due: new reads that grow with the store
-/// held back, those running waited out within the read deadline, and the
-/// log truncated under the writer, the short reads waited for a moment.
-/// Reads that always overlapped kept it growing until they paused, 3.2 GB in
-/// 150 s, and kept an erasure's frames in it (fourth production review A-5,
-/// A-14). Whether it was cut.
+/// held for a moment, `CUT_HOLD`, for those running to end, and the log
+/// truncated under the writer, the short reads waited for a moment. Where
+/// one still runs, the cut is left for the next look and the held reads go
+/// on, unless it is urgent, an erasure's truncation due or the log past
+/// `WAL_URGENT` times its limit: then the reads running are stopped, each
+/// answered `503 read_timeout`, and the log is cut. Reads that always
+/// overlapped kept it growing until they paused, 3.2 GB in 150 s, and kept
+/// an erasure's frames in it (fourth production review A-5, A-14); waiting
+/// out the longest held every new read behind it, a person's worklist 25 s
+/// behind an agent's sweep (seventh production review CUTSTALL, ADR-0194
+/// decision 4). Whether it was cut.
 fn cut_back(shared: &Service, limit: u64) -> bool {
     let Some(path) = &shared.store_path else {
         return false;
@@ -3751,17 +3779,36 @@ fn cut_back(shared: &Service, limit: u64) -> bool {
     if bytes <= limit && !erasure_due {
         return false;
     }
+    let urgent = erasure_due || bytes > limit.saturating_mul(WAL_URGENT);
     let pools = [
         &shared.admission,
         &shared.worklists,
         &shared.dry_runs,
         &shared.agents,
     ];
-    let until = std::time::Instant::now() + shared.read_timeout;
-    // every pool held, one that does not drain in time holding the rest too
+    // every pool held a moment, one that does not drain in it holding the
+    // rest too
+    let moment = std::time::Instant::now() + CUT_HOLD;
     let mut drained = true;
     for p in &pools {
-        drained &= p.hold(until);
+        drained &= p.hold(moment);
+    }
+    if !drained && !urgent {
+        for p in pools {
+            p.release();
+        }
+        shared.watch.cuts_deferred.fetch_add(1, Ordering::SeqCst);
+        return false;
+    }
+    if !drained {
+        // the reads running stopped at their next step, and waited for
+        // within the read deadline
+        shared.watch.cut_epoch.fetch_add(1, Ordering::SeqCst);
+        let until = std::time::Instant::now() + shared.read_timeout;
+        drained = true;
+        for p in &pools {
+            drained &= p.hold(until);
+        }
     }
     let cut = drained
         && shared.writer.lock().ok().is_some_and(|mut w| {
@@ -4821,6 +4868,119 @@ mod tests {
         });
         two.release();
         assert!(two.take(Instant::now() + timeout, timeout).is_ok());
+    }
+
+    /// The log's cut holds new reads a moment: where a read runs past it, a
+    /// cut not yet urgent is left for the next look and the held reads are
+    /// let in, and an urgent one stops the read running and cuts, where it
+    /// held every new read until the longest ended, a person's worklist 25 s
+    /// behind an agent's sweep (seventh production review CUTSTALL,
+    /// ADR-0194 decision 4).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::panic)]
+    async fn a_cut_holds_new_reads_a_moment_and_stops_long_ones_when_urgent() {
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!("objectflow-cut-hold-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let path = dir.join("store.sqlite");
+        store_file(&path, true).unwrap_or_else(|e| panic!("{e}"));
+        let Ok(store) = Store::open(&path, wall_clock()) else {
+            panic!("the store did not open")
+        };
+        let sandbox = Sandbox {
+            deployment: true,
+            path: Some(path.clone()),
+            store: Some(store),
+            ..Default::default()
+        };
+        let reads = Reads {
+            path: path.clone(),
+            pool: Readers::new(&path, objectflow_core::store::BUSY_TIMEOUT),
+            seen: std::sync::RwLock::new(Seen::of(&sandbox)),
+            floor: AtomicI64::new(0),
+        };
+        let shared: Shared = Arc::new(Service {
+            writer: Mutex::new(sandbox),
+            reads: Some(reads),
+            endpoints: std::collections::BTreeMap::new(),
+            tokens: std::collections::BTreeMap::new(),
+            evaluator_timeout: Duration::from_secs(5),
+            deployment: true,
+            read_timeout: Duration::from_secs(30),
+            admission: Admission::new(1),
+            worklists: Admission::new(1),
+            dry_runs: Admission::new(1),
+            agents: Admission::new(1),
+            served: Mutex::new(std::collections::BTreeMap::new()),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
+            writer_since: AtomicI64::new(0),
+            connections: Connections::default(),
+            store_path: Some(path.clone()),
+            trims: std::sync::atomic::AtomicU64::new(0),
+            trimming: std::sync::atomic::AtomicBool::new(false),
+            store_identity: None,
+            watch: Watch::default(),
+        });
+        // a write, so the log holds frames
+        let drafted = request_op(
+            State(shared.clone()),
+            Body(json!({"actor": {"id": "operator"}, "type": "DeclarationChange", "transition": "draft",
+                        "inputs": {"source": {"m": "module: m"}, "source_ref": "git:m@1"}})),
+        )
+        .await;
+        assert!(drafted.is_ok(), "the draft faulted");
+        let mut wal = path.clone().into_os_string();
+        wal.push("-wal");
+        let bytes = std::fs::metadata(&wal).map_or(0, |m| m.len());
+        assert!(bytes >= 64, "the log holds {bytes} bytes");
+        // a long read: a worklist slot held until the cut's epoch moves, or 10 s
+        let (taken, held) = std::sync::mpsc::channel();
+        let reader = {
+            let s = shared.clone();
+            std::thread::spawn(move || {
+                let began = s.watch.cut_epoch.load(Ordering::SeqCst);
+                let slot = s.worklists.take(
+                    Instant::now() + Duration::from_secs(60),
+                    Duration::from_secs(60),
+                );
+                let _ = taken.send(slot.is_ok());
+                let start = Instant::now();
+                while s.watch.cut_epoch.load(Ordering::SeqCst) == began
+                    && start.elapsed() < Duration::from_secs(10)
+                {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                drop(slot);
+            })
+        };
+        assert_eq!(held.recv().ok(), Some(true), "the long read took no slot");
+        // not urgent: left for the next look within a moment, the reads let in
+        let began = Instant::now();
+        assert!(!cut_back(&shared, bytes - 1));
+        assert!(
+            began.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            began.elapsed()
+        );
+        assert_eq!(shared.watch.cuts_deferred.load(Ordering::SeqCst), 1);
+        let let_in = shared.admission.take(
+            Instant::now() + Duration::from_millis(200),
+            Duration::from_secs(1),
+        );
+        assert!(let_in.is_ok(), "a new read was held past the cut");
+        drop(let_in);
+        // urgent: the read running stopped, and the log cut
+        let began = Instant::now();
+        assert!(cut_back(&shared, bytes / 5));
+        assert!(
+            began.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            began.elapsed()
+        );
+        assert_eq!(shared.watch.cuts.load(Ordering::SeqCst), 1);
+        assert!(reader.join().is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// An agent's reads wait in a pool of their own: with every worklist

@@ -440,6 +440,11 @@ pub struct World<'l> {
     /// none for a write, whose rules the flow bounds, or a sandbox's read
     /// (ADR-0184 decision 3). Read every [`TICKS`] steps.
     pub deadline: Option<std::time::Instant>,
+    /// The service's cut epoch and the one the read began in: a read sees
+    /// it move when the store's log must be cut and stops, answered as one
+    /// past its deadline (seventh production review CUTSTALL, ADR-0194
+    /// decision 4).
+    pub stop: Option<(std::sync::Arc<std::sync::atomic::AtomicU64>, u64)>,
     ticks: std::cell::Cell<u32>,
 }
 
@@ -464,6 +469,7 @@ impl<'l> World<'l> {
             acknowledged: BTreeMap::new(),
             stored_rollup: std::cell::OnceCell::new(),
             deadline: None,
+            stop: None,
             ticks: std::cell::Cell::new(0),
         }
     }
@@ -472,12 +478,26 @@ impl<'l> World<'l> {
     /// a metric or a sweep with no bound held a reader, and an erasure's
     /// truncation behind it, for minutes (ADR-0184 decision 3).
     pub fn on_time(&self) -> Result<(), crate::eval::NotRun> {
-        let Some(at) = self.deadline else {
+        if self.deadline.is_none() && self.stop.is_none() {
             return Ok(());
-        };
+        }
         let n = self.ticks.get().wrapping_add(1);
         self.ticks.set(n);
-        if n.is_multiple_of(TICKS) && std::time::Instant::now() > at {
+        if !n.is_multiple_of(TICKS) {
+            return Ok(());
+        }
+        if let Some((epoch, began)) = &self.stop
+            && epoch.load(std::sync::atomic::Ordering::SeqCst) != *began
+        {
+            return Err(crate::eval::NotRun::TimedOut(
+                "the read was stopped so the store's log could be cut, after an erasure or past its size; send it again"
+                    .into(),
+            ));
+        }
+        if self
+            .deadline
+            .is_some_and(|at| std::time::Instant::now() > at)
+        {
             return Err(crate::eval::NotRun::TimedOut(
                 "the read passed its deadline; narrow it, a filter by an indexed member or a page"
                     .into(),

@@ -1630,6 +1630,9 @@ pub struct Store {
     /// When a read on this store must have answered by, which each world it
     /// snapshots carries (ADR-0184 decision 3); none for the writer.
     pub deadline: Option<std::time::Instant>,
+    /// The epoch a read began in, which the service moves to stop it
+    /// (ADR-0194 decision 4); none for a write.
+    pub stop: Option<(std::sync::Arc<std::sync::atomic::AtomicU64>, u64)>,
     /// How long its connection waits out another's lock, restored after
     /// the truncation an erasure is due, which waits for nothing.
     busy: std::cell::Cell<std::time::Duration>,
@@ -1743,6 +1746,7 @@ impl Store {
             attempt_retention: None,
             checkpoint_due: false,
             deadline: None,
+            stop: None,
             prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
@@ -1845,6 +1849,7 @@ impl Store {
             attempt_retention: None,
             checkpoint_due: false,
             deadline: None,
+            stop: None,
             prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
@@ -1935,6 +1940,7 @@ impl Store {
             attempt_retention: None,
             checkpoint_due: false,
             deadline: None,
+            stop: None,
             prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
@@ -2194,6 +2200,7 @@ impl Store {
     pub fn snapshot(&self) -> Stored<World<'_>> {
         let mut world = snapshot(&self.conn, &self.lib, &self.earlier, self.now)?;
         world.deadline = self.deadline;
+        world.stop = self.stop.clone();
         Ok(world)
     }
 
@@ -4594,6 +4601,24 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
         assert!(plan.iter().any(|p| p.contains("_fold_ix")), "{plan:?}");
+    }
+
+    /// A read whose epoch the service moves stops at its next step,
+    /// answered as one past its deadline, so an urgent cut of the log never
+    /// waits out a long read (ADR-0194 decision 4).
+    #[test]
+    fn a_read_whose_epoch_moves_is_stopped() {
+        let s = Store::sandbox(Library::load(&[]).unwrap(), 0).unwrap();
+        let mut w = s.snapshot().unwrap();
+        let epoch = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        w.stop = Some((epoch.clone(), 0));
+        assert!((0..1000).all(|_| w.on_time().is_ok()));
+        epoch.store(1, std::sync::atomic::Ordering::SeqCst);
+        let stopped = (0..1000).map(|_| w.on_time()).find(Result::is_err);
+        assert!(
+            matches!(&stopped, Some(Err(NotRun::TimedOut(m))) if m.contains("log could be cut")),
+            "{stopped:?}"
+        );
     }
 
     #[test]

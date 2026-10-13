@@ -151,7 +151,7 @@ A fault's body is always `{"fault": "<reason>", "code": "<code>"}`.
 | `too_large` | `413` | Reserved for a request too large to read. Today a body over 2 MiB is `400 bad_request`, and an over-long URL is refused `414` by the HTTP layer, with no body. | Send a smaller request. |
 | `not_run` | `501` | A construct this engine does not run yet, such as `archive_events`. | Don't use it. |
 | `engine_mismatch` | `503` | The store was made by another engine release. Only `upgrade` is served until it is upgraded. | Run the upgrade (see [Operate](operate.md)). |
-| `read_timeout` | `503` | A read passed its deadline (30 s by default), or waited that long for a turn. Nothing was changed. | Narrow the read with an indexed filter or a smaller page, or retry later. |
+| `read_timeout` | `503` | A read passed its deadline (30 s by default), waited that long for a turn, or was stopped so the store's log could be cut after an erasure. Nothing was changed. | Narrow the read with an indexed filter or a smaller page, or send it again. |
 | `busy` | `503` | Every connection is busy, or this idle one was closed to make room. Nothing was done. | Send it again on a new connection. |
 | `disk_full` | `503` | The store's disk is full, so the write was not made. | The operator frees space; then send it again. |
 | `store_replaced` | `503` | The store's file was moved, removed or replaced under the running service. | The operator restarts the service on the right file. |
