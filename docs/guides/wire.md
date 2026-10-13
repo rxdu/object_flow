@@ -30,7 +30,7 @@ A value is JSON's own where JSON keeps it exactly, and otherwise a string in the
 | `bool` | a boolean | `true` |
 | `int` | a number within ±(2⁵³ − 1); a string of digits beyond | `3` |
 | `string` | a string of at most 64 KiB in UTF-8, past which it is `out_of_range`; never U+0000 | `"Taxis"` |
-| `identity` | a string, as above, that is not empty, has no whitespace at its ends and none but a space within, holds no character that shows nothing (a control or format character, a variation selector, a combining grapheme joiner, a Hangul filler, a tag, a line or paragraph separator), and is not shaped as an object id of the store's types; else `malformed`. It names one actor across every actor type, compared ignoring the case of its ASCII letters, a letter outside ASCII as written: a second holder is refused `identity_taken`, and a request naming the identity in another ASCII case is that actor's, recorded under the identity it holds. | `"u-10442"` |
+| `identity` | a string, as above, that is not empty, has no whitespace at its ends and none but a space within, holds no character that shows nothing (a control or format character, a variation selector, a combining grapheme joiner, a Hangul filler, a tag, a line or paragraph separator, a blank braille pattern, U+17B4 or U+17B5), no private-use character and no noncharacter, and is not shaped as an object id of the store's types; else `malformed`. It names one actor across every actor type, compared ignoring the case of its ASCII letters, a letter outside ASCII as written: a second holder is refused `identity_taken`, and a request naming the identity in another ASCII case is that actor's, recorded under the identity it holds. | `"u-10442"` |
 | `decimal(p,s)` | a string of digits, at most `s` places and `p` digits in all; an input past that is `out_of_range`, an effect's write past it `value_in_range` | `"19.90"` |
 | `money(CCY)` | a string: the currency, one space, the amount in at most its minor unit's places | `"USD 19.99"` |
 | `timestamp` | RFC 3339 in UTC (`Z` or `+00:00`), to the second or the minute, no fraction of a second | `"2026-10-04T09:30:00Z"` |
@@ -83,7 +83,7 @@ A verdict is `{"kind": …, "remedy": …}` with the fields of its kind; a satis
 |---|---|---|
 | `get` | `id`; `actor`, `follow` | the object, or `null`. With `"follow": true`, the object its supersession chain ends at. |
 | `history` | `id`; `actor`, `follow`, `limit`, `cursor` | `{"events": […], "cursor": …, "not_computed": […]}`, a page of the object's events in order, its imported legacy entries first on the first page; or `null`. With `"follow": true`, the events of every object whose chain ends where this one's does. |
-| `events` | `positions`; `actor` | `{"events": […]}`: each position's event, or `null`, in the order asked. At most a page's worth of positions, none twice. |
+| `events` | `positions`; `actor` | `{"events": […]}`: each position's event, or `null`, in the order asked. At most a page's worth of positions, none twice, and at most 8 MiB of events, past which it is a `400` saying how many fit. |
 | `availability` | `id`; `actor` | an offer per transition, or `null` |
 | `query` | `type`; `actor`, `filter`, `order`, `fields`, `cursor`, `limit` | `{"items": [{"id", "type", "fields"}…], "cursor": …, "refused": …}` |
 | `available` | `type`, `transition`; `actor`, `cursor`, `limit` | a page of the objects the transition is available to, with `actor_dependent` |
@@ -95,7 +95,7 @@ A verdict is `{"kind": …, "remedy": …}` with the fields of its kind; a satis
 | `export` | `source`; `actor`, `cursor`, `limit` | `{"lines": […], "cursor": …}`: JSON lines of `log` (the event log), an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, with personal values left out |
 | `diagnostics` | `type`; `actor`, `window` | `{"diagnostics": […]}`: where the flow and its record disagree |
 
-A metric's `over` and diagnostics' `window` are positive durations; anything else is a `400`. The built-in attributes that hold JSON, a `DeclarationChange`'s `source`, `report` and `evidence` and a `Proposal`'s `inputs`, are answered as JSON.
+A metric's `over` and diagnostics' `window` are positive durations, and a metric's `keep` names each dimension once; anything else is a `400`. The built-in attributes that hold JSON, a `DeclarationChange`'s `source`, `report` and `evidence` and a `Proposal`'s `inputs`, are answered as JSON.
 
 ### An object
 
@@ -144,7 +144,7 @@ As `history`, `events` and `pull` answer it:
 
 ### Pages
 
-`query`, `available`, `history`, `pull` and `export` answer at most `limit` items, from 1 to 1000, **100 unless asked**, with the `cursor` of the next page, `null` on the last. Send the cursor back, with the same read, until it is `null`. A cursor continues only the read it came from: another `query` or `available` refuses it `malformed_cursor`. A page continues after the last object it gave, in the read's order, so an object created between pages is met once and none twice, unless an object's order key changes between pages.
+`query`, `available`, `history`, `pull` and `export` answer at most `limit` items, from 1 to 1000, **100 unless asked**, with the `cursor` of the next page, `null` on the last; a page of `history` also ends at 8 MiB of events, one at least, with a cursor going on. Send the cursor back, with the same read, until it is `null`. A cursor continues only the read it came from: another `query` or `available` refuses it `malformed_cursor`. A page continues after the last object it gave, in the read's order, so an object created between pages is met once and none twice, unless an object's order key changes between pages.
 
 `pull` and `export` page through a log that grows, so their cursor is never `null`: a page with fewer than `limit` items is the end of what is there now, and the cursor you keep reads what is added later. A metric's read and `exceptions` answer one page.
 
@@ -158,7 +158,7 @@ A `filter` is a boolean expression of the flow's language over the type's member
 - a time against `now`, since there is no timestamp literal: `submitted_at <= now - 30 days`;
 - a set of literals for a list of alternatives, up to 1,000: `number in {"C-1", "C-2"}`.
 
-A filter is refused `malformed_filter`, with a `reason` naming what it did but never a value an object holds, when it: does not parse; compares a member with a literal its type cannot hold (a time with text, a reference with a string, the state with text); is not a boolean or adds text to a number; holds a literal past what its type holds; calls an evaluator or a metric; reads the request (`actor`, `inputs`, `this_event`); divides by a zero; nests deeper than 64 levels or has a tree deeper than 128; nests aggregates more than two deep; writes a set of more than 1,000 members; or holds more than 256 terms, a set of literals counting as one.
+A filter is refused `malformed_filter`, with a `reason` naming what it did but never a value an object holds, when it: does not parse; compares a member with a literal its type cannot hold (a time with text, a reference with a string, the state with text); is not a boolean or adds text to a number; gives `and`, `or`, `implies` or `not` an operand that is not a boolean, such as `title == "x" and title`; holds a literal past what its type holds; calls an evaluator or a metric; reads the request (`actor`, `inputs`, `this_event`); divides by a zero; nests deeper than 64 levels or has a tree deeper than 128; nests aggregates more than two deep; writes a set of more than 1,000 members; or holds more than 256 terms, a set of literals counting as one.
 
 `order` is a key or a list of keys, each ascending unless followed by ` desc`: `created_at`, `entered_at(<tracked member>)`, or an attribute holding one value. The object id breaks ties, and an absent value sorts last. Any other key is refused `unknown_order_key`.
 

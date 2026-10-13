@@ -10283,6 +10283,55 @@ types:
         assert_eq!(whole(), before);
     }
 
+    /// A page of history ends at [`EVENT_BYTES`] of events as at its limit,
+    /// with a cursor going on, and an answer of events past them is refused
+    /// with how many positions fit, where a page of 1,000 events of large
+    /// inputs answered 123 MB (seventh production review HISTORY, ADR-0194
+    /// decision 6).
+    #[test]
+    fn a_page_of_events_ends_at_its_bytes() {
+        let text = r#"
+module: notes
+categories: [live]
+types:
+  Note:
+    attributes:
+      text: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      jot: { kind: initial, to: OPEN }
+      write: { kind: internal, from: OPEN, required_inputs: [text] }
+"#;
+        let lib = Library::load(&[("notes.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let note = created(&req(&mut s, "jot", OPERATOR, ("Note", true), json!({})));
+        let big = "x".repeat(60_000);
+        for _ in 0..200 {
+            created(&req(
+                &mut s,
+                "write",
+                OPERATOR,
+                (&note, false),
+                json!({"text": big}),
+            ));
+        }
+        let (page, next) = s
+            .history_page(std::slice::from_ref(&note), 0, 1000)
+            .unwrap();
+        assert!(page.len() > 50 && page.len() < 200, "{} events", page.len());
+        assert_eq!(next, page.last().map(|e| e.position));
+        let bytes: usize = page.iter().map(crate::store::event_bytes).sum();
+        assert!(bytes < crate::store::EVENT_BYTES + 100_000, "{bytes}");
+        let (rest, _) = s
+            .history_page(std::slice::from_ref(&note), next.unwrap_or(0), 1000)
+            .unwrap();
+        assert_eq!(page.len() + rest.len(), 201);
+        let positions: Vec<i64> = page.iter().chain(&rest).map(|e| e.position).collect();
+        assert!(matches!(s.events_within(&positions).unwrap(), Err(fit) if fit < positions.len()));
+        assert!(s.events_within(&positions[..10]).unwrap().is_ok());
+    }
+
     /// `available` reads the objects in a state its transition is taken
     /// from, by the state's index, and each one's offer of that transition
     /// alone: a worklist with nothing to find read every claim of the type,

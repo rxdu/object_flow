@@ -460,6 +460,43 @@ fn decide(
                 ),
             );
         }
+        // a kind of actor a record names is one an actor has, and an actor
+        // it names an identity as a request's is, where `robot` and one of
+        // 70,000 characters were taken (seventh production review,
+        // ADR-0194 decision 6)
+        let kinds = o
+            .created_by_kind
+            .iter()
+            .chain(o.entered.values().filter_map(|e| e.by_kind.as_ref()))
+            .chain(
+                o.legacy_intervals
+                    .iter()
+                    .filter_map(|i| i.entered_by_kind.as_ref()),
+            );
+        if let Some(k) = kinds
+            .into_iter()
+            .find(|k| !matches!(k.as_str(), "human" | "agent" | "service" | "unknown"))
+        {
+            return refused(
+                report,
+                refusal(
+                    o,
+                    format!("a kind of actor {k}, where one is human, agent, service or unknown"),
+                ),
+            );
+        }
+        let named = o.entered.values().filter_map(|e| e.by.as_deref()).chain(
+            o.legacy_intervals
+                .iter()
+                .filter_map(|i| i.entered_by.as_deref()),
+        );
+        if let Some(why) = named.into_iter().find_map(|by| {
+            (by.len() > crate::wire::TEXT_BYTES)
+                .then(|| format!("past {} bytes", crate::wire::TEXT_BYTES))
+                .or_else(|| crate::wire::identity_fault(by, lib))
+        }) {
+            return refused(report, refusal(o, format!("an actor it names: {why}")));
+        }
         // a legacy entry names its kind, and happened before the import and
         // not before a creation time the mapping supplies (§4)
         for e in &o.legacy_entries {
@@ -2856,6 +2893,28 @@ types:
         silent.silent_spans.push((port - day, port + day));
         let mut empty = employee("E-7", "EMPLOYED", json!({"employee_id": "7"}));
         empty.created_at = Some(-62_135_596_800);
+        // a kind of actor no actor has, and an actor named past a text's
+        // bound (seventh production review, ADR-0194 decision 6)
+        let mut robot = employee("E-9", "EMPLOYED", json!({"employee_id": "9"}));
+        robot.created_by_kind = Some("robot".into());
+        let mut long = employee("E-10", "EMPLOYED", json!({"employee_id": "10"}));
+        long.entered.insert(
+            "EMPLOYED".into(),
+            EnteredAt {
+                at: port - day,
+                by: Some("x".repeat(70_000)),
+                by_kind: Some("human".into()),
+            },
+        );
+        let mut hidden = employee("E-11", "EMPLOYED", json!({"employee_id": "11"}));
+        hidden.legacy_intervals.push(LegacyInterval {
+            dimension: "state".into(),
+            value: json!("EMPLOYED"),
+            entered_at: port - 2 * day,
+            left_at: Some(port - day),
+            entered_by: Some("jo\u{200B}@corp".into()),
+            entered_by_kind: Some("human".into()),
+        });
         for (words, o) in [
             ("is undecided", bare),
             ("only an observation takes", dated),
@@ -2865,6 +2924,9 @@ types:
             ("a time after the import", interval),
             ("a time after the import", silent),
             ("a time before 1900", empty),
+            ("a kind of actor robot", robot),
+            ("past 65536 bytes", long),
+            ("an actor it names", hidden),
         ] {
             let r = run(&mut s, vec![o], &[], false);
             let reason = r.refusal.map(|f| f.reason).unwrap_or_default();

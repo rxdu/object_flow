@@ -3871,7 +3871,13 @@ fn what_a_filter_a_key_and_a_store_are_told() {
         "/v1/request",
         &json!({"actor": op, "type": "Note", "transition": "write", "inputs": {"text": secret}}),
     );
-    for filter in ["text", "text + 1 > 0", "state + 1 > 0"] {
+    for filter in [
+        "text",
+        "text + 1 > 0",
+        "state + 1 > 0",
+        "text == \"x\" and text",
+        "not text",
+    ] {
         let page = post(
             &s,
             "/v1/query",

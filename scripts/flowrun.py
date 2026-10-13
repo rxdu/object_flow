@@ -3813,6 +3813,10 @@ def identity_fault(v, kinds):
     fine (ADR-0192 decision 6)."""
     if v == "" or v != v.strip() or any(c.isspace() and c != " " for c in v) or any(formatting(c) for c in v):
         return "malformed"
+    # a blank that shows nothing, a private-use character and a noncharacter, as the core's (ADR-0194 decision 6)
+    if any(ord(c) in (0x2800, 0x17B4, 0x17B5) or 0xE000 <= ord(c) <= 0xF8FF or ord(c) >= 0xF0000
+           or 0xFDD0 <= ord(c) <= 0xFDEF or ord(c) & 0xFFFE == 0xFFFE for c in v):
+        return "malformed"
     prefix, _, n = v.rpartition("-")
     if prefix and n.isdigit() and n.isascii() and any(t.lower() == prefix for t in (kinds or {})):
         return "malformed"

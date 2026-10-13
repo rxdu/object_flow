@@ -109,6 +109,18 @@ pub fn formatting(c: char) -> bool {
         )
 }
 
+/// A character an identity may not hold beyond [`formatting`]'s: a braille
+/// blank and the Khmer vowels that show nothing, a private-use character
+/// and a noncharacter (ADR-0194 decision 6).
+fn unshown(c: char) -> bool {
+    let n = u32::from(c);
+    matches!(c, '\u{2800}' | '\u{17B4}' | '\u{17B5}')
+        || (0xE000..=0xF8FF).contains(&n)
+        || (0xF_0000..=0x10_FFFD).contains(&n)
+        || (0xFDD0..=0xFDEF).contains(&n)
+        || n & 0xFFFE == 0xFFFE
+}
+
 /// Why an identity names no actor as it shows, none where it does: one
 /// empty, with whitespace at an end or other than a space within, holding a
 /// character that shows nothing, a format character, a variation selector,
@@ -129,6 +141,14 @@ pub fn identity_fault(s: &str, lib: &Library) -> Option<String> {
         return Some(
             "an identity holds no control, zero-width, bidirectional or other formatting character"
                 .to_string(),
+        );
+    }
+    // a blank that shows nothing, a private-use character, whose look is
+    // whatever a font gives it, and a noncharacter, which names nothing
+    // (seventh production review, ADR-0194 decision 6)
+    if s.chars().any(unshown) {
+        return Some(
+            "an identity holds no blank pattern, private-use character or noncharacter".to_string(),
         );
     }
     if let Some((prefix, n)) = s.rsplit_once('-')

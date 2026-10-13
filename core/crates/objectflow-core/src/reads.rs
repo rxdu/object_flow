@@ -551,6 +551,39 @@ fn literal_out_of_range(world: &World<'_>, t: &Type, e: &Expr) -> Result<bool, N
     Ok(false)
 }
 
+/// Whether an operand of `and`, `or`, `implies` or `not` in a filter is
+/// plainly no boolean: a literal of another kind, a stored member of
+/// another type, or arithmetic, where `title == "x" and title` answered an
+/// empty page, the operand never read once the first decided (seventh
+/// production review, ADR-0194 decision 6).
+fn mistyped_logic(t: &Type, e: &Expr) -> bool {
+    let not_boolean = |x: &Expr| -> bool {
+        match x {
+            Expr::Str(_) | Expr::Num(_) | Expr::Dur(..) | Expr::Money(..) => true,
+            Expr::Bin(op, ..) => matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div),
+            Expr::Name(m) => match m.as_str() {
+                "state" | "created_at" => true,
+                _ => t.attribute(m).is_some_and(|a| {
+                    a.many || !matches!(&a.declared, Declared::Scalar(ty) if ty == "bool")
+                }),
+            },
+            _ => false,
+        }
+    };
+    match e {
+        Expr::Bin(BinOp::And | BinOp::Or | BinOp::Implies, a, b) => {
+            not_boolean(a) || not_boolean(b) || mistyped_logic(t, a) || mistyped_logic(t, b)
+        }
+        Expr::Bin(_, a, b) => mistyped_logic(t, a) || mistyped_logic(t, b),
+        Expr::Not(x) => not_boolean(x) || mistyped_logic(t, x),
+        Expr::Neg(x) | Expr::IsNull(x, _) => mistyped_logic(t, x),
+        Expr::If(c, a, b) => {
+            not_boolean(c) || mistyped_logic(t, c) || mistyped_logic(t, a) || mistyped_logic(t, b)
+        }
+        _ => false,
+    }
+}
+
 fn mistyped_literal(lib: &Library, t: &Type, e: &Expr) -> bool {
     // the declared type of the member a name or a path reads, where it is
     // a stored scalar or the state
@@ -683,6 +716,11 @@ pub fn query_page(
         Some(Ok(e)) if mistyped_literal(world.lib, t, &e) => {
             return malformed(
                 "it compares a member with a literal its type cannot hold".to_string(),
+            );
+        }
+        Some(Ok(e)) if mistyped_logic(t, &e) => {
+            return malformed(
+                "an operand of and, or, implies or not is no boolean: a literal, a member of another type or arithmetic".to_string(),
             );
         }
         Some(Ok(e)) if unanswerable(world.lib, t, &e) => {

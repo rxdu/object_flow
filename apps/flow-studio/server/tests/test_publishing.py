@@ -2539,7 +2539,9 @@ def test_an_identity_shows_what_it_is_alike(tee):
         return tee.post("/v1/request", {"type": "Bot", "transition": "issue", "actor": OP, "inputs": {"key": key}})
 
     for key in ("", " scout", "scout ", "sc\u00a0out", "sc\u034fout", "sc\ufe0fout", "sc\u3164out",
-                "sc\U000e0041out", "sc\u2028out", "sc\ufff9out", "sc\U0001d173out", "staff-7", "bill-2"):
+                "sc\U000e0041out", "sc\u2028out", "sc\ufff9out", "sc\U0001d173out", "staff-7", "bill-2",
+                # a blank pattern, a vowel that shows nothing, private use and noncharacters (ADR-0194 decision 6)
+                "sc\u2800out", "sc\u17b4out", "sc\ue000out", "sc\U000f0000out", "sc\ufdd0out", "sc\U0010fffeout"):
         v = issue(key)
         assert (v["kind"], v.get("reasons")) == ("invalid_input", {"key": "malformed"}), (repr(key), v)
     assert issue("Scout One")["kind"] == "satisfied"
@@ -2618,6 +2620,18 @@ def test_referrers_through_two_references_alike(tee):
     for p, holder in ((people[0], order), (people[1], team)):
         v = tee.post("/v1/request", {"object_id": p, "transition": "remove", "actor": OP})
         assert (v["kind"], v.get("clause"), v.get("objects")) == ("unsatisfied", "unreferenced", [holder]), v
+    alike(tee)
+
+
+def test_a_dimension_kept_twice_is_refused_alike(tee):
+    """A metric read keeping one dimension twice is a 400 from both backends,
+    where one named 5,000 times ran to the read's deadline (seventh
+    production review, ADR-0194 decision 6)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    with pytest.raises(Failed):
+        tee.post("/v1/metric", {"actor": OP, "name": "Bill.time_in_state", "keep": ["state", "state"]})
     alike(tee)
 
 

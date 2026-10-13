@@ -824,6 +824,10 @@ class Sandbox:
         if keep is not None and not (isinstance(keep, list) and all(
                 isinstance(d, str) for d in keep)):
             raise Fault(400, "keep takes dimension names")
+        # a dimension kept once, as the core keeps it (ADR-0194 decision 6)
+        twice = next((d for i, d in enumerate(keep or []) if d in (keep or [])[:i]), None)
+        if twice is not None:
+            raise Fault(400, f"keep names the dimension {twice} twice")
         s = self.store
         ev = flowrun.Evaluator(s, None, stubs=flowrun.NEVER_ASKED)
         try:

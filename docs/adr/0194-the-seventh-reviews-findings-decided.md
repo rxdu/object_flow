@@ -1,6 +1,6 @@
 # ADR-0194: The seventh review's findings, decided
 
-- **Status:** **Decided** 2026-10-13 on the author's standing instruction, "continue the loop to get the stack ready for production, follow your recommendations", each decision the recommendation stated here
+- **Status:** **Decided** 2026-10-13 on the author's standing instruction, "continue the loop to get the stack ready for production, follow your recommendations", each decision the recommendation stated here; built 2026-10-13, decision 6's time past the calendar moved to decision 8 when building it found the reference runner holds a time untyped
 - **Date:** 2026-10-13
 - **Refines:** ADR-0192 decision 6 (an identity compared without case, now its ASCII letters' case), ADR-0127 decision 2 (`query`'s order keys), ADR-0179 (pages)
 - **Relates to:** `design/production-review.md` §11; `storage-schema.md` §5; the fourth production review's cut of the write-ahead log (`001a806`), which decision 4 changes; `guides/operate.md`; `guides/wire.md`
@@ -21,12 +21,12 @@ The seventh production review (`production-review.md` §11) found no blocker and
    - an identity holding U+2800, U+17B4 or U+17B5, a private-use character or a noncharacter is `malformed`;
    - an import's `created_by_kind` and each entry's `by_kind` are `human`, `agent` or `service`, and its identities are held to an identity's rules;
    - a metric's `keep` or `bind` naming a dimension twice is a `400`;
-   - a filter's `and`, `or` and `not` take booleans, so `title == "x" and title` is `malformed_filter`, and a time computed past the calendar has no value in a filter, as a date's has none;
+   - a filter's `and`, `or`, `implies` and `not` take booleans, so `title == "x" and title` is `malformed_filter`;
    - an answer its client does not read within `--idle-timeout` closes its connection;
    - a store refused at its start beside a `-wal` says to restore the copy alone, once;
    - the guides say what a stalled write waits as measured (34.5 s), that a filter on a value derived from a set reads its type whole on each page, that `After=time-sync.target` waits only with a wait-sync service, and what an application withholds on a subscription.
 7. **`query`'s order is any attribute holding one value**, as the service has ordered: ADR-0127 decision 2's "an indexed attribute" is amended, an unindexed key sorting what the filter selects, bounded by the read's pool and deadline as every scan is; the guides mark `indexed` what a large type is ordered by.
-8. **Unchanged**: a write to an object many others read through re-checks each of them under the writer (two seconds for a category nine thousand lines read), which is what the invariant asks; an attempt sent after an erasure, naming the erased identity, keeps the text sent until it is pruned; an identity shaped as the id of a type a later version declares resolves to that object, refused `actor_known`, failing closed; an unassigned code point is not known without the Unicode tables, which the engine does not carry; a subscription's `pull`, `acknowledge` and `revoke` by another than its subscriber stay the gateway's to refuse (ADR-0114); `/sandbox/load` keeps no deadline, a sandbox being its caller's own.
+8. **Unchanged**: a time computed past the calendar compares as a time in a filter and a guard, where a date computed past it has no value: decision 6 first said it would have none, and building it found that the reference runner holds a time as a count of seconds with no type, so a time past the calendar is a number it compares, and a core alone giving it no value would answer a guard otherwise than the runner; a time past the calendar that a write would keep is refused `value_in_range` in both, as before. a write to an object many others read through re-checks each of them under the writer (two seconds for a category nine thousand lines read), which is what the invariant asks; an attempt sent after an erasure, naming the erased identity, keeps the text sent until it is pruned; an identity shaped as the id of a type a later version declares resolves to that object, refused `actor_known`, failing closed; an unassigned code point is not known without the Unicode tables, which the engine does not carry; a subscription's `pull`, `acknowledge` and `revoke` by another than its subscriber stay the gateway's to refuse (ADR-0114); `/sandbox/load` keeps no deadline, a sandbox being its caller's own.
 
 ## Alternatives rejected
 

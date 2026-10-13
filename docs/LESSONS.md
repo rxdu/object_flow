@@ -594,3 +594,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** A change that replaces a read by an index with a sweep, in a path a publish or a whole-store check runs per object, is held by a test counting what it enumerates (the world's `keyed`, `gathered` and `enumerated` counts) and measured on the review's store before it is committed.
 - **Context:** ObjectFlow's core; any lookup inside a per-object loop.
 
+
+
+### A decision written for one backend of two
+- **Pattern:** ADR-0194 decision 6 said a time computed past the calendar would have no value in a filter, as a date's has none; building it found that the reference runner holds a time as an untyped count of seconds, so only the core could tell a time from a number, and the two backends would have answered a guard differently. The decision was moved to "unchanged" with that reason (2026-10-13).
+- **Correction:** Before deciding a change to what an expression means, read how the reference runner evaluates the same expression; a semantic only one backend can carry is not a fix but a divergence.
+- **Context:** ObjectFlow, where the Python runner is the oracle the core is held to.

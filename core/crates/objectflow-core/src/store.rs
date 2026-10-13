@@ -3052,9 +3052,19 @@ impl Store {
     /// object's history whole, which a `history` of 10,000 events of 16 KB
     /// each answered at 164.6 MB (sixth production review HISTORY, ADR-0192
     /// decision 5).
-    pub fn history_page(&self, ids: &[String], after: i64, limit: usize) -> Stored<Vec<Event>> {
+    /// A page of the events of the objects given after a position, in
+    /// position order: at most `limit` of them and [`EVENT_BYTES`] of them,
+    /// one at least, read one at a time; and the position the next page
+    /// goes on after, where the limit or the bytes ended this one (ADR-0194
+    /// decision 6).
+    pub fn history_page(
+        &self,
+        ids: &[String],
+        after: i64,
+        limit: usize,
+    ) -> Stored<(Vec<Event>, Option<i64>)> {
         if ids.is_empty() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), None));
         }
         let marks: Vec<String> = (0..ids.len()).map(|i| format!("?{}", i + 3)).collect();
         let mut stmt = self.conn.prepare(&format!(
@@ -3070,8 +3080,42 @@ impl Store {
                 .map(|id| rusqlite::types::Value::Text(id.clone())),
         );
         let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), event_row)?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(StoreError::from)
+        let mut out = Vec::new();
+        let mut bytes = 0;
+        for row in rows {
+            let e = row?;
+            bytes += event_bytes(&e);
+            out.push(e);
+            if bytes >= EVENT_BYTES {
+                let next = out.last().map(|e| e.position);
+                return Ok((out, next));
+            }
+        }
+        let next = (out.len() == limit)
+            .then(|| out.last().map(|e| e.position))
+            .flatten();
+        Ok((out, next))
+    }
+
+    /// The event at each position, in the order given, while they come to
+    /// at most [`EVENT_BYTES`]; past them, how many positions fitted
+    /// (ADR-0194 decision 6).
+    pub fn events_within(&self, positions: &[i64]) -> Stored<Result<Vec<Option<Event>>, usize>> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!("{EVENT_SELECT} WHERE position = ?1"))?;
+        let mut out = Vec::new();
+        let mut bytes = 0;
+        for p in positions {
+            let mut rows = stmt.query_map(params![p], event_row)?;
+            let e = rows.next().transpose()?;
+            bytes += e.as_ref().map_or(0, event_bytes);
+            if bytes > EVENT_BYTES {
+                return Ok(Err(out.len()));
+            }
+            out.push(e);
+        }
+        Ok(Ok(out))
     }
 
     /// The event at each position, in the order given (ADR-0151).
@@ -3086,6 +3130,21 @@ impl Store {
         }
         Ok(out)
     }
+}
+
+/// How many bytes of events a page of `history` and an answer of `events`
+/// hold at most, beside their count: a page of 1,000 events of large inputs
+/// answered 123 MB, and six at once took the service to 2 GB (seventh
+/// production review HISTORY, ADR-0194 decision 6).
+pub const EVENT_BYTES: usize = 8 * 1024 * 1024;
+
+/// About how many bytes an event answers: what its request sent, what its
+/// rules read, its context and the rest.
+pub fn event_bytes(e: &Event) -> usize {
+    e.payload.to_string().len()
+        + e.reads.to_string().len()
+        + e.context.as_ref().map_or(0, String::len)
+        + 512
 }
 
 /// The counters a request allocates from, read at its start and written at

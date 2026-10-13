@@ -2508,10 +2508,10 @@ async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 }));
             }
         }
-        let events = s.history_page(&members, after.unwrap_or(0), limit)?;
-        let cursor = (events.len() == limit)
-            .then(|| events.last().map(|e| e.position.to_string()))
-            .flatten();
+        // a page ends at its limit or at its bytes, a cursor going on
+        // from either (ADR-0194 decision 6)
+        let (events, next) = s.history_page(&members, after.unwrap_or(0), limit)?;
+        let cursor = next.map(|p| p.to_string());
         Ok(Json(json!({
             "events": entries.into_iter().chain(events.iter().map(event)).collect::<Vec<_>>(),
             "cursor": cursor,
@@ -2550,7 +2550,15 @@ async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
         // answered 16.5 MB, eight at once 572 MB (ADR-0192 decision 5)
         let (_slot, mut r) = heavy_reading(&shared, &shared.worklists, actor_id(&body)?)?;
         let s = r.store()?;
-        let found = s.events(&positions)?;
+        // at most a page's bytes, where a thousand of large inputs answered
+        // 108 MB (seventh production review, ADR-0194 decision 6)
+        let found = s.events_within(&positions)?.map_err(|fit| {
+            Fault::Bad(format!(
+                "events' answer would pass {} MiB at its {}th position; ask for fewer",
+                objectflow_core::store::EVENT_BYTES / (1024 * 1024),
+                fit + 1
+            ))
+        })?;
         Ok(Json(json!({
             "events": found.iter().map(|e| e.as_ref().map_or(J::Null, event)).collect::<Vec<_>>(),
             "not_computed": EVENT_NOT_COMPUTED,
@@ -2771,6 +2779,16 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
             ),
             Some(_) => return Err(Fault::Bad("keep takes dimension names".to_string())),
         };
+        // a dimension kept once, where one named 5,000 times ran to the read's
+        // deadline (seventh production review, ADR-0194 decision 6)
+        if let Some(keep) = &keep {
+            let mut seen = std::collections::BTreeSet::new();
+            if let Some(twice) = keep.iter().find(|d| !seen.insert(d.as_str())) {
+                return Err(Fault::Bad(format!(
+                    "keep names the dimension {twice} twice"
+                )));
+            }
+        }
         let over = match text(&body, "over")? {
             None => None,
             // a window back from now is positive, where one of "-5 days"
@@ -3695,6 +3713,27 @@ fn main() {
     }
 }
 
+/// A store refused at its start, its fault said once, and where a `-wal`
+/// or `-shm` lies beside it what a copy restored beside another state's
+/// needs: SQLite's own words, "malformed database schema", read as a broken
+/// backup, where the copy was whole (seventh production review
+/// MSG-RESTORE, ADR-0194 decision 6).
+fn refused_start(path: &std::path::Path, fault: &dyn std::fmt::Display) -> std::io::Error {
+    let beside = ["-wal", "-shm"].iter().any(|end| {
+        let mut name = path.as_os_str().to_owned();
+        name.push(end);
+        std::path::Path::new(&name).exists()
+    });
+    std::io::Error::other(if beside {
+        format!(
+            "{}: {fault}; a copy restored beside the -wal or -shm of another state does this: nothing was written, so restore the copy alone, with neither beside it (operate.md, Backups and restore)",
+            path.display()
+        )
+    } else {
+        format!("{}: {fault}", path.display())
+    })
+}
+
 /// What `--version` answers: the service's release and the release of the
 /// stores it serves.
 /// The release, and the commit it was built from where the build was told,
@@ -3987,6 +4026,94 @@ impl tokio::io::AsyncWrite for Conn {
     }
 }
 
+/// A connection whose writes its client does not take within the idle
+/// timeout fails them, so the connection closes: an answer no one read was
+/// held without bound, eight of them 750 MB for 40 s and more (seventh
+/// production review, ADR-0194 decision 6). A write that moves at all, a
+/// slow client's, starts the timeout again.
+struct Unread<T> {
+    io: T,
+    idle: std::time::Duration,
+    stalled: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
+}
+
+impl<T> Unread<T> {
+    fn new(io: T, idle: std::time::Duration) -> Self {
+        Unread {
+            io,
+            idle,
+            stalled: None,
+        }
+    }
+
+    /// A write its client is not taking: waited for within the idle
+    /// timeout, failed past it.
+    fn waiting<R>(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<R>> {
+        let idle = self.idle;
+        let sleep = self
+            .stalled
+            .get_or_insert_with(|| Box::pin(tokio::time::sleep(idle)));
+        match std::future::Future::poll(sleep.as_mut(), cx) {
+            std::task::Poll::Ready(()) => std::task::Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "the client did not read its answer within the idle timeout",
+            ))),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+impl<T: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for Unread<T> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().io).poll_read(cx, buf)
+    }
+}
+
+impl<T: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for Unread<T> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
+        match std::pin::Pin::new(&mut this.io).poll_write(cx, buf) {
+            std::task::Poll::Pending => this.waiting(cx),
+            done => {
+                this.stalled = None;
+                done
+            }
+        }
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        match std::pin::Pin::new(&mut this.io).poll_flush(cx) {
+            std::task::Poll::Pending => this.waiting(cx),
+            done => {
+                this.stalled = None;
+                done
+            }
+        }
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().io).poll_shutdown(cx)
+    }
+}
+
 /// A connection's requests being answered, each until its response's body
 /// is written, or [`CLOSING`] once the cap took it to make room, when none
 /// may begin (third production review C-1).
@@ -4213,7 +4340,7 @@ async fn served(
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(id, (busy.clone(), close.clone()));
         let serving = http.serve_connection(
-            hyper_util::rt::TokioIo::new(io),
+            hyper_util::rt::TokioIo::new(Unread::new(io, idle)),
             OnConnection {
                 router: hyper_util::service::TowerToHyperService::new(router.clone()),
                 busy,
@@ -4478,7 +4605,7 @@ async fn serve() -> std::io::Result<()> {
         // an upgrade's old copy share the store (ADR-0192 decision 7)
         noted.extend(hold_store(path)?);
         let at = objectflow_core::release::store_release_at(path)
-            .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
+            .map_err(|e| refused_start(path, &e))?;
         let busy = a
             .busy_timeout
             .unwrap_or(objectflow_core::store::BUSY_TIMEOUT);
@@ -4502,13 +4629,12 @@ async fn serve() -> std::io::Result<()> {
                 // write, so a refused start leaves both as they were, where it
                 // wrote another state's log into a restored copy (fourth
                 // production review A-16)
-                let checked = Store::checked_file(path)
-                    .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
+                let checked = Store::checked_file(path).map_err(|e| refused_start(path, &e))?;
                 if let Some(fault) = checked {
-                    return Err(std::io::Error::other(format!(
-                        "{} fails SQLite's quick check ({fault}); a copy restored beside the -wal or -shm of another state does this: nothing was written, so restore the copy alone, with neither beside it (operate.md, Backups and restore)",
-                        path.display()
-                    )));
+                    return Err(refused_start(
+                        path,
+                        &format!("it fails SQLite's quick check ({fault})"),
+                    ));
                 }
                 let mut s = Store::open(path, wall_clock())
                     .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
@@ -4971,6 +5097,109 @@ mod tests {
         assert!(dry > Duration::from_secs(500), "{dry:?}");
         let worklist = deadline(&shared.worklists);
         assert!(worklist <= Duration::from_secs(1), "{worklist:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A write its client does not take fails within the idle timeout, and
+    /// one the client takes, however slowly, does not (seventh production
+    /// review, ADR-0194 decision 6).
+    #[tokio::test]
+    async fn an_answer_not_read_fails_within_the_idle_timeout() {
+        use std::time::{Duration, Instant};
+        async fn write_all(
+            conn: &mut Unread<tokio::net::UnixStream>,
+            data: &[u8],
+        ) -> std::io::Result<()> {
+            let mut off = 0;
+            while off < data.len() {
+                off += std::future::poll_fn(|cx| {
+                    tokio::io::AsyncWrite::poll_write(
+                        std::pin::Pin::new(&mut *conn),
+                        cx,
+                        &data[off..],
+                    )
+                })
+                .await?;
+            }
+            Ok(())
+        }
+        let idle = Duration::from_millis(200);
+        // past any socket's buffers, and no one reading
+        let Ok((near, _far)) = tokio::net::UnixStream::pair() else {
+            return;
+        };
+        let mut conn = Unread::new(near, idle);
+        let began = Instant::now();
+        // bounded, so a write that waits for good fails the test, never hangs it
+        let unread = tokio::time::timeout(
+            Duration::from_secs(5),
+            write_all(&mut conn, &vec![7u8; 16 << 20]),
+        )
+        .await;
+        assert!(
+            matches!(unread, Ok(Err(_))),
+            "a write no one read did not fail: {unread:?}"
+        );
+        assert!(
+            began.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            began.elapsed()
+        );
+        // a slow reader, taking some every few milliseconds
+        let Ok((near, far)) = tokio::net::UnixStream::pair() else {
+            return;
+        };
+        let mut conn = Unread::new(near, idle);
+        let sent = 2 << 20;
+        let reader = tokio::spawn(async move {
+            let (mut got, mut buf) = (0usize, vec![0u8; 64 << 10]);
+            while got < sent {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                if far.readable().await.is_err() {
+                    break;
+                }
+                match far.try_read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => got += n,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(_) => break,
+                }
+            }
+            got
+        });
+        assert!(
+            write_all(&mut conn, &vec![7u8; sent]).await.is_ok(),
+            "a slow reader's write failed"
+        );
+        assert_eq!(reader.await.ok(), Some(sent));
+    }
+
+    /// A store refused at its start beside a `-wal` or `-shm` says to
+    /// restore the copy alone, once, whatever SQLite said; one with neither
+    /// beside it says SQLite's fault alone (ADR-0194 decision 6).
+    #[test]
+    #[allow(clippy::panic)]
+    fn a_store_refused_beside_a_log_says_to_restore_the_copy_alone() {
+        let dir =
+            std::env::temp_dir().join(format!("objectflow-refused-start-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let path = dir.join("store.sqlite");
+        let fault = "malformed database schema (Employee:E0) - orphan index";
+        let alone = refused_start(&path, &fault).to_string();
+        assert!(!alone.contains("restore the copy alone"), "{alone}");
+        std::fs::write(dir.join("store.sqlite-wal"), b"").unwrap_or_else(|e| panic!("{e}"));
+        let beside = refused_start(&path, &fault).to_string();
+        assert_eq!(
+            beside.matches("restore the copy alone").count(),
+            1,
+            "{beside}"
+        );
+        assert_eq!(
+            beside.matches("malformed database schema").count(),
+            1,
+            "{beside}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -86,7 +86,7 @@ Durations are a count and a unit, with a space: `30 s`, `2 min`, `1 h`, `90 days
 | `--port <n>` | `8712` | The loopback port to listen on. `0` takes a free one. |
 | `--bind <host:port>` | | An address to listen on instead. Beyond loopback, the service warns at start. |
 | `--socket <path>` | | A Unix socket to listen on instead, made `0660`. A socket a stopped service left is replaced; a file of another kind never. |
-| `--idle-timeout <duration>` | `30 s` | How long a connection may take to send a request's head. A body that does not arrive in time is answered `408`. |
+| `--idle-timeout <duration>` | `30 s` | How long a connection may take to send a request's head, or leave its answer unread. A body that does not arrive in time is answered `408`; an answer not read in time closes the connection. |
 | `--max-connections <n>` | `512` | Connections served at once. At the cap, the oldest idle connection is closed to make room; only when every one is busy is a newcomer answered `503 busy`. |
 | `--metrics-bind <host:port>` | | Serves `GET /health` and `GET /metrics` alone on a second address. |
 | `--store <file>` | | Serves the deployment store in this file. Without it, the service runs a sandbox. |
@@ -212,6 +212,7 @@ Some flow constructs cost more than they look:
 
 - **A guard that reads a metric** computes the metric under the writer for each request it guards. A per-claimant monthly limit took 0.12 s a submit on 37k objects, and twenty at once held other writes about 2.7 s. Put such a guard on a rarely taken transition, or read the metric over a short window.
 - **An attribute without `indexed`** is scanned when a filter reads it. Mark `indexed` what worklists and lookups filter by. References, unique attributes and external identifiers are indexed anyway.
+- **A derived attribute computed from a set**, such as a claim's count of lines over policy, cannot be indexed, so a filter on it reads its type whole on every page: 3.4 s a page over six years of claims, and people running it at once waited for each other. Where a worklist filters by such a value, have the flow store it, written by the transitions that change it, and mark it `indexed`.
 
 ## Memory
 
