@@ -194,11 +194,16 @@ The flow governs objects. Some operations govern the store itself, and the engin
 - `pull`, `acknowledge`, and the `revoke` transition, on a subscription that is not the agent's own;
 - recording a label (`"type": "label"`, `record`), which anyone may put on any object, unless your agent should, and a label's `forget`, or a label recorded with `corrects`, on a label another recorded;
 - every operation on a `DeclarationChange`, its `check` among them, unless your agent drafts flow changes: the engine already refuses an agent's approval, and its moving on a change another drafted, but drafting is for whoever authors your flows;
-- the identity `operator`, in any case of its letters, which is the store's operator: never let a user or an agent name an actor so.
+- the identity `operator`, in any case of its letters, which is the store's operator: never let a user or an agent name an actor so;
+- a `principal` the agent chose: the engine records whom an agent names as acting for, the operator or any person included, so set it from your own session, never from the model's arguments;
+- an `idempotency_key` the agent chose: each write tool's schema offers one, and a key the model makes up and repeats replays an earlier verdict, so set keys in your gateway, one for each call you mean to make once;
+- requests past a budget of bytes as well as of calls: a refused request is kept with what it sent, as every refusal is, so twenty refusals of a 1.9 MB body grew a store from 4.5 MB to 24.9 MB.
 
 `publish` needs no rule of yours. An agent may draft and submit a `DeclarationChange`, but its approval is refused unless the flow's `publishing` names `agent`. Where no module declares `publishing`, any other kind may approve; `publishing: { taken_by: [human] }` keeps it with people.
 
-**Reads are not filtered.** A read authorizes nothing, so an agent's `get_object` and `query_objects` return what a person's would, personal attributes included. Filter what you hand the model by your own rules on who may see what. A metric that names a person is listed in its type's `person_dimensions`.
+**Reads are not filtered.** A read authorizes nothing, so an agent's `get_object` and `query_objects` return what a person's would, personal attributes included. Filter what you hand the model by your own rules on who may see what. A metric that names a person is listed in its type's `person_dimensions`. **What you filter out stays hidden**: an agent's `query` whose `filter` or `order` reads a member marked personal, in any type, is refused `malformed_filter`, as a metric's filter is, where an agent ranging over `name >= "…"` recovered the names its answers left out. A person's query is answered.
+
+**`availability` offers an agent a transition kept for people** where it takes inputs: one `taken_by: [human]` with inputs is answered `available_with_input`, as for anyone, and the agent's request is then refused. Read `taken_by` from the tools, which never offer it.
 
 **Name the agent as the actor of its reads.** Reads that grow with the store run in a pool of the agents' own, so an agent's sweeping queries never hold up a person's worklist.
 

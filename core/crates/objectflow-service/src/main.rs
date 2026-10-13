@@ -865,16 +865,20 @@ fn heavy_reading<'s>(
     Ok((slot, reading_until(shared, until)?))
 }
 
-/// A slot among the analytics for a read of one object, what it offers or
-/// what a request of it would do, where its type's rules grow with the
-/// store (`reads::grows_with_store`), where such reads ran in no pool and
-/// 64 of them peaked at 4.49 GB (thirteenth production review C); none
-/// for any other, which never waits.
+/// A slot among the objects' reads, beside `history` and `events`, for a
+/// read of one object, what it offers or what a request of it would do,
+/// where what it computes of its type's rules grows with the store
+/// (`reads::grows_with_store`), where such reads ran in no pool and 64 of
+/// them peaked at 4.49 GB (thirteenth production review C); never among
+/// the analytics, where a person's `get` waited 25.5 s behind per-person
+/// metrics (fourteenth production review); none for any other read, which
+/// never waits.
 fn object_slot<'s>(
     shared: &'s Shared,
     id: Option<&str>,
     type_: Option<&str>,
     actor: Option<&str>,
+    what: objectflow_core::reads::ObjectRead,
 ) -> Result<Slot<'s>, Fault> {
     if shared.reads.is_none() {
         return Ok(Slot(None));
@@ -887,13 +891,13 @@ fn object_slot<'s>(
             (None, Some(t)) => Some(t.to_string()),
             (None, None) => None,
         };
-        tn.is_some_and(|t| objectflow_core::reads::grows_with_store(&s.lib, &t))
+        tn.is_some_and(|t| objectflow_core::reads::grows_with_store(&s.lib, &t, what))
     };
     if !grows {
         return Ok(Slot(None));
     }
     let until = std::time::Instant::now() + shared.read_timeout;
-    pool_of(shared, &shared.admission, actor)?.take(until, shared.read_timeout)
+    pool_of(shared, &shared.objects, actor)?.take(until, shared.read_timeout)
 }
 
 /// The pool a read waits in: an agent's in the agents', whatever it reads,
@@ -1890,6 +1894,7 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 req.object_id.as_deref(),
                 req.type_.as_deref(),
                 actor_id(&body)?,
+                objectflow_core::reads::ObjectRead::Check,
             )?,
         };
         let c = consulting(
@@ -2590,7 +2595,13 @@ async fn get(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let id =
             text(&body, "id")?.ok_or_else(|| Fault::Bad("get names an object's id".to_string()))?;
         let follow = flag(&body, "follow")?;
-        let _slot = object_slot(&shared, Some(id), None, actor_id(&body)?)?;
+        let _slot = object_slot(
+            &shared,
+            Some(id),
+            None,
+            actor_id(&body)?,
+            objectflow_core::reads::ObjectRead::Get,
+        )?;
         let mut r = reading(&shared)?;
         let s = r.store()?;
         // with follow, where its supersession chain ends: taken and ignored
@@ -2969,7 +2980,13 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
                 "availability names its actor and an object's id".to_string(),
             ));
         };
-        let _slot = object_slot(&shared, Some(id), None, Some(actor))?;
+        let _slot = object_slot(
+            &shared,
+            Some(id),
+            None,
+            Some(actor),
+            objectflow_core::reads::ObjectRead::Availability,
+        )?;
         let mut r = reading(&shared)?;
         let s = r.store()?;
         let decided = {
@@ -3073,12 +3090,41 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
             }
         }
         // a query that reads its type whole waits among the analytics, never
-        // in a person's worklist slot (ADR-0196 decision 4)
-        let scans = {
+        // in a person's worklist slot (ADR-0196 decision 4); and an agent's
+        // filtering or ordering by anything personal is refused, where one
+        // ranged over people's names to recover what its answers left out
+        // (fourteenth production review N4)
+        let (scans, personal) = {
             let mut r = reading(&shared)?;
             let s = r.store()?;
-            reads::query_scans(&s.lib, type_, text(&body, "filter")?, &order)
+            let agent = match actor_id(&body)? {
+                Some(a) => {
+                    objectflow_core::request::actor_kind(&s.snapshot()?, a)?.as_deref()
+                        == Some("agent")
+                }
+                None => false,
+            };
+            (
+                reads::query_scans(
+                    &s.lib,
+                    type_,
+                    text(&body, "filter")?,
+                    &order,
+                    fields.as_deref(),
+                ),
+                agent && reads::query_reads_personal(&s.lib, text(&body, "filter")?, &order),
+            )
         };
+        if personal {
+            return Ok(Json(page_json(&reads::QueryPage {
+                items: Vec::new(),
+                refused: Some("personal".into()),
+                reason: Some(
+                    "an agent's query filters or orders by a member marked personal".into(),
+                ),
+                cursor: None,
+            })));
+        }
         let pool = if scans {
             &shared.admission
         } else {
@@ -4026,6 +4072,11 @@ fn args() -> Result<Args, String> {
     if out.create && out.store.is_none() {
         return Err("--create makes a deployment's store, which --store names".to_string());
     }
+    // a socket path no socket can have is refused before anything is made,
+    // where --create made the store first (fourteenth production review)
+    if let Some(said) = out.socket.as_deref().and_then(socket_too_long) {
+        return Err(said);
+    }
     if retained && out.store.is_none() {
         return Err("a retention is a deployment's; a sandbox's load names its own".to_string());
     }
@@ -4847,6 +4898,18 @@ async fn served(
 /// there and never another kind of file, and made 0660: its owner and its
 /// group alone reach the service, the boundary the design leaves to the
 /// deployment (ADR-0114, ADR-0183 decision 4).
+/// What a path a socket cannot have is refused with, its limit said, where
+/// the system's words named SUN_LEN (twelfth production review).
+fn socket_too_long(path: &std::path::Path) -> Option<String> {
+    let n = path.as_os_str().len();
+    (n > SOCKET_PATH).then(|| {
+        format!(
+            "{} is {n} bytes long, past the {SOCKET_PATH} a Unix socket's path may hold; give --socket a shorter path, such as /run/objectflow/objectflow.sock",
+            path.display()
+        )
+    })
+}
+
 fn bind_socket(path: &std::path::Path) -> std::io::Result<tokio::net::UnixListener> {
     use std::os::unix::fs::{FileTypeExt, PermissionsExt};
     match std::fs::symlink_metadata(path) {
@@ -4871,14 +4934,8 @@ fn bind_socket(path: &std::path::Path) -> std::io::Result<tokio::net::UnixListen
         }
         Err(_) => {}
     }
-    // a path a socket cannot have is said with its limit, where the system's
-    // words named SUN_LEN (twelfth production review)
-    if path.as_os_str().len() > SOCKET_PATH {
-        return Err(std::io::Error::other(format!(
-            "{} is {} bytes long, past the {SOCKET_PATH} a Unix socket's path may hold; give --socket a shorter path, such as /run/objectflow/objectflow.sock",
-            path.display(),
-            path.as_os_str().len()
-        )));
+    if let Some(said) = socket_too_long(path) {
+        return Err(std::io::Error::other(said));
     }
     let named = |e: std::io::Error| std::io::Error::other(format!("{}: {e}", path.display()));
     let listener = tokio::net::UnixListener::bind(path).map_err(named)?;
@@ -5032,6 +5089,13 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
             path.display(),
             mode & 0o777
         ));
+    }
+    // a build whose SQLite shares one page cache among its connections makes
+    // heavy reads at once each cost what all of them do (ADR-0201)
+    if !matches!(objectflow_core::store::page_caches_shared(), Ok(false)) {
+        notes.push(
+            "this build's SQLite shares one page cache among every connection, so heavy reads at once each take as long as all of them: build from core/, where .cargo/config.toml builds it with a cache for each".to_string(),
+        );
     }
     Ok(notes)
 }
@@ -6110,7 +6174,7 @@ mod tests {
     /// (ADR-0189 decision 2, ADR-0192 decision 5, ADR-0195 decision 5).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::panic)]
-    async fn a_read_of_an_object_whose_rules_grow_waits_among_the_analytics() {
+    async fn a_read_of_an_object_whose_rules_grow_waits_among_the_objects_reads() {
         use std::time::{Duration, Instant};
         let dir =
             std::env::temp_dir().join(format!("objectflow-object-slot-{}", std::process::id()));
@@ -6160,7 +6224,7 @@ mod tests {
         let op = json!({"id": "operator"});
         // a type whose derived attribute scans its type, and one that reads
         // nothing beyond itself, published through the wire
-        let source = "module: m\ncategories: [live, closed]\ntypes:\n  Wide:\n    description: A thing.\n    tracking: record\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    derived_attributes:\n      peers: { description: How many., expression: count(w in Wide) }\n    transitions:\n      make: { kind: initial, to: ON }\n      stop: { kind: external, from: ON, to: OFF }\n  Narrow:\n    description: A thing.\n    tracking: record\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    transitions:\n      make: { kind: initial, to: ON }\n      stop: { kind: external, from: ON, to: OFF }\n";
+        let source = "module: m\ncategories: [live, closed]\ntypes:\n  Wide:\n    description: A thing.\n    tracking: record\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    derived_attributes:\n      peers: { description: How many., expression: count(w in Wide) }\n    transitions:\n      make: { kind: initial, to: ON }\n      stop: { kind: external, from: ON, to: OFF }\n  Guarded:\n    description: A thing.\n    tracking: record\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    conditions:\n      few: { description: Few., expression: count(g in Guarded) < 1000, remedy: dependent }\n    transitions:\n      make: { kind: initial, to: ON }\n      stop: { kind: external, from: ON, to: OFF, guards: { few: deny } }\n  Narrow:\n    description: A thing.\n    tracking: record\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    transitions:\n      make: { kind: initial, to: ON }\n      stop: { kind: external, from: ON, to: OFF }\n";
         let Ok(Json(drafted)) = request_op(
             State(shared.clone()),
             Body(
@@ -6204,10 +6268,17 @@ mod tests {
                 }
             }
         };
-        let (wide, narrow) = (made("Wide").await, made("Narrow").await);
-        // the analytics' one slot held: the wide object's read waits for it,
-        // past its deadline, and the narrow one's reads at once
-        let held = shared.admission.take(
+        let (wide, guarded, narrow) = (
+            made("Wide").await,
+            made("Guarded").await,
+            made("Narrow").await,
+        );
+        // the objects' one slot held, never the analytics': the wide
+        // object's reads wait for it, past their deadline, the guarded one's
+        // availability and check, which evaluate its guard, and not its get,
+        // which does not, and the narrow one's reads at once (fourteenth
+        // production review)
+        let held = shared.objects.take(
             Instant::now() + Duration::from_secs(600),
             Duration::from_secs(600),
         );
@@ -6239,7 +6310,21 @@ mod tests {
                 "{route} of a wide object did not wait its turn"
             );
         }
+        let answer = availability(
+            State(shared.clone()),
+            Body(json!({"actor": op, "id": guarded})),
+        )
+        .await;
+        assert!(
+            matches!(&answer, Err(Fault::TimedOut(m)) if m.contains("--max-reads")),
+            "availability of a guarded object did not wait its turn"
+        );
         let began = Instant::now();
+        assert!(
+            get(State(shared.clone()), Body(json!({"id": guarded})))
+                .await
+                .is_ok()
+        );
         assert!(
             get(State(shared.clone()), Body(json!({"id": narrow})))
                 .await

@@ -226,6 +226,22 @@ impl From<NotRun> for StoreError {
 
 type Stored<T> = Result<T, StoreError>;
 
+/// Whether the SQLite linked in keeps one page cache for every connection
+/// of the process, behind one mutex, as it does built with
+/// `SQLITE_ENABLE_MEMORY_MANAGEMENT`, which the bundled build sets and
+/// `core/.cargo/config.toml` unsets: shared, four heavy reads at once each
+/// took what all four did, 11.2 s for a filter taking 2.2 s alone
+/// (fourteenth production review M2, ADR-0201).
+pub fn page_caches_shared() -> Stored<bool> {
+    let conn = rusqlite::Connection::open_in_memory()?;
+    let used: i64 = conn.query_row(
+        "SELECT sqlite_compileoption_used('ENABLE_MEMORY_MANAGEMENT')",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(used != 0)
+}
+
 /// An event, as the log holds it (`library-api.md` §5).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Event {
@@ -1258,9 +1274,16 @@ pub(crate) fn read_log_heads_after(
 }
 
 /// The digest an idempotency record holds once an erasure redacted what its
-/// request sent: the key replays its verdict whatever is sent under it
+/// request sent, where its digest was made before personal values were
+/// masked in it: the key replays its verdict whatever is sent under it
 /// (fourth production review A-5).
 pub const ERASED_DIGEST: &str = "erased";
+
+/// How a digest made with its personal values masked begins, which an
+/// erasure leaves as it is: it holds nothing erased, and a different request
+/// under its key is still refused (fourteenth production review N2,
+/// ADR-0201).
+pub const MASKED_DIGEST: &str = "sha256-masked:";
 
 /// A counter's value: the last position, transaction or object number
 /// the store has handed out.
@@ -4890,13 +4913,16 @@ fn write(
              WHERE position = ?1 AND json_type(payload, ?2) IS NOT NULL",
             params![position, path],
         )?;
-        // the key of the request that sent it replays its verdict whatever
+        // the key of the request that sent it, its digest made before
+        // personal values were masked in one, replays its verdict whatever
         // is sent under it, so its digest confirms no guess of what was
-        // erased (fourth production review A-5)
+        // erased (fourth production review A-5); a masked digest holds
+        // nothing erased and stays (fourteenth production review N2)
         tx.execute(
             "UPDATE of_idempotency SET request_digest = ?2 WHERE first_position = \
-             (SELECT MIN(position) FROM of_event WHERE txn = (SELECT txn FROM of_event WHERE position = ?1))",
-            params![position, ERASED_DIGEST],
+             (SELECT MIN(position) FROM of_event WHERE txn = (SELECT txn FROM of_event WHERE position = ?1)) \
+             AND substr(request_digest, 1, length(?3)) != ?3",
+            params![position, ERASED_DIGEST, MASKED_DIGEST],
         )?;
     }
     for (id, dimension, entered) in &change.redacted_spans {
@@ -4946,6 +4972,15 @@ fn write(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The SQLite built in keeps a page cache for each connection, so
+    /// concurrent reads do not wait on one another's pages; a build made
+    /// where `core/.cargo/config.toml` is not read fails here (fourteenth
+    /// production review M2, ADR-0201).
+    #[test]
+    fn each_connection_keeps_its_own_page_cache() {
+        assert!(matches!(page_caches_shared(), Ok(false)));
+    }
 
     /// A deployment's store cuts its write-ahead log back to its limit when
     /// a checkpoint empties it, where the log grew to 792 MB beside a 133 MB

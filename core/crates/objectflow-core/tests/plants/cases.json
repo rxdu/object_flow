@@ -982,6 +982,20 @@
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
     "inventory.yaml",
     3,
     "notice",
@@ -1308,6 +1322,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "issues.yaml",
+    131,
+    "notice",
+    "unbounded_reach",
+    "WorkItem.subtasks's cascade on archive takes at most 500 of it, and no invariant of WorkItem holds it to 500: past 500, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in subtasks) <= 500 (ADR-0201)"
    ],
    [
     "issues.yaml",
@@ -2364,6 +2385,20 @@
    ],
    [
     "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
     117,
     "fatal",
     "names",
@@ -2446,6 +2481,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ],
    [
     "delivery.yaml",
@@ -2540,6 +2589,20 @@
     "Delivery.complete enters the final state DELIVERED, and Delivery.checklist_items neither cascades on it nor survives it"
    ],
    [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    44,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
     "inventory.yaml",
     3,
     "notice",
@@ -2626,6 +2689,20 @@
    ],
    [
     "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
     135,
     "fatal",
     "names",
@@ -2708,6 +2785,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ],
    [
     "delivery.yaml",
@@ -3320,6 +3411,20 @@
     "Delivery.number is minted from delivery_serial, which is neither a sequence of this module nor imported"
    ],
    [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
     "inventory.yaml",
     3,
     "notice",
@@ -3403,6 +3508,20 @@
     "fatal",
     "names",
     "Delivery.number is scoped by 'courier', which not every creation of Delivery writes"
+   ],
+   [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ],
    [
     "inventory.yaml",
@@ -3490,6 +3609,20 @@
     "Delivery.number's format has no {n} or {n:<width>}, so it would mint one value only"
    ],
    [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
     "inventory.yaml",
     3,
     "notice",
@@ -3566,6 +3699,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ],
    [
     "delivery.yaml",
@@ -3658,6 +3805,20 @@
     "fatal",
     "names",
     "Delivery.number is unique in scope, and has no identifier with a scope"
+   ],
+   [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ],
    [
     "inventory.yaml",
@@ -4661,6 +4822,20 @@
     "fatal",
     "check 7",
     "Delivery.unit is a stored relationship end and is marked indexed, which it already is"
+   ],
+   [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ],
    [
     "inventory.yaml",
@@ -7438,6 +7613,13 @@
    ],
    [
     "customers.yaml",
+    116,
+    "notice",
+    "unbounded_reach",
+    "Customer.merged_into takes at most 5 of contacts, and no invariant of Customer holds it to 5: past 5, it is refused over_limit, and an object holding more can never take it; declare one such as count(x in contacts) <= 5 (ADR-0201)"
+   ],
+   [
+    "customers.yaml",
     125,
     "fatal",
     "names",
@@ -7859,6 +8041,20 @@
    ],
    [
     "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
     166,
     "fatal",
     "names",
@@ -7941,6 +8137,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ],
    [
     "delivery.yaml",
@@ -9707,6 +9917,20 @@
     "Delivery.helpers is a set of references with no opposite, which has nowhere to be stored; an end with no opposite is single (§4.3; the model's check 41)"
    ],
    [
+    "delivery.yaml",
+    38,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    46,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
     "inventory.yaml",
     3,
     "notice",
@@ -11282,18 +11506,11 @@
   "files": [
    [
     "reach.yaml",
-    "308a5e8a0fc22dc2"
+    "3c44f1cfba0e78ac"
    ]
   ],
   "previous": {},
   "findings": [
-   [
-    "reach.yaml",
-    8,
-    "fatal",
-    "names",
-    "Claim.close enters the final state E, and Claim.lines neither cascades on it nor survives it"
-   ],
    [
     "reach.yaml",
     8,
@@ -11306,11 +11523,18 @@
     8,
     "notice",
     "unbounded_reach",
+    "Claim.lines's cascade on close takes at most 20 of it, and no invariant of Claim holds it to 20: past 20, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in lines) <= 20 (ADR-0201)"
+   ],
+   [
+    "reach.yaml",
+    8,
+    "notice",
+    "unbounded_reach",
     "Claim.lines's cascade on forget takes at most 20 of it, and no invariant of Claim holds it to 20: past 20, the erasure is refused over_limit and cannot be carried out; declare one such as count(x in lines) <= 20 (ADR-0190)"
    ],
    [
     "reach.yaml",
-    14,
+    19,
     "notice",
     "unbounded_reach",
     "Claim.forget takes at most 20 of lines, and no invariant of Claim holds it to 20: past 20, the erasure is refused over_limit and cannot be carried out; declare one such as count(x in lines) <= 20 (ADR-0190)"
@@ -11325,7 +11549,7 @@
   "files": [
    [
     "bounded.yaml",
-    "5b9bddea53b0520e"
+    "ea4dd8ec70b23e90"
    ]
   ],
   "previous": {},
@@ -11560,9 +11784,102 @@
    ]
   ],
   "previous": {},
+  "findings": [
+   [
+    "chain.yaml",
+    77,
+    "fatal",
+    "order",
+    "T.d64 reads derived attributes more than 64 deep, each reading the next, past the most one evaluation goes through"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "level.yaml",
+    "9d7805f6c5b9824e"
+   ]
+  ],
+  "previous": {},
   "findings": [],
   "analysed": {
    "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "da.yaml",
+    "49b951cd7d057743"
+   ],
+   [
+    "db.yaml",
+    "45712bb115a81d22"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "db.yaml",
+    39,
+    "fatal",
+    "order",
+    "TB.b24 reads derived attributes more than 64 deep, each reading the next, past the most one evaluation goes through"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "ahead.yaml",
+    "92fb74695ae7e1b7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ahead.yaml",
+    13,
+    "fatal",
+    "order",
+    "A.a0 reads derived attributes more than 64 deep, each reading the next, past the most one evaluation goes through"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "held.yaml",
+    "4dde94fa944ede8d"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "A": [
+    0,
+    0
+   ],
+   "B": [
     0,
     0
    ]
@@ -14409,6 +14726,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "module.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ]
   ],
   "analysed": {
@@ -14580,6 +14911,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "module.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ]
   ],
   "analysed": {
@@ -14702,6 +15047,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "module.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ]
   ],
   "analysed": {},
@@ -14791,6 +15150,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "module.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ]
   ],
   "analysed": {},
@@ -15021,6 +15394,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "module.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ]
   ],
   "analysed": {
@@ -15157,6 +15544,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "module.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ]
   ],
   "analysed": {
@@ -16473,6 +16874,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
+    131,
+    "notice",
+    "unbounded_reach",
+    "WorkItem.subtasks's cascade on archive takes at most 500 of it, and no invariant of WorkItem holds it to 500: past 500, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in subtasks) <= 500 (ADR-0201)"
    ],
    [
     "module.yaml",
@@ -18135,6 +18543,13 @@
    ],
    [
     "issues.yaml",
+    131,
+    "notice",
+    "unbounded_reach",
+    "WorkItem.subtasks's cascade on archive takes at most 500 of it, and no invariant of WorkItem holds it to 500: past 500, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in subtasks) <= 500 (ADR-0201)"
+   ],
+   [
+    "issues.yaml",
     236,
     "notice",
     "warn",
@@ -19642,6 +20057,13 @@
    ],
    [
     "module.yaml",
+    131,
+    "notice",
+    "unbounded_reach",
+    "WorkItem.subtasks's cascade on archive takes at most 500 of it, and no invariant of WorkItem holds it to 500: past 500, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in subtasks) <= 500 (ADR-0201)"
+   ],
+   [
+    "module.yaml",
     236,
     "notice",
     "warn",
@@ -19772,6 +20194,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
+    131,
+    "notice",
+    "unbounded_reach",
+    "WorkItem.subtasks's cascade on archive takes at most 500 of it, and no invariant of WorkItem holds it to 500: past 500, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in subtasks) <= 500 (ADR-0201)"
    ],
    [
     "module.yaml",
@@ -20266,6 +20695,13 @@
    ],
    [
     "module.yaml",
+    131,
+    "notice",
+    "unbounded_reach",
+    "WorkItem.subtasks's cascade on archive takes at most 500 of it, and no invariant of WorkItem holds it to 500: past 500, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in subtasks) <= 500 (ADR-0201)"
+   ],
+   [
+    "module.yaml",
     236,
     "notice",
     "warn",
@@ -20351,6 +20787,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
+    131,
+    "notice",
+    "unbounded_reach",
+    "WorkItem.subtasks's cascade on archive takes at most 500 of it, and no invariant of WorkItem holds it to 500: past 500, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in subtasks) <= 500 (ADR-0201)"
    ],
    [
     "module.yaml",
@@ -22625,6 +23068,20 @@
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
     "inventory.yaml",
     3,
     "notice",
@@ -22714,6 +23171,20 @@
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
     "inventory.yaml",
     3,
     "notice",
@@ -22801,6 +23272,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ],
    [
     "inventory.yaml",
@@ -22904,6 +23389,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ],
    [
     "inventory.yaml",
@@ -24249,6 +24748,20 @@
    ],
    [
     "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
     96,
     "fatal",
     "names",
@@ -24323,6 +24836,20 @@
    ],
    [
     "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
     96,
     "fatal",
     "names",
@@ -24394,6 +24921,20 @@
     "notice",
     "imports",
     "inventory is not among the files checked, so steps 2 and 3 cannot check what is imported from it"
+   ],
+   [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ]
   ],
   "analysed": {
@@ -24802,6 +25343,20 @@
     "notice",
     "imports",
     "inventory is not among the files checked, so steps 2 and 3 cannot check what is imported from it"
+   ],
+   [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
    ],
    [
     "delivery.yaml",
@@ -26100,6 +26655,13 @@
    ],
    [
     "shop.yaml",
+    8,
+    "notice",
+    "unbounded_reach",
+    "Order.lines's cascade on finish takes at most 50 of it, and no invariant of Order holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in lines) <= 50 (ADR-0201)"
+   ],
+   [
+    "shop.yaml",
     26,
     "fatal",
     "names",
@@ -26164,6 +26726,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Line (1), Order (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "shop.yaml",
+    8,
+    "notice",
+    "unbounded_reach",
+    "Order.lines's cascade on finish takes at most 50 of it, and no invariant of Order holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in lines) <= 50 (ADR-0201)"
    ],
    [
     "shop.yaml",
@@ -26234,6 +26803,13 @@
    ],
    [
     "shop.yaml",
+    8,
+    "notice",
+    "unbounded_reach",
+    "Order.lines's cascade on finish takes at most 50 of it, and no invariant of Order holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in lines) <= 50 (ADR-0201)"
+   ],
+   [
+    "shop.yaml",
     26,
     "fatal",
     "names",
@@ -26298,6 +26874,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Line (1), Order (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "shop.yaml",
+    8,
+    "notice",
+    "unbounded_reach",
+    "Order.lines's cascade on finish takes at most 50 of it, and no invariant of Order holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in lines) <= 50 (ADR-0201)"
    ],
    [
     "shop.yaml",
@@ -26506,6 +27089,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Line (1), Order (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "shop.yaml",
+    8,
+    "notice",
+    "unbounded_reach",
+    "Order.lines's cascade on finish takes at most 50 of it, and no invariant of Order holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in lines) <= 50 (ADR-0201)"
    ]
   ],
   "analysed": {
@@ -27105,6 +27695,13 @@
     "fatal",
     "names",
     "Rack.slots cascades to Slot.drop, which is not a transition of Slot that acts on a part"
+   ],
+   [
+    "rack.yaml",
+    8,
+    "notice",
+    "unbounded_reach",
+    "Rack.slots's cascade on retire takes at most 10 of it, and no invariant of Rack holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in slots) <= 10 (ADR-0201)"
    ]
   ],
   "analysed": {},
@@ -28057,6 +28654,13 @@
     "fatal",
     "names",
     "Order.finish cascades the personal Order.buyer to Line.drop's input 'why', which writes it to Line.memo, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "shop.yaml",
+    11,
+    "notice",
+    "unbounded_reach",
+    "Order.lines's cascade on finish takes at most 50 of it, and no invariant of Order holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in lines) <= 50 (ADR-0201)"
    ]
   ],
   "analysed": {},

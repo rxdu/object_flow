@@ -693,14 +693,24 @@ fn a_deployments_edges_are_said() {
         said.contains("how many reads run at once is a deployment's"),
         "{said}"
     );
+    // refused before anything is made, where --create made the store first
+    // (fourteenth production review)
     let long = dir.join("s".repeat(150));
-    let (code, said) = refused(&["--socket", long.to_str().expect("a path")]);
-    assert_eq!(code, Some(1));
+    let unmade = dir.join("unmade.sqlite");
+    let (code, said) = refused(&[
+        "--store",
+        unmade.to_str().expect("a path"),
+        "--create",
+        "--socket",
+        long.to_str().expect("a path"),
+    ]);
+    assert_eq!(code, Some(2));
     assert!(said.contains(&"s".repeat(150)), "{said}");
     assert!(
         said.contains("past the 107 a Unix socket's path may hold"),
         "{said}"
     );
+    assert!(!unmade.exists(), "the store was made");
     // a store made, then damaged in its first table's page
     let path = dir.join("store.sqlite");
     {
@@ -4565,6 +4575,55 @@ fn a_store_readable_by_others_is_said_with_its_log() {
             && said.contains("and its -wal and -shm"),
         "{said}"
     );
+    drop(s);
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+/// An agent's query filtering or ordering by a member marked personal is
+/// refused `personal`, as a metric's filter is, where an agent ranged over people's names to
+/// recover what its answers left out; a person's is answered (fourteenth
+/// production review N4).
+#[test]
+fn an_agents_query_by_a_personal_member_is_refused() {
+    let file = fresh_store("personal-query");
+    let path = file.to_str().expect("a path");
+    let s = start(&["--store", path, "--create", "--port", "0"]);
+    let people = "module: people\ncategories: [live, closed]\ntypes:\n  Person:\n    description: A person.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human }\n      name: { type: string, personal: true, optional: true }\n      team: { type: string }\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login, team], optional_inputs: [name] }\n      leave: { kind: external, from: ON, to: OFF }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Bot:\n    description: An agent.\n    tracking: record\n    attributes:\n      key: { type: identity, actor_kind: agent }\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    transitions:\n      add: { kind: initial, to: ON, required_inputs: [key] }\n      retire: { kind: external, from: ON, to: OFF }\n";
+    publish(&s, &json!({"people": people}));
+    let op = json!({"id": "operator"});
+    let v = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Person", "transition": "join",
+                "inputs": {"login": "ana", "name": "Ana Secret", "team": "blue"}}),
+    );
+    assert_eq!(v["kind"], "satisfied", "{v}");
+    let v = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Bot", "transition": "add", "inputs": {"key": "helper"}}),
+    );
+    assert_eq!(v["kind"], "satisfied", "{v}");
+    let bot = json!({"id": "helper"});
+    for q in [
+        json!({"actor": bot, "type": "Person", "filter": "name >= \"Ana\""}),
+        json!({"actor": bot, "type": "Person", "order": "name desc"}),
+    ] {
+        let page = post(&s, "/v1/query", &q);
+        assert_eq!(page["refused"], "personal", "{page}");
+    }
+    let page = post(
+        &s,
+        "/v1/query",
+        &json!({"actor": bot, "type": "Person", "filter": "team == \"blue\""}),
+    );
+    assert_eq!(page["refused"], Value::Null, "{page}");
+    let page = post(
+        &s,
+        "/v1/query",
+        &json!({"actor": op, "type": "Person", "filter": "name >= \"Ana\""}),
+    );
+    assert_eq!(page["items"].as_array().map(Vec::len), Some(1), "{page}");
     drop(s);
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }

@@ -154,15 +154,17 @@ pub fn reaches(doc: &Value) -> Found {
             .collect();
         for (a, spec) in attrs {
             for c in list(spec, "cascade") {
-                let erasing: Vec<String> = list(c, "on")
+                let (erasing, others): (Vec<String>, Vec<String>) = list(c, "on")
                     .iter()
                     .map(py_str)
-                    .filter(|e| erasures.contains(&e))
-                    .collect();
+                    .partition(|e| erasures.contains(&e));
                 let Some(n) = limit_of(c) else {
                     continue;
                 };
-                if !erasing.is_empty() && reach_bound(t, a).is_none_or(|most| most > n) {
+                if reach_bound(t, a).is_some_and(|most| most <= n) {
+                    continue;
+                }
+                if !erasing.is_empty() {
                     add(
                         &mut out,
                         finding(
@@ -175,18 +177,42 @@ pub fn reaches(doc: &Value) -> Found {
                         ),
                     );
                 }
+                // and past it any other transition it cascades on, which an
+                // object holding more can never take, a claim of 201 lines
+                // never withdrawn or paid (fourteenth production review N8)
+                if !others.is_empty() {
+                    add(
+                        &mut out,
+                        finding(
+                            segs!["types", tn.as_str(), "attributes", a.as_str(), "cascade"],
+                            "unbounded_reach",
+                            format!(
+                                "{tn}.{a}'s cascade on {} takes at most {n} of it, and no invariant of {tn} holds it to {n}: past {n}, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in {a}) <= {n} (ADR-0201)",
+                                others.join(", ")
+                            ),
+                        ),
+                    );
+                }
             }
         }
         let word = &*WORD;
         for (xn, x) in transitions {
-            if !x.is_object() || text(x, "kind") != Some("erasure") {
+            if !x.is_object() {
                 continue;
             }
+            let erasure = text(x, "kind") == Some("erasure");
             for s in super::steps::walk(x.get("effect")) {
                 if s.kind != "foreach" {
                     continue;
                 }
                 let f = s.body();
+                // a loop with `where` bounds what it keeps, an author's rule
+                // on another transition, where one picking a robot's open
+                // line was noticed as if it bounded every line (ADR-0201
+                // decision 9)
+                if !erasure && f.get("where").is_some_and(|w| !w.is_null()) {
+                    continue;
+                }
                 let array = f.get("array").map(py_str).unwrap_or_default();
                 let Some(m) = word.captures(array.trim()) else {
                     continue;
@@ -202,7 +228,13 @@ pub fn reaches(doc: &Value) -> Found {
                             segs!["types", tn.as_str(), "transitions", xn.as_str()],
                             "unbounded_reach",
                             format!(
-                                "{tn}.{xn} takes at most {n} of {a}, and no invariant of {tn} holds it to {n}: past {n}, the erasure is refused over_limit and cannot be carried out; declare one such as count(x in {a}) <= {n} (ADR-0190)"
+                                "{tn}.{xn} takes at most {n} of {a}, and no invariant of {tn} holds it to {n}: past {n}, {}; declare one such as count(x in {a}) <= {n} ({})",
+                                if erasure {
+                                    "the erasure is refused over_limit and cannot be carried out"
+                                } else {
+                                    "it is refused over_limit, and an object holding more can never take it"
+                                },
+                                if erasure { "ADR-0190" } else { "ADR-0201" }
                             ),
                         ),
                     );

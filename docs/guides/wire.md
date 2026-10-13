@@ -60,7 +60,7 @@ POST /v1/request
 
 - `inputs`: the transition's inputs, by name, in the notation above.
 - `expected_version`: the version the caller read. If the object has moved on, the request is refused `stale`.
-- `idempotency_key`: at most 256 bytes. The same request under the same key, from the same actor, answers its first verdict with `"replayed": true`; a different request under it is a `409 key_reused` fault. The key belongs to the actor: another actor's request under it is a request of its own. Once an erasure has removed what a request sent, its key answers its first verdict whatever is sent under it, so a key confirms no guess of an erased value. An erasure does not reach the key itself: make keys of ids or random values, never of a name or other personal data.
+- `idempotency_key`: at most 256 bytes. The same request under the same key, from the same actor, answers its first verdict with `"replayed": true`; a different request under it is a `409 key_reused` fault. The key belongs to the actor: another actor's request under it is a request of its own. A request's inputs marked `personal` count by their names alone, so the same request with a different personal value replays, and a key confirms no guess of one, before an erasure or after it; any other difference is `key_reused`, after an erasure too. A key whose digest was made with personal values in it, as release 0.2.0 made them, answers its first verdict whatever is sent under it once an erasure has removed what its request sent. An erasure does not reach the key itself: make keys of ids or random values, never of a name or other personal data.
 - `target_version`: on a proposal's `approve` only, the version of the proposed object its approver read. An approval finding the object moved since is refused `stale`, so what a person approves is what runs; without it, the approval runs on the object as it stands. On any other request it is a `400`.
 - `occurred_at`: when the change happened, if earlier than now, within the transition's `backdating_limit`.
 - `propose`: `true` files the request as a `Proposal` instead of taking it, for a transition marked `proposable`. The verdict names the proposal. A person approves it with `{"object_id": "<proposal>", "transition": "approve"}`, which takes the request as the approver. `reject`, and `withdraw` by anyone but its proposer, are held to the kinds the transition's `taken_by` names. The proposal records its `proposer` by identity.
@@ -163,7 +163,7 @@ A filter is refused `malformed_filter`, with a `reason` naming what it did but n
 
 `order` is a key or a list of keys, each ascending unless followed by ` desc`: `created_at`, `entered_at(<tracked member>)`, or an attribute holding one value. The object id breaks ties, and an absent value sorts last. Any other key is refused `unknown_order_key`.
 
-A **metric's filter** reads its rows through the metric's item, such as `i.state == Claim.SUBMITTED` for `time_in_state`; one naming anything else is refused `malformed_filter`, and one reading a personal value `personal`.
+A **metric's filter** reads its rows through the metric's item, such as `i.state == Claim.SUBMITTED` for `time_in_state`; one naming anything else is refused `malformed_filter`, and one reading a personal value `personal`. So is **an agent's query** whose `filter` or `order` reads a member marked personal, by its name in any type: what a gateway leaves out of an agent's answers stays hidden from ranges over it. A person's query is answered.
 
 ## Subscriptions
 

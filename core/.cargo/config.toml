@@ -1,0 +1,10 @@
+# The bundled SQLite is built without SQLITE_ENABLE_MEMORY_MANAGEMENT, which
+# libsqlite3-sys sets: it puts every connection's page cache in one group
+# behind one mutex for the whole process, so heavy reads at once each cost
+# what all of them do. A filter reading 32,000 claims took 2.2 s alone and
+# 11.2 s each with four at once; built without it, 2.2 s each (fourteenth
+# production review M2, ADR-0201). `store::tests` holds it: a build that loses
+# it, made from outside this directory, fails them, and the service says so
+# at start.
+[env]
+LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_MEMORY_MANAGEMENT"

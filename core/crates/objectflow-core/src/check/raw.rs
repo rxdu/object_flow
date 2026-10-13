@@ -275,6 +275,13 @@ fn derived_cycle_errors(doc: &Value) -> Found {
 /// each counted as often as it is made.
 pub const UNFOLD_LIMIT: usize = 10_000;
 
+/// The most derived attributes, each reading the next, one derived
+/// attribute's reads go through: an evaluation goes through at most
+/// `eval::DERIVED_HOPS`, past which a read is not run, where a chain of
+/// 9,500 that both checkers accepted answered all past the 65th as null
+/// (fourteenth production review N1).
+pub const DEPTH_LIMIT: usize = crate::eval::DERIVED_HOPS;
+
 /// No expression MAY unfold to more than [`UNFOLD_LIMIT`] reads of derived
 /// attributes, each counted as often as it is made: one reading another
 /// twice reads everything that one reads twice, so `d1: d0 + d0` on to `d40`
@@ -302,8 +309,8 @@ pub const UNFOLD_LIMIT: usize = 10_000;
 pub fn fan_out_errors(
     doc: &Value,
     expressions: &[(Path, String)],
-    outer: &BTreeMap<String, usize>,
-) -> (Found, Vec<(String, usize)>) {
+    outer: &BTreeMap<String, (usize, usize)>,
+) -> (Found, Vec<(String, usize, usize)>) {
     let order: Vec<(String, String)> = types(doc)
         .into_iter()
         .flat_map(|(tn, t)| {
@@ -322,72 +329,82 @@ pub fn fan_out_errors(
     let cap = UNFOLD_LIMIT + 1;
     // an expression's reads, in its text's order, a repeated read repeated,
     // a bare name read of the type given; and what its reads of the modules
-    // checked before unfold to, together
+    // checked before unfold to, together, and the deepest of them
     let reads_of = |own: Option<&str>, text: &str| {
         let mut to = Vec::new();
-        let mut before = 0;
+        let (mut before, mut deepest) = (0, 0);
         for m in NAMED.captures_iter(&squash(text)) {
             let Some(name) = m.get(2).map(|g| g.as_str()) else {
                 continue;
             };
             if m.get(1).is_some() {
                 to.extend(by_name.get(name).into_iter().flatten().copied());
-                before = (before + outer.get(name).copied().unwrap_or(0)).min(cap);
+                let (n, deep) = outer.get(name).copied().unwrap_or((0, 0));
+                before = (before + n).min(cap);
+                deepest = deepest.max(deep);
             } else if let Some(i) =
                 own.and_then(|tn| index.get(&(tn.to_string(), name.to_string())))
             {
                 to.push(*i);
             }
         }
-        (to, before)
+        (to, before, deepest)
     };
-    let (reads, before): (Vec<Vec<usize>>, Vec<usize>) = order
-        .iter()
-        .map(|(tn, d)| {
-            let text = typed
-                .get(tn)
-                .and_then(|t| obj(t, "derived_attributes").get(d))
-                .and_then(|s| s.get("expression"))
-                .map(py_str)
-                .unwrap_or_default();
-            reads_of(Some(tn), &text)
-        })
-        .unzip();
+    let mut reads: Vec<Vec<usize>> = Vec::new();
+    let mut before: Vec<usize> = Vec::new();
+    let mut below: Vec<usize> = Vec::new();
+    for (tn, d) in &order {
+        let text = typed
+            .get(tn)
+            .and_then(|t| obj(t, "derived_attributes").get(d))
+            .and_then(|s| s.get("expression"))
+            .map(py_str)
+            .unwrap_or_default();
+        let (to, n, deep) = reads_of(Some(tn), &text);
+        reads.push(to);
+        before.push(n);
+        below.push(deep);
+    }
     let mut size: Vec<Option<usize>> = vec![None; order.len()];
+    let mut depth: Vec<usize> = vec![1; order.len()];
     let mut on = vec![false; order.len()];
     for start in 0..order.len() {
         if size[start].is_some() {
             continue;
         }
-        // each attribute on the search's path, the read it is at, and what
-        // it unfolds to so far
-        let mut stack: Vec<(usize, usize, usize)> = vec![(start, 0, (1 + before[start]).min(cap))];
+        // each attribute on the search's path, the read it is at, what it
+        // unfolds to so far, and how deep its reads go so far
+        let mut stack: Vec<(usize, usize, usize, usize)> =
+            vec![(start, 0, (1 + before[start]).min(cap), 1 + below[start])];
         on[start] = true;
-        while let Some(&(node, k, total)) = stack.last() {
+        while let Some(&(node, k, total, deep)) = stack.last() {
             if k == reads[node].len() {
                 stack.pop();
                 on[node] = false;
                 size[node] = Some(total);
+                depth[node] = deep;
                 if let Some(parent) = stack.last_mut() {
                     parent.2 = (parent.2 + total).min(cap);
+                    parent.3 = parent.3.max(1 + deep);
                 }
                 continue;
             }
             let next = reads[node][k];
             let add = match size[next] {
-                Some(s) => Some(s),
-                None if on[next] => Some(1),
+                Some(s) => Some((s, depth[next])),
+                None if on[next] => Some((1, 1)),
                 None => None,
             };
             if let Some(top) = stack.last_mut() {
                 top.1 = k + 1;
-                if let Some(s) = add {
+                if let Some((s, d)) = add {
                     top.2 = (total + s).min(cap);
+                    top.3 = deep.max(1 + d);
                 }
             }
             if add.is_none() {
                 on[next] = true;
-                stack.push((next, 0, (1 + before[next]).min(cap)));
+                stack.push((next, 0, (1 + before[next]).min(cap), 1 + below[next]));
             }
         }
     }
@@ -395,6 +412,7 @@ pub fn fan_out_errors(
     let unfolds = format!(
         "unfolds to more than {UNFOLD_LIMIT} reads of derived attributes, each counted as often as it is made: one reading another twice reads all that one reads twice"
     );
+    let deep = |i: usize| depth[i] > DEPTH_LIMIT;
     let mut out = Found::new();
     for (i, (tn, d)) in order.iter().enumerate() {
         if past(i) && !reads[i].iter().any(|r| past(*r)) {
@@ -402,6 +420,15 @@ pub fn fan_out_errors(
                 segs!["types", tn, "derived_attributes", d, "expression"],
                 "order",
                 format!("{tn}.{d} {unfolds}"),
+            ));
+        }
+        if deep(i) && !reads[i].iter().any(|r| deep(*r)) {
+            out.push(finding(
+                segs!["types", tn, "derived_attributes", d, "expression"],
+                "order",
+                format!(
+                    "{tn}.{d} reads derived attributes more than {DEPTH_LIMIT} deep, each reading the next, past the most one evaluation goes through"
+                ),
             ));
         }
     }
@@ -414,7 +441,7 @@ pub fn fan_out_errors(
         if own.is_some() && matches!(path.get(2), Some(Seg::Key(k)) if k == "derived_attributes") {
             continue;
         }
-        let (read, earlier) = reads_of(own, text);
+        let (read, earlier, _) = reads_of(own, text);
         let total = read.iter().fold((1 + earlier).min(cap), |n, r| {
             (n + size[*r].unwrap_or(1)).min(cap)
         });
@@ -435,8 +462,8 @@ pub fn fan_out_errors(
     }
     let sizes = order
         .iter()
-        .zip(&size)
-        .map(|((_, d), s)| (d.clone(), s.unwrap_or(1)))
+        .enumerate()
+        .map(|(i, (_, d))| (d.clone(), size[i].unwrap_or(1), depth[i]))
         .collect();
     (out, sizes)
 }

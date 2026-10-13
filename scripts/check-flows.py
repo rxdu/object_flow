@@ -625,6 +625,7 @@ def derived_cycle_errors(doc):
 
 
 UNFOLD_LIMIT = 10_000   # the most reads of derived attributes a derived attribute may unfold to, repeats counted
+DEPTH_LIMIT = 64        # the most derived attributes, each reading the next, one derived attribute's reads go through
 NAMED = re.compile(r"(\.)?\b([A-Za-z_]\w*)\b")
 
 
@@ -643,7 +644,13 @@ def fan_out_errors(doc, exprs, outer):
     `outer` holding the most each unfolds to: a chain split across a module and one importing it passed each module's
     bound and multiplied past it, a dry run's checks holding the slot to its deadline and this checker without end
     (twelfth production review). Returned beside the findings: what each of the module's derived attributes unfolds
-    to, by name, which the caller adds to `outer` for the modules after it."""
+    to, by name, which the caller adds to `outer` for the modules after it.
+
+    Nor MAY a derived attribute's reads go more than DEPTH_LIMIT deep, each reading the next: an evaluation goes through
+    at most as many, the engine's DERIVED_HOPS, past which a read is not run, where a chain of 9,500 that both checkers
+    accepted answered all past the 65th as null (fourteenth production review N1). The depth is found in the same walk,
+    a read back into a cycle counting one, the first derived attribute past it on each path refused, and `outer`
+    carries each name's deepest beside its count, as the returned list does."""
     order = [(tn, d) for tn, t in types(doc) for d in (t.get("derived_attributes") or {})]
     index = {node: i for i, node in enumerate(order)}
     by_name = {}
@@ -654,58 +661,69 @@ def fan_out_errors(doc, exprs, outer):
 
     def reads_of(own, text):
         """An expression's reads, in its text's order, a repeated read repeated, a bare name read of the type given;
-        and what its reads of the modules checked before unfold to, together."""
-        to, before = [], 0
+        and what its reads of the modules checked before unfold to, together, and the deepest of them."""
+        to, before, deepest = [], 0, 0
         for m in NAMED.finditer(" ".join(str(text).split())):
             if m.group(1):
                 to += by_name.get(m.group(2), [])
-                before = min(cap, before + outer.get(m.group(2), 0))
+                n, deep = outer.get(m.group(2), (0, 0))
+                before = min(cap, before + n)
+                deepest = max(deepest, deep)
             elif (own, m.group(2)) in index:
                 to.append(index[(own, m.group(2))])
-        return to, before
-    pairs = [reads_of(tn, ((typed[tn].get("derived_attributes") or {}).get(d) or {}).get("expression", ""))
-             for tn, d in order]
-    reads, before = [p[0] for p in pairs], [p[1] for p in pairs]
-    size, on = [None] * len(order), [False] * len(order)
+        return to, before, deepest
+    triples = [reads_of(tn, ((typed[tn].get("derived_attributes") or {}).get(d) or {}).get("expression", ""))
+               for tn, d in order]
+    reads, before, below = [p[0] for p in triples], [p[1] for p in triples], [p[2] for p in triples]
+    size, depth, on = [None] * len(order), [1] * len(order), [False] * len(order)
     for start in range(len(order)):
         if size[start] is not None:
             continue
-        stack = [[start, 0, min(cap, 1 + before[start])]]
+        stack = [[start, 0, min(cap, 1 + before[start]), 1 + below[start]]]
         on[start] = True
         while stack:
-            node, k, total = stack[-1]
+            node, k, total, deep = stack[-1]
             if k == len(reads[node]):
                 stack.pop()
                 on[node] = False
-                size[node] = total
+                size[node], depth[node] = total, deep
                 if stack:
                     stack[-1][2] = min(cap, stack[-1][2] + total)
+                    stack[-1][3] = max(stack[-1][3], 1 + deep)
                 continue
             nxt = reads[node][k]
-            add = size[nxt] if size[nxt] is not None else (1 if on[nxt] else None)
+            add = (size[nxt], depth[nxt]) if size[nxt] is not None else ((1, 1) if on[nxt] else None)
             stack[-1][1] = k + 1
             if add is not None:
-                stack[-1][2] = min(cap, total + add)
+                stack[-1][2] = min(cap, total + add[0])
+                stack[-1][3] = max(deep, 1 + add[1])
             else:
                 on[nxt] = True
-                stack.append([nxt, 0, min(cap, 1 + before[nxt])])
+                stack.append([nxt, 0, min(cap, 1 + before[nxt]), 1 + below[nxt]])
     past = [s is not None and s > UNFOLD_LIMIT for s in size]
     unfolds = (f"unfolds to more than {UNFOLD_LIMIT} reads of derived attributes, each counted as often as it is made: "
                f"one reading another twice reads all that one reads twice")
-    out = [(("types", tn, "derived_attributes", d, "expression"), "order", f"{tn}.{d} {unfolds}")
-           for i, (tn, d) in enumerate(order) if past[i] and not any(past[r] for r in reads[i])]
+    deep = [n > DEPTH_LIMIT for n in depth]
+    out = []
+    for i, (tn, d) in enumerate(order):
+        if past[i] and not any(past[r] for r in reads[i]):
+            out.append((("types", tn, "derived_attributes", d, "expression"), "order", f"{tn}.{d} {unfolds}"))
+        if deep[i] and not any(deep[r] for r in reads[i]):
+            out.append((("types", tn, "derived_attributes", d, "expression"), "order",
+                        f"{tn}.{d} reads derived attributes more than {DEPTH_LIMIT} deep, each reading the next, past "
+                        f"the most one evaluation goes through"))
     # every other expression, its reads unfolded as a derived attribute's
     for p, text in exprs:
         own = p[1] if len(p) > 1 and p[0] == "types" else None
         if own is not None and len(p) > 2 and p[2] == "derived_attributes":
             continue
-        read, earlier = reads_of(own, text)
+        read, earlier, _ = reads_of(own, text)
         total = min(cap, 1 + earlier)
         for r in read:
             total = min(cap, total + (size[r] if size[r] is not None else 1))
         if total > UNFOLD_LIMIT and not any(past[r] for r in read):
             out.append((tuple(p), "order", f"{'.'.join(str(s) for s in p)} {unfolds}"))
-    return out, [(d, size[i] if size[i] is not None else 1) for i, (_, d) in enumerate(order)]
+    return out, [(d, size[i] if size[i] is not None else 1, depth[i]) for i, (_, d) in enumerate(order)]
 
 
 def references(t, tn):
@@ -3690,8 +3708,9 @@ def reach_bound(t, a):
 def reaches(doc):
     """An erasure's reach a limit may stop: a foreach of an erasure, or a cascade an erasure sets off, declaring a
     limit over a set of its type that no invariant of the type holds at or below it, so past the limit the erasure is
-    refused over_limit and cannot be carried out; a limit, which every loop declares, on any other transition is the
-    author's rule (fifth production review ERASE-LIMIT, ADR-0190 decision 7)."""
+    refused over_limit and cannot be carried out (fifth production review ERASE-LIMIT, ADR-0190 decision 7). So is any
+    other transition's: past its limit an object holding more can never take it, a claim of 201 lines never withdrawn,
+    paid or erased (fourteenth production review N8, ADR-0201)."""
     out = []
     for tn, t in types(doc):
         if t.get("abstract"):
@@ -3704,21 +3723,36 @@ def reaches(doc):
                 n = c.get("limit") if isinstance(c, dict) else None
                 on = [str(x) for x in (c.get("on") or [])] if isinstance(c, dict) else []
                 erasing = [e for e in on if e in erasures]
+                others = [e for e in on if e not in erasures]
                 most = reach_bound(t, a)
-                if erasing and isinstance(n, int) and not isinstance(n, bool) and (most is None or most > n):
+                if not isinstance(n, int) or isinstance(n, bool) or (most is not None and most <= n):
+                    continue
+                if erasing:
                     found = (("types", tn, "attributes", a, "cascade"), "unbounded_reach",
                              f"{tn}.{a}'s cascade on {', '.join(erasing)} takes at most {n} of it, and no invariant of "
                              f"{tn} holds it to {n}: past {n}, the erasure is refused over_limit and cannot be carried "
                              f"out; declare one such as count(x in {a}) <= {n} (ADR-0190)")
                     if found not in out:
                         out.append(found)
+                if others:
+                    found = (("types", tn, "attributes", a, "cascade"), "unbounded_reach",
+                             f"{tn}.{a}'s cascade on {', '.join(others)} takes at most {n} of it, and no invariant of "
+                             f"{tn} holds it to {n}: past {n}, each is refused over_limit, and an object holding more "
+                             f"can never take it; declare one such as count(x in {a}) <= {n} (ADR-0201)")
+                    if found not in out:
+                        out.append(found)
         for xn, x in transitions.items():
-            if not isinstance(x, dict) or x.get("kind") != "erasure":
+            if not isinstance(x, dict):
                 continue
+            erasure = x.get("kind") == "erasure"
             for st, k, _p, _d in walk(x.get("effect")):
                 if k != "foreach":
                     continue
                 f = st["foreach"] if isinstance(st.get("foreach"), dict) else {}
+                # a loop with `where` bounds what it keeps, an author's rule on another transition, where one picking a
+                # robot's open line was noticed as if it bounded every line (ADR-0201 decision 9)
+                if not erasure and f.get("where") is not None:
+                    continue
                 m = re.fullmatch(r"(?:this\.)?(\w+)", str(f.get("array") or "").strip())
                 n = f.get("limit")
                 if not m or m.group(1) not in attrs or not isinstance(n, int) or isinstance(n, bool):
@@ -3728,8 +3762,10 @@ def reaches(doc):
                 if most is None or most > n:
                     found = (("types", tn, "transitions", xn), "unbounded_reach",
                              f"{tn}.{xn} takes at most {n} of {a}, and no invariant of {tn} holds it to {n}: past {n}, "
-                             f"the erasure is refused over_limit and cannot be carried out; declare one such as "
-                             f"count(x in {a}) <= {n} (ADR-0190)")
+                             + ("the erasure is refused over_limit and cannot be carried out" if erasure else
+                                "it is refused over_limit, and an object holding more can never take it")
+                             + f"; declare one such as count(x in {a}) <= {n} ("
+                             + ("ADR-0190" if erasure else "ADR-0201") + ")")
                     if found not in out:
                         out.append(found)
     return out
@@ -4967,7 +5003,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     machines = set()            # every machine declared, a type of the view that no object has
     modules, example_files = {}, []
     stored = {}                 # module -> its types, enumerations and machines, which one store holds together
-    unfolded = {}               # derived attribute name -> the most it unfolds to in the modules checked so far
+    unfolded = {}               # derived attribute name -> the most it unfolds to, and its deepest, in the modules checked so far
     approvers = {}              # module -> the kinds that approve a version, where it declares them (ADR-0187)
     agents, opened = [], []     # the agent kinds of actor declared, and each module's transitions open to them (ADR-0189)
     for f, text in files:
@@ -5017,8 +5053,9 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
         if wide:
             found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in wide]
             continue
-        for name, n in sizes:
-            unfolded[name] = max(unfolded.get(name, 0), n)
+        for name, n, deep in sizes:
+            most = unfolded.get(name, (0, 0))
+            unfolded[name] = (max(most[0], n), max(most[1], deep))
         for mod, names in (doc.get("imports") or {}).items():
             if mod not in declared:
                 notes.append((f, line_of(idx, ("imports", mod)), "notice", "imports",
@@ -5616,13 +5653,16 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     ok &= hit
     print(f"  planted an invariant named as an actor's identity's: {'refused' if hit else 'MISSED ' + str(taken)}")
     # a cascade or a foreach whose limit no invariant holds its set to is noticed, and one bounded at or below it is
-    # not (fifth production review ERASE-LIMIT, ADR-0190 decision 7)
+    # not (fifth production review ERASE-LIMIT, ADR-0190 decision 7), an erasure's and any other transition's, which
+    # past its limit an object holding more can never take (fourteenth production review N8)
     reach = ("module: m\ncategories: [live]\ntypes:\n  Claim:\n    description: A claim of lines.\n    tracking: record\n"
              "    attributes:\n      lines: { reference: \"Line[]\", aggregation: composite, opposite: claim,"
-             " cascade: [ { on: [forget], transition: forget, limit: 20 } ] }\n"
+             " cascade: [ { on: [forget], transition: forget, limit: 20 }, { on: [close], transition: drop, limit: 20 } ] }\n"
              "      who: { type: string, optional: true, personal: true }\n"
              "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
              "    transitions:\n      t: { kind: initial, to: S }\n      close: { kind: external, from: S, to: E }\n"
+             "      trim:\n        kind: internal\n        from: [S]\n"
+             "        effect:\n          - foreach: { item: l, array: lines, where: l.note is null, limit: 1, steps: [ { call: { target: l, transition: touch } } ] }\n"
              "      forget:\n        kind: erasure\n        inputs: { reason: { type: string } }\n"
              "        effect:\n          - foreach: { item: l, array: lines, limit: 20, steps: [ { call: { target: l, transition: forget, inputs: { reason: inputs.reason } } } ] }\n"
              "  Line:\n    description: A line.\n    tracking: record\n"
@@ -5630,11 +5670,14 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
              "    states: { L: { category: live, description: Listed. }, D: { category: live, final: true, description: Dropped. } }\n"
              "    transitions:\n      add: { kind: initial, to: L, required_inputs: [claim] }\n"
              "      drop: { kind: external, from: L, to: D, only_via: [Claim.close] }\n"
+             "      touch: { kind: internal, from: [L], only_via: [Claim.trim] }\n"
              "      forget: { kind: erasure, inputs: { reason: { type: string } }, only_via: [Claim.forget] }\n")
     bounded = reach.replace("    states: { S:", "    invariants: { few: { expression: count(l in lines) <= 20 } }\n    states: { S:", 1)
-    reached = [[x[4][:40] for x in check([(f"{name}.yaml", text)])[1] if x[3] == "unbounded_reach"]
+    reached = [[x[4] for x in check([(f"{name}.yaml", text)])[1] if x[3] == "unbounded_reach"]
                for name, text in (("reach", reach), ("bounded", bounded))]
-    hit = len(reached[0]) == 2 and reached[1] == []
+    hit = (len(reached[0]) == 3 and sum("can never take it" in m for m in reached[0]) == 1
+           and any(m.startswith("Claim.lines's cascade on close") for m in reached[0])
+           and not any(m.startswith("Claim.trim") for m in reached[0]) and reached[1] == [])
     ok &= hit
     print(f"  planted a cascade and an erasure's foreach over a set no invariant bounds: "
           f"{'noticed, and not once bounded' if hit else 'MISSED ' + str(reached)}")
@@ -5688,12 +5731,45 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
             "    derived_attributes:\n      depth: { description: Its depth., expression: parent.depth + 1 }\n"
             "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n")
     selfring = [x for x in check([("node.yaml", node)])[0] if x[3] == "order" and "cycle" in x[4]]
-    chain = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A thing.\n    tracking: record\n"
-             "    attributes:\n      n: { type: int }\n" + end + "    derived_attributes:\n"
-             + "      d0: { description: The first., expression: this.n }\n"
-             + "".join(f"      d{i}: {{ description: One., expression: this.d{i - 1} + 1 }}\n" for i in range(1, 1500))
-             + "    transitions: { t: { kind: initial, to: S, required_inputs: [n] }, e: { kind: external, from: S, to: E } }\n")
-    chained = check([("chain.yaml", chain)])[0]
+    def chain(n):
+        return ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A thing.\n    tracking: record\n"
+                "    attributes:\n      n: { type: int }\n" + end + "    derived_attributes:\n"
+                + "      d0: { description: The first., expression: this.n }\n"
+                + "".join(f"      d{i}: {{ description: One., expression: this.d{i - 1} + 1 }}\n" for i in range(1, n))
+                + "    transitions: { t: { kind: initial, to: S, required_inputs: [n] }, e: { kind: external, from: S, to: E } }\n")
+    # a chain of derived attributes past the depth an evaluation goes through is refused at its first link past it,
+    # where 9,500 were accepted and read null past the 65th; one at the bound checks clean; and one split across an
+    # import is counted whole (fourteenth production review N1)
+    deeper = (f"reads derived attributes more than {DEPTH_LIMIT} deep, each reading the next, past the most one "
+              f"evaluation goes through")
+    chained = [(x[3], x[4]) for x in check([("chain.yaml", chain(1500))])[0] if x[2] == "fatal"]
+    level = check([("level.yaml", chain(DEPTH_LIMIT))])[0]
+    da = ("module: da\ncategories: [live]\ntypes:\n  TA:\n    description: A thing.\n    tracking: record\n"
+          "    attributes:\n      x: { type: int }\n" + end + "    derived_attributes:\n"
+          + "      a0: { description: The first., expression: this.x }\n"
+          + "".join(f"      a{i}: {{ description: One., expression: this.a{i - 1} + 1 }}\n" for i in range(1, 40))
+          + "    transitions: { t: { kind: initial, to: S, required_inputs: [x] }, e: { kind: external, from: S, to: E } }\n")
+    db = ("module: db\nimports:\n  da: [TA]\ncategories: [live]\ntypes:\n  TB:\n    description: A thing.\n    tracking: record\n"
+          "    attributes:\n      r: { reference: TA, optional: true }\n" + end + "    derived_attributes:\n"
+          + "      b0: { description: The first., expression: r.a39 + 1 }\n"
+          + "".join(f"      b{i}: {{ description: One., expression: this.b{i - 1} + 1 }}\n" for i in range(1, 30))
+          + "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n")
+    stacked = [(x[0], x[3], x[4]) for x in check([("da.yaml", da), ("db.yaml", db)])[0] if x[2] == "fatal"]
+    # a read of a later type's chain finds it unwalked, so its depth is carried up the walk as each link is left: one
+    # past the bound refused, one at it clean
+
+    def forward(top):
+        return ("module: m\ncategories: [live]\ntypes:\n  A:\n    description: A thing.\n    tracking: record\n"
+                "    attributes:\n      b: { reference: B, optional: true }\n" + end + "    derived_attributes:\n"
+                f"      a0: {{ description: The first., expression: b.d{top} + 1 }}\n"
+                "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n"
+                "  B:\n    description: A thing.\n    tracking: record\n"
+                "    attributes:\n      n: { type: int }\n" + end + "    derived_attributes:\n"
+                + "      d0: { description: The first., expression: this.n }\n"
+                + "".join(f"      d{i}: {{ description: One., expression: this.d{i - 1} + 1 }}\n" for i in range(1, 64))
+                + "    transitions: { t: { kind: initial, to: S, required_inputs: [n] }, e: { kind: external, from: S, to: E } }\n")
+    ahead = [(x[3], x[4]) for x in check([("ahead.yaml", forward(63))])[0] if x[2] == "fatal"]
+    held = [(x[3], x[4]) for x in check([("held.yaml", forward(62))])[0] if x[2] == "fatal"]
     wide = [x[4] for x in check([("wide.yaml", "module: m\ncategories: [live]\nsequences:\n  s:\n    description: A series.\n"
                                               "types:\n  T:\n    description: A thing.\n    tracking: record\n"
                                               "    attributes:\n      code: { type: string, identifier: { sequence: s, format: \"T-{n:1000000}\" } }\n"
@@ -5744,12 +5820,14 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     quick = time.time() - began < 20
     unfolds = (f"unfolds to more than {UNFOLD_LIMIT} reads of derived attributes, each counted as often as it is made: "
                f"one reading another twice reads all that one reads twice")
-    hit = (len(selfring) == 1 and chained == [] and len(wide) == 1 and fanned == [("order", f"T.d13 {unfolds}")]
+    hit = (len(selfring) == 1 and chained == [("order", f"T.d64 {deeper}")] and level == []
+           and stacked == [("db.yaml", "order", f"TB.b24 {deeper}")] and ahead == [("order", f"A.a0 {deeper}")]
+           and held == [] and len(wide) == 1 and fanned == [("order", f"T.d13 {unfolds}")]
            and twice == [("order", f"types.T.invariants.big.expression {unfolds}")] and within == []
            and split == [("cb.yaml", "order", f"TB.b0 {unfolds}")] and literal == [] and len(bare) == 1 and quick)
     ok &= hit
     print(f"  planted a derived attribute reading itself through a reference, a long chain, a wide identifier, and "
-          f"diamond chains: {'caught, the chains within the bound clean and all quick' if hit else 'MISSED ' + str((selfring, chained[:1], wide, fanned[:2], twice[:2], within[:1], split[:2], literal[:1], bare, quick))}")
+          f"diamond chains: {'caught, the chains within the bound clean and all quick' if hit else 'MISSED ' + str((selfring, chained[:1], level[:1], stacked[:2], ahead[:2], held[:2], wide, fanned[:2], twice[:2], within[:1], split[:2], literal[:1], bare, quick))}")
     written = load("module: m\ntypes:\n  T:\n    description: d\n    tracking: record\n"
                    "    attributes: { a: { type: bool, default: false }, b: { type: int, default: 0, indexed: true } }\n"
                    "    states: { S: { category: live, final: true } }\n"

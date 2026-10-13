@@ -234,11 +234,13 @@ pub struct Evaluator<'a> {
     /// Where the objects a clause names are noted, for its refusal; none
     /// where nothing notes them.
     naming: Option<&'a std::cell::RefCell<Named>>,
-    /// How many derived attributes, each of an object another's reference
-    /// reached, this evaluation is inside: past [`DERIVED_HOPS`] the value is
-    /// none, where a derived attribute reading itself through a reference,
-    /// `parent.depth + 1`, overflowed the stack and aborted the service on a
-    /// `get` (tenth production review).
+    /// How many derived attributes, each reading the next, this evaluation
+    /// is inside: past [`DERIVED_HOPS`] the read is not run, where a derived
+    /// attribute reading itself through a reference, `parent.depth + 1`,
+    /// overflowed the stack and aborted the service on a `get` (tenth
+    /// production review), and where its value was then answered as none,
+    /// a chain of 9,500 reading null past the 65th (fourteenth production
+    /// review N1).
     hops: usize,
     /// Each derived value this evaluation has computed, by its object and
     /// name, shared with the evaluations inside it: a chain of attributes
@@ -252,9 +254,11 @@ pub struct Evaluator<'a> {
 /// The derived values an evaluation has computed, by object and name.
 type Known = std::rc::Rc<std::cell::RefCell<BTreeMap<(String, String), Value>>>;
 
-/// The most derived attributes reached through references one evaluation
-/// goes inside before the next has no value: far below what a request's
-/// stack holds, and far above what a flow a checker accepts reaches.
+/// The most derived attributes, each reading the next, one evaluation goes
+/// inside before the next read is not run: far below what a request's stack
+/// holds, and what both checkers bound a derived attribute's reads to
+/// (`check::raw::DEPTH_LIMIT`), so only a version installed before they did
+/// reaches it.
 pub const DERIVED_HOPS: usize = 64;
 
 /// What the rules evaluated for an event read and consulted (`DESIGN.md`
@@ -820,11 +824,14 @@ impl<'a> Evaluator<'a> {
                 } else if let Some((_, kind)) = t.observations.iter().find(|(c, _)| c == m) {
                     self.collection(o, kind)?
                 } else if let Some((_, e)) = t.derived.iter().find(|(d, _)| d == m) {
-                    // past its bound of hops a derived value has none, where
+                    // past its bound of hops a derived value is not run, where
                     // its recursion overflowed the stack (tenth production
-                    // review)
+                    // review) and then answered none (fourteenth production
+                    // review N1)
                     if self.hops >= DERIVED_HOPS {
-                        return Ok(Term::absent());
+                        return not_run(format!(
+                            "derived attributes read more than {DERIVED_HOPS} deep, each reading the next"
+                        ));
                     }
                     let known = self.known.get_or_init(Default::default).clone();
                     let key = (o.id.clone(), m.to_string());
@@ -1654,12 +1661,12 @@ impl<'a> Evaluator<'a> {
 
 /// What a consulted reference writes for a value an expression reads from
 /// anything personal, in place of the value.
-const PERSONAL: &str = "(personal)";
+pub(crate) const PERSONAL: &str = "(personal)";
 
 /// The names the library marks personal, by name in any type: an attribute
 /// marked so, an input marked so or written into a personal attribute, and
 /// a derived attribute that reads one, to a fixpoint.
-fn personal_names(lib: &crate::model::Library) -> BTreeSet<String> {
+pub(crate) fn personal_names(lib: &crate::model::Library) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for t in lib.types.values() {
         out.extend(
@@ -1698,7 +1705,7 @@ fn personal_names(lib: &crate::model::Library) -> BTreeSet<String> {
 }
 
 /// Whether an expression reads, by name, any of those given.
-fn reads_any(e: &Expr, names: &BTreeSet<String>) -> bool {
+pub(crate) fn reads_any(e: &Expr, names: &BTreeSet<String>) -> bool {
     match e {
         Expr::Name(n) if names.contains(n) => true,
         Expr::Path(_, m) if names.contains(m) => true,

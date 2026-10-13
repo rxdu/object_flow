@@ -1,0 +1,45 @@
+module: db
+imports:
+  da: [TA]
+categories: [live]
+types:
+  TB:
+    description: A thing.
+    tracking: record
+    attributes:
+      r: { reference: TA, optional: true }
+    states:
+      S: { category: live, description: Open. }
+      E: { category: live, final: true, description: Done. }
+    derived_attributes:
+      b0: { description: The first., expression: r.a39 + 1 }
+      b1: { description: One., expression: this.b0 + 1 }
+      b2: { description: One., expression: this.b1 + 1 }
+      b3: { description: One., expression: this.b2 + 1 }
+      b4: { description: One., expression: this.b3 + 1 }
+      b5: { description: One., expression: this.b4 + 1 }
+      b6: { description: One., expression: this.b5 + 1 }
+      b7: { description: One., expression: this.b6 + 1 }
+      b8: { description: One., expression: this.b7 + 1 }
+      b9: { description: One., expression: this.b8 + 1 }
+      b10: { description: One., expression: this.b9 + 1 }
+      b11: { description: One., expression: this.b10 + 1 }
+      b12: { description: One., expression: this.b11 + 1 }
+      b13: { description: One., expression: this.b12 + 1 }
+      b14: { description: One., expression: this.b13 + 1 }
+      b15: { description: One., expression: this.b14 + 1 }
+      b16: { description: One., expression: this.b15 + 1 }
+      b17: { description: One., expression: this.b16 + 1 }
+      b18: { description: One., expression: this.b17 + 1 }
+      b19: { description: One., expression: this.b18 + 1 }
+      b20: { description: One., expression: this.b19 + 1 }
+      b21: { description: One., expression: this.b20 + 1 }
+      b22: { description: One., expression: this.b21 + 1 }
+      b23: { description: One., expression: this.b22 + 1 }
+      b24: { description: One., expression: this.b23 + 1 }
+      b25: { description: One., expression: this.b24 + 1 }
+      b26: { description: One., expression: this.b25 + 1 }
+      b27: { description: One., expression: this.b26 + 1 }
+      b28: { description: One., expression: this.b27 + 1 }
+      b29: { description: One., expression: this.b28 + 1 }
+    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }

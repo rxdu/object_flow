@@ -618,6 +618,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Measuring the eighth review's fix, a dry run of 3,000 types took 8.4 s, 4,500 took 20.3 s and 8,000 ran past eleven minutes; the run was stopped and the size lowered to fit the benchmark's time, and the growth itself was not looked into. The ninth review then found the dry run's slot held 229 s, and profiling showed the checks quadratic in the types.
 - **Correction:** Where a cost grows faster than its input in a measurement, stop and find why before going on: compare call-count profiles at N and 2N (callgrind needs no privileges), and the function whose cost quadruples is the one.
 - **Context:** Any benchmark of the engine; 2026-10-13.
+- **Recurred 2026-10-14**, in concurrency. ADR-0200 recorded heavy reads at once costing 83 CPU-s against one's 3 with a suspect named, SQLite's memory-statistics mutex, and the cause left to measure later; the next review found it a major. A probe of one filter on one, two and four threads reproduced it in a minute, each thread's user and system time split pointed at a lock, and rebuilding SQLite one flag at a time found it, the suspect cleared. For a cost that grows with concurrency, compare each thread's CPU at one, two and four threads, and test each hypothesis by changing only it, before naming a cause.
 
 ### A bound on a walk's depth is no bound on its work
 - **Pattern:** ADR-0197 bounded derived typing at 64 attributes deep, for a chain of 3,000 that overflowed the stack, and measured the chain linear. The eleventh review's adversary wrote a chain only 40 deep, each link reading the one before twice: 2^40 typings held the dry run's slot past six minutes. Measuring the fix found the same unbounded fan-out in four more walks over the same structure (the optional reads, the inliner, the logic solver, the run-time typing of a zero) and in evaluation itself.
@@ -644,3 +645,28 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The checks' growth test timed 1,000 and 4,000 valid types, which produce no findings, so two quadratics that grow with the findings went unseen: each finding compared with every one before it, and each finding's line found by searching every key. 60,000 refused types took 374 s.
 - **Correction:** A scaling test of a checker times the shapes it refuses too, where each element makes findings, and asserts the findings it made.
 - **Context:** The checkers' and the publish path's scaling tests; 2026-10-14.
+
+### A bundled dependency's build flags are part of the program
+- **Pattern:** `libsqlite3-sys`'s bundled build sets `SQLITE_ENABLE_MEMORY_MANAGEMENT`, which puts every connection's page cache behind one mutex for the process. Nothing in the repository said so, and four heavy reads at once each took 11.2 s where one took 2.2 s, for two review rounds.
+- **Correction:** When work at once does not scale, read the options a bundled C dependency is compiled with (`PRAGMA compile_options`, or its build script), set the ones that matter in the repository's build configuration, and hold each with a test that fails a build without it.
+- **Context:** The core's SQLite, and any `-sys` crate built from source; 2026-10-14.
+
+### A fix classified at the wrong grain
+- **Pattern:** ADR-0200 sent a read of one object to a pool where any rule of its type grew with the store. A `get`, which evaluates no condition, then waited behind reports because a guard on one transition read a metric: 25.5 s, a major in the next review.
+- **Correction:** Classify a request's cost by what that operation evaluates, and test each operation against a type where only another operation's rules are heavy.
+- **Context:** The service's read pools; 2026-10-14.
+
+### Test inputs in reading order leave a walk's other branch unexercised
+- **Pattern:** The depth bound of the checkers' walk was tested on chains declared in reading order, so each link's reads were already computed when it was reached. The branch carrying depth up from a child pushed later never ran, and a mutant dropping its `+ 1` survived.
+- **Correction:** For an iterative walk with a memo, give the tests an input whose reads point forward, as a type reading one declared after it, so both the memo's branch and the push-and-pop branch run, and mutate each.
+- **Context:** The checkers' fan-out walk; any memoized iterative walk; 2026-10-14.
+
+### Staging everything stages what a run left behind
+- **Pattern:** Commit `24e7ff6` staged with `git add -A` and took `t40k.pid`, a process id a reviewer's run wrote at the repository's root.
+- **Correction:** Before staging, read `git status --short` and every untracked path in it; stage only what the change made.
+- **Context:** Commits in this repository; 2026-10-14.
+
+### A release named that does not exist
+- **Pattern:** Writing the guides for the masked idempotency digest, I wrote "a key a store recorded before release 0.3.0"; no release 0.3.0 is planned, the next being 1.0.0. Caught on rereading, before the commit.
+- **Correction:** Name what distinguishes the data ("a digest made with personal values in it, as release 0.2.0 made them"), or a release that exists; never a version number not in `Cargo.toml` or the changelog.
+- **Context:** The guides and the changelog; 2026-10-14.

@@ -2544,7 +2544,9 @@ class Runner:
                     continue
                 v = ev(tree)
                 if v is ABSENT:
-                    raise NotRunnable("an assignment of an absent value, which only an unsupplied optional input may be")
+                    # arithmetic on an absent operand has no value, which refuses the request as one past its bound
+                    # does, where it answered not run (fourteenth production review N5)
+                    raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
                 if self.owner_end(attrs.get(spec["location"])) and o.attrs.get(spec["location"]) not in (None, v):
                     raise NotRunnable("re-parenting a part by an effect, whose whole_open guard this runner does not yet evaluate")
                 written = at_declared_scale(attrs.get(spec["location"]), v)

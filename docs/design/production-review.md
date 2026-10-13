@@ -432,3 +432,55 @@ The minors not given an entry:
 
 The author's standing instruction decides what the findings ask (ADR-0200); the majors and the minors that cost little are fixed, then a fourteenth review, or the author's acceptance of what remains.
 
+
+## 18. The fourteenth review, after the thirteenth's fixes
+
+At commit `24e7ff6`, 2026-10-14, not yet pushed, every gate of `scripts/check-all` passed on it. The same two roles each worked in a checkout of their own with the release binary built from it. The environment's privacy check refused the operator's copying or reading of the provided stores, and it did not work around that: it built stores of the same size with the go-live tools and synthetic people, two years of 36.6k objects and six of 108.6k. The adversary worked on copies of the provided stores, and on stores and sandboxes of its own. Their logs and reports stayed in the session's scratch directory, which is not kept.
+
+**Verdicts: both NO-GO; no blocker; the operator two majors, the adversary two.**
+
+Neither met a corrupted store or a lost acknowledged write:
+- `kill -9` during writes lost none of 629 acknowledged writes, and one during an approval rolled back.
+- 3,870 type-confused requests over all 21 operations answered no `5xx`, and hostile filters and drafts were refused within 0.26 s.
+- Races left one winner each, across two services on one store too.
+- No erased value outlived its erasure in the store's files, the `-wal` cut within 5.7 s.
+
+### The thirteenth review's findings, re-checked
+
+- **Fixed, measured by both:**
+  - a page's records (D642), a worklist ordered by `entered_at(state)` 17.5 to 64 ms a page on six years at any limit;
+  - an erasure's reach (D643), consulted keys `(personal)` and decided proposals' personal inputs emptied, nothing left in the files;
+  - an agent's tool bound to its type (D644), where the gateway sends the tool's `type`;
+  - a change's checks (D646), 60,000 types refused at the 10 s deadline, 9.2 s at the default;
+  - the minors: `/health` under a full runtime, the import's dry run, the preview's `expected_version`, the changelog's tags.
+- **Partly fixed:** object reads that grow (D645), 64 `availability`s at once 0.99 to 1.23 GB, where 4.49 GB, but classified by type, which both reviewers found a major.
+- **Not fixed, documented:** the evaluator token read at start; a backfill's approval hold, 44.9 s under load on six years; erasures stopping long reads, 48 of 48 per-person metric reads in a loop; the log silent as free space falls; `available` where few qualify.
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| D649 | A `get`, `availability` or `check` of a type with any rule reading a metric waited among the analytics, though a `get` evaluates no condition: a person's `get` of a claim 12.7 s behind four per-person metrics and 25.5 s behind eight, sixteen reports making gets fail `503` | measured by both | major |
+| D650 | A metric over objects bound to one claimant read every object of its type, so a per-claimant guard cost what the store does, 0.32 s windowed and 0.36 s not, and twenty guarded submits held other writes 7.16 s | measured by the operator; read | part of the major |
+| D651 | Heavy reads at once each cost what all of them did: a filter of 2.05 CPU-s alone took 5.60 each with two and 11.07 each with four, and twelve across three pools all timed out | measured by the operator; profiled | major |
+| D652 | An agent's query could filter and order by members marked personal, so stripping them from its answers hid nothing: ranges over `name` recovered them | measured by the adversary | major |
+| D653 | Derived attributes chained past 64 deep, which both checkers accepted, answered null past the 65th | measured by the adversary | minor |
+| D654 | After an erasure, a key sent again with a different request replayed a verdict for a request that never ran | measured by the adversary | minor |
+| D655 | An assignment whose arithmetic read an absent optional attribute answered `501 not_run` | measured by the adversary | minor |
+| D656 | Work for a client that has gone runs to its end, holding its pool's place: sixteen abandoned metric reads kept a seventeenth waiting 30.3 s | measured by the adversary | minor |
+| D657 | A query whose `fields` named a derived attribute scanning its type ran in the worklists pool, 17 ms a row, four making a worklist wait 5.6 s | measured by the adversary | minor |
+| D658 | A cascade's or a loop's limit over a set no invariant bounds left an object past it unable to take the transition, a claim of 201 lines never withdrawn, paid or erased, and the checkers noticed only an erasure's | measured by the adversary | minor |
+| D659 | An import took an entry time for a dimension its type does not track and dropped it | measured by the operator | minor |
+| D660 | A `--socket` path past 107 bytes was refused only after `--create` had made the store | measured by the operator | minor |
+| D661 | The guide's backup timer, as written, kept every copy, about 12 GB a day on two years and 38 GB on six | read by the operator | minor |
+| D662 | A process id's file, `t40k.pid`, was committed at the repository's root | read by the operator | minor |
+
+The minors not given an entry:
+- **The agents' edges:** the model chooses each write's `idempotency_key` and `principal`, the operator among them; `availability` offers a transition kept for people as `available_with_input`; a refused request is kept with what it sent, twenty refusals of a 1.9 MB body growing a store by 20 MB.
+- **Observability:** no histogram of how long reads wait for each pool.
+- **The repository:** 31 commits, three workflows among their changes, never run in CI; no required checks, no tag ruleset, Dependabot off.
+- **Outside the engine:** whoever reaches the socket is the operator; an agent's request without `type` takes any object of its id, the gateway sending the tool's `type`; recovery is the last backup; a clock that ran ahead freezes event times; a second service is said only in its own start log.
+
+### What the fourteenth review asks
+
+The author's standing instruction decides what the findings ask (ADR-0201); the majors and the minors that cost little are fixed, then a fifteenth review, or the author's acceptance of what remains.

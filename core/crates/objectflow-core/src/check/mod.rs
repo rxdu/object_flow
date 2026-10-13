@@ -229,7 +229,7 @@ pub fn checked_reading(
     let mut library = doc::Obj::new();
     // the most each derived attribute's name unfolds to in those modules
     // (`raw::fan_out_errors`)
-    let mut unfolded: BTreeMap<String, usize> = BTreeMap::new();
+    let mut unfolded: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     // every machine declared, a type of the view that no object has
     let mut machines: BTreeSet<String> = BTreeSet::new();
     let mut uses: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -320,9 +320,9 @@ pub fn checked_reading(
             }
             continue;
         }
-        for (name, n) in sizes {
-            let most = unfolded.entry(name).or_insert(0);
-            *most = (*most).max(n);
+        for (name, n, deep) in sizes {
+            let most = unfolded.entry(name).or_insert((0, 0));
+            *most = (most.0.max(n), most.1.max(deep));
         }
         let module = doc
             .get("module")

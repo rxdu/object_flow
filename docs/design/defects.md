@@ -6,7 +6,7 @@ Findings from every review of this design. It began as the implementation-readin
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. One is open — D516, the third cold reading's open questions, deferred to the Rust core by ADR-0148; of the procurement review of 2026-10-10 (`procurement-cold-draft.md`), still open: none, its second round's (`procurement-second-review.md`) none; D529, two modules checked together declaring the same type, found 2026-10-07, was resolved the same day by ADR-0163; its fixes and the conversion to one normative home per rule, D514 and D515, are resolved. D505 to D513, the areas of the cold reading of 2026-10-04 (`cold-reading-2-review.md`), were each decided by ADR-0147 and resolved the same day as their documents and tools came to say so. D495 to D504, the areas of the cold reading of 2026-09-30 (`cold-reading-review.md`), were each decided by ADR-0146 and resolved on 2026-10-01. D395 to D442, found on 2026-09-27 reviewing whether a builder can recover the robot inventory and the Jira flows from the specification and the YAML (`flow-recoverability-review.md`), were resolved the same day by ADR-0122 and in place, D410 to D416 after a second review, D417 to D420 after a third, D421 and D422 after a fourth, D423 to D427 after a fifth, D428 to D433 after a sixth, D434 and D435 after a seventh, D436 to D438 after an eighth, D439 and D440 after a ninth and D441 and D442 after a tenth; D443 and D444, found writing the metric scenarios the same day, were resolved by ADR-0123, D445 to D448 in place, D449 by ADR-0124, D450 by ADR-0125, D451 in place, D452 by ADR-0126, D453 and D454 in place, D455, D456 and D461 by ADR-0133, and D457 to D460 in place; D383, found extending the walkthrough's inventory item on 2026-09-25, was resolved in place the same day at the author's direction; an operations review of the worked example on 2026-09-24 found D289, corrected in place; an audit of the first consumer's production code the same day found D275 to D281, of which D280 and D281 were corrected in place, reviewing the design against the PRD with the unit's journey found D282 and D283, and verifying ADR-0103's first draft found D284 to D288; ADR-0103 resolved D275 to D279, D282 and D284 to D288, and D283 was corrected in place; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. Two are open — D516, the third cold reading's open questions, deferred to the Rust core by ADR-0148, and D656, a read running on after its client has gone, its stop deferred by ADR-0201; of the procurement review of 2026-10-10 (`procurement-cold-draft.md`), still open: none, its second round's (`procurement-second-review.md`) none; D529, two modules checked together declaring the same type, found 2026-10-07, was resolved the same day by ADR-0163; its fixes and the conversion to one normative home per rule, D514 and D515, are resolved. D505 to D513, the areas of the cold reading of 2026-10-04 (`cold-reading-2-review.md`), were each decided by ADR-0147 and resolved the same day as their documents and tools came to say so. D495 to D504, the areas of the cold reading of 2026-09-30 (`cold-reading-review.md`), were each decided by ADR-0146 and resolved on 2026-10-01. D395 to D442, found on 2026-09-27 reviewing whether a builder can recover the robot inventory and the Jira flows from the specification and the YAML (`flow-recoverability-review.md`), were resolved the same day by ADR-0122 and in place, D410 to D416 after a second review, D417 to D420 after a third, D421 and D422 after a fourth, D423 to D427 after a fifth, D428 to D433 after a sixth, D434 and D435 after a seventh, D436 to D438 after an eighth, D439 and D440 after a ninth and D441 and D442 after a tenth; D443 and D444, found writing the metric scenarios the same day, were resolved by ADR-0123, D445 to D448 in place, D449 by ADR-0124, D450 by ADR-0125, D451 in place, D452 by ADR-0126, D453 and D454 in place, D455, D456 and D461 by ADR-0133, and D457 to D460 in place; D383, found extending the walkthrough's inventory item on 2026-09-25, was resolved in place the same day at the author's direction; an operations review of the worked example on 2026-09-24 found D289, corrected in place; an audit of the first consumer's production code the same day found D275 to D281, of which D280 and D281 were corrected in place, reviewing the design against the PRD with the unit's journey found D282 and D283, and verifying ADR-0103's first draft found D284 to D288; ADR-0103 resolved D275 to D279, D282 and D284 to D288, and D283 was corrected in place; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -660,6 +660,20 @@ Findings from every review of this design. It began as the implementation-readin
 | [D646](#d646) | A change's checks grew with the square of the types they refused | Resolved |
 | [D647](#d647) | Requests holding every runtime thread kept `/health` waiting | Resolved |
 | [D648](#d648) | An import's dry run answered clean a batch the run refused | Resolved |
+| [D649](#d649) | A read of one object waited among the analytics where any rule of its type grew | Resolved |
+| [D650](#d650) | A metric bound to one claimant read every object of its type | Resolved |
+| [D651](#d651) | Heavy reads at once each cost what all of them did | Resolved |
+| [D652](#d652) | An agent's query could filter and order by personal members | Resolved |
+| [D653](#d653) | Derived attributes chained past 64 deep answered null | Resolved |
+| [D654](#d654) | After an erasure, a reused key replayed a verdict for another request | Resolved |
+| [D655](#d655) | An assignment of no value answered `501 not_run` | Resolved |
+| [D656](#d656) | Work for a client that has gone runs to its end in its pool | Open |
+| [D657](#d657) | A query computing a field that scans its type waited among the worklists | Resolved |
+| [D658](#d658) | A limit over an unbounded set left objects past it stuck, unnoticed | Resolved |
+| [D659](#d659) | An import dropped an entry time of an untracked dimension | Resolved |
+| [D660](#d660) | A long `--socket` path was refused after `--create` made the store | Resolved |
+| [D661](#d661) | The guide's backup timer kept every copy | Resolved |
+| [D662](#d662) | A process id's file was committed | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4187,3 +4201,73 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **An import's dry run answered clean a batch the run refused**: the dry run returned before the write path, whose checks refuse a legacy interval of an untracked dimension and a refresh's intermediate values, so it said clean what the run would refuse. Found 2026-10-14 by the thirteenth production review's adversary.
 
 **Resolved** 2026-10-14: a dry run decides every check of the writes and writes nothing (ADR-0200 decision 6). `a_dry_run_refuses_what_the_run_refuses` fails with the early return restored.
+
+### D649
+**A read of one object waited among the analytics where any rule of its type grew with the store**: ADR-0200 decision 4 classified a `get`, `availability` or `check` by its type's derived attributes, conditions and invariants together. A `get`, which evaluates no condition, of a type with one guard reading a metric waited behind reports: a person's `get` of a claim 12.7 s behind four per-person metrics and 25.5 s behind eight, sixteen making gets fail `503`. Found 2026-10-14 by the fourteenth production review, its operator's major 1 and its adversary's N3.
+
+**Resolved** 2026-10-14: a read waits only where what that operation computes grows, a `get` its derived attributes, an `availability` its conditions too, a `check` its invariants as well, among the objects' reads (ADR-0201 decision 1). `a_read_of_an_object_whose_rules_grow_waits_among_the_objects_reads` holds the objects' slot: a guarded type's `get` is answered, its `availability` waits; it fails with the analytics pool restored, with a `get` classified as a `check`, and with an `availability` as a `get`. `a_types_reads_grow_where_its_rules_read_the_store` fails with each operation's filter removed.
+
+### D650
+**A metric bound to one claimant read every object of its type**: a metric over objects read its owner type whole and selected its group in memory, so a per-claimant guard cost what the store does, 0.32 s with a 30-day window and 0.36 s without on six years, and twenty guarded submits held other writes 7.16 s. Found 2026-10-14 by the fourteenth production review's operator, beside its major 1.
+
+**Resolved** 2026-10-14: a metric over objects bound to an attribute its item stores reads the objects holding the value, through its column (ADR-0201 decision 2). `an_objects_metric_bound_to_a_column_reads_by_it` reads one claimant's sum with no whole read of the type, and fails with the narrowing removed. Its guard against an absent value is equivalent, the binding then matching nothing either way, and was removed.
+
+### D651
+**Heavy reads at once each cost what all of them did**: a filter costing 2.05 CPU-s alone cost 5.60 each with two at once and 11.07 each with four; twelve across three pools all timed out. The bundled SQLite is built with `SQLITE_ENABLE_MEMORY_MANAGEMENT`, which puts every connection's page cache behind one mutex for the process. Found 2026-10-14 by the fourteenth production review's operator, major 2; recorded unmeasured by the thirteenth (ADR-0200 decision 7).
+
+**Resolved** 2026-10-14: `core/.cargo/config.toml` builds SQLite without it, and the start's log says where a build has it (ADR-0201 decision 3). On a probe four filters at once take 2.17 s each, where 11.2 s; memory statistics off and glibc's tunables, each measured, changed nothing. `each_connection_keeps_its_own_page_cache` fails a build without the configuration. The start's note is read, not tested, a build with the option being needed to show it.
+
+### D652
+**An agent's query could filter and order by members marked personal**: `agents.md` has a gateway strip personal fields from what an agent's reads hand the model, but a query's `filter` and `order` read them, so ranges over `name` recovered every hidden name. A metric's filter reading one was refused. Found 2026-10-14 by the fourteenth production review's adversary, N4.
+
+**Resolved** 2026-10-14: an agent's query whose filter or order reads a member marked personal is refused `personal` (ADR-0201 decision 4). `an_agents_query_by_a_personal_member_is_refused` fails with the filter's or the order's check removed, and with a person's query refused.
+
+### D653
+**Derived attributes chained past 64 deep answered null**: both checkers bounded what an expression unfolds to, not how deep its reads go, so `d1: d0 + 1` on to `d9500` was accepted, and an evaluation past `DERIVED_HOPS` answered every value beyond the 65th as null, a filter on them an empty page. Found 2026-10-14 by the fourteenth production review's adversary, N1.
+
+**Resolved** 2026-10-14: both checkers refuse a derived attribute whose reads go more than 64 deep, carried across modules, and a read past the depth is `not_run` (ADR-0201 decision 5). The reference checker's plants of a chain of 1,500, one at the bound and one split across an import hold both checkers through the oracle; a forward read of a later type's chain holds the depth carried up a pushed child. `a_recursive_derived_value_and_a_wide_identifier_stop_without_a_crash` fails with the null restored.
+
+### D654
+**After an erasure, a reused key replayed a verdict for another request**: an erasure set its request's idempotency digest to `erased`, so a key confirmed no guess of the erased value, but a different request under the key then answered the first's verdict, `satisfied`, for a request that never ran. Found 2026-10-14 by the fourteenth production review's adversary, N2.
+
+**Resolved** 2026-10-14: the digest counts personal inputs by name alone, from the first request, and an erasure leaves such a digest as it is (ADR-0201 decision 6). `an_erased_requests_key_confirms_no_guess` sends guesses and a different request before the erasure and after; it fails with the mask removed and with the erasure's guard removed.
+
+### D655
+**An assignment of no value answered `501 not_run`**: `count := count + inputs.by` where `count` is unset answered a fault `errors.md` describes as a construct not run yet, in both backends. Found 2026-10-14 by the fourteenth production review's adversary, N5.
+
+**Resolved** 2026-10-14: the request is refused `value_in_range`, in both backends (ADR-0201 decision 7). `an_assignment_of_arithmetic_on_an_absent_value_is_refused` and the Studio's `test_an_assignment_of_an_absent_sum_is_refused_alike` each fail with their backend's refusal removed.
+
+### D656
+**Work for a client that has gone runs to its end in its pool**: a read runs on its connection's own task, so nothing notices its client leave until it returns; sixteen metric reads abandoned after half a second ran on, and a seventeenth waited 30.3 s and was answered `503`. Found 2026-10-14 by the fourteenth production review's adversary, N6.
+
+**Open**: the guides say a client should wait at least `--read-timeout` before sending a read again (ADR-0201 decision 10). Stopping the read needs it moved off its connection's task (ADR-0201 decision 11, `TODO.md`).
+
+### D657
+**A query computing a field that scans its type waited among the worklists**: a query's pool was chosen by its filter and order, so one asking for a derived attribute counting the owner's open tasks, 17 ms a row, ran in the worklists pool, four making a worklist wait 5.6 s. Found 2026-10-14 by the fourteenth production review's adversary, N7.
+
+**Resolved** 2026-10-14: a query computing a field that grows with the store, asked for or in its type's summary, waits among the analytics (ADR-0201 decision 8). `a_types_reads_grow_where_its_rules_read_the_store` fails with either source of fields ignored.
+
+### D658
+**A limit over an unbounded set left objects past it stuck, unnoticed**: a cascade or a loop declares a limit, and an object holding more can never take its transition, a claim of 201 lines never withdrawn, paid or erased; the checkers' `unbounded_reach` noticed only an erasure's. Found 2026-10-14 by the fourteenth production review's adversary, N8.
+
+**Resolved** 2026-10-14: the notice covers every transition's cascades and loops, in both checkers, but a loop with `where` on a transition other than an erasure, whose limit bounds what it keeps (ADR-0201 decision 9). The reference checker's planted claim, with a filtered loop not noticed, fails its self-test without the cascades' notice, and the oracle fails the core without either.
+
+### D659
+**An import dropped an entry time of an untracked dimension**: `entered` naming a dimension its type does not track was taken, the batch written, the time dropped, where a legacy interval of one was refused. Found 2026-10-14 by the fourteenth production review's operator.
+
+**Resolved** 2026-10-14: refused on a new object and on a refresh (ADR-0201 decision 10). `a_dry_run_refuses_what_the_run_refuses` fails with either refusal removed.
+
+### D660
+**A long `--socket` path was refused after `--create` made the store**: the path's length was checked where the socket is bound, after the store was made. Found 2026-10-14 by the fourteenth production review's operator.
+
+**Resolved** 2026-10-14: refused with the arguments, exit 2, nothing made (ADR-0201 decision 10). `a_deployments_edges_are_said` fails with the check removed.
+
+### D661
+**The guide's backup timer kept every copy**: the unit took a copy every 15 minutes and expired none, about 12 GB a day on two years and 38 GB on six. Found 2026-10-14 by the fourteenth production review's operator.
+
+**Resolved** 2026-10-14: the unit deletes local copies older than a day, after a command of the operator's own copies them off the machine (ADR-0201 decision 10). Verified with `systemd-analyze verify` and the expiry run on a directory of old and new copies.
+
+### D662
+**A process id's file was committed**: `t40k.pid`, written at the repository's root by a reviewer's run, was staged with `git add -A` in `24e7ff6`. Found 2026-10-14 by the fourteenth production review's operator.
+
+**Resolved** 2026-10-14: removed; a lesson to read untracked paths before staging (`LESSONS.md`).

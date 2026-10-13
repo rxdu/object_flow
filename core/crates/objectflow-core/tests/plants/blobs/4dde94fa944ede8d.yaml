@@ -1,0 +1,88 @@
+module: m
+categories: [live]
+types:
+  A:
+    description: A thing.
+    tracking: record
+    attributes:
+      b: { reference: B, optional: true }
+    states:
+      S: { category: live, description: Open. }
+      E: { category: live, final: true, description: Done. }
+    derived_attributes:
+      a0: { description: The first., expression: b.d62 + 1 }
+    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }
+  B:
+    description: A thing.
+    tracking: record
+    attributes:
+      n: { type: int }
+    states:
+      S: { category: live, description: Open. }
+      E: { category: live, final: true, description: Done. }
+    derived_attributes:
+      d0: { description: The first., expression: this.n }
+      d1: { description: One., expression: this.d0 + 1 }
+      d2: { description: One., expression: this.d1 + 1 }
+      d3: { description: One., expression: this.d2 + 1 }
+      d4: { description: One., expression: this.d3 + 1 }
+      d5: { description: One., expression: this.d4 + 1 }
+      d6: { description: One., expression: this.d5 + 1 }
+      d7: { description: One., expression: this.d6 + 1 }
+      d8: { description: One., expression: this.d7 + 1 }
+      d9: { description: One., expression: this.d8 + 1 }
+      d10: { description: One., expression: this.d9 + 1 }
+      d11: { description: One., expression: this.d10 + 1 }
+      d12: { description: One., expression: this.d11 + 1 }
+      d13: { description: One., expression: this.d12 + 1 }
+      d14: { description: One., expression: this.d13 + 1 }
+      d15: { description: One., expression: this.d14 + 1 }
+      d16: { description: One., expression: this.d15 + 1 }
+      d17: { description: One., expression: this.d16 + 1 }
+      d18: { description: One., expression: this.d17 + 1 }
+      d19: { description: One., expression: this.d18 + 1 }
+      d20: { description: One., expression: this.d19 + 1 }
+      d21: { description: One., expression: this.d20 + 1 }
+      d22: { description: One., expression: this.d21 + 1 }
+      d23: { description: One., expression: this.d22 + 1 }
+      d24: { description: One., expression: this.d23 + 1 }
+      d25: { description: One., expression: this.d24 + 1 }
+      d26: { description: One., expression: this.d25 + 1 }
+      d27: { description: One., expression: this.d26 + 1 }
+      d28: { description: One., expression: this.d27 + 1 }
+      d29: { description: One., expression: this.d28 + 1 }
+      d30: { description: One., expression: this.d29 + 1 }
+      d31: { description: One., expression: this.d30 + 1 }
+      d32: { description: One., expression: this.d31 + 1 }
+      d33: { description: One., expression: this.d32 + 1 }
+      d34: { description: One., expression: this.d33 + 1 }
+      d35: { description: One., expression: this.d34 + 1 }
+      d36: { description: One., expression: this.d35 + 1 }
+      d37: { description: One., expression: this.d36 + 1 }
+      d38: { description: One., expression: this.d37 + 1 }
+      d39: { description: One., expression: this.d38 + 1 }
+      d40: { description: One., expression: this.d39 + 1 }
+      d41: { description: One., expression: this.d40 + 1 }
+      d42: { description: One., expression: this.d41 + 1 }
+      d43: { description: One., expression: this.d42 + 1 }
+      d44: { description: One., expression: this.d43 + 1 }
+      d45: { description: One., expression: this.d44 + 1 }
+      d46: { description: One., expression: this.d45 + 1 }
+      d47: { description: One., expression: this.d46 + 1 }
+      d48: { description: One., expression: this.d47 + 1 }
+      d49: { description: One., expression: this.d48 + 1 }
+      d50: { description: One., expression: this.d49 + 1 }
+      d51: { description: One., expression: this.d50 + 1 }
+      d52: { description: One., expression: this.d51 + 1 }
+      d53: { description: One., expression: this.d52 + 1 }
+      d54: { description: One., expression: this.d53 + 1 }
+      d55: { description: One., expression: this.d54 + 1 }
+      d56: { description: One., expression: this.d55 + 1 }
+      d57: { description: One., expression: this.d56 + 1 }
+      d58: { description: One., expression: this.d57 + 1 }
+      d59: { description: One., expression: this.d58 + 1 }
+      d60: { description: One., expression: this.d59 + 1 }
+      d61: { description: One., expression: this.d60 + 1 }
+      d62: { description: One., expression: this.d61 + 1 }
+      d63: { description: One., expression: this.d62 + 1 }
+    transitions: { t: { kind: initial, to: S, required_inputs: [n] }, e: { kind: external, from: S, to: E } }

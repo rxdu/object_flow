@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-14 on the author's standing instruction, "keep the bar and continue the loop", each decision the recommendation stated here; built the same day
 - **Date:** 2026-10-14
+- **Refined by:** ADR-0201 — a read of one object classified by what that operation computes, among the objects' reads.
 - **Refines:** ADR-0198 decision 2; ADR-0199 decision 2; ADR-0189 decision 1 (an agent's tools); ADR-0158 (what an event records of its rules)
 - **Relates to:** `design/production-review.md` §17; `guides/operate.md`; `guides/agents.md`; `guides/wire.md`; `design/renderers.md` §3
 

@@ -1340,6 +1340,15 @@ fn legacy_spans(
         ));
     }
     let tracked = lib.tracked(t);
+    // an entry time of a dimension the type does not track is refused, as a
+    // legacy interval of one is, where it was taken and its time dropped
+    // (fourteenth production review, minor)
+    if let Some(m) = o.entered.keys().find(|m| !tracked.contains(m)) {
+        return Err(format!(
+            "an entry time of {m}, which {} does not track",
+            t.name
+        ));
+    }
     let mut by_dimension: BTreeMap<&str, Vec<&LegacyInterval>> = BTreeMap::new();
     for l in &o.legacy_intervals {
         by_dimension
@@ -1474,6 +1483,15 @@ fn intermediate_spans(
     port: i64,
 ) -> Result<BTreeMap<String, Vec<Span>>, String> {
     let tracked = lib.tracked(t);
+    // an entry time of a dimension the type does not track is refused, as a
+    // legacy interval of one is, where it was taken and its time dropped
+    // (fourteenth production review, minor)
+    if let Some(m) = o.entered.keys().find(|m| !tracked.contains(m)) {
+        return Err(format!(
+            "an entry time of {m}, which {} does not track",
+            t.name
+        ));
+    }
     let mut by_dimension: BTreeMap<&str, Vec<&LegacyInterval>> = BTreeMap::new();
     for l in &o.legacy_intervals {
         by_dimension
@@ -2379,6 +2397,29 @@ types:
         assert!(wet.refusal.is_some(), "{wet:?}");
         assert_eq!(dry.refusal, wet.refusal, "{dry:?}");
         assert_eq!(dry.written, 0);
+        // an entry time of a dimension the type does not track, on a new
+        // object and on a refresh, refused as a legacy interval of one is,
+        // where it was taken and its time dropped (fourteenth production
+        // review, minor)
+        let untracked = |r: &ImportReport| {
+            r.refusal
+                .as_ref()
+                .is_some_and(|f| f.reason.contains("an entry time of nickname"))
+        };
+        let mut e2 = employee("E-2", "EMPLOYED", json!({"employee_id": "2"}));
+        e2.entered.insert("nickname".into(), entered_at(port - 10));
+        let dry = run(&mut s, vec![e2.clone()], &[], true);
+        let wet = run(&mut s, vec![e2], &[], false);
+        assert!(untracked(&wet), "{wet:?}");
+        assert_eq!(dry.refusal, wet.refusal, "{dry:?}");
+        let e3 = employee("E-3", "EMPLOYED", json!({"employee_id": "3"}));
+        assert_eq!(run(&mut s, vec![e3.clone()], &[], false).written, 1);
+        let mut again = e3;
+        again
+            .entered
+            .insert("nickname".into(), entered_at(port - 10));
+        let refreshed = run(&mut s, vec![again], &[], false);
+        assert!(untracked(&refreshed), "{refreshed:?}");
     }
 
     #[test]

@@ -1,0 +1,53 @@
+module: da
+categories: [live]
+types:
+  TA:
+    description: A thing.
+    tracking: record
+    attributes:
+      x: { type: int }
+    states:
+      S: { category: live, description: Open. }
+      E: { category: live, final: true, description: Done. }
+    derived_attributes:
+      a0: { description: The first., expression: this.x }
+      a1: { description: One., expression: this.a0 + 1 }
+      a2: { description: One., expression: this.a1 + 1 }
+      a3: { description: One., expression: this.a2 + 1 }
+      a4: { description: One., expression: this.a3 + 1 }
+      a5: { description: One., expression: this.a4 + 1 }
+      a6: { description: One., expression: this.a5 + 1 }
+      a7: { description: One., expression: this.a6 + 1 }
+      a8: { description: One., expression: this.a7 + 1 }
+      a9: { description: One., expression: this.a8 + 1 }
+      a10: { description: One., expression: this.a9 + 1 }
+      a11: { description: One., expression: this.a10 + 1 }
+      a12: { description: One., expression: this.a11 + 1 }
+      a13: { description: One., expression: this.a12 + 1 }
+      a14: { description: One., expression: this.a13 + 1 }
+      a15: { description: One., expression: this.a14 + 1 }
+      a16: { description: One., expression: this.a15 + 1 }
+      a17: { description: One., expression: this.a16 + 1 }
+      a18: { description: One., expression: this.a17 + 1 }
+      a19: { description: One., expression: this.a18 + 1 }
+      a20: { description: One., expression: this.a19 + 1 }
+      a21: { description: One., expression: this.a20 + 1 }
+      a22: { description: One., expression: this.a21 + 1 }
+      a23: { description: One., expression: this.a22 + 1 }
+      a24: { description: One., expression: this.a23 + 1 }
+      a25: { description: One., expression: this.a24 + 1 }
+      a26: { description: One., expression: this.a25 + 1 }
+      a27: { description: One., expression: this.a26 + 1 }
+      a28: { description: One., expression: this.a27 + 1 }
+      a29: { description: One., expression: this.a28 + 1 }
+      a30: { description: One., expression: this.a29 + 1 }
+      a31: { description: One., expression: this.a30 + 1 }
+      a32: { description: One., expression: this.a31 + 1 }
+      a33: { description: One., expression: this.a32 + 1 }
+      a34: { description: One., expression: this.a33 + 1 }
+      a35: { description: One., expression: this.a34 + 1 }
+      a36: { description: One., expression: this.a35 + 1 }
+      a37: { description: One., expression: this.a36 + 1 }
+      a38: { description: One., expression: this.a37 + 1 }
+      a39: { description: One., expression: this.a38 + 1 }
+    transitions: { t: { kind: initial, to: S, required_inputs: [x] }, e: { kind: external, from: S, to: E } }

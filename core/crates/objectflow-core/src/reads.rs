@@ -682,9 +682,40 @@ const CHUNK: usize = 256;
 /// decision 4). So does one whose filter aggregates over a collection for
 /// each object, itself or through a derived attribute it reads, however its
 /// page is narrowed: eight such reads of 8 s each on six years made a plain
-/// worklist wait 16 s (twelfth production review). A filter that does not
-/// parse is no scan: it is refused.
-pub fn query_scans(lib: &Library, type_: &str, filter: Option<&str>, order: &[String]) -> bool {
+/// worklist wait 16 s (twelfth production review). So does one computing a
+/// field, asked for or in its type's summary, that is a derived attribute
+/// growing with the store (`grows_with_store`), where four such queries of
+/// a type-scanning count, 17 ms a row, made a worklist wait 5.6 s
+/// (fourteenth production review N7). A filter that does not parse is no
+/// scan: it is refused.
+pub fn query_scans(
+    lib: &Library,
+    type_: &str,
+    filter: Option<&str>,
+    order: &[String],
+    fields: Option<&[String]>,
+) -> bool {
+    if let Some(t) = lib.type_(type_) {
+        let summary: Vec<String> = t
+            .source
+            .get("summary")
+            .and_then(|s| s.as_array())
+            .map(|s| {
+                s.iter()
+                    .filter_map(|f| f.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let growing = growing_derived(lib);
+        let computes = |n: &String| growing.contains(n) && t.derived.iter().any(|(d, _)| d == n);
+        if fields
+            .map_or(summary.as_slice(), |f| f)
+            .iter()
+            .any(computes)
+        {
+            return true;
+        }
+    }
     let parsed = match filter.map(crate::expr::parse) {
         Some(Ok(e)) => Some(e),
         Some(Err(_)) => return false,
@@ -699,35 +730,78 @@ pub fn query_scans(lib: &Library, type_: &str, filter: Option<&str>, order: &[St
     })
 }
 
-/// Whether reading an object of a type, or what it offers, computes what
-/// grows with the store: a rule of the type, a derived attribute, a
-/// condition or an invariant, reading a metric, a type scan or the objects
-/// referring to it, itself or through a derived attribute it reads by name.
-/// Such a `get`, `availability` or `check` waits among the analytics, where
-/// it ran in no pool: 64 `availability`s of a type guarded by a monthly
-/// limit's metric peaked at 4.49 GB (thirteenth production review C).
-pub fn grows_with_store(lib: &Library, type_: &str) -> bool {
-    fn wide(lib: &Library, e: &Expr) -> bool {
-        match e {
-            Expr::Metric { .. } => true,
-            // a type scan: an aggregate over a type's objects by its name
-            Expr::Agg {
-                collection: Some(c),
-                ..
-            } if matches!(&**c, Expr::Name(n) if lib.type_(n).is_some()) => true,
-            Expr::Name(n) if n == "referrers" => true,
-            Expr::Path(_, m) if m == "referrers" => true,
-            _ => e.children().into_iter().any(|c| wide(lib, c)),
-        }
+/// What a read of one object computes of its type's rules: a `get` its
+/// derived attributes, an `availability` its conditions too, and a `check`
+/// its invariants as well.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObjectRead {
+    Get,
+    Availability,
+    Check,
+}
+
+/// Whether a read of an object of a type computes what grows with the
+/// store: a rule it computes, a derived attribute, a condition or an
+/// invariant as `what` reads them, reading a metric, a type scan or the
+/// objects referring to it, itself or through a derived attribute it reads
+/// by name. Such a read waits in a pool, where it ran in none: 64
+/// `availability`s of a type guarded by a monthly limit's metric peaked at
+/// 4.49 GB (thirteenth production review C); and a `get` waits only where
+/// its derived attributes grow, where every `get` of a type with a guarded
+/// transition waited, 25.5 s behind per-person metrics (fourteenth
+/// production review).
+pub fn grows_with_store(lib: &Library, type_: &str, what: ObjectRead) -> bool {
+    let growing = growing_derived(lib);
+    let Some(t) = lib.type_(type_) else {
+        return false;
+    };
+    let conditions = t
+        .conditions
+        .iter()
+        .map(|(_, c)| &c.expression)
+        .filter(|_| what != ObjectRead::Get);
+    let invariants = t
+        .invariants
+        .iter()
+        .map(|(_, e)| e)
+        .filter(|_| what == ObjectRead::Check);
+    t.derived
+        .iter()
+        .map(|(_, e)| e)
+        .chain(conditions)
+        .chain(invariants)
+        .any(|e| wide(lib, e) || reads(e, &growing))
+}
+
+/// Whether an expression reads what grows with the store itself: a metric,
+/// a type scan by a type's name, or the objects referring to one.
+fn wide(lib: &Library, e: &Expr) -> bool {
+    match e {
+        Expr::Metric { .. } => true,
+        // a type scan: an aggregate over a type's objects by its name
+        Expr::Agg {
+            collection: Some(c),
+            ..
+        } if matches!(&**c, Expr::Name(n) if lib.type_(n).is_some()) => true,
+        Expr::Name(n) if n == "referrers" => true,
+        Expr::Path(_, m) if m == "referrers" => true,
+        _ => e.children().into_iter().any(|c| wide(lib, c)),
     }
-    fn reads(e: &Expr, names: &BTreeSet<String>) -> bool {
-        match e {
-            Expr::Name(n) if names.contains(n) => true,
-            Expr::Path(_, m) if names.contains(m) => true,
-            _ => e.children().into_iter().any(|c| reads(c, names)),
-        }
+}
+
+/// Whether an expression reads a member of one of the names given.
+fn reads(e: &Expr, names: &BTreeSet<String>) -> bool {
+    match e {
+        Expr::Name(n) if names.contains(n) => true,
+        Expr::Path(_, m) if names.contains(m) => true,
+        _ => e.children().into_iter().any(|c| reads(c, names)),
     }
-    // the derived attributes that grow, by name in any type, to a fixpoint
+}
+
+/// The derived attributes whose values grow with the store, by name in any
+/// type, to a fixpoint: each reading what grows, itself or through another
+/// it reads by name.
+fn growing_derived(lib: &Library) -> BTreeSet<String> {
     let mut growing: BTreeSet<String> = BTreeSet::new();
     loop {
         let mut grew = false;
@@ -740,21 +814,31 @@ pub fn grows_with_store(lib: &Library, type_: &str) -> bool {
             }
         }
         if !grew {
-            break;
+            return growing;
         }
     }
-    let Some(t) = lib.type_(type_) else {
-        return false;
-    };
-    let rules = t
-        .derived
-        .iter()
-        .map(|(_, e)| e)
-        .chain(t.conditions.iter().map(|(_, c)| &c.expression))
-        .chain(t.invariants.iter().map(|(_, e)| e));
-    rules
-        .into_iter()
-        .any(|e| wide(lib, e) || reads(e, &growing))
+}
+
+/// Whether a query's filter or order reads anything the library marks
+/// personal, by name in any type, as a consulted reference masks it
+/// (`eval::personal_names`): an agent's query doing so is refused, where an
+/// agent ranged over people's names to recover what the gateway left out of
+/// its answers (fourteenth production review N4). A filter that does not
+/// parse reads nothing here; the query refuses it.
+pub fn query_reads_personal(lib: &Library, filter: Option<&str>, order: &[String]) -> bool {
+    let personal = crate::eval::personal_names(lib);
+    let filtered = filter
+        .and_then(|f| crate::expr::parse(f).ok())
+        .is_some_and(|e| crate::eval::reads_any(&e, &personal));
+    let ordered = order.iter().any(|k| {
+        let key = k.split_whitespace().next().unwrap_or_default();
+        let member = key
+            .strip_prefix("entered_at(")
+            .and_then(|m| m.strip_suffix(')'))
+            .unwrap_or(key);
+        personal.contains(member)
+    });
+    filtered || ordered
 }
 
 /// Whether an expression aggregates over a collection, itself or through a
@@ -1806,12 +1890,27 @@ mod tests {
     /// production review C).
     #[test]
     fn a_types_reads_grow_where_its_rules_read_the_store() {
-        let text = "\nmodule: g\ncategories: [live]\ntypes:\n  Scan:\n    derived_attributes:\n      peers: { expression: count(s in Scan) }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON }\n  Refs:\n    derived_attributes:\n      pointed: { expression: count(r in referrers) }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON }\n  Metered:\n    states:\n      ON: { category: live }\n    conditions:\n      calm: { expression: metric(Metered.open_work) < 5, remedy: dependent }\n    transitions:\n      make: { kind: initial, to: ON }\n  Reader:\n    attributes:\n      scan: { reference: Scan, optional: true }\n    states:\n      ON: { category: live }\n    invariants:\n      few: { expression: scan is null or scan.peers < 9 }\n    transitions:\n      make: { kind: initial, to: ON }\n  Plain:\n    states:\n      ON: { category: live }\n    conditions:\n      on: { expression: state == Plain.ON, remedy: dependent }\n    transitions:\n      make: { kind: initial, to: ON }\n";
+        let text = "\nmodule: g\ncategories: [live]\ntypes:\n  Scan:\n    summary: [state, peers]\n    derived_attributes:\n      peers: { expression: count(s in Scan) }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON }\n  Refs:\n    derived_attributes:\n      pointed: { expression: count(r in referrers) }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON }\n  Metered:\n    states:\n      ON: { category: live }\n    conditions:\n      calm: { expression: metric(Metered.open_work) < 5, remedy: dependent }\n    transitions:\n      make: { kind: initial, to: ON }\n  Reader:\n    attributes:\n      scan: { reference: Scan, optional: true }\n    states:\n      ON: { category: live }\n    invariants:\n      few: { expression: scan is null or scan.peers < 9 }\n    transitions:\n      make: { kind: initial, to: ON }\n  Plain:\n    states:\n      ON: { category: live }\n    conditions:\n      on: { expression: state == Plain.ON, remedy: dependent }\n    transitions:\n      make: { kind: initial, to: ON }\n";
         let lib = Library::load(&[("g.yaml".into(), text.into())]).unwrap();
         for tn in ["Scan", "Refs", "Metered", "Reader"] {
-            assert!(grows_with_store(&lib, tn), "{tn}");
+            assert!(grows_with_store(&lib, tn, ObjectRead::Check), "{tn}");
         }
-        assert!(!grows_with_store(&lib, "Plain"));
+        assert!(!grows_with_store(&lib, "Plain", ObjectRead::Check));
+        // a get computes derived attributes alone, and an availability its
+        // conditions too, never an invariant (fourteenth production review)
+        assert!(grows_with_store(&lib, "Scan", ObjectRead::Get));
+        assert!(!grows_with_store(&lib, "Metered", ObjectRead::Get));
+        assert!(grows_with_store(&lib, "Metered", ObjectRead::Availability));
+        assert!(!grows_with_store(&lib, "Reader", ObjectRead::Availability));
+        assert!(grows_with_store(&lib, "Reader", ObjectRead::Check));
+        // a query computing a field that grows waits among the analytics,
+        // asked for or in its type's summary, and one asking for none does
+        // not (fourteenth production review N7)
+        let (peers, state) = (["peers".to_string()], ["state".to_string()]);
+        assert!(query_scans(&lib, "Scan", None, &[], Some(&peers)));
+        assert!(query_scans(&lib, "Scan", None, &[], None));
+        assert!(!query_scans(&lib, "Scan", None, &[], Some(&state)));
+        assert!(!query_scans(&lib, "Plain", None, &[], None));
     }
 
     /// A query whose filter aggregates over a collection for each object,
@@ -1823,7 +1922,7 @@ mod tests {
     fn a_query_aggregating_for_each_object_waits_among_the_analytics() {
         let text = "\nmodule: crews\ncategories: [live, closed]\ntypes:\n  Crew:\n    attributes:\n      jobs: { reference: \"Job[]\", opposite: crew }\n    derived_attributes:\n      busy: { expression: count(j in jobs) > 3 }\n    states:\n      ON: { category: live }\n    transitions:\n      form: { kind: initial, to: ON }\n  Job:\n    attributes:\n      crew: { reference: Crew, optional: true, opposite: jobs }\n      hours: { type: int, optional: true }\n    states:\n      OPEN: { category: live }\n      DONE: { category: closed, final: true }\n    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [crew] }\n";
         let lib = Library::load(&[("crews.yaml".into(), text.into())]).unwrap();
-        let scans = |filter: &str| query_scans(&lib, "Crew", Some(filter), &[]);
+        let scans = |filter: &str| query_scans(&lib, "Crew", Some(filter), &[], None);
         assert!(!scans("state == ON"));
         assert!(scans(
             "state == ON and count(j in jobs where j.hours > 2) > 1"

@@ -90,9 +90,26 @@ impl std::convert::From<NotRun> for NoVerdict {
 /// version it names: a retry is the original request re-sent, its occurred
 /// time among what the key identifies, and it replays whatever version it
 /// carries, a body's difference being the digest's to find and not the
-/// version's (`DESIGN.md` §6 step 2, ADR-0076).
-fn request_digest(req: &Request, actor: Option<&str>) -> String {
+/// version's (`DESIGN.md` §6 step 2, ADR-0076). An input marked personal,
+/// by name in any type as a consulted reference masks it, counts by its
+/// name alone: the store keeps no digest of personal data, which an erasure
+/// then left nothing to compare and replayed a different request's verdict
+/// under its key (fourteenth production review N2, ADR-0201).
+fn request_digest(lib: &Library, req: &Request, actor: Option<&str>) -> String {
     use sha2::{Digest, Sha256};
+    let personal = crate::eval::personal_names(lib);
+    let inputs: BTreeMap<&String, Json> = req
+        .inputs
+        .iter()
+        .map(|(n, v)| {
+            let v = if personal.contains(n) {
+                json!(crate::eval::PERSONAL)
+            } else {
+                v.clone()
+            };
+            (n, v)
+        })
+        .collect();
     // the actor as resolved, so a key sent by an actor named by its object
     // and then by its identity is one request (ADR-0192 decision 7)
     let body = json!({
@@ -100,7 +117,7 @@ fn request_digest(req: &Request, actor: Option<&str>) -> String {
         "actor": actor.unwrap_or(&req.actor),
         "object_id": req.object_id,
         "type": req.type_,
-        "inputs": req.inputs,
+        "inputs": inputs,
         "occurred_at": req.occurred_at,
         "propose": req.propose,
         "expires_at": req.expires_at,
@@ -111,7 +128,7 @@ fn request_digest(req: &Request, actor: Option<&str>) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    format!("sha256:{hex}")
+    format!("{}{hex}", crate::store::MASKED_DIGEST)
 }
 
 /// A satisfied verdict as `of_idempotency` records it, and back.
@@ -3838,9 +3855,17 @@ fn effects(
                     continue;
                 }
                 let v = effect_value(ctx, t, id, inputs, &env, position, expr, false)?;
+                // an assignment's arithmetic on an absent operand has no
+                // value, which refuses the request as one past its bound
+                // does, where it answered not run (fourteenth production
+                // review N5)
                 if v.is_absent() {
-                    return stop_not_run(
-                        "an assignment of an absent value, which only an unsupplied optional input may be",
+                    return refused_naming(
+                        Verdict::Unsatisfied {
+                            clause: "value_in_range".into(),
+                            remedy: Some(Remedy::UnreachableFromHere),
+                        },
+                        id,
                     );
                 }
                 let v = at_declared_scale(t, location, v, id)?;
@@ -5479,15 +5504,15 @@ pub fn request_told(
             Some(key) => resolve_actor(world, &req.actor)?.map(|who| (who.id, key.clone())),
             None => None,
         };
-        let digest = request_digest(req, keyed.as_ref().map(|(a, _)| a.as_str()));
+        let digest = request_digest(world.lib, req, keyed.as_ref().map(|(a, _)| a.as_str()));
         let held = match &keyed {
             Some((actor, key)) => world.idempotency_of(actor, key)?,
             None => None,
         };
         if let (Some((_, key)), Some((applied, recorded))) = (&keyed, &held) {
-            // a request whose inputs an erasure redacted is matched by its
-            // key alone, so the key confirms no guess (fourth production
-            // review A-5)
+            // a request whose inputs an erasure redacted before its digest
+            // masked them is matched by its key alone, so the key confirms
+            // no guess (fourth production review A-5)
             if *applied != digest && applied != crate::store::ERASED_DIGEST {
                 return Err(NoVerdict::KeyReused { key: key.clone() });
             }
@@ -9080,10 +9105,12 @@ types:
         );
     }
 
-    /// After an erasure redacts what a keyed request sent, the request sent
-    /// again under its key replays its verdict whatever it carries, so the
-    /// key confirms no guess of the erased value; before it, another
-    /// request under the key is refused (fourth production review A-5).
+    /// A keyed request's digest masks its personal values, so the key
+    /// confirms no guess of one, before an erasure or after it (fourth
+    /// production review A-5); and another request under the key is refused,
+    /// before an erasure and after it, where after it its verdict was
+    /// replayed for a request that never ran (fourteenth production review
+    /// N2).
     #[test]
     fn an_erased_requests_key_confirms_no_guess() {
         const CRM: &str = r#"
@@ -9102,13 +9129,13 @@ types:
 "#;
         let lib = Library::load(&[("crm.yaml".into(), CRM.into())]).unwrap();
         let mut s = Store::sandbox(lib, 0).unwrap();
-        let keyed = |name: &str| Request {
+        let keyed = |title: &str, name: &str| Request {
             transition: "add".into(),
             actor: OPERATOR.into(),
             object_id: None,
             type_: Some("Contact".into()),
             inputs: [
-                ("title".to_string(), json!("Lead")),
+                ("title".to_string(), json!(title)),
                 ("name".to_string(), json!(name)),
             ]
             .into_iter()
@@ -9122,11 +9149,21 @@ types:
             idempotency_key: Some("k".into()),
             context: None,
         };
-        let id = created(&request(&mut s, &keyed("Dana")).unwrap().unwrap());
-        assert_eq!(
-            request(&mut s, &keyed("Ana")).unwrap(),
-            Err(NoVerdict::KeyReused { key: "k".into() })
-        );
+        let id = created(&request(&mut s, &keyed("Lead", "Dana")).unwrap().unwrap());
+        let guesses = |s: &mut Store| {
+            for guess in ["Dana", "Ana"] {
+                let again = request(s, &keyed("Lead", guess)).unwrap();
+                assert!(
+                    matches!(&again, Ok(Verdict::Satisfied { object_id, .. }) if *object_id == id),
+                    "{guess}: {again:?}"
+                );
+            }
+            assert_eq!(
+                request(s, &keyed("Cold", "Dana")).unwrap(),
+                Err(NoVerdict::KeyReused { key: "k".into() })
+            );
+        };
+        guesses(&mut s);
         created(&req(
             &mut s,
             "forget",
@@ -9134,13 +9171,26 @@ types:
             (&id, false),
             json!({"reason": "asked"}),
         ));
-        for guess in ["Dana", "Ana"] {
-            let again = request(&mut s, &keyed(guess)).unwrap();
-            assert!(
-                matches!(&again, Ok(Verdict::Satisfied { object_id, .. }) if *object_id == id),
-                "{guess}: {again:?}"
-            );
-        }
+        guesses(&mut s);
+    }
+
+    /// An assignment whose arithmetic reads an absent optional attribute has
+    /// no value, which refuses the request `value_in_range`, as arithmetic
+    /// past its bound does, where it answered not run; one from an
+    /// unsupplied optional input still changes nothing (fourteenth production
+    /// review N5).
+    #[test]
+    fn an_assignment_of_arithmetic_on_an_absent_value_is_refused() {
+        let text = "\nmodule: c\ncategories: [live]\ntypes:\n  Counter:\n    attributes:\n      count: { type: int, optional: true }\n      note: { type: string, optional: true }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON }\n      bump:\n        kind: internal\n        from: [ON]\n        inputs: { by: { type: int } }\n        effect:\n          - assign: { location: count, expr: count + inputs.by }\n      jot:\n        kind: internal\n        from: [ON]\n        inputs: { text: { type: string, optional: true } }\n        effect:\n          - assign: { location: note, expr: inputs.text }\n";
+        let lib = Library::load(&[("c.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let id = created(&req(&mut s, "make", OPERATOR, ("Counter", true), json!({})));
+        let v = req(&mut s, "bump", OPERATOR, (&id, false), json!({"by": 1}));
+        assert!(
+            matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "value_in_range"),
+            "{v:?}"
+        );
+        created(&req(&mut s, "jot", OPERATOR, (&id, false), json!({})));
     }
 
     /// An erasure reads the events it walks, its object's own, those they
@@ -10825,12 +10875,14 @@ types:
     }
 
     /// A derived attribute reading itself through a reference, which a
-    /// version installed before the checkers refused it may hold, has no
-    /// value past [`crate::eval::DERIVED_HOPS`] references, where a cycle of
-    /// two nodes, or a chain of thousands, overflowed the stack and aborted
-    /// the service on a `get`; and an identifier's width past what a number
-    /// fills refuses its creation as not run, where it panicked (tenth
-    /// production review).
+    /// version installed before the checkers refused it may hold, is not run
+    /// past [`crate::eval::DERIVED_HOPS`] references, where a cycle of two
+    /// nodes, or a chain of thousands, overflowed the stack and aborted the
+    /// service on a `get` (tenth production review), and where it was then
+    /// answered as none (fourteenth production review N1); a chain within
+    /// the bound is read; and an identifier's width past what a number fills
+    /// refuses its creation as not run, where it panicked (tenth production
+    /// review).
     #[test]
     fn a_recursive_derived_value_and_a_wide_identifier_stop_without_a_crash() {
         let text = r#"
@@ -10899,16 +10951,36 @@ types:
             json!({"parent": b}),
         ));
         let w = s.snapshot().unwrap();
-        let read = crate::reads::get(&w, &a).unwrap().unwrap();
+        let read = crate::reads::get(&w, &a);
+        assert!(
+            matches!(&read, Err(NotRun::Unsupported(m)) if m.contains("more than 64 deep")),
+            "{read:?}"
+        );
+        drop(w);
+        // a chain within the bound read, its depth counted
+        let root = created(&req(&mut s, "make", OPERATOR, ("Node", true), json!({})));
+        let mut last = root.clone();
+        for _ in 0..40 {
+            last = created(&req(
+                &mut s,
+                "make",
+                OPERATOR,
+                ("Node", true),
+                json!({"parent": last}),
+            ));
+        }
+        let w = s.snapshot().unwrap();
+        let read = crate::reads::get(&w, &last).unwrap().unwrap();
         let depth = read
             .derived
             .iter()
             .find(|(d, _)| d == "depth")
             .map(|(_, v)| v.clone());
-        assert_eq!(depth, Some(Value::Absent), "{read:?}");
+        // the root's parent absent, so its depth is, and each below unknown
+        // past it: what matters is that it is read, not refused
+        assert!(depth.is_some(), "{read:?}");
         drop(w);
-        // and a chain of 200, its deep end read
-        let mut last = b.clone();
+        // and a chain of 200, its deep end not run, never a crash
         for _ in 0..200 {
             last = created(&req(
                 &mut s,
@@ -10919,7 +10991,7 @@ types:
             ));
         }
         let w = s.snapshot().unwrap();
-        assert!(crate::reads::get(&w, &last).unwrap().is_some());
+        assert!(crate::reads::get(&w, &last).is_err());
     }
 
     /// A page of `query`, `pull` and `export` ends at [`PAGE_BYTES`] as at

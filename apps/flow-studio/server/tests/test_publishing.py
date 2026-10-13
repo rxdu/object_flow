@@ -2231,6 +2231,41 @@ def test_an_object_named_beside_another_type_is_not_found_alike(tee):
     alike(tee)
 
 
+COUNTER = """module: counter
+categories: [live, closed]
+types:
+  Counter:
+    description: A counter.
+    tracking: record
+    attributes:
+      count: { type: int, optional: true }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      make: { kind: initial, to: ON }
+      bump:
+        kind: internal
+        from: [ON]
+        inputs: { by: { type: int } }
+        effect:
+          - assign: { location: count, expr: count + inputs.by }
+      stop: { kind: external, from: [ON], to: OFF }
+"""
+
+
+def test_an_assignment_of_an_absent_sum_is_refused_alike(tee):
+    """An assignment whose arithmetic reads an absent optional attribute refuses the request value_in_range, alike
+    through both backends, where it answered 501 not_run (fourteenth production review N5)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "counter.yaml", "text": COUNTER}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    made = tee.post("/v1/request", {"transition": "make", "actor": OP, "type": "Counter"})["object_id"]
+    v = tee.post("/v1/request", {"transition": "bump", "actor": OP, "object_id": made, "inputs": {"by": 1}})
+    assert (v["kind"], v.get("clause")) == ("unsatisfied", "value_in_range"), v
+    alike(tee)
+
+
 MEMO = """module: memo
 categories: [live, closed]
 types:

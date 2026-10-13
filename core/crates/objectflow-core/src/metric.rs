@@ -733,6 +733,26 @@ impl<'w> Reader<'w> {
             (None, Some(b)) => Some(b.clone()),
             (None, None) => None,
         };
+        // a bound dimension that is the item's own stored attribute narrows
+        // the objects read to those holding its value, by its column's index,
+        // where a guard bound to one claimant read every claim of the store
+        // for each request (fourteenth production review)
+        let mut columns: Vec<(String, Value)> = Vec::new();
+        if source == "objects"
+            && let Some(dims) = f.get("dimensions").and_then(Json::as_object)
+        {
+            for (d, want) in bound {
+                let (Want::Value(v), Some(Ok(Expr::Path(base, attr)))) =
+                    (want, dims.get(d).and_then(Json::as_str).map(parsed))
+                else {
+                    continue;
+                };
+                let own = matches!(&*base, Expr::Name(n) if *n == item);
+                if own && owner_t.attribute(&attr).is_some_and(|a| !a.many) {
+                    columns.push((attr, v.clone()));
+                }
+            }
+        }
         let Rows {
             mut rows,
             kind: rowkind,
@@ -742,6 +762,7 @@ impl<'w> Reader<'w> {
             owner_t,
             &source,
             narrow.as_ref().map(|e| (item.as_str(), e)),
+            &columns,
         )?;
         let split = text("split_by");
         if let Some(unit) = &split {
@@ -881,16 +902,25 @@ impl<'w> Reader<'w> {
         t: &Type,
         source: &str,
         narrow: Option<(&str, &Expr)>,
+        columns: &[(String, Value)],
     ) -> Result<Rows, NotRun> {
         let world = self.world;
-        let family = world.of_type(owner)?;
         if source == "objects" {
+            let objects = if columns.is_empty() {
+                world.of_type(owner)?
+            } else {
+                world.of_type_where(owner, None, columns)?
+            };
             return Ok(Rows {
-                rows: family.iter().map(|o| Value::Object(o.id.clone())).collect(),
+                rows: objects
+                    .iter()
+                    .map(|o| Value::Object(o.id.clone()))
+                    .collect(),
                 kind: Kind::Object(owner.to_string()),
                 by_kind: "created_by_kind",
             });
         }
+        let family = world.of_type(owner)?;
         if source == "intervals" || source.starts_with("intervals(") {
             let member = source
                 .strip_prefix("intervals(")
@@ -2891,6 +2921,83 @@ metrics:
 
     fn rat(n: i128, d: i128) -> Option<Rat> {
         Rat::new(n, d)
+    }
+
+    /// A metric over objects bound to one of the item's own stored
+    /// attributes reads only the objects holding the value, by the column's
+    /// index, never the type whole, where a guard bound to one claimant read
+    /// every claim for each request (fourteenth production review); it reads
+    /// the same total.
+    #[test]
+    fn an_objects_metric_bound_to_a_column_reads_by_it() {
+        let text = "\nmodule: pay\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      login: { type: identity, actor_kind: human }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login] }\n  Claim:\n    attributes:\n      claimant: { reference: Person, optional: true }\n      total: { type: int }\n    states:\n      OPEN: { category: live }\n    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [total], optional_inputs: [claimant] }\n    metrics:\n      claimed:\n        source: objects\n        item: c\n        dimensions:\n          claimant: c.claimant\n        expression: sum(c.total)\n";
+        let lib = Library::load(&[("pay.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let person = |s: &mut Store, login: &str| {
+            let r = Request {
+                transition: "join".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some("Person".into()),
+                inputs: BTreeMap::from([("login".to_string(), json!(login))]),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            match request(s, &r).unwrap().unwrap() {
+                Verdict::Satisfied { object_id, .. } => object_id,
+                other => panic!("{other:?}"),
+            }
+        };
+        let (ana, ben) = (person(&mut s, "ana"), person(&mut s, "ben"));
+        let (mut first, mut unclaimed) = (String::new(), String::new());
+        for i in 0..23 {
+            let who = if i % 4 == 0 { &ana } else { &ben };
+            let mut inputs = BTreeMap::from([("total".to_string(), json!(i))]);
+            if i < 20 {
+                inputs.insert("claimant".to_string(), json!(who));
+            }
+            let r = Request {
+                transition: "open".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some("Claim".into()),
+                inputs,
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            if let Verdict::Satisfied { object_id, .. } = request(&mut s, &r).unwrap().unwrap() {
+                if i == 0 {
+                    first = object_id;
+                } else if i == 20 {
+                    unclaimed = object_id;
+                }
+            }
+        }
+        let w = s.snapshot().unwrap();
+        let before = crate::world::whole_type_reads("Claim");
+        let v = Evaluator::new(&w, w.lib.type_("Claim"), Some(&first))
+            .eval(&parse("metric(Claim.claimed, claimant := claimant)").unwrap())
+            .unwrap();
+        // ana's claims are 0, 4, 8, 12 and 16
+        assert_eq!(v, Value::Int(40));
+        assert_eq!(crate::world::whole_type_reads("Claim"), before);
+        // bound to no claimant, its value unknown, as it was read whole
+        let v = Evaluator::new(&w, w.lib.type_("Claim"), Some(&unclaimed))
+            .eval(&parse("metric(Claim.claimed, claimant := claimant)").unwrap())
+            .unwrap();
+        assert_eq!(v, Value::Absent);
     }
 
     #[test]
