@@ -45,6 +45,8 @@ const COVERED: &[&str] = &[
     "unbounded_reach",
     // the rules a version loosens (ADR-0191)
     "rule_changed",
+    // an attribute a version no longer marks personal (ADR-0196)
+    "personal_dropped",
     // step 4 (C2), by group as each is ported
     "check 2",
     "check 7",

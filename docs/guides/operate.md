@@ -8,7 +8,7 @@ One process, `objectflow-service`, serving one **store**: a SQLite file and the 
 
 **It authenticates nobody.** Whoever can reach it can act as any actor. Put it behind the application that authenticates your users: on a Unix socket only your application can open, or on loopback. Never put it on a network your users reach.
 
-**Requirements:** Linux on x86-64 with the glibc of Ubuntu 22.04 or later (`ldd --version`), and disk for the store, its `-wal` (64 MiB in steady state, up to about 300 MiB while long reads overlap writes; 306 MiB was measured) and your backups.
+**Requirements:** Linux on x86-64 with the glibc of Ubuntu 22.04 or later (`ldd --version`), and disk for the store, its `-wal` (64 MiB in steady state, up to about 350 MiB while long reads overlap writes; 346 MiB was measured) and your backups.
 
 ## Install
 
@@ -17,9 +17,10 @@ Build the release binary from source (rustup installs the pinned toolchain on th
 ```sh
 (cd core && cargo build --release -p objectflow-service)
 core/target/release/objectflow-service --version
+sudo install -m 0755 core/target/release/objectflow-service /usr/local/bin/
 ```
 
-Tagged releases are published on the repository's GitHub Releases page as an archive with its SHA-256 checksum, built on Ubuntu 22.04. Check the checksum before installing. Releases are not signed yet. `--version` names the commit a release was built from. A build from source names its commit only when built with it set: `OBJECTFLOW_COMMIT=$(git rev-parse --short HEAD) cargo build --release -p objectflow-service`.
+Tagged releases will be published on the repository's GitHub Releases page as an archive with its SHA-256 checksum, built on Ubuntu 22.04; none is published yet, so build from source. Check the checksum before installing. Releases are not signed yet. `--version` names the commit a release was built from. A build from source names its commit only when built with it set: `OBJECTFLOW_COMMIT=$(git rev-parse --short HEAD) cargo build --release -p objectflow-service`.
 
 ## Create the store
 
@@ -62,6 +63,11 @@ Restart=on-failure
 LimitNOFILE=4096
 MemoryMax=4G
 LogRateLimitIntervalSec=0
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/objectflow
 
 [Install]
 WantedBy=multi-user.target
@@ -71,12 +77,13 @@ Why each setting:
 
 - `Type=notify`: the service tells systemd when it is ready to answer and when it stops, so your application's unit can start after it.
 - `After=time-sync.target`: start only once the clock is synchronised. The store's clock never moves back, so a host clock that jumps ahead and returns would stamp events in the future. The ordering waits only if a service delays the target until synchronisation: enable `systemd-time-wait-sync.service` with systemd-timesyncd, or `chrony-wait.service` with chrony. Don't add `Wants=time-sync.target`. See [The clock](#the-clock).
-- `--socket`: the socket is made `0660`, so only the service's user and group connect. Add your application's user to the `objectflow` group.
+- `--socket`: the socket is made `0660`, so only the service's user and group connect. Add your application's user to the `objectflow` group. The socket is the access control: the service authenticates no one, so on a TCP port, loopback included, every user of the machine can call it as any actor, the operator among them. Serve TCP only on a machine no one else uses.
 - `--metrics-bind`: `/health` and `/metrics` on an address of their own, so a monitor can reach them and is never shut out by a full main listener.
 - `TimeoutStopSec`: above the service's own 30 s drain.
 - `Restart=on-failure`: a service that exits on a fault, or is killed, is started again. A start the service refuses, for a store it cannot open, fails again each time and stays failed once systemd's start limit is reached (five starts in ten seconds by default), saying why in the journal.
 - `LimitNOFILE`: above `--max-connections` (512 by default), with room for the 16 refusals it may be writing at once.
-- `MemoryMax`: see [Memory](#memory).
+- `MemoryMax`: 4G suits a store of about two years; see [Memory](#memory) for more.
+- `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`: the service writes only its store's directory, which `ReadWritePaths` names, and the socket's, which `RuntimeDirectory` makes.
 - `LogRateLimitIntervalSec=0`: the service logs one line per answer, which passes journald's default rate limit at about 430 answers a second.
 
 You may add `WatchdogSec=`: the service pings at half the interval while its runtime answers. That says nothing about whether writes move; `/health`'s `writes_stalled` does.
@@ -124,6 +131,7 @@ It answers `503` with a `code` when an operator must act:
 | `upgrade_due` | The store was made by an earlier engine release. | Run the upgrade. |
 | `disk_low` | Under 64 MiB free on the store's volume, the space a checkpoint needs. | Free space. |
 | `store_replaced` | The store's file was moved, removed or replaced under the running service. Writes are refused too. | Restart the service on the right file. |
+| `store_unreadable` | The store's file cannot be read as a store, as after one written over in place while the service ran. | Stop the service and restore the store. |
 | `log_blocked` | A log line has waited over 5 s to be written: nothing is reading the service's standard error. | Fix the log reader. journald does this for you. |
 | `writes_stalled` | A write is waiting for another process's lock on the store, from its first retry; or the last write was refused after its retries, and none has committed since, within the minute. | Find the other process holding the store. |
 | `writes_failing` | Three writes or more in a row failed for the service's own fault, answered `500`, the last within the minute, and none has succeeded since. | Read the log for the fault; check the store's file was not changed under the service. |
@@ -180,7 +188,7 @@ The service writes to its standard error, each line stamped with its time:
 - one line per answer: `<time> <method> <route> <status> <duration> ms`, with `clock_lead=<n>s` while the clock leads;
 - each fault it meets, with its reason. A 5xx of one code is written at most once a second, the number left unsaid given with the next, so a full disk does not write a line per retried write;
 - an evaluator's failure, naming its function but never the arguments or the answer, which may hold personal data, and its endpoint with any password hidden;
-- at start: `--create` given for a store that exists, a last stop that was not clean, a `-wal` holding frames before opening, a store readable by others, another service holding the store, actors whose identities are equal but for case (see [Upgrading the engine](#upgrading-the-engine)), an evaluator token to be sent over plain `http://` beyond loopback, and a clock that leads;
+- at start: `--create` given for a store that exists, a last stop that was not clean, a `-wal` holding frames before opening, a store readable by others, another service holding the store, actors whose identities are equal but for case (see [Upgrading the engine](#upgrading-the-engine)), no `--attempt-retention`, an evaluator token to be sent over plain `http://` beyond loopback, and a clock that leads;
 - writes waiting for another process's lock on the store, once, as the wait begins.
 
 Read the standard error to its end, as journald does. If nothing reads it, a line waits; after 5 s the service drops lines (counted in `objectflow_log_lines_dropped_total`) so no request waits on the log, and `/health` answers `503 log_blocked`.
@@ -193,13 +201,13 @@ Read the standard error to its end, as journald does. If nothing reads it, a lin
 
 | Pool | Reads | Limit |
 |---|---|---|
-| worklists | `query`, `available`, `pull` | `--max-reads` |
+| worklists | `query` narrowed by an index, `available`, `pull` | `--max-reads` |
 | objects | `history`, `events` | `--max-reads` |
-| analytics | `metric`, `exceptions`, `diagnostics`, `export` | `--max-reads` |
+| analytics | `metric`, `exceptions`, `diagnostics`, `export`, and a `query` that reads its type whole | `--max-reads` |
 | agents | every such read an agent actor makes | `--max-reads` |
 | dry runs | a change's `submit` or `refresh`, a `publish` preview, a `check` of a change's submit | one at a time |
 
-`get`, `lookup`, `availability`, `declaration`, `tools`, every other `check` and every write never wait for a pool, nor do `/health` and `/metrics`. A read that waits past its deadline is answered `503 read_timeout`, having done nothing. People polling `available` over a crowded state share the worklists pool: raise `--max-reads` for them, or poll less often.
+`get`, `lookup`, `availability`, `declaration`, `tools`, every other `check` and every write never wait for a pool, nor do `/health` and `/metrics`. A read that waits past its deadline is answered `503 read_timeout`, having done nothing. A `query` is narrowed by an index where its filter requires the states it holds (`state == SUBMITTED`) or holds a column equal to a value (`claim.id == "claim-4"`); one ordered or filtered without either reads its type whole and waits among the analytics, so it never holds a person's worklist slot. People polling `available` over a crowded state share the worklists pool: raise `--max-reads` for them, or poll less often.
 
 **Requests** are at most 2 MiB. Import in batches under that, about 3,000 objects of an expense claim's size each.
 
@@ -226,7 +234,7 @@ Some flow constructs cost more than they look:
 
 A publish holds the store's objects in memory while it simulates and installs the version: plan for about ten times the store's file size. Reads that grow with the store add their own, at most `--max-reads` per pool at once. On 110k objects, sixteen per-person metrics sent at once peaked at 1.15 GB with the default limit of 4.
 
-Size `MemoryMax` at twice a publish's peak, since one change's dry run may run beside another's approval, plus three times `--max-reads` times your heaviest read's peak, for the worklists, analytics and agents pools, plus `--max-reads` times about 25 MB for the objects pool, whose pages stop at 8 MiB (forty such pages held at once peaked at 1.07 GB). Measure your own. After a publish, an import or any request of half a second or more, the service returns freed memory to the system (`objectflow_memory_given_back_total`).
+Size `MemoryMax` at twice a publish's peak, since one change's dry run may run beside another's approval, plus three times `--max-reads` times your heaviest read's peak, for the worklists, analytics and agents pools, plus `--max-reads` times about 25 MB for the objects pool (forty pages of history held at once peaked at 1.07 GB). A page of `query`, `history`, `pull` or `export` stops at 8 MiB, so a read's peak is about its page's size times three, plus what it reads to choose it. On six years of a 600-person company's claims a publish beside saturated reads peaked at 3.97 GB: give such a store 8G. Measure your own. After a publish, an import or any request of half a second or more, the service returns freed memory to the system (`objectflow_memory_given_back_total`).
 
 ## Backups and restore
 
@@ -248,7 +256,7 @@ Copying the file alone is safe only with the service stopped: a clean stop folds
 3. Put the backup in the store's place, with the same owner and mode `0600`.
 4. Start the service.
 
-Step 2 matters: a `-wal` left beside a restored copy would be replayed onto it.
+Step 2 matters: a `-wal` left beside a restored copy would be replayed onto it, and where it is the copy's own later log, the restore is silently undone; the start then says the log held frames its file did not. Never copy a backup over the store's file while the service runs: its writes go on into a log that no longer matches the file, and are lost at the next stop, which the service cannot tell from its own checkpoints.
 
 A restored store hands out again the object ids and event positions it had handed out after the backup was taken: an id an application kept from that time may name a different object once new ones are made, and a consumer holding a cursor from that time would pass over the events written at those positions again. `export` refuses a cursor past the store's last position `invalid_cursor`, but `pull` answers it with no events. Before serving the restored store, reconcile the ids your applications hold from after the backup, and restart each subscriber with a `pull` sent without a cursor, which reads from the position the backup holds as acknowledged. The service runs SQLite's quick check at each start, before anything opens the store for writing; if it fails, the service does not start, says why, and leaves every file as it was. The check reads the whole file: about 0.3 s for 126 MB, 0.8 s for 387 MB.
 
@@ -269,7 +277,7 @@ What a later release promises, from 1.0.0:
 4. As the operator, see the steps: `POST /v1/upgrade {"actor": {"id": "operator"}, "dry_run": true}`.
 5. Run them: the same without `dry_run`. The service then serves the store.
 
-**Identities equal but for case.** Release 0.2.0 took two actors whose identities differ only in the case of their ASCII letters, `Ana@x.org` and `ana@x.org`; later releases take them as one actor, so neither may leave or be erased, and every publish is refused `decision_unresolved`. A store holding such a pair says so at its start, naming the actors' object ids. Publish a version whose `migration` admits the actor type's `identity_taken`, as `admit: [{ invariant: Employee.identity_taken, reason: Reason.LEGACY }]` with your type and a member of an enumeration of yours; the two actors may then leave and be erased, and a later version may give each an identity of its own. Until then a request naming the identity in a third case acts as the actor made first.
+**Identities equal but for case.** Release 0.2.0 took two actors whose identities differ only in the case of their ASCII letters, `Ana@x.org` and `ana@x.org`; later releases take them as one actor, so neither may leave or be erased, and every publish is refused `decision_unresolved`. A store holding such a pair says so at its start, naming the actors' object ids. Publish a version whose `migration`, which takes a `description`, admits the actor type's `identity_taken`, as `admit: [{ invariant: Employee.identity_taken, reason: Reason.LEGACY }]` with your type and a member of an enumeration of yours; the two actors may then leave and be erased, and a later version may give each an identity of its own. Until then a request naming the identity in a third case acts as the actor made first.
 
 There is no downgrade: if the new release fails in service, restore the backup and run the old release. Once an upgrade commits, an old copy still running is refused; a copy of release 0.1.0 is not, so stop it before upgrading.
 

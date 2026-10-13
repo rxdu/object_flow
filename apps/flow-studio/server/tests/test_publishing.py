@@ -2077,6 +2077,47 @@ def test_with_no_publishing_rule_an_agent_does_not_approve_alike(tee):
     alike(tee)
 
 
+def test_an_agent_moves_on_only_its_own_change_alike(tee):
+    """Where the version declares no publishing, an agent's reject, withdraw, reopen and refresh of a person's
+    change are refused publish_taken_by, delegable, as its approval is, and its own change it moves on; a request
+    of a change's publish is not_requestable, naming publish; alike through both backends, where an agent rejected,
+    reopened and revised a person's change, and the request answered 501 (ninth production review N-1, N-2,
+    ADR-0196 decisions 5 and 7)."""
+    unruled = ROSTER.replace("publishing: { taken_by: [human] }\n", "", 1)
+    assert tee.post("/sandbox/load", {"files": [{"name": "roster.yaml", "text": unruled}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    for tn, key, name in (("User", "login", "ana"), ("Bot", "handle", "bot")):
+        assert tee.post("/v1/request", {"transition": "add", "actor": OP, "type": tn,
+                                        "inputs": {key: name}})["kind"] == "satisfied"
+    roomier = unruled.replace("      login: { type: identity, actor_kind: human, unique: true }\n",
+                              "      login: { type: identity, actor_kind: human, unique: true }\n"
+                              "      team: { type: string, optional: true }\n", 1)
+    def drafted(actor):
+        c = tee.post("/v1/request", {"transition": "draft", "actor": actor, "type": "DeclarationChange",
+                                     "inputs": {"source": {"roster": roomier}, "source_ref": "git:roster@2"}})
+        assert c["kind"] == "satisfied", c
+        v = tee.post("/v1/request", {"transition": "submit", "actor": actor, "object_id": c["object_id"]})
+        assert v["kind"] == "satisfied", v
+        return c["object_id"]
+    bot, ana = {"id": "bot"}, {"id": "ana"}
+    theirs = drafted(ana)
+    for xn in ("reject", "withdraw", "refresh", "reopen"):
+        v = tee.post("/v1/request", {"transition": xn, "actor": bot, "object_id": theirs})
+        assert (v["kind"], [f["invariant"] for f in v.get("failures", [])]) == \
+            ("invariant_violated", ["publish_taken_by"]), (xn, v)
+    # a person moves it on, and the request of its approval names its operation
+    v = tee.post("/v1/request", {"transition": "publish", "actor": ana, "object_id": theirs})
+    assert (v["kind"], v.get("parents")) == ("not_requestable", ["publish"]), v
+    assert tee.post("/v1/request", {"transition": "reopen", "actor": ana,
+                                    "object_id": theirs})["kind"] == "satisfied"
+    # the agent's own change it moves on
+    mine = drafted(bot)
+    assert tee.post("/v1/request", {"transition": "withdraw", "actor": bot,
+                                    "object_id": mine})["kind"] == "satisfied"
+    alike(tee)
+
+
 CHAIN = """module: chain
 categories: [live, closed]
 types:

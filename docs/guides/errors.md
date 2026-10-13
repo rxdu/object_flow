@@ -49,7 +49,7 @@ Every refusal carries a `remedy`: what the caller can do about it.
 | `invalid_input` | An input is wrong before any rule runs. | `inputs` (the names at fault), `reasons` (each one's reason, below) |
 | `unavailable` | The object's state does not allow this transition. | `state` |
 | `unknown_transition` | The type has no transition of that name. | `transition` |
-| `not_requestable` | The transition runs only as part of another. | `parents` (the transitions that run it) |
+| `not_requestable` | The transition runs only as part of another, or through its own operation, as a change's `publish` runs through `publish`. | `parents` (the transitions or operation that run it) |
 | `not_proposable` | A proposal (`"propose": true`) of a transition not marked `proposable`. | none |
 | `stale` | The object moved on, or the store stayed locked. | `cause`: `expected_version` with `expected` and `actual` (re-read, then decide again), or `retries_exhausted` (remedy `temporal`: another process held the store's write lock too long) |
 | `not_found` | The object does not exist. | none |
@@ -143,10 +143,10 @@ A fault's body is always `{"fault": "<reason>", "code": "<code>"}`.
 | `code` | Status | Means | What to do |
 |---|---|---|---|
 | `bad_request` | `400` | The body is not a JSON object, names a key the operation does not take, names a key twice, has a key of the wrong JSON type, lacks a required key, or is over 2 MiB. | Fix the request. Unknown keys are refused so a typo is never read as "absent". |
-| `not_found` | `404` | No such operation. | Check the name. |
+| `not_found` | `404` | No such operation, or, for `declaration`, no such type. | Check the name. |
 | `method_not_allowed` | `405` | An operation sent with anything but `POST`, or `/health` or `/metrics` with anything but `GET`. | Use the right method. |
 | `slow_body` | `408` | The body did not arrive within the idle timeout. | Send it again. |
-| `conflict` | `409` | A sandbox with no flow loaded. | Load one. |
+| `conflict` | `409` | A sandbox with no flow loaded, or an `upgrade` asked by an actor that is not the store's operator. | Load one, or ask as the operator. |
 | `key_reused` | `409` | This actor already used the idempotency key for a different request. | Use a new key for a new request. |
 | `too_large` | `413` | Reserved for a request too large to read. Today a body over 2 MiB is `400 bad_request`, and an over-long URL is refused `414` by the HTTP layer, with no body. | Send a smaller request. |
 | `not_run` | `501` | A construct this engine does not run yet, such as `archive_events`. | Don't use it. |
@@ -155,10 +155,11 @@ A fault's body is always `{"fault": "<reason>", "code": "<code>"}`.
 | `busy` | `503` | Every connection is busy, or this idle one was closed to make room. Nothing was done. | Send it again on a new connection. |
 | `disk_full` | `503` | The store's disk is full, so the write was not made. | The operator frees space; then send it again. |
 | `store_replaced` | `503` | The store's file was moved, removed or replaced under the running service. | The operator restarts the service on the right file. |
+| `store_unreadable` | `503` | `/health` could not read the store's file as a store, as after one written over in place under the running service. | The operator stops the service and restores the store (see [Operate](operate.md#backups-and-restore)). |
 | `unavailable` | `503` | The service cannot answer for another reason. | Retry later. |
 | `internal` | `500` | The service's own fault. | Report it, with the log line. |
 
-`GET /health` answers `503` with one of these codes when the deployment needs an operator: `upgrade_due`, `disk_low` (under 64 MiB free), `store_replaced`, `log_blocked` (a log line waited more than 5 s to be written), `writes_stalled` (a write waits for another process's lock, or the last one was refused after its retries) and `writes_failing` (three writes or more in a row answered `500`). See [Operate](operate.md).
+`GET /health` answers `503` with one of these codes when the deployment needs an operator: `upgrade_due`, `disk_low` (under 64 MiB free), `store_replaced`, `store_unreadable`, `log_blocked` (a log line waited more than 5 s to be written), `writes_stalled` (a write waits for another process's lock, or the last one was refused after its retries) and `writes_failing` (three writes or more in a row answered `500`). See [Operate](operate.md).
 
 ## Retrying safely
 

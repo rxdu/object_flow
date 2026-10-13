@@ -215,13 +215,24 @@ fn asked(
     if let Some(token) = token {
         posting = posting.header("authorization", format!("Bearer {token}"));
     }
+    // a timeout named by the flag that sets it, where it said "timeout:
+    // global" (ninth production review)
+    let late = || {
+        format!(
+            "{} did not answer within --evaluator-timeout ({} s)",
+            shown(endpoint),
+            timeout.as_secs()
+        )
+    };
     let mut answer = match posting.send(&body) {
         Ok(a) => a,
+        Err(ureq::Error::Timeout(_)) => return unknown(late()),
         Err(e) => return unknown(format!("{} was not reached: {e}", shown(endpoint))),
     };
     let status = answer.status().as_u16();
     let text = match answer.body_mut().read_to_string() {
         Ok(t) => t,
+        Err(ureq::Error::Timeout(_)) => return unknown(late()),
         Err(e) => return unknown(format!("{}'s answer was not read: {e}", shown(endpoint))),
     };
     if status != 200 {
@@ -674,6 +685,10 @@ struct Admission {
     waiting: std::sync::atomic::AtomicUsize,
     /// New reads held back while the write-ahead log is cut back.
     barred: std::sync::atomic::AtomicBool,
+    /// Whether it is a change's dry runs' one slot, whose wait is said by
+    /// its own flag, where it named --read-timeout and --max-reads (ninth
+    /// production review N-8).
+    dry_runs: bool,
 }
 
 impl Admission {
@@ -684,6 +699,15 @@ impl Admission {
             most,
             waiting: std::sync::atomic::AtomicUsize::new(0),
             barred: std::sync::atomic::AtomicBool::new(false),
+            dry_runs: false,
+        }
+    }
+
+    /// A change's dry runs' slot, one at a time.
+    fn for_dry_runs() -> Self {
+        Admission {
+            dry_runs: true,
+            ..Admission::new(1)
         }
     }
 
@@ -725,6 +749,12 @@ impl Admission {
             let mut running = self.running.lock().map_err(|_| panicked())?;
             while *running >= self.most || self.barred.load(Ordering::SeqCst) {
                 let left = until.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() && self.dry_runs {
+                    return Err(Fault::TimedOut(format!(
+                        "another change's dry run ran for the whole of this one's deadline, --dry-run-timeout ({} s), so it was not started; dry runs take their one slot in turn: send it again",
+                        timeout.as_secs()
+                    )));
+                }
                 if left.is_zero() {
                     return Err(Fault::TimedOut(format!(
                         "{} reads that grow with the store ran for the whole of this one's deadline, --read-timeout ({} s), so it was not started; --max-reads bounds how many run at once",
@@ -1811,6 +1841,7 @@ async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
         Ok(Json(json!({
             "events": page.events.iter().map(event).collect::<Vec<_>>(),
             "settled": page.settled.to_string(),
+            "more": page.more,
             "refused": page.refused,
             "not_computed": EVENT_NOT_COMPUTED,
         })))
@@ -1991,6 +2022,7 @@ async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
         Ok(Json(json!({
             "lines": page.lines,
             "cursor": page.cursor,
+            "more": page.more,
             "refused": page.refused,
         })))
     })
@@ -2567,8 +2599,11 @@ fn dry_running(
 /// submit's and a preview's run on a read beside the writes, and are never
 /// computed again under the lock (PUBLISH-SCALE).
 fn dry_run_late(shared: &Shared) -> Fault {
+    // the store's size or the change's: either may make a dry run long,
+    // where it blamed the store when the module was (ninth production
+    // review)
     Fault::TimedOut(format!(
-        "the change's dry run passed --dry-run-timeout ({} s) and was stopped; on a store this size a publish needs a longer one",
+        "the change's dry run passed --dry-run-timeout ({} s) and was stopped; a large store or a large change needs a longer one",
         shared.dry_run_timeout.as_secs()
     ))
 }
@@ -2894,7 +2929,35 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let order = strings("order")?.unwrap_or_default();
         let fields = strings("fields")?;
-        let (_slot, mut r) = heavy_reading(&shared, &shared.worklists, actor_id(&body)?)?;
+        // a few keys and fields, each once, where 100k order keys took 5.1 s
+        // and 10k fields named again 6.7 s (ninth production review, ADR-0196
+        // decision 9)
+        for (k, names, most) in [
+            ("order", Some(&order), QUERY_ORDER_KEYS),
+            ("fields", fields.as_ref(), QUERY_FIELDS),
+        ] {
+            let Some(names) = names else { continue };
+            if names.len() > most {
+                return Err(Fault::Bad(format!("{k} names at most {most}")));
+            }
+            let mut seen = std::collections::BTreeSet::new();
+            if let Some(twice) = names.iter().find(|n| !seen.insert(n.as_str())) {
+                return Err(Fault::Bad(format!("{k} names {twice} twice")));
+            }
+        }
+        // a query that reads its type whole waits among the analytics, never
+        // in a person's worklist slot (ADR-0196 decision 4)
+        let scans = {
+            let mut r = reading(&shared)?;
+            let s = r.store()?;
+            reads::query_scans(&s.lib, type_, text(&body, "filter")?, &order)
+        };
+        let pool = if scans {
+            &shared.admission
+        } else {
+            &shared.worklists
+        };
+        let (_slot, mut r) = heavy_reading(&shared, pool, actor_id(&body)?)?;
         let s = r.store()?;
         let world = s.snapshot()?;
         let page = reads::query_page(
@@ -3016,16 +3079,19 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
             // rereads, and its release found to be the one served
             match objectflow_core::release::store_release_at(&reads.path) {
                 Ok(Some(r)) if r == BUILTINS => {}
+                // a code an operator acts on, as every one of /health's is,
+                // where it answered 500 internal (ninth production review,
+                // ADR-0196 decision 9)
                 Ok(at) => {
-                    return Err(Fault::Internal(format!(
-                        "storage unavailable: {} holds {}",
+                    return Err(Fault::Unavailable(format!(
+                        "store_unreadable: {} holds {}; restore the store with the service stopped (operate.md, Backups and restore)",
                         reads.path.display(),
                         at.map_or("no store".to_string(), |r| format!("a store at {r}"))
                     )));
                 }
                 Err(e) => {
-                    return Err(Fault::Internal(format!(
-                        "storage unavailable: {}: {e}",
+                    return Err(Fault::Unavailable(format!(
+                        "store_unreadable: {}: {e}; restore the store with the service stopped (operate.md, Backups and restore)",
                         reads.path.display()
                     )));
                 }
@@ -3142,14 +3208,10 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
 /// `upgrade` (`storage-schema.md` §12, ADR-0177): a deployment's store
 /// Whether an actor names an operator of the store, by its id or its
 /// identity, as an upgrade reads it (ADR-0177).
+/// Whether an actor is the store's operator, by its object or its identity
+/// in any ASCII case, as the core decides it (ADR-0196 decision 8).
 fn is_operator(world: &objectflow_core::world::World<'_>, actor: &str) -> Result<bool, NotRun> {
-    use objectflow_core::model::OPERATOR_TYPE;
-    if world.get(actor)?.is_some_and(|o| o.type_ == OPERATOR_TYPE) {
-        return Ok(true);
-    }
-    Ok(world.of_type(OPERATOR_TYPE)?.iter().any(
-        |o| matches!(o.attr("identity"), objectflow_core::value::Value::Text(t) if t == actor),
-    ))
+    objectflow_core::store::is_the_operator(world, actor)
 }
 
 /// carried from its release to this core's, the operator's act, or with
@@ -3680,6 +3742,10 @@ struct Args {
 /// says otherwise (ADR-0189 decision 2).
 const MAX_READS: usize = 4;
 
+/// The most order keys and fields a query names (ADR-0196 decision 9).
+const QUERY_ORDER_KEYS: usize = 8;
+const QUERY_FIELDS: usize = 256;
+
 fn args() -> Result<Args, String> {
     let mut out = Args {
         bind: "127.0.0.1:8712".to_string(),
@@ -3866,6 +3932,15 @@ fn token_from(file: &std::path::Path) -> Result<String, String> {
     if token.is_empty() {
         return Err(format!("{} holds no token", file.display()));
     }
+    // a header's value holds no control character, where a token holding a
+    // line break was taken and every call then failed (ninth production
+    // review, ADR-0196 decision 9)
+    if token.chars().any(char::is_control) {
+        return Err(format!(
+            "{} holds a token with a control character, such as a line break inside it, which no header can carry",
+            file.display()
+        ));
+    }
     Ok(token)
 }
 
@@ -3991,12 +4066,26 @@ async fn keep_the_log_short(shared: Shared) {
     let mut every = tokio::time::interval(CUT_EVERY);
     loop {
         every.tick().await;
-        tell_a_stall(&shared);
         let s = shared.clone();
         let _ = tokio::task::spawn_blocking(move || {
             let _ = cut_back(&s, objectflow_core::store::WAL_LIMIT.unsigned_abs());
         })
         .await;
+    }
+}
+
+/// How often a write's wait for another process's lock is looked for.
+const STALL_LOOK: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// A wait for another process's lock looked for on a tick of its own, which
+/// reads only what the store tells and never the writer: on the log's cut's
+/// tick, which takes the writer, it was said only once the stalled write
+/// gave up, and never in a stall of 30 s (ninth production review).
+async fn watch_for_stalls(shared: Shared) {
+    let mut every = tokio::time::interval(STALL_LOOK);
+    loop {
+        every.tick().await;
+        tell_a_stall(&shared);
     }
 }
 
@@ -4634,10 +4723,23 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
         && m.len() > 0
     {
         notes.push(format!(
-            "the store's log, {}, holds {} byte(s) its file does not: the last stop was not clean, or another process has the store open; the store takes them in as it opens",
+            "the store's log, {}, holds {} byte(s) its file does not: the last stop was not clean, or another process has the store open; the store takes them in as it opens, so after a restore, stop and remove it and the -shm first (operate.md, Backups and restore)",
             std::path::Path::new(&wal).display(),
             m.len()
         ));
+    }
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(std::path::Path::new("."));
+    // a directory that does not exist is said so, where the start told it
+    // to use --create, which then failed (ninth production review, ADR-0196
+    // decision 9)
+    if !dir.is_dir() {
+        return Err(std::io::Error::other(format!(
+            "the directory {} does not exist; make it, owned by the service's user, then start once with --create",
+            dir.display()
+        )));
     }
     if !held {
         if !create {
@@ -4667,6 +4769,25 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
             "--create was given and {} holds a store, which is served as it is; a unit keeping the flag no longer refuses an empty path, a volume that did not mount among them",
             path.display()
         ));
+    }
+    // and a directory it cannot write in, where SQLite makes the store's
+    // -wal and -shm, said so, where it gave SQLite's "attempt to write a
+    // readonly database" (ninth production review, ADR-0196 decision 9)
+    let probe = dir.join(format!(".objectflow-start-{}", std::process::id()));
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+    {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+        }
+        Err(e) => {
+            return Err(std::io::Error::other(format!(
+                "the service cannot write in {}, where the store's -wal and -shm are made: {e}; give the service's user the directory and its write permission",
+                dir.display()
+            )));
+        }
     }
     // a store the service cannot write is refused, where it started, said
     // 200 at /health and answered every write 500 (ADR-0192 decision 7)
@@ -4848,6 +4969,14 @@ async fn serve() -> std::io::Result<()> {
                 // but for case, which this one takes as one, said with the
                 // remedy, by their objects and never their identities
                 // (eighth production review CASE-PAIR, ADR-0195 decision 2)
+                // refused attempts kept for ever, what their requests sent
+                // with them, where no retention prunes them, said (ninth
+                // production review N-12, ADR-0196 decision 9)
+                if a.retentions.0.is_none() {
+                    noted.push(
+                        "no --attempt-retention is given, so refused attempts are kept for ever with what their requests sent; give one, as operate.md's unit does".to_string(),
+                    );
+                }
                 let pairs = s
                     .identity_pairs()
                     .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
@@ -4970,7 +5099,7 @@ async fn serve() -> std::io::Result<()> {
         admission: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
         worklists: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
         objects: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
-        dry_runs: Admission::new(1),
+        dry_runs: Admission::for_dry_runs(),
         agents: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
         deployment,
         reads,
@@ -5017,6 +5146,7 @@ async fn serve() -> std::io::Result<()> {
     tokio::spawn(idle_trims(shared.clone()));
     if shared.store_path.is_some() {
         tokio::spawn(keep_the_log_short(shared.clone()));
+        tokio::spawn(watch_for_stalls(shared.clone()));
     }
     notify("READY=1");
     // a unit of WatchdogSec is told the service lives at half its interval,
@@ -5297,7 +5427,7 @@ mod tests {
             admission: Admission::new(1),
             worklists: Admission::new(1),
             objects: Admission::new(1),
-            dry_runs: Admission::new(1),
+            dry_runs: Admission::for_dry_runs(),
             agents: Admission::new(1),
             served: Mutex::new(std::collections::BTreeMap::new()),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
@@ -5473,7 +5603,7 @@ mod tests {
             admission: Admission::new(1),
             worklists: Admission::new(1),
             objects: Admission::new(1),
-            dry_runs: Admission::new(1),
+            dry_runs: Admission::for_dry_runs(),
             agents: Admission::new(1),
             served: Mutex::new(std::collections::BTreeMap::new()),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
@@ -5588,7 +5718,7 @@ mod tests {
             admission: Admission::new(1),
             worklists: Admission::new(1),
             objects: Admission::new(1),
-            dry_runs: Admission::new(1),
+            dry_runs: Admission::for_dry_runs(),
             agents: Admission::new(1),
             served: Mutex::new(std::collections::BTreeMap::new()),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
@@ -5688,6 +5818,59 @@ mod tests {
             found.is_ok() && began.elapsed() < quick,
             "the events waited behind the worklists"
         );
+        // a query that reads its type whole waits among the analytics, one
+        // narrowed by its states in the worklists (ninth production review,
+        // ADR-0196 decision 4)
+        let queried = |body: J| {
+            let shared = shared.clone();
+            async move {
+                let began = Instant::now();
+                (
+                    query(State(shared), Body(body)).await.is_ok(),
+                    began.elapsed(),
+                )
+            }
+        };
+        // an order key or a field named twice, or past their most, is a 400,
+        // where 100k order keys took 5.1 s (ninth production review,
+        // ADR-0196 decision 9)
+        for body in [
+            json!({"actor": op, "type": "Bot", "order": ["key", "key"]}),
+            json!({"actor": op, "type": "Bot", "fields": ["key", "state", "key"]}),
+            json!({"actor": op, "type": "Bot", "order": vec!["key"; QUERY_ORDER_KEYS + 1]}),
+        ] {
+            let bounded = query(State(shared.clone()), Body(body.clone())).await;
+            assert!(matches!(bounded, Err(Fault::Bad(_))), "{body}");
+        }
+        let scan = json!({"actor": op, "type": "Bot", "order": ["key"]});
+        let narrowed =
+            json!({"actor": op, "type": "Bot", "filter": "state == ON", "order": ["key"]});
+        let (answered, took) = queried(scan.clone()).await;
+        assert!(
+            answered && took < quick,
+            "a scan waited {took:?} behind the worklists"
+        );
+        let (answered, _) = queried(narrowed.clone()).await;
+        assert!(!answered, "a narrowed query took a held worklist slot");
+        drop(held);
+        let held = shared.admission.take(
+            Instant::now() + Duration::from_secs(60),
+            Duration::from_secs(60),
+        );
+        assert!(held.is_ok(), "no analytics slot free");
+        let (answered, took) = queried(narrowed).await;
+        assert!(
+            answered && took < quick,
+            "a narrowed query waited {took:?} behind the analytics"
+        );
+        let (answered, _) = queried(scan).await;
+        assert!(!answered, "a scan took a held analytics slot");
+        drop(held);
+        let held = shared.worklists.take(
+            Instant::now() + Duration::from_secs(60),
+            Duration::from_secs(60),
+        );
+        assert!(held.is_ok(), "no worklist slot free");
         drop(held);
         // every agent's slot held: the person is answered, the agent waits
         let held = shared.agents.take(
@@ -5747,7 +5930,7 @@ mod tests {
             admission: Admission::new(1),
             worklists: Admission::new(1),
             objects: Admission::new(1),
-            dry_runs: Admission::new(1),
+            dry_runs: Admission::for_dry_runs(),
             agents: Admission::new(1),
             served: Mutex::new(std::collections::BTreeMap::new()),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
@@ -5792,8 +5975,15 @@ mod tests {
         });
         assert!(held.iter().all(Result::is_ok), "no slot free");
         let waited = |answer: Answer, started: Instant, route: &str| {
+            // a change's dry run's wait said by its own flag, where it named
+            // --read-timeout and --max-reads (ninth production review N-8)
+            let flag = if ["publish", "request_op", "check"].contains(&route) {
+                "--dry-run-timeout"
+            } else {
+                "--max-reads"
+            };
             assert!(
-                matches!(&answer, Err(Fault::TimedOut(m)) if m.contains("--max-reads")),
+                matches!(&answer, Err(Fault::TimedOut(m)) if m.contains(flag)),
                 "{route} did not wait for its turn"
             );
             assert!(
@@ -6047,7 +6237,7 @@ mod tests {
             admission: Admission::new(MAX_READS),
             worklists: Admission::new(MAX_READS),
             objects: Admission::new(MAX_READS),
-            dry_runs: Admission::new(1),
+            dry_runs: Admission::for_dry_runs(),
             agents: Admission::new(MAX_READS),
             served: Mutex::new(std::collections::BTreeMap::new()),
             in_flight: std::sync::atomic::AtomicUsize::new(0),

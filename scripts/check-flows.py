@@ -1583,6 +1583,17 @@ def migration_pair_errors(prev, doc, library):
                 notes.append((("types", tn, "transitions", xn), "taken_by_dropped",
                               f"{tn}.{xn} is taken by [{', '.join(now)}], where the previous version allowed "
                               f"[{', '.join(was)}] (ADR-0189)"))
+    # an attribute no longer personal, whose values an erasure then no longer reaches (ninth production review N-11,
+    # ADR-0196 decision 6)
+    for tn, t in new.items():
+        if tn in machines or tn not in old or t.get("abstract"):
+            continue
+        for an, oa in (old[tn].get("attributes") or {}).items():
+            a = (t.get("attributes") or {}).get(an)
+            if isinstance(oa, dict) and isinstance(a, dict) and oa.get("personal") is True and a.get("personal") is not True:
+                notes.append((("types", tn, "attributes", an), "personal_dropped",
+                              f"{tn}.{an} was personal, and this version drops it: an erasure no longer reaches its "
+                              f"values, which stay where they are (ADR-0196)"))
     # the rules a version removes or rewrites, named to whoever approves it, so a draft making a guard always true
     # is seen (fifth production review REVIEW-GAP, ADR-0191 decision 2)
     for tn, t in new.items():
@@ -1597,11 +1608,16 @@ def migration_pair_errors(prev, doc, library):
     if was and not now:
         notes.append((("publishing",), "taken_by_dropped",
                       f"publishing.taken_by was [{', '.join(was)}], and this version names no kind, so once it is "
-                      f"installed every kind of actor may approve the next (ADR-0189)"))
+                      f"installed any kind but agent may approve the next (ADR-0189)"))
     elif was and not set(now) <= set(was):
         notes.append((("publishing",), "taken_by_dropped",
                       f"publishing.taken_by is [{', '.join(now)}], where the previous version allowed "
                       f"[{', '.join(was)}] (ADR-0189)"))
+    elif not was and "agent" in now:
+        # named where none was, the default refusing agents (ninth production review N-1, ADR-0196 decision 5)
+        notes.append((("publishing",), "taken_by_dropped",
+                      f"publishing.taken_by is [{', '.join(now)}], where the previous version declared none, under "
+                      f"which no agent approves: once it is installed an agent may approve the next (ADR-0196)"))
     return fatal, notes
 
 
@@ -5394,6 +5410,23 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     ok &= hit
     print(f"  planted a version dropping or widening who takes a transition or approves a version: "
           f"{'noticed, and a narrowing not' if hit else 'MISSED ' + str(dropped)}")
+    # a version naming agent in publishing where the previous declared none is noticed, and one naming only human is
+    # not; an attribute no longer personal is noticed, and one staying personal is not (ADR-0196 decisions 5 and 6)
+    plain = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A record.\n    tracking: record\n"
+             "    attributes:\n      who: { type: string, personal: true }\n      what: { type: string, personal: true }\n"
+             "    states: { S: { category: live, description: Open. } }\n"
+             "    transitions:\n      t: { kind: initial, to: S, taken_by: [human], required_inputs: [who, what] }\n"
+             "      forget: { kind: erasure, inputs: { reason: { type: string } } }\n")
+    widened = plain.replace("categories: [live]\n", "publishing: { taken_by: [agent, human] }\ncategories: [live]\n", 1)
+    people = plain.replace("categories: [live]\n", "publishing: { taken_by: [human] }\ncategories: [live]\n", 1)
+    exposed = plain.replace("who: { type: string, personal: true }", "who: { type: string }", 1)
+    said = [sorted((x[3], x[4].split(" ")[0]) for x in check([("m.yaml", text)], {"m.yaml": plain})[1]
+                   if x[3] in ("taken_by_dropped", "personal_dropped"))
+            for text in (widened, people, exposed, plain)]
+    hit = said == [[("taken_by_dropped", "publishing.taken_by")], [], [("personal_dropped", "T.who")], []]
+    ok &= hit
+    print(f"  planted a version letting agents approve where none was named, and one dropping personal: "
+          f"{'noticed, and neither else' if hit else 'MISSED ' + str(said)}")
     # against the previous version, a condition or an invariant removed or rewritten and a guard no longer refusing
     # are noticed, once for the type, and a version changing none of them is not (ADR-0191 decision 2)
     ruled = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A record.\n    tracking: record\n"

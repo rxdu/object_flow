@@ -3,7 +3,7 @@
 - **Status:** **Decided by the author**, 2026-10-12 ("go with your recommendations on questions 13, 14 and 15"), on the recommendations `TODO.md` states with each, after the fourth production review (`design/production-review.md` §8).
 - **Date:** 2026-10-12
 - **Refines:** ADR-0173 decision 10 (an agent's tools), ADR-0182 (`taken_by`), ADR-0187 decision 1 (`publishing`), ADR-0184 decision 3 (a read's deadline)
-- **Refined by:** ADR-0190 — the reads wait in three pools, worklists and analytics of `--max-reads` each and one dry run, and a `submit` of anything but a change takes no slot. ADR-0191 — a proposal's rejection held to its transition's `taken_by` as its approval is.
+- **Refined by:** ADR-0190 — the reads wait in three pools, worklists and analytics of `--max-reads` each and one dry run, and a `submit` of anything but a change takes no slot. ADR-0191 — a proposal's rejection held to its transition's `taken_by` as its approval is. ADR-0196 — a query that reads its type whole waits among the analytics.
 - **Relates to:** `PRD.md` T6, N7; `guides/integrate.md` §6, §9; `design/renderers.md` §3; `flow-format.md` §7
 
 ## Context

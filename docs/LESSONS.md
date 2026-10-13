@@ -606,3 +606,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Building ADR-0195, an agent's approval refused where no `publishing` is declared and history moved to a pool of its own, each change was tested by its new test and that test's mutants, and the full `check-all` was the first run of the crates' whole suites; twice in one batch it failed on an older test that asserted the rule being changed (`a_version_is_approved_only_by_the_kinds_the_installed_one_declares`, `only_the_reads_that_grow_with_the_store_wait_their_turn`), each costing a twenty-minute gate run. A search for the old rule's wording had missed both, since each test phrased it its own way.
 - **Correction:** After changing what a rule decides, run the changed crate's whole suite (`cargo test -p <crate>`, a minute or two) before the gate; read each failure as a test of the old rule to update, or a defect.
 - **Context:** Rust core and service, any change of behaviour that older tests may pin; 2026-10-13.
+
+### A stall's signal waited on the thing that stalled, and its test checked only that it came
+- **Pattern:** ADR-0195 decision 6's log line for a write waiting on another process's lock was said on the log's cut's tick, which then takes the writer; a tick that fell within the write's first wait found no stall yet and waited out the whole stall, so the line came only once the write gave up. Its test asserted the line appeared eventually, with a 1 s busy timeout shorter than the tick, which never meets that ordering; both of the ninth review's reviewers found it.
+- **Correction:** A watcher reads only what it watches and never takes the resource that stalls; test the signal while the stall lasts (the write not yet finished), with timings that put the watcher's tick inside the stall's first wait, and mutation-check by moving the watcher back.
+- **Context:** The service's health and log signals, any watchdog; 2026-10-13.
+
+### A superlinear measurement is a finding, not a slow benchmark
+- **Pattern:** Measuring the eighth review's fix, a dry run of 3,000 types took 8.4 s, 4,500 took 20.3 s and 8,000 ran past eleven minutes; the run was stopped and the size lowered to fit the benchmark's time, and the growth itself was not looked into. The ninth review then found the dry run's slot held 229 s, and profiling showed the checks quadratic in the types.
+- **Correction:** Where a cost grows faster than its input in a measurement, stop and find why before going on: compare call-count profiles at N and 2N (callgrind needs no privileges), and the function whose cost quadruples is the one.
+- **Context:** Any benchmark of the engine; 2026-10-13.

@@ -189,11 +189,16 @@ impl Node {
 
 enum Open {
     Seq(Vec<Node>, usize),
+    /// A mapping's entries, the key awaiting its value, its line, its keys'
+    /// lines, and its keys as a set, so a repeated key is found by one
+    /// look, where each key was compared with every earlier one and a draft
+    /// of 100k keys held the writer 37.8 s (ninth production review N-4).
     Map(
         Vec<(String, Node)>,
         Option<(String, usize)>,
         usize,
         Vec<usize>,
+        std::collections::HashSet<String>,
     ),
 }
 
@@ -231,10 +236,10 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
                 items.push(node);
                 Ok(())
             }
-            Some(Open::Map(entries, key, _, key_lines)) => match key.take() {
+            Some(Open::Map(entries, key, _, key_lines, seen)) => match key.take() {
                 None => match node {
                     Node::Scalar { text, line, .. } => {
-                        if entries.iter().any(|(k, _)| *k == text) {
+                        if !seen.insert(text.clone()) {
                             return Err(YamlError {
                                 line,
                                 message: format!("the key '{text}' appears twice in one mapping"),
@@ -330,13 +335,19 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
             }
             Event::MappingStart(..) => {
                 flows.push((chars.get(span.start.index()) == Some(&'{')).then_some('}'));
-                stack.push(Open::Map(Vec::new(), None, line, Vec::new()));
+                stack.push(Open::Map(
+                    Vec::new(),
+                    None,
+                    line,
+                    Vec::new(),
+                    std::collections::HashSet::new(),
+                ));
             }
             Event::SequenceEnd | Event::MappingEnd => {
                 flows.pop();
                 let node = match stack.pop() {
                     Some(Open::Seq(items, line)) => Node::Seq { items, line },
-                    Some(Open::Map(entries, _, line, key_lines)) => Node::Map {
+                    Some(Open::Map(entries, _, line, key_lines, _)) => Node::Map {
                         entries,
                         key_lines,
                         line,

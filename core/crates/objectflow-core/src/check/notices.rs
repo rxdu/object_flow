@@ -124,6 +124,11 @@ fn reach_bound(t: &Value, a: &str) -> Option<i64> {
 /// erasure is refused `over_limit` and cannot be carried out; a limit, which
 /// every loop declares, on any other transition is the author's rule (fifth
 /// production review ERASE-LIMIT, ADR-0190 decision 7).
+/// A step's target, an attribute of its object, compiled once, where each
+/// type compiled its own (ninth production review N-8).
+static WORD: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| super::doc::re(r"^(?:this\.)?(\w+)$"));
+
 pub fn reaches(doc: &Value) -> Found {
     let mut out = Found::new();
     let add = |out: &mut Found, found: (Path, String, String)| {
@@ -172,7 +177,7 @@ pub fn reaches(doc: &Value) -> Found {
                 }
             }
         }
-        let word = super::doc::re(r"^(?:this\.)?(\w+)$");
+        let word = &*WORD;
         for (xn, x) in transitions {
             if !x.is_object() || text(x, "kind") != Some("erasure") {
                 continue;

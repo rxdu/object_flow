@@ -1,6 +1,6 @@
 # Is ObjectFlow production-ready? The review before 1.0.0
 
-Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10), the seventh at `7d050a6` (§11) and the eighth at `13f9bbf` (§12).
+Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10), the seventh at `7d050a6` (§11), the eighth at `13f9bbf` (§12) and the ninth at `0ce1b3c` (§13).
 
 ## 1. What "production" meant, and how it was reviewed
 
@@ -233,3 +233,29 @@ Minors: the evaluator's transport following a redirect to a host the operator ne
 ### What the eighth review asks
 
 The author's standing instruction decides what the findings ask (ADR-0195); the majors are fixed, then a ninth review, or the author's acceptance of what remains.
+
+## 13. The ninth review, after the eighth's fixes
+
+At commit `0ce1b3c`, 2026-10-13, not yet pushed, every gate of `scripts/check-all` passed on it: two new cold reviewers, an operator and an adversary, each in a checkout of its own with the release binary built from it, given the eighth review's findings to re-check, on copies of the same 37,154-object store and the six-year store, and the third review's go-live tools without their runs; the operator also followed the quickstart and the operate guide as a newcomer, and built release 0.2.0 to make a store as it took one. Their logs and reports stayed in the session's scratch directory, which is not kept; what they found is here.
+
+**Verdicts: the operator GO, finding no major and no blocker; the adversary NO-GO, four majors and no blocker.** Neither met a panic, a crash, a hang or a corrupted store from a request: about 3,400 hostile values across every key of every operation, deep and huge JSON and YAML, forged cursors and limits answered without a `500`; `kill -9` and SIGTERM during writes and an approval lost nothing acknowledged; an erasure left nothing in files, answers, exports, attempts or the log once cut; with `taken_by` declared, the flow failed closed for agents.
+
+### The eighth review's findings, re-checked
+
+Fixed, measured by both: CASE-PAIR (a pair written by a 0.2.0 build named at the start, decided by one publish admitting `identity_taken`, both actors then leaving and erased, a third case acting as the first made); the redirect, the agent's own approval, a read's `actor` of any type, history and events behind the worklists (3.2 ms and 2.4 ms under 24 saturating scans), the guides' create step, unit, restore and `--version`, and `cargo-audit` pinned. ERASE-WAL-DRYRUN fixed for a change's dry run (the erased value gone 0.1 to 3.3 s after the erasure) and open through a `check` of a draft (N-10 below). Partly fixed: a stalled write said by `/health` from its first retry and `writer_held_seconds` counting through, but its log line only once the write gave up, the log's tick waiting on the writer; a backup copied over the live file in place still taking writes into the swapped file, lost at the next stop, `/health` answering `500` or `200`.
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| N-4 | One draft of a flow change held every write for tens of seconds: the YAML parser compared each key of a mapping with every earlier one, and a draft parses its source holding the writer; a mapping of 100,000 keys held writes 37.8 s, a person's request waiting 35.8 s | measured by the adversary; read | major |
+| N-10 | A `check` of such a draft held a read past every deadline, a parse touching no store and a read's deadline and stop being checked only where it does: an erased title in the store's files 38 s after its erasure, and the `-wal` grown to 1,895 MB in 100 s beside four writers | measured by the adversary; read | major |
+| N-9 | A page of `query`, `pull` or `export` had no bound in bytes: 1,000 objects of three 64 KiB strings answered 197 MB, four pulls and four exports at once peaked at 4.78 GB, past the guide's `MemoryMax` | measured by the adversary | major |
+| N-8 | A change's dry-run checks were not stoppable and grew past linear: a literal comparing `state` 128,000 times held the dry run's slot 229 s, past its deadline; measuring it found a change's checks quadratic in the types it declares, 8,000 running past eleven minutes | measured by the adversary and in the fix | minor, near major |
+
+Minors: an agent on the wire rejecting, withdrawing, reopening, refreshing and revising a person's change, a version naming `agent` in `publishing` after none raising no notice, and an agent forgetting a person's label; a request of a change's `publish` answering `501`; a metric filter that is no boolean answering `501`; whole-type queries in the worklists' pool starving a plain worklist (4 of 6 tries timing out, `available` at 17.5 s); the guide's `MemoryMax=4G` short of a six-year store (3.97 GB peak); the operator named `OPERATOR` taken by requests and refused by `upgrade`; a version dropping `personal` unnoticed; refused attempts kept for ever without `--attempt-retention`; a restore beside its own later `-wal` silently undone; the dry-run slot's wait naming the wrong flags; `/health` answering `500` for an unreadable file; a token with a line break taken at start; an evaluator's timeout logged as "timeout: global"; a missing or unwritable store directory said in SQLite's words or with the wrong advice; 100,000 `order` keys and 10,000 `fields` taking seconds; the guides' install step, releases, unit hardening, the socket as the access control, the `-wal`'s peak (346 MiB), and `errors.md`'s `409` and `404`; pools chosen by the actor a read names; erasures every 3 s stopping dry runs.
+
+### What the ninth review asks
+
+The author's standing instruction decides what the findings ask (ADR-0196); the majors are fixed, then a tenth review, or the author's acceptance of what remains.
+

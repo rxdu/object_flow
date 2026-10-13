@@ -1682,17 +1682,32 @@ pub const WAL_LIMIT: i64 = 64 * 1024 * 1024;
 
 /// Whether an actor names the store's operator, by its object's id or its
 /// identity (ADR-0126).
-fn is_the_operator(world: &World<'_>, actor: &str) -> Result<bool, NotRun> {
+pub fn is_the_operator(world: &World<'_>, actor: &str) -> Result<bool, NotRun> {
     if world
         .get(actor)?
         .is_some_and(|o| o.type_ == crate::model::OPERATOR_TYPE)
     {
         return Ok(true);
     }
+    // its identity in any case of its ASCII letters, as a request names an
+    // actor, where a request and `maintain` took `OPERATOR` and an approval's
+    // exception and `upgrade` refused it (ninth production review N-7,
+    // ADR-0196 decision 8)
     Ok(world
         .of_type(crate::model::OPERATOR_TYPE)?
         .iter()
-        .any(|o| matches!(o.attr("identity"), Value::Text(t) if t == actor)))
+        .any(|o| matches!(o.attr("identity"), Value::Text(t) if t.eq_ignore_ascii_case(actor))))
+}
+
+/// Whether an actor of a kind may approve the next version under the
+/// installed one: a kind its `publishing.taken_by` names, or, where none
+/// declares it, any kind but `agent` (ADR-0187 decision 1, ADR-0195
+/// decision 4). The store's operator always may, beside this.
+pub fn may_approve(lib: &Library, kind: &str) -> bool {
+    match &lib.publishing {
+        Some(kinds) => kinds.iter().any(|k| k == kind),
+        None => kind != "agent",
+    }
 }
 
 /// How many read connections a deployment keeps idle for the next reads;
@@ -2417,11 +2432,7 @@ impl Store {
         // version declares, where the agent approved its own change (eighth
         // production review, ADR-0195 decision 4). Refused before the dry run
         // is computed again.
-        let refused = match &self.lib.publishing {
-            Some(kinds) => !kinds.contains(&who.kind),
-            None => who.kind == "agent",
-        };
-        if refused && !is_the_operator(&world, actor)? {
+        if !may_approve(&self.lib, &who.kind) && !is_the_operator(&world, actor)? {
             return refusal(Verdict::InvariantViolated {
                 failures: vec![crate::verdict::InvariantFailure {
                     object_id: Some(c.id.clone()),

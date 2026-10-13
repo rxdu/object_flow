@@ -245,6 +245,11 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
     out.extend(expression_type_errors(doc, &library));
     let cats = categories(doc);
     let imported = imported(doc);
+    // the document's enumerations and its types' states, read once, where
+    // each type read every type's again: a change of 8,000 types ran past
+    // eleven minutes (ninth production review N-8)
+    let values = Values::of(doc);
+    let superseded = superseded_types(&library);
     for (tn, t) in types(doc) {
         let states = obj(t, "states");
         let attrs = obj(t, "attributes");
@@ -519,7 +524,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
                 format!("condition '{c}' of {tn} is used by no transition"),
             ));
         }
-        out.extend(value_errors(doc, &tn, t));
+        out.extend(value_errors(&values, &tn, t));
         out.extend(write_type_errors(doc, &tn, t, &library));
         out.extend(conditional_step_errors(&tn, t));
         let mut readable = cats.clone();
@@ -531,7 +536,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
         out.extend(binder_errors(&tn, t));
         out.extend(identifier_errors(doc, &tn, t, &library));
         out.extend(evaluator_errors(doc, &tn, t));
-        out.extend(supersession_errors(doc, &tn, t, &library));
+        out.extend(supersession_errors(doc, &tn, t, &library, &superseded));
         out.extend(override_errors(doc, &tn, t, &library));
         for (mn, m) in obj(t, "metrics") {
             out.extend(metric_errors(&tn, t, mn, m));
@@ -2747,10 +2752,10 @@ fn written_kind(spec: Option<&Value>, enums: &BTreeSet<String>) -> Option<Vec<St
     if enums.contains(&typ) {
         return Some(vec!["enumeration".into(), typ]);
     }
-    if let Some(m) = re(r"^money\((\w+)\)$").captures(&typ) {
+    if let Some(m) = MONEY_TYPE.captures(&typ) {
         return Some(vec!["money".into(), m[1].to_string()]);
     }
-    if re(r"^decimal\(\d+,\s*\d+\)$").is_match(&typ) {
+    if DECIMAL_TYPE.is_match(&typ) {
         return Some(vec!["decimal".into()]);
     }
     if typ == "counter" {
@@ -2955,6 +2960,12 @@ impl Ty {
     }
 }
 
+// patterns compiled once, where each call compiled its own (ninth
+// production review N-8)
+static MONEY_TYPE: LazyLock<Regex> = LazyLock::new(|| re(r"^money\((\w+)\)$"));
+static DECIMAL_TYPE: LazyLock<Regex> = LazyLock::new(|| re(r"^decimal\(\d+,\s*\d+\)$"));
+static PLACE_N: LazyLock<Regex> = LazyLock::new(|| re(r"^n(:.*)?$"));
+static PLACE_N_DIGITS: LazyLock<Regex> = LazyLock::new(|| re(r"^n(:\d+)?$"));
 static DECIMAL_SCALE: LazyLock<Regex> = LazyLock::new(|| re(r"^decimal\(\s*\d+\s*,\s*(\d+)\s*\)$"));
 
 /// An attribute's or an input's type as an expression reads it, a decimal
@@ -3800,25 +3811,46 @@ fn write_type_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
 }
 
 /// Every value an expression names is a state or an enumeration's member.
-fn value_errors(doc: &Value, tn: &str, t: &Value) -> Found {
+/// What a module's expressions may name qualified: its enumerations' members
+/// and its types' states, and the names it imports, read once for every
+/// type's expressions.
+struct Values {
+    enums: BTreeMap<String, BTreeSet<String>>,
+    own: BTreeMap<String, BTreeSet<String>>,
+    imported: BTreeSet<String>,
+}
+
+impl Values {
+    fn of(doc: &Value) -> Values {
+        Values {
+            enums: obj(doc, "enumerations")
+                .iter()
+                .map(|(n, m)| {
+                    (
+                        n.clone(),
+                        match m {
+                            Value::Array(a) => a.iter().map(py_str).collect(),
+                            _ => BTreeSet::new(),
+                        },
+                    )
+                })
+                .collect(),
+            own: types(doc)
+                .into_iter()
+                .map(|(k, v)| (k, keys(v, "states").into_iter().collect()))
+                .collect(),
+            imported: imported(doc).into_iter().collect(),
+        }
+    }
+}
+
+fn value_errors(values: &Values, tn: &str, t: &Value) -> Found {
     let states: BTreeSet<String> = keys(t, "states").into_iter().collect();
-    let enums: BTreeMap<String, BTreeSet<String>> = obj(doc, "enumerations")
-        .iter()
-        .map(|(n, m)| {
-            (
-                n.clone(),
-                match m {
-                    Value::Array(a) => a.iter().map(py_str).collect(),
-                    _ => BTreeSet::new(),
-                },
-            )
-        })
-        .collect();
-    let own: BTreeMap<String, BTreeSet<String>> = types(doc)
-        .into_iter()
-        .map(|(k, v)| (k, keys(v, "states").into_iter().collect()))
-        .collect();
-    let imported = imported(doc);
+    let Values {
+        enums,
+        own,
+        imported,
+    } = values;
     let mut exprs: Vec<(Path, String, String)> = Vec::new();
     for sec in ["conditions", "invariants", "derived_attributes"] {
         for (n, c) in obj(t, sec) {
@@ -3919,11 +3951,17 @@ fn value_errors(doc: &Value, tn: &str, t: &Value) -> Found {
         let chars: Vec<char> = text.chars().collect();
         for (word, _, end) in bare_upper(&text) {
             if word.len() == 3 && word.chars().all(|c| c.is_ascii_uppercase()) {
-                let after: String = chars[end..].iter().collect();
-                let rest = after.trim_start();
-                if rest.len() < after.len() {
-                    let digits = rest.strip_prefix('-').unwrap_or(rest);
-                    if digits.chars().next().is_some_and(|c| c.is_numeric()) {
+                // the text after the word, read where it is, where it was
+                // collected again for each word, quadratic in a long one
+                let mut at = end;
+                while chars.get(at).is_some_and(|c| c.is_whitespace()) {
+                    at += 1;
+                }
+                if at > end {
+                    if chars.get(at) == Some(&'-') {
+                        at += 1;
+                    }
+                    if chars.get(at).is_some_and(|c| c.is_numeric()) {
                         continue; // a money literal's currency, as in USD 19.99
                     }
                 }
@@ -4577,9 +4615,9 @@ fn identifier_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
                 continue;
             }
             let ph = &m[1];
-            if re(r"^n(:.*)?$").is_match(ph) {
+            if PLACE_N.is_match(ph) {
                 numbered = true;
-                if !re(r"^n(:\d+)?$").is_match(ph) {
+                if !PLACE_N_DIGITS.is_match(ph) {
                     out.push(finding(
                         fw.clone(),
                         "names",
@@ -5213,7 +5251,50 @@ fn override_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
 /// A superseding transition names one successor, at the top level, and only
 /// it does; a group's erasures agree; a type with personal data has an
 /// erasure (`declaration-syntax.md` §6.1, §6.4; checks 26, 49 and 60).
-fn supersession_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
+/// The types a supersede step of any type's transition names as its
+/// successor's, by the input's reference or by what a create binds, read
+/// once for every type, where each type walked every type's transitions:
+/// quadratic in the types (ninth production review N-8).
+fn superseded_types(library: &Obj) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for other in library.values() {
+        for x in obj(other, "transitions").values() {
+            let walked = walk(x.get("effect"));
+            for s in &walked {
+                if s.kind != "supersede" {
+                    continue;
+                }
+                let who = squash(&py_str(s.body()));
+                if let Some(r) = CALL_INPUT
+                    .captures(&who)
+                    .and_then(|m| obj(x, "inputs").get(&m[1]).cloned())
+                    .and_then(|sp| sp.get("reference").map(py_str))
+                {
+                    out.insert(r);
+                }
+                out.extend(
+                    walked
+                        .iter()
+                        .filter(|c| {
+                            c.kind == "create"
+                                && c.body().get("result").map(py_str).as_deref()
+                                    == Some(who.as_str())
+                        })
+                        .map(|c| body_text(c.body(), "type")),
+                );
+            }
+        }
+    }
+    out
+}
+
+fn supersession_errors(
+    doc: &Value,
+    tn: &str,
+    t: &Value,
+    library: &Obj,
+    superseded: &BTreeSet<String>,
+) -> Found {
     let states = obj(t, "states");
     let mut out = Found::new();
     for (xn, x) in obj(t, "transitions") {
@@ -5367,31 +5448,7 @@ fn supersession_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found
             }
         }
     }
-    let mut takes_part = states.values().any(|v| flag(v, "superseding"));
-    for other in library.values() {
-        for x in obj(other, "transitions").values() {
-            let walked = walk(x.get("effect"));
-            for s in &walked {
-                if s.kind != "supersede" {
-                    continue;
-                }
-                let who = squash(&py_str(s.body()));
-                let reference = CALL_INPUT
-                    .captures(&who)
-                    .and_then(|m| obj(x, "inputs").get(&m[1]).cloned())
-                    .and_then(|sp| sp.get("reference").map(py_str));
-                let made: Vec<String> = walked
-                    .iter()
-                    .filter(|c| {
-                        c.kind == "create"
-                            && c.body().get("result").map(py_str).as_deref() == Some(who.as_str())
-                    })
-                    .map(|c| body_text(c.body(), "type"))
-                    .collect();
-                takes_part |= reference.as_deref() == Some(tn) || made.iter().any(|m| m == tn);
-            }
-        }
-    }
+    let takes_part = states.values().any(|v| flag(v, "superseding")) || superseded.contains(tn);
     let erasures: Vec<String> = obj(t, "transitions")
         .iter()
         .filter(|(_, x)| kind(x) == "erasure")

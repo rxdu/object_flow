@@ -18,6 +18,10 @@ pub struct EventPage {
     pub events: Vec<Event>,
     pub settled: i64,
     pub refused: Option<String>,
+    /// Whether the page ended at its limit or its bytes, so the next may
+    /// hold more now; where it did not, it holds every event there is now
+    /// (ninth production review N-9).
+    pub more: bool,
 }
 
 /// The events a subscription selects after a cursor, exclusive, or after
@@ -45,6 +49,7 @@ pub fn pull_page(
         events: Vec::new(),
         settled,
         refused: Some(why.to_string()),
+        more: false,
     };
     let Some(s) = world.get(subscription)?.filter(|s| s.type_ == SUBSCRIPTION) else {
         return Ok(refuse("unknown"));
@@ -58,8 +63,21 @@ pub fn pull_page(
     };
     // one past the page says another follows
     let mut events = selected(world, s, from, limit.saturating_add(1))?;
-    let settled = if events.len() > limit {
-        events.truncate(limit);
+    let mut more = events.len() > limit;
+    events.truncate(limit);
+    // a page ends at its bytes as at its limit, one event at least, where
+    // 1,000 events of large inputs answered 197 MB (ninth production review
+    // N-9)
+    let mut bytes = 0;
+    if let Some(fit) = events.iter().position(|e| {
+        bytes += crate::store::event_bytes(e);
+        bytes >= crate::reads::PAGE_BYTES
+    }) && fit + 1 < events.len()
+    {
+        events.truncate(fit + 1);
+        more = true;
+    }
+    let settled = if more {
         events.last().map_or(settled, |e| e.position)
     } else {
         settled
@@ -68,6 +86,7 @@ pub fn pull_page(
         events,
         settled,
         refused: None,
+        more,
     })
 }
 

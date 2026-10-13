@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-13 on the author's standing instruction, "continue the loop to get the stack ready for production, follow your recommendations", each decision the recommendation stated here; built the same day
 - **Date:** 2026-10-13
+- **Refined by:** ADR-0196 — a change's parse and checks linear in what it holds, a stall looked for on a tick of its own, another's change moved on only by an approver, the operator in any case.
 - **Refines:** ADR-0194 decision 4 (the log's cut), ADR-0192 decision 6 (an identity, one actor), ADR-0187 decision 1 (who approves a version), ADR-0175 (the evaluator's transport), ADR-0190 decision 2 (the read pools)
 - **Relates to:** `design/production-review.md` §12; `guides/operate.md`; `guides/agents.md`; `guides/wire.md`
 

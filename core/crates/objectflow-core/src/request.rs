@@ -2875,10 +2875,14 @@ fn decide_change(
                 parents: vec!["publish".into()],
             });
         }
+        // the approval is its own operation, `publish`, as a supersession
+        // is a publish's, where a request of it answered 501 (ninth
+        // production review N-2, ADR-0196 decision 7)
         ("publish", true) => {
-            return stop_not_run(
-                "the approval, which installs a version, the next slice (ADR-0155)",
-            );
+            stale(world, req)?;
+            return refused(Verdict::NotRequestable {
+                parents: vec!["publish".into()],
+            });
         }
         _ => return refused(unknown()),
     };
@@ -2889,6 +2893,29 @@ fn decide_change(
         return refused(Verdict::Unavailable {
             state: h.state.clone(),
         });
+    }
+    // a change another actor drafted is moved on only by one that may approve
+    // the next version, as approving it is refused, where an agent rejected,
+    // reopened and revised a person's (ninth production review N-1, ADR-0196
+    // decision 5)
+    if let Some(h) = held
+        && matches!(xn, "revise" | "reopen" | "refresh" | "withdraw" | "reject")
+        && h.attr("drafted_by") != Value::Text(who.id.clone())
+        && !crate::store::may_approve(lib, &who.kind)
+        && !crate::store::is_the_operator(world, &req.actor)?
+    {
+        return refused_naming(
+            Verdict::InvariantViolated {
+                failures: vec![crate::verdict::InvariantFailure {
+                    object_id: Some(h.id.clone()),
+                    type_: DECLARATION_CHANGE.to_string(),
+                    invariant: "publish_taken_by".to_string(),
+                    remedy: Some(Remedy::Delegable),
+                }],
+                remedy: Some(Remedy::Delegable),
+            },
+            &h.id,
+        );
     }
     let now = world.now;
     let mut o = match held {
@@ -10339,6 +10366,116 @@ types:
         let positions: Vec<i64> = page.iter().chain(&rest).map(|e| e.position).collect();
         assert!(matches!(s.events_within(&positions).unwrap(), Err(fit) if fit < positions.len()));
         assert!(s.events_within(&positions[..10]).unwrap().is_ok());
+    }
+
+    /// A page of `query`, `pull` and `export` ends at [`PAGE_BYTES`] as at
+    /// its limit, one item at least, its cursor going on, and the next page
+    /// takes up where it ended: nothing passed over, nothing twice; `pull`
+    /// and `export` say `more` where a page ended so, where 1,000 objects
+    /// of three 64 KiB strings answered 197 MB a page (ninth production
+    /// review N-9).
+    ///
+    /// [`PAGE_BYTES`]: crate::reads::PAGE_BYTES
+    #[test]
+    fn a_page_of_a_query_a_pull_or_an_export_ends_at_its_bytes() {
+        let text = r#"
+module: notes
+categories: [live]
+types:
+  Note:
+    attributes:
+      text: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      jot: { kind: initial, to: OPEN, optional_inputs: [text] }
+"#;
+        let lib = Library::load(&[("notes.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let sub = created(&req(
+            &mut s,
+            "subscribe",
+            OPERATOR,
+            (crate::model::SUBSCRIPTION, true),
+            json!({"target_type": "Note", "target_family": false}),
+        ));
+        let big = "x".repeat(60_000);
+        let mut made = Vec::new();
+        for _ in 0..200 {
+            made.push(created(&req(
+                &mut s,
+                "jot",
+                OPERATOR,
+                ("Note", true),
+                json!({"text": big}),
+            )));
+        }
+        let w = s.snapshot().unwrap();
+        let bound = crate::reads::PAGE_BYTES + 200_000;
+        // a query asking for the text
+        let fields = ["text".to_string()];
+        let first =
+            crate::reads::query_page(&w, "Note", None, &[], Some(&fields), None, 1000).unwrap();
+        assert!(
+            first.items.len() > 50 && first.items.len() < 200,
+            "{} items",
+            first.items.len()
+        );
+        let bytes: usize = first.items.len() * 60_000;
+        assert!(bytes < bound, "{bytes}");
+        let rest = crate::reads::query_page(
+            &w,
+            "Note",
+            None,
+            &[],
+            Some(&fields),
+            first.cursor.as_deref(),
+            1000,
+        )
+        .unwrap();
+        let ids: Vec<&String> = first
+            .items
+            .iter()
+            .chain(&rest.items)
+            .map(|i| &i.id)
+            .collect();
+        assert_eq!(ids, made.iter().collect::<Vec<_>>());
+        assert_eq!(rest.cursor, None);
+        // a subscription's pull
+        let page = crate::subscription::pull_page(&w, &sub, None, 1000).unwrap();
+        assert!(
+            page.more && page.events.len() > 50 && page.events.len() < 200,
+            "{}",
+            page.events.len()
+        );
+        let pulled: usize = page.events.iter().map(crate::store::event_bytes).sum();
+        assert!(pulled < bound, "{pulled}");
+        let next = crate::subscription::pull_page(&w, &sub, Some(page.settled), 1000).unwrap();
+        assert!(!next.more);
+        assert_eq!(page.events.len() + next.events.len(), 200);
+        // the log's export, its rows one per event
+        let out = crate::export::export_page(&w, "log", Some("0"), 1000).unwrap();
+        assert!(out.more && out.lines.len() < 200, "{}", out.lines.len());
+        let exported: usize = out.lines.iter().map(String::len).sum();
+        assert!(exported < bound, "{exported}");
+        let after = crate::export::export_page(&w, "log", Some(&out.cursor), 1000).unwrap();
+        assert!(!after.more);
+        let positions = |p: &crate::export::ExportPage| -> Vec<i64> {
+            p.lines
+                .iter()
+                .map(|l| {
+                    serde_json::from_str::<Json>(l).unwrap()["position"]
+                        .as_i64()
+                        .unwrap()
+                })
+                .collect()
+        };
+        let all: Vec<i64> = positions(&out)
+            .into_iter()
+            .chain(positions(&after))
+            .collect();
+        assert!(all.windows(2).all(|p| p[0] < p[1]), "out of order or twice");
+        assert_eq!(all.len(), w.last_position().unwrap() as usize);
     }
 
     /// `available` reads the objects in a state its transition is taken

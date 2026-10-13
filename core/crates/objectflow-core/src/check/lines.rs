@@ -613,11 +613,16 @@ static LABELS_SOURCE: LazyLock<Regex> = LazyLock::new(|| re(r"^from\s+\w+\s+in\s
 fn compared_states(text: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
+    // each `state` found where it is, the text walked once, where each match
+    // collected the rest of the text again: a literal holding it 128k times
+    // held the dry run's slot 229 s (ninth production review N-8)
+    let word = ['s', 't', 'a', 't', 'e'];
     let mut i = 0;
-    while let Some(off) = text.chars().skip(i).collect::<String>().find("state") {
-        let at = i + text.chars().skip(i).collect::<String>()[..off]
-            .chars()
-            .count();
+    while let Some(off) = chars
+        .get(i..)
+        .and_then(|rest| rest.windows(5).position(|w| w == word))
+    {
+        let at = i + off;
         i = at + 5;
         if at > 0 && (is_word(chars[at - 1]) || chars[at - 1] == '.') {
             continue;
@@ -807,5 +812,29 @@ pub fn checks(docs: &[Value], all: &[Decl], world: &BTreeMap<&str, &Decl>, out: 
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The states a text compares `state` with, each found where it is, the
+    /// text walked once, where each was found by collecting the rest of the
+    /// text again: a literal holding `state` 128k times held the dry run's
+    /// slot 229 s (ninth production review N-8).
+    #[test]
+    fn compared_states_walks_its_text_once() {
+        assert_eq!(
+            compared_states("state == OPEN or x.state == SHUT or state != DONE"),
+            vec!["OPEN".to_string(), "DONE".to_string()]
+        );
+        // 5,000, so a quadratic walk fails in seconds, where 20,000 held the
+        // suite 277 s before it failed
+        let long = vec!["state == OPEN"; 5_000].join(" or ");
+        let t = std::time::Instant::now();
+        assert_eq!(compared_states(&long).len(), 5_000);
+        let took = t.elapsed().as_secs_f64();
+        assert!(took < 2.0, "{took:.2} s for 5,000 comparisons");
     }
 }

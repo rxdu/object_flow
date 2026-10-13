@@ -1,0 +1,14 @@
+module: m
+publishing: { taken_by: [agent, human] }
+categories: [live]
+types:
+  T:
+    description: A record.
+    tracking: record
+    attributes:
+      who: { type: string, personal: true }
+      what: { type: string, personal: true }
+    states: { S: { category: live, description: Open. } }
+    transitions:
+      t: { kind: initial, to: S, taken_by: [human], required_inputs: [who, what] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }

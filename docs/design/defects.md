@@ -632,6 +632,10 @@ Findings from every review of this design. It began as the implementation-readin
 | [D618](#d618) | A dry run held an erased value in the store's files | Resolved |
 | [D619](#d619) | Identities equal but for case, from an earlier release, could not be decided | Resolved |
 | [D620](#d620) | The evaluator's transport followed redirects | Resolved |
+| [D621](#d621) | A change's source parsed in time growing with the square of a mapping's keys | Resolved |
+| [D622](#d622) | A page of `query`, `pull` or `export` had no bound in bytes | Resolved |
+| [D623](#d623) | A change's checks grew with the square of the types it declares | Resolved |
+| [D624](#d624) | A stalled write's log line waited for the writer it was about | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4019,3 +4023,23 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **The evaluator's transport followed redirects**: its agent kept ureq's default of ten redirects, so a `3xx` from the configured endpoint sent the call to another host, whose answer decided a guard; the seventh review's adversary had reported redirects not followed, which the code never said. Found 2026-10-13 by the eighth production review's adversary (EV-REDIRECT).
 
 **Resolved** 2026-10-13: the agent follows no redirect, so a `3xx` is the evaluator's unknown and its guard is refused `temporal` (ADR-0195 decision 3). The bank's `T-7`, a `302` to a path that clears anything, fails `a_deployment_asks_its_evaluators_at_their_endpoints` where redirects are followed; a `307` did not, ureq following no `307` of a `POST`.
+
+### D621
+**A change's source parsed in time growing with the square of a mapping's keys**: the YAML parser compared each key of a mapping with every earlier one, and a draft parses its source holding the writer, so one draft of a mapping of 100,000 keys, 1.48 MB, held every write 37.8 s, and a `check` of it held a read past every deadline, a parse touching no store, an erased value staying in the store's files 38 s and the `-wal` reaching 1,895 MB (the open part of D618's ERASE-WAL-DRYRUN). Found 2026-10-13 by the ninth production review's adversary (N-4, N-10).
+
+**Resolved** 2026-10-13: a mapping's keys are found repeated by a set (ADR-0196 decision 1). 100,000 keys parse in 0.1 s on a release build, 290,000 in 0.3 s; `a_changes_checks_and_its_parse_grow_with_what_it_holds` fails in minutes with each key compared with every earlier one.
+
+### D622
+**A page of `query`, `pull` or `export` had no bound in bytes**: 1,000 objects of three 64 KiB strings answered 197 MB a page, and four pulls and four exports at once peaked at 4.78 GB, past the guide's `MemoryMax`; only `history` and `events` stopped at 8 MiB. Found 2026-10-13 by the ninth production review's adversary (N-9).
+
+**Resolved** 2026-10-13: each ends at 8 MiB as at its limit, one item at least, a cursor going on, an export page never among one cursor's rows, and `pull` and `export` say `more` (ADR-0196 decision 2). `a_page_of_a_query_a_pull_or_an_export_ends_at_its_bytes` fails with any of the three bounds removed.
+
+### D623
+**A change's checks grew with the square of the types it declares**: each type's checks read every type's states and every type's supersessions again, and a text's compared states were found by collecting the rest of it again for each, so a change of 8,000 types ran past eleven minutes in the dry run's one slot, and a literal comparing `state` 128,000 times held it 229 s, past `--dry-run-timeout`, the deadline checked only after the checks. Found 2026-10-13 by the ninth production review's adversary (N-8) and in measuring its fix.
+
+**Resolved** 2026-10-13: the module's enumerations, states and supersessions read once, and the text walked once (ADR-0196 decision 1). On a release build a change of 8,000 types checks in 3.3 s and dry-runs in 3.6 s, 1,000 in 0.37 s; found by comparing call-count profiles at 800 and 1,600 types, `supersession_errors` the one function growing fourfold. The growth test fails with the supersession scan per type restored, and `compared_states_walks_its_text_once` with the old walk.
+
+### D624
+**A stalled write's log line waited for the writer it was about**: ADR-0195 decision 6's line was said on the log's cut's tick, which then took the writer, so a tick that fell within a write's first wait found no stall and waited for the whole of it; the line came only once the write gave up, and never in a stall of 30 s; its test asserted the line eventually, not while the write waited. Found 2026-10-13 by both of the ninth production review's reviewers.
+
+**Resolved** 2026-10-13: the stall is looked for on a tick of its own, every second, reading only what the store tells (ADR-0196 decision 3). `a_stall_is_said_in_the_log_as_it_waits`, with a busy timeout as long as the cut's look, fails twice in two runs with the line moved back.

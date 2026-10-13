@@ -173,6 +173,12 @@ pub struct QueryPage {
 pub const PAGE_LIMIT: usize = 1000;
 pub const PAGE_DEFAULT: usize = 100;
 
+/// The most a page of `query`, `pull` or `export` holds, as a page of
+/// `history` does, one item at least, a cursor going on from its last:
+/// 1,000 objects of three 64 KiB strings answered 197 MB, and eight such
+/// pages at once 4.78 GB (ninth production review N-9).
+pub const PAGE_BYTES: usize = crate::store::EVENT_BYTES;
+
 /// A read, digested, which its cursors carry, so a cursor continues only
 /// the read it came from.
 fn read_digest(read: &str) -> String {
@@ -665,6 +671,26 @@ const CHUNK: usize = 256;
 /// the cursor names in the query's order, which is the next page's place
 /// whatever was written since; the cursor of a further page, none where
 /// this is the last; a cursor of another read refused `malformed_cursor`.
+/// Whether a query reads its type whole: ordered or filtered, with a
+/// filter that neither requires the states it holds nor holds a column equal
+/// to a value, the indexes a page is read through. Such a query waits among
+/// the analytics, never in a person's worklist slot, where ten of them left a
+/// plain worklist query timing out (ninth production review, ADR-0196
+/// decision 4). A filter that does not parse is no scan: it is refused.
+pub fn query_scans(lib: &Library, type_: &str, filter: Option<&str>, order: &[String]) -> bool {
+    let parsed = match filter.map(crate::expr::parse) {
+        Some(Ok(e)) => Some(e),
+        Some(Err(_)) => return false,
+        None => None,
+    };
+    if parsed.is_none() && order.is_empty() {
+        return false;
+    }
+    parsed.as_ref().is_none_or(|f| {
+        required_states(lib, type_, f).is_none() && required_columns(lib, type_, f).is_empty()
+    })
+}
+
 pub fn query_page(
     world: &World<'_>,
     type_: &str,
@@ -977,11 +1003,18 @@ pub fn query_page(
     }
     let more = chosen.len() > limit;
     chosen.truncate(limit);
-    let cursor = more
+    let mut cursor = more
         .then(|| chosen.last().map(|o| cursor_of(&read, &o.id)))
         .flatten();
     let mut items = Vec::new();
+    let mut bytes = 0;
     for o in chosen {
+        // a page ends at its bytes as at its limit, one object at least,
+        // its cursor going on from the last it holds
+        if bytes >= PAGE_BYTES {
+            cursor = items.last().map(|it: &Item| cursor_of(&read, &it.id));
+            break;
+        }
         let Some(ot) = lib.type_(&o.type_) else {
             return Err(NotRun::Unsupported(format!("the type {}", o.type_)));
         };
@@ -1031,6 +1064,13 @@ pub fn query_page(
             };
             out.push((f.clone(), v));
         }
+        bytes += o.id.len()
+            + o.type_.len()
+            + out
+                .iter()
+                .map(|(f, v)| f.len() + v.wire_bytes() + 4)
+                .sum::<usize>()
+            + 32;
         items.push(Item {
             id: o.id.clone(),
             type_: o.type_.clone(),

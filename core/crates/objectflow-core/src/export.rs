@@ -25,6 +25,10 @@ pub struct ExportPage {
     pub lines: Vec<String>,
     pub cursor: String,
     pub refused: Option<String>,
+    /// Whether the page ended at its limit or its bytes, so the next may
+    /// hold more now; where it did not, it holds every row there is now
+    /// (ninth production review N-9).
+    pub more: bool,
 }
 
 /// The rows of a source after a cursor, exclusive, in cursor order: `log`,
@@ -49,6 +53,7 @@ pub fn export_page(
             lines: Vec::new(),
             cursor: cursor.unwrap_or("0").to_string(),
             refused: Some(why.to_string()),
+            more: false,
         })
     };
     // a type's attempt counts page by settled day, their cursor a date
@@ -140,15 +145,32 @@ pub fn export_page(
     };
     // in cursor order; rows sharing a cursor in the order written
     rows.sort_by_key(|(c, _)| *c);
+    let mut more = rows.len() >= limit && limit > 0;
     if rows.len() > limit && limit > 0 {
         let cut = rows[limit - 1].0;
         rows.retain(|(c, _)| *c <= cut);
     }
-    let next = rows.last().map_or(after, |(c, _)| *c);
+    let mut lines: Vec<(i64, String)> = rows.iter().map(|(c, r)| (*c, r.to_string())).collect();
+    // a page ends at its bytes as at its limit, never among the rows of one
+    // cursor, which the next page would pass over: 1,000 rows of large
+    // inputs answered 197 MB (ninth production review N-9)
+    let mut bytes = 0;
+    if let Some(fit) = lines.iter().position(|(_, l)| {
+        bytes += l.len() + 1;
+        bytes >= crate::reads::PAGE_BYTES
+    }) {
+        let cut = lines[fit].0;
+        if lines.iter().any(|(c, _)| *c > cut) {
+            lines.retain(|(c, _)| *c <= cut);
+            more = true;
+        }
+    }
+    let next = lines.last().map_or(after, |(c, _)| *c);
     Ok(ExportPage {
-        lines: rows.iter().map(|(_, r)| r.to_string()).collect(),
+        lines: lines.into_iter().map(|(_, l)| l).collect(),
         cursor: next.to_string(),
         refused: None,
+        more,
     })
 }
 
@@ -171,6 +193,7 @@ fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> Result<E
                     lines: Vec::new(),
                     cursor: c.to_string(),
                     refused: Some("invalid_cursor".into()),
+                    more: false,
                 });
             }
         },
@@ -207,6 +230,8 @@ fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> Result<E
             (None, c) => c.unwrap_or_default().to_string(),
         },
         lines: rows.into_iter().map(|(_, r)| r).collect(),
+        // every settled day's counts in one page, each row a count
+        more: false,
         refused: None,
     })
 }

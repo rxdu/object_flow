@@ -121,6 +121,13 @@ def installed_approvers(store, flows):
     return None
 
 
+def may_approve(approvers, kind):
+    """Whether an actor of a kind may approve the next version: a kind the installed version's publishing.taken_by
+    names, or, where none declares it, any kind but agent (ADR-0187 decision 1, ADR-0195 decision 4); the store's
+    operator always may, beside this."""
+    return kind in approvers if approvers is not None else kind != "agent"
+
+
 def who(store, actor):
     """The actor's identity and kind, or the refusal of an actor the store does not hold (DESIGN.md §6 step 1)."""
     if actor not in store.objects or store.actor_attr(store.type_of(actor)) is None:
@@ -164,13 +171,25 @@ def requested(store, xn, oid, actor, inputs, flows=None, read_evidence=None):
     identity, kind = who(store, actor)
     if oid is not None and (oid not in store.objects or store.type_of(oid) != DECLARATION_CHANGE):
         raise Refused("not_found", remedy="unreachable_from_here")
-    if xn == "supersede" and oid is not None:
+    # a supersession is a publish's, and the approval is its own operation, where a request of it was taken as no
+    # transition (ninth production review N-2, ADR-0196 decision 7)
+    if xn in ("supersede", "publish") and oid is not None:
         raise Refused("not_requestable", remedy="unreachable_from_here", parents=["publish"])
     if xn not in MOVES or (xn == "draft") != (oid is None):
         raise Refused("unknown_transition", remedy="unreachable_from_here")
     froms, to = MOVES[xn]
     if oid is not None and store.objects[oid].state not in froms:
         raise Refused("unavailable", remedy="unreachable_from_here")
+    # a change another actor drafted is moved on only by one that may approve the next version, as approving it is
+    # refused, where an agent rejected, reopened and revised a person's (ninth production review N-1, ADR-0196
+    # decision 5)
+    if (oid is not None and xn in ("revise", "reopen", "refresh", "withdraw", "reject")
+            and store.objects[oid].attrs.get("drafted_by") != identity
+            and not may_approve(installed_approvers(store, flows) if flows is not None else None, kind)
+            and store.type_of(actor) != "Operator"):
+        raise Refused("invariant_violated", "publish_taken_by", "delegable", object_id=oid,
+                      object_type=DECLARATION_CHANGE, objects=[oid],
+                      failures=[(oid, DECLARATION_CHANGE, "publish_taken_by", "delegable")])
     if xn in ("submit", "refresh") and flows is None:
         raise NotRunnable("a change's dry run, with no checker given to run its step 1")
     payload = {}
@@ -738,9 +757,7 @@ def approve(store, change_id, actor, expected_version, flows):
     # under approval; the store's operator always may (ADR-0187 decision 1), refused before the dry run runs again.
     # Where no module declares it, an agent does not approve, an agent kind of actor being one the installed version
     # declares (ADR-0195 decision 4)
-    approvers = installed_approvers(store, flows)
-    refused = kind not in approvers if approvers is not None else kind == "agent"
-    if refused and store.type_of(actor) != "Operator":
+    if not may_approve(installed_approvers(store, flows), kind) and store.type_of(actor) != "Operator":
         raise Refused("invariant_violated", "publish_taken_by", "delegable", object_id=change_id,
                       object_type=DECLARATION_CHANGE, objects=[change_id],
                       failures=[(change_id, DECLARATION_CHANGE, "publish_taken_by", "delegable")])

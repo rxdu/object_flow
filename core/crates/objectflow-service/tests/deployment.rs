@@ -650,7 +650,19 @@ fn a_deployments_edges_are_said() {
         "0",
     ]);
     assert_eq!(code, Some(1));
-    assert!(said.contains(missing.to_str().expect("a path")), "{said}");
+    // the directory said not to exist, where --create was then suggested
+    // (ninth production review, ADR-0196 decision 9)
+    let parent = missing.parent().expect("its directory");
+    assert!(
+        said.contains(&format!(
+            "the directory {} does not exist",
+            parent.display()
+        )),
+        "{said}"
+    );
+    let (code, said) = refused(&["--store", missing.to_str().expect("a path"), "--port", "0"]);
+    assert_eq!(code, Some(1));
+    assert!(said.contains("does not exist"), "{said}");
     // how many reads run at once is a count, and a deployment's (ADR-0189)
     let (code, said) = refused(&["--max-reads", "0", "--port", "0"]);
     assert_eq!(code, Some(2));
@@ -688,6 +700,16 @@ fn a_deployments_edges_are_said() {
         assert_eq!(status, 409, "{said}");
         let upgraded = post(&s, "/v1/upgrade", &json!({"actor": op}));
         assert_eq!(upgraded["upgraded"], json!(false), "{upgraded}");
+        // the operator in another ASCII case is the operator, as a request
+        // names it, where upgrade refused it (ninth production review N-7,
+        // ADR-0196 decision 8)
+        let (status, upgraded) = call(
+            &s,
+            "POST",
+            "/v1/upgrade",
+            Some(&json!({"actor": {"id": "OPERATOR"}})),
+        );
+        assert_eq!(status, 200, "{upgraded}");
         let mut stream = TcpStream::connect(&s.addr).expect("a connection");
         write!(
             stream,
@@ -825,6 +847,81 @@ fn actors_equal_but_for_case_are_said_at_the_start() {
     );
     drop(s);
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+/// The ninth review's start and health edges: a directory the service
+/// cannot write in is said so, where SQLite said "attempt to write a
+/// readonly database"; a token with a control character is refused; no
+/// --attempt-retention is said at the start; and a store file that cannot be
+/// read is /health's `503 store_unreadable`, where it was 500 internal
+/// (ADR-0196 decision 9).
+#[test]
+fn the_ninth_reviews_start_and_health_edges_are_said() {
+    use std::os::unix::fs::PermissionsExt;
+    let file = fresh_store("edges9");
+    let dir = file.parent().expect("its directory").to_path_buf();
+    let path = file.to_str().expect("a path");
+    {
+        let s = start(&["--store", path, "--create", "--port", "0"]);
+        publish_service(&s);
+        let said = s.said_within("no --attempt-retention is given");
+        assert!(said.contains("no --attempt-retention is given"), "{said}");
+    }
+    // a token with a line break inside it
+    let token = dir.join("token");
+    std::fs::write(&token, "abc\r\ndef\n").expect("the token");
+    std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o600)).expect("its mode");
+    let (code, said) = refused(&[
+        "--store",
+        path,
+        "--port",
+        "0",
+        "--evaluator",
+        "bank=http://127.0.0.1:9/evaluate",
+        "--evaluator-token",
+        &format!("bank={}", token.display()),
+    ]);
+    assert_ne!(code, Some(0));
+    assert!(said.contains("control character"), "{said}");
+    // a directory the service cannot write in
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).expect("read only");
+    let (code, said) = refused(&["--store", path, "--port", "0"]);
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("writable");
+    assert_eq!(code, Some(1), "{said}");
+    assert!(said.contains("cannot write in"), "{said}");
+    // a store file that cannot be read, its content overwritten in place,
+    // the log first folded into it, so no page is read from the log
+    let s = start(&[
+        "--store",
+        path,
+        "--port",
+        "0",
+        "--attempt-retention",
+        "30 days",
+    ]);
+    assert!(!s.said().contains("no --attempt-retention"), "{}", s.said());
+    rusqlite::Connection::open(&file)
+        .and_then(|c| c.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)"))
+        .expect("the log folded in");
+    {
+        use std::io::{Seek, SeekFrom};
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&file)
+            .expect("the store");
+        let len = f.metadata().expect("its size").len();
+        f.seek(SeekFrom::Start(0)).expect("its start");
+        f.write_all(&vec![0u8; usize::try_from(len).expect("a size")])
+            .expect("its pages overwritten");
+    }
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(
+        (status, health["code"].as_str()),
+        (503, Some("store_unreadable")),
+        "{health}"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A backup restored beside the `-wal` of a later state is refused at the
@@ -2140,6 +2237,13 @@ fn a_deployment_asks_its_evaluators_at_their_endpoints() {
     for kept in ["T-3", "T-4", "T-5", "cleared\": true"] {
         assert!(!said.contains(kept), "{kept} in {said}");
     }
+    // a slow answer named by the flag that bounds it, where it said
+    // "timeout: global" (ninth production review)
+    let said = s.said_within("did not answer within --evaluator-timeout");
+    assert!(
+        said.contains("did not answer within --evaluator-timeout"),
+        "{said}"
+    );
     // while an endpoint is slow, every other request is served (D563)
     let addr = s.addr.clone();
     let slow = std::thread::spawn(move || {
@@ -3522,6 +3626,13 @@ fn writes_stalled_behind_another_lock_are_said_by_health() {
             (503, Some("writes_stalled")),
             "{health}"
         );
+        // and said in the log while it waits, where it was said only once
+        // the write gave up (ninth production review)
+        let said = s.said_within("writes are waiting for another process's lock on the store");
+        assert!(
+            said.contains("writes are waiting for another process's lock on the store"),
+            "{said}"
+        );
         assert!(!first.is_finished(), "the write ended before its retries");
         let (status, v) = first.join().expect("the first write");
         assert_eq!((status, v["kind"].as_str()), (200, Some("stale")), "{v}");
@@ -3554,6 +3665,57 @@ fn writes_stalled_behind_another_lock_are_said_by_health() {
     );
     let (status, health) = call(&s, "GET", "/health", None);
     assert_eq!(status, 200, "{health}");
+}
+
+/// A write waiting for another process's lock is said in the log as it
+/// waits, a second or so after its first retry, whatever the log's cut is
+/// doing: with a busy timeout as long as the cut's look, a look always fell
+/// within the write's first wait, found no stall yet and then waited for
+/// the writer, so the stall was said only once the write gave up (ninth
+/// production review).
+#[test]
+fn a_stall_is_said_in_the_log_as_it_waits() {
+    let file = fresh_store("stall-log");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+        "--busy-timeout",
+        "5 s",
+    ]);
+    publish_service(&s);
+    let op = json!({"id": "operator"});
+    let add = json!({"actor": op, "type": "User", "transition": "add", "inputs": {"login": "ana", "name": "Ana"}});
+    let other = rusqlite::Connection::open(&file).expect("another process's connection");
+    other.execute_batch("BEGIN IMMEDIATE").expect("its lock");
+    let want = "writes are waiting for another process's lock on the store";
+    std::thread::scope(|scope| {
+        let waiting = scope.spawn(|| call(&s, "POST", "/v1/request", Some(&add)));
+        // its first retry, 5 s in, said by /health
+        let began = std::time::Instant::now();
+        loop {
+            let (status, health) = call(&s, "GET", "/health", None);
+            if status == 503 {
+                assert_eq!(health["code"], "writes_stalled", "{health}");
+                break;
+            }
+            assert!(
+                began.elapsed() < std::time::Duration::from_secs(12),
+                "no stall said: {health}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        // and in the log within seconds, the write still waiting
+        let said = s.said_within(want);
+        assert!(said.contains(want), "{said}");
+        assert!(!waiting.is_finished(), "said only once the write gave up");
+        let (status, v) = waiting.join().expect("the write");
+        assert_eq!((status, v["kind"].as_str()), (200, Some("stale")), "{v}");
+    });
+    other.execute_batch("ROLLBACK").expect("its lock released");
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
 /// Writes failing for the service's own fault make `/health` answer `503

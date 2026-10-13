@@ -85,14 +85,14 @@ A verdict is `{"kind": …, "remedy": …}` with the fields of its kind; a satis
 | `history` | `id`; `actor`, `follow`, `limit`, `cursor` | `{"events": […], "cursor": …, "not_computed": […]}`, a page of the object's events in order, its imported legacy entries first on the first page; or `null`. With `"follow": true`, the events of every object whose chain ends where this one's does. |
 | `events` | `positions`; `actor` | `{"events": […]}`: each position's event, or `null`, in the order asked. At most a page's worth of positions, none twice, and at most 8 MiB of events, past which it is a `400` saying how many fit. |
 | `availability` | `id`; `actor` | an offer per transition, or `null` |
-| `query` | `type`; `actor`, `filter`, `order`, `fields`, `cursor`, `limit` | `{"items": [{"id", "type", "fields"}…], "cursor": …, "refused": …}` |
+| `query` | `type`; `actor`, `filter`, `order`, `fields`, `cursor`, `limit` | `{"items": [{"id", "type", "fields"}…], "cursor": …, "refused": …}`; `order` names at most 8 keys and `fields` at most 256, each once |
 | `available` | `type`, `transition`; `actor`, `cursor`, `limit` | a page of the objects the transition is available to, with `actor_dependent` |
 | `exceptions` | `type`; `actor`, `cursor` | a page of the objects holding an admitted violation of an invariant |
 | `declaration` | `type`; `actor`, `version` | the type as declared, with its enumerations, `version`, `source_ref`, `source_digest` and `person_dimensions` |
 | `tools` | `actor_kind`; `actor` | `{"tools": [{"name", "description", "input_schema"}…]}`: the tools an actor of that kind is handed, sorted by name ([Agents](agents.md)) |
 | `metric` | `name`; `actor`, `bind`, `keep`, `over`, `filter`, `cursor` | `{"rows": [{"dimensions", "value"}…], "flags": […], "history_complete": …, "refused": …}` |
 | `lookup` | `source`, `value`; `actor` | the object an external identifier names, or `null`. `source` is an external system, or `legacy` with `"<Type>:<key>"`. |
-| `export` | `source`; `actor`, `cursor`, `limit` | `{"lines": […], "cursor": …}`: JSON lines of `log` (the event log), an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, with personal values left out |
+| `export` | `source`; `actor`, `cursor`, `limit` | `{"lines": […], "cursor": …, "more": …}`: JSON lines of `log` (the event log), an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, with personal values left out |
 | `diagnostics` | `type`; `actor`, `window` | `{"diagnostics": […]}`: where the flow and its record disagree |
 
 A metric's `over` and diagnostics' `window` are positive durations, and a metric's `keep` names each dimension once; anything else is a `400`. The built-in attributes that hold JSON, a `DeclarationChange`'s `source`, `report` and `evidence` and a `Proposal`'s `inputs`, are answered as JSON.
@@ -144,9 +144,9 @@ As `history`, `events` and `pull` answer it:
 
 ### Pages
 
-`query`, `available`, `history`, `pull` and `export` answer at most `limit` items, from 1 to 1000, **100 unless asked**, with the `cursor` of the next page, `null` on the last; a page of `history` also ends at 8 MiB of events, one at least, with a cursor going on. Send the cursor back, with the same read, until it is `null`. A cursor continues only the read it came from: another `query` or `available` refuses it `malformed_cursor`. A page continues after the last object it gave, in the read's order, so an object created between pages is met once and none twice, unless an object's order key changes between pages.
+`query`, `available`, `history`, `pull` and `export` answer at most `limit` items, from 1 to 1000, **100 unless asked**, with the `cursor` of the next page, `null` on the last; a page of `query`, `history`, `pull` or `export` also ends at 8 MiB, one item at least, with a cursor going on. Send the cursor back, with the same read, until it is `null`. A cursor continues only the read it came from: another `query` or `available` refuses it `malformed_cursor`. A page continues after the last object it gave, in the read's order, so an object created between pages is met once and none twice, unless an object's order key changes between pages.
 
-`pull` and `export` page through a log that grows, so their cursor is never `null`: a page with fewer than `limit` items is the end of what is there now, and the cursor you keep reads what is added later. A page of `export` never ends among the rows that share one cursor, an `.attempts` source's rows of one transaction or an `.intervals` source's rows of one event, so it may pass `limit` by those rows. A metric's read and `exceptions` answer one page.
+`pull` and `export` page through a log that grows, so their cursor is never `null`: `more` is `true` where a page ended at its limit or its 8 MiB, so ask again at once, and `false` where it holds everything there is now, so the cursor you keep reads what is added later. Read `more`, not the page's length: a page ended by its bytes holds fewer than `limit` items while more wait. A page of `export` never ends among the rows that share one cursor, an `.attempts` source's rows of one transaction or an `.intervals` source's rows of one event, so it may pass `limit` by those rows. A metric's read and `exceptions` answer one page.
 
 ### Filters and order
 
@@ -170,7 +170,7 @@ A subscription is an object: `{"actor": …, "type": "Subscription", "transition
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `pull` | `subscription`; `actor`, `cursor`, `limit` | `{"events": […], "settled": "<cursor>", "refused": …}` |
+| `pull` | `subscription`; `actor`, `cursor`, `limit` | `{"events": […], "settled": "<cursor>", "more": …, "refused": …}` |
 | `acknowledge` | `subscription`, `cursor`; `actor` | `{"refused": …}`: everything up to the cursor is handled. `0` replays the log from its start. |
 
 There is no push: a consumer polls `pull` and acknowledges what it has handled.

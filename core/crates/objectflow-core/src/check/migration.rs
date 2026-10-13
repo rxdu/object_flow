@@ -615,6 +615,29 @@ pub fn migration_pair_errors(prev: &Value, doc: &Value, library: &Obj) -> (Found
             }
         }
     }
+    // an attribute no longer personal, whose values an erasure then no longer
+    // reaches (ninth production review N-11, ADR-0196 decision 6)
+    for (tn, t) in &new {
+        if machines.contains(tn) || flag(t, "abstract") {
+            continue;
+        }
+        let Some(ot) = old.get(tn) else { continue };
+        for (an, oa) in obj(ot, "attributes") {
+            let Some(a) = obj(t, "attributes").get(an) else {
+                continue;
+            };
+            let personal = |v: &Value| v.get("personal") == Some(&Value::Bool(true));
+            if oa.is_object() && a.is_object() && personal(oa) && !personal(a) {
+                notes.push(finding(
+                    segs!["types", tn.as_str(), "attributes", an.as_str()],
+                    "personal_dropped",
+                    format!(
+                        "{tn}.{an} was personal, and this version drops it: an erasure no longer reaches its values, which stay where they are (ADR-0196)"
+                    ),
+                ));
+            }
+        }
+    }
     // the rules a version removes or rewrites, named to whoever approves it,
     // so a draft making a guard always true is seen (fifth production review
     // REVIEW-GAP, ADR-0191 decision 2)
@@ -640,13 +663,20 @@ pub fn migration_pair_errors(prev: &Value, doc: &Value, library: &Obj) -> (Found
         kinds.sort();
         kinds
     };
-    if let Some(message) = narrowed_no_longer(
-        "publishing.taken_by",
-        &approving(prev),
-        &approving(doc),
-        false,
-    ) {
+    let (was, now) = (approving(prev), approving(doc));
+    if let Some(message) = narrowed_no_longer("publishing.taken_by", &was, &now, false) {
         notes.push(finding(segs!["publishing"], "taken_by_dropped", message));
+    } else if was.is_empty() && now.iter().any(|k| k == "agent") {
+        // named where none was, the default refusing agents (ninth production
+        // review N-1, ADR-0196 decision 5)
+        notes.push(finding(
+            segs!["publishing"],
+            "taken_by_dropped",
+            format!(
+                "publishing.taken_by is [{}], where the previous version declared none, under which no agent approves: once it is installed an agent may approve the next (ADR-0196)",
+                now.join(", ")
+            ),
+        ));
     }
     (fatal, notes)
 }
@@ -730,7 +760,7 @@ fn narrowed_no_longer(what: &str, was: &[String], now: &[String], taking: bool) 
         let after = if taking {
             "every kind of actor may take it"
         } else {
-            "once it is installed every kind of actor may approve the next"
+            "once it is installed any kind but agent may approve the next"
         };
         let verb = if taking { " was taken by" } else { " was" };
         return Some(format!(

@@ -1618,6 +1618,92 @@ types:
         assert!(r.fatal() && !r.accepted);
     }
 
+    /// A change's checks grow with what it declares, not with its square: a
+    /// module of 4,000 types checks in about twice the time of 2,000, where
+    /// each type read every type's states and supersessions again and 8,000
+    /// types ran past eleven minutes; and a mapping of 100,000 keys parses in
+    /// a moment, where each key was compared with every earlier one and a
+    /// draft of 100k keys held the writer 37.8 s (ninth production review
+    /// N-4, N-8).
+    #[test]
+    fn a_changes_checks_and_its_parse_grow_with_what_it_holds() {
+        const NOTE: &str = "module: n\ncategories: [live, closed]\ntypes:\n  Note:\n    description: A note.\n    tracking: record\n    states:\n      OPEN: { category: live, description: Open. }\n      DONE: { category: closed, final: true, description: Done. }\n    transitions:\n      jot: { kind: initial, to: OPEN }\n      done: { kind: external, from: OPEN, to: DONE }\n";
+        let module = |n: usize| {
+            NOTE.to_string()
+                + &(0..n)
+                    .map(|i| format!("  T{i}:\n    description: A thing.\n    tracking: record\n    states:\n      ON: {{ category: live, description: On. }}\n      OFF: {{ category: closed, final: true, description: Off. }}\n    transitions:\n      make: {{ kind: initial, to: ON }}\n      stop: {{ kind: external, from: ON, to: OFF }}\n"))
+                    .collect::<String>()
+        };
+        let lib = Library::load(&[("n.yaml".into(), NOTE.into())]).unwrap();
+        let timed = |n: usize| {
+            let source = [("n".to_string(), module(n))];
+            let d = Draft {
+                change_id: None,
+                source: &source,
+                source_ref: Some("test"),
+                source_digest: None,
+                actor: OPERATOR,
+            };
+            let t = std::time::Instant::now();
+            assert!(checks_of(&lib, 0, &d).is_ok());
+            t.elapsed().as_secs_f64()
+        };
+        // four times the types: about four times the time, where a check
+        // quadratic in them takes sixteen
+        let (small, large) = (timed(1000), timed(4000));
+        assert!(
+            large < small * 5.5,
+            "checks: 1,000 types {small:.2} s, 4,000 types {large:.2} s"
+        );
+        let keys = format!(
+            "{{{}}}",
+            (0..100_000)
+                .map(|i| format!("k{i}: {i}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let t = std::time::Instant::now();
+        assert!(crate::yaml::load(&keys).is_ok());
+        let took = t.elapsed().as_secs_f64();
+        assert!(took < 10.0, "parse: 100,000 keys {took:.2} s");
+        // and a key named twice is still found
+        assert!(crate::yaml::load("{a: 1, b: 2, a: 3}").is_err());
+        // a condition comparing `state` 20,000 times, each compared state
+        // found where it is, where each was found by collecting the rest of
+        // the text again and 128k held the dry run's slot 229 s
+        let long = NOTE
+            .replace(
+                "    transitions:
+      jot:",
+                &format!(
+                    "    conditions:
+      many: {{ description: Many., expression: \"{}\" }}
+    transitions:
+      jot:",
+                    vec!["state == OPEN"; 20_000].join(" or ")
+                ),
+            )
+            .replace(
+                "done: { kind: external, from: OPEN, to: DONE }",
+                "done: { kind: external, from: OPEN, to: DONE, guards: { many: deny } }",
+            );
+        let source = [("n".to_string(), long)];
+        let d = Draft {
+            change_id: None,
+            source: &source,
+            source_ref: Some("test"),
+            source_digest: None,
+            actor: OPERATOR,
+        };
+        let t = std::time::Instant::now();
+        let _ = checks_of(&lib, 0, &d);
+        let took = t.elapsed().as_secs_f64();
+        assert!(
+            took < 10.0,
+            "checks: a condition of 20,000 states {took:.2} s"
+        );
+    }
+
     /// A dry run's checks run apart from any read of the store, and its
     /// impact on a world that carries its read's stop, so an urgent cut of
     /// the log stops it as it stops every read, where an erasure's values
@@ -2065,6 +2151,32 @@ types:
     /// A state the installed version no longer declares, which a robot's
     /// history holds from before the publish removed it, follows those it
     /// declares in a page's order (D536).
+    /// A metric read's filter a row cannot answer, a number where a boolean
+    /// is read, is refused `malformed_filter` with a short reason, where it
+    /// answered 501 and its fault carried what it met (ninth production
+    /// review N-3, ADR-0196 decision 7).
+    #[test]
+    fn a_metric_filter_a_row_cannot_answer_is_malformed() {
+        let (s, _, _, _) = fleet();
+        let w = s.snapshot().unwrap();
+        let keep = vec!["state".to_string()];
+        let page = crate::metric::page(
+            &w,
+            None,
+            "Robot.time_in_state",
+            &BTreeMap::new(),
+            Some(&keep),
+            None,
+            Some("1"),
+        )
+        .unwrap();
+        assert_eq!(page.refused, Some("malformed_filter"), "{page:?}");
+        assert!(
+            page.reason.as_deref().is_some_and(|r| r.len() < 250),
+            "{page:?}"
+        );
+    }
+
     #[test]
     fn a_removed_state_follows_the_declared_ones_in_a_page() {
         let (mut s, _, _, _) = fleet();

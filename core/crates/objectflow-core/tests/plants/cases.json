@@ -10775,7 +10775,7 @@
     1,
     "notice",
     "taken_by_dropped",
-    "publishing.taken_by was [human], and this version names no kind, so once it is installed every kind of actor may approve the next (ADR-0189)"
+    "publishing.taken_by was [human], and this version names no kind, so once it is installed any kind but agent may approve the next (ADR-0189)"
    ],
    [
     "m.yaml",
@@ -10848,6 +10848,161 @@
     "T.f",
     "T.t"
    ],
+   "T.t_taken_by": [
+    "T.t"
+   ]
+  }
+ },
+ {
+  "label": "<listcomp>",
+  "files": [
+   [
+    "m.yaml",
+    "88597d4e9c9b88fc"
+   ]
+  ],
+  "previous": {
+   "m.yaml": "a475844303675803"
+  },
+  "findings": [
+   [
+    "m.yaml",
+    2,
+    "notice",
+    "taken_by_dropped",
+    "publishing.taken_by is [agent, human], where the previous version declared none, under which no agent approves: once it is installed an agent may approve the next (ADR-0196)"
+   ],
+   [
+    "m.yaml",
+    9,
+    "fatal",
+    "names",
+    "T.who is personal and required; erasure writes absence, so a personal attribute is optional"
+   ],
+   [
+    "m.yaml",
+    10,
+    "fatal",
+    "names",
+    "T.what is personal and required; erasure writes absence, so a personal attribute is optional"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "T.t_taken_by": "local"
+  },
+  "could_violate": {
+   "T.t_taken_by": [
+    "T.t"
+   ]
+  }
+ },
+ {
+  "label": "<listcomp>",
+  "files": [
+   [
+    "m.yaml",
+    "a120f1c205c35bc1"
+   ]
+  ],
+  "previous": {
+   "m.yaml": "a475844303675803"
+  },
+  "findings": [
+   [
+    "m.yaml",
+    9,
+    "fatal",
+    "names",
+    "T.who is personal and required; erasure writes absence, so a personal attribute is optional"
+   ],
+   [
+    "m.yaml",
+    10,
+    "fatal",
+    "names",
+    "T.what is personal and required; erasure writes absence, so a personal attribute is optional"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "T.t_taken_by": "local"
+  },
+  "could_violate": {
+   "T.t_taken_by": [
+    "T.t"
+   ]
+  }
+ },
+ {
+  "label": "<listcomp>",
+  "files": [
+   [
+    "m.yaml",
+    "761c448bbf2d1455"
+   ]
+  ],
+  "previous": {
+   "m.yaml": "a475844303675803"
+  },
+  "findings": [
+   [
+    "m.yaml",
+    8,
+    "notice",
+    "personal_dropped",
+    "T.who was personal, and this version drops it: an erasure no longer reaches its values, which stay where they are (ADR-0196)"
+   ],
+   [
+    "m.yaml",
+    9,
+    "fatal",
+    "names",
+    "T.what is personal and required; erasure writes absence, so a personal attribute is optional"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "T.t_taken_by": "local"
+  },
+  "could_violate": {
+   "T.t_taken_by": [
+    "T.t"
+   ]
+  }
+ },
+ {
+  "label": "<listcomp>",
+  "files": [
+   [
+    "m.yaml",
+    "a475844303675803"
+   ]
+  ],
+  "previous": {
+   "m.yaml": "a475844303675803"
+  },
+  "findings": [
+   [
+    "m.yaml",
+    8,
+    "fatal",
+    "names",
+    "T.who is personal and required; erasure writes absence, so a personal attribute is optional"
+   ],
+   [
+    "m.yaml",
+    9,
+    "fatal",
+    "names",
+    "T.what is personal and required; erasure writes absence, so a personal attribute is optional"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "T.t_taken_by": "local"
+  },
+  "could_violate": {
    "T.t_taken_by": [
     "T.t"
    ]
@@ -24297,6 +24452,13 @@
     "fatal",
     "names",
     "T held personal data in the version before and now declares no erasure; a type keeps its erasure once it has needed one, so the values written then can be erased (the model's check 60, ADR-0147)"
+   ],
+   [
+    "m.yaml",
+    8,
+    "notice",
+    "personal_dropped",
+    "T.p was personal, and this version drops it: an erasure no longer reaches its values, which stay where they are (ADR-0196)"
    ]
   ],
   "analysed": {},

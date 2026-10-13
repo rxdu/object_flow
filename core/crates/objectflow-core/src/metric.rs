@@ -790,11 +790,19 @@ impl<'w> Reader<'w> {
             {
                 continue;
             }
-            // a reader's filter narrows the rows likewise (ADR-0114)
-            if let Some(w) = theirs
-                && truth(&evaluator.eval_in(w, &env)?)? != Some(true)
-            {
-                continue;
+            // a reader's filter narrows the rows likewise (ADR-0114); one a
+            // row cannot answer is the reader's malformed filter, never a
+            // 501 whose fault carries what it met (ninth production review
+            // N-3, ADR-0196 decision 7)
+            if let Some(w) = theirs {
+                match evaluator.eval_in(w, &env).and_then(|v| truth(&v)) {
+                    Ok(Some(true)) => {}
+                    Ok(_) => continue,
+                    Err(NotRun::Unsupported(why)) => {
+                        return Err(NotRun::Unsupported(format!("{THEIR_FILTER}{why}")));
+                    }
+                    Err(e) => return Err(e),
+                }
             }
             if let (Some(s), Some(w)) = (&stamp, window) {
                 // the window holds its start, and a row with no time is in
@@ -1733,6 +1741,26 @@ pub fn page_json(page: &Page) -> serde_json::Value {
     out
 }
 
+/// What a reader's filter that a row cannot answer is told by, so the read
+/// refuses it as malformed rather than not run (ADR-0196 decision 7).
+const THEIR_FILTER: &str = "a metric's filter: ";
+
+/// A metric read refused for a filter a row cannot answer, its reason at
+/// most a short sentence, never what the row held.
+fn unanswerable_filter(why: &str) -> Page {
+    let why: String = why
+        .trim_start_matches(THEIR_FILTER)
+        .chars()
+        .take(160)
+        .collect();
+    Page {
+        refused: Some("malformed_filter"),
+        reason: Some(format!("a row of the metric cannot answer it: {why}")),
+        history_complete: true,
+        ..Page::default()
+    }
+}
+
 /// A reader's read of a metric (`library-api.md` §5, `MetricPage`): every
 /// group on one page, whose cursor is therefore none.
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -2331,7 +2359,7 @@ pub fn page(
         .iter()
         .map(|(d, v)| (d.clone(), Want::Wire(v.clone())))
         .collect();
-    let (mut groups, kind) = reader.grouped(
+    let (mut groups, kind) = match reader.grouped(
         owner,
         &found.spec,
         &found.module,
@@ -2339,7 +2367,12 @@ pub fn page(
         &keep,
         over,
         theirs.as_ref(),
-    )?;
+    ) {
+        Err(NotRun::Unsupported(why)) if why.starts_with(THEIR_FILTER) => {
+            return Ok(unanswerable_filter(&why));
+        }
+        other => other?,
+    };
     let places = reader.places(groups.iter().map(|g| g.0.as_slice()))?;
     groups.sort_by(|a, b| reader.order(&places, &keep, &a.0, &b.0));
     let mut rows = Vec::new();
@@ -2354,7 +2387,7 @@ pub fn page(
     if let Some(when) = found.spec.get("flag_when").and_then(Json::as_object) {
         // a flag is raised on each declared group, whatever the read keeps,
         // over the rows the read selects (§6.9)
-        let (mut every, _) = reader.grouped(
+        let (mut every, _) = match reader.grouped(
             owner,
             &found.spec,
             &found.module,
@@ -2362,7 +2395,12 @@ pub fn page(
             &declared,
             over,
             theirs.as_ref(),
-        )?;
+        ) {
+            Err(NotRun::Unsupported(why)) if why.starts_with(THEIR_FILTER) => {
+                return Ok(unanswerable_filter(&why));
+            }
+            other => other?,
+        };
         let places = reader.places(every.iter().map(|g| g.0.as_slice()))?;
         every.sort_by(|a, b| reader.order(&places, &declared, &a.0, &b.0));
         let t = owner.and_then(|o| lib.type_(o));

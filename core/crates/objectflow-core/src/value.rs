@@ -436,6 +436,33 @@ pub enum Value {
 }
 
 impl Value {
+    /// About how many bytes the wire writes the value in, for a page's bound
+    /// (ninth production review N-9): a text, an id, a set or a row by what
+    /// it holds, any other by a constant above its widest form.
+    pub fn wire_bytes(&self) -> usize {
+        match self {
+            Value::Text(s) | Value::Object(s) => s.len() + 2,
+            Value::Money { currency, .. } => currency.len() + 48,
+            Value::State { type_, name } => type_.len() + name.len() + 4,
+            Value::Member {
+                enumeration,
+                member,
+            } => enumeration.len() + member.len() + 4,
+            Value::File {
+                hash, media_type, ..
+            } => hash.len() + media_type.len() + 64,
+            Value::Set(vs) => vs.iter().map(Value::wire_bytes).sum::<usize>() + vs.len() + 2,
+            Value::Row(fields) => {
+                fields
+                    .iter()
+                    .map(|(k, v)| k.len() + v.wire_bytes() + 4)
+                    .sum::<usize>()
+                    + 2
+            }
+            _ => 48,
+        }
+    }
+
     /// What kind of value it is, as a fault names it, never the value
     /// itself, which may be a person's (sixth production review, ADR-0192
     /// decision 7).
