@@ -10176,6 +10176,113 @@ types:
         ));
     }
 
+    /// `referrers` reads each stored end that may name the object by its
+    /// column's index, never a type whole: it read the store whole for each
+    /// object, a filter over a type running to its deadline at 1 GB (seventh
+    /// production review REFERRERS, ADR-0194 decision 3).
+    #[test]
+    fn referrers_are_read_by_index_never_a_type_whole() {
+        let text = r#"
+module: crm
+categories: [live, closed]
+types:
+  Person:
+    description: A person.
+    tracking: record
+    attributes:
+      name: { type: string }
+    states:
+      ACTIVE: { category: live, description: Here. }
+      GONE: { category: closed, final: true, description: Gone. }
+    conditions:
+      unreferenced:
+        description: Nothing refers to the person.
+        expression: count(r in referrers) == 0
+        remedy: dependent
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [name] }
+      remove: { kind: external, from: ACTIVE, to: GONE, guards: { unreferenced: deny } }
+  Team:
+    description: A team a person leads.
+    tracking: record
+    attributes:
+      lead: { reference: Person }
+    states:
+      OPEN: { category: live, description: Working. }
+      DISBANDED: { category: closed, final: true, description: Ended. }
+    transitions:
+      form: { kind: initial, to: OPEN, required_inputs: [lead] }
+      disband: { kind: external, from: OPEN, to: DISBANDED }
+  Order:
+    description: An order a person places.
+    tracking: record
+    attributes:
+      buyer: { reference: Person }
+    states:
+      OPEN: { category: live, description: Placed. }
+      CLOSED: { category: closed, final: true, description: Done. }
+    transitions:
+      place: { kind: initial, to: OPEN, required_inputs: [buyer] }
+      close: { kind: external, from: OPEN, to: CLOSED }
+"#;
+        let lib = Library::load(&[("crm.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let people: Vec<String> = (0..120)
+            .map(|i| {
+                created(&req(
+                    &mut s,
+                    "add",
+                    OPERATOR,
+                    ("Person", true),
+                    json!({"name": format!("P{i}")}),
+                ))
+            })
+            .collect();
+        for p in &people[..60] {
+            created(&req(
+                &mut s,
+                "place",
+                OPERATOR,
+                ("Order", true),
+                json!({"buyer": p}),
+            ));
+        }
+        created(&req(
+            &mut s,
+            "form",
+            OPERATOR,
+            ("Team", true),
+            json!({"lead": people[100]}),
+        ));
+        let whole = || {
+            (
+                crate::world::whole_type_reads("Order"),
+                crate::world::whole_type_reads("Team"),
+            )
+        };
+        let before = whole();
+        let refused = |v: &Verdict| matches!(v, Verdict::Unsatisfied { clause, .. } if clause == "unreferenced");
+        assert!(refused(&req(
+            &mut s,
+            "remove",
+            OPERATOR,
+            (&people[3], false),
+            json!({})
+        )));
+        assert!(refused(&req(
+            &mut s,
+            "remove",
+            OPERATOR,
+            (&people[100], false),
+            json!({})
+        )));
+        assert!(matches!(
+            req(&mut s, "remove", OPERATOR, (&people[110], false), json!({})),
+            Verdict::Satisfied { .. }
+        ));
+        assert_eq!(whole(), before);
+    }
+
     /// `available` reads the objects in a state its transition is taken
     /// from, by the state's index, and each one's offer of that transition
     /// alone: a worklist with nothing to find read every claim of the type,

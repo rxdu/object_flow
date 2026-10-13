@@ -1397,44 +1397,68 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    /// Every object holding a reference to this one, in ascending id order,
-    /// its parts excepted, since they cascade (`declaration-syntax.md` §6.5).
+    /// Every object holding a reference to this one, in the order objects
+    /// were made, its parts excepted, since they cascade
+    /// (`declaration-syntax.md` §6.5): each stored end that may name it read
+    /// by its column's index, as `storage-schema.md` §5 has it, where the
+    /// store was read whole for each object, a filter over a type running to
+    /// its deadline at 1 GB (seventh production review REFERRERS, ADR-0194
+    /// decision 3).
     fn referrers(&self) -> Result<Value, NotRun> {
         let Some(this) = self.this else {
             return Ok(Value::Set(Vec::new()));
         };
-        let target = Value::Object(this.to_string());
         let lib = self.world.lib;
-        let holds = |x: &Object| {
-            let Some(xt) = lib.type_(&x.type_) else {
-                return false;
-            };
-            xt.attributes.iter().any(|(a, spec)| {
+        let Some(mine) = self.world.get(this)?.map(|o| o.type_.clone()) else {
+            return Ok(Value::Set(Vec::new()));
+        };
+        let target = Value::Object(this.to_string());
+        let mut found: BTreeMap<i64, String> = BTreeMap::new();
+        for (xn, xt) in &lib.types {
+            for (a, spec) in &xt.attributes {
                 let Declared::Reference(to) = &spec.declared else {
-                    return false;
+                    continue;
                 };
+                // an end the other side stores is held by none, and a
+                // reference to another type names no object of this one
+                if spec.derived_end()
+                    || !(to.as_str() == crate::model::ANY_TYPE || lib.is_a(&mine, to))
+                {
+                    continue;
+                }
                 // a part's end back to its whole cascades, and is no referrer
                 let part = spec
                     .opposite
                     .as_ref()
                     .and_then(|back| lib.type_(to).and_then(|tt| tt.attribute(back)))
                     .is_some_and(|b| b.composite);
-                !part
-                    && match x.attrs.get(a) {
-                        Some(Value::Set(items)) => items.contains(&target),
-                        Some(v) => *v == target,
-                        None => false,
+                if part {
+                    continue;
+                }
+                let holders: Vec<&Object> = if spec.many {
+                    // a set of references with no opposite, which the
+                    // checker refuses (check 41) and only an unchecked load
+                    // holds: its type read
+                    self.world
+                        .of_type(xn)?
+                        .into_iter()
+                        .filter(|x| matches!(x.attrs.get(a), Some(Value::Set(items)) if items.contains(&target)))
+                        .collect()
+                } else {
+                    self.world.with_key(
+                        xn,
+                        std::slice::from_ref(a),
+                        std::slice::from_ref(&target),
+                    )?
+                };
+                for x in holders {
+                    if x.type_ == *xn && x.id != this {
+                        found.insert(x.order, x.id.clone());
                     }
-            })
-        };
-        Ok(Value::Set(
-            self.world
-                .in_order()?
-                .into_iter()
-                .filter(|x| x.id != this && holds(x))
-                .map(|x| Value::Object(x.id.clone()))
-                .collect(),
-        ))
+                }
+            }
+        }
+        Ok(Value::Set(found.into_values().map(Value::Object).collect()))
     }
 
     /// A subject's collection of a kind: its observations nothing has

@@ -2552,6 +2552,75 @@ def test_an_identity_shows_what_it_is_alike(tee):
     alike(tee)
 
 
+CRM = """module: crm
+categories: [live, closed]
+types:
+  Person:
+    description: A person.
+    tracking: record
+    attributes:
+      name: { type: string }
+    states:
+      ACTIVE: { category: live, description: Here. }
+      GONE: { category: closed, final: true, description: Gone. }
+    conditions:
+      unreferenced:
+        description: Nothing refers to the person.
+        expression: count(r in referrers) == 0
+        remedy: dependent
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [name] }
+      remove: { kind: external, from: ACTIVE, to: GONE, guards: { unreferenced: deny } }
+  Team:
+    description: A team a person leads.
+    tracking: record
+    attributes:
+      lead: { reference: Person }
+    states:
+      OPEN: { category: live, description: Working. }
+      DISBANDED: { category: closed, final: true, description: Ended. }
+    transitions:
+      form: { kind: initial, to: OPEN, required_inputs: [lead] }
+      disband: { kind: external, from: OPEN, to: DISBANDED }
+  Order:
+    description: An order a person places.
+    tracking: record
+    attributes:
+      buyer: { reference: Person }
+    states:
+      OPEN: { category: live, description: Placed. }
+      CLOSED: { category: closed, final: true, description: Done. }
+    transitions:
+      place: { kind: initial, to: OPEN, required_inputs: [buyer] }
+      close: { kind: external, from: OPEN, to: CLOSED }
+"""
+
+
+def test_referrers_through_two_references_alike(tee):
+    """`referrers` finds what refers to an object through each reference that
+    may name it, and nothing else, alike through both backends, the core
+    reading each by its index (seventh production review REFERRERS, ADR-0194
+    decision 3)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "crm.yaml", "text": CRM}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+
+    def made(tn: str, xn: str, inputs: dict) -> str:
+        v = tee.post("/v1/request", {"type": tn, "transition": xn, "actor": OP, "inputs": inputs})
+        assert v["kind"] == "satisfied", v
+        return v["object_id"]
+
+    people = [made("Person", "add", {"name": f"P{i}"}) for i in range(4)]
+    order = made("Order", "place", {"buyer": people[0]})
+    team = made("Team", "form", {"lead": people[1]})
+    for p in people:
+        tee.post("/v1/request", {"object_id": p, "transition": "remove", "actor": OP})
+    for p, holder in ((people[0], order), (people[1], team)):
+        v = tee.post("/v1/request", {"object_id": p, "transition": "remove", "actor": OP})
+        assert (v["kind"], v.get("clause"), v.get("objects")) == ("unsatisfied", "unreferenced", [holder]), v
+    alike(tee)
+
+
 def test_an_actor_named_in_another_case_is_that_actor_alike(tee):
     """An actor named by its identity in another case of its ASCII letters is
     that actor, recorded under the identity it holds, as uniqueness compares

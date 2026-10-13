@@ -981,6 +981,15 @@ impl<'l> World<'l> {
                         "the store's objects, which could not be read: {e}"
                     ))
                 })?;
+                // every type read whole, counted as a type's whole read is,
+                // where a test of a read that must read none could not see
+                // this one (ADR-0194 decision 3)
+                WHOLE_TYPE_READS.with(|n| {
+                    let mut n = n.borrow_mut();
+                    for t in self.lib.types.keys() {
+                        *n.entry(t.clone()).or_default() += 1;
+                    }
+                });
                 self.hold_fetched(fetched)?;
             }
             self.held
