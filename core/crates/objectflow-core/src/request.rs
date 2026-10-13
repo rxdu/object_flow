@@ -5428,8 +5428,17 @@ pub fn check(
 ) -> Result<Result<Checked, NotRun>, crate::store::StoreError> {
     let named = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let checking = Some(named.clone());
+    let prepared = store.prepared.take();
     let decided = store.simulate(|world, alloc| {
-        decide_as(world, alloc, req, &BTreeMap::new(), &checking, None).map(|(v, _, r)| {
+        decide_as(
+            world,
+            alloc,
+            req,
+            &BTreeMap::new(),
+            &checking,
+            prepared.as_deref(),
+        )
+        .map(|(v, _, r)| {
             let t = told(world.lib, world, req, &v, &r);
             (v, t)
         })

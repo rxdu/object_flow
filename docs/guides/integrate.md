@@ -162,7 +162,7 @@ A new version is a `DeclarationChange`:
 3. **Read the report**: what the version migrates, what it would newly refuse, and the objects each reaches.
 4. **Approve** it: `POST /v1/publish {"actor": …, "change": "<id>", "expected_version": <the change's version you read>}`. This installs the version.
 
-Who may approve is set by the flow's `publishing: { taken_by: [human] }`; the operator always may. Data from a system you are replacing comes in through `import_batch`, into types the version marks `mirror`. [`publish-and-import.md`](../design/publish-and-import.md) works a go-live through.
+Who may approve is set by the flow's `publishing: { taken_by: [human] }`; the operator always may, and where no module sets it, any kind but an agent may. Data from a system you are replacing comes in through `import_batch`, into types the version marks `mirror`. [`publish-and-import.md`](../design/publish-and-import.md) works a go-live through.
 
 ## Testing your application
 

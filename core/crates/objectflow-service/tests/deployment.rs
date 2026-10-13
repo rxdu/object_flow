@@ -779,6 +779,103 @@ fn a_deployments_edges_are_said() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A store holding actors whose identities are equal but for case, which
+/// an earlier release took, is said at its start by the actors' object
+/// ids, never their identities, with the remedy, where the start said
+/// nothing (eighth production review CASE-PAIR, ADR-0195 decision 2).
+#[test]
+fn actors_equal_but_for_case_are_said_at_the_start() {
+    let file = fresh_store("case-pair");
+    let path = file.to_str().expect("a path");
+    let (ana, other) = {
+        let s = start(&["--store", path, "--create", "--port", "0"]);
+        publish_service(&s);
+        let op = json!({"id": "operator"});
+        let add = |login: &str| {
+            let v = post(
+                &s,
+                "/v1/request",
+                &json!({"actor": op, "type": "User", "transition": "add",
+                        "inputs": {"login": login, "name": "A person"}}),
+            );
+            v["object_id"].as_str().expect("a user").to_string()
+        };
+        (add("Ana.Lee@example.org"), add("bob@example.org"))
+    };
+    // as 0.2.0 took it: the second's identity the first's but for case
+    rusqlite::Connection::open(&file)
+        .and_then(|c| {
+            c.execute(
+                "UPDATE t_user SET login = 'ana.lee@EXAMPLE.org' WHERE id = ?1",
+                [&other],
+            )
+        })
+        .expect("the pair written");
+    let s = start(&["--store", path, "--port", "0"]);
+    let want = "whose identities are equal but for case";
+    let said = s.said_within(want);
+    assert!(
+        said.contains(want) && said.contains(&format!("{ana} and {other}")),
+        "{said}"
+    );
+    assert!(said.contains("identity_taken"), "{said}");
+    assert!(
+        !said.to_lowercase().contains("ana.lee@example.org"),
+        "{said}"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+/// A backup restored beside the `-wal` of a later state is refused at the
+/// start with the advice to restore the copy alone, whichever check finds
+/// it, where a store whose schema the log moved was refused with SQLite's
+/// words alone (eighth production review, ADR-0195 decision 7).
+#[test]
+fn a_backup_restored_beside_a_later_log_is_refused_with_the_advice() {
+    let file = fresh_store("restored");
+    let path = file.to_str().expect("a path");
+    let backup = file.with_extension("backup");
+    {
+        let s = start(&["--store", path, "--create", "--port", "0"]);
+        publish_service(&s);
+    }
+    std::fs::copy(&file, &backup).expect("the backup");
+    // a later state's writes in the log a kill left
+    {
+        let s = start(&["--store", path, "--port", "0"]);
+        let op = json!({"id": "operator"});
+        for i in 0..200 {
+            let v = post(
+                &s,
+                "/v1/request",
+                &json!({"actor": op, "type": "User", "transition": "add",
+                        "inputs": {"login": format!("u{i}"), "name": "A person"}}),
+            );
+            assert_eq!(v["kind"], "satisfied", "{v}");
+        }
+    }
+    let wal = file.with_file_name("store.sqlite-wal");
+    std::fs::copy(&backup, &file).expect("the backup restored");
+    let (file_before, log_before) = (
+        std::fs::read(&file).expect("the file"),
+        std::fs::read(&wal).expect("the log"),
+    );
+    assert!(!log_before.is_empty(), "a later log beside it");
+    let (code, said) = refused(&["--store", path, "--port", "0"]);
+    assert_eq!(code, Some(1), "{said}");
+    assert!(said.contains("restore the copy alone"), "{said}");
+    assert!(
+        std::fs::read(&file).expect("the file") == file_before,
+        "the refused start changed the file"
+    );
+    assert!(
+        std::fs::read(&wal).expect("the log") == log_before,
+        "the refused start changed the log"
+    );
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
 /// A path that holds no store, absent or empty, is refused unless the start
 /// asks to make one, so a mistyped path never becomes an empty store served
 /// (ADR-0183 decision 3); a store made is its owner's alone, its `-wal`
@@ -1254,6 +1351,92 @@ fn what_a_heavy_request_freed_is_given_back() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
+/// An erasure beside a change's long dry run leaves the store's file and
+/// its `-wal` within the log's cut, while the dry run still runs: its checks
+/// hold no read of the store, where the erased value stayed in both for the
+/// whole of a 38.7 s check (eighth production review ERASE-WAL-DRYRUN,
+/// ADR-0195 decision 1).
+#[test]
+fn an_erasure_beside_a_long_dry_run_leaves_the_files() {
+    use std::time::{Duration, Instant};
+    let file = fresh_store("erase-dry");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    let note = "module: n\ncategories: [live, closed]\ntypes:\n  Note:\n    description: A note.\n    tracking: record\n    attributes:\n      text: { type: string, personal: true, optional: true }\n    states:\n      OPEN: { category: live, description: Open. }\n      DONE: { category: closed, final: true, description: Done. }\n    transitions:\n      jot: { kind: initial, to: OPEN, optional_inputs: [text] }\n      done: { kind: external, from: OPEN, to: DONE }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+    publish(&s, &json!({ "n": note }));
+    let op = json!({"id": "operator"});
+    let marker = format!("ERASE-ME-{}", "Q".repeat(40));
+    let jotted = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Note", "transition": "jot", "inputs": {"text": marker}}),
+    );
+    let id = jotted["object_id"].as_str().expect("a note").to_string();
+    // a change whose checks take seconds: two thousand types
+    let big: String = std::iter::once(note.to_string())
+        .chain((0..2000).map(|i| {
+            format!(
+                "  T{i}:\n    description: A thing.\n    tracking: record\n    states:\n      ON: {{ category: live, description: On. }}\n      OFF: {{ category: closed, final: true, description: Off. }}\n    transitions:\n      make: {{ kind: initial, to: ON }}\n      stop: {{ kind: external, from: ON, to: OFF }}\n"
+            )
+        }))
+        .collect();
+    let drafted = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
+                "inputs": {"source": {"n": big}, "source_ref": "test:big"}}),
+    );
+    let change = drafted["object_id"].as_str().expect("a change").to_string();
+    let files = [file.clone(), file.with_extension("sqlite-wal")];
+    let holds = |p: &PathBuf| {
+        std::fs::read(p).is_ok_and(|b| b.windows(marker.len()).any(|w| w == marker.as_bytes()))
+    };
+    std::thread::scope(|scope| {
+        let checking = scope.spawn(|| {
+            let began = Instant::now();
+            let (status, _) = call(
+                &s,
+                "POST",
+                "/v1/check",
+                Some(&json!({"actor": op, "object_id": change, "transition": "submit"})),
+            );
+            (status, began.elapsed())
+        });
+        std::thread::sleep(Duration::from_secs(1));
+        let erased = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "object_id": id, "transition": "forget", "inputs": {"reason": "asked"}}),
+        );
+        assert_eq!(erased["kind"], "satisfied", "{erased}");
+        let at = Instant::now();
+        let mut gone = None;
+        while at.elapsed() < Duration::from_secs(15) {
+            if !files.iter().any(&holds) {
+                gone = Some(at.elapsed());
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        let still_checking = !checking.is_finished();
+        let (status, took) = checking.join().expect("the check");
+        assert_eq!(status, 200);
+        let gone = gone.unwrap_or_else(|| {
+            panic!("the erased value stayed in the store's files 15 s, the check taking {took:?}")
+        });
+        assert!(
+            still_checking,
+            "inconclusive: the check, {took:?}, ended before the files were clean, {gone:?} after the erasure"
+        );
+    });
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
 /// A submit whose dry run passes its deadline, `--dry-run-timeout`, is
 /// answered `503 read_timeout` and records nothing, where it was computed
 /// again under the writer's lock, unbounded and unsaid, every write waiting
@@ -1655,8 +1838,9 @@ fn a_retention_without_a_store_is_refused() {
 }
 
 /// A bank whose transfers clear by their reference: `T-1` cleared, `T-2` not,
-/// `T-3` a fault, `T-4` an answer slower than the service waits, and `T-5`
-/// an answer with no verdict. Each call it is posted is kept, as it arrives.
+/// `T-3` a fault, `T-4` an answer slower than the service waits, `T-5` an
+/// answer with no verdict, and `T-7` a redirect to a path that clears
+/// anything. Each call it is posted is kept, as it arrives.
 #[allow(clippy::type_complexity)]
 fn bank() -> (
     String,
@@ -1668,6 +1852,7 @@ fn bank() -> (
         "http://{}/evaluate",
         listener.local_addr().expect("its address")
     );
+    let elsewhere = url.replace("/evaluate", "/elsewhere");
     let posted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let kept = posted.clone();
     // each call's Authorization header, none where it carried none
@@ -1678,16 +1863,21 @@ fn bank() -> (
             let Ok(mut stream) = stream else { continue };
             let kept = kept.clone();
             let heard = heard.clone();
+            let elsewhere = elsewhere.clone();
             // each call answered on its own thread, so a slow answer holds
             // up no other
             std::thread::spawn(move || {
                 let mut reader = BufReader::new(stream.try_clone().expect("the stream"));
                 let mut length = 0;
                 let mut authorization = None;
+                let mut asked = String::new();
                 loop {
                     let mut line = String::new();
                     if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
                         break;
+                    }
+                    if asked.is_empty() {
+                        asked = line.clone();
                     }
                     if let Some(n) = line.to_ascii_lowercase().strip_prefix("content-length:") {
                         length = n.trim().parse().unwrap_or(0);
@@ -1701,6 +1891,23 @@ fn bank() -> (
                 let _ = reader.read_exact(&mut body);
                 let call: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
                 kept.lock().expect("the calls").push(call.clone());
+                // the place a redirect names, which clears anything
+                if asked.contains("/elsewhere") {
+                    let answer = r#"{"verdict": "satisfied"}"#;
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 200 X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+                        answer.len()
+                    );
+                    return;
+                }
+                if call["arguments"][0].as_str() == Some("T-7") {
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 302 X\r\nLocation: {elsewhere}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    );
+                    return;
+                }
                 let (status, answer) = match call["arguments"][0].as_str() {
                     Some("T-1") => (200, r#"{"verdict": "satisfied"}"#),
                     Some("T-2") => (200, r#"{"verdict": "unsatisfied"}"#),
@@ -1913,7 +2120,9 @@ fn a_deployment_asks_its_evaluators_at_their_endpoints() {
     // a fault, an answer too slow, an answer with no verdict and one naming
     // its verdict twice are the evaluator's unknown: refused, and the caller
     // told to wait
-    for reference in ["T-3", "T-4", "T-5", "T-6"] {
+    // a redirect followed by none, to a place the operator never named
+    // (eighth production review EV-REDIRECT, ADR-0195 decision 3)
+    for reference in ["T-3", "T-4", "T-5", "T-6", "T-7"] {
         let v = settle(&s, reference);
         assert_eq!(
             (v["kind"].as_str(), v["remedy"].as_str()),
@@ -3301,8 +3510,35 @@ fn writes_stalled_behind_another_lock_are_said_by_health() {
     let add = json!({"actor": op, "type": "User", "transition": "add", "inputs": {"login": "ana", "name": "Ana"}});
     let other = rusqlite::Connection::open(&file).expect("another process's connection");
     other.execute_batch("BEGIN IMMEDIATE").expect("its lock");
-    let (status, v) = call(&s, "POST", "/v1/request", Some(&add));
-    assert_eq!((status, v["kind"].as_str()), (200, Some("stale")), "{v}");
+    // said as the write waits, from its first retry, where it was said only
+    // once a write was refused, 40 s on (eighth production review, ADR-0195
+    // decision 6)
+    std::thread::scope(|scope| {
+        let first = scope.spawn(|| call(&s, "POST", "/v1/request", Some(&add)));
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        let (status, health) = call(&s, "GET", "/health", None);
+        assert_eq!(
+            (status, health["code"].as_str()),
+            (503, Some("writes_stalled")),
+            "{health}"
+        );
+        assert!(!first.is_finished(), "the write ended before its retries");
+        let (status, v) = first.join().expect("the first write");
+        assert_eq!((status, v["kind"].as_str()), (200, Some("stale")), "{v}");
+        // the next write's wait counted from the first one's retry, where
+        // it began again at each write
+        let second = scope.spawn(|| call(&s, "POST", "/v1/request", Some(&add)));
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let (_, health) = call(&s, "GET", "/health", None);
+        let held = health["writer_held_seconds"].as_f64().unwrap_or_default();
+        assert!(held >= 3.0, "the writer held {held} s: {health}");
+        let (status, v) = second.join().expect("the second write");
+        assert_eq!((status, v["kind"].as_str()), (200, Some("stale")), "{v}");
+    });
+    // the stall said in the log once, as it began
+    let want = "writes are waiting for another process's lock on the store";
+    let said = s.said_within(want);
+    assert_eq!(said.matches(want).count(), 1, "{said}");
     let (status, health) = call(&s, "GET", "/health", None);
     assert_eq!(
         (status, health["code"].as_str()),
@@ -3318,6 +3554,64 @@ fn writes_stalled_behind_another_lock_are_said_by_health() {
     );
     let (status, health) = call(&s, "GET", "/health", None);
     assert_eq!(status, 200, "{health}");
+}
+
+/// Writes failing for the service's own fault make `/health` answer `503
+/// writes_failing` once three in a row are answered 500, and 200 again once
+/// one commits, where `/health` answered 200 while every write failed
+/// (eighth production review, ADR-0195 decision 6). The writes fail here
+/// by a trigger another process added, reads untouched; the review's own
+/// path, a backup copied over the live file in place, was not reproduced:
+/// the copies tried either failed `/health` too or served the backup.
+#[test]
+fn writes_failing_are_said_by_health() {
+    let file = fresh_store("failing");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish_service(&s);
+    let op = json!({"id": "operator"});
+    let add = |i: usize| {
+        json!({"actor": op, "type": "User", "transition": "add",
+               "inputs": {"login": format!("u{i}"), "name": "A person"}})
+    };
+    assert_eq!(post(&s, "/v1/request", &add(0))["kind"], "satisfied");
+    let other = rusqlite::Connection::open(&file).expect("another process's connection");
+    other
+        .execute_batch(
+            "CREATE TRIGGER failing BEFORE INSERT ON of_event BEGIN SELECT RAISE(ABORT, 'failing'); END;",
+        )
+        .expect("the trigger");
+    for i in 1..3 {
+        assert_eq!(call(&s, "POST", "/v1/request", Some(&add(i))).0, 500);
+        let (status, health) = call(&s, "GET", "/health", None);
+        assert_eq!(status, 200, "said after {i} failure(s): {health}");
+    }
+    assert_eq!(call(&s, "POST", "/v1/request", Some(&add(3))).0, 500);
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(
+        (status, health["code"].as_str()),
+        (503, Some("writes_failing")),
+        "{health}"
+    );
+    // a write refused for its own reason is no failure of the service's,
+    // and ends the run as a commit does
+    other
+        .execute_batch("DROP TRIGGER failing")
+        .expect("the trigger dropped");
+    let (status, v) = call(&s, "POST", "/v1/request", Some(&add(0)));
+    assert_eq!(
+        (status, v["kind"].as_str()),
+        (200, Some("invariant_violated")),
+        "{v}"
+    );
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 200, "{health}");
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
 /// A log no one reads stops no request beyond its bound, and `/health`

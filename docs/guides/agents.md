@@ -95,7 +95,7 @@ types:
 
 A rule about who acted that is not a whole transition, such as "a line's nature confirmed by a person", records the actor's kind when it acts (`assign: { location: nature_confirmed_by, expr: actor.kind }`) and constrains the record with an invariant, as the `reimbursement.yaml` sample's `confirmed_by_a_person` does. An agent it refuses is told `delegable`.
 
-The checker points at what is left open. Without the `taken_by` and `publishing` lines, it gives the notice `agent_open`, naming by type the transitions an agent may take on the wire, and `publishing_open`, saying an agent may approve the next version. The notice `taken_by_dropped` flags a new version that loosens a `taken_by` or `publishing` rule the previous one had.
+The checker points at what is left open. Without the `taken_by` and `publishing` lines, it gives the notice `agent_open`, naming by type the transitions an agent may take on the wire, and `publishing_open`, saying the default decides who approves the next version: an agent is refused and any other kind may. The notice `taken_by_dropped` flags a new version that loosens a `taken_by` or `publishing` rule the previous one had.
 
 ## Try it
 
@@ -191,10 +191,10 @@ of history '{"id": "leaverequest-4"}' | jq -c '.events[] | {transition, actor_id
 The flow governs objects. Some operations govern the store itself, and the engine does not read an actor's kind to refuse them. The generated tools offer none of them, so an agent held to its tools cannot ask. If an agent can reach the wire directly, your gateway must refuse it:
 
 - `maintain`, `upgrade` and `import_batch`;
-- `publish`, unless the flow declares `publishing: { taken_by: [human] }`, as above;
-- `pull`, `acknowledge`, and the `revoke` transition, on a subscription that is not the agent's own.
+- `pull`, `acknowledge`, and the `revoke` transition, on a subscription that is not the agent's own;
+- recording a label (`"type": "label"`, `record`), which anyone may put on any object, unless your agent should.
 
-An agent may draft and submit a `DeclarationChange`. Approving it stays with a person.
+`publish` needs no rule of yours. An agent may draft and submit a `DeclarationChange`, but its approval is refused unless the flow's `publishing` names `agent`. Where no module declares `publishing`, any other kind may approve; `publishing: { taken_by: [human] }` keeps it with people.
 
 **Reads are not filtered.** A read authorizes nothing, so an agent's `get_object` and `query_objects` return what a person's would, personal attributes included. Filter what you hand the model by your own rules on who may see what. A metric that names a person is listed in its type's `person_dimensions`.
 

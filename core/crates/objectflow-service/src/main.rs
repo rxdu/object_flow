@@ -63,6 +63,9 @@ struct Sandbox {
     /// this one: every operation but the upgrade is refused until it runs
     /// (ADR-0177 decision 4).
     due: Option<String>,
+    /// Since when its writes have waited for another process's lock, which
+    /// every store it opens tells and `/health` reads (ADR-0195 decision 6).
+    lock_wait: Arc<AtomicI64>,
 }
 
 /// When the line being written to the log began, in milliseconds since
@@ -175,8 +178,13 @@ fn asked(
 ) -> &'static str {
     let body = json!({"evaluator": call.evaluator, "function": call.function, "arguments": call.arguments})
         .to_string();
+    // a redirect followed by none: a 3xx is an answer that is not a 200, so
+    // the evaluator is unknown, where a redirect sent the call to a host the
+    // operator never configured, whose answer decided a guard (eighth
+    // production review EV-REDIRECT, ADR-0195 decision 3)
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
+        .max_redirects(0)
         .http_status_as_error(false)
         .tls_config(
             ureq::tls::TlsConfig::builder()
@@ -331,6 +339,11 @@ struct Service {
     admission: Admission,
     worklists: Admission,
     dry_runs: Admission,
+    /// An object's history and events by position, each a page of 8 MiB at
+    /// most, never behind the worklists' whole-type scans, where a person's
+    /// history waited 2.4 to 4.8 s (eighth production review, ADR-0195
+    /// decision 5).
+    objects: Admission,
     /// Every read an agent makes that waits its turn, whatever it reads, so
     /// an agent's sweeping reads never hold a person's worklist slot or an
     /// analytic's (sixth production review P5, ADR-0192 decision 3).
@@ -371,6 +384,15 @@ struct Service {
 struct Watch {
     written_at: AtomicI64,
     stalled_at: AtomicI64,
+    /// Since when writes have waited for another process's lock, as the
+    /// store tells it, and the wait last said in the log, so each is said
+    /// once (ADR-0195 decision 6).
+    lock_wait: Arc<AtomicI64>,
+    lock_wait_told: AtomicI64,
+    /// The writes answered 500 since one was answered otherwise, and when
+    /// the last was (ADR-0195 decision 6).
+    fails: std::sync::atomic::AtomicU64,
+    failed_at: AtomicI64,
     verdicts: Mutex<std::collections::BTreeMap<&'static str, u64>>,
     durations: Mutex<std::collections::BTreeMap<String, [u64; BUCKETS.len()]>>,
     answered: std::sync::atomic::AtomicU64,
@@ -390,6 +412,19 @@ const BUCKETS: [f64; 8] = [0.005, 0.025, 0.1, 0.5, 1.0, 2.5, 10.0, 30.0];
 /// How recently a write must have met another process's lock past its
 /// retries, with none committed since, for `/health` to say writes stall.
 const STALLED_MS: i64 = 60_000;
+
+/// How many writes in a row answered 500 `/health` says are failing.
+const WRITES_FAILING: u64 = 3;
+
+/// The routes that write, whose answers `/health`'s `writes_failing` reads.
+const WRITE_ROUTES: [&str; 6] = [
+    "/v1/request",
+    "/v1/maintain",
+    "/v1/acknowledge",
+    "/v1/import_batch",
+    "/v1/publish",
+    "/v1/upgrade",
+];
 
 impl Watch {
     /// A request's verdict: committed, or stopped by another process's lock.
@@ -412,6 +447,33 @@ impl Watch {
         stalled != 0
             && stalled > self.written_at.load(Ordering::SeqCst)
             && now - stalled < STALLED_MS
+    }
+
+    /// A write's answer, by its status: one the service failed, a 500, or
+    /// any other, which ends a run of them.
+    fn wrote(&self, status: u16, now: i64) {
+        if status == 500 {
+            self.fails.fetch_add(1, Ordering::SeqCst);
+            self.failed_at.store(now, Ordering::SeqCst);
+        } else {
+            self.fails.store(0, Ordering::SeqCst);
+        }
+    }
+
+    /// Whether writes fail: three or more answered 500 since one was
+    /// answered otherwise, the last of them lately, where `/health` said
+    /// 200 while a backup copied over the live file failed every write
+    /// (eighth production review, ADR-0195 decision 6). How many.
+    fn failing(&self, now: i64) -> Option<u64> {
+        let fails = self.fails.load(Ordering::SeqCst);
+        (fails >= WRITES_FAILING && now - self.failed_at.load(Ordering::SeqCst) < STALLED_MS)
+            .then_some(fails)
+    }
+
+    /// Since when a write has waited for another process's lock, where one
+    /// is waiting.
+    fn waiting(&self) -> Option<i64> {
+        Some(self.lock_wait.load(Ordering::SeqCst)).filter(|w| *w != 0)
     }
 
     /// A route's answer, by how long it took.
@@ -465,11 +527,18 @@ fn wall_millis() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
-/// How long the writer has been held, in seconds, or none while it is free.
+/// How long the writer has been held, in seconds, or none while it is free:
+/// through a write's retries on another process's lock and the writes
+/// refused after them, from the first retry, where it began again at each
+/// write and an alert on a minute never fired (eighth production review,
+/// ADR-0195 decision 6).
 fn writer_held(shared: &Service) -> f64 {
     match shared.writer_since.load(Ordering::SeqCst) {
         0 => 0.0,
-        since => (wall_millis() - since).max(0) as f64 / 1000.0,
+        since => {
+            let from = shared.watch.waiting().map_or(since, |w| w.min(since));
+            (wall_millis() - from).max(0) as f64 / 1000.0
+        }
     }
 }
 
@@ -1174,7 +1243,12 @@ impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
         {
             return Err(Fault::Bad(format!("{path} takes no key {k}")));
         }
-        Ok(Body(J::Object(body)))
+        // an actor, wherever one is given, is an object of an id and a
+        // principal, where a read took one of any JSON type, `"actor": [1]`
+        // (eighth production review, ADR-0195 decision 7)
+        let body = J::Object(body);
+        actor_id(&body)?;
+        Ok(Body(body))
     }
 }
 
@@ -1219,6 +1293,7 @@ fn reopened(sandbox: &mut Sandbox) -> String {
     };
     let opened = Store::open(&path, wall_clock()).and_then(|mut s| {
         (s.attempt_retention, s.idempotency_retention) = sandbox.retentions;
+        s.lock_wait = Some(sandbox.lock_wait.clone());
         s.set_busy_timeout(sandbox.busy_timeout)?;
         Ok(s)
     });
@@ -1612,17 +1687,24 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
         // takes it only where nothing it read has changed (DRYRUN-LOCK)
         let prepared = match &req.object_id {
             Some(id) if shared.reads.is_some() && changes_the_flow(&shared, &req)? => {
-                let (_slot, mut r) = heavy_reading(&shared, &shared.dry_runs, actor_id(&body)?)?;
-                let s = r.store()?;
-                match objectflow_core::publish::prepare(&s.snapshot()?, id, &req.actor) {
-                    Ok(prepared) => prepared,
-                    // past the read's deadline it is answered so, never
-                    // computed again under the lock, where every write
-                    // waited for it unbounded and unsaid (PUBLISH-SCALE)
-                    Err(NotRun::TimedOut(_)) => return Err(dry_run_late(&shared)),
-                    // any other read that cannot prepare it leaves it to the
-                    // request, which says why it cannot
-                    Err(_) => None,
+                // past its deadline, or stopped by an urgent cut, it is
+                // answered so, never computed again under the lock, where
+                // every write waited for it unbounded and unsaid
+                // (PUBLISH-SCALE); any other read that cannot prepare it
+                // leaves it to the request, which says why it cannot
+                match dry_running(&shared, id, actor_id(&body)?, &req.actor) {
+                    Ok(Some((read, report)))
+                        if matches!(read.state.as_str(), "DRAFTED" | "SUBMITTED") =>
+                    {
+                        Some(objectflow_core::publish::Prepared {
+                            change: read.change,
+                            change_version: read.change_version,
+                            at: report.version - 1,
+                            report,
+                        })
+                    }
+                    Err(f @ Fault::TimedOut(_)) => return Err(f),
+                    _ => None,
                 }
             }
             _ => None,
@@ -1657,16 +1739,33 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
         // a check of a change's submit runs its dry run, one at a time as a
         // submit's does, where six at once took 9.3 GB outside every bound
         // (fifth production review DRYRUN-MEMORY, ADR-0190 decision 2)
-        let _slot = if shared.reads.is_some() && changes_the_flow(&shared, &req)? {
-            let until = std::time::Instant::now() + shared.dry_run_timeout;
-            Some(shared.dry_runs.take(until, shared.dry_run_timeout)?)
-        } else {
-            None
+        // a check of a change's submit runs its dry run as a submit does,
+        // its checks with no read open (ADR-0195 decision 1)
+        let prepared = match &req.object_id {
+            Some(id) if shared.reads.is_some() && changes_the_flow(&shared, &req)? => {
+                match dry_running(&shared, id, actor_id(&body)?, &req.actor)? {
+                    Some((read, report))
+                        if matches!(read.state.as_str(), "DRAFTED" | "SUBMITTED") =>
+                    {
+                        Some(objectflow_core::publish::Prepared {
+                            change: read.change,
+                            change_version: read.change_version,
+                            at: report.version - 1,
+                            report,
+                        })
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
         };
         let c = consulting(
             &shared,
             true,
-            |s| Ok(request::check(s, &req)?),
+            |s| {
+                s.prepared = prepared.clone().map(Box::new);
+                Ok(request::check(s, &req)?)
+            },
             |out| match out {
                 Err(NotRun::Unanswered(c)) => Some((**c).clone()),
                 _ => None,
@@ -2366,12 +2465,15 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
             // production review PUBLISH-SCALE); a sandbox's reads take the
             // writer, as every one of its reads does
             if shared.reads.is_some() {
-                let (_slot, mut r) = heavy_reading(&shared, &shared.dry_runs, actor_id(&body)?)?;
-                let s = r.store()?;
-                return preview(&s.snapshot()?, actor, change).map_err(|e| match e {
-                    Fault::TimedOut(_) => dry_run_late(&shared),
-                    other => other,
-                });
+                // its checks with no read open, its impact stopped by an
+                // urgent cut (ADR-0195 decision 1)
+                return match dry_running(&shared, change, actor_id(&body)?, actor)? {
+                    Some((_, report)) => Ok(Json(json!({
+                        "verdict": J::Null,
+                        "report": objectflow_core::publish::report_json(&report),
+                    }))),
+                    None => Err(Fault::Missing(format!("no change {change}"))),
+                };
             }
             let mut sandbox = locked(&shared)?;
             let s = store(&mut sandbox)?;
@@ -2405,6 +2507,60 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
             "report": report.as_ref().map(objectflow_core::publish::report_json),
         })))
     })
+}
+
+/// A change's dry run as its three routes run it, a submit's or refresh's,
+/// a preview's and a check's: its slot taken; the change read; its checks
+/// run with no read of the store open, so an erasure's cut of the
+/// write-ahead log never waits for them, where an agent's large change held
+/// an erased value in the store's files for the whole of a 38.7 s check;
+/// and its impact on a second read, stopped by an urgent cut as every read
+/// is (eighth production review ERASE-WAL-DRYRUN, ADR-0195 decision 1).
+fn dry_running(
+    shared: &Shared,
+    change: &str,
+    pool_actor: Option<&str>,
+    actor: &str,
+) -> Result<
+    Option<(
+        objectflow_core::publish::ChangeRead,
+        objectflow_core::publish::PublishReport,
+    )>,
+    Fault,
+> {
+    let until = std::time::Instant::now() + shared.dry_run_timeout;
+    let _slot = match shared.reads {
+        Some(_) => {
+            pool_of(shared, &shared.dry_runs, pool_actor)?.take(until, shared.dry_run_timeout)?
+        }
+        None => Slot(None),
+    };
+    let late = |e: NotRun| match e {
+        NotRun::TimedOut(why) if std::time::Instant::now() < until => Fault::TimedOut(why),
+        NotRun::TimedOut(_) => dry_run_late(shared),
+        other => Fault::from(other),
+    };
+    let (read, lib) = {
+        let mut r = reading_until(shared, until)?;
+        let s = r.store()?;
+        let Some(read) =
+            objectflow_core::publish::change_read(&s.snapshot()?, change).map_err(late)?
+        else {
+            return Ok(None);
+        };
+        (read, s.shared().0)
+    };
+    let checked = objectflow_core::publish::checks_of(&lib, wall_clock(), &read.draft(actor))
+        .map_err(late)?;
+    if std::time::Instant::now() >= until {
+        return Err(dry_run_late(shared));
+    }
+    let mut r = reading_until(shared, until)?;
+    let s = r.store()?;
+    let report =
+        objectflow_core::publish::dry_run_checked(&s.snapshot()?, &read.draft(actor), checked)
+            .map_err(late)?;
+    Ok(Some((read, report)))
 }
 
 /// A change's dry run stopped at the read's deadline, said as such: a
@@ -2483,7 +2639,8 @@ async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 ))
             })?),
         };
-        let (_slot, mut r) = heavy_reading(&shared, &shared.worklists, actor_id(&body)?)?;
+        // in the objects' pool, never behind a worklist (ADR-0195 decision 5)
+        let (_slot, mut r) = heavy_reading(&shared, &shared.objects, actor_id(&body)?)?;
         let s = r.store()?;
         // an object that does not exist has no history, null as get's (ADR-0173)
         if reads::get(&s.snapshot()?, id)?.is_none() {
@@ -2546,9 +2703,10 @@ async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "events takes each position once, not {twice} twice"
             )));
         }
-        // waiting its turn, as a worklist does: a thousand large positions
-        // answered 16.5 MB, eight at once 572 MB (ADR-0192 decision 5)
-        let (_slot, mut r) = heavy_reading(&shared, &shared.worklists, actor_id(&body)?)?;
+        // waiting its turn: a thousand large positions answered 16.5 MB,
+        // eight at once 572 MB (ADR-0192 decision 5); in the objects' pool,
+        // never behind a worklist (ADR-0195 decision 5)
+        let (_slot, mut r) = heavy_reading(&shared, &shared.objects, actor_id(&body)?)?;
         let s = r.store()?;
         // at most a page's bytes, where a thousand of large inputs answered
         // 108 MB (seventh production review, ADR-0194 decision 6)
@@ -2909,13 +3067,28 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                     "log_blocked: a line of the log has waited more than {} s to be written; its lines are dropped until it is read",
                     LOG_BLOCKED_MS / 1000
                 ))
+            } else if let Some(since) = shared
+                .watch
+                .waiting()
+                .filter(|_| shared.writer_since.load(Ordering::SeqCst) != 0)
+            {
+                // from a write's first retry, where it was said only once
+                // a write was refused, 40 s on (ADR-0195 decision 6)
+                Some(format!(
+                    "writes_stalled: a write has waited {} s for another process's lock on the store",
+                    (now - since).max(0) / 1000
+                ))
             } else if shared.watch.stalled(now) {
                 Some(
                     "writes_stalled: the last write met another process's lock past its retries, and none has committed since"
                         .to_string(),
                 )
             } else {
-                None
+                shared.watch.failing(now).map(|fails| {
+                    format!(
+                        "writes_failing: the last {fails} writes failed for the service's own fault, answered 500, and none has succeeded since; its log says why"
+                    )
+                })
             };
             if let Some(fault) = fault {
                 body["code"] = json!(fault_code(503, &fault));
@@ -3016,6 +3189,7 @@ async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
         if report.upgraded {
             let mut s = Store::open(&path, wall_clock())?;
             (s.attempt_retention, s.idempotency_retention) = sandbox.retentions;
+            s.lock_wait = Some(sandbox.lock_wait.clone());
             s.set_busy_timeout(sandbox.busy_timeout)?;
             sandbox.store = Some(s);
             sandbox.due = None;
@@ -3127,6 +3301,9 @@ async fn logged(
         row.1 += took;
     }
     shared.watch.timed(&route, took);
+    if WRITE_ROUTES.contains(&route.as_str()) {
+        shared.watch.wrote(status, wall_millis());
+    }
     // what a publish, an import or a long read freed, given back to the
     // system, which glibc kept: 975 MB held after one publish on 37k
     // objects, 23 MB once given back (third production review MEMORY-2)
@@ -3336,7 +3513,8 @@ async fn metrics(State(shared): State<Shared>) -> Response {
         LINES_DROPPED.load(Ordering::SeqCst)
     ));
     // the reads that grow with the store, bounded in number (ADR-0189)
-    // by pool, the worklists', the analytics' and the dry runs' (ADR-0190)
+    // by pool, the worklists', the analytics' and the dry runs' (ADR-0190),
+    // the agents' (ADR-0192) and the objects' (ADR-0195)
     out.push_str(
         "# HELP objectflow_reads_running Reads that grow with the store running now, by pool.\n\
          # TYPE objectflow_reads_running gauge\n\
@@ -3350,6 +3528,7 @@ async fn metrics(State(shared): State<Shared>) -> Response {
         ("analytics", &shared.admission),
         ("dry_runs", &shared.dry_runs),
         ("agents", &shared.agents),
+        ("objects", &shared.objects),
     ] {
         out.push_str(&format!(
             "objectflow_reads_running{{pool=\"{pool}\"}} {}\n\
@@ -3812,12 +3991,30 @@ async fn keep_the_log_short(shared: Shared) {
     let mut every = tokio::time::interval(CUT_EVERY);
     loop {
         every.tick().await;
+        tell_a_stall(&shared);
         let s = shared.clone();
         let _ = tokio::task::spawn_blocking(move || {
             let _ = cut_back(&s, objectflow_core::store::WAL_LIMIT.unsigned_abs());
         })
         .await;
     }
+}
+
+/// A write waiting for another process's lock on the store, said once in
+/// the log as it waits, where nothing named a stall (eighth production
+/// review, ADR-0195 decision 6). Whether it was said.
+fn tell_a_stall(shared: &Service) -> bool {
+    let Some(since) = shared.watch.waiting() else {
+        return false;
+    };
+    if shared.watch.lock_wait_told.swap(since, Ordering::SeqCst) == since {
+        return false;
+    }
+    say!(
+        "writes are waiting for another process's lock on the store, {} s so far; each waits --busy-timeout up to four times, then is refused stale (writes_stalled)",
+        (wall_millis() - since).max(0) / 1000
+    );
+    true
 }
 
 /// The write-ahead log cut back where it holds more than `limit` bytes or
@@ -3855,6 +4052,7 @@ fn cut_back(shared: &Service, limit: u64) -> bool {
         &shared.worklists,
         &shared.dry_runs,
         &shared.agents,
+        &shared.objects,
     ];
     // every pool held a moment, one that does not drain in it holding the
     // rest too
@@ -4408,8 +4606,10 @@ fn bind_socket(path: &std::path::Path) -> std::io::Result<tokio::net::UnixListen
 /// Whether a file that holds something is a store: a SQLite database with
 /// the store's declarations' table.
 fn is_store(path: &std::path::Path) -> std::io::Result<bool> {
-    objectflow_core::release::holds_store(path)
-        .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))
+    // with the advice a restore beside another state's log needs, where a
+    // backup restored beside a later -wal was refused with SQLite's words
+    // alone (eighth production review, ADR-0195 decision 7)
+    objectflow_core::release::holds_store(path).map_err(|e| refused_start(path, &e))
 }
 
 /// A deployment's store file, checked before it is opened: a path that holds
@@ -4636,11 +4836,31 @@ async fn serve() -> std::io::Result<()> {
                         &format!("it fails SQLite's quick check ({fault})"),
                     ));
                 }
-                let mut s = Store::open(path, wall_clock())
-                    .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
+                // its opening's fault said as a restore beside another
+                // state's log needs, where it gave SQLite's words alone
+                // (eighth production review, ADR-0195 decision 7)
+                let mut s = Store::open(path, wall_clock()).map_err(|e| refused_start(path, &e))?;
                 (s.attempt_retention, s.idempotency_retention) = a.retentions;
+                s.lock_wait = Some(sandbox.lock_wait.clone());
                 s.set_busy_timeout(busy)
                     .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
+                // actors an earlier release took whose identities are equal
+                // but for case, which this one takes as one, said with the
+                // remedy, by their objects and never their identities
+                // (eighth production review CASE-PAIR, ADR-0195 decision 2)
+                let pairs = s
+                    .identity_pairs()
+                    .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
+                if !pairs.is_empty() {
+                    let shown: Vec<String> =
+                        pairs.iter().take(10).map(|ids| ids.join(" and ")).collect();
+                    noted.push(format!(
+                        "the store holds {} group(s) of actors whose identities are equal but for case, which this release takes as one actor, a request naming one resolved to the first made: {}{}; publish a version whose migration admits <Type>.identity_taken, then give each of them an identity of its own (operate.md, Upgrading the engine)",
+                        pairs.len(),
+                        shown.join("; "),
+                        if pairs.len() > 10 { "; and more" } else { "" }
+                    ));
+                }
                 sandbox.store = Some(s);
             }
         }
@@ -4738,6 +4958,9 @@ async fn serve() -> std::io::Result<()> {
         seen: std::sync::RwLock::new(Seen::of(&sandbox)),
         floor: AtomicI64::new(sandbox.store.as_ref().map_or(0, |s| s.now)),
     });
+    // the store's lock waits, read by /health and the log beside the writer
+    // (ADR-0195 decision 6)
+    let lock_wait = sandbox.lock_wait.clone();
     let service = Service {
         endpoints: sandbox.endpoints.clone(),
         tokens: a.tokens.clone(),
@@ -4746,6 +4969,7 @@ async fn serve() -> std::io::Result<()> {
         dry_run_timeout: a.dry_run_timeout.unwrap_or(DRY_RUN_TIMEOUT),
         admission: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
         worklists: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
+        objects: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
         dry_runs: Admission::new(1),
         agents: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
         deployment,
@@ -4759,7 +4983,10 @@ async fn serve() -> std::io::Result<()> {
         store_path: a.store.clone(),
         trims: std::sync::atomic::AtomicU64::new(0),
         trimming: std::sync::atomic::AtomicBool::new(false),
-        watch: Watch::default(),
+        watch: Watch {
+            lock_wait,
+            ..Watch::default()
+        },
     };
     let shared = Arc::new(service);
     let router = app(shared.clone(), deployment);
@@ -5069,6 +5296,7 @@ mod tests {
             dry_run_timeout: Duration::from_secs(600),
             admission: Admission::new(1),
             worklists: Admission::new(1),
+            objects: Admission::new(1),
             dry_runs: Admission::new(1),
             agents: Admission::new(1),
             served: Mutex::new(std::collections::BTreeMap::new()),
@@ -5244,6 +5472,7 @@ mod tests {
             dry_run_timeout: Duration::from_secs(30),
             admission: Admission::new(1),
             worklists: Admission::new(1),
+            objects: Admission::new(1),
             dry_runs: Admission::new(1),
             agents: Admission::new(1),
             served: Mutex::new(std::collections::BTreeMap::new()),
@@ -5358,6 +5587,7 @@ mod tests {
             dry_run_timeout: Duration::from_secs(1),
             admission: Admission::new(1),
             worklists: Admission::new(1),
+            objects: Admission::new(1),
             dry_runs: Admission::new(1),
             agents: Admission::new(1),
             served: Mutex::new(std::collections::BTreeMap::new()),
@@ -5434,6 +5664,30 @@ mod tests {
         );
         let (answered, _) = read_as("operator").await;
         assert!(!answered, "a person's read took a held worklist slot");
+        // an object's history and its events, in a pool of their own, are
+        // answered beside the held worklists (eighth production review,
+        // ADR-0195 decision 5)
+        let bot = issued["object_id"].clone();
+        let began = Instant::now();
+        let told = history(State(shared.clone()), Body(json!({"actor": op, "id": bot}))).await;
+        let Ok(Json(told)) = told else {
+            panic!("the history waited behind the worklists")
+        };
+        assert!(
+            began.elapsed() < quick && told["events"].as_array().is_some_and(|e| !e.is_empty()),
+            "{told}"
+        );
+        let position = told["events"][0]["position"].clone();
+        let began = Instant::now();
+        let found = events(
+            State(shared.clone()),
+            Body(json!({"actor": op, "positions": [position]})),
+        )
+        .await;
+        assert!(
+            found.is_ok() && began.elapsed() < quick,
+            "the events waited behind the worklists"
+        );
         drop(held);
         // every agent's slot held: the person is answered, the agent waits
         let held = shared.agents.take(
@@ -5454,9 +5708,9 @@ mod tests {
 
     /// Every read that grows with the store waits for a slot and is
     /// answered `503 read_timeout` at its deadline while none frees, an
-    /// object's history and the events at positions among them; a read of
-    /// one object or of the declaration never waits (ADR-0189 decision 2,
-    /// ADR-0192 decision 5).
+    /// object's history and the events at positions among them, in the
+    /// objects' pool; a read of one object or of the declaration never waits
+    /// (ADR-0189 decision 2, ADR-0192 decision 5, ADR-0195 decision 5).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::panic)]
     async fn only_the_reads_that_grow_with_the_store_wait_their_turn() {
@@ -5492,6 +5746,7 @@ mod tests {
             dry_run_timeout: Duration::from_secs(1),
             admission: Admission::new(1),
             worklists: Admission::new(1),
+            objects: Admission::new(1),
             dry_runs: Admission::new(1),
             agents: Admission::new(1),
             served: Mutex::new(std::collections::BTreeMap::new()),
@@ -5523,7 +5778,13 @@ mod tests {
             .unwrap_or_default()
             .to_string();
         // every pool's one slot held, a read of each to wait for it
-        let held = [&shared.admission, &shared.worklists, &shared.dry_runs].map(|pool| {
+        let held = [
+            &shared.admission,
+            &shared.worklists,
+            &shared.dry_runs,
+            &shared.objects,
+        ]
+        .map(|pool| {
             pool.take(
                 Instant::now() + Duration::from_secs(600),
                 Duration::from_secs(600),
@@ -5785,6 +6046,7 @@ mod tests {
             dry_run_timeout: std::time::Duration::from_secs(30),
             admission: Admission::new(MAX_READS),
             worklists: Admission::new(MAX_READS),
+            objects: Admission::new(MAX_READS),
             dry_runs: Admission::new(1),
             agents: Admission::new(MAX_READS),
             served: Mutex::new(std::collections::BTreeMap::new()),

@@ -1,6 +1,6 @@
 # Is ObjectFlow production-ready? The review before 1.0.0
 
-Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10) and the seventh at `7d050a6` (§11).
+Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10), the seventh at `7d050a6` (§11) and the eighth at `13f9bbf` (§12).
 
 ## 1. What "production" meant, and how it was reviewed
 
@@ -210,3 +210,26 @@ Minors: attempts sent under another case of an erased identity, or after the era
 ### What the seventh review asks
 
 The author's standing instruction decides what the findings ask (ADR-0194); the majors are fixed, then an eighth review, or the author's acceptance of what remains.
+
+## 12. The eighth review, after the seventh's fixes
+
+At commit `13f9bbf`, 2026-10-13, not yet pushed, every gate of `scripts/check-all` passed on it: two new cold reviewers, an operator and an adversary, each in a checkout of its own with the release binary built from it (the operator found it byte-identical to a source build), given the seventh review's findings to re-check, on copies of the same 37,154-object store and the six-year store, and the third review's go-live tools without their runs; the operator also followed the quickstart and the operate guide as a newcomer. Their logs and reports stayed in the session's scratch directory, which is not kept; what they found is here.
+
+**Verdicts: both NO-GO by the bar, each finding one major and no blocker**; the operator's was GO for a deployment made by this build, its major reaching only a store carried from 0.2.0. Neither met a panic, a crash, a hang, a corrupted store, an erased value returned by a read, or a flow rule bypassed: `kill -9` and SIGTERM during writes and an approval lost nothing acknowledged, `synchronous=FULL` was confirmed by tracing fsync, a 200 s soak at 85 writes and 102 reads a second failed nothing, and every answer of the quickstart matched its page.
+
+### The seventh review's findings, re-checked
+
+Fixed, measured by both: PUBLISH-SLOW (on six years 6.4 s of submit and 9.0 s of approval, with 3,600 actors 2.2 and 3.0 s, where it took 70 s); REFERRERS (a filter on `referrers` 0.36 s a page of employees and 1.3 to 3.1 s over a type, a guarded write 14 to 22 ms, `availability` 9 to 11 ms, eight at once 90 MB, where they took 2.9 s, 2.5 s and 7.4 GB); CUTSTALL (a person's worklist at most 1.1 to 1.8 s through erasures and agents' sweeps, where 25 s); and the minors but these: a stalled write answered after 40 s where the guide said 34.5; the restore beside a stale `-wal` refused, its files untouched, but in one path still with SQLite's words and no advice; a filter on a value derived from a set still reading its type on each page, as documented.
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| ERASE-WAL-DRYRUN | An erased value stayed in the store's file and `-wal` for as long as a change's dry run ran, 38.7 s for a `check` of a large change, cut about 5 s after it ended, `objectflow_wal_cuts_missed_total` climbing to 7: the dry run's checks ran inside its read, which no cut could stop, and its simulation's world did not carry the stop an urgent cut sends | measured by the adversary; read | major |
+| CASE-PAIR | A store carried from 0.2.0 holding two identities equal but for ASCII case, which 0.2.0 took: the start says nothing; `leave` and the erasure of either actor refused `identity_taken`; every publish refused `decision_unresolved`, its report's remedy, to admit the violation, refused by the checkers, and no transition writing an identity; the flow frozen and the two people not erasable | measured by the operator | major |
+
+Minors: the evaluator's transport following a redirect to a host the operator never configured, its answer deciding a guard (the seventh review's adversary had reported redirects not followed); a version declaring an agent and no `publishing.taken_by` letting the agent approve its own change; an agent on the wire recording a label on any object, held by no `taken_by`, and `wire.md` naming the wrong request for a label; a read taking an `actor` of any JSON type; an `export` page past its limit by a few lines; cheap reads, an object's history among them, queued behind whole-type scans in the worklists' pool, 2.4 to 4.8 s, and raising `--max-reads` past the guide's `MemoryMax`, whose rule counted two pools of three; a stalled write saying so late, `/health` 200 for 40 s and `writer_held_seconds` reset at each retry; `/health` 200 while every write failed, after a backup was copied over the live file; the guides' `--create` step, unit, restore (ids and positions handed out after a backup are handed out again), `--version` of a source build, the `-wal`'s peak (306 MiB) and DESIGN.md §2's sizing sentence; `cargo-audit` installed unpinned in CI; integers written as `"+5"` or `"007"` taken.
+
+### What the eighth review asks
+
+The author's standing instruction decides what the findings ask (ADR-0195); the majors are fixed, then a ninth review, or the author's acceptance of what remains.

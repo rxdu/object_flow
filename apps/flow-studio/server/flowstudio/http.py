@@ -72,6 +72,22 @@ TAKES = {
 }
 
 
+def actor_shape(actor: Any) -> str | None:
+    """What is wrong with a request's actor, or none: an object whose keys are `id` and `principal`, each a
+    string, or absent or null, as the service checks it (eighth production review, ADR-0195 decision 7)."""
+    if actor is None:
+        return None
+    if not isinstance(actor, dict):
+        return "actor takes an object"
+    extra = [k for k in actor if k not in ("id", "principal")]
+    if extra:
+        return f"actor takes no key {extra[0]}"
+    for k in ("principal", "id"):
+        if actor.get(k) is not None and not isinstance(actor[k], str):
+            return f"{k} takes a string"
+    return None
+
+
 def keys_once(pairs: list) -> dict:
     """A JSON object naming each key once, as the core's service reads one: a key named twice is refused, where the
     last one won (ADR-0190 decision 8)."""
@@ -184,6 +200,12 @@ def handler(box: Sandbox, cat: Catalogue, origin: str | None,
             unknown = [k for k in body if path in TAKES and k not in TAKES[path]]
             if unknown and not forwarded:
                 self.send(400, {"fault": f"{path} takes no key {unknown[0]}"})
+                return
+            # an actor, wherever one is given, is an object of an id and a principal, as the service's
+            # (ADR-0195 decision 7)
+            shape = actor_shape(body.get("actor"))
+            if shape and not forwarded:
+                self.send(400, {"fault": shape})
                 return
             if forwarded:
                 assert core is not None

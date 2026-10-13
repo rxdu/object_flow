@@ -4946,6 +4946,14 @@ pub fn invariant_names(doc: &Value, tn: &str, t: &Value) -> BTreeSet<String> {
             names.insert(format!("{}_invariant", s.to_lowercase()));
         }
     }
+    // an actor's identity's, which a migration may admit for actors an
+    // earlier release took (ADR-0195 decision 2)
+    if obj(t, "attributes")
+        .values()
+        .any(|a| str_or(a, "type", "") == "identity" && a.get("actor_kind").is_some())
+    {
+        names.insert("identity_taken".to_string());
+    }
     if let Some(machine) = obj(doc, "machines").get(tn) {
         names.extend(strings(
             machine.get("requires").unwrap_or(&Value::Null),

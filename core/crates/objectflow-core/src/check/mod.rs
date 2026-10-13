@@ -482,9 +482,9 @@ pub fn checked_reading(
     // where the version declares an agent kind of actor, each module's
     // transitions an agent may take on the wire, which name no taken_by; its
     // generated tools offer them only for proposing (ADR-0189 decision 1)
-    // and where none declares who approves a version, that an agent may: an
-    // approval's rule the engine reads only where a module declares it
-    // (ADR-0187, ADR-0190 decision 10)
+    // and where none declares who approves a version, the default the engine
+    // applies, an agent refused and any other kind taken (ADR-0187,
+    // ADR-0190 decision 10, ADR-0195 decision 4)
     if !agents.is_empty()
         && approvers.is_empty()
         && let Some((file, line, _)) = opened.first()
@@ -497,7 +497,7 @@ pub fn checked_reading(
             severity: Severity::Notice,
             code: "publishing_open".into(),
             message: format!(
-                "the version declares an agent kind of actor ({}) and no module declares publishing.taken_by, so an agent may approve the next version; declare publishing: {{ taken_by: [human] }} (ADR-0190)",
+                "the version declares an agent kind of actor ({}) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: {{ taken_by: [human] }} to say who approves (ADR-0195)",
                 kinds.join(", ")
             ),
         });

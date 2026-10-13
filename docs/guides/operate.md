@@ -8,7 +8,7 @@ One process, `objectflow-service`, serving one **store**: a SQLite file and the 
 
 **It authenticates nobody.** Whoever can reach it can act as any actor. Put it behind the application that authenticates your users: on a Unix socket only your application can open, or on loopback. Never put it on a network your users reach.
 
-**Requirements:** Linux on x86-64 with the glibc of Ubuntu 22.04 or later (`ldd --version`), and disk for the store, its `-wal` (64 MiB in steady state, up to about 256 MiB while long reads overlap) and your backups.
+**Requirements:** Linux on x86-64 with the glibc of Ubuntu 22.04 or later (`ldd --version`), and disk for the store, its `-wal` (64 MiB in steady state, up to about 300 MiB while long reads overlap writes; 306 MiB was measured) and your backups.
 
 ## Install
 
@@ -19,17 +19,19 @@ Build the release binary from source (rustup installs the pinned toolchain on th
 core/target/release/objectflow-service --version
 ```
 
-Tagged releases are published on the repository's GitHub Releases page as an archive with its SHA-256 checksum, built on Ubuntu 22.04. Check the checksum before installing. Releases are not signed yet. `--version` names the commit a release was built from.
+Tagged releases are published on the repository's GitHub Releases page as an archive with its SHA-256 checksum, built on Ubuntu 22.04. Check the checksum before installing. Releases are not signed yet. `--version` names the commit a release was built from. A build from source names its commit only when built with it set: `OBJECTFLOW_COMMIT=$(git rev-parse --short HEAD) cargo build --release -p objectflow-service`.
 
 ## Create the store
 
-Make the store once, with `--create`:
+Make the store once, with `--create`, as the user the service runs as, so the store's files are that user's:
 
 ```sh
-objectflow-service --store /var/lib/objectflow/store.sqlite --create
+sudo useradd --system --home-dir /var/lib/objectflow --shell /usr/sbin/nologin objectflow
+sudo install -d -o objectflow -g objectflow -m 0750 /var/lib/objectflow
+sudo -u objectflow objectflow-service --store /var/lib/objectflow/store.sqlite --create --port 0
 ```
 
-Leave `--create` out of every later start. Without it, a path that holds no store (a typo, or a volume that did not mount) is refused instead of being served as a new, empty store. A file that holds something else, such as another program's database, is refused even with `--create`, and left untouched. The service makes the store's files `0600`, since they hold personal data, and warns at start if they are readable by others.
+It makes the store and then serves it: once its first line says where it listens, stop it with Ctrl-C. Leave `--create` out of every later start. Without it, a path that holds no store (a typo, or a volume that did not mount) is refused instead of being served as a new, empty store. A file that holds something else, such as another program's database, is refused even with `--create`, and left untouched. The service makes the store's files `0600`, since they hold personal data, and warns at start if they are readable by others.
 
 A new store is at version 0, with no flow. Publish its first version as you would any later one: a `DeclarationChange` drafted, submitted and approved (see [Build an application](integrate.md#changing-the-flow)).
 
@@ -56,6 +58,7 @@ ExecStart=/usr/local/bin/objectflow-service \
     --metrics-bind 127.0.0.1:9712 \
     --attempt-retention "90 days" --idempotency-retention "30 days"
 TimeoutStopSec=45
+Restart=on-failure
 LimitNOFILE=4096
 MemoryMax=4G
 LogRateLimitIntervalSec=0
@@ -71,6 +74,7 @@ Why each setting:
 - `--socket`: the socket is made `0660`, so only the service's user and group connect. Add your application's user to the `objectflow` group.
 - `--metrics-bind`: `/health` and `/metrics` on an address of their own, so a monitor can reach them and is never shut out by a full main listener.
 - `TimeoutStopSec`: above the service's own 30 s drain.
+- `Restart=on-failure`: a service that exits on a fault, or is killed, is started again. A start the service refuses, for a store it cannot open, fails again each time and stays failed once systemd's start limit is reached (five starts in ten seconds by default), saying why in the journal.
 - `LimitNOFILE`: above `--max-connections` (512 by default), with room for the 16 refusals it may be writing at once.
 - `MemoryMax`: see [Memory](#memory).
 - `LogRateLimitIntervalSec=0`: the service logs one line per answer, which passes journald's default rate limit at about 430 answers a second.
@@ -111,7 +115,7 @@ Durations are a count and a unit, with a space: `30 s`, `2 min`, `1 h`, `90 days
 {"release": "objectflow-core 0.2.0", "shape": "deployment", "version": 3, "now": "2026-10-13T01:03:28Z", "store_release": "objectflow-core 0.2.0", "upgrade_due": false, "clock_lead_seconds": 0, "writer_held_seconds": 0, "requests_in_flight": 1, "connections_open": 1, "disk_free_bytes": 52428800000}
 ```
 
-`release` is the engine's, `store_release` the store's; `version` is the installed flow version and `now` the store's clock; `writer_held_seconds` is `0` while no write runs. A health check that answers `200` is not logged.
+`release` is the engine's, `store_release` the store's; `version` is the installed flow version and `now` the store's clock; `writer_held_seconds` is `0` while no write runs; while writes wait for another process's lock, it counts from the first retry, through every write refused since. A health check that answers `200` is not logged.
 
 It answers `503` with a `code` when an operator must act:
 
@@ -121,7 +125,8 @@ It answers `503` with a `code` when an operator must act:
 | `disk_low` | Under 64 MiB free on the store's volume, the space a checkpoint needs. | Free space. |
 | `store_replaced` | The store's file was moved, removed or replaced under the running service. Writes are refused too. | Restart the service on the right file. |
 | `log_blocked` | A log line has waited over 5 s to be written: nothing is reading the service's standard error. | Fix the log reader. journald does this for you. |
-| `writes_stalled` | The last write met another process's lock past its retries, and none has committed since, within the minute. | Find the other process holding the store. |
+| `writes_stalled` | A write is waiting for another process's lock on the store, from its first retry; or the last write was refused after its retries, and none has committed since, within the minute. | Find the other process holding the store. |
+| `writes_failing` | Three writes or more in a row failed for the service's own fault, answered `500`, the last within the minute, and none has succeeded since. | Read the log for the fault; check the store's file was not changed under the service. |
 
 ## Metrics
 
@@ -161,7 +166,8 @@ It answers `503` with a `code` when an operator must act:
 - `/health` not `200`, on the `--metrics-bind` address;
 - `objectflow_disk_free_bytes` well before 64 MiB;
 - `objectflow_clock_lead_seconds` above 60;
-- `objectflow_writer_held_seconds` above a minute: a publish or an import is running, or a write is stuck;
+- `objectflow_writer_held_seconds` above a minute: a publish or an import is running, or writes wait for another process's lock;
+- the rate of `5xx` answers in `objectflow_requests_total`: a fault of the service's own, a full disk or a store changed under it;
 - any rise in `objectflow_log_lines_dropped_total`, `objectflow_wal_cuts_missed_total` or `objectflow_connections_refused_total`;
 - `objectflow_resident_bytes` near your `MemoryMax`;
 - `objectflow_evaluator_failures_total` rising: an outside system is down, and its guards refuse `temporal`.
@@ -174,19 +180,21 @@ The service writes to its standard error, each line stamped with its time:
 - one line per answer: `<time> <method> <route> <status> <duration> ms`, with `clock_lead=<n>s` while the clock leads;
 - each fault it meets, with its reason. A 5xx of one code is written at most once a second, the number left unsaid given with the next, so a full disk does not write a line per retried write;
 - an evaluator's failure, naming its function but never the arguments or the answer, which may hold personal data, and its endpoint with any password hidden;
-- at start: `--create` given for a store that exists, a last stop that was not clean, a `-wal` holding frames before opening, a store readable by others, another service holding the store, an evaluator token to be sent over plain `http://` beyond loopback, and a clock that leads.
+- at start: `--create` given for a store that exists, a last stop that was not clean, a `-wal` holding frames before opening, a store readable by others, another service holding the store, actors whose identities are equal but for case (see [Upgrading the engine](#upgrading-the-engine)), an evaluator token to be sent over plain `http://` beyond loopback, and a clock that leads;
+- writes waiting for another process's lock on the store, once, as the wait begins.
 
 Read the standard error to its end, as journald does. If nothing reads it, a line waits; after 5 s the service drops lines (counted in `objectflow_log_lines_dropped_total`) so no request waits on the log, and `/health` answers `503 log_blocked`.
 
 ## Capacity
 
-**Writes** run one at a time, each a durable commit of about 10 ms. A write that meets another process's lock on the store waits `--busy-timeout`, up to four times, then is refused `stale` with cause `retries_exhausted`, and `/health` says `writes_stalled`. In all that took up to 34.5 s in a measurement: give clients a write timeout above it.
+**Writes** run one at a time, each a durable commit of about 10 ms. A write that meets another process's lock on the store waits `--busy-timeout`, up to four times, then is refused `stale` with cause `retries_exhausted`; `/health` says `writes_stalled` from its first retry. Under load that took about 40 s in a measurement: give clients a write timeout above 45 s.
 
-**Reads** run beside writes, each with its own deadline (`--read-timeout`). Reads whose cost grows with the store take a turn in one of four pools, so no kind of read waits behind another:
+**Reads** run beside writes, each with its own deadline (`--read-timeout`). Reads whose cost grows with the store take a turn in one of five pools, so no kind of read waits behind another:
 
 | Pool | Reads | Limit |
 |---|---|---|
-| worklists | `query`, `available`, `pull`, `history`, `events` | `--max-reads` |
+| worklists | `query`, `available`, `pull` | `--max-reads` |
+| objects | `history`, `events` | `--max-reads` |
 | analytics | `metric`, `exceptions`, `diagnostics`, `export` | `--max-reads` |
 | agents | every such read an agent actor makes | `--max-reads` |
 | dry runs | a change's `submit` or `refresh`, a `publish` preview, a `check` of a change's submit | one at a time |
@@ -218,7 +226,7 @@ Some flow constructs cost more than they look:
 
 A publish holds the store's objects in memory while it simulates and installs the version: plan for about ten times the store's file size. Reads that grow with the store add their own, at most `--max-reads` per pool at once. On 110k objects, sixteen per-person metrics sent at once peaked at 1.15 GB with the default limit of 4.
 
-Size `MemoryMax` at a publish's peak plus twice `--max-reads` times your heaviest read's peak, and measure your own. After a publish, an import or any request of half a second or more, the service returns freed memory to the system (`objectflow_memory_given_back_total`).
+Size `MemoryMax` at twice a publish's peak, since one change's dry run may run beside another's approval, plus three times `--max-reads` times your heaviest read's peak, for the worklists, analytics and agents pools, plus `--max-reads` times about 25 MB for the objects pool, whose pages stop at 8 MiB (forty such pages held at once peaked at 1.07 GB). Measure your own. After a publish, an import or any request of half a second or more, the service returns freed memory to the system (`objectflow_memory_given_back_total`).
 
 ## Backups and restore
 
@@ -240,7 +248,9 @@ Copying the file alone is safe only with the service stopped: a clean stop folds
 3. Put the backup in the store's place, with the same owner and mode `0600`.
 4. Start the service.
 
-Step 2 matters: a `-wal` left beside a restored copy would be replayed onto it. The service runs SQLite's quick check at each start, before anything opens the store for writing; if it fails, the service does not start, says why, and leaves every file as it was. The check reads the whole file: about 0.3 s for 126 MB, 0.8 s for 387 MB.
+Step 2 matters: a `-wal` left beside a restored copy would be replayed onto it.
+
+A restored store hands out again the object ids and event positions it had handed out after the backup was taken: an id an application kept from that time may name a different object once new ones are made, and a consumer holding a cursor from that time would pass over the events written at those positions again. `export` refuses a cursor past the store's last position `invalid_cursor`, but `pull` answers it with no events. Before serving the restored store, reconcile the ids your applications hold from after the backup, and restart each subscriber with a `pull` sent without a cursor, which reads from the position the backup holds as acknowledged. The service runs SQLite's quick check at each start, before anything opens the store for writing; if it fails, the service does not start, says why, and leaves every file as it was. The check reads the whole file: about 0.3 s for 126 MB, 0.8 s for 387 MB.
 
 ## Upgrading the engine
 
@@ -258,6 +268,8 @@ What a later release promises, from 1.0.0:
 3. Start the new release on the store. It answers every operation `503 engine_mismatch`, and `/health` `503 upgrade_due`, until the store is upgraded.
 4. As the operator, see the steps: `POST /v1/upgrade {"actor": {"id": "operator"}, "dry_run": true}`.
 5. Run them: the same without `dry_run`. The service then serves the store.
+
+**Identities equal but for case.** Release 0.2.0 took two actors whose identities differ only in the case of their ASCII letters, `Ana@x.org` and `ana@x.org`; later releases take them as one actor, so neither may leave or be erased, and every publish is refused `decision_unresolved`. A store holding such a pair says so at its start, naming the actors' object ids. Publish a version whose `migration` admits the actor type's `identity_taken`, as `admit: [{ invariant: Employee.identity_taken, reason: Reason.LEGACY }]` with your type and a member of an enumeration of yours; the two actors may then leave and be erased, and a later version may give each an identity of its own. Until then a request naming the identity in a third case acts as the actor made first.
 
 There is no downgrade: if the new release fails in service, restore the backup and run the old release. Once an upgrade commits, an old copy still running is refused; a copy of release 0.1.0 is not, so stop it before upgrading.
 
@@ -282,7 +294,7 @@ POST /v1/maintain
 
 ## Personal data on disk
 
-An erasure overwrites what it erased in the store's file and truncates the `-wal` after it commits, so neither file holds an erased value. A read open at that moment keeps the `-wal`'s earlier frames, so the service cuts the log back: within 5 s it holds new reads that grow with the store for at most a second, for the running ones to end, and truncates the log. The same cut runs whenever the `-wal` passes 64 MiB. Where a read is still running after that second, the cut is left for the next look, 5 s later, and the held reads go on (`objectflow_wal_cuts_deferred_total`); a person's read waits about a second for a cut, never for an agent's long sweep. A cut is urgent after an erasure, or once the `-wal` passes 256 MiB: then the reads still running are stopped, each answered `503 read_timeout` to be sent again, and the log is cut. A cut a read still held off is logged and counted in `objectflow_wal_cuts_missed_total`.
+An erasure overwrites what it erased in the store's file and truncates the `-wal` after it commits, so neither file holds an erased value. A read open at that moment keeps the `-wal`'s earlier frames, so the service cuts the log back: within 5 s it holds new reads that grow with the store for at most a second, for the running ones to end, and truncates the log. The same cut runs whenever the `-wal` passes 64 MiB. Where a read is still running after that second, the cut is left for the next look, 5 s later, and the held reads go on (`objectflow_wal_cuts_deferred_total`); a person's read waits about a second for a cut, never for an agent's long sweep. A cut is urgent after an erasure, or once the `-wal` passes 256 MiB: then the reads still running are stopped, each answered `503 read_timeout` to be sent again, and the log is cut. A change's dry run is one of them: its checks hold no read, and its run over the objects stops as any read does. A cut a read still held off is logged and counted in `objectflow_wal_cuts_missed_total`.
 
 What an erasure reaches is what the flow marks `personal`, and nothing else. Free text in inputs not marked `personal`, and a request's `context`, keep what was typed, refused attempts included. Where an actor's identity attribute is `personal`, erasing the actor replaces its identity with its object id everywhere the store keeps it. Better: give actors opaque identities, such as an employee number, never an email or a name, written in one Unicode form (the engine compares identities as written, ignoring only the case of ASCII letters).
 

@@ -629,6 +629,9 @@ Findings from every review of this design. It began as the implementation-readin
 | [D615](#d615) | `referrers` read the store whole for each object | Resolved |
 | [D616](#d616) | `query`'s order took any attribute where its decision said an indexed one | Resolved |
 | [D617](#d617) | The guide's `time-sync.target` waited for nothing | Resolved |
+| [D618](#d618) | A dry run held an erased value in the store's files | Resolved |
+| [D619](#d619) | Identities equal but for case, from an earlier release, could not be decided | Resolved |
+| [D620](#d620) | The evaluator's transport followed redirects | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4001,3 +4004,18 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **The guide's `time-sync.target` waited for nothing**: `integrate.md` told an operator to order the unit `After=` and `Wants=time-sync.target`, which reaches the target at once unless a service such as `systemd-time-wait-sync` delays it, disabled by default, and `systemd.special(7)` says a unit should not pull the target in. Found 2026-10-13 by the seventh production review's operator (TIME-SYNC).
 
 **Resolved** 2026-10-13: `operate.md` orders the unit `After=time-sync.target` alone and says to enable `systemd-time-wait-sync.service` or `chrony-wait.service`.
+
+### D618
+**A dry run held an erased value in the store's files**: a change's dry run ran its checks inside its read of the store, which no cut of the write-ahead log can stop, and its simulation's world did not carry the stop an urgent cut sends (ADR-0194 decision 4 missed it), so an erasure's values stayed in the file and the `-wal` for as long as a dry run ran: 38.7 s for a `check` of a large change, `objectflow_wal_cuts_missed_total` climbing to 7. Found 2026-10-13 by the eighth production review's adversary (ERASE-WAL-DRYRUN).
+
+**Resolved** 2026-10-13: a dry run's checks run between two reads of the store, holding none, and its simulation's world carries the read's stop and deadline (ADR-0195 decision 1). Measured on release builds, an erasure a second into a `check` of a change declaring 4,500 types: the erased value was in neither file at the first look, a second after the erasure, through an 18.7 s check, where the eighth review's build kept it in the `-wal` for the whole of its 20.3 s check. `an_erasure_beside_a_long_dry_run_leaves_the_files` fails with the checks held under a read, and `a_dry_runs_impact_is_stopped_by_an_urgent_cut` with the simulation's world not carrying the stop.
+
+### D619
+**Identities equal but for case, from an earlier release, could not be decided**: ADR-0192 decision 6 made an identity name one actor without its letters' case, and a store made by 0.2.0 holding two such identities could neither let the actors leave nor erase them, `identity_taken` refusing each, nor publish, its report asking for an admission neither checker took, since neither counted a generated invariant among a type's. Found 2026-10-13 by the eighth production review's operator (CASE-PAIR).
+
+**Resolved** 2026-10-13: both checkers count `identity_taken` among the invariants of a type whose identity declares an actor kind, so a migration may admit it; the start names such a pair by its objects' ids, with the remedy; a third case of the identity resolves to the actor made first (ADR-0195 decision 2). `identities_equal_but_for_case_are_found_and_decided_by_an_admission` publishes past a pair written as 0.2.0 took it, then the two leave and are erased; `actors_equal_but_for_case_are_said_at_the_start` and `test_a_migration_may_admit_identity_taken_alike` hold the notice and both checkers.
+
+### D620
+**The evaluator's transport followed redirects**: its agent kept ureq's default of ten redirects, so a `3xx` from the configured endpoint sent the call to another host, whose answer decided a guard; the seventh review's adversary had reported redirects not followed, which the code never said. Found 2026-10-13 by the eighth production review's adversary (EV-REDIRECT).
+
+**Resolved** 2026-10-13: the agent follows no redirect, so a `3xx` is the evaluator's unknown and its guard is refused `temporal` (ADR-0195 decision 3). The bank's `T-7`, a `302` to a path that clears anything, fails `a_deployment_asks_its_evaluators_at_their_endpoints` where redirects are followed; a `307` did not, ureq following no `307` of a `POST`.

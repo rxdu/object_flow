@@ -26,6 +26,9 @@ jobs:
           persist-credentials: false
       - name: The core's dependencies against the RustSec advisory database
         working-directory: core
+        # the auditor at a version of its own, as every tool the gates run
+        # is, so its findings change by a commit and not by a release
+        # (eighth production review, ADR-0195 decision 7)
         run: |
-          cargo install cargo-audit --locked
+          cargo install cargo-audit --version 0.22.2 --locked
           cargo audit

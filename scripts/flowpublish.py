@@ -735,9 +735,12 @@ def approve(store, change_id, actor, expected_version, flows):
     if c.attrs.get("base_version") != store.version:
         return Refused("unsatisfied", "current", "unreachable_from_here"), None
     # the approval taken only by the kinds the installed version declares, read from it and never from the version
-    # under approval; the store's operator always may (ADR-0187 decision 1), refused before the dry run runs again
+    # under approval; the store's operator always may (ADR-0187 decision 1), refused before the dry run runs again.
+    # Where no module declares it, an agent does not approve, an agent kind of actor being one the installed version
+    # declares (ADR-0195 decision 4)
     approvers = installed_approvers(store, flows)
-    if approvers is not None and kind not in approvers and store.type_of(actor) != "Operator":
+    refused = kind not in approvers if approvers is not None else kind == "agent"
+    if refused and store.type_of(actor) != "Operator":
         raise Refused("invariant_violated", "publish_taken_by", "delegable", object_id=change_id,
                       object_type=DECLARATION_CHANGE, objects=[change_id],
                       failures=[(change_id, DECLARATION_CHANGE, "publish_taken_by", "delegable")])

@@ -76,6 +76,13 @@ pub const BUSY_RETRIES: i64 = 3;
 /// The busy timeout a store's connections wait out unless told another.
 pub const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Now, in milliseconds since 1970.
+fn millis_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+}
+
 fn is_busy(e: &rusqlite::Error) -> bool {
     matches!(e, rusqlite::Error::SqliteFailure(f, _)
         if f.code == rusqlite::ErrorCode::DatabaseBusy || f.code == rusqlite::ErrorCode::DatabaseLocked)
@@ -85,15 +92,36 @@ fn is_busy(e: &rusqlite::Error) -> bool {
 /// serialised with every other writer's, a second process's on the file
 /// included, its lock waited for up to the busy timeout and begun again up
 /// to `BUSY_RETRIES` times: the transaction, and the retries it took
-/// (`storage-schema.md` §7, ADR-0090, ADR-0178 decision 2). A macro, so
-/// the transaction borrows the connection only where it is begun.
+/// (`storage-schema.md` §7, ADR-0090, ADR-0178 decision 2). Since when
+/// writes have waited for the lock is told in the store's `lock_wait`, set
+/// at a write's first retry and cleared once one takes the lock (ADR-0195
+/// decision 6). A macro, so the transaction borrows the connection only
+/// where it is begun.
 macro_rules! begin_write {
-    ($conn:expr) => {{
+    ($store:expr) => {{
         let mut retries = 0;
         loop {
-            match $conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate) {
-                Ok(tx) => break (tx, retries),
-                Err(e) if is_busy(&e) && retries < BUSY_RETRIES => retries += 1,
+            match $store
+                .conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            {
+                Ok(tx) => {
+                    if let Some(w) = &$store.lock_wait {
+                        w.store(0, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    break (tx, retries);
+                }
+                Err(e) if is_busy(&e) && retries < BUSY_RETRIES => {
+                    if let Some(w) = &$store.lock_wait {
+                        let _ = w.compare_exchange(
+                            0,
+                            millis_now(),
+                            std::sync::atomic::Ordering::SeqCst,
+                            std::sync::atomic::Ordering::SeqCst,
+                        );
+                    }
+                    retries += 1;
+                }
                 Err(e) if is_busy(&e) => {
                     return Err(StoreError(format!(
                         "{BUSY}: the store's write lock was held past the busy timeout {} times",
@@ -1633,6 +1661,12 @@ pub struct Store {
     /// The epoch a read began in, which the service moves to stop it
     /// (ADR-0194 decision 4); none for a write.
     pub stop: Option<(std::sync::Arc<std::sync::atomic::AtomicU64>, u64)>,
+    /// Since when, in milliseconds since 1970, its writes have waited for
+    /// another process's lock on the file: set at a write's first retry,
+    /// kept through the writes refused after their retries, and 0 once a
+    /// write takes the lock; none where no one reads it (eighth production
+    /// review, ADR-0195 decision 6).
+    pub lock_wait: Option<std::sync::Arc<std::sync::atomic::AtomicI64>>,
     /// How long its connection waits out another's lock, restored after
     /// the truncation an erasure is due, which waits for nothing.
     busy: std::cell::Cell<std::time::Duration>,
@@ -1747,6 +1781,7 @@ impl Store {
             checkpoint_due: false,
             deadline: None,
             stop: None,
+            lock_wait: None,
             prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
@@ -1850,6 +1885,7 @@ impl Store {
             checkpoint_due: false,
             deadline: None,
             stop: None,
+            lock_wait: None,
             prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
@@ -1911,6 +1947,12 @@ impl Store {
         Ok(store)
     }
 
+    /// The actors whose identities are equal but for case (ADR-0195
+    /// decision 2): see [`identity_groups`].
+    pub fn identity_pairs(&self) -> Stored<Vec<Vec<String>>> {
+        identity_groups(&self.conn, &self.lib)
+    }
+
     /// How long its connection waits out another's write lock before a
     /// write meets it as busy (ADR-0178 decision 2).
     pub fn set_busy_timeout(&self, wait: std::time::Duration) -> Stored<()> {
@@ -1941,6 +1983,7 @@ impl Store {
             checkpoint_due: false,
             deadline: None,
             stop: None,
+            lock_wait: None,
             prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
             idempotency_retention: None,
@@ -2150,7 +2193,7 @@ impl Store {
             Some(_) => return Ok(Ok(Err("inside_retention"))),
         }
         let before = timestamp_text(task.before);
-        let (tx, _) = begin_write!(self.conn);
+        let (tx, _) = begin_write!(self);
         release_held(&tx)?;
         let moved = if task.name == "prune_attempts" {
             // each row's day, as the rollup keys it: its recorded time's UTC
@@ -2181,7 +2224,7 @@ impl Store {
     /// its own after the request's rolled back (`DESIGN.md` §6,
     /// `storage-schema.md` §6).
     pub fn record_attempt(&mut self, a: &Attempt) -> Stored<()> {
-        let (tx, _) = begin_write!(self.conn);
+        let (tx, _) = begin_write!(self);
         release_held(&tx)?;
         next(&tx, "txn")?;
         insert_attempt(&tx, a, "(SELECT value FROM of_counter WHERE name = 'txn')")?;
@@ -2283,7 +2326,7 @@ impl Store {
         // one read it (ADR-0178 decision 3)
         let mut reloaded = false;
         let (tx, retries) = loop {
-            let (tx, retries) = begin_write!(self.conn);
+            let (tx, retries) = begin_write!(self);
             let at = declared_version(&tx)?;
             if at == self.lib.version || reloaded {
                 break (tx, retries);
@@ -2313,7 +2356,7 @@ impl Store {
                 // which are not reused (flow-format.md §4.12)
                 tx.rollback()?;
                 if !alloc.drawn.is_empty() {
-                    let (tx, _) = begin_write!(self.conn);
+                    let (tx, _) = begin_write!(self);
                     alloc.write_sequences(&tx)?;
                     tx.commit()?;
                 }
@@ -2369,11 +2412,16 @@ impl Store {
         // declares, read from it and never from the version under approval,
         // which could drop its own rule; the store's operator, answerable for
         // it, always may, so no declaration shuts every approver out
-        // (ADR-0187 decision 1). Refused before the dry run is computed again.
-        if let Some(kinds) = &self.lib.publishing
-            && !kinds.contains(&who.kind)
-            && !is_the_operator(&world, actor)?
-        {
+        // (ADR-0187 decision 1). Where no module declares it, an agent does
+        // not approve, an agent kind of actor being one the installed
+        // version declares, where the agent approved its own change (eighth
+        // production review, ADR-0195 decision 4). Refused before the dry run
+        // is computed again.
+        let refused = match &self.lib.publishing {
+            Some(kinds) => !kinds.contains(&who.kind),
+            None => who.kind == "agent",
+        };
+        if refused && !is_the_operator(&world, actor)? {
             return refusal(Verdict::InvariantViolated {
                 failures: vec![crate::verdict::InvariantFailure {
                     object_id: Some(c.id.clone()),
@@ -2499,7 +2547,7 @@ impl Store {
     ) -> Stored<Vec<i64>> {
         let old = self.lib.clone();
         let now = self.now;
-        let (tx, _) = begin_write!(self.conn);
+        let (tx, _) = begin_write!(self);
         release_held(&tx)?;
         let mut alloc = Allocator::read(&tx)?;
         let publish_position = alloc.position();
@@ -3711,6 +3759,40 @@ pub(crate) fn read_superseded_into(
     Ok(ids)
 }
 
+/// The actors whose identities are equal but for the case of their ASCII
+/// letters, each group's object ids in id order, across every actor type:
+/// which an earlier release took, and this one takes as one actor (eighth
+/// production review CASE-PAIR, ADR-0195 decision 2).
+pub fn identity_groups(conn: &Connection, lib: &Library) -> Stored<Vec<Vec<String>>> {
+    let mut by: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (tn, t) in &lib.types {
+        let Some((attr, _)) = t.actor_identity() else {
+            continue;
+        };
+        let Some(a) = t.attribute(attr).filter(|a| !a.many && !t.abstract_) else {
+            continue;
+        };
+        let mut stmt = conn.prepare(&format!(
+            "SELECT id, lower({col}) FROM {} WHERE {col} IS NOT NULL",
+            table(tn),
+            col = quote(&column(attr, a))
+        ))?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        for row in rows {
+            let (id, folded) = row?;
+            by.entry(folded).or_default().push(id);
+        }
+    }
+    Ok(by
+        .into_values()
+        .filter(|ids| ids.len() > 1)
+        .map(|mut ids| {
+            ids.sort();
+            ids
+        })
+        .collect())
+}
+
 /// The ids of a type's objects whose text attribute, its ASCII letters
 /// folded to lower case, is the text given folded: by the index on the
 /// folded column an actor's identity has (ADR-0194 decision 1).
@@ -4678,6 +4760,142 @@ mod tests {
             matches!(&stopped, Some(Err(NotRun::TimedOut(m))) if m.contains("log could be cut")),
             "{stopped:?}"
         );
+    }
+
+    /// Actors an earlier release took whose identities are equal but for
+    /// case are found, and decided by a publish whose migration admits
+    /// `identity_taken`, after which each leaves and is erased, where every
+    /// publish was refused `decision_unresolved` and neither could leave
+    /// nor be erased (eighth production review CASE-PAIR, ADR-0195 decision
+    /// 2).
+    #[test]
+    fn identities_equal_but_for_case_are_found_and_decided_by_an_admission() {
+        use crate::request::{Request, request};
+        use crate::verdict::Verdict;
+        const STAFF: &str = "module: staff\ncategories: [live, closed]\nenumerations:\n  Why: [LEGACY]\ntypes:\n  Employee:\n    description: A person.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n      name: { type: string, personal: true, optional: true }\n    states:\n      ACTIVE: { category: live, description: Here. }\n      LEFT: { category: closed, final: true, description: Gone. }\n    transitions:\n      join: { kind: initial, to: ACTIVE, required_inputs: [login], optional_inputs: [name] }\n      leave: { kind: external, from: ACTIVE, to: LEFT }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+        let ask =
+            |s: &mut Store, xn: &str, target: (&str, bool), inputs: serde_json::Value| -> Verdict {
+                let (name, is_type) = target;
+                let r = Request {
+                    transition: xn.into(),
+                    actor: OPERATOR.into(),
+                    object_id: (!is_type).then(|| name.to_string()),
+                    type_: is_type.then(|| name.to_string()),
+                    inputs: inputs
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect(),
+                    occurred_at: None,
+                    propose: false,
+                    expires_at: None,
+                    expected_version: None,
+                    principal: None,
+                    idempotency_key: None,
+                    context: None,
+                };
+                request(s, &r).unwrap().unwrap()
+            };
+        let made = |v: &Verdict| match v {
+            Verdict::Satisfied { object_id, .. } => object_id.clone(),
+            other => panic!("{other:?}"),
+        };
+        let lib = Library::load(&[("staff.yaml".into(), STAFF.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let first = made(&ask(
+            &mut s,
+            "join",
+            ("Employee", true),
+            serde_json::json!({"login": "Ana", "name": "Ana Lee"}),
+        ));
+        let second = made(&ask(
+            &mut s,
+            "join",
+            ("Employee", true),
+            serde_json::json!({"login": "bob"}),
+        ));
+        // as an earlier release took it: the second's identity the first's
+        // but for case, written past the rule that now refuses it
+        let t = s.lib.type_("Employee").unwrap();
+        let col = quote(&column("login", t.attribute("login").unwrap()));
+        s.connection()
+            .execute(
+                &format!(
+                    "UPDATE {} SET {col} = 'ana' WHERE id = ?1",
+                    table("Employee")
+                ),
+                [&second],
+            )
+            .unwrap();
+        assert_eq!(
+            s.identity_pairs().unwrap(),
+            vec![vec![first.clone(), second.clone()]]
+        );
+        // named in a third case, the identity is the actor made first; named
+        // exactly, the actor holding it
+        let w = s.snapshot().unwrap();
+        let named = |n: &str| {
+            crate::request::resolve_actor(&w, n)
+                .unwrap()
+                .map(|who| who.id)
+        };
+        assert_eq!(named("ANA"), Some("Ana".to_string()));
+        assert_eq!(named("ana"), Some("ana".to_string()));
+        drop(w);
+        // a version, with and without the admission
+        let next = |admit: bool| {
+            let mut text = STAFF.replace(
+                "      name: { type: string, personal: true, optional: true }\n",
+                "      name: { type: string, personal: true, optional: true }\n      desk: { type: string, optional: true }\n",
+            );
+            text.push_str("migration:\n  description: Desks.\n");
+            if admit {
+                text.push_str(
+                    "  admit:\n    - { invariant: Employee.identity_taken, reason: Why.LEGACY }\n",
+                );
+            }
+            text
+        };
+        let publish = |s: &mut Store, text: &str| -> bool {
+            let change = made(&ask(
+                s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                serde_json::json!({"source": {"staff": text}, "source_ref": "test:staff"}),
+            ));
+            let Verdict::Satisfied { version, .. } =
+                ask(s, "submit", (&change, false), serde_json::json!({}))
+            else {
+                return false;
+            };
+            matches!(
+                s.publish(OPERATOR, &change, version).unwrap().unwrap().0,
+                Verdict::Satisfied { .. }
+            )
+        };
+        assert!(
+            !publish(&mut s, &next(false)),
+            "a publish not deciding the pair was accepted"
+        );
+        assert!(
+            publish(&mut s, &next(true)),
+            "a publish admitting the pair was refused"
+        );
+        // each now leaves and is erased
+        assert!(matches!(
+            ask(&mut s, "leave", (&second, false), serde_json::json!({})),
+            Verdict::Satisfied { .. }
+        ));
+        assert!(matches!(
+            ask(
+                &mut s,
+                "forget",
+                (&first, false),
+                serde_json::json!({"reason": "asked"})
+            ),
+            Verdict::Satisfied { .. }
+        ));
     }
 
     #[test]

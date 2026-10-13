@@ -3110,9 +3110,14 @@ def formula_errors(tn, t, mn, m):
 
 def invariant_names(doc, tn, t):
     """The invariants of a type: declared, generated for a state's required
-    attributes, and, for a machine, those it requires of its binders."""
+    attributes, identity_taken for an actor's identity, which a migration may
+    admit for actors an earlier release took (ADR-0195 decision 2), and, for a
+    machine, those it requires of its binders."""
     names = set(t.get("invariants") or {})
     names |= {f"{s.lower()}_invariant" for s, v in (t.get("states") or {}).items() if (v or {}).get("required_attributes")}
+    if any((a or {}).get("type") == "identity" and (a or {}).get("actor_kind")
+           for a in (t.get("attributes") or {}).values()):
+        names.add("identity_taken")
     machine = (doc.get("machines") or {}).get(tn)
     if machine:
         names |= set((machine.get("requires") or {}).get("invariants") or [])
@@ -4940,14 +4945,14 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
         opened.append((f, line_of(idx, ("module",)), agent_open(doc, v)))
     # where the version declares an agent kind of actor, each module's transitions an agent may take on the wire, which
     # name no taken_by; its generated tools offer them only for proposing (ADR-0189 decision 1)
-    # and where none declares who approves a version, that an agent may: an approval's rule the engine reads only
-    # where a module declares it (ADR-0187, ADR-0190 decision 10)
+    # and where none declares who approves a version, the default the engine applies, an agent refused and any other
+    # kind taken (ADR-0187, ADR-0190 decision 10, ADR-0195 decision 4)
     if agents and not approvers and opened:
         f, line, _ = opened[0]
         notes.append((f, line, "notice", "publishing_open",
                       f"the version declares an agent kind of actor ({', '.join(sorted(agents))}) and no module "
-                      f"declares publishing.taken_by, so an agent may approve the next version; declare publishing: "
-                      f"{{ taken_by: [human] }} (ADR-0190)"))
+                      f"declares publishing.taken_by, so an agent's approval of the next version is refused and any "
+                      f"other kind's taken; declare publishing: {{ taken_by: [human] }} to say who approves (ADR-0195)"))
     if agents:
         for f, line, counts in opened:
             if counts:
@@ -5431,7 +5436,7 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
              for name, text in (("agent", agent), ("ruled", ruled))]
     hit = len(open_[0]) == 1 and open_[1] == []
     ok &= hit
-    print(f"  planted a version an agent may approve: {'noticed, and not with the rule' if hit else 'MISSED ' + str(open_)}")
+    print(f"  planted a version declaring an agent and no publishing rule: {'noticed, and not with the rule' if hit else 'MISSED ' + str(open_)}")
     # an invariant named as the one an actor's identity generates is refused (ADR-0190 decision 4)
     named = shown.replace("    tracking: record\n", "    tracking: record\n    invariants: { identity_taken: { description: Taken., expression: \"true\" } }\n", 1)
     taken = [x[4] for x in check([("named.yaml", named)])[0] if x[3] == "names"]

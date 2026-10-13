@@ -2041,6 +2041,42 @@ def test_a_version_is_approved_only_by_the_declared_kinds_alike(tee):
     alike(tee)
 
 
+def test_with_no_publishing_rule_an_agent_does_not_approve_alike(tee):
+    """A version that declares an agent kind of actor and no
+    publishing.taken_by refuses the agent's approval of the next version as
+    publish_taken_by, delegable, and takes a person's, alike through both
+    backends, where the agent approved its own change (eighth production
+    review, ADR-0195 decision 4)."""
+    unruled = ROSTER.replace("publishing: { taken_by: [human] }\n", "", 1)
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "roster.yaml", "text": unruled}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    for tn, key, name in (("User", "login", "ana"), ("Bot", "handle", "bot")):
+        v = tee.post("/v1/request", {"transition": "add", "actor": OP, "type": tn,
+                                     "inputs": {key: name}})
+        assert v["kind"] == "satisfied", v
+    roomier = unruled.replace("      login: { type: identity, actor_kind: human, unique: true }\n",
+                              "      login: { type: identity, actor_kind: human, unique: true }\n"
+                              "      team: { type: string, optional: true }\n", 1)
+    # the agent drafts and submits it, and its approval is refused
+    c = tee.post("/v1/request", {"transition": "draft", "actor": {"id": "bot"}, "type": "DeclarationChange",
+                                 "inputs": {"source": {"roster": roomier}, "source_ref": "git:roster@2"}})["object_id"]
+    assert tee.post("/v1/request", {"transition": "submit", "actor": {"id": "bot"},
+                                    "object_id": c})["kind"] == "satisfied"
+    version = tee.post("/v1/get", {"id": c})["version"]
+    refused = tee.post("/v1/publish", {"actor": {"id": "bot"}, "change": c,
+                                       "expected_version": version})
+    v = refused["verdict"]
+    assert (v["kind"], v.get("remedy"), v.get("objects")) == ("invariant_violated", "delegable", [c]), refused
+    assert [f["invariant"] for f in v["failures"]] == ["publish_taken_by"], refused
+    # a person approves it
+    approved = tee.post("/v1/publish", {"actor": {"id": "ana"}, "change": c,
+                                        "expected_version": version})
+    assert approved["verdict"]["kind"] == "satisfied", approved
+    alike(tee)
+
+
 CHAIN = """module: chain
 categories: [live, closed]
 types:
@@ -2623,6 +2659,28 @@ def test_referrers_through_two_references_alike(tee):
     alike(tee)
 
 
+def test_a_migration_may_admit_identity_taken_alike(tee):
+    """A version's migration may admit an actor type's `identity_taken`, as a
+    store an earlier release left with identities equal but for case needs,
+    both checkers taking it, where neither counted it among a type's
+    invariants and the store could not be decided (eighth production review
+    CASE-PAIR, ADR-0195 decision 2)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    nxt = (HELD.replace("categories: [live, closed]\n", "categories: [live, closed]\nenumerations:\n  Why: [LEGACY]\n", 1)
+           + "migration:\n  description: Identities equal but for case admitted.\n  admit:\n"
+           + "    - { invariant: Staff.identity_taken, reason: Why.LEGACY }\n")
+    drafted = tee.post("/v1/request", {"actor": OP, "type": "DeclarationChange", "transition": "draft",
+                                       "inputs": {"source": {"held": nxt}, "source_ref": "test:admit"}})
+    submitted = tee.post("/v1/request", {"actor": OP, "object_id": drafted["object_id"], "transition": "submit"})
+    assert submitted["kind"] == "satisfied", submitted
+    published = tee.post("/v1/publish", {"actor": OP, "change": drafted["object_id"],
+                                         "expected_version": submitted["version"]})
+    assert published["verdict"]["kind"] == "satisfied", published
+    alike(tee)
+
+
 def test_a_dimension_kept_twice_is_refused_alike(tee):
     """A metric read keeping one dimension twice is a 400 from both backends,
     where one named 5,000 times ran to the read's deadline (seventh
@@ -2632,6 +2690,25 @@ def test_a_dimension_kept_twice_is_refused_alike(tee):
     tee.found.clear()
     with pytest.raises(Failed):
         tee.post("/v1/metric", {"actor": OP, "name": "Bill.time_in_state", "keep": ["state", "state"]})
+    alike(tee)
+
+
+def test_an_actor_of_another_shape_is_refused_alike(tee):
+    """A read's actor that is not an object of an id and a principal is a 400
+    from both backends, on every read that takes one, where a read took an
+    actor of any JSON type (eighth production review, ADR-0195 decision 7)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    reads = [("/v1/get", {"id": "x"}), ("/v1/lookup", {"source": "s", "value": "v"}),
+             ("/v1/declaration", {"type": "Bill"}), ("/v1/tools", {"actor_kind": "agent"}), ("/v1/history", {"id": "x"})]
+    for path, body in reads:
+        for actor in ([1], "operator", 7, {"id": 7}, {"id": "operator", "role": "x"}):
+            with pytest.raises(Failed, match="400"):
+                tee.post(path, {**body, "actor": actor})
+        # an actor of the shape, or none, is read as before
+        tee.post(path, {**body, "actor": OP})
+        tee.post(path, body)
     alike(tee)
 
 

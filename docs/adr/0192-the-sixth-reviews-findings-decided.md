@@ -3,7 +3,7 @@
 - **Status:** **Decided** 2026-10-13 on the author's standing instruction, "continue the loop to get the stack ready for production, follow your recommendations", each decision the recommendation stated here; built 2026-10-13, in the order below, decision 7's second service said and not refused, as it says.
 - **Date:** 2026-10-13
 - **Refines:** ADR-0055 and ADR-0171 (the invariants' affected set), ADR-0190 decisions 2, 3 and 4 (the read pools, a filter's cost, an actor's identity), ADR-0179 (pages), ADR-0087 (erasure)
-- **Refined by:** ADR-0194 — an identity compared without its ASCII letters' case, by an index on its folded value.
+- **Refined by:** ADR-0194 — an identity compared without its ASCII letters' case, by an index on its folded value. ADR-0195 — a migration may admit `identity_taken`.
 - **Relates to:** `design/production-review.md` §10; `DESIGN.md` §5.6, §9; `guides/wire.md`; `guides/integrate.md` §6, §9
 
 ## Context

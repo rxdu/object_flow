@@ -98,7 +98,7 @@ examples: 3 run: 3 passed, 0 failed, 0 not run
 The checker runs every publish check, then every example on the reference runner. Pass a module's imports before it, in import order: `people.yaml service.yaml service.examples.yaml`. Check a new version against the last one with `--previous=old.yaml`.
 
 - A **fatal** finding stops a publish. It names its line and how to fix it.
-- A **notice** does not stop a publish, but read each one. `coverage` lists the transitions no example tests. `unknown` flags a guard or filter that an absent optional value would make unknown, usually a bug. `agent_open` and `publishing_open` say what an agent could take ([Agents](agents.md)). `unbounded_reach` names a rule that reads an unbounded set, and the bound to declare.
+- A **notice** does not stop a publish, but read each one. `coverage` lists the transitions no example tests. `unknown` flags a guard or filter that an absent optional value would make unknown, usually a bug. `agent_open` says what an agent could take, and `publishing_open` that the default decides who approves a version ([Agents](agents.md)). `unbounded_reach` names a rule that reads an unbounded set, and the bound to declare.
 
 To run the same examples on the engine's core:
 

@@ -116,6 +116,75 @@ pub struct Prepared {
     pub report: PublishReport,
 }
 
+/// A change as a dry run reads it: its id, version and state, and its
+/// draft, read once so its checks run with no read of the store open
+/// (ADR-0195 decision 1).
+#[derive(Debug)]
+pub struct ChangeRead {
+    pub change: String,
+    pub change_version: i64,
+    pub state: String,
+    pub source: Vec<(String, String)>,
+    pub source_ref: String,
+    pub source_digest: String,
+}
+
+impl ChangeRead {
+    /// The draft it holds, as the actor given asks for its dry run.
+    pub fn draft<'a>(&'a self, actor: &'a str) -> Draft<'a> {
+        Draft {
+            change_id: Some(&self.change),
+            source: &self.source,
+            source_ref: Some(&self.source_ref),
+            source_digest: Some(&self.source_digest),
+            actor,
+        }
+    }
+}
+
+/// A `DeclarationChange` as the world holds it, or none.
+pub fn change_read(world: &World<'_>, change: &str) -> Result<Option<ChangeRead>, NotRun> {
+    let Some(o) = world
+        .get(change)?
+        .filter(|o| o.type_ == crate::model::DECLARATION_CHANGE)
+    else {
+        return Ok(None);
+    };
+    let (source, source_ref, source_digest) = draft_of(o);
+    Ok(Some(ChangeRead {
+        change: o.id.clone(),
+        change_version: o.version,
+        state: o.state.clone(),
+        source,
+        source_ref,
+        source_digest,
+    }))
+}
+
+/// The dry run a `submit` or `refresh` of a change records, its checks run
+/// apart: none where the change has moved since it was read, or is no longer
+/// drafted or submitted, which the request computes for itself.
+pub fn prepare_checked(
+    world: &World<'_>,
+    read: &ChangeRead,
+    actor: &str,
+    checked: Checked,
+) -> Result<Option<Prepared>, NotRun> {
+    let Some(o) = world.get(&read.change)? else {
+        return Ok(None);
+    };
+    if o.version != read.change_version || !(o.state == "DRAFTED" || o.state == "SUBMITTED") {
+        return Ok(None);
+    }
+    let report = dry_run_checked(world, &read.draft(actor), checked)?;
+    Ok(Some(Prepared {
+        change: read.change.clone(),
+        change_version: read.change_version,
+        at: world.lib.version,
+        report,
+    }))
+}
+
 /// A change's source, reference and digest, as its record holds them.
 pub(crate) fn draft_of(o: &Object) -> (Vec<(String, String)>, String, String) {
     let text = |a: &str| match o.attr(a) {
@@ -269,12 +338,30 @@ fn simulate_as(
     draft: &Draft<'_>,
     installing: bool,
 ) -> Result<Simulated, NotRun> {
-    let old = world.lib;
+    let checked = checks_of(world.lib, world.now, draft)?;
+    simulate_checked(world, draft, checked, installing)
+}
+
+/// Step 1 of a dry run, the checks and the examples, which read the
+/// installed version and nothing of the store: run with no read of the store
+/// open, so a change's checks, which an agent's large change made take
+/// minutes, hold no read mark that an erasure's cut of the write-ahead log
+/// must wait for (eighth production review ERASE-WAL-DRYRUN, ADR-0195
+/// decision 1).
+#[derive(Debug)]
+pub struct Checked {
+    found: Found,
+    report: PublishReport,
+    at: i64,
+}
+
+/// The checks of a draft against the installed version `old`, at `now`.
+pub fn checks_of(old: &Library, now: i64, draft: &Draft<'_>) -> Result<Checked, NotRun> {
     let mut found = Found::default();
     let report = PublishReport {
         version: old.version + 1,
         accepted: false,
-        now: world.now,
+        now,
         findings: Vec::new(),
         change_id: draft.change_id.map(str::to_string),
         source_ref: draft.source_ref.map(str::to_string),
@@ -341,6 +428,41 @@ fn simulate_as(
         };
         found.own(severity, code, message);
     }
+    Ok(Checked {
+        found,
+        report,
+        at: old.version,
+    })
+}
+
+/// A dry run of a draft whose checks were run apart: its impact over the
+/// objects (ADR-0195 decision 1).
+pub fn dry_run_checked(
+    world: &World<'_>,
+    draft: &Draft<'_>,
+    checked: Checked,
+) -> Result<PublishReport, NotRun> {
+    simulate_checked(world, draft, checked, false).map(|s| s.report)
+}
+
+/// Steps 2 and 3 after the checks: the checks made again where they were run
+/// against another installed version than the world's.
+fn simulate_checked(
+    world: &World<'_>,
+    draft: &Draft<'_>,
+    checked: Checked,
+    installing: bool,
+) -> Result<Simulated, NotRun> {
+    let checked = if checked.at == world.lib.version {
+        checked
+    } else {
+        checks_of(world.lib, world.now, draft)?
+    };
+    let Checked { found, report, .. } = checked;
+    let report = PublishReport {
+        now: world.now,
+        ..report
+    };
     // the dry run goes on past what the checks refuse, reporting everything
     // (publish-and-import.md §1 step 4), except where the rules they refuse
     // cannot be run over the objects, which it says
@@ -365,6 +487,17 @@ fn simulate_as(
         }
         other => other,
     }
+}
+
+/// The world a version is simulated in, over the read it simulates on: its
+/// deadline bounding the simulation, where a new rule's cost over the
+/// objects ran on past it (PUBLISH-SCALE), and its stop, so an urgent cut of
+/// the log stops the simulation as it stops the read (ADR-0195 decision 1).
+fn simulating<'l>(new: &'l Library, world: &World<'_>) -> World<'l> {
+    let mut sim = World::new(new, world.now);
+    sim.deadline = world.deadline;
+    sim.stop = world.stop.clone();
+    sim
 }
 
 /// Steps 2 and 3 over the objects, after the checks: the source loaded,
@@ -527,10 +660,7 @@ fn impact(
         }
         mapped.insert(x.id.clone(), x);
     }
-    let mut sim = World::new(&new, world.now);
-    // the read's deadline bounds the simulation too, where a new rule's
-    // cost over the objects ran on past it (PUBLISH-SCALE)
-    sim.deadline = world.deadline;
+    let mut sim = simulating(&new, world);
     for o in mapped.into_values() {
         sim.insert(o)?;
     }
@@ -1488,6 +1618,54 @@ types:
         assert!(r.fatal() && !r.accepted);
     }
 
+    /// A dry run's checks run apart from any read of the store, and its
+    /// impact on a world that carries its read's stop, so an urgent cut of
+    /// the log stops it as it stops every read, where an erasure's values
+    /// stayed in the store's files for the whole of a dry run (eighth
+    /// production review ERASE-WAL-DRYRUN, ADR-0195 decision 1).
+    #[test]
+    fn a_dry_runs_impact_is_stopped_by_an_urgent_cut() {
+        let (mut s, _, _, _) = fleet();
+        for i in 0..300 {
+            created(&req(
+                &mut s,
+                "add",
+                ("Robot", true),
+                json!({"serial": format!("S{i}"), "grade": "A"}),
+            ));
+        }
+        let text = V1.replace(
+            "serial: { type: string }",
+            "serial: { type: string }\n      note: { type: string, optional: true }",
+        );
+        let change = draft(&mut s, &text);
+        let source = [("fleet".to_string(), text.clone())];
+        let d = Draft {
+            change_id: Some(&change),
+            source: &source,
+            source_ref: Some("git:fleet@1"),
+            source_digest: None,
+            actor: OPERATOR,
+        };
+        let w = s.snapshot().unwrap();
+        let checked = checks_of(w.lib, w.now, &d).unwrap();
+        // the same checks give the same report on a world the cut leaves be
+        assert!(dry_run_checked(&w, &d, checks_of(w.lib, w.now, &d).unwrap()).is_ok());
+        drop(w);
+        let mut w = s.snapshot().unwrap();
+        let epoch = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(1));
+        w.stop = Some((epoch, 0));
+        let stopped = dry_run_checked(&w, &d, checked);
+        assert!(
+            matches!(&stopped, Err(NotRun::TimedOut(m)) if m.contains("log could be cut")),
+            "{stopped:?}"
+        );
+        // the world the version is simulated in carries the read's stop and
+        // deadline, whatever the read itself reads
+        let sim = simulating(w.lib, &w);
+        assert!(sim.stop.is_some() && sim.deadline == w.deadline);
+    }
+
     #[test]
     fn what_no_mapping_covers_is_fatal_and_an_unadmitted_violation_a_decision() {
         let (mut s, [_, held, bare], _, _) = fleet();
@@ -1743,9 +1921,11 @@ types:
     /// A version is approved only by the kinds of actor the installed
     /// version declares in `publishing.taken_by`, refused another kind as
     /// `publish_taken_by`, `delegable`: read from the installed version, so
-    /// a change dropping the rule is still refused to an agent; the store's
+    /// a change dropping the rule is still refused to an agent; with none
+    /// declared, an agent is refused and any other kind taken; the store's
     /// operator always may approve, so no declaration shuts every approver
-    /// out (third production review AGENT-APPROVE, ADR-0187 decision 1).
+    /// out (third production review AGENT-APPROVE, ADR-0187 decision 1,
+    /// ADR-0195 decision 4).
     #[test]
     fn a_version_is_approved_only_by_the_kinds_the_installed_one_declares() {
         const ACTORS: &str = "  User:\n    description: A person who works the fleet.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n    states: { ACTIVE: { category: live }, GONE: { category: closed, final: true } }\n    transitions:\n      add: { kind: initial, to: ACTIVE, required_inputs: [login] }\n      leave: { kind: external, from: [ACTIVE], to: GONE }\n  Bot:\n    description: An agent of the fleet.\n    tracking: record\n    attributes:\n      handle: { type: identity, actor_kind: agent, unique: true }\n    states: { ACTIVE: { category: live }, GONE: { category: closed, final: true } }\n    transitions:\n      add: { kind: initial, to: ACTIVE, required_inputs: [handle] }\n      retire: { kind: external, from: [ACTIVE], to: GONE }\n  Robot:\n";
@@ -1780,10 +1960,14 @@ types:
         let (verdict, _) = s.publish(&ana, &change, v).unwrap().unwrap();
         assert!(matches!(verdict, Verdict::Satisfied { .. }), "{verdict:?}");
         assert_eq!(s.lib.publishing, None);
-        // with none declared, an agent's approval is the gateway's to refuse
+        // with none declared, an agent's approval is refused and a person's
+        // taken, where the agent approved its own change (eighth production
+        // review, ADR-0195 decision 4)
         let services = with("service");
         let (change, v) = submitted(&mut s, &services);
         let (verdict, _) = s.publish(&bot, &change, v).unwrap().unwrap();
+        assert!(refused(&verdict, &change), "{verdict:?}");
+        let (verdict, _) = s.publish(&ana, &change, v).unwrap().unwrap();
         assert!(matches!(verdict, Verdict::Satisfied { .. }), "{verdict:?}");
         // under [service], a person is refused and the operator approves
         let (change, v) = submitted(&mut s, &humans);

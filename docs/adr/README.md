@@ -195,4 +195,5 @@
 | [0192](0192-the-sixth-reviews-findings-decided.md) | The sixth review's findings, decided | Decided on the author's standing instruction; built |
 | [0193](0193-the-guides-written-for-people-and-agents.md) | The guides, written for people and agents, and checked against the engine | Decided on the author's request; built |
 | [0194](0194-the-seventh-reviews-findings-decided.md) | The seventh review's findings, decided | Decided on the author's standing instruction; built |
+| [0195](0195-the-eighth-reviews-findings-decided.md) | The eighth review's findings, decided | Decided on the author's standing instruction |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

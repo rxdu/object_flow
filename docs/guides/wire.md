@@ -124,7 +124,7 @@ One per transition, as `availability` answers it:
 - `inputs` are the input types to build a form from; which are required is in `declaration`.
 - `flags` are the warnings taking it would raise; `unevaluated`, the evaluators it would ask.
 - A transition taking no input and asking no evaluator is decided for the actor asking: the request is simulated, as `check` would, so an agent sees an approval marked `taken_by: [human]` as `unavailable` with the refusal it would meet. **`actor_dependent: true`** marks one awaiting inputs that may still be refused for who takes it: `check` it with the inputs, or let the request answer.
-- Every object offers the built-in `record`, `"creates": "label"`: a label anyone may put on any object, which metrics read. It takes `name`, an optional `note`, and an optional `corrects`, naming an earlier label it corrects.
+- Every object offers the built-in `record`, `"creates": "label"`: a label anyone may put on any object, which metrics read. It is a request of the type `label`, its object named by the input `subject`: `{"actor": …, "type": "label", "transition": "record", "inputs": {"subject": "claim-7", "name": "checked"}}`, with an optional `note` and an optional `corrects`, naming an earlier label it corrects.
 
 ### An event
 
@@ -146,7 +146,7 @@ As `history`, `events` and `pull` answer it:
 
 `query`, `available`, `history`, `pull` and `export` answer at most `limit` items, from 1 to 1000, **100 unless asked**, with the `cursor` of the next page, `null` on the last; a page of `history` also ends at 8 MiB of events, one at least, with a cursor going on. Send the cursor back, with the same read, until it is `null`. A cursor continues only the read it came from: another `query` or `available` refuses it `malformed_cursor`. A page continues after the last object it gave, in the read's order, so an object created between pages is met once and none twice, unless an object's order key changes between pages.
 
-`pull` and `export` page through a log that grows, so their cursor is never `null`: a page with fewer than `limit` items is the end of what is there now, and the cursor you keep reads what is added later. A metric's read and `exceptions` answer one page.
+`pull` and `export` page through a log that grows, so their cursor is never `null`: a page with fewer than `limit` items is the end of what is there now, and the cursor you keep reads what is added later. A page of `export` never ends among the rows that share one cursor, an `.attempts` source's rows of one transaction or an `.intervals` source's rows of one event, so it may pass `limit` by those rows. A metric's read and `exceptions` answer one page.
 
 ### Filters and order
 

@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-13 on the author's standing instruction, "continue the loop to get the stack ready for production, follow your recommendations", each decision the recommendation stated here; built 2026-10-13, decision 6's time past the calendar moved to decision 8 when building it found the reference runner holds a time untyped
 - **Date:** 2026-10-13
+- **Refined by:** ADR-0195 — a dry run's checks hold no read, its impact stopped by an urgent cut.
 - **Refines:** ADR-0192 decision 6 (an identity compared without case, now its ASCII letters' case), ADR-0127 decision 2 (`query`'s order keys), ADR-0179 (pages)
 - **Relates to:** `design/production-review.md` §11; `storage-schema.md` §5; the fourth production review's cut of the write-ahead log (`001a806`), which decision 4 changes; `guides/operate.md`; `guides/wire.md`
 

@@ -158,7 +158,7 @@ A fault's body is always `{"fault": "<reason>", "code": "<code>"}`.
 | `unavailable` | `503` | The service cannot answer for another reason. | Retry later. |
 | `internal` | `500` | The service's own fault. | Report it, with the log line. |
 
-`GET /health` answers `503` with one of these codes when the deployment needs an operator: `upgrade_due`, `disk_low` (under 64 MiB free), `store_replaced`, `log_blocked` (a log line waited more than 5 s to be written) and `writes_stalled` (another process's lock stopped the last write). See [Operate](operate.md).
+`GET /health` answers `503` with one of these codes when the deployment needs an operator: `upgrade_due`, `disk_low` (under 64 MiB free), `store_replaced`, `log_blocked` (a log line waited more than 5 s to be written), `writes_stalled` (a write waits for another process's lock, or the last one was refused after its retries) and `writes_failing` (three writes or more in a row answered `500`). See [Operate](operate.md).
 
 ## Retrying safely
 

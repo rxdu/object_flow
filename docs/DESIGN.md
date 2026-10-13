@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 617 entries and five cosmetics; 616 are closed and 1 is open. The PRD is at revision 24, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 620 entries and five cosmetics; 619 are closed and 1 is open. The PRD is at revision 24, with no revision awaiting the author.
 
 **Every ADR is accepted or superseded.** In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
@@ -103,7 +103,7 @@ ObjectFlow is a layer over a database, not a database (ADR-0001). The core is **
 - **Posting events to an endpoint** is a relay: an upper-layer application that pulls, posts and acknowledges as its own actor (ADR-0105). Workflow orchestration of a Temporal shape is an upper-layer application too.
 - **Measurement adds no background process.** Metrics are computed on read, and a business exception is a condition an upper-layer application asks about (ADR-0081, ADR-0084).
 
-**The first release is sized for the first consumer** (PRD N3): a few hundred live objects per type and a few thousand audit rows over the system's life, an operations rate and not a telemetry rate. Its event and datapoint rates are measured against production before cutover ([`design/first-consumer-cutover.md`](design/first-consumer-cutover.md) §5). The orders-at-volume case study stays a design reference, not a target.
+**The first release is sized for the first consumer** (PRD N3): hundreds to thousands of live objects per type and their history, an operations rate and not a telemetry rate. The production reviews measured it on a copy of the first consumer's store, about 37,000 objects, and on that store grown to six years of history, about 110,000 ([`design/production-review.md`](design/production-review.md)). Its event and datapoint rates are measured against production before cutover ([`design/first-consumer-cutover.md`](design/first-consumer-cutover.md) §5). The orders-at-volume case study stays a design reference, not a target.
 
 The core is **synchronous**: a request runs to completion on its caller's thread, and an asynchronous service wraps it on a thread pool. The store takes its **id source, clock, connection source and evaluator source** as injected dependencies, which is what lets the adversarial harness interleave requests deterministically against a real database and answer every external guard the same way on every run (ADR-0077, ADR-0091, ADR-0100).
 
