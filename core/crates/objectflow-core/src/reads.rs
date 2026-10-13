@@ -445,7 +445,12 @@ fn unanswerable(lib: &Library, t: &Type, e: &Expr) -> bool {
         Expr::Name(n) => {
             matches!(n.as_str(), "actor" | "inputs" | "this_event") && t.attribute(n).is_none()
         }
-        Expr::Bin(BinOp::Div, _, d) => matches!(&**d, Expr::Num(n) if zero(n)),
+        // a literal zero, a number's or money's (ADR-0192 decision 7)
+        Expr::Bin(BinOp::Div, _, d) => {
+            matches!(&**d, Expr::Num(n) if zero(n))
+                || matches!(&**d, Expr::Money(_, amount)
+                    if amount.bytes().all(|b| matches!(b, b'0' | b'.' | b'-')))
+        }
         _ => false,
     };
     here || e.children().into_iter().any(|c| unanswerable(lib, t, c))
@@ -458,9 +463,6 @@ fn unanswerable(lib: &Library, t: &Type, e: &Expr) -> bool {
 /// (fifth production review FILTER-COST, ADR-0190 decision 3).
 pub const FILTER_AGGREGATES: usize = 2;
 
-/// Why a filter an object of its type cannot answer is refused.
-const MISMATCHED: &str =
-    "an object of the type cannot answer it: it compares values of different types";
 pub const FILTER_MEMBERS: usize = 1_000;
 
 /// The most terms a query filter holds, past which it is refused, where an
@@ -486,6 +488,16 @@ fn nodes(e: &Expr) -> usize {
                 .sum::<usize>()
         }
         _ => 1 + e.children().into_iter().map(nodes).sum::<usize>(),
+    }
+}
+
+/// Whether an expression writes a set holding a set.
+fn sets_within(e: &Expr) -> bool {
+    match e {
+        Expr::Set(items) => {
+            items.iter().any(|x| matches!(x, Expr::Set(_))) || items.iter().any(sets_within)
+        }
+        _ => e.children().into_iter().any(sets_within),
     }
 }
 
@@ -678,6 +690,11 @@ pub fn query_page(
                 "no stored object can answer it: it calls an evaluator, reads the request's actor, inputs or this_event, or divides by a literal zero".to_string(),
             );
         }
+        Some(Ok(e)) if sets_within(&e) => {
+            return malformed(
+                "it writes a set within a set, which no member holds (ADR-0192)".to_string(),
+            );
+        }
         Some(Ok(e)) if calls_metric(&e) => {
             return malformed(
                 "it calls a metric, which a query filter does not: a metric read per object ran to the read's deadline; read the metric itself (ADR-0192)".to_string(),
@@ -750,15 +767,22 @@ pub fn query_page(
     // values cannot, such as a derived time with text, or a time computed
     // past what one holds, which refuses the filter as malformed rather than
     // the read as not run (D580, fourth production review A-10)
-    let selects = |o: &Object| -> Result<Option<bool>, NotRun> {
+    // a filter an object of the type cannot answer, an ill-typed one among
+    // them, is refused with why, where it answered 501 and wrote the value
+    // it met into the log (sixth production review, ADR-0192 decision 7)
+    let selects = |o: &Object| -> Result<Result<bool, String>, NotRun> {
         let Some(ot) = world.lib.type_(&o.type_) else {
             return Err(NotRun::Unsupported(format!("the type {}", o.type_)));
         };
         Ok(match &filter {
-            None => Some(true),
-            Some(e) => match Evaluator::new(world, Some(ot), Some(&o.id)).eval(e) {
-                Err(NotRun::Unsupported(what)) if what.starts_with("comparing ") => None,
-                v => Some(truth(&v?)? == Some(true)),
+            None => Ok(true),
+            Some(e) => match Evaluator::new(world, Some(ot), Some(&o.id))
+                .eval(e)
+                .and_then(|v| truth(&v))
+            {
+                Ok(t) => Ok(t == Some(true)),
+                Err(NotRun::Unsupported(why)) => Err(why),
+                Err(e) => return Err(e),
             },
         })
     };
@@ -776,9 +800,11 @@ pub fn query_page(
                 world.of_type_from(type_, states.as_ref(), &columns, after, chunk)?;
             for o in &next {
                 match selects(o)? {
-                    None => return malformed(MISMATCHED.to_string()),
-                    Some(true) => chosen.push(*o),
-                    Some(false) => {}
+                    Err(why) => {
+                        return malformed(format!("an object of the type cannot answer it: {why}"));
+                    }
+                    Ok(true) => chosen.push(*o),
+                    Ok(false) => {}
                 }
                 if chosen.len() > limit {
                     break 'reading;
@@ -797,9 +823,11 @@ pub fn query_page(
         };
         for o in candidates {
             match selects(o)? {
-                None => return malformed(MISMATCHED.to_string()),
-                Some(true) => chosen.push(o),
-                Some(false) => {}
+                Err(why) => {
+                    return malformed(format!("an object of the type cannot answer it: {why}"));
+                }
+                Ok(true) => chosen.push(o),
+                Ok(false) => {}
             }
         }
     }
@@ -951,7 +979,19 @@ pub fn query_page(
                 return refuse("unknown_field");
             }
             let member = Expr::Path(Box::new(Expr::Name("this".into())), f.clone());
-            out.push((f.clone(), reader.eval(&member)?));
+            // a derived time past the calendar is answered without a value,
+            // as `get` answers it (ADR-0191 decision 3, ADR-0192 decision 7)
+            let v = match reader.eval(&member)? {
+                Value::Timestamp(s)
+                    if ot.derived.iter().any(|(d, _)| d == f)
+                        && !(crate::value::FIRST_SECOND..=crate::value::LAST_SECOND)
+                            .contains(&s) =>
+                {
+                    Value::Absent
+                }
+                v => v,
+            };
+            out.push((f.clone(), v));
         }
         items.push(Item {
             id: o.id.clone(),
@@ -1640,6 +1680,10 @@ types:
         };
         assert_eq!(refused(&chain(64)), None);
         assert_eq!(refused(&chain(65)), malformed);
+        // a division by a money zero, and a set within a set, refused,
+        // where each answered an empty page (ADR-0192 decision 7)
+        assert_eq!(refused("amount / USD 0.00 > 0"), malformed);
+        assert_eq!(refused("count in {{1}}"), malformed);
         assert_eq!(refused("count / 2 > 0"), None);
         assert_eq!(refused(r#"payee == "Ana""#), None);
         assert_eq!(

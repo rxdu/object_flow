@@ -109,6 +109,17 @@ enum Term {
 }
 
 impl Term {
+    /// What kind of term it is, as a fault names it, never its value.
+    fn kind(&self) -> &'static str {
+        match self {
+            Term::Value(v) => v.kind(),
+            Term::Inputs => "the inputs",
+            Term::Actor => "the actor",
+            Term::TypeRef(_) => "a type",
+            Term::Category(_) => "a category",
+        }
+    }
+
     fn absent() -> Term {
         Term::Value(Value::Absent)
     }
@@ -300,7 +311,8 @@ pub fn truth(v: &Value) -> Result<Option<bool>, NotRun> {
         Value::Bool(b) => Ok(Some(*b)),
         Value::Absent => Ok(None),
         other => not_run(format!(
-            "a condition whose value is not a boolean ({other:?})"
+            "a condition whose value is {}, not a boolean",
+            other.kind()
         )),
     }
 }
@@ -456,7 +468,7 @@ impl<'a> Evaluator<'a> {
         match self.term(e, &BTreeMap::new())? {
             Term::Value(v) => Ok(v),
             Term::Category(c) => Ok(Value::Text(c)),
-            other => not_run(format!("an expression whose value is {other:?}")),
+            other => not_run(format!("an expression whose value is {}", other.kind())),
         }
     }
 
@@ -464,7 +476,7 @@ impl<'a> Evaluator<'a> {
         match self.term(e, env)? {
             Term::Value(v) => Ok(v),
             Term::Category(c) => Ok(Value::Text(format!("category:{c}"))),
-            other => not_run(format!("an expression whose value is {other:?}")),
+            other => not_run(format!("an expression whose value is {}", other.kind())),
         }
     }
 
@@ -553,7 +565,7 @@ impl<'a> Evaluator<'a> {
                         },
                         None => Value::Absent,
                     },
-                    other => return not_run(format!("negating {other:?}")),
+                    other => return not_run(format!("negating {}", other.kind())),
                 };
                 if negated.is_absent() && !v.is_absent() {
                     self.failed_arithmetic.set(true);
@@ -605,7 +617,7 @@ impl<'a> Evaluator<'a> {
                     }
                     (_, Value::Absent) | (None, _) => Value::Absent,
                     (_, other) => {
-                        return not_run(format!("changed_since an event that is {other:?}"));
+                        return not_run(format!("changed_since an event that is {}", other.kind()));
                     }
                 })
             }
@@ -722,7 +734,7 @@ impl<'a> Evaluator<'a> {
             }
             Term::Value(Value::Row(fields)) => return row_member(fields, m).map(Term::Value),
             Term::Value(Value::Object(id)) => id,
-            other => return not_run(format!("a member `{m}` of {other:?}")),
+            other => return not_run(format!("a member `{m}` of {}", other.kind())),
         };
         self.note(id)?;
         let Some(o) = self.world.get(id)? else {
@@ -857,7 +869,7 @@ impl<'a> Evaluator<'a> {
         match self.value(right, env)? {
             Value::Absent => Ok(Term::absent()),
             Value::Set(items) => Ok(Term::Value(Value::Bool(items.iter().any(|i| i.equals(&l))))),
-            other => not_run(format!("membership in {other:?}")),
+            other => not_run(format!("membership in {}", other.kind())),
         }
     }
 
@@ -1147,7 +1159,7 @@ impl<'a> Evaluator<'a> {
                 scanned = Some(t);
                 all
             }
-            other => return not_run(format!("an aggregate over {other:?}")),
+            other => return not_run(format!("an aggregate over {}", other.kind())),
         };
         // within it, what an element's where and body read names nothing
         let _deeper = Deeper::new(self.naming);
@@ -1335,7 +1347,7 @@ impl<'a> Evaluator<'a> {
                         match self.value(base, env)? {
                             Value::Absent => Ok(Value::Absent),
                             Value::Object(id) => self.flow_function(&id, member, arg),
-                            other => not_run(format!("`{member}` of {other:?}")),
+                            other => not_run(format!("`{member}` of {}", other.kind())),
                         }
                     }
                     // the value a tracked member held as a row began
@@ -1348,7 +1360,7 @@ impl<'a> Evaluator<'a> {
                             }
                             _ => Value::Absent,
                         }),
-                        other => not_run(format!("`held` of {other:?}")),
+                        other => not_run(format!("`held` of {}", other.kind())),
                     },
                     _ => not_run(format!("the member function `{member}`")),
                 };
@@ -1360,13 +1372,13 @@ impl<'a> Evaluator<'a> {
                 Value::Absent => Value::Absent,
                 Value::Text(s) => Value::Int(i64::try_from(s.chars().count()).unwrap_or(i64::MAX)),
                 Value::Set(items) => Value::Int(i64::try_from(items.len()).unwrap_or(i64::MAX)),
-                other => return not_run(format!("the length of {other:?}")),
+                other => return not_run(format!("the length of {}", other.kind())),
             }),
             ("date", [a]) => Ok(match self.value(a, env)? {
                 Value::Absent => Value::Absent,
                 Value::Date(d) => Value::Date(d),
                 Value::Timestamp(t) => Value::Date(t.div_euclid(86_400)),
-                other => return not_run(format!("the date of {other:?}")),
+                other => return not_run(format!("the date of {}", other.kind())),
             }),
             ("entered_at" | "time_in", [Expr::Name(arg)]) => match self.this {
                 Some(id) => self.flow_function(id, name, arg),
@@ -1749,7 +1761,7 @@ pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
     let compare = |want: fn(Ordering) -> bool| -> Result<Value, NotRun> {
         match a.compare(b) {
             Some(o) => Ok(V::Bool(want(o))),
-            None => not_run(format!("comparing {a:?} with {b:?}")),
+            None => not_run(format!("comparing {} with {}", a.kind(), b.kind())),
         }
     };
     match op {
@@ -1891,7 +1903,7 @@ pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
                 .map(V::Decimal),
             )
         }
-        _ => return not_run(format!("{a:?} {} {b:?}", op.text())),
+        _ => return not_run(format!("{} {} {}", a.kind(), op.text(), b.kind())),
     })
 }
 

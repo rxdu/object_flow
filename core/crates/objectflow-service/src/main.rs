@@ -73,6 +73,21 @@ static LOGGING_SINCE: AtomicI64 = AtomicI64::new(0);
 /// When the service started, in seconds since 1970, for `/metrics`
 /// (ADR-0191 decision 4).
 static STARTED_AT: AtomicI64 = AtomicI64::new(0);
+
+/// When a write last failed for a full volume, in milliseconds, which
+/// `/health` says until a write commits after it (ADR-0192 decision 7).
+static DISK_FULL_AT: AtomicI64 = AtomicI64::new(0);
+
+/// Whether a write failed for a full volume after the last that committed,
+/// which `/health` says (ADR-0192 decision 7).
+fn disk_full_since(written_at: i64) -> bool {
+    let full = DISK_FULL_AT.load(Ordering::SeqCst);
+    full != 0 && full > written_at
+}
+
+/// The store's lock, held for the process's life, so a second service on
+/// the store is said at its start (ADR-0192 decision 7).
+static STORE_LOCK: std::sync::OnceLock<std::fs::File> = std::sync::OnceLock::new();
 /// The lines not written while the log was blocked.
 static LINES_DROPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 /// How long a line may take before the log is held blocked.
@@ -204,7 +219,9 @@ fn asked(
     if status != 200 {
         return unknown(format!("{} answered {status}", shown(endpoint)));
     }
-    match serde_json::from_str::<J>(&text)
+    // an answer naming a key twice is no verdict, as a request's body is
+    // refused (ADR-0192 decision 7)
+    match strict_json(text.as_bytes())
         .ok()
         .as_ref()
         .and_then(|a| a.get("verdict"))
@@ -747,6 +764,11 @@ fn reading_until(shared: &Shared, until: std::time::Instant) -> Result<Reading<'
     if let Some(at) = seen.due {
         return Err(due(&at));
     }
+    // a store moved, gone or replaced under the service answers a read as it
+    // answers a write, where a read answered 500 (ADR-0192 decision 7)
+    if let Some(replaced) = store_replaced(shared) {
+        return Err(Fault::Unavailable(replaced));
+    }
     let Some((lib, earlier)) = seen.lib else {
         return Err(Fault::Conflict("no store is open".to_string()));
     };
@@ -934,6 +956,7 @@ impl From<objectflow_core::store::StoreError> for Fault {
         // a full volume answers 503, which a client may retry, where it
         // answered 500, the service's own fault (fourth production review)
         if e.is_disk_full() {
+            DISK_FULL_AT.store(wall_millis(), Ordering::SeqCst);
             return Fault::Unavailable(e.0);
         }
         Fault::Internal(e.to_string())
@@ -2777,7 +2800,8 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
             if let Some(at) = seen.due {
                 return due(
                     json!({"release": BUILTINS, "shape": "deployment", "version": J::Null,
-                                  "now": J::Null, "store_release": at, "upgrade_due": true}),
+                                  "now": J::Null, "store_release": at, "upgrade_due": true,
+                                  "code": "upgrade_due"}),
                 );
             }
             // a store file moved, gone or replaced under the service, said
@@ -2834,6 +2858,14 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                 Some(format!(
                     "disk_low: {bytes} byte(s) free on the store's volume, below the {DISK_FLOOR} a checkpoint needs"
                 ))
+            } else if disk_full_since(shared.watch.written_at.load(Ordering::SeqCst)) {
+                // a volume full though its free space did not show it, a
+                // quota's or a reserve's, said until a write commits
+                // (sixth production review, ADR-0192 decision 7)
+                Some(
+                    "disk_full: the last write failed for a full volume, and none has committed since"
+                        .to_string(),
+                )
             } else if log_blocked(LOGGING_SINCE.load(Ordering::SeqCst), now) {
                 Some(format!(
                     "log_blocked: a line of the log has waited more than {} s to be written; its lines are dropped until it is read",
@@ -3335,9 +3367,10 @@ async fn metrics(State(shared): State<Shared>) -> Response {
     // production review, ADR-0191 decision 4)
     out.push_str(&format!(
         "# HELP objectflow_build_info The release serving, always 1.\n\
-         # TYPE objectflow_build_info gauge\nobjectflow_build_info{{release=\"{BUILTINS}\"}} 1\n\
+         # TYPE objectflow_build_info gauge\nobjectflow_build_info{{release=\"{BUILTINS}\",commit=\"{}\"}} 1\n\
          # HELP objectflow_start_time_seconds When the service started, in seconds since 1970.\n\
          # TYPE objectflow_start_time_seconds gauge\nobjectflow_start_time_seconds {}\n",
+        option_env!("OBJECTFLOW_COMMIT").unwrap_or("unknown"),
         STARTED_AT.load(Ordering::SeqCst)
     ));
     (
@@ -3537,7 +3570,7 @@ fn args() -> Result<Args, String> {
                 out.busy_timeout = Some(std::time::Duration::from_secs(secs.unsigned_abs()));
             }
             "--help" | "-h" => return Err(String::new()),
-            "--version" | "-V" => return Err(VERSION.to_string()),
+            "--version" | "-V" => return Err(version()),
             // an argument it does not take is an error, never ignored (D558)
             other => return Err(format!("no argument {other}")),
         }
@@ -3624,6 +3657,16 @@ fn main() {
 
 /// What `--version` answers: the service's release and the release of the
 /// stores it serves.
+/// The release, and the commit it was built from where the build was told,
+/// as a release's build is, so `0.2.0` names one build (sixth production
+/// review, ADR-0192 decision 7).
+fn version() -> String {
+    match option_env!("OBJECTFLOW_COMMIT") {
+        Some(commit) if !commit.is_empty() => format!("{VERSION}, commit {commit}"),
+        _ => VERSION.to_string(),
+    }
+}
+
 const VERSION: &str = concat!(
     "objectflow-service ",
     env!("CARGO_PKG_VERSION"),
@@ -4220,6 +4263,17 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
             path.display()
         ));
     }
+    // a store the service cannot write is refused, where it started, said
+    // 200 at /health and answered every write 500 (ADR-0192 decision 7)
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .map_err(|e| {
+            std::io::Error::other(format!(
+                "{} is not writable by the service: {e}; give the service's user the store, its directory and their write permission",
+                path.display()
+            ))
+        })?;
     // a file that is a database but not a store, another application's, is
     // never made one: its tables are not ours to add to (second production
     // review, minor)
@@ -4241,6 +4295,34 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
         ));
     }
     Ok(notes)
+}
+
+/// The store's lock, `<store>.lock` beside it, taken for the process's life;
+/// where another service holds it, what the start says of it.
+fn hold_store(path: &std::path::Path) -> std::io::Result<Option<String>> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut name = path.as_os_str().to_owned();
+    name.push(".lock");
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(&name)
+        .map_err(|e| {
+            std::io::Error::other(format!("{}: {e}", std::path::Path::new(&name).display()))
+        })?;
+    match lock.try_lock() {
+        Ok(()) => {
+            let _ = STORE_LOCK.set(lock);
+            Ok(None)
+        }
+        Err(std::fs::TryLockError::WouldBlock) => Ok(Some(format!(
+            "another service has the store {} open: the two take turns on its write lock (ADR-0178 decision 2); unless this is an upgrade's overlap, stop one of them",
+            path.display()
+        ))),
+        Err(std::fs::TryLockError::Error(e)) => Err(e),
+    }
 }
 
 /// Whether an endpoint's host is this machine's loopback.
@@ -4278,8 +4360,8 @@ async fn serve() -> std::io::Result<()> {
             println!("{USAGE}");
             return Ok(());
         }
-        Err(why) if why == VERSION => {
-            println!("{VERSION}");
+        Err(why) if why == version() => {
+            println!("{why}");
             return Ok(());
         }
         Err(why) => {
@@ -4313,6 +4395,10 @@ async fn serve() -> std::io::Result<()> {
         // upgrade until it runs, and one at any other refuses to start, so
         // there is no downgrade (ADR-0177 decision 4)
         noted = store_file(path, a.create)?;
+        // a second service on the store said at the start, where it started
+        // with an ambiguous line; it is served, as ADR-0178 decision 2 lets
+        // an upgrade's old copy share the store (ADR-0192 decision 7)
+        noted.extend(hold_store(path)?);
         let at = objectflow_core::release::store_release_at(path)
             .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
         let busy = a
@@ -4588,9 +4674,22 @@ mod tests {
             rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
             Some("database or disk is full".into()),
         );
+        std::thread::sleep(std::time::Duration::from_millis(5));
         let fault = Fault::from(objectflow_core::store::StoreError::from(full));
         let answer = fault.into_response();
         assert_eq!(answer.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // said by /health until a write commits after it (ADR-0192
+        // decision 7)
+        assert!(disk_full_since(w.written_at.load(Ordering::SeqCst)));
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        w.note(&Verdict::Satisfied {
+            object_id: "x-1".into(),
+            version: 2,
+            events: Vec::new(),
+            flags: Vec::new(),
+            replayed: false,
+        });
+        assert!(!disk_full_since(w.written_at.load(Ordering::SeqCst)));
     }
 
     /// A fault's code is its reason's prefix where it has one, else its

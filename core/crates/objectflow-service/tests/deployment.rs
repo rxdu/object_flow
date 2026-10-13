@@ -1706,6 +1706,8 @@ fn bank() -> (
                         (200, r#"{"verdict": "satisfied"}"#)
                     }
                     Some("T-5") => (200, r#"{"cleared": true}"#),
+                    // a verdict named twice, the last a pass (ADR-0192)
+                    Some("T-6") => (200, r#"{"verdict": "unsatisfied", "verdict": "satisfied"}"#),
                     // a fault, whatever its body says
                     _ => (500, r#"{"verdict": "satisfied"}"#),
                 };
@@ -1905,9 +1907,10 @@ fn a_deployment_asks_its_evaluators_at_their_endpoints() {
         (Some("unsatisfied"), Some("cleared"), Some("dependent")),
         "{v}"
     );
-    // a fault, an answer too slow and an answer with no verdict are the
-    // evaluator's unknown: refused, and the caller told to wait
-    for reference in ["T-3", "T-4", "T-5"] {
+    // a fault, an answer too slow, an answer with no verdict and one naming
+    // its verdict twice are the evaluator's unknown: refused, and the caller
+    // told to wait
+    for reference in ["T-3", "T-4", "T-5", "T-6"] {
         let v = settle(&s, reference);
         assert_eq!(
             (v["kind"].as_str(), v["remedy"].as_str()),
@@ -2021,11 +2024,16 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
         let args = ["--store", path.to_str().expect("a path"), "--port", "0"];
         let s = start(&args);
         let (status, health) = call(&s, "GET", "/health", None);
-        // a store due an upgrade serves only the upgrade: its health is 503
+        // a store due an upgrade serves only the upgrade: its health is 503,
+        // coded (ADR-0192 decision 7)
         assert_eq!(status, 503, "{health}");
         assert_eq!(
-            (&health["upgrade_due"], &health["store_release"]),
-            (&json!(true), &recorded["release"])
+            (
+                &health["upgrade_due"],
+                &health["store_release"],
+                &health["code"]
+            ),
+            (&json!(true), &recorded["release"], &json!("upgrade_due"))
         );
         let (status, refused) = call(
             &s,
@@ -3256,6 +3264,18 @@ fn a_store_replaced_under_the_service_takes_no_write() {
         (503, Some("store_replaced")),
         "{health}"
     );
+    // and so does a read, where it answered 500 (ADR-0192 decision 7)
+    let (status, read) = call(
+        &s,
+        "POST",
+        "/v1/get",
+        Some(&json!({"actor": {"id": "operator"}, "id": "operator"})),
+    );
+    assert_eq!(
+        (status, read["code"].as_str()),
+        (503, Some("store_replaced")),
+        "{read}"
+    );
 }
 
 /// Writes stopped behind another process's lock make `/health` answer
@@ -3798,4 +3818,192 @@ fn an_erased_actors_identity_leaves_the_store() {
         !holds(),
         "the store's file or its -wal still holds the email"
     );
+}
+
+const NOTED: &str = "module: noted
+categories: [live, closed]
+types:
+  Person:
+    description: A person.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ON: { category: live, description: Here. }
+      OFF: { category: closed, final: true, description: Gone. }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [login] }
+      leave: { kind: external, from: ON, to: OFF }
+  Note:
+    description: A note.
+    tracking: record
+    attributes:
+      text: { type: string, personal: true, optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      write: { kind: initial, to: OPEN, optional_inputs: [text] }
+      close: { kind: external, from: OPEN, to: DONE }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+";
+
+/// The sixth review's minors the service says: an ill-typed filter is
+/// refused `malformed_filter` with its reason, neither the answer nor the
+/// log holding the stored value it met, where it answered 501 and wrote a
+/// person's text into the log; a key sent by an actor named by its object
+/// and then by its identity is one request; a store the service cannot
+/// write is refused at the start; and a second service on a store is said
+/// at its start (ADR-0192 decision 7).
+#[test]
+fn what_a_filter_a_key_and_a_store_are_told() {
+    let file = fresh_store("noted");
+    let path = file.to_str().expect("a path");
+    let s = start(&["--store", path, "--create", "--port", "0"]);
+    publish(&s, &json!({"noted": NOTED}));
+    let op = json!({"id": "operator"});
+    let secret = "Dana's secret plan";
+    post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Note", "transition": "write", "inputs": {"text": secret}}),
+    );
+    for filter in ["text", "text + 1 > 0", "state + 1 > 0"] {
+        let page = post(
+            &s,
+            "/v1/query",
+            &json!({"actor": op, "type": "Note", "filter": filter}),
+        );
+        assert_eq!(page["refused"], "malformed_filter", "{filter}: {page}");
+        assert!(
+            page["reason"].as_str().is_some_and(|r| !r.is_empty()),
+            "{page}"
+        );
+        assert!(!page.to_string().contains("Dana"), "{page}");
+    }
+    assert!(!s.said().contains("Dana"), "{}", s.said());
+    // one key, the actor named by its object and then by its identity
+    let pat = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Person", "transition": "add", "inputs": {"login": "pat"}}),
+    )["object_id"]
+        .as_str()
+        .expect("a person")
+        .to_string();
+    let first = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": {"id": pat}, "type": "Note", "transition": "write", "idempotency_key": "k-1"}),
+    );
+    let again = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": {"id": "pat"}, "type": "Note", "transition": "write", "idempotency_key": "k-1"}),
+    );
+    assert_eq!(
+        (again["object_id"].clone(), again["replayed"].clone()),
+        (first["object_id"].clone(), json!(true)),
+        "{again}"
+    );
+    // a second service on the store is said at its start
+    let second = start(&["--store", path, "--port", "0"]);
+    let said = second.said_within(" at version ");
+    assert!(said.contains("another service has the store"), "{said}");
+    drop(second);
+    drop(s);
+    // a store the service cannot write is refused at the start
+    let locked = fresh_store("readonly");
+    let locked_path = locked.to_str().expect("a path");
+    drop(start(&["--store", locked_path, "--create", "--port", "0"]));
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o400))
+            .expect("made read-only");
+    }
+    // within ten seconds, or killed and failed, never waited on for good
+    let mut child = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
+        .args(["--store", locked_path, "--port", "0"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("it runs");
+    let began = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("its status") {
+            break Some(status);
+        }
+        if began.elapsed() > std::time::Duration::from_secs(10) {
+            let _ = child.kill();
+            let _ = child.wait();
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let mut said = String::new();
+    if let Some(mut err) = child.stderr.take() {
+        let _ = err.read_to_string(&mut said);
+    }
+    assert!(
+        status.is_some_and(|s| !s.success()),
+        "a store it cannot write was served: {said}"
+    );
+    assert!(said.contains("is not writable by the service"), "{said}");
+}
+
+const TILLS: &str = "module: tills
+categories: [live, closed]
+types:
+  Till:
+    description: A till due back some days after it opened.
+    tracking: record
+    attributes:
+      opened_at: { type: timestamp }
+      days: { type: int }
+    states:
+      OPEN: { category: live, description: Open. }
+      CLOSED: { category: closed, final: true, description: Closed. }
+    derived_attributes:
+      due_back:
+        description: When the till is due back.
+        expression: opened_at + days * 1 day
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [opened_at, days] }
+      close: { kind: external, from: OPEN, to: CLOSED }
+";
+
+/// A derived time past the calendar is answered without a value in a
+/// query's fields, as `get` answers it, where a query answered year
+/// 10239 (sixth production review, ADR-0192 decision 7).
+#[test]
+fn a_derived_time_past_the_calendar_has_no_value_in_a_query() {
+    let file = fresh_store("tills");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish(&s, &json!({"tills": TILLS}));
+    let op = json!({"id": "operator"});
+    for days in [30, 3_000_000] {
+        post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Till", "transition": "open",
+                    "inputs": {"opened_at": "2026-10-13T00:00:00Z", "days": days}}),
+        );
+    }
+    let page = post(
+        &s,
+        "/v1/query",
+        &json!({"actor": op, "type": "Till", "fields": ["due_back"]}),
+    );
+    let due: Vec<Value> = page["items"]
+        .as_array()
+        .expect("its items")
+        .iter()
+        .map(|i| i["fields"]["due_back"].clone())
+        .collect();
+    assert_eq!(due, [json!("2026-11-12T00:00:00Z"), Value::Null], "{page}");
 }

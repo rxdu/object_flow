@@ -436,6 +436,29 @@ pub enum Value {
 }
 
 impl Value {
+    /// What kind of value it is, as a fault names it, never the value
+    /// itself, which may be a person's (sixth production review, ADR-0192
+    /// decision 7).
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Value::Absent => "no value",
+            Value::Bool(_) => "a boolean",
+            Value::Int(_) => "an int",
+            Value::Decimal(_) => "a decimal",
+            Value::Money { .. } => "an amount of money",
+            Value::Duration(_) => "a duration",
+            Value::Timestamp(_) => "a timestamp",
+            Value::Date(_) => "a date",
+            Value::Text(_) => "a text",
+            Value::State { .. } => "a state",
+            Value::Member { .. } => "a member of an enumeration",
+            Value::Object(_) => "an object",
+            Value::File { .. } => "a file",
+            Value::Set(_) => "a set",
+            Value::Row(_) => "a row",
+        }
+    }
+
     /// A row of the fields given.
     pub fn row(fields: BTreeMap<String, Value>) -> Value {
         Value::Row(std::sync::Arc::new(fields))

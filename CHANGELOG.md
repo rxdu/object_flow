@@ -50,6 +50,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Added
 
+- At its start the service refuses a store it cannot write, and says a second service on its store, `<store>.lock` held while it runs; `--version` and `objectflow_build_info` name the commit a release's build was given (ADR-0192 decision 7).
 - An agents' read pool: every read that waits its turn, made by an actor of the kind `agent`, waits among the agents' own `--max-reads`, never in a person's worklist slot; `/metrics`' pools name `agents` (ADR-0192 decision 3).
 - The checkers' notice `rule_changed`, naming against the previous version each type's conditions and invariants removed or rewritten and guards that no longer refuse, so whoever approves a version reads them (ADR-0191 decision 2).
 - `/metrics`' `objectflow_build_info` and `objectflow_start_time_seconds`; `WATCHDOG=1` under a unit's `WatchdogSec`; a `malformed_filter` page's `reason`; at the start, a `--create` over a store that exists, an unclean last stop and an evaluator's token over plain http beyond loopback said, and argument errors stamped (ADR-0191 decision 4).
@@ -75,6 +76,9 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Fixed
 
+- A query filter an object cannot answer, ill-typed among them, is refused `malformed_filter` with its reason, and no fault's reason holds a value an object holds, its kind named instead, where `name` or `purpose + 1 > 0` answered `501` and wrote a person's text into the log; a division by a money zero and a set within a set are `malformed_filter`, where they answered empty pages; a derived time past the calendar is `null` in a query's fields as in `get` (ADR-0192 decision 7).
+- A read of a store moved, gone or replaced answers `503 store_replaced`, as a write does, where it answered `500`; `/health`'s upgrade-due `503` carries `code: upgrade_due`; a write refused for a full volume is said by `/health`, `503 disk_full`, until one commits, where a volume full though its free space did not show it left `/health` `200` (ADR-0192 decision 7).
+- A supersession group's erasure walks the group once, where each member's erasure walked it again, a chain of 1,201 holding the writer 66.5 s; an idempotency key sent by an actor named by its object and then by its identity is one request, where it answered `409 key_reused`; an evaluator's answer naming a key twice is no verdict, where the last one won (ADR-0192 decision 7).
 - An erased actor's identity, where its type marks it personal, is replaced by the actor's object's id in every event, attempt, interval entry, idempotency record and a proposal's or a change's recorded actors, in both backends, where a person's email given as their identity stayed in the log and `history` and `export` answered it (ADR-0192 decision 4); a store opened by this release is given the indexes it reads by.
 - The reference runner names a proposal's own events' actor by identity, as every other event and the core, where it named the actor's object (D613).
 - An invariant reading related objects is checked from what a request wrote, along each chain of relationship ends it reads, as `DESIGN.md` §5.6 states, where every write of the store re-checked every object of its type: on a go-live of the shipped reimbursement flow a draft took 2.8 s, now 8.7 ms, and a write to an unrelated type 2.3 s, now 10 ms; with a one-hop path invariant on lines, 13 ms a draft (ADR-0192 decision 1).

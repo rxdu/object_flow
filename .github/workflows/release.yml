@@ -23,6 +23,9 @@ jobs:
     permissions:
       contents: read
       checks: read
+    env:
+      # the commit the binary names in --version and /metrics (ADR-0192)
+      OBJECTFLOW_COMMIT: ${{ github.sha }}
     steps:
       # pinned by commit, as every action is: a tag can be moved under a
       # workflow, a commit cannot (fifth production review, ADR-0191)

@@ -85,11 +85,13 @@ impl std::convert::From<NotRun> for NoVerdict {
 /// time among what the key identifies, and it replays whatever version it
 /// carries, a body's difference being the digest's to find and not the
 /// version's (`DESIGN.md` §6 step 2, ADR-0076).
-fn request_digest(req: &Request) -> String {
+fn request_digest(req: &Request, actor: Option<&str>) -> String {
     use sha2::{Digest, Sha256};
+    // the actor as resolved, so a key sent by an actor named by its object
+    // and then by its identity is one request (ADR-0192 decision 7)
     let body = json!({
         "transition": req.transition,
-        "actor": req.actor,
+        "actor": actor.unwrap_or(&req.actor),
         "object_id": req.object_id,
         "type": req.type_,
         "inputs": req.inputs,
@@ -524,6 +526,9 @@ struct Ctx<'w> {
     /// Each erased actor's identity, with its object's id, which replaces
     /// it wherever the store keeps it (ADR-0192 decision 4).
     renamed: Vec<(String, String)>,
+    /// Whether a group erasure is walking its group, which a member's own
+    /// erasure then does not walk again (ADR-0192 decision 7).
+    in_group: bool,
     /// Each past event's personal input an erasure redacts, by the event's
     /// position and the input's name.
     redacted_inputs: Vec<(i64, String)>,
@@ -732,6 +737,7 @@ fn decide_or_stop(
         admits: BTreeSet::new(),
         erased: BTreeMap::new(),
         renamed: Vec::new(),
+        in_group: false,
         redacted_inputs: Vec::new(),
         external: Vec::new(),
         external_removed: Vec::new(),
@@ -3394,6 +3400,14 @@ fn erase_chain(
     inputs: &BTreeMap<String, Value>,
     depth: usize,
 ) -> Result<(), Stop> {
+    // the group walked once, by the erasure that began it: each member's
+    // erasure walked it again, a chain of 1,201 holding the writer 66.5 s
+    // (sixth production review, ADR-0192 decision 7)
+    if ctx.in_group {
+        return Ok(());
+    }
+    ctx.in_group = true;
+    GROUP_WALKS.with(|n| n.set(n.get() + 1));
     let mut chain = BTreeSet::new();
     let mut todo = vec![id.to_string()];
     while let Some(cur) = todo.pop() {
@@ -3461,7 +3475,18 @@ fn erase_chain(
         )
         .map_err(|s| call_refused(s, "group erasure".into(), &type_, Some(member.clone())))?;
     }
+    ctx.in_group = false;
     Ok(())
+}
+
+thread_local! {
+    /// How many groups this thread's erasures walked (ADR-0192 decision 7).
+    static GROUP_WALKS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many supersession groups this thread's erasures walked.
+pub fn group_walks() -> u64 {
+    GROUP_WALKS.with(std::cell::Cell::get)
 }
 
 /// Whether an invariant fails on an object because this request erased what
@@ -5273,7 +5298,7 @@ pub fn request_told(
             Some(key) => resolve_actor(world, &req.actor)?.map(|who| (who.id, key.clone())),
             None => None,
         };
-        let digest = request_digest(req);
+        let digest = request_digest(req, keyed.as_ref().map(|(a, _)| a.as_str()));
         let held = match &keyed {
             Some((actor, key)) => world.idempotency_of(actor, key)?,
             None => None,
@@ -9268,6 +9293,7 @@ types:
             ));
         }
         let before = crate::world::whole_type_reads("Account");
+        let walks = group_walks();
         created(&req(
             &mut s,
             "forget",
@@ -9280,6 +9306,9 @@ types:
             before,
             "the group's erasure read its type whole"
         );
+        // and walked the group once, not once for each member (ADR-0192
+        // decision 7)
+        assert_eq!(group_walks() - walks, 1, "the group walked by each member");
         let snapshot = s.snapshot().unwrap();
         for id in &ids[..6] {
             let o = snapshot.whole(id).unwrap().unwrap();
