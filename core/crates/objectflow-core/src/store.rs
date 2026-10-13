@@ -228,9 +228,9 @@ type Stored<T> = Result<T, StoreError>;
 
 /// Whether the SQLite linked in keeps one page cache for every connection
 /// of the process, behind one mutex, as it does built with
-/// `SQLITE_ENABLE_MEMORY_MANAGEMENT`, which the bundled build sets and
-/// `core/.cargo/config.toml` unsets: shared, four heavy reads at once each
-/// took what all four did, 11.2 s for a filter taking 2.2 s alone
+/// `SQLITE_ENABLE_MEMORY_MANAGEMENT`, which the bundled build sets and the
+/// repository's `.cargo/config.toml` unsets: shared, four heavy reads at
+/// once each took what all four did, 11.2 s for a filter taking 2.2 s alone
 /// (fourteenth production review M2, ADR-0201).
 pub fn page_caches_shared() -> Stored<bool> {
     let conn = rusqlite::Connection::open_in_memory()?;
@@ -4852,7 +4852,39 @@ fn write(
     // principal, the attempts', the intervals' entries, the idempotency
     // records and a proposal's or a change's recorded actors, this request's
     // own among them, each by its index (ADR-0192 decision 4)
+    // and where an effect wrote it: the attributes an effect sets to the
+    // actor's identity, and the inputs it passes it, which the actor's own
+    // events took (fifteenth production review, ADR-0202 decision 1)
+    let (identity_attrs, identity_inputs) = if change.renamed_actors.is_empty() {
+        Default::default()
+    } else {
+        lib.identity_writes()
+    };
     for (identity, id) in &change.renamed_actors {
+        for name in &identity_inputs {
+            let path = format!("$.inputs.\"{}\"", name.replace('"', ""));
+            tx.execute(
+                "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
+                 WHERE (actor_id = ?1 OR actor_principal = ?1) AND json_extract(payload, ?3) = ?1",
+                params![identity, id, path],
+            )?;
+        }
+        for name in identity_attrs.iter().chain(&identity_inputs) {
+            for t in lib.types.values() {
+                if t.abstract_ || !t.attribute(name).is_some_and(|a| !a.many) {
+                    continue;
+                }
+                tx.execute(
+                    &format!(
+                        "UPDATE {} SET {} = ?2 WHERE {} = ?1",
+                        table(&t.name),
+                        quote(name),
+                        quote(name)
+                    ),
+                    params![identity, id],
+                )?;
+            }
+        }
         for sql in [
             "UPDATE of_event SET actor_id = ?2 WHERE actor_id = ?1",
             "UPDATE of_event SET actor_principal = ?2 WHERE actor_principal = ?1",
@@ -4974,9 +5006,10 @@ mod tests {
     use super::*;
 
     /// The SQLite built in keeps a page cache for each connection, so
-    /// concurrent reads do not wait on one another's pages; a build made
-    /// where `core/.cargo/config.toml` is not read fails here (fourteenth
-    /// production review M2, ADR-0201).
+    /// concurrent reads do not wait on one another's pages; a library built
+    /// where the repository's `.cargo/config.toml` is not read, and its
+    /// build script's check passed by hand, fails here (fourteenth
+    /// production review M2, ADR-0201, ADR-0202).
     #[test]
     fn each_connection_keeps_its_own_page_cache() {
         assert!(matches!(page_caches_shared(), Ok(false)));

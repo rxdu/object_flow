@@ -484,3 +484,58 @@ The minors not given an entry:
 ### What the fourteenth review asks
 
 The author's standing instruction decides what the findings ask (ADR-0201); the majors and the minors that cost little are fixed, then a fifteenth review, or the author's acceptance of what remains.
+
+## 19. The fifteenth review, after the fourteenth's fixes
+
+At commit `5d48a69`, 2026-10-14, not yet pushed, every gate of `scripts/check-all` passed on it. The same two roles each worked in a checkout of their own with the release binary built from it. The operator worked on copies of the provided stores, which the environment's privacy check let it copy this time. The adversary's copy was refused, and it did not work around that: it built its own store through the wire from the shipped `reimbursement.yaml`, 38.4k objects of synthetic people, all claims in one month. Their logs and reports stayed in the session's scratch directory, which is not kept.
+
+**Verdicts: the operator GO, with no blocker and no major; the adversary NO-GO, with one major and no blocker.**
+
+Neither met a corrupted store or a lost acknowledged write:
+- `kill -9` and `SIGTERM` during writes, and `kill -9` beside a 200 MB `-wal`, lost no acknowledged write; one during an approval rolled it back whole.
+- 25,000 random requests and 3,572 typed-key cases answered no `5xx`.
+- Races left one winner each.
+- Erasures of what a flow marks personal left the store's files, the `-wal` cut within about 3 s.
+- A 0.1.0 store was upgraded as the guide says, its reads the same.
+
+### The fourteenth review's findings, re-checked
+
+- **Fixed, each measured by one of them or both:**
+  - one-object reads behind reports (D649), a claim's `get` 1 to 5 ms behind sixteen per-person metric reads;
+  - a guard's metric bound to one claimant (D650), a guarded submit 20 ms on six years, twenty at once holding other writes at most 0.31 s;
+  - heavy reads at once (D651), the crowded filter 2.3 s each with four at once on six years, where 11.1 s, twelve across pools all answered;
+  - an agent's query by personal members (D652), refused `personal` directly, through references and through derived attributes;
+  - the depth of derived attributes (D653), the key after an erasure (D654), the absent assignment (D655), the growing field (D657), the untracked entry time (D659), the socket (D660), the backup timer (D661), the process id's file (D662).
+- **Partly fixed:** the unbounded reach (D658), noticed for every cascade, though the shipped sample's claim of 201 lines still cannot be withdrawn or erased; the agents' edges, two of them said.
+- **Not fixed, decided:** a read after its client has gone (D656), eight abandoned reads making a ninth wait 11.9 s; a histogram of pool waits.
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| D663 | An erased actor's personal identity survived in a flow's attribute set to `actor.id`: a memo's `author` answered by `get`, found by a query, held in the store's file | measured by the adversary | major |
+| D664 | The concurrency fix depended on building from `core/`: from the root, four filters at once 11.3 s each again | measured by the operator | minor |
+| D665 | An actor the store did not know passed the agent's personal guard, a person's id recovered from a filter on names | measured by the operator | minor |
+| D666 | A `metric` read bound to one claimant read the type whole, 0.35 s on six years | measured by the operator | minor |
+| D667 | A date moved by part of a day answered `501 not_run` | measured by the adversary | minor |
+| D668 | `Staff-2` was taken as an identity while `staff-2` named the object | measured by the adversary | minor |
+| D669 | A type added later turned an identity `widget-66` into an object's id, the publish silent | measured by the adversary | minor |
+| D670 | An agent's `check` named a unique email's holder and, halving a guess, a personal salary in 30 calls, recording nothing | measured by the adversary | minor |
+| D671 | A per-person metric's value travels in every guarded event's `consulted` | measured by the adversary | minor |
+| D672 | After a crash, the start's `-wal` message read as advice to delete it | read by the adversary | minor |
+| D673 | A restore brings back what was erased since the backup, unsaid | read by the adversary | minor |
+| D674 | `operate.md` lacked a prune unit, the first publish's socket, a local filesystem, and the limits of its alerts | read by the operator | minor |
+| D675 | `agents.md` named `malformed_filter` where the service answers `personal` | read by the operator | minor |
+| D676 | A busy `--metrics-bind` port was refused without the flag's name | measured by the operator | minor |
+
+The minors not given an entry:
+- **Read, not triggered:** an integer divided by a decimal, and a duration literal past 64 bits, answer `not_run`.
+- **The agents' edges:** the tools offer `occurred_at`, and transitions an agent can never take.
+- **Load:** a metric or aggregate sweep costs about half as much again with four at once on a busy six-core machine.
+- **Cosmetic:** a quick-check refusal printed twice; a 10 MB token file taken; `charset` on a content type ignored; identities a reader cannot tell apart, `оperator` in Cyrillic or `José` in two forms, taken as distinct.
+- **The repository:** 32 commits never run in CI, `release.yml` never run, no tag, no required check, Dependabot off.
+- **Outside the engine:** the gateway as the trust boundary; recovery is the last backup, which hands ids out again; a clock that ran ahead freezes event times; the 1.0.0 release entry and a 0.2.0 upgrade fixture not yet made.
+
+### What the fifteenth review asks
+
+The author's standing instruction decides what the findings ask (ADR-0202); the major and the minors that cost little are fixed, then a sixteenth review, or the author's acceptance of what remains.

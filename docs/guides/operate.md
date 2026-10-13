@@ -8,7 +8,7 @@ One process, `objectflow-service`, serving one **store**: a SQLite file and the 
 
 **It authenticates nobody.** Whoever can reach it can act as any actor. Put it behind the application that authenticates your users: on a Unix socket only your application can open, or on loopback. Never put it on a network your users reach.
 
-**Requirements:** Linux on x86-64 with the glibc of Ubuntu 22.04 or later (`ldd --version`), and disk for the store, its `-wal` (64 MiB in steady state, up to about 350 MiB while long reads overlap writes; 346 MiB was measured) and your backups.
+**Requirements:** Linux on x86-64 with the glibc of Ubuntu 22.04 or later (`ldd --version`), and disk for the store, its `-wal` (64 MiB in steady state, up to about 350 MiB while long reads overlap writes; 346 MiB was measured) and your backups. Keep the store on a local filesystem: SQLite's locks, which keep a second process from writing beside the service, do not hold on a network one.
 
 ## Install
 
@@ -19,6 +19,8 @@ Build the release binary from source (rustup installs the pinned toolchain on th
 core/target/release/objectflow-service --version
 sudo install -m 0755 core/target/release/objectflow-service /usr/local/bin/
 ```
+
+Build inside the repository, as above or from its root with `--manifest-path core/Cargo.toml`: its `.cargo/config.toml` builds SQLite with a page cache for each connection, without which heavy reads at once each take as long as all of them. A build made where that file is not read stops and says so.
 
 Tagged releases will be published on the repository's GitHub Releases page as an archive with its SHA-256 checksum, built on Ubuntu 22.04; none is published yet, so build from source. Check the checksum before installing. Releases are not signed yet. `--version` names the commit a release was built from, and a build from source the one `OBJECTFLOW_COMMIT` names, as above; without it, none.
 
@@ -36,7 +38,7 @@ It makes the store and then serves it: once its first line says where it listens
 
 A new store is at version 0, with no flow. Publish its first version as you would any later one: a `DeclarationChange` drafted, submitted and approved (see [Build an application](integrate.md#changing-the-flow)).
 
-From a shell on the host, as the operator, with `curl` and `jq`, a module `leave.yaml` checked first with `scripts/check-flows.py`:
+From a shell on the host, as the operator, with `curl` and `jq`, a module `leave.yaml` checked first with `scripts/check-flows.py`, once the service runs under the unit of [Run it under systemd](#run-it-under-systemd), which makes the socket:
 
 ```sh
 SOCK=/run/objectflow/objectflow.sock
@@ -201,7 +203,7 @@ It answers `503` with a `code` when an operator must act:
 | `objectflow_build_info` | The release and commit serving. |
 | `objectflow_start_time_seconds` | When the process started. |
 
-**Alert on:**
+**Alert on** these, checking their names after each upgrade: the metrics' names are the service's own, not among what a release promises to keep (ADR-0180), and a renamed one would fall silent. `/health` stays `200` while the clock leads, while an evaluator fails, while a publish holds the writer, and while the main listener refuses newcomers `503 busy`, so watch the metrics too:
 
 - `/health` not `200`, on the `--metrics-bind` address;
 - `objectflow_disk_free_bytes` well before 64 MiB;
@@ -241,7 +243,7 @@ Read the standard error to its end, as journald does. The service writes the log
 
 `get`, `lookup`, `availability`, `declaration`, `tools`, every other `check` and every write never wait for a pool, nor do `/health` and `/metrics`, except that a read of one object waits among the objects' reads where what it computes reads a metric, a type scan or the objects referring to it: a `get` where its type's derived attributes do, an `availability` where they or its conditions do, and a `check` where they, its conditions or its invariants do (64 `availability`s at once of a type guarded by a monthly metric peaked at 4.49 GB on six years in no pool). A `get` of a type with a metric guard therefore never waits, and none waits behind reports. Keep such rules off the transitions people's screens and agents ask about most. A read that waits past its deadline is answered `503 read_timeout`, having done nothing. A `query` is narrowed by an index where its filter requires the states it holds (`state == SUBMITTED`) or holds a column equal to a value (`claim.id == "claim-4"`); one ordered or filtered without either reads its type whole and waits among the analytics, so it never holds a person's worklist slot (a filter narrowed by a state that holds most of the type, `state == PAID and paid_at < …`, reads that state on each page in the worklists pool: mark `indexed` what such a filter compares), as does one whose filter aggregates over a collection for each object, itself or through a derived attribute it reads (`count(l in lines where …) > 3`), however an index narrows it. A page of `available` reads from its cursor until it holds its limit, so it costs what its page does where most objects in its states are open to the actor; where few are, it reads on through the state: raise `--max-reads` for people polling it, or build their list from a narrowed `query` and each object's `availability`.
 
-**Heavy reads at once share the machine's cores**, each costing what it does alone: four filters that each took 2.2 s alone took 2.2 s each at once. Built with SQLite's shared page cache, which the bundled SQLite turns on and `core/.cargo/config.toml` turns off, they took 11.2 s each, every connection's page cache behind one lock: build from `core/`, and a build that has it says so in its start's log. Four pools take reads that grow with the store, so up to four times `--max-reads` run at once; past the cores, each slows in proportion, so on a machine with fewer cores than that, lower `--max-reads`.
+**Heavy reads at once share the machine's cores**, each costing what it does alone: four filters that each took 2.2 s alone took 2.2 s each at once. Built with SQLite's shared page cache, which the bundled SQLite turns on and the repository's `.cargo/config.toml` turns off, they took 11.2 s each, every connection's page cache behind one lock: build inside the repository, where a build without the setting stops. Four pools take reads that grow with the store, so up to four times `--max-reads` run at once; past the cores, each slows in proportion, so on a machine with fewer cores than that, lower `--max-reads`.
 
 **A read runs to its end or its deadline**, holding its place in its pool, even after its client has gone. Give clients a read timeout above `--read-timeout`, and have a client or gateway that gives up on a read wait at least `--read-timeout` before sending it again: sixteen metric reads sent again after half a second each kept running to nobody, and a seventeenth waited 30 s and was answered `503`.
 
@@ -367,12 +369,63 @@ POST /v1/maintain
 {"actor": {"id": "operator"}, "task": {"name": "prune_attempts", "before": "2026-07-01T00:00:00Z"}}
 ```
 
-`prune_idempotency` works the same way. A prune inside the retention is refused `inside_retention`, and one for a task the service has no retention for, `no_retention`. The event log is kept whole: `archive_events` answers `501`. Run both from a daily timer, `before` set to the retention's edge; a prune of 15,000 attempts took 0.1 s.
+`prune_idempotency` works the same way. A prune inside the retention is refused `inside_retention`, and one for a task the service has no retention for, `no_retention`, each answered `200` with its reason in `refused`. The event log is kept whole: `archive_events` answers `501`. A prune of 15,000 attempts took 0.1 s.
+
+Run both daily, `before` set to the retention's edge. A script, installed as `/usr/local/bin/objectflow-prune`, `0755`, its retentions those of the unit above, which fails where a prune is refused:
+
+```sh
+#!/bin/sh
+# Prunes refused attempts and idempotency records past the retentions the
+# service runs with (operate.md, Housekeeping); fails where a prune is
+# refused, which the service answers 200 with its reason.
+set -eu
+SOCK=${SOCK:-/run/objectflow/objectflow.sock}
+prune() {
+  before=$(date -u -d "-$2" +%Y-%m-%dT%H:%M:%SZ)
+  said=$(curl -sf --unix-socket "$SOCK" http://localhost/v1/maintain \
+    -H 'Content-Type: application/json' \
+    -d "{\"actor\": {\"id\": \"operator\"}, \"task\": {\"name\": \"$1\", \"before\": \"$before\"}}")
+  echo "$1: $said"
+  case "$said" in *'"refused":null'*) ;; *) exit 1 ;; esac
+}
+prune prune_attempts "${ATTEMPTS:-90 days}"
+prune prune_idempotency "${KEYS:-30 days}"
+```
+
+and a pair of units that runs it:
+
+```ini
+# /etc/systemd/system/objectflow-prune.service
+[Unit]
+Description=ObjectFlow prune of refused attempts and idempotency records
+Requires=objectflow.service
+After=objectflow.service
+
+[Service]
+Type=oneshot
+User=objectflow
+ExecStart=/usr/local/bin/objectflow-prune
+
+# /etc/systemd/system/objectflow-prune.timer
+[Unit]
+Description=ObjectFlow prune, daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable it with `sudo systemctl enable --now objectflow-prune.timer`; `systemctl status objectflow-prune` shows a refused prune as a failed run.
 
 ## Personal data on disk
 
 An erasure overwrites what it erased in the store's file and truncates the `-wal` after it commits, so neither file holds an erased value. A read open at that moment keeps the `-wal`'s earlier frames, so the service cuts the log back: within 5 s it holds new reads that grow with the store for at most a second, for the running ones to end, and truncates the log. The same cut runs whenever the `-wal` passes 64 MiB. Where a read is still running after that second, the cut is left for the next look, 5 s later, and the held reads go on (`objectflow_wal_cuts_deferred_total`); a person's read waits about a second for a cut, never for an agent's long sweep. A cut is urgent after an erasure, or once the `-wal` passes 256 MiB: then the reads still running are stopped, each answered `503 read_timeout` to be sent again, and the log is cut. A change's dry run is one of them: its checks hold no read, and its run over the objects stops as any read does. So is every long read, a metric or an export page among them: erasures in a steady loop, one every few seconds, stop the long reads they meet, so run a retention's erasures in batches, off-hours. A cut a read still held off is logged and counted in `objectflow_wal_cuts_missed_total`.
 
-What an erasure reaches is what the flow marks `personal`, and nothing else. Free text in inputs not marked `personal`, and a request's `context`, keep what was typed, refused attempts included. Where an actor's identity attribute is `personal`, erasing the actor replaces its identity with its object id everywhere the store keeps it. Better: give actors opaque identities, such as an employee number, never an email or a name, written in one Unicode form (the engine compares identities as written, ignoring only the case of ASCII letters).
+What an erasure reaches is what the flow marks `personal`, and nothing else. Free text in inputs not marked `personal`, and a request's `context`, keep what was typed, refused attempts included. Where an actor's identity attribute is `personal`, erasing the actor replaces its identity with its object id wherever the engine records an actor, and in every attribute a transition's effect sets to `actor.id` or `actor.principal` and every input a `create` or `call` passes either. A value computed from one, such as `"by " + actor.id`, keeps what it was computed from, as does an identity a client sent as an input not marked `personal`: assign the identity itself. Better: give actors opaque identities, such as an employee number, never an email or a name, written in one Unicode form (the engine compares identities as written, ignoring only the case of ASCII letters).
+
+A restore brings back what was erased after the backup was taken, so keep a record of erasure requests, outside the store, and ask again for each one made since the backup's time once a restore is serving.
 
 An erasure that a loop or cascade cannot carry out within its declared bound is refused `over_limit`, naming the loop, and erases nothing. Publish a version whose bound covers the set, or that bounds the set with the invariant the checker's `unbounded_reach` notice names, then ask again.

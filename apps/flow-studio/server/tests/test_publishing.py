@@ -2266,6 +2266,95 @@ def test_an_assignment_of_an_absent_sum_is_refused_alike(tee):
     alike(tee)
 
 
+DUE = """module: due
+categories: [live, closed]
+types:
+  Task:
+    description: A task due on a day.
+    tracking: record
+    attributes:
+      due: { type: date }
+    states:
+      ON: { category: live, description: Open. }
+      OFF: { category: closed, final: true, description: Done. }
+    transitions:
+      make: { kind: initial, to: ON, required_inputs: [due] }
+      defer:
+        kind: internal
+        from: [ON]
+        inputs: { by: { type: duration } }
+        effect:
+          - assign: { location: due, expr: due + inputs.by }
+      finish: { kind: external, from: [ON], to: OFF }
+"""
+
+
+def test_a_date_moved_by_part_of_a_day_is_refused_alike(tee):
+    """A date moved by part of a day has no value, so its assignment refuses the request value_in_range, alike through
+    both backends, where it answered 501 not_run; whole days move it (fifteenth production review)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "due.yaml", "text": DUE}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    task = tee.post("/v1/request", {"transition": "make", "actor": OP, "type": "Task",
+                                    "inputs": {"due": "2027-01-04"}})["object_id"]
+    v = tee.post("/v1/request", {"transition": "defer", "actor": OP, "object_id": task, "inputs": {"by": "12 h"}})
+    assert (v["kind"], v.get("clause")) == ("unsatisfied", "value_in_range"), v
+    v = tee.post("/v1/request", {"transition": "defer", "actor": OP, "object_id": task, "inputs": {"by": "2 days"}})
+    assert v["kind"] == "satisfied", v
+    alike(tee)
+
+
+SIGNED = """module: signed
+categories: [live, closed]
+types:
+  Person:
+    description: A person, signing in by email.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true, personal: true, optional: true }
+    states:
+      ON: { category: live, description: Here. }
+      OFF: { category: closed, final: true, description: Gone. }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [login] }
+      leave: { kind: external, from: ON, to: OFF }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Note:
+    description: A note, signed by who wrote it.
+    tracking: record
+    attributes:
+      author: { type: identity, optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      write:
+        kind: initial
+        to: OPEN
+        effect:
+          - assign: { location: author, expr: actor.id }
+      close: { kind: external, from: OPEN, to: DONE }
+"""
+
+
+def test_an_erased_actors_identity_leaves_what_an_effect_wrote_alike(tee):
+    """An erasure of an actor whose identity is personal rewrites it to the actor's object id in an attribute an
+    effect set to actor.id, alike through both backends, where a note's author kept the erased person's address
+    (fifteenth production review, ADR-0202 decision 1)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "signed.yaml", "text": SIGNED}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    email = "ann.secret@corp.example"
+    ann = tee.post("/v1/request", {"transition": "add", "actor": OP, "type": "Person",
+                                   "inputs": {"login": email}})["object_id"]
+    note = tee.post("/v1/request", {"transition": "write", "actor": {"id": email}, "type": "Note"})["object_id"]
+    assert tee.post("/v1/get", {"id": note})["attributes"]["author"] == email
+    v = tee.post("/v1/request", {"transition": "forget", "actor": OP, "object_id": ann, "inputs": {"reason": "asked"}})
+    assert v["kind"] == "satisfied", v
+    assert tee.post("/v1/get", {"id": note})["attributes"]["author"] == ann
+    alike(tee)
+
+
 MEMO = """module: memo
 categories: [live, closed]
 types:
@@ -2807,6 +2896,8 @@ def test_an_identity_shows_what_it_is_alike(tee):
 
     for key in ("", " scout", "scout ", "sc\u00a0out", "sc\u034fout", "sc\ufe0fout", "sc\u3164out",
                 "sc\U000e0041out", "sc\u2028out", "sc\ufff9out", "sc\U0001d173out", "staff-7", "bill-2",
+                # in any case of its letters (fifteenth production review)
+                "Staff-7", "BILL-2",
                 # a blank pattern, a vowel that shows nothing, private use and noncharacters (ADR-0194 decision 6)
                 "sc\u2800out", "sc\u17b4out", "sc\ue000out", "sc\U000f0000out", "sc\ufdd0out", "sc\U0010fffeout"):
         v = issue(key)

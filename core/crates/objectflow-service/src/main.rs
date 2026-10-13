@@ -3097,11 +3097,15 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let (scans, personal) = {
             let mut r = reading(&shared)?;
             let s = r.store()?;
+            // an agent's, or an actor's the store does not know, where an
+            // agent not yet registered read people's names (fifteenth
+            // production review); a person's, the operator's among them,
+            // and a service's are answered
             let agent = match actor_id(&body)? {
-                Some(a) => {
-                    objectflow_core::request::actor_kind(&s.snapshot()?, a)?.as_deref()
-                        == Some("agent")
-                }
+                Some(a) => !matches!(
+                    objectflow_core::request::actor_kind(&s.snapshot()?, a)?.as_deref(),
+                    Some("human" | "service")
+                ),
                 None => false,
             };
             (
@@ -4974,7 +4978,7 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
         && m.len() > 0
     {
         notes.push(format!(
-            "the store's log, {}, holds {} byte(s) its file does not: the last stop was not clean, or another process has the store open; the store takes them in as it opens, so after a restore, stop and remove it and the -shm first (operate.md, Backups and restore)",
+            "the store's log, {}, holds {} byte(s) its file does not: the last stop was not clean, or another process has the store open; the store takes them in as it opens, which after a crash keeps every acknowledged write, so leave it: only where you have just put a backup in the store's place, stop and remove it and the -shm first (operate.md, Backups and restore)",
             std::path::Path::new(&wal).display(),
             m.len()
         ));
@@ -5403,7 +5407,7 @@ async fn serve() -> std::io::Result<()> {
     if let Some(bind) = &a.metrics_bind {
         let l = tokio::net::TcpListener::bind(bind)
             .await
-            .map_err(|e| std::io::Error::other(format!("{bind}: {e}")))?;
+            .map_err(|e| std::io::Error::other(format!("--metrics-bind {bind}: {e}")))?;
         say!("metrics and health on http://{}", l.local_addr()?);
         let router = Router::new()
             .route("/health", axum::routing::get(health))

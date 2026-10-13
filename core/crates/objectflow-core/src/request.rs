@@ -9193,6 +9193,41 @@ types:
         created(&req(&mut s, "jot", OPERATOR, (&id, false), json!({})));
     }
 
+    /// A date moved by part of a day has no value, so an assignment of it
+    /// refuses its request `value_in_range`, where it answered not run; a
+    /// date moved by whole days is moved (fifteenth production review).
+    #[test]
+    fn a_date_moved_by_part_of_a_day_has_no_value() {
+        let text = "\nmodule: d\ncategories: [live]\ntypes:\n  Task:\n    attributes:\n      due: { type: date }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [due] }\n      defer:\n        kind: internal\n        from: [ON]\n        inputs: { by: { type: duration } }\n        effect:\n          - assign: { location: due, expr: due + inputs.by }\n";
+        let lib = Library::load(&[("d.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let id = created(&req(
+            &mut s,
+            "make",
+            OPERATOR,
+            ("Task", true),
+            json!({"due": "2027-01-04"}),
+        ));
+        let v = req(
+            &mut s,
+            "defer",
+            OPERATOR,
+            (&id, false),
+            json!({"by": "12 h"}),
+        );
+        assert!(
+            matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "value_in_range"),
+            "{v:?}"
+        );
+        created(&req(
+            &mut s,
+            "defer",
+            OPERATOR,
+            (&id, false),
+            json!({"by": "2 days"}),
+        ));
+    }
+
     /// An erasure reads the events it walks, its object's own, those they
     /// caused and those that called them, by the log's indexes, where it
     /// read the whole log under the writer; what it redacts is the same

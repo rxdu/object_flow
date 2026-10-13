@@ -154,7 +154,9 @@ pub fn identity_fault(s: &str, lib: &Library) -> Option<String> {
     if let Some((prefix, n)) = s.rsplit_once('-')
         && !n.is_empty()
         && n.chars().all(|c| c.is_ascii_digit())
-        && lib.types.keys().any(|t| t.to_lowercase() == prefix)
+        // in any case of its letters, where `Staff-2` named a person and
+        // `staff-2` an object (fifteenth production review)
+        && lib.types.keys().any(|t| t.to_lowercase() == prefix.to_lowercase())
     {
         return Some(format!(
             "an identity is not shaped as an object's id, as {s} is, which names that object instead"

@@ -89,7 +89,7 @@ Besides the rules a flow declares, the engine adds some of its own. A refusal na
 | `not_erased` | `unreachable_from_here` | writing a personal attribute again on an object whose personal data was erased. |
 | `subject_open` | `unreachable_from_here` | recording a label or an observation on an object in a final state. |
 | `subject_owned` | `unreachable_from_here` | recording on an object another system owns (a `mirror` type). |
-| `value_in_range` | `unreachable_from_here` | an effect whose arithmetic has no value: past its type's bound, a division by zero, a date past 9999, an operand absent (`count + 1` where `count` is unset: give it a `default`, or guard the transition with `count is not null`). |
+| `value_in_range` | `unreachable_from_here` | an effect whose arithmetic has no value: past its type's bound, a division by zero, a date past 9999, a date moved by part of a day, an operand absent (`count + 1` where `count` is unset: give it a `default`, or guard the transition with `count is not null`). |
 | `<attribute>_unique` | (invariant) | a second object holding a value declared `unique`. `objects` names the holder. |
 | `identity_taken` | (invariant) | an actor identity another actor already holds, compared ignoring the case of ASCII letters. |
 | `<state>_invariant` | (invariant) | entering a state without its `required_attributes`. |
@@ -125,7 +125,7 @@ A read that cannot be answered says why in `refused`, with no items. Some carry 
 | `unknown_dimension` | `metric` | `keep` or `bind` names a dimension the metric does not have. |
 | `filter_on_combined` | `metric` | A filter on a combined metric, which takes none. |
 | `no_window` | `metric` | `over` on a metric that has no time window. |
-| `personal` | `metric`, `query` | The filter reads a value marked `personal`; for a query, an agent's whose `filter` or `order` does. |
+| `personal` | `metric`, `query` | The filter reads a value marked `personal`; for a query, an agent's, or an actor's the store does not know, whose `filter` or `order` does. |
 | `unknown_source` | `export` | No such source. Sources are `log`, an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`. |
 | `invalid_cursor` | `export`, `pull`, `acknowledge` | A cursor below 0 or past the end of the log. |
 | `unknown` | `pull`, `acknowledge` | No such subscription. |

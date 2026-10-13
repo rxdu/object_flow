@@ -30,7 +30,7 @@ A value is JSON's own where JSON keeps it exactly, and otherwise a string in the
 | `bool` | a boolean | `true` |
 | `int` | a number within ±(2⁵³ − 1); a string of digits beyond | `3` |
 | `string` | a string of at most 64 KiB in UTF-8, past which it is `out_of_range`; never U+0000 | `"Taxis"` |
-| `identity` | a string, as above, that is not empty, has no whitespace at its ends and none but a space within, holds no character that shows nothing (a control or format character, a variation selector, a combining grapheme joiner, a Hangul filler, a tag, a line or paragraph separator, a blank braille pattern, U+17B4 or U+17B5), no private-use character and no noncharacter, and is not shaped as an object id of the store's types; else `malformed`. It names one actor across every actor type, compared ignoring the case of its ASCII letters, a letter outside ASCII as written: a second holder is refused `identity_taken`, and a request naming the identity in another ASCII case is that actor's, recorded under the identity it holds. | `"u-10442"` |
+| `identity` | a string, as above, that is not empty, has no whitespace at its ends and none but a space within, holds no character that shows nothing (a control or format character, a variation selector, a combining grapheme joiner, a Hangul filler, a tag, a line or paragraph separator, a blank braille pattern, U+17B4 or U+17B5), no private-use character and no noncharacter, and is not shaped as an object id of the store's types, in any case of its letters (`Staff-2` as `staff-2`); else `malformed`. It names one actor across every actor type, compared ignoring the case of its ASCII letters, a letter outside ASCII as written: a second holder is refused `identity_taken`, and a request naming the identity in another ASCII case is that actor's, recorded under the identity it holds. | `"u-10442"` |
 | `decimal(p,s)` | a string of digits, at most `s` places and `p` digits in all; an input past that is `out_of_range`, an effect's write past it `value_in_range` | `"19.90"` |
 | `money(CCY)` | a string: the currency, one space, the amount in at most its minor unit's places | `"USD 19.99"` |
 | `timestamp` | RFC 3339 in UTC (`Z` or `+00:00`), to the second or the minute, no fraction of a second | `"2026-10-04T09:30:00Z"` |
@@ -41,7 +41,7 @@ A value is JSON's own where JSON keeps it exactly, and otherwise a string in the
 | set | an array, no element repeated | `["a-1", "a-2"]` |
 | `file` | an object: the content's SHA-256, its size in bytes and its media type; a name is refused `wrong_type` | `{"hash": "sha256:9f86…", "size": 48213, "media_type": "application/pdf"}` |
 
-Dates and times stay within 0001-01-01 to 9999-12-31T23:59:59Z. An effect that would write one past that is refused `value_in_range`; a date computed past it has no value (a guard reads it as unknown); a derived time past it is answered `null`. A duration you are given back is written in whichever unit reads best (`"15 days"`, `"1431 h"`): parse the count and the unit. An object's id is `<type in lower case>-<number>`.
+Dates and times stay within 0001-01-01 to 9999-12-31T23:59:59Z. An effect that would write one past that is refused `value_in_range`; a date computed past it has no value (a guard reads it as unknown), nor does a date moved by part of a day; a derived time past it is answered `null`. A duration you are given back is written in whichever unit reads best (`"15 days"`, `"1431 h"`): parse the count and the unit. An object's id is `<type in lower case>-<number>`.
 
 ## Requests
 
@@ -163,7 +163,7 @@ A filter is refused `malformed_filter`, with a `reason` naming what it did but n
 
 `order` is a key or a list of keys, each ascending unless followed by ` desc`: `created_at`, `entered_at(<tracked member>)`, or an attribute holding one value. The object id breaks ties, and an absent value sorts last. Any other key is refused `unknown_order_key`.
 
-A **metric's filter** reads its rows through the metric's item, such as `i.state == Claim.SUBMITTED` for `time_in_state`; one naming anything else is refused `malformed_filter`, and one reading a personal value `personal`. So is **an agent's query** whose `filter` or `order` reads a member marked personal, by its name in any type: what a gateway leaves out of an agent's answers stays hidden from ranges over it. A person's query is answered.
+A **metric's filter** reads its rows through the metric's item, such as `i.state == Claim.SUBMITTED` for `time_in_state`; one naming anything else is refused `malformed_filter`, and one reading a personal value `personal`. So is **an agent's query** whose `filter` or `order` reads a member marked personal, by its name in any type, and that of an actor the store does not know: what a gateway leaves out of an agent's answers stays hidden from ranges over it. A person's, a service's and the operator's queries are answered.
 
 ## Subscriptions
 

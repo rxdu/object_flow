@@ -293,6 +293,47 @@ impl Library {
     /// The members whose every value is timed: the state, each enumeration
     /// attribute, and each singular reference the object stores (PRD D11,
     /// `DESIGN.md` §7).
+    /// The names an effect may give the acting actor's identity, or its
+    /// principal's: the attributes an `assign` sets to `actor.id` or
+    /// `actor.principal`, and the inputs a `create` or a `call` passes
+    /// either. An erasure of an actor whose identity is personal rewrites
+    /// its identity to its object's id in them, as it does where the engine
+    /// records an actor, where a memo's `author` set to `actor.id` kept the
+    /// erased person's address (fifteenth production review, ADR-0202
+    /// decision 1). A value computed from either is not one of them.
+    pub fn identity_writes(&self) -> (BTreeSet<String>, BTreeSet<String>) {
+        fn identity(e: &Expr) -> bool {
+            matches!(e, Expr::Path(base, m)
+                if (m == "id" || m == "principal")
+                    && matches!(&**base, Expr::Name(n) if n == "actor"))
+        }
+        fn walk(steps: &[Step], attrs: &mut BTreeSet<String>, inputs: &mut BTreeSet<String>) {
+            for s in steps {
+                match s {
+                    Step::Assign { location, expr } if identity(expr) => {
+                        attrs.insert(location.clone());
+                    }
+                    Step::Create { inputs: given, .. } | Step::Call { inputs: given, .. } => {
+                        for (n, e) in given {
+                            if identity(e) {
+                                inputs.insert(n.clone());
+                            }
+                        }
+                    }
+                    Step::Foreach { steps, .. } => walk(steps, attrs, inputs),
+                    _ => {}
+                }
+            }
+        }
+        let (mut attrs, mut inputs) = (BTreeSet::new(), BTreeSet::new());
+        for t in self.types.values() {
+            for (_, x) in &t.transitions {
+                walk(&x.effect, &mut attrs, &mut inputs);
+            }
+        }
+        (attrs, inputs)
+    }
+
     pub fn tracked(&self, t: &Type) -> Vec<String> {
         let mut out = vec!["state".to_string()];
         for (n, a) in &t.attributes {

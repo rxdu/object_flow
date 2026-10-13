@@ -2016,8 +2016,11 @@ pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
                 .map(V::Duration),
         ),
         (BinOp::Add | BinOp::Sub, V::Date(day), V::Duration(s)) => {
+            // a date moved by part of a day has no value, as one moved past
+            // the calendar has none, where it answered not run (fifteenth
+            // production review)
             if s % 86_400 != 0 {
-                return not_run("a date moved by part of a day");
+                return Ok(V::Absent);
             }
             let days = s / 86_400;
             unknown(
@@ -2520,7 +2523,12 @@ types:
             combine(BinOp::Add, &Value::Date(10), &Value::Duration(86_400)),
             Ok(Value::Date(11))
         );
-        assert!(combine(BinOp::Add, &Value::Date(10), &Value::Duration(3600)).is_err());
+        // a date moved by part of a day has no value, where it was not run
+        // (fifteenth production review)
+        assert_eq!(
+            combine(BinOp::Add, &Value::Date(10), &Value::Duration(3600)),
+            Ok(Value::Absent)
+        );
         // a sum over nothing is 0 of what it meets (§8.3)
         assert_eq!(
             combine(BinOp::Lt, &Value::Int(0), &Value::Duration(60)),

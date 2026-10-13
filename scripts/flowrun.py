@@ -1035,7 +1035,9 @@ class Evaluator:
                 return {"==": a == b, "!=": a != b, "<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
         if is_date(a) and op in ("+", "-") and isinstance(b, Fraction):
             if b % 86400:
-                raise NotRunnable("a date moved by part of a day")
+                # a date moved by part of a day has no value, as one moved past the calendar has none, where it was not
+                # run (fifteenth production review)
+                return ABSENT
             return a + datetime.timedelta(days=int(b / 86400) * (1 if op == "+" else -1))
         raise NotRunnable(f"a date {op} a value that is not a date or a duration of days")
 
@@ -2748,13 +2750,35 @@ class Runner:
         spec = ((kinds.get(tn) or {}).get("attributes") or {}).get(a)
         return bool((spec or {}).get("personal"))
 
-    @staticmethod
-    def rename_erased_actors(ctx):
+    def identity_writes(self):
+        """The names an effect may give the acting actor's identity, or its principal's: the attributes an `assign`
+        sets to `actor.id` or `actor.principal`, and the inputs a `create` or a `call` passes either, as the core's
+        `Library::identity_writes` (ADR-0202 decision 1). A value computed from either is not one of them."""
+        names, given = set(), ("actor.id", "actor.principal")
+        for t in self.kinds.values():
+            for x in (t.get("transitions") or {}).values():
+                if not isinstance(x, dict):
+                    continue
+                for st, k in effect_steps(x.get("effect")):
+                    spec = st[k] if isinstance(st[k], dict) else {}
+                    if k == "assign" and "".join(str(spec.get("expr", "")).split()) in given:
+                        names.add(spec.get("location"))
+                    elif k in ("create", "call"):
+                        names.update(n for n, e in (spec.get("inputs") or {}).items() if "".join(str(e).split()) in given)
+        return names
+
+    def rename_erased_actors(self, ctx):
         """Each erased actor's identity, wherever the store keeps it, replaced by its object's id, which names no
         person: the events' actor, the attempts', and a proposal's or a change's recorded actors, this request's own
-        among them, as the core's (ADR-0192 decision 4)."""
+        among them, as the core's (ADR-0192 decision 4); and the attributes an effect wrote it into, where a memo's
+        author kept the erased person's address (fifteenth production review, ADR-0202 decision 1)."""
         work = ctx.work
+        names = self.identity_writes() if getattr(ctx, "renamed", ()) else set()
         for identity, oid in getattr(ctx, "renamed", ()):
+            for o in work.objects.values():
+                for a in names:
+                    if o.attrs.get(a) == identity:
+                        o.attrs[a] = oid
             for e in work.events:
                 if e.get("actor_id") == identity:
                     e["actor_id"] = oid
@@ -3850,7 +3874,8 @@ def identity_fault(v, kinds):
            or 0xFDD0 <= ord(c) <= 0xFDEF or ord(c) & 0xFFFE == 0xFFFE for c in v):
         return "malformed"
     prefix, _, n = v.rpartition("-")
-    if prefix and n.isdigit() and n.isascii() and any(t.lower() == prefix for t in (kinds or {})):
+    # in any case of its letters, where Staff-2 named a person and staff-2 an object (fifteenth production review)
+    if prefix and n.isdigit() and n.isascii() and any(t.lower() == prefix.lower() for t in (kinds or {})):
         return "malformed"
     return None
 

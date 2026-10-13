@@ -4245,21 +4245,42 @@ types:
       leave: { kind: external, from: ON, to: OFF }
       forget: { kind: erasure, inputs: { reason: { type: string } } }
   Note:
-    description: A note.
+    description: A note, signed by who wrote it.
     tracking: record
+    attributes:
+      author: { type: identity, optional: true }
     states:
       OPEN: { category: live, description: Open. }
       DONE: { category: closed, final: true, description: Done. }
     transitions:
-      write: { kind: initial, to: OPEN }
+      write:
+        kind: initial
+        to: OPEN
+        effect:
+          - assign: { location: author, expr: actor.id }
+          - create: { type: Receipt, transition: issue, inputs: { by: actor.id } }
       close: { kind: external, from: OPEN, to: DONE, proposable: true }
+  Receipt:
+    description: A receipt of a note, naming who wrote it.
+    tracking: record
+    attributes:
+      by: { type: identity }
+    states:
+      KEPT: { category: live, description: Kept. }
+      GONE: { category: closed, final: true, description: Gone. }
+    transitions:
+      issue: { kind: initial, to: KEPT, required_inputs: [by], only_via: [Note.write] }
+      drop: { kind: external, from: KEPT, to: GONE }
 ";
 
 /// An erased actor's identity leaves the store: an email marked personal,
 /// erased with the person, is in no event, attempt, interval, idempotency
 /// record or proposal, which name the person's object instead, and neither
 /// the store's file nor its `-wal` holds it once the log is cut back (sixth
-/// production review ERASED-IDENTITY, ADR-0192 decision 4).
+/// production review ERASED-IDENTITY, ADR-0192 decision 4); nor in an
+/// attribute an effect set to `actor.id`, nor in the input a creation was
+/// passed it as, where a note's author kept the address (fifteenth
+/// production review, ADR-0202 decision 1).
 #[test]
 fn an_erased_actors_identity_leaves_the_store() {
     let file = fresh_store("forgotten");
@@ -4327,6 +4348,14 @@ fn an_erased_actors_identity_leaves_the_store() {
         "SELECT count(*) FROM t_proposal WHERE proposer = ?1",
     ] {
         assert_eq!(count(sql, email), 0, "{sql}");
+    }
+    for sql in [
+        "SELECT count(*) FROM t_note WHERE author = ?1",
+        "SELECT count(*) FROM t_receipt WHERE by = ?1",
+        "SELECT count(*) FROM of_event WHERE json_extract(payload, '$.inputs.by') = ?1",
+    ] {
+        assert_eq!(count(sql, email), 0, "{sql}");
+        assert!(count(sql, &ann) >= 1, "{sql}");
     }
     assert!(count("SELECT count(*) FROM of_event WHERE actor_id = ?1", &ann) >= 4);
     assert!(count("SELECT count(*) FROM of_attempt WHERE actor_id = ?1", &ann) >= 1);
@@ -4579,8 +4608,8 @@ fn a_store_readable_by_others_is_said_with_its_log() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
-/// An agent's query filtering or ordering by a member marked personal is
-/// refused `personal`, as a metric's filter is, where an agent ranged over people's names to
+/// An agent's query filtering or ordering by a member marked personal, or
+/// an unknown actor's, is refused `personal`, as a metric's filter is, where an agent ranged over people's names to
 /// recover what its answers left out; a person's is answered (fourteenth
 /// production review N4).
 #[test]
@@ -4618,6 +4647,14 @@ fn an_agents_query_by_a_personal_member_is_refused() {
         &json!({"actor": bot, "type": "Person", "filter": "team == \"blue\""}),
     );
     assert_eq!(page["refused"], Value::Null, "{page}");
+    // and an actor the store does not know, as an agent not yet registered
+    // (fifteenth production review)
+    let page = post(
+        &s,
+        "/v1/query",
+        &json!({"actor": {"id": "stranger"}, "type": "Person", "filter": "name >= \"Ana\""}),
+    );
+    assert_eq!(page["refused"], "personal", "{page}");
     let page = post(
         &s,
         "/v1/query",

@@ -670,3 +670,24 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Writing the guides for the masked idempotency digest, I wrote "a key a store recorded before release 0.3.0"; no release 0.3.0 is planned, the next being 1.0.0. Caught on rereading, before the commit.
 - **Correction:** Name what distinguishes the data ("a digest made with personal values in it, as release 0.2.0 made them"), or a release that exists; never a version number not in `Cargo.toml` or the changelog.
 - **Context:** The guides and the changelog; 2026-10-14.
+
+### A check widened without reading how the engine applies what it judges
+- **Pattern:** Extending `unbounded_reach` from erasures to every transition, I tested it on planted flows and counted it over the examples, without reading how the engine applies a loop's limit: to what its `where` keeps, not to the set. The gate's scenario module then showed six notices on filtered loops, each advising a bound on the whole set, which was wrong.
+- **Correction:** Before widening a check, read how the engine applies the construct it judges, run it over the realistic modules (the scenarios, not only the examples), and read every new finding before recording an expectation.
+- **Context:** The checkers' notices; 2026-10-14.
+
+### A renamed code left behind in one guide
+- **Pattern:** I changed an agent's personal-query refusal from `malformed_filter` to `personal` after writing the guides, and updated `wire.md` and `errors.md` but not `agents.md`; the next review found the guide naming the old code.
+- **Correction:** After renaming a code, a flag or a message, search every document for the old one before committing.
+- **Context:** The guides; 2026-10-14.
+
+### A special case written on an unchecked belief
+- **Pattern:** I exempted the operator from the personal guard, believing it was no stored object and so had no kind; it is a built-in human, so the exemption was dead, which only an equivalent mutant showed.
+- **Correction:** Check how an actor or entity resolves before writing a case for it; and treat a surviving mutant as a question about the code, not only the test: an equivalent one marks a branch to remove.
+- **Context:** The service's actor checks; 2026-10-14.
+
+### A fix that lived in the build's environment
+- **Pattern:** ADR-0201's SQLite flag sat in `core/.cargo/config.toml`, which cargo reads only for a build run from `core/`; a build from the repository's root brought the collapse back, and only a start-log line said so.
+- **Correction:** Put build configuration where every build in the repository reads it, and make a build without a setting the program needs stop, rather than test for it after the fact.
+- **Context:** The core's build; 2026-10-14.
+

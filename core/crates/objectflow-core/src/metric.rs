@@ -742,15 +742,29 @@ impl<'w> Reader<'w> {
             && let Some(dims) = f.get("dimensions").and_then(Json::as_object)
         {
             for (d, want) in bound {
-                let (Want::Value(v), Some(Ok(Expr::Path(base, attr)))) =
-                    (want, dims.get(d).and_then(Json::as_str).map(parsed))
+                let Some(Ok(Expr::Path(base, attr))) =
+                    dims.get(d).and_then(Json::as_str).map(parsed)
                 else {
                     continue;
                 };
                 let own = matches!(&*base, Expr::Name(n) if *n == item);
-                if own && owner_t.attribute(&attr).is_some_and(|a| !a.many) {
-                    columns.push((attr, v.clone()));
-                }
+                let Some(a) = owner_t.attribute(&attr).filter(|a| own && !a.many) else {
+                    continue;
+                };
+                // a read's binding, the wire's, decoded as the attribute
+                // holds it, where a metric read bound to one claimant read
+                // every claim (fifteenth production review); one that does
+                // not decode reads the type, the binding then deciding
+                let v = match want {
+                    Want::Value(v) => v.clone(),
+                    Want::Wire(j) => {
+                        match crate::wire::decode(j, &a.declared, false, self.world.lib) {
+                            Ok(v) if !v.is_absent() => v,
+                            _ => continue,
+                        }
+                    }
+                };
+                columns.push((attr, v));
             }
         }
         let Rows {
@@ -2998,6 +3012,14 @@ metrics:
             .eval(&parse("metric(Claim.claimed, claimant := claimant)").unwrap())
             .unwrap();
         assert_eq!(v, Value::Absent);
+        // and a read of it bound to one claimant on the wire, as the service
+        // reads it, the same, without the type (fifteenth production review)
+        let before = crate::world::whole_type_reads("Claim");
+        let bind = BTreeMap::from([("claimant".to_string(), json!(ana))]);
+        let p = page(&w, None, "Claim.claimed", &bind, Some(&[]), None, None).unwrap();
+        assert_eq!(p.rows.len(), 1, "{:?}", p.refused);
+        assert_eq!(p.rows[0].value, Value::Int(40));
+        assert_eq!(crate::world::whole_type_reads("Claim"), before);
     }
 
     #[test]
