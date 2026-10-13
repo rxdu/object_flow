@@ -2551,3 +2551,29 @@ def test_an_identity_shows_what_it_is_alike(tee):
         "invariant_violated", [("Staff", "identity_taken"), ("Bot", "identity_taken")]), v
     alike(tee)
 
+
+def test_an_actor_named_in_another_case_is_that_actor_alike(tee):
+    """An actor named by its identity in another case of its ASCII letters is
+    that actor, recorded under the identity it holds, as uniqueness compares
+    them, and one differing beyond ASCII case is no actor, alike through both
+    backends, where the core recorded an unknown actor under the text sent
+    (seventh production review, ADR-0194 decision 5)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    assert tee.post("/v1/request", {"type": "Staff", "transition": "add", "actor": OP,
+                                    "inputs": {"login": "Ana.Lee"}})["kind"] == "satisfied"
+    v = tee.post("/v1/request", {"type": "Bill", "transition": "record", "actor": {"id": "ANA.LEE"},
+                                 "inputs": {"amount": 5}})
+    assert v["kind"] == "satisfied", v
+    h = tee.post("/v1/history", {"id": v["object_id"]})
+    assert [(e["actor_id"], e["actor_kind"]) for e in h["events"]] == [("Ana.Lee", "human")], h
+    v = tee.post("/v1/request", {"type": "Bill", "transition": "record", "actor": {"id": "ANA.L\u00c9E"},
+                                 "inputs": {"amount": 5}})
+    assert (v["kind"], v.get("clause")) == ("unsatisfied", "actor_known"), v
+    # a letter outside ASCII compares as written: two actors, not one taken
+    assert tee.post("/v1/request", {"type": "Staff", "transition": "add", "actor": OP,
+                                    "inputs": {"login": "\u00c9mile"}})["kind"] == "satisfied"
+    v = tee.post("/v1/request", {"type": "Bot", "transition": "issue", "actor": OP, "inputs": {"key": "\u00e9mile"}})
+    assert v["kind"] == "satisfied", v
+    alike(tee)

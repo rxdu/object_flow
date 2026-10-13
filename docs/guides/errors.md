@@ -91,7 +91,7 @@ Besides the rules a flow declares, the engine adds some of its own. A refusal na
 | `subject_owned` | `unreachable_from_here` | recording on an object another system owns (a `mirror` type). |
 | `value_in_range` | `unreachable_from_here` | an effect whose arithmetic has no value: past its type's bound, a division by zero, a date past 9999. |
 | `<attribute>_unique` | (invariant) | a second object holding a value declared `unique`. `objects` names the holder. |
-| `identity_taken` | (invariant) | an actor identity another actor already holds, compared without case. |
+| `identity_taken` | (invariant) | an actor identity another actor already holds, compared ignoring the case of ASCII letters. |
 | `<state>_invariant` | (invariant) | entering a state without its `required_attributes`. |
 | `<transition>_taken_by` | `delegable` | an actor of a kind the transition's `taken_by` does not name, such as an agent approving where only a person may. |
 | `publish_taken_by` | `delegable` | approving a new flow version by a kind the installed version's `publishing.taken_by` does not name. |

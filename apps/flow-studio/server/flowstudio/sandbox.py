@@ -396,6 +396,13 @@ class Sandbox:
         held = [o for o in s.objects.values()
                 if (s.actor_attr(o.type) or (None,))[0] is not None
                 and o.attrs.get(s.actor_attr(o.type)[0]) == named]
+        if not held:
+            # in another case of its ASCII letters, as the core resolves one
+            # (ADR-0194 decision 5)
+            held = [o for o in s.objects.values()
+                    if (s.actor_attr(o.type) or (None,))[0] is not None
+                    and isinstance(o.attrs.get(s.actor_attr(o.type)[0]), str)
+                    and flowrun.ascii_fold(o.attrs[s.actor_attr(o.type)[0]]) == flowrun.ascii_fold(named)]
         return min(held, key=lambda o: o.id_order).id if held else named
 
     def inputs(self, tn: str | None, xn: str, given: dict | None) -> dict:

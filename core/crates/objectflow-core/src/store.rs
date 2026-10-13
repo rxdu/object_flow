@@ -147,11 +147,16 @@ pub fn release_fingerprint() -> String {
     if let Ok(lib) = Library::load(&[]) {
         for (name, t) in &lib.types {
             h.update(format!("\ntype {name}\n").as_bytes());
-            h.update(
-                table_parts(&lib, t, false)
-                    .create(&table(name), &[])
-                    .as_bytes(),
-            );
+            // an identity's folded index, made at a store's open whatever
+            // release made the store, as the actor indexes are, is no part
+            // of what a release holds (ADR-0194 decision 1)
+            let kept: String = table_parts(&lib, t, false)
+                .create(&table(name), &[])
+                .lines()
+                .filter(|l| !l.contains("_fold_ix"))
+                .map(|l| format!("{l}\n"))
+                .collect();
+            h.update(kept.as_bytes());
             for (s, st) in &t.states {
                 h.update(format!("state {s} {} {}\n", st.category, st.is_final).as_bytes());
             }
@@ -699,6 +704,23 @@ fn attribute_indexes(lib: &Library, t: &Type) -> Vec<String> {
                 quote(&col)
             )
         })
+        .chain(
+            // an actor's identity folded, which every check of an identity
+            // and every request naming one by another case reads by, where
+            // each scanned every actor (seventh production review
+            // PUBLISH-SLOW, ADR-0194 decision 1)
+            t.actor_identity()
+                .and_then(|(n, _)| t.attribute(n).map(|a| (n, a)))
+                .filter(|(_, a)| !a.many && !a.derived_end())
+                .map(|(n, a)| {
+                    let col = column(n, a);
+                    format!(
+                        "CREATE INDEX IF NOT EXISTS {} ON {name} (lower({}));",
+                        quote(&format!("{name}_{col}_fold_ix")),
+                        quote(&col)
+                    )
+                }),
+        )
         .chain(
             // the successor's column, which a group erasure reads each
             // member's predecessors by, where it read every superseding
@@ -3623,6 +3645,34 @@ pub(crate) fn read_superseded_into(
     Ok(ids)
 }
 
+/// The ids of a type's objects whose text attribute, its ASCII letters
+/// folded to lower case, is the text given folded: by the index on the
+/// folded column an actor's identity has (ADR-0194 decision 1).
+pub(crate) fn read_ids_folded(
+    conn: &Connection,
+    lib: &Library,
+    type_: &str,
+    attr: &str,
+    text: &str,
+) -> Stored<Vec<String>> {
+    let Some(a) = lib
+        .type_(type_)
+        .and_then(|t| t.attribute(attr))
+        .filter(|a| !a.many && !a.derived_end())
+    else {
+        return Ok(Vec::new());
+    };
+    let mut stmt = conn.prepare(&format!(
+        "SELECT id FROM {} WHERE lower({}) = ?1",
+        table(type_),
+        quote(&column(attr, a))
+    ))?;
+    let ids = stmt
+        .query_map([text.to_ascii_lowercase()], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ids)
+}
+
 pub(crate) fn read_ids_with(
     conn: &Connection,
     lib: &Library,
@@ -4519,6 +4569,31 @@ mod tests {
         assert_eq!(s.quick_check().unwrap(), None);
         drop(s);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An actor type's identity is read without the case of its ASCII
+    /// letters by an index on its folded column, which a store's tables are
+    /// made with, never a scan of the table (ADR-0194 decision 1).
+    #[test]
+    fn an_identity_is_read_by_its_folded_index() {
+        let text = "module: people\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n    states:\n      ACTIVE: { category: live }\n    transitions:\n      join: { kind: initial, to: ACTIVE, required_inputs: [login] }\n";
+        let lib = Library::load(&[("people.yaml".into(), text.into())]).unwrap();
+        let s = Store::sandbox(lib, 0).unwrap();
+        let t = s.lib.type_("Person").unwrap();
+        let a = t.attribute("login").unwrap();
+        let plan: Vec<String> = s
+            .connection()
+            .prepare(&format!(
+                "EXPLAIN QUERY PLAN SELECT id FROM {} WHERE lower({}) = 'ana'",
+                table("Person"),
+                quote(&column("login", a))
+            ))
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(3))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(plan.iter().any(|p| p.contains("_fold_ix")), "{plan:?}");
     }
 
     #[test]

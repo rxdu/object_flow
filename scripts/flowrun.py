@@ -563,11 +563,14 @@ def proposal_event(store, key, verb, before, after, actor, position=None):
         position = store.position
     marked = store.actor_attr(store.type_of(actor)) if actor in store.objects else None
     if marked is None:
-        # named by its identity: the actor holding it, for its kind
+        # named by its identity, in any case of its ASCII letters: the actor holding it, for its kind
         holder = next((o for o in store.objects.values()
                        if (store.actor_attr(o.type) or (None,))[0] is not None
-                       and o.attrs.get(store.actor_attr(o.type)[0]) == actor), None)
+                       and isinstance(o.attrs.get(store.actor_attr(o.type)[0]), str)
+                       and ascii_fold(o.attrs[store.actor_attr(o.type)[0]]) == ascii_fold(actor)), None)
         marked = store.actor_attr(holder.type) if holder is not None else None
+        if holder is not None:
+            actor = holder.attrs[marked[0]]
     elif isinstance(store.objects[actor].attrs.get(marked[0]), str):
         actor = store.objects[actor].attrs[marked[0]]
     p = store.objects[key]
@@ -3086,10 +3089,10 @@ class Runner:
         v = o.attrs.get(mine[0]) if mine else None
         if not isinstance(v, str):
             return []
-        # compared without case, as the core's (ADR-0192 decision 6)
+        # compared without the case of its ASCII letters, as the core's (ADR-0192 decision 6, ADR-0194 decision 1)
         return [x for x in store.objects.values()
                 if x.id != o.id and (theirs := self.actor_attr(x.type))
-                and isinstance(x.attrs.get(theirs[0]), str) and x.attrs[theirs[0]].lower() == v.lower()]
+                and isinstance(x.attrs.get(theirs[0]), str) and ascii_fold(x.attrs[theirs[0]]) == ascii_fold(v)]
 
     def unique_scope(self, tn, a):
         """The type whose family a uniqueness spans: the one declaring the attribute, so a base's spans every subtype,
@@ -3793,6 +3796,15 @@ def formatting(c):
                 (0x0600, 0x0605), (0x0890, 0x0891), (0x115F, 0x1160), (0x200B, 0x200F), (0x2028, 0x202E),
                 (0x2060, 0x2064), (0x2066, 0x206F), (0xFE00, 0xFE0F), (0xFFF9, 0xFFFB), (0x13430, 0x1343F),
                 (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A), (0xE0000, 0xE007F), (0xE0100, 0xE01EF))))
+
+
+def ascii_fold(s):
+    """A text with its ASCII letters in lower case and every other character as it is, as SQLite's `lower` and the
+    core fold an identity (ADR-0194 decision 1)."""
+    return s.translate(ASCII_LOWER)
+
+
+ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 
 
 def identity_fault(v, kinds):

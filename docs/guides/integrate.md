@@ -45,7 +45,7 @@ Employee:
 {"actor": {"id": "u-10442"}, "type": "Claim", "transition": "draft", "inputs": {"title": "Taxis"}}
 ```
 
-- **Choose opaque identities**, such as an employee number or a generated id, never an email or a name: an identity is recorded with every event the actor makes. Write each in one Unicode form. The engine compares identities ignoring case, and refuses an identity that is empty, has spaces at its ends or characters that show nothing, or is shaped like an object id (`claim-12`).
+- **Choose opaque identities**, such as an employee number or a generated id, never an email or a name: an identity is recorded with every event the actor makes. Write each in one Unicode form. The engine compares identities ignoring the case of ASCII letters (`ADMIN` and `admin` are one actor, `É` and `é` two), resolves a request's actor the same way, and refuses an identity that is empty, has spaces at its ends or characters that show nothing, or is shaped like an object id (`claim-12`).
 - **An unknown actor** is refused `unsatisfied`, clause `actor_known`, remedy `dependent`: create its object first.
 - **Someone who leaves**: move their actor object to a final state. Every later request naming them is refused `actor_active`. Revoke their session at your gateway too.
 - **Acting for someone**: a request made on a person's behalf names them as `principal`, `"actor": {"id": "helper", "principal": "u-10442"}`. The principal is checked as an actor is, and recorded.

@@ -4,7 +4,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased, toward 1.0.0
 
-Release 1.0.0 is held until a production review, on the same 36.7k-object store as the first, finds no blocker or major (ADR-0183 decision 1; `docs/design/production-review.md`); each of the six so far found some.
+Release 1.0.0 is held until a production review, on the same 36.7k-object store as the first, finds no blocker or major (ADR-0183 decision 1; `docs/design/production-review.md`); each of the seven so far found some.
 
 ### Changes that may refuse what 0.2.0 accepted
 
@@ -77,6 +77,8 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Fixed
 
+- An identity's check, and a request naming an actor, read an index on the identity's folded value, where comparing identities without case swept every actor for each actor checked: a publish adding an attribute took 48 to 55 s of approval on six years, 70 s with 3,600 actors, holding every write (seventh production review PUBLISH-SLOW, ADR-0194 decision 1). Identities compare without the case of their ASCII letters, as SQLite's `lower` folds them; a letter outside ASCII compares as written.
+- A request naming its actor's identity in another ASCII case is that actor, recorded under the identity it holds, where it was refused `actor_known` and recorded under the text sent, out of an erasure's reach (ADR-0194 decision 5).
 - A query filter an object cannot answer, ill-typed among them, is refused `malformed_filter` with its reason, and no fault's reason holds a value an object holds, its kind named instead, where `name` or `purpose + 1 > 0` answered `501` and wrote a person's text into the log; a division by a money zero and a set within a set are `malformed_filter`, where they answered empty pages; a derived time past the calendar is `null` in a query's fields as in `get` (ADR-0192 decision 7).
 - A read of a store moved, gone or replaced answers `503 store_replaced`, as a write does, where it answered `500`; `/health`'s upgrade-due `503` carries `code: upgrade_due`; a write refused for a full volume is said by `/health`, `503 disk_full`, until one commits, where a volume full though its free space did not show it left `/health` `200` (ADR-0192 decision 7).
 - A supersession group's erasure walks the group once, where each member's erasure walked it again, a chain of 1,201 holding the writer 66.5 s; an idempotency key sent by an actor named by its object and then by its identity is one request, where it answered `409 key_reused`; an evaluator's answer naming a key twice is no verdict, where the last one won (ADR-0192 decision 7).

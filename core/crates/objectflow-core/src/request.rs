@@ -225,6 +225,25 @@ pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Result<Option<Who
             }
         }
     }
+    // an identity named in another case than it is held in names that actor,
+    // as uniqueness compares them, recorded under the identity it holds, so
+    // an erasure's renaming reaches what it sent (seventh production review,
+    // ADR-0194 decision 5)
+    if found.is_none() {
+        for (tn, t) in &world.lib.types {
+            let Some((attr, _)) = t.actor_identity() else {
+                continue;
+            };
+            for o in world.with_folded(tn, attr, actor)? {
+                if o.type_ == *tn
+                    && let Some(w) = identity(o)
+                    && found.as_ref().is_none_or(|(n, _)| o.order < *n)
+                {
+                    found = Some((o.order, w));
+                }
+            }
+        }
+    }
     Ok(found.map(|(_, w)| w))
 }
 
@@ -4139,24 +4158,19 @@ fn identity_holders(world: &World<'_>, o: &Object) -> Result<Vec<String>, NotRun
     let Some((a, _)) = world.lib.type_(&o.type_).and_then(|t| t.actor_identity()) else {
         return Ok(Vec::new());
     };
-    let mine = o.attr(a);
-    if !matches!(mine, Value::Text(_)) {
+    let Value::Text(mine) = o.attr(a) else {
         return Ok(Vec::new());
-    }
-    // compared without case, so `ADMIN` and `admin` name one actor (ADR-0192
-    // decision 6): each actor type read for it, an actor's write being rare
-    let folded = |v: &Value| match v {
-        Value::Text(t) => Some(t.to_lowercase()),
-        _ => None,
     };
-    let want = folded(&mine);
+    // compared without the case of its ASCII letters, so `ADMIN` and `admin`
+    // name one actor (ADR-0192 decision 6), by each actor type's folded
+    // column, never its objects whole (ADR-0194 decision 1)
     let mut out = Vec::new();
     for (tn, ot) in &world.lib.types {
         let Some((b, _)) = ot.actor_identity() else {
             continue;
         };
-        for other in world.of_type(tn)? {
-            if other.type_ == *tn && other.id != o.id && folded(&other.attr(b)) == want {
+        for other in world.with_folded(tn, b, &mine)? {
+            if other.type_ == *tn && other.id != o.id {
                 out.push(other.id.clone());
             }
         }
@@ -4712,28 +4726,25 @@ fn affected_by_writes(work: &World<'_>, before: &World<'_>) -> Result<Vec<String
                     }
                 }
                 for k in &keys {
-                    // an actor's identity, compared without case, so every
-                    // actor holding it in any case is checked again
-                    // (ADR-0192 decision 6)
+                    // an actor's identity, compared without the case of its
+                    // ASCII letters, so every actor holding it in any case is
+                    // checked again (ADR-0192 decision 6), each found by the
+                    // folded column (ADR-0194 decision 1)
                     if k.source.as_deref() == Some(IDENTITY_SOURCE) {
-                        let folded = |v: &Value| match v {
-                            Value::Text(t) => Some(t.to_lowercase()),
-                            _ => None,
-                        };
                         let wanted: BTreeSet<String> = versions
                             .iter()
                             .filter_map(|w| {
                                 let wt = lib.type_(&w.type_)?;
                                 let (a, _) = wt.actor_identity()?;
-                                folded(&w.attr(a))
+                                match w.attr(a) {
+                                    Value::Text(t) => Some(t.to_ascii_lowercase()),
+                                    _ => None,
+                                }
                             })
                             .collect();
-                        if !wanted.is_empty() {
-                            for o in work.of_type(&k.family)? {
-                                if folded(&o.attr(&k.attrs[0])).is_some_and(|v| wanted.contains(&v))
-                                {
-                                    affected.insert(o.id.clone(), o.order);
-                                }
+                        for v in &wanted {
+                            for o in work.with_folded(&k.family, &k.attrs[0], v)? {
+                                affected.insert(o.id.clone(), o.order);
                             }
                         }
                         continue;
@@ -10068,6 +10079,101 @@ types:
             gathered <= 2 * checked,
             "{gathered} gathered for {checked} checks"
         );
+    }
+
+    /// An identity's check on each actor of a store held whole, as a
+    /// dry run checks every object, looks the identity's folded value up,
+    /// sweeping no actors: a sweep of every actor for each actor checked
+    /// made a publish grow with the square of the actors, 70 s of approval
+    /// with 3,600 (seventh production review PUBLISH-SLOW, ADR-0194
+    /// decision 1).
+    #[test]
+    fn an_identitys_check_sweeps_no_actors() {
+        let text = r#"
+module: people
+categories: [live, closed]
+types:
+  Person:
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { category: live }
+    transitions:
+      join: { kind: initial, to: ACTIVE, required_inputs: [login] }
+"#;
+        let lib = Library::load(&[("people.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        for i in 0..300 {
+            created(&req(
+                &mut s,
+                "join",
+                OPERATOR,
+                ("Person", true),
+                json!({"login": format!("P{i}")}),
+            ));
+        }
+        let w = s.snapshot().unwrap();
+        let all = w.in_order().unwrap();
+        let before = w.enumerated_count();
+        let mut checked = 0;
+        for o in all.iter().filter(|o| o.type_ == "Person") {
+            assert!(failing_invariants(&w, o).unwrap().is_empty());
+            checked += 1;
+        }
+        assert_eq!(checked, 300);
+        let swept = w.enumerated_count() - before;
+        assert!(
+            swept <= 4 * checked,
+            "{swept} objects swept for {checked} checks"
+        );
+    }
+
+    /// An actor named by its identity in another case of its ASCII letters
+    /// is that actor, recorded under the identity it holds, as uniqueness
+    /// compares them; one differing beyond ASCII case is no actor (ADR-0194
+    /// decision 5).
+    #[test]
+    fn an_actor_named_in_another_case_is_that_actor() {
+        let text = r#"
+module: notes
+categories: [live, closed]
+types:
+  Person:
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { category: live }
+    transitions:
+      join: { kind: initial, to: ACTIVE, required_inputs: [login] }
+  Note:
+    attributes:
+      text: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      jot: { kind: initial, to: OPEN }
+"#;
+        let lib = Library::load(&[("notes.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        created(&req(
+            &mut s,
+            "join",
+            OPERATOR,
+            ("Person", true),
+            json!({"login": "Ana.Lee"}),
+        ));
+        let note = created(&req(&mut s, "jot", "ANA.LEE", ("Note", true), json!({})));
+        let w = s.snapshot().unwrap();
+        let e = w.log().unwrap().find(|e| e.object_id == note).unwrap();
+        assert_eq!(
+            (e.actor_id.as_str(), e.actor_kind.as_str()),
+            ("Ana.Lee", "human")
+        );
+        drop(w);
+        assert!(matches!(
+            req(&mut s, "jot", "ANA.LÉE", ("Note", true), json!({})),
+            Verdict::Unsatisfied { ref clause, .. } if clause == "actor_known"
+        ));
     }
 
     /// `available` reads the objects in a state its transition is taken

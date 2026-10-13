@@ -1,6 +1,6 @@
 # Is ObjectFlow production-ready? The review before 1.0.0
 
-Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9) and the sixth at `fc6c0e7` (§10).
+Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10) and the seventh at `7d050a6` (§11).
 
 ## 1. What "production" meant, and how it was reviewed
 
@@ -187,3 +187,26 @@ Minors: an ill-typed filter answers `501` and writes a stored value, a personal 
 
 The author's standing instruction decides what the findings ask (ADR-0192); the blocker and the majors are fixed, then a seventh review, or the author's acceptance of what remains.
 
+## 11. The seventh review, after the sixth's fixes
+
+At commit `7d050a6`, 2026-10-13, not yet pushed, every gate of `scripts/check-all` passed on it: two new cold reviewers, an operator and an adversary, each in a checkout of its own with the release binary built from it, given the sixth review's findings to re-check, on copies of the same 37,154-object store and the six-year store, and the third review's go-live tools without their runs. Their logs and reports stayed in the session's scratch directory, which is not kept; what they found is here.
+
+**Verdicts: both NO-GO**, neither finding a blocker: the operator found one major, the adversary two. Neither lost an acknowledged write: `kill -9` and SIGTERM during writes lost none, retries applied once, `kill -9` during an approval rolled back, restart took 0.33 s; 2,130 malformed requests across every operation answered no 5xx; HTTP framing, smuggling, header and URL limits, the evaluator transport (no redirect followed, the token never logged nor leaked, answers capped at 10 MiB) and both `unsafe` blocks held.
+
+### The sixth review's findings, re-checked
+
+Fixed, measured by both: P8 (on a go-live of the shipped sample with its bound, a draft 12.5 ms and a write to another type 11 to 24 ms, four writers 79.6 writes a second; ten concurrent `add_line` at 199 lines, one applied); F9 (the metrics listener's `/health` 200 in 2 to 4 ms with the main one saturated); ERASED-IDENTITY (the erased actor's rows name its object's id, the file and `-wal` hold no copy); IDENTITY, for every case the sixth review named; every minor re-checked. Partly fixed: P5 (an agent's reads wait in their own pool, a person's worklist 23 ms beside eight agents' sweeps, but `referrers`, below, and between people a filter on a value derived from a set read its type whole on each page, four people's making others wait 5.2 to 5.7 s, ranked minor); HISTORY (paged, but a page bounded by count and not by bytes, 123 MB for 1,000 events of large inputs, ranked minor).
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| PUBLISH-SLOW | A publish grew with the square of the actors: adding one optional attribute took 10 to 15 s of submit and 11 to 16 s of approval on 37k objects and 45 to 50 and 48 to 55 s on 110k, where `092f644` took 2.2 and 3.0, 6.6 and 9.4; 70 s of approval, holding every write, with 3,600 actors. Bisected to `a2148f4`, the sixth review's case-folded identity, which replaced the indexed lookup of an identity by a scan of every actor for each actor checked. On six years the submit passed the 30 s read deadline and the approval the 30 s a stop waits | measured and bisected by the operator; read | major |
+| REFERRERS | `referrers` read every object of the store for each object it was evaluated on, where `storage-schema.md` §5 names each relationship's stored-end index as its reverse index: a filter `count(r in referrers) > 0` ran to the 30 s deadline at about 1 GB each, four making a person's worklist wait 29.2 s; as a guard on six years 2.94 s a write under the writer, a publish of the guard 130.6 s of submit and 128.4 s of approval; through `availability`, which waits in no pool, 2.5 s a call, eight at once 7.4 GB | measured by the adversary; read | major |
+| CUTSTALL | While a cut of the write-ahead log is due, after an erasure or past 64 MiB, every new read that grows with the store waits until the longest one running ends, an agent's among them: after an erasure beside an agent's 30 s sweep a person's worklist took 25.4 s, under writes with agents sweeping 25.7 and 26.1 s, which reopens P5 whenever a cut is due | measured by the adversary | major |
+
+Minors: attempts sent under another case of an erased identity, or after the erasure, keep the text sent, an actor being resolved with its case where uniqueness ignores it; a page of `history` and an answer of `events` bounded by count, not bytes; U+2800, U+17B4, private-use characters and noncharacters accepted in an identity; an import taking `created_by_kind` `"robot"` and an `entered_by` of 70,000 characters; a metric's `keep` naming a dimension 5,000 times running to the deadline; `title == "x" and title` answered empty, and a time computed past 9999 compared in a filter where a date has no value; an answer its client does not read held without a bound, eight holding 750 MB; any caller pulling, acknowledging or revoking another's subscription, which `integrate.md` did not list among what to withhold from an agent; `/sandbox/load` without a deadline; `After=` and `Wants=time-sync.target`, as `integrate.md` said, waiting for nothing without a wait-sync service, and `Wants=` against `systemd.special(7)`; a copy restored beside a stale `-wal` refused with SQLite's "malformed database schema", twice, not the guide's advice; a stalled write answered after 34.5 s where the guide said 20 to 25; a second service on a store said only at its start; a write to an object many others read through re-checking each under the writer, 1.6 to 2 s for a category nine thousand lines read, which is what the invariant asks.
+
+### What the seventh review asks
+
+The author's standing instruction decides what the findings ask (ADR-0194); the majors are fixed, then an eighth review, or the author's acceptance of what remains.

@@ -269,6 +269,10 @@ struct Held {
     /// How many candidates the columns have given lookups, which a test
     /// holds to what the lookups match.
     gathered: std::cell::Cell<usize>,
+    /// How many held objects the operation's sweeps have looked at, which a
+    /// test holds to a constant times what a lookup by index would read
+    /// (seventh production review PUBLISH-SLOW).
+    enumerated: std::cell::Cell<usize>,
 }
 
 /// The held objects of one type by one attribute's value, a key of each
@@ -286,26 +290,64 @@ struct Column {
     slots: usize,
     changes: usize,
     by: BTreeMap<Option<String>, BTreeSet<usize>>,
-    /// Each slot's key, so a changed slot's old one is taken out.
-    key_of: BTreeMap<usize, Option<String>>,
+    /// Each slot's keys, so a changed slot's old ones are taken out.
+    key_of: BTreeMap<usize, Vec<Option<String>>>,
 }
 
 impl Column {
     /// A slot keyed as the object it holds now is: taken out under its old
-    /// key, and put under its new one where it is of the column's type and
+    /// keys, and put under its new ones where it is of the column's type and
     /// its value is one an index holds.
-    fn key(&mut self, n: usize, o: Option<&Object>, type_: &str, attr: &str) {
-        if let Some(old) = self.key_of.remove(&n)
-            && let Some(slots) = self.by.get_mut(&old)
-        {
-            slots.remove(&n);
+    fn key(&mut self, n: usize, o: Option<&Object>, type_: &str, attr: &str, keying: Keying) {
+        for old in self.key_of.remove(&n).unwrap_or_default() {
+            if let Some(slots) = self.by.get_mut(&old) {
+                slots.remove(&n);
+            }
         }
         if let Some(o) = o
             && o.type_ == type_
-            && let Some(k) = index_key(&o.attr(attr))
         {
-            self.by.entry(k.clone()).or_default().insert(n);
-            self.key_of.insert(n, k);
+            let keys = keying.keys(&o.attr(attr));
+            for k in &keys {
+                self.by.entry(k.clone()).or_default().insert(n);
+            }
+            if !keys.is_empty() {
+                self.key_of.insert(n, keys);
+            }
+        }
+    }
+}
+
+/// How a column keys the objects it holds by an attribute: by its value,
+/// or by its text with its ASCII letters in lower case, as SQLite's `lower`
+/// folds them, so the store's index on an identity's folded column and the
+/// operation's agree (ADR-0194 decision 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Keying {
+    Value,
+    Folded,
+}
+
+impl Keying {
+    /// The keys a column of this keying holds a value by: none where no
+    /// index holds it.
+    fn keys(self, v: &Value) -> Vec<Option<String>> {
+        match self {
+            Keying::Value => index_key(v).into_iter().collect(),
+            Keying::Folded => match v {
+                Value::Absent => vec![None],
+                Value::Text(t) => vec![Some(format!("t:{}", t.to_ascii_lowercase()))],
+                _ => Vec::new(),
+            },
+        }
+    }
+
+    /// The column's name beside the attribute's, so columns of two keyings
+    /// of one attribute are never one.
+    fn named(self, attr: &str) -> String {
+        match self {
+            Keying::Value => attr.to_string(),
+            Keying::Folded => format!("lower({attr})"),
         }
     }
 }
@@ -842,24 +884,25 @@ impl<'l> World<'l> {
         attr: &str,
         v: &Value,
         absent_too: bool,
+        keying: Keying,
     ) -> Option<Vec<&Object>> {
-        let key = index_key(v)?.map(Some)?;
+        let key = Some(keying.keys(v).into_iter().next()??);
         let mut idx = self.held.index.borrow_mut();
         let changed = self.held.changed.borrow();
         let slots = self.held.slots.len.get();
         let mut found: BTreeSet<usize> = BTreeSet::new();
         for t in self.lib.types.keys().filter(|t| self.lib.is_a(t, type_)) {
-            let column = idx.entry((t.clone(), attr.to_string())).or_default();
+            let column = idx.entry((t.clone(), keying.named(attr))).or_default();
             // the slots held since it last looked, then those changed since
             let fresh = changed.get(column.changes..).unwrap_or_default();
             self.held
                 .keyed
                 .set(self.held.keyed.get() + (slots - column.slots) + fresh.len());
             for n in column.slots..slots {
-                column.key(n, self.held.slots.get(n), t, attr);
+                column.key(n, self.held.slots.get(n), t, attr, keying);
             }
             for &n in fresh {
-                column.key(n, self.held.slots.get(n), t, attr);
+                column.key(n, self.held.slots.get(n), t, attr, keying);
             }
             (column.slots, column.changes) = (slots, changed.len());
             // the objects holding no value, which a narrowing keeps and an
@@ -909,7 +952,15 @@ impl<'l> World<'l> {
         self.held.gathered.get()
     }
 
+    /// How many held objects the operation's sweeps have looked at.
+    pub fn enumerated_count(&self) -> usize {
+        self.held.enumerated.get()
+    }
+
     fn held_in_order(&self, of: impl Fn(&Object) -> bool) -> Vec<&Object> {
+        self.held
+            .enumerated
+            .set(self.held.enumerated.get() + self.held.slots.len.get());
         let mut all: Vec<&Object> = self.held.slots.iter().filter(|o| of(o)).collect();
         all.sort_by_key(|o| o.order);
         all
@@ -1170,7 +1221,7 @@ impl<'l> World<'l> {
         // is one the index holds, never every held object (PERF-SCAN)
         if let Some(found) = pairs
             .iter()
-            .find_map(|(a, v)| self.held_where(type_, a, v, true))
+            .find_map(|(a, v)| self.held_where(type_, a, v, true, Keying::Value))
         {
             return Ok(found.into_iter().filter(|o| holds(o)).collect());
         }
@@ -1286,11 +1337,59 @@ impl<'l> World<'l> {
         // for each (PERF-SCAN)
         if let Some(found) = pairs
             .iter()
-            .find_map(|(a, v)| self.held_where(type_, a, v, false))
+            .find_map(|(a, v)| self.held_where(type_, a, v, false, Keying::Value))
         {
             return Ok(found.into_iter().filter(|o| holds(o)).collect());
         }
         Ok(self.held_in_order(holds))
+    }
+
+    /// Every object of a type, its own or a subtype's, whose text attribute
+    /// is the text given but for the case of its ASCII letters, in ascending
+    /// id order: read by the store's index on the folded column and the
+    /// operation's folded column of what it holds, never the type whole,
+    /// where a sweep of every actor for each actor checked made a publish
+    /// grow with the square of the actors, 70 s of approval with 3,600
+    /// (seventh production review PUBLISH-SLOW, ADR-0194 decision 1).
+    pub fn with_folded(
+        &self,
+        type_: &str,
+        attr: &str,
+        text: &str,
+    ) -> Result<Vec<&Object>, crate::eval::NotRun> {
+        for t in self.lib.types.keys() {
+            let whole = self.held.whole.borrow().contains(t);
+            if self.lib.is_a(t, type_)
+                && !whole
+                && let Some(conn) = self.conn
+            {
+                let ids = crate::store::read_ids_folded(conn, self.lib, t, attr, text).map_err(|e| {
+                    crate::eval::NotRun::Unreadable(format!(
+                        "the store's objects of {t} by {attr} without case, which could not be read: {e}"
+                    ))
+                })?;
+                for id in ids {
+                    self.get(&id)?;
+                }
+            }
+        }
+        let want = text.to_ascii_lowercase();
+        let found = self
+            .held_where(
+                type_,
+                attr,
+                &Value::Text(text.to_string()),
+                false,
+                Keying::Folded,
+            )
+            .unwrap_or_default();
+        Ok(found
+            .into_iter()
+            .filter(|o| {
+                self.lib.is_a(&o.type_, type_)
+                    && matches!(o.attr(attr), Value::Text(t) if t.to_ascii_lowercase() == want)
+            })
+            .collect())
     }
 
     /// The objects of a type with a superseding state that an object

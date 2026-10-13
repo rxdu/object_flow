@@ -1,0 +1,46 @@
+# ADR-0194: The seventh review's findings, decided
+
+- **Status:** **Decided** 2026-10-13 on the author's standing instruction, "continue the loop to get the stack ready for production, follow your recommendations", each decision the recommendation stated here
+- **Date:** 2026-10-13
+- **Refines:** ADR-0192 decision 6 (an identity compared without case, now its ASCII letters' case), ADR-0127 decision 2 (`query`'s order keys), ADR-0179 (pages)
+- **Relates to:** `design/production-review.md` §11; `storage-schema.md` §5; the fourth production review's cut of the write-ahead log (`001a806`), which decision 4 changes; `guides/operate.md`; `guides/wire.md`
+
+## Context
+
+The seventh production review (`production-review.md` §11) found no blocker and three majors. PUBLISH-SLOW was a regression of the sixth review's fix: comparing identities without case (ADR-0192 decision 6) replaced the indexed lookup of an actor's identity with a scan of every actor of every actor type, for each actor an operation checked, so a publish, which checks every object, grew with the square of the actors: 9.4 s of approval on six years became 48 to 55 s, and 70 s on a store of 3,600 actors. REFERRERS was the core reading the whole store for each object `referrers` was evaluated on, where `storage-schema.md` §5 says each relationship's stored-end index is the reverse index `referrers` needs: a filter over a type held a read past its deadline, a guard held the writer 2.9 s, and `availability`, which waits in no pool, took 2.5 s and 1 GB a call. CUTSTALL was the write-ahead log's cut holding every new read that grows with the store until the longest one running ended, a person's worklist behind an agent's 30 s sweep 25.4 s, which reopened the sixth review's P5 whenever a cut was due.
+
+## Decision
+
+1. **An identity is compared without the case of its ASCII letters, and looked up by an index on its folded value.** Each actor type's identity column has an index on `lower(<column>)`, made with the type's other indexes and given to a store this release opens; the identity check, the affected set's recheck and an actor's resolution read candidates by it, and the operation's own column index keeps a folded column of what it holds, current as it changes objects (PERF-SCAN). The fold is SQLite's `lower`, ASCII letters alone: `ADMIN` and `admin` are one identity, as ADR-0192 decision 6 meant, and a letter outside ASCII compares as written, as a homoglyph from another script already does. A test holds the objects a check of every actor enumerates to a constant times the actors; another, a store's plan, to the index. (PUBLISH-SLOW)
+2. **A dry run has a deadline of its own**, `--dry-run-timeout`, two minutes unless given, for a change's `submit`, `refresh`, its `publish` preview and a `check` of its submit, where it shared the reads' 30 s and an operator whose store outgrew it had to loosen every read's deadline to publish. The dry run stays one at a time. (PUBLISH-SLOW)
+3. **`referrers` is read by the reverse indexes**, as `storage-schema.md` §5 has it: for each reference that may name the object, a single one by its column's index and a set by an index on its table's `value`, which a store opened by this release is given, and a derived end by the opposite the object stores; never the store whole. (REFERRERS)
+4. **The log's cut holds new reads for a moment, never for a long read.** When a cut is due, new reads that grow with the store wait at most one second for those running to end. Where one still runs, the cut is left for the next look, five seconds on, and the held reads go on, unless the cut is urgent: an erasure's truncation due, or the log past four times its limit, 256 MiB. Then the reads still running are stopped, each answered `503 read_timeout` saying the log was cut and to send it again, and the log is cut. A person's read waits about a second for a cut, where it waited out the longest read; an erasure's frames leave the log within the look and the moment, as before. (CUTSTALL)
+5. **An actor is named by its identity in any case**: a request whose actor or principal names an identity in another case than the one stored resolves to that actor and is recorded under the identity it holds, as uniqueness already compared them (ADR-0192 decision 6); so an erasure's renaming reaches what it sent, where it was recorded as an unknown actor under the text sent.
+6. **The minors are fixed**:
+   - a page of `history` ends at 8 MiB of events as at its `limit`, holding one event at least, and `events` is refused `400` where its answer would pass 8 MiB, naming how many positions fit;
+   - an identity holding U+2800, U+17B4 or U+17B5, a private-use character or a noncharacter is `malformed`;
+   - an import's `created_by_kind` and each entry's `by_kind` are `human`, `agent` or `service`, and its identities are held to an identity's rules;
+   - a metric's `keep` or `bind` naming a dimension twice is a `400`;
+   - a filter's `and`, `or` and `not` take booleans, so `title == "x" and title` is `malformed_filter`, and a time computed past the calendar has no value in a filter, as a date's has none;
+   - an answer its client does not read within `--idle-timeout` closes its connection;
+   - a store refused at its start beside a `-wal` says to restore the copy alone, once;
+   - the guides say what a stalled write waits as measured (34.5 s), that a filter on a value derived from a set reads its type whole on each page, that `After=time-sync.target` waits only with a wait-sync service, and what an application withholds on a subscription.
+7. **`query`'s order is any attribute holding one value**, as the service has ordered: ADR-0127 decision 2's "an indexed attribute" is amended, an unindexed key sorting what the filter selects, bounded by the read's pool and deadline as every scan is; the guides mark `indexed` what a large type is ordered by.
+8. **Unchanged**: a write to an object many others read through re-checks each of them under the writer (two seconds for a category nine thousand lines read), which is what the invariant asks; an attempt sent after an erasure, naming the erased identity, keeps the text sent until it is pruned; an identity shaped as the id of a type a later version declares resolves to that object, refused `actor_known`, failing closed; an unassigned code point is not known without the Unicode tables, which the engine does not carry; a subscription's `pull`, `acknowledge` and `revoke` by another than its subscriber stay the gateway's to refuse (ADR-0114); `/sandbox/load` keeps no deadline, a sandbox being its caller's own.
+
+## Alternatives rejected
+
+- **Comparing identities with case again** (decision 1). The scan was the cost, not the comparison; an index on the folded value keeps decision 6 of ADR-0192 at the indexed lookup's cost.
+- **Folding every script's case, in memory** (decision 1): a publish holds the store whole and would look a folded value up in the operation's column, but a deployment's write of one actor would read its whole type for it, every portal customer where customers are actors, and no SQLite index serves a Unicode fold without a function the core registers, which any tool opening the store without it, a backup's `VACUUM INTO` among them, would fail on. Case outside ASCII is a homoglyph like another script's, which the guides already say to avoid by opaque identities.
+- **A benchmark of a publish in `check-all`** (decision 1). A timing on a shared runner fails at random; a count of what is enumerated fails exactly where the work is quadratic.
+- **Refusing `referrers` in filters** (decision 3). It is part of the language and the samples' guards use it; the index the design names answers it.
+- **Waiting out the long reads, as before** (decision 4), which is CUTSTALL; **interrupting every read at every cut**, which would stop a six-second metric each time a busy store's log passed 64 MiB; **never holding new reads**, which is how reads that always overlapped kept the log from being cut, 3.2 GB in 150 s (fourth review A-5).
+- **Refusing an unindexed order key** (decision 7), which would refuse reads applications and the Flow Studio make today for a cost the pools already bound.
+
+## Consequences
+
+- `--dry-run-timeout` is a new flag, held from 1.0.0 as every flag is (ADR-0180).
+- A store opened by this release is given an index on each set-valued reference table's `value`, outside the release's fingerprint, as ADR-0192 decision 4's actor indexes were.
+- A long read can be stopped by an urgent cut; it is answered `503 read_timeout` and sent again.
+- `/v1` refuses what it took: an identity of decision 6's characters, a dimension named twice, an `events` past 8 MiB, a non-boolean operand of `and`, `or` or `not`. Before 1.0.0 this costs no promise (ADR-0180).
+- Each fix is held by a test that fails without it, and the publish's and `referrers`' costs are measured again on the review's stores.
