@@ -1254,10 +1254,10 @@ fn what_a_heavy_request_freed_is_given_back() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
-/// A submit whose dry run passes the read's deadline is answered
-/// `503 read_timeout` and records nothing, where it was computed again under
-/// the writer's lock, unbounded and unsaid, every write waiting for it
-/// (third production review PUBLISH-SCALE, N1).
+/// A submit whose dry run passes its deadline, `--dry-run-timeout`, is
+/// answered `503 read_timeout` and records nothing, where it was computed
+/// again under the writer's lock, unbounded and unsaid, every write waiting
+/// for it (third production review PUBLISH-SCALE, N1; ADR-0194 decision 2).
 #[test]
 fn a_submits_dry_run_past_the_deadline_is_answered_not_locked() {
     let file = fresh_store("submit-deadline");
@@ -1267,7 +1267,7 @@ fn a_submits_dry_run_past_the_deadline_is_answered_not_locked() {
         "--create",
         "--port",
         "0",
-        "--read-timeout",
+        "--dry-run-timeout",
         "1 s",
     ]);
     let note = |invariant: &str| {
@@ -1473,6 +1473,9 @@ fn a_read_past_its_deadline_is_stopped() {
     );
     assert_eq!(status, 400, "{said}");
     let (code, said) = refused(&["--port", "0", "--read-timeout", "1 s"]);
+    assert_ne!(code, Some(0));
+    assert!(said.contains("deployment's"), "{said}");
+    let (code, said) = refused(&["--port", "0", "--dry-run-timeout", "2 min"]);
     assert_ne!(code, Some(0));
     assert!(said.contains("deployment's"), "{said}");
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));

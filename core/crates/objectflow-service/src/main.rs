@@ -319,6 +319,10 @@ struct Service {
     /// How long a deployment's read may take before it is stopped
     /// (ADR-0184 decision 3).
     read_timeout: std::time::Duration,
+    /// How long a change's dry run may run, or wait for its one slot: its
+    /// own, where it shared the reads' and a store whose publish outgrew
+    /// 30 s loosened every read's deadline to publish (ADR-0194 decision 2).
+    dry_run_timeout: std::time::Duration,
     /// The analytics, metrics, exceptions, diagnostics and exports, bounded
     /// in number (ADR-0189 decision 2); the worklists, queries, the objects
     /// available and a subscription's pages, bounded alike beside them; and a
@@ -704,9 +708,15 @@ fn heavy_reading<'s>(
     pool: &'s Admission,
     actor: Option<&str>,
 ) -> Result<(Slot<'s>, Reading<'s>), Fault> {
-    let until = std::time::Instant::now() + shared.read_timeout;
+    // a change's dry run under a deadline of its own (ADR-0194 decision 2)
+    let timeout = if std::ptr::eq(pool, &shared.dry_runs) {
+        shared.dry_run_timeout
+    } else {
+        shared.read_timeout
+    };
+    let until = std::time::Instant::now() + timeout;
     let slot = match shared.reads {
-        Some(_) => pool_of(shared, pool, actor)?.take(until, shared.read_timeout)?,
+        Some(_) => pool_of(shared, pool, actor)?.take(until, timeout)?,
         None => Slot(None),
     };
     Ok((slot, reading_until(shared, until)?))
@@ -1648,8 +1658,8 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
         // submit's does, where six at once took 9.3 GB outside every bound
         // (fifth production review DRYRUN-MEMORY, ADR-0190 decision 2)
         let _slot = if shared.reads.is_some() && changes_the_flow(&shared, &req)? {
-            let until = std::time::Instant::now() + shared.read_timeout;
-            Some(shared.dry_runs.take(until, shared.read_timeout)?)
+            let until = std::time::Instant::now() + shared.dry_run_timeout;
+            Some(shared.dry_runs.take(until, shared.dry_run_timeout)?)
         } else {
             None
         };
@@ -2402,8 +2412,8 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// computed again under the lock (PUBLISH-SCALE).
 fn dry_run_late(shared: &Shared) -> Fault {
     Fault::TimedOut(format!(
-        "the change's dry run passed --read-timeout ({} s) and was stopped; on a store this size a publish needs a longer one",
-        shared.read_timeout.as_secs()
+        "the change's dry run passed --dry-run-timeout ({} s) and was stopped; on a store this size a publish needs a longer one",
+        shared.dry_run_timeout.as_secs()
     ))
 }
 
@@ -3407,6 +3417,7 @@ const USAGE: &str = "usage: objectflow-service [--port <n> | --bind <host:port> 
                                           [--evaluator-token <name>=<file> ...]
                                           [--busy-timeout <duration>]
                                           [--read-timeout <duration>]
+                                          [--dry-run-timeout <duration>]
                                           [--max-reads <n>]]
 
 Serves the engine's operations, POST /v1/<operation>, GET /health and GET
@@ -3429,7 +3440,8 @@ the endpoint a namespace's calls are posted to, answered within the timeout,
 Its reads run beside its writes, each on a connection of its own, stopped
 at the read timeout, 30 s unless given, those that grow with the store at
 most n at once, 4 unless given, a read waiting for its turn within its
-timeout (ADR-0189); and its writes one at a time, each waiting out another process's
+timeout (ADR-0189); a change's dry run, one at a time, stopped at the
+dry-run timeout, 2 min unless given (ADR-0194); and its writes one at a time, each waiting out another process's
 write lock for the busy timeout, 5 s unless given, before it is retried
 and then refused stale (ADR-0178). It authenticates nothing: bind it beyond loopback only behind
 the application that does (core/README.md).";
@@ -3453,6 +3465,7 @@ struct Args {
     evaluator_timeout: Option<std::time::Duration>,
     busy_timeout: Option<std::time::Duration>,
     read_timeout: Option<std::time::Duration>,
+    dry_run_timeout: Option<std::time::Duration>,
     /// How long a connection may wait for a request's head, and a request
     /// for its body; and how many connections are served at once
     /// (ADR-0184 decision 4).
@@ -3482,6 +3495,7 @@ fn args() -> Result<Args, String> {
         evaluator_timeout: None,
         busy_timeout: None,
         read_timeout: None,
+        dry_run_timeout: None,
         idle_timeout: std::time::Duration::from_secs(30),
         max_connections: 512,
         max_reads: None,
@@ -3575,6 +3589,13 @@ fn args() -> Result<Args, String> {
                 })?;
                 out.read_timeout = Some(std::time::Duration::from_secs(secs.unsigned_abs()));
             }
+            "--dry-run-timeout" => {
+                let d = value()?;
+                let secs = parse_duration(&d).filter(|s| *s > 0).ok_or_else(|| {
+                    format!("--dry-run-timeout takes a duration such as '2 min': {d}")
+                })?;
+                out.dry_run_timeout = Some(std::time::Duration::from_secs(secs.unsigned_abs()));
+            }
             "--busy-timeout" => {
                 let d = value()?;
                 let secs = parse_duration(&d)
@@ -3590,6 +3611,12 @@ fn args() -> Result<Args, String> {
     }
     if addressed && out.socket.is_some() {
         return Err("--socket listens in the address's place; give one or the other".to_string());
+    }
+    if out.dry_run_timeout.is_some() && out.store.is_none() {
+        return Err(
+            "a dry run's timeout is a deployment's; a sandbox's dry runs take the writer's lock"
+                .to_string(),
+        );
     }
     if out.read_timeout.is_some() && out.store.is_none() {
         return Err(
@@ -3724,6 +3751,10 @@ fn stopping() -> std::io::Result<impl std::future::Future<Output = ()>> {
 
 /// How often the write-ahead log is looked at, and cut back where due.
 const CUT_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How long a change's dry run may run unless `--dry-run-timeout` says
+/// otherwise (ADR-0194 decision 2).
+const DRY_RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// How long a truncation waits for the short reads still open on the log.
 const CUT_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
@@ -4586,6 +4617,7 @@ async fn serve() -> std::io::Result<()> {
         tokens: a.tokens.clone(),
         evaluator_timeout: sandbox.evaluator_timeout,
         read_timeout: a.read_timeout.unwrap_or(std::time::Duration::from_secs(30)),
+        dry_run_timeout: a.dry_run_timeout.unwrap_or(DRY_RUN_TIMEOUT),
         admission: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
         worklists: Admission::new(a.max_reads.unwrap_or(MAX_READS)),
         dry_runs: Admission::new(1),
@@ -4870,6 +4902,78 @@ mod tests {
         assert!(two.take(Instant::now() + timeout, timeout).is_ok());
     }
 
+    /// A change's dry run reads under a deadline of its own, the dry-run
+    /// timeout, and every other read under the read timeout, where a dry run
+    /// shared the reads' 30 s and a store whose publish outgrew it loosened
+    /// every read's to publish (seventh production review PUBLISH-SLOW,
+    /// ADR-0194 decision 2).
+    #[test]
+    #[allow(clippy::panic)]
+    fn a_dry_run_reads_under_a_deadline_of_its_own() {
+        use std::time::{Duration, Instant};
+        let dir =
+            std::env::temp_dir().join(format!("objectflow-dry-deadline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let path = dir.join("store.sqlite");
+        store_file(&path, true).unwrap_or_else(|e| panic!("{e}"));
+        let Ok(store) = Store::open(&path, wall_clock()) else {
+            panic!("the store did not open")
+        };
+        let sandbox = Sandbox {
+            deployment: true,
+            path: Some(path.clone()),
+            store: Some(store),
+            ..Default::default()
+        };
+        let reads = Reads {
+            path: path.clone(),
+            pool: Readers::new(&path, objectflow_core::store::BUSY_TIMEOUT),
+            seen: std::sync::RwLock::new(Seen::of(&sandbox)),
+            floor: AtomicI64::new(0),
+        };
+        let shared: Shared = Arc::new(Service {
+            writer: Mutex::new(sandbox),
+            reads: Some(reads),
+            endpoints: std::collections::BTreeMap::new(),
+            tokens: std::collections::BTreeMap::new(),
+            evaluator_timeout: Duration::from_secs(5),
+            deployment: true,
+            read_timeout: Duration::from_secs(1),
+            dry_run_timeout: Duration::from_secs(600),
+            admission: Admission::new(1),
+            worklists: Admission::new(1),
+            dry_runs: Admission::new(1),
+            agents: Admission::new(1),
+            served: Mutex::new(std::collections::BTreeMap::new()),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
+            writer_since: AtomicI64::new(0),
+            connections: Connections::default(),
+            store_path: Some(path.clone()),
+            trims: std::sync::atomic::AtomicU64::new(0),
+            trimming: std::sync::atomic::AtomicBool::new(false),
+            store_identity: None,
+            watch: Watch::default(),
+        });
+        let deadline = |pool: &Admission| -> Duration {
+            let Ok((_slot, reading)) = heavy_reading(&shared, pool, None) else {
+                panic!("no read")
+            };
+            let Reading::Own(Some(store), _) = &reading else {
+                panic!("no store read")
+            };
+            store
+                .deadline
+                .map(|at| at.saturating_duration_since(Instant::now()))
+                .unwrap_or_default()
+        };
+        let dry = deadline(&shared.dry_runs);
+        assert!(dry > Duration::from_secs(500), "{dry:?}");
+        let worklist = deadline(&shared.worklists);
+        assert!(worklist <= Duration::from_secs(1), "{worklist:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// The log's cut holds new reads a moment: where a read runs past it, a
     /// cut not yet urgent is left for the next look and the held reads are
     /// let in, and an urgent one stops the read running and cuts, where it
@@ -4908,6 +5012,7 @@ mod tests {
             evaluator_timeout: Duration::from_secs(5),
             deployment: true,
             read_timeout: Duration::from_secs(30),
+            dry_run_timeout: Duration::from_secs(30),
             admission: Admission::new(1),
             worklists: Admission::new(1),
             dry_runs: Admission::new(1),
@@ -5021,6 +5126,7 @@ mod tests {
             evaluator_timeout: Duration::from_secs(5),
             deployment: true,
             read_timeout: Duration::from_secs(1),
+            dry_run_timeout: Duration::from_secs(1),
             admission: Admission::new(1),
             worklists: Admission::new(1),
             dry_runs: Admission::new(1),
@@ -5154,6 +5260,7 @@ mod tests {
             evaluator_timeout: Duration::from_secs(5),
             deployment: true,
             read_timeout: Duration::from_secs(1),
+            dry_run_timeout: Duration::from_secs(1),
             admission: Admission::new(1),
             worklists: Admission::new(1),
             dry_runs: Admission::new(1),
@@ -5446,6 +5553,7 @@ mod tests {
             evaluator_timeout: std::time::Duration::from_secs(5),
             deployment: true,
             read_timeout: std::time::Duration::from_secs(30),
+            dry_run_timeout: std::time::Duration::from_secs(30),
             admission: Admission::new(MAX_READS),
             worklists: Admission::new(MAX_READS),
             dry_runs: Admission::new(1),

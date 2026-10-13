@@ -98,6 +98,7 @@ Durations are a count and a unit, with a space: `30 s`, `2 min`, `1 h`, `90 days
 | `--evaluator-token <name>=<file>` | | A file holding a bearer token for that evaluator. Make the file readable by the service's user alone. It is never logged. *Deployment only.* |
 | `--busy-timeout <duration>` | `5 s` | How long a write waits for another process's lock on the store, before each of its retries. *Deployment only.* |
 | `--read-timeout <duration>` | `30 s` | How long a read may run, or wait for its turn. *Deployment only.* |
+| `--dry-run-timeout <duration>` | `2 min` | How long a change's dry run, its `submit`, `refresh`, `publish` preview or a `check` of its submit, may run, or wait for its one slot. *Deployment only.* |
 | `--max-reads <n>` | `4` | Reads that grow with the store allowed at once, in each pool. *Deployment only.* |
 
 `--help` prints the usage. An argument the service does not take is refused at start.
@@ -205,7 +206,7 @@ Read the standard error to its end, as journald does. If nothing reads it, a lin
 | peak memory: submit / approval | 0.5 GB / 1.1 GB | 1.5 GB / 3 GB |
 | a go-live import of 36k objects, 3,000 a batch | 36 s, each batch about 1.6 s | |
 
-Publishing grows linearly with the store: do it outside the busiest hours. Its approval holds writes for its whole run, and a stop waits only 30 s, so stop the service after a publish, never during one. A dry run that passes `--read-timeout` is answered `503 read_timeout` and records nothing: give a store whose dry run takes longer a longer deadline.
+Publishing grows linearly with the store: do it outside the busiest hours. Its approval holds writes for its whole run, and a stop waits only 30 s, so stop the service after a publish, never during one. A dry run has a deadline of its own, `--dry-run-timeout` (2 min unless given); one that passes it is answered `503 read_timeout` and records nothing: give a store whose dry run takes longer a longer one, which leaves every other read's deadline as it is.
 
 Some flow constructs cost more than they look:
 

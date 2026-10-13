@@ -50,6 +50,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Added
 
+- `--dry-run-timeout`, 2 min unless given, bounds a change's dry run, its submit, refresh, preview and a check of its submit, where it shared `--read-timeout`'s 30 s, so a store whose publish outgrew 30 s needed every read's deadline loosened to publish (seventh production review PUBLISH-SLOW, ADR-0194 decision 2).
 - The guides are rewritten for people and for agents (ADR-0193): an index, a quickstart that runs the engine and meets a refusal in ten minutes, concepts on one page, building an application, agents, operating a deployment, the API reference, and every refusal and fault code with what to do about it; `llms.txt` at the repository's root indexes them for an agent. `scripts/check-guides.py`, in `check-all`, runs the tutorials' commands against the service and compares each answer with the page, and fails where a reference page misses a code, a flag or a metric the source has.
 - At its start the service refuses a store it cannot write, and says a second service on its store, `<store>.lock` held while it runs; `--version` and `objectflow_build_info` name the commit a release's build was given (ADR-0192 decision 7).
 - An agents' read pool: every read that waits its turn, made by an actor of the kind `agent`, waits among the agents' own `--max-reads`, never in a person's worklist slot; `/metrics`' pools name `agents` (ADR-0192 decision 3).
