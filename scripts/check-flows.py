@@ -628,7 +628,7 @@ UNFOLD_LIMIT = 10_000   # the most reads of derived attributes a derived attribu
 NAMED = re.compile(r"(\.)?\b([A-Za-z_]\w*)\b")
 
 
-def fan_out_errors(doc, exprs):
+def fan_out_errors(doc, exprs, outer):
     """No expression MAY unfold to more than UNFOLD_LIMIT reads of derived attributes, each counted as often as it is
     made: one reading another twice reads everything that one reads twice, so `d1: d0 + d0` on to `d40` unfolds to
     2^41 reads, and every check that reads a derived attribute through those it reads walked each again, forty holding
@@ -637,31 +637,40 @@ def fan_out_errors(doc, exprs):
     derived_cycle_errors reads it, and a bare name the one its own type declares; a read back into a cycle counts one,
     the cycle refused by its own check. Each derived attribute's count is found once, iteratively, and capped past the
     limit. The first derived attribute past it on each path is refused, and any other expression past it through none
-    that is; a module holding one is refused before any later step walks it, as one that does not parse is."""
+    that is; a module holding one is refused before any later step walks it, as one that does not parse is.
+
+    A name after a dot also reads the derived attributes of that name the modules checked before this one declare,
+    `outer` holding the most each unfolds to: a chain split across a module and one importing it passed each module's
+    bound and multiplied past it, a dry run's checks holding the slot to its deadline and this checker without end
+    (twelfth production review). Returned beside the findings: what each of the module's derived attributes unfolds
+    to, by name, which the caller adds to `outer` for the modules after it."""
     order = [(tn, d) for tn, t in types(doc) for d in (t.get("derived_attributes") or {})]
     index = {node: i for i, node in enumerate(order)}
     by_name = {}
     for i, node in enumerate(order):
         by_name.setdefault(node[1], []).append(i)
     typed = dict(types(doc))
+    cap = UNFOLD_LIMIT + 1
 
     def reads_of(own, text):
-        """An expression's reads, in its text's order, a repeated read repeated, a bare name read of the type given."""
-        to = []
+        """An expression's reads, in its text's order, a repeated read repeated, a bare name read of the type given;
+        and what its reads of the modules checked before unfold to, together."""
+        to, before = [], 0
         for m in NAMED.finditer(" ".join(str(text).split())):
             if m.group(1):
                 to += by_name.get(m.group(2), [])
+                before = min(cap, before + outer.get(m.group(2), 0))
             elif (own, m.group(2)) in index:
                 to.append(index[(own, m.group(2))])
-        return to
-    reads = [reads_of(tn, ((typed[tn].get("derived_attributes") or {}).get(d) or {}).get("expression", ""))
+        return to, before
+    pairs = [reads_of(tn, ((typed[tn].get("derived_attributes") or {}).get(d) or {}).get("expression", ""))
              for tn, d in order]
-    cap = UNFOLD_LIMIT + 1
+    reads, before = [p[0] for p in pairs], [p[1] for p in pairs]
     size, on = [None] * len(order), [False] * len(order)
     for start in range(len(order)):
         if size[start] is not None:
             continue
-        stack = [[start, 0, 1]]
+        stack = [[start, 0, min(cap, 1 + before[start])]]
         on[start] = True
         while stack:
             node, k, total = stack[-1]
@@ -679,7 +688,7 @@ def fan_out_errors(doc, exprs):
                 stack[-1][2] = min(cap, total + add)
             else:
                 on[nxt] = True
-                stack.append([nxt, 0, 1])
+                stack.append([nxt, 0, min(cap, 1 + before[nxt])])
     past = [s is not None and s > UNFOLD_LIMIT for s in size]
     unfolds = (f"unfolds to more than {UNFOLD_LIMIT} reads of derived attributes, each counted as often as it is made: "
                f"one reading another twice reads all that one reads twice")
@@ -690,13 +699,13 @@ def fan_out_errors(doc, exprs):
         own = p[1] if len(p) > 1 and p[0] == "types" else None
         if own is not None and len(p) > 2 and p[2] == "derived_attributes":
             continue
-        read = reads_of(own, text)
-        total = 1
+        read, earlier = reads_of(own, text)
+        total = min(cap, 1 + earlier)
         for r in read:
             total = min(cap, total + (size[r] if size[r] is not None else 1))
         if total > UNFOLD_LIMIT and not any(past[r] for r in read):
             out.append((tuple(p), "order", f"{'.'.join(str(s) for s in p)} {unfolds}"))
-    return out
+    return out, [(d, size[i] if size[i] is not None else 1) for i, (_, d) in enumerate(order)]
 
 
 def references(t, tn):
@@ -2699,6 +2708,8 @@ def value_errors(doc, tn, t):
             exprs += [(("types", tn, "metrics", mn) + (k if isinstance(k, tuple) else (k,)), f"metric {mn}", e) for k, e in parts]
     out = []
     for path, name, text in exprs:
+        # a string literal's text names nothing, where "EU" read as a state (twelfth production review)
+        text = STRING_LITERAL.sub(lambda m: '"' + " " * (len(m.group(0)) - 2) + '"', str(text))
         for m in re.finditer(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b", text):
             owner, value = m.groups()
             known = enums.get(owner, own.get(owner))
@@ -2715,6 +2726,9 @@ def value_errors(doc, tn, t):
                 out.append((path, "names", f"{name} names {m.group(0)}, which is not a state of {tn}; "
                                            "write an enumeration value qualified, as <Enumeration>.<VALUE>"))
     return out
+
+
+STRING_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"')   # as flowexpr.py's lexer reads one
 
 
 KEYWORDS = {"and", "or", "not", "implies", "is", "null", "in", "where", "if", "then", "else",
@@ -4953,6 +4967,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     machines = set()            # every machine declared, a type of the view that no object has
     modules, example_files = {}, []
     stored = {}                 # module -> its types, enumerations and machines, which one store holds together
+    unfolded = {}               # derived attribute name -> the most it unfolds to in the modules checked so far
     approvers = {}              # module -> the kinds that approve a version, where it declares them (ADR-0187)
     agents, opened = [], []     # the agent kinds of actor declared, and each module's transitions open to them (ADR-0189)
     for f, text in files:
@@ -4998,10 +5013,12 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
             continue
         # a derived attribute unfolding past its bound is refused before any later step walks it (eleventh production
         # review)
-        wide = fan_out_errors(doc, exprs)
+        wide, sizes = fan_out_errors(doc, exprs, unfolded)
         if wide:
             found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in wide]
             continue
+        for name, n in sizes:
+            unfolded[name] = max(unfolded.get(name, 0), n)
         for mod, names in (doc.get("imports") or {}).items():
             if mod not in declared:
                 notes.append((f, line_of(idx, ("imports", mod)), "notice", "imports",
@@ -5700,14 +5717,39 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
              if x[2] == "fatal"]
     within = [x for x in check([("within.yaml", diamond(12, "    invariants:\n      big: { description: Big., expression: d11 > 0 }\n"))])[0]
               if x[2] == "fatal"]
+    # and split across a module and one importing it, each within the bound, the chain read through a reference is
+    # counted whole, where each module passed and an invariant on the far end held a dry run's slot to its deadline
+    # and hung this checker (twelfth production review)
+    ca = ("module: ca\ncategories: [live]\ntypes:\n  TA:\n    description: A thing.\n    tracking: record\n"
+          "    attributes:\n      x: { type: int }\n" + end + "    derived_attributes:\n"
+          + "      a0: { description: The first., expression: this.x + this.x }\n"
+          + "".join(f"      a{i}: {{ description: One., expression: this.a{i - 1} + this.a{i - 1} }}\n" for i in range(1, 13))
+          + "    transitions: { t: { kind: initial, to: S, required_inputs: [x] }, e: { kind: external, from: S, to: E } }\n")
+    cb = ("module: cb\nimports:\n  ca: [TA]\ncategories: [live]\ntypes:\n  TB:\n    description: A thing.\n    tracking: record\n"
+          "    attributes:\n      r: { reference: TA, optional: true }\n" + end + "    derived_attributes:\n"
+          + "      b0: { description: The first., expression: r.a12 + r.a12 }\n"
+          + "".join(f"      b{i}: {{ description: One., expression: this.b{i - 1} + this.b{i - 1} }}\n" for i in range(1, 13))
+          + "    invariants:\n      big: { description: Big., expression: b12 > 0 }\n"
+          + "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n")
+    split = [(x[0], x[3], x[4]) for x in check([("ca.yaml", ca), ("cb.yaml", cb)])[0] if x[2] == "fatal"]
+    # upper-case text in a string literal names no state, where a default of "EU" was refused as one; a bare
+    # upper-case word that is no state still is (twelfth production review)
+    quoted = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A thing.\n    tracking: record\n"
+              "    attributes:\n      region: { type: string, default: '\"EU\"' }\n" + end
+              + "    conditions:\n      home:\n        description: Home.\n        expression: region == \"HQ\"\n        remedy: self_serviceable\n"
+              + "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E, guards: { home: deny } } }\n")
+    literal = [x[4] for x in check([("quoted.yaml", quoted)])[0] if x[3] == "names"]
+    bare = [x[4] for x in check([("bare.yaml", quoted.replace('region == "HQ"', "region == HQ"))])[0]
+            if x[3] == "names" and "HQ, which is not a state" in x[4]]
     quick = time.time() - began < 20
     unfolds = (f"unfolds to more than {UNFOLD_LIMIT} reads of derived attributes, each counted as often as it is made: "
                f"one reading another twice reads all that one reads twice")
     hit = (len(selfring) == 1 and chained == [] and len(wide) == 1 and fanned == [("order", f"T.d13 {unfolds}")]
-           and twice == [("order", f"types.T.invariants.big.expression {unfolds}")] and within == [] and quick)
+           and twice == [("order", f"types.T.invariants.big.expression {unfolds}")] and within == []
+           and split == [("cb.yaml", "order", f"TB.b0 {unfolds}")] and literal == [] and len(bare) == 1 and quick)
     ok &= hit
     print(f"  planted a derived attribute reading itself through a reference, a long chain, a wide identifier, and "
-          f"diamond chains: {'caught, the chains within the bound clean and all quick' if hit else 'MISSED ' + str((selfring, chained[:1], wide, fanned[:2], twice[:2], within[:1], quick))}")
+          f"diamond chains: {'caught, the chains within the bound clean and all quick' if hit else 'MISSED ' + str((selfring, chained[:1], wide, fanned[:2], twice[:2], within[:1], split[:2], literal[:1], bare, quick))}")
     written = load("module: m\ntypes:\n  T:\n    description: d\n    tracking: record\n"
                    "    attributes: { a: { type: bool, default: false }, b: { type: int, default: 0, indexed: true } }\n"
                    "    states: { S: { category: live, final: true } }\n"
@@ -8434,8 +8476,9 @@ def main():
             print(f"examples: {len(ran)} run: {ran.count('passed')} passed, {ran.count('failed')} failed, "
                   f"{ran.count('not run')} not run" if ran else
                   "examples: none run, since step 6 runs only when every earlier step finds nothing fatal")
+        # only where some are left open, where 1 of 1 decided in full spoke of "the rest" (twelfth production review)
         for tn, (whole, total) in counts.items():
-            if total:
+            if whole < total:
                 print(f"{tn}: step 5 decided {whole} of {total} guard conditions in full; the rest read something outside "
                       "the type, such as another object, a metric or an evaluator, which it leaves open")
         sys.exit(1 if found else 0)

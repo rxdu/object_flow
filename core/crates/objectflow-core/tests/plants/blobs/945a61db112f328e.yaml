@@ -1,0 +1,26 @@
+module: ca
+categories: [live]
+types:
+  TA:
+    description: A thing.
+    tracking: record
+    attributes:
+      x: { type: int }
+    states:
+      S: { category: live, description: Open. }
+      E: { category: live, final: true, description: Done. }
+    derived_attributes:
+      a0: { description: The first., expression: this.x + this.x }
+      a1: { description: One., expression: this.a0 + this.a0 }
+      a2: { description: One., expression: this.a1 + this.a1 }
+      a3: { description: One., expression: this.a2 + this.a2 }
+      a4: { description: One., expression: this.a3 + this.a3 }
+      a5: { description: One., expression: this.a4 + this.a4 }
+      a6: { description: One., expression: this.a5 + this.a5 }
+      a7: { description: One., expression: this.a6 + this.a6 }
+      a8: { description: One., expression: this.a7 + this.a7 }
+      a9: { description: One., expression: this.a8 + this.a8 }
+      a10: { description: One., expression: this.a9 + this.a9 }
+      a11: { description: One., expression: this.a10 + this.a10 }
+      a12: { description: One., expression: this.a11 + this.a11 }
+    transitions: { t: { kind: initial, to: S, required_inputs: [x] }, e: { kind: external, from: S, to: E } }

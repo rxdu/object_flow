@@ -990,6 +990,14 @@ fn input_type<'t>(t: &'t Type, x: &'t Transition, k: &str) -> Option<(&'t Declar
     }
 }
 
+/// The most transitions one request takes each caused by the one before:
+/// a transition calling itself down a reference chain, which both checkers
+/// refuse and an unchecked load may hold, recursed once a link and aborted
+/// the process past a few thousand (twelfth production review). A
+/// supersession group's members are each one deeper than the erasure that
+/// walks it, never one another.
+pub const CALL_DEPTH: usize = 64;
+
 /// One transition, the requested one or one it causes: its checks, its
 /// guards, its outcome, its effect and its cascades, depth-first, and its
 /// event (`DESIGN.md` §6). Returns the object's id.
@@ -1002,6 +1010,11 @@ fn take(
     mut inputs: BTreeMap<String, Value>,
     depth: usize,
 ) -> Result<String, Stop> {
+    if depth > CALL_DEPTH {
+        return stop_not_run(format!(
+            "a chain of transitions each caused by the one before, deeper than {CALL_DEPTH} ({tn}.{xn})"
+        ));
+    }
     let lib = ctx.work.lib;
     let Some(t) = lib.type_(tn) else {
         return stop_not_run(format!("the type {tn}"));
@@ -10537,6 +10550,60 @@ types:
         assert!(
             took < 2.0,
             "a read of a chain of 22 at zero took {took:.2} s"
+        );
+    }
+
+    /// A transition calling itself down a reference chain, which both
+    /// checkers refuse and an unchecked load may hold, stops past
+    /// [`CALL_DEPTH`] links as not run, where 3,000 aborted the process on
+    /// a stack overflow (twelfth production review).
+    #[test]
+    fn a_chain_of_calls_stops_without_a_crash() {
+        // on a stack as large as the service's request threads have
+        // (`objectflow-service`'s `WORKER_STACK`), as a request runs
+        let ran = std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(chain_of_calls)
+            .unwrap()
+            .join();
+        assert!(ran.is_ok());
+    }
+
+    fn chain_of_calls() {
+        let text = "\nmodule: chain\ncategories: [live]\ntypes:\n  Node:\n    attributes:\n      parent: { reference: Node, optional: true }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, optional_inputs: [parent] }\n      poke: { kind: internal, from: [ON], effect: [ { call: { target: parent, transition: poke } } ] }\n";
+        let lib = Library::load(&[("chain.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let mut last = created(&req(&mut s, "make", OPERATOR, ("Node", true), json!({})));
+        for _ in 0..3_000 {
+            last = created(&req(
+                &mut s,
+                "make",
+                OPERATOR,
+                ("Node", true),
+                json!({"parent": last}),
+            ));
+        }
+        let stopped = request(
+            &mut s,
+            &Request {
+                transition: "poke".into(),
+                actor: OPERATOR.into(),
+                object_id: Some(last),
+                type_: None,
+                inputs: BTreeMap::new(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            },
+        );
+        assert!(
+            matches!(&stopped, Ok(Err(NoVerdict::NotRun(NotRun::Unsupported(why)))) if why.contains("deeper than 64")),
+            "{stopped:?}"
         );
     }
 

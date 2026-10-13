@@ -227,6 +227,9 @@ pub fn checked_reading(
     let mut opened: Vec<(String, usize, BTreeMap<String, usize>)> = Vec::new();
     // every type of the modules checked so far, as the view holds it
     let mut library = doc::Obj::new();
+    // the most each derived attribute's name unfolds to in those modules
+    // (`raw::fan_out_errors`)
+    let mut unfolded: BTreeMap<String, usize> = BTreeMap::new();
     // every machine declared, a type of the view that no object has
     let mut machines: BTreeSet<String> = BTreeSet::new();
     let mut uses: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -308,13 +311,18 @@ pub fn checked_reading(
             continue;
         }
         // a derived attribute unfolding past its bound is refused before any
-        // later step walks it (eleventh production review)
-        let wide = raw::fan_out_errors(&doc, &exprs);
+        // later step walks it, the modules checked before counted (eleventh
+        // and twelfth production reviews)
+        let (wide, sizes) = raw::fan_out_errors(&doc, &exprs, &unfolded);
         if !wide.is_empty() {
             for (path, code, message) in wide {
                 fatal(found, node.line_at(&path), &code, message);
             }
             continue;
+        }
+        for (name, n) in sizes {
+            let most = unfolded.entry(name).or_insert(0);
+            *most = (*most).max(n);
         }
         let module = doc
             .get("module")

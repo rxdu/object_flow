@@ -290,7 +290,20 @@ pub const UNFOLD_LIMIT: usize = 10_000;
 /// is refused, and any other expression past it through none that is; a
 /// module holding one is refused before any later step walks it, as one
 /// that does not parse is.
-pub fn fan_out_errors(doc: &Value, expressions: &[(Path, String)]) -> Found {
+///
+/// A name after a dot also reads the derived attributes of that name the
+/// modules checked before this one declare, `outer` holding the most each
+/// unfolds to: a chain split across a module and one importing it passed
+/// each module's bound and multiplied past it, a dry run's checks holding
+/// the slot to its deadline and the reference checker without end (twelfth
+/// production review). Beside the findings, what each of the module's
+/// derived attributes unfolds to, by name, which the caller adds to `outer`
+/// for the modules after it.
+pub fn fan_out_errors(
+    doc: &Value,
+    expressions: &[(Path, String)],
+    outer: &BTreeMap<String, usize>,
+) -> (Found, Vec<(String, usize)>) {
     let order: Vec<(String, String)> = types(doc)
         .into_iter()
         .flat_map(|(tn, t)| {
@@ -306,25 +319,29 @@ pub fn fan_out_errors(doc: &Value, expressions: &[(Path, String)]) -> Found {
         by_name.entry(node.1.as_str()).or_default().push(i);
     }
     let typed: BTreeMap<String, &Value> = types(doc).into_iter().collect();
+    let cap = UNFOLD_LIMIT + 1;
     // an expression's reads, in its text's order, a repeated read repeated,
-    // a bare name read of the type given
+    // a bare name read of the type given; and what its reads of the modules
+    // checked before unfold to, together
     let reads_of = |own: Option<&str>, text: &str| {
         let mut to = Vec::new();
+        let mut before = 0;
         for m in NAMED.captures_iter(&squash(text)) {
             let Some(name) = m.get(2).map(|g| g.as_str()) else {
                 continue;
             };
             if m.get(1).is_some() {
                 to.extend(by_name.get(name).into_iter().flatten().copied());
+                before = (before + outer.get(name).copied().unwrap_or(0)).min(cap);
             } else if let Some(i) =
                 own.and_then(|tn| index.get(&(tn.to_string(), name.to_string())))
             {
                 to.push(*i);
             }
         }
-        to
+        (to, before)
     };
-    let reads: Vec<Vec<usize>> = order
+    let (reads, before): (Vec<Vec<usize>>, Vec<usize>) = order
         .iter()
         .map(|(tn, d)| {
             let text = typed
@@ -335,8 +352,7 @@ pub fn fan_out_errors(doc: &Value, expressions: &[(Path, String)]) -> Found {
                 .unwrap_or_default();
             reads_of(Some(tn), &text)
         })
-        .collect();
-    let cap = UNFOLD_LIMIT + 1;
+        .unzip();
     let mut size: Vec<Option<usize>> = vec![None; order.len()];
     let mut on = vec![false; order.len()];
     for start in 0..order.len() {
@@ -345,7 +361,7 @@ pub fn fan_out_errors(doc: &Value, expressions: &[(Path, String)]) -> Found {
         }
         // each attribute on the search's path, the read it is at, and what
         // it unfolds to so far
-        let mut stack: Vec<(usize, usize, usize)> = vec![(start, 0, 1)];
+        let mut stack: Vec<(usize, usize, usize)> = vec![(start, 0, (1 + before[start]).min(cap))];
         on[start] = true;
         while let Some(&(node, k, total)) = stack.last() {
             if k == reads[node].len() {
@@ -371,7 +387,7 @@ pub fn fan_out_errors(doc: &Value, expressions: &[(Path, String)]) -> Found {
             }
             if add.is_none() {
                 on[next] = true;
-                stack.push((next, 0, 1));
+                stack.push((next, 0, (1 + before[next]).min(cap)));
             }
         }
     }
@@ -398,10 +414,10 @@ pub fn fan_out_errors(doc: &Value, expressions: &[(Path, String)]) -> Found {
         if own.is_some() && matches!(path.get(2), Some(Seg::Key(k)) if k == "derived_attributes") {
             continue;
         }
-        let read = reads_of(own, text);
-        let total = read
-            .iter()
-            .fold(1, |n, r| (n + size[*r].unwrap_or(1)).min(cap));
+        let (read, earlier) = reads_of(own, text);
+        let total = read.iter().fold((1 + earlier).min(cap), |n, r| {
+            (n + size[*r].unwrap_or(1)).min(cap)
+        });
         if total > UNFOLD_LIMIT && !read.iter().any(|r| past(*r)) {
             let at: Vec<String> = path
                 .iter()
@@ -417,7 +433,12 @@ pub fn fan_out_errors(doc: &Value, expressions: &[(Path, String)]) -> Found {
             ));
         }
     }
-    out
+    let sizes = order
+        .iter()
+        .zip(&size)
+        .map(|((_, d), s)| (d.clone(), s.unwrap_or(1)))
+        .collect();
+    (out, sizes)
 }
 
 /// A name, after a dot or bare, as [`fan_out_errors`] reads it.

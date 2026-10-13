@@ -648,6 +648,11 @@ Findings from every review of this design. It began as the implementation-readin
 | [D634](#d634) | A published chain of derived attributes cost a second of a core on each read | Resolved |
 | [D635](#d635) | A decimal written past its digits answered `501` | Resolved |
 | [D636](#d636) | A page of the log's export held each event's object whole | Resolved |
+| [D637](#d637) | A doubling chain split across modules passed each module's bound | Resolved |
+| [D638](#d638) | A query aggregating for each object waited among the worklists | Resolved |
+| [D639](#d639) | A page of `available` read every object in its states | Resolved |
+| [D640](#d640) | A chain of calls had no depth bound at run time | Resolved |
+| [D641](#d641) | Both checkers read a string literal's upper-case text as a state | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4115,3 +4120,28 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **A page of the log's export held each event's object whole**: a page of `export log` read each event's object to learn its type, holding it for the page, so 310 events of changes with 1.9 MB sources used about 550 MB for an answer of 178 KB. The tenth review's entry said such a page read its events "as it goes", which held for the events and not their objects. Found 2026-10-13 by the eleventh production review's operator (the MEM-EVENTS residual).
 
 **Resolved** 2026-10-13: a row reads its object's type from the store's directory and holds nothing (ADR-0198 decision 4). The export test holds a page of the log to no object held, failing with the object read whole.
+
+### D637
+**A doubling chain split across modules passed each module's bound**: ADR-0198's bound on what an expression unfolds to was counted within each module. Module `ca` declared `a0` to `a12`, 8,191 reads, and `cb`, importing it, began `b0: r.a12 + r.a12`. Both checkers accepted each module, and an invariant on `b12` made a dry run's checks burn a core for the whole `--dry-run-timeout`, holding the one slot. The reference checker ran without end, about four times longer a link. Found 2026-10-13 by the twelfth production review's adversary.
+
+**Resolved** 2026-10-13: a name after a dot also reads the derived attributes of that name the modules checked before declare, at the most each unfolds to, in both checkers (ADR-0199 decision 1). The core's test refuses `cb` by `TB.b0` in milliseconds and runs to its deadline with either half of the composition removed; a plant in the reference checker, held over the core by the oracle, hangs with it removed.
+
+### D638
+**A query aggregating for each object waited among the worklists**: a filter such as `state == PAID and count(l in lines where …) > 1000` was narrowed by the state's index, so it waited in the worklists pool, though it cost 8 s a read on six years. Eight at once made a plain worklist wait 13 to 16 s, and four of them timed out. Found 2026-10-13 by the twelfth production review's adversary.
+
+**Resolved** 2026-10-13: a query whose filter aggregates over a collection, itself or through a derived attribute it reads, waits among the analytics (ADR-0199 decision 2). `a_query_aggregating_for_each_object_waits_among_the_analytics` fails with the routing, or its reading through derived attributes, removed.
+
+### D639
+**A page of `available` read every object in its states**: each page read every object in the states its transition is taken from, 0.27 s on two years and 0.75 s on six whatever its limit, in the worklists pool. Forty at once made an 11 ms worklist wait 9 s. Found 2026-10-13 by the twelfth production review's operator.
+
+**Resolved** 2026-10-13: a page reads from its cursor a chunk at a time to its limit and one more (ADR-0199 decision 2). `a_page_of_available_reads_to_its_page` holds a page of two to fewer than its 600 open objects, and paged by 50 to what it gives whole; reading every candidate fails it.
+
+### D640
+**A chain of calls had no depth bound at run time**: a transition calling itself down a reference chain is refused by both checkers, but loaded unchecked into a sandbox, a chain of 3,000 overflowed the stack and aborted the process. Request execution recursed once a link with no bound of its own. Found 2026-10-13 by the twelfth production review's adversary.
+
+**Resolved** 2026-10-13: a request takes at most 64 transitions each caused by the one before, past which it is not run (ADR-0199 decision 3). `a_chain_of_calls_stops_without_a_crash`, on a stack as large as a request thread's, overflows with the bound removed.
+
+### D641
+**Both checkers read a string literal's upper-case text as a state**: a default of `"EU"` or `"HQ"` was refused as "names EU, which is not a state", the scan for bare state names reading inside quotes, where `"eu"` passed. Found 2026-10-13 by the twelfth production review's operator.
+
+**Resolved** 2026-10-13: a string literal's text is blanked before the scan, in both checkers (ADR-0199 decision 4). A plant holds a quoted `"HQ"` clean and a bare `HQ` refused; the oracle fails with the core's blanking removed.

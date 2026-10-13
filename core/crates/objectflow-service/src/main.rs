@@ -4020,6 +4020,10 @@ fn token_from(file: &std::path::Path) -> Result<String, String> {
     Ok(token)
 }
 
+/// The longest path a Unix socket may have on Linux, its `sun_path` less
+/// the closing NUL.
+const SOCKET_PATH: usize = 107;
+
 /// The stack each thread of the service runs a request on: an expression
 /// nests at most `expr::MAX_NESTING` levels and its tree is at most
 /// `expr::MAX_DEPTH` deep, and evaluating one level of a tree took about
@@ -4804,6 +4808,15 @@ fn bind_socket(path: &std::path::Path) -> std::io::Result<tokio::net::UnixListen
         }
         Err(_) => {}
     }
+    // a path a socket cannot have is said with its limit, where the system's
+    // words named SUN_LEN (twelfth production review)
+    if path.as_os_str().len() > SOCKET_PATH {
+        return Err(std::io::Error::other(format!(
+            "{} is {} bytes long, past the {SOCKET_PATH} a Unix socket's path may hold; give --socket a shorter path, such as /run/objectflow/objectflow.sock",
+            path.display(),
+            path.as_os_str().len()
+        )));
+    }
     let named = |e: std::io::Error| std::io::Error::other(format!("{}: {e}", path.display()));
     let listener = tokio::net::UnixListener::bind(path).map_err(named)?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o660)).map_err(named)?;
@@ -4952,7 +4965,7 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
         .mode();
     if mode & 0o077 != 0 {
         notes.push(format!(
-            "the store {} is readable by others than its owner (mode {:o}); its personal data is too",
+            "the store {} is readable by others than its owner (mode {:o}); its personal data is too, and its -wal and -shm, which are made with the store's mode: make all three 0600",
             path.display(),
             mode & 0o777
         ));

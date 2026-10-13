@@ -11662,6 +11662,88 @@
   }
  },
  {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "ca.yaml",
+    "945a61db112f328e"
+   ],
+   [
+    "cb.yaml",
+    "0942dd1b2ccb8450"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cb.yaml",
+    15,
+    "fatal",
+    "order",
+    "TB.b0 unfolds to more than 10000 reads of derived attributes, each counted as often as it is made: one reading another twice reads all that one reads twice"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "quoted.yaml",
+    "f6530a5e578f94d0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "quoted.yaml",
+    17,
+    "notice",
+    "self_serviceable",
+    "home's remedy is self_serviceable, 'supply it', and e takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    1,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "bare.yaml",
+    "01211f892fcd1073"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bare.yaml",
+    15,
+    "fatal",
+    "names",
+    "home names HQ, which is not a state of T; write an enumeration value qualified, as <Enumeration>.<VALUE>"
+   ],
+   [
+    "bare.yaml",
+    17,
+    "notice",
+    "self_serviceable",
+    "home's remedy is self_serviceable, 'supply it', and e takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "mirror_identifier_self_test",
   "files": [
    [

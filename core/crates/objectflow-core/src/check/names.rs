@@ -219,6 +219,8 @@ fn dataset_rows(source: &str) -> Option<BTreeSet<String>> {
 static INTERVALS_OF: LazyLock<Regex> = LazyLock::new(|| re(r"^intervals\(([a-z][a-z0-9_]*)\)$"));
 static QUALIFIED: LazyLock<Regex> =
     LazyLock::new(|| re(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b"));
+/// A string literal, as the expression lexer reads one.
+static STRING_LITERAL: LazyLock<Regex> = LazyLock::new(|| re(r#""(?:[^"\\]|\\.)*""#));
 
 /// The categories a module's states may name.
 fn categories(doc: &Value) -> BTreeSet<String> {
@@ -3958,6 +3960,11 @@ fn value_errors(values: &Values, tn: &str, t: &Value) -> Found {
     }
     let mut out = Found::new();
     for (p, name, text) in exprs {
+        // a string literal's text names nothing, where "EU" read as a state
+        // (twelfth production review)
+        let text = STRING_LITERAL.replace_all(&text, |m: &regex::Captures<'_>| {
+            format!("\"{}\"", " ".repeat(m[0].chars().count() - 2))
+        });
         for m in QUALIFIED.captures_iter(&text) {
             let (owner, value) = (&m[1], &m[2]);
             let known = enums.get(owner).or_else(|| own.get(owner));

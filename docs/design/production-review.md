@@ -1,6 +1,6 @@
 # Is ObjectFlow production-ready? The review before 1.0.0
 
-Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10), the seventh at `7d050a6` (§11), the eighth at `13f9bbf` (§12), the ninth at `0ce1b3c` (§13), the tenth at `093d743` (§14) and the eleventh at `3d0e07f` (§15).
+Status: **NO-GO**, 2026-10-11, at commit `0e734d6`, before release 1.0.0 was cut, at the author's request ("before we cut 1.0.0, I want you to review again and check if it's production ready"). Release 1.0.0 is not cut; the work this review asks for is in `TODO.md`, "Production readiness". **Every review since has been NO-GO too**, as ADR-0183 decision 1 requires a review to find nothing: the second at `cd1b536` (§6), the third (§7), the fourth (§8), the fifth at `879fb2c` (§9), the sixth at `fc6c0e7` (§10), the seventh at `7d050a6` (§11), the eighth at `13f9bbf` (§12), the ninth at `0ce1b3c` (§13), the tenth at `093d743` (§14), the eleventh at `3d0e07f` (§15) and the twelfth at `f6de08a` (§16).
 
 ## 1. What "production" meant, and how it was reviewed
 
@@ -336,4 +336,51 @@ The minors:
 ### What the eleventh review asks
 
 The author's standing instruction decides what the findings ask (ADR-0198); the majors and the minors that cost little are fixed, then a twelfth review, or the author's acceptance of what remains.
+
+## 16. The twelfth review, after the eleventh's fixes
+
+At commit `f6de08a`, 2026-10-13, not yet pushed, every gate of `scripts/check-all` passed on it. Two new cold reviewers, an operator and an adversary, each worked in a checkout of its own with the release binary built from it, on copies of the same two stores, re-checking the eleventh review's findings. Their logs and reports stayed in the session's scratch directory, which is not kept; what they found is here.
+
+**Verdicts: the operator GO, with no blocker and no major in its reach; the adversary NO-GO, for one major.** The bar is not met.
+
+Neither met a corrupted store or a lost acknowledged write:
+- `kill -9` under four writers lost none of 746 acknowledged writes, and one killed during an approval rolled back.
+- About 2,000 wrong-typed values on every key, and raw HTTP abuse, answered no `500`.
+- Thirty requests under one idempotency key applied once, and a 40-way race for one identity left one holder.
+- An erasure's value left the store's files within 1.9 to 4.1 s, the `-wal` cut, while exports and long reads ran beside it.
+
+### The eleventh review's findings, re-checked
+
+- **Fixed, measured by both:**
+  - N1: six-year pages of intervals in 0.05 s at 41 to 117 MB, flat.
+  - F2 and F3.
+  - The recursion through a set.
+  - The log page holding objects; the attempts export; SIGHUP; the log's dropped lines.
+  - The directory as `--store`; the guides' backup check, unit mode, first-publish recipe and `disk_full`.
+- **F1:** fixed within a module, measured by both. Not fixed across modules (D637).
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| D637 | A doubling chain split across a module and one importing it passed each module's bound; an invariant on its far end burned a core for the whole `--dry-run-timeout`, holding the dry run's one slot, and the reference checker ran without end | measured by the adversary | major |
+| D638 | A query aggregating for each object, narrowed by an index, waited among the worklists, 8 s a read on six years; eight at once made a plain worklist wait 16 s | measured by the adversary | minor |
+| D639 | A page of `available` read every object in its states, 0.75 s on six years whatever its limit; forty at once made a worklist wait 9 s | measured by the operator | minor |
+| D640 | A transition calling itself down a chain, refused by the checkers, aborted a sandbox at 3,000 links: no depth bound at run time | measured by the adversary | minor |
+| D641 | Both checkers refused a string default of `"EU"` as naming a state | measured by the operator | minor |
+
+The minors not given an entry:
+- **Load and the clock:** a few clients holding back a request's body kept newcomers `503 busy` until `--idle-timeout`. A backfill's approval held writes 20 s on six years, refused `impact_unchanged` after the hold where claims were created meanwhile. A clock that jumped ahead latches, as decided.
+- **Recovery:** it is the last backup's, ids handed out again.
+- **The store at start:** the store's 0644 warning named neither its `-wal` nor its `-shm`; a long `--socket` path was refused in the system's words.
+- **The guides:** the install's build omitted the commit; nothing on an evaluator under a private authority, nor a backup timer; the checker printed a count the quickstart does not show.
+- **Promises:** no upgrade path yet for a release changing built-in types.
+- **Cosmetics:** a duration's doubled space, an integer past 2^53, `POST /health`'s wording.
+- **Outside the engine:** an agent takes any transition a flow leaves open, as designed.
+
+The operator also found a service the authors had left running from a check of their own.
+
+### What the twelfth review asks
+
+The author's standing instruction decides what the findings ask (ADR-0199); the major and the minors that cost little are fixed, then a thirteenth review, or the author's acceptance of what remains.
 

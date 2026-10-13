@@ -1,0 +1,17 @@
+module: m
+categories: [live]
+types:
+  T:
+    description: A thing.
+    tracking: record
+    attributes:
+      region: { type: string, default: '"EU"' }
+    states:
+      S: { category: live, description: Open. }
+      E: { category: live, final: true, description: Done. }
+    conditions:
+      home:
+        description: Home.
+        expression: region == HQ
+        remedy: self_serviceable
+    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E, guards: { home: deny } } }

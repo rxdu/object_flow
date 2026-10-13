@@ -680,6 +680,10 @@ fn a_deployments_edges_are_said() {
     let (code, said) = refused(&["--socket", long.to_str().expect("a path")]);
     assert_eq!(code, Some(1));
     assert!(said.contains(&"s".repeat(150)), "{said}");
+    assert!(
+        said.contains("past the 107 a Unix socket's path may hold"),
+        "{said}"
+    );
     // a store made, then damaged in its first table's page
     let path = dir.join("store.sqlite");
     {
@@ -4525,4 +4529,25 @@ fn a_derived_time_past_the_calendar_has_no_value_in_a_query() {
         .map(|i| i["fields"]["due_back"].clone())
         .collect();
     assert_eq!(due, [json!("2026-11-12T00:00:00Z"), Value::Null], "{page}");
+}
+
+/// A store readable by others is said at its start with its `-wal` and
+/// `-shm`, which SQLite makes with the store's mode, where the warning
+/// named the store alone (twelfth production review).
+#[test]
+fn a_store_readable_by_others_is_said_with_its_log() {
+    use std::os::unix::fs::PermissionsExt;
+    let file = fresh_store("readable");
+    let path = file.to_str().expect("a path");
+    drop(start(&["--store", path, "--create", "--port", "0"]));
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).expect("0644");
+    let s = start(&["--store", path, "--port", "0"]);
+    let said = s.said_within("readable by others");
+    assert!(
+        said.contains("readable by others than its owner (mode 644)")
+            && said.contains("and its -wal and -shm"),
+        "{said}"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }

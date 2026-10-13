@@ -1847,6 +1847,62 @@ types:
         let took = t.elapsed().as_secs_f64();
         assert!(matches!(late, Err(NotRun::TimedOut(_))), "{took:.2} s");
         assert!(took < 5.0, "checks past their deadline {took:.2} s");
+        // and a chain split across a module and one importing it, each within
+        // the bound, is counted whole, its importer refused by its first link,
+        // where each passed and an invariant on the far end held a dry run's
+        // slot to its deadline (twelfth production review)
+        let end = "    states:\n      S: { category: live, description: Open. }\n      E: { category: closed, final: true, description: Done. }\n";
+        let ca = format!(
+            "module: ca\ncategories: [live, closed]\ntypes:\n  TA:\n    description: A thing.\n    tracking: record\n    attributes:\n      x: {{ type: int }}\n{end}    derived_attributes:\n      a0: {{ description: The first., expression: this.x + this.x }}\n{}    transitions:\n      t: {{ kind: initial, to: S, required_inputs: [x] }}\n      e: {{ kind: external, from: S, to: E }}\n",
+            (1..13)
+                .map(|i| format!(
+                    "      a{i}: {{ description: One., expression: this.a{} + this.a{} }}\n",
+                    i - 1,
+                    i - 1
+                ))
+                .collect::<String>()
+        );
+        let cb = format!(
+            "module: cb\nimports:\n  ca: [TA]\ncategories: [live, closed]\ntypes:\n  TB:\n    description: A thing.\n    tracking: record\n    attributes:\n      r: {{ reference: TA, optional: true }}\n{end}    derived_attributes:\n      b0: {{ description: The first., expression: r.a12 + r.a12 }}\n{}    invariants:\n      big: {{ description: Big., expression: b12 > 0 }}\n    transitions:\n      t: {{ kind: initial, to: S }}\n      e: {{ kind: external, from: S, to: E }}\n",
+            (1..13)
+                .map(|i| format!(
+                    "      b{i}: {{ description: One., expression: this.b{} + this.b{} }}\n",
+                    i - 1,
+                    i - 1
+                ))
+                .collect::<String>()
+        );
+        let source = [("ca".to_string(), ca), ("cb".to_string(), cb)];
+        let d = Draft {
+            change_id: None,
+            source: &source,
+            source_ref: Some("test"),
+            source_digest: None,
+            actor: OPERATOR,
+        };
+        let t = std::time::Instant::now();
+        let checked = checks_until(
+            &lib,
+            0,
+            &d,
+            Some(std::time::Instant::now() + std::time::Duration::from_secs(20)),
+        )
+        .unwrap();
+        let took = t.elapsed().as_secs_f64();
+        let fatal: Vec<&str> = checked
+            .found
+            .0
+            .iter()
+            .filter(|f| f.severity == Severity::Fatal)
+            .map(|f| f.message.as_str())
+            .collect();
+        assert!(
+            fatal.len() == 1
+                && fatal[0].ends_with(": TB.b0 unfolds to more than 10000 reads of derived attributes, each counted as often as it is made: one reading another twice reads all that one reads twice"),
+            "{:?}",
+            checked.found.0
+        );
+        assert!(took < 10.0, "checks: a split chain {took:.2} s");
     }
 
     /// A dry run over a store's objects grows with the types a change

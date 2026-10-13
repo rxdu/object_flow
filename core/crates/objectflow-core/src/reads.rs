@@ -314,11 +314,8 @@ pub fn available_page(
         .types
         .keys()
         .any(|n| n != type_ && world.lib.is_a(n, type_));
-    let candidates = if family {
-        world.of_type(type_)?
-    } else {
-        let states: BTreeSet<String> = t
-            .states
+    let states: Option<BTreeSet<String>> = (!family).then(|| {
+        t.states
             .iter()
             .filter(|(s, st)| match x.kind {
                 Kind::Erasure => true,
@@ -326,32 +323,42 @@ pub fn available_page(
                 _ => takes_from(t, x, s),
             })
             .map(|(s, _)| s.clone())
-            .collect();
-        world.of_type_in(type_, &states)?
-    };
-    for o in candidates {
-        if from.is_some_and(|f| o.order <= f) {
-            continue;
+            .collect()
+    });
+    // read and judged from the cursor a chunk at a time, to the page and one
+    // more, where each page read every object in those states, 0.75 s a page
+    // on six years whatever its limit, in a person's worklist slot (twelfth
+    // production review)
+    let chunk = limit.saturating_add(1).max(CHUNK);
+    let mut at = from.unwrap_or(i64::MIN);
+    'reading: loop {
+        let (next, follows) = world.of_type_from(type_, states.as_ref(), &[], at, chunk)?;
+        for o in &next {
+            if items.len() == limit {
+                more = true;
+                break 'reading;
+            }
+            let offers =
+                offers_of(world, actor, &o.id, true, Some(transition))?.unwrap_or_default();
+            let Some(offer) = offers.iter().find(|f| f.transition == transition) else {
+                continue;
+            };
+            if offer.availability == Availability::Unavailable {
+                continue;
+            }
+            let mut item = state_item(o);
+            if !offer.unevaluated.is_empty() {
+                item.fields.push((
+                    "unevaluated".into(),
+                    Value::Set(offer.unevaluated.iter().cloned().map(Value::Text).collect()),
+                ));
+            }
+            items.push(item);
         }
-        if items.len() == limit {
-            more = true;
-            break;
+        match next.last() {
+            Some(last) if follows => at = last.order,
+            _ => break,
         }
-        let offers = offers_of(world, actor, &o.id, true, Some(transition))?.unwrap_or_default();
-        let Some(offer) = offers.iter().find(|f| f.transition == transition) else {
-            continue;
-        };
-        if offer.availability == Availability::Unavailable {
-            continue;
-        }
-        let mut item = state_item(o);
-        if !offer.unevaluated.is_empty() {
-            item.fields.push((
-                "unevaluated".into(),
-                Value::Set(offer.unevaluated.iter().cloned().map(Value::Text).collect()),
-            ));
-        }
-        items.push(item);
     }
     let cursor = more
         .then(|| items.last().map(|i: &Item| cursor_of(&read, &i.id)))
@@ -667,16 +674,16 @@ pub fn query(
 /// least, from its cursor (READ-PAGES).
 const CHUNK: usize = 256;
 
-/// A page of a query (ADR-0179): at most `limit` objects, after the one
-/// the cursor names in the query's order, which is the next page's place
-/// whatever was written since; the cursor of a further page, none where
-/// this is the last; a cursor of another read refused `malformed_cursor`.
 /// Whether a query reads its type whole: ordered or filtered, with a
 /// filter that neither requires the states it holds nor holds a column equal
 /// to a value, the indexes a page is read through. Such a query waits among
 /// the analytics, never in a person's worklist slot, where ten of them left a
 /// plain worklist query timing out (ninth production review, ADR-0196
-/// decision 4). A filter that does not parse is no scan: it is refused.
+/// decision 4). So does one whose filter aggregates over a collection for
+/// each object, itself or through a derived attribute it reads, however its
+/// page is narrowed: eight such reads of 8 s each on six years made a plain
+/// worklist wait 16 s (twelfth production review). A filter that does not
+/// parse is no scan: it is refused.
 pub fn query_scans(lib: &Library, type_: &str, filter: Option<&str>, order: &[String]) -> bool {
     let parsed = match filter.map(crate::expr::parse) {
         Some(Ok(e)) => Some(e),
@@ -687,10 +694,40 @@ pub fn query_scans(lib: &Library, type_: &str, filter: Option<&str>, order: &[St
         return false;
     }
     parsed.as_ref().is_none_or(|f| {
-        required_states(lib, type_, f).is_none() && required_columns(lib, type_, f).is_empty()
+        (required_states(lib, type_, f).is_none() && required_columns(lib, type_, f).is_empty())
+            || aggregates(lib, type_, f, &mut BTreeSet::new())
     })
 }
 
+/// Whether an expression aggregates over a collection, itself or through a
+/// derived attribute of the type it reads by name, each read once.
+fn aggregates(lib: &Library, type_: &str, e: &Expr, seen: &mut BTreeSet<String>) -> bool {
+    if matches!(e, Expr::Agg { .. }) {
+        return true;
+    }
+    let named = match e {
+        Expr::Name(n) => Some(n),
+        Expr::Path(base, n) if matches!(&**base, Expr::Name(b) if b == "this") => Some(n),
+        _ => None,
+    };
+    if let Some(n) = named
+        && let Some((_, derived)) = lib
+            .type_(type_)
+            .and_then(|t| t.derived.iter().find(|(d, _)| d == n))
+        && seen.insert(n.clone())
+        && aggregates(lib, type_, derived, seen)
+    {
+        return true;
+    }
+    e.children()
+        .into_iter()
+        .any(|c| aggregates(lib, type_, c, seen))
+}
+
+/// A page of a query (ADR-0179): at most `limit` objects, after the one
+/// the cursor names in the query's order, which is the next page's place
+/// whatever was written since; the cursor of a further page, none where
+/// this is the last; a cursor of another read refused `malformed_cursor`.
 pub fn query_page(
     world: &World<'_>,
     type_: &str,
@@ -1585,6 +1622,85 @@ mod tests {
     use crate::request::{Request, request};
     use crate::store::Store;
     use serde_json::json;
+
+    /// A page of `available` reads from its cursor a chunk at a time, to the
+    /// page and one more, where each page read every object in the
+    /// transition's states (twelfth production review); paged, it gives
+    /// what it gives whole, in order.
+    #[test]
+    fn a_page_of_available_reads_to_its_page() {
+        let text = "\nmodule: work\ncategories: [live, closed]\ntypes:\n  Job:\n    attributes:\n      n: { type: int }\n    states:\n      OPEN: { category: live }\n      DONE: { category: closed, final: true }\n    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [n] }\n      finish: { kind: external, from: [OPEN], to: DONE }\n";
+        let lib = Library::load(&[("work.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        for n in 0..600 {
+            let r = Request {
+                transition: "open".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some("Job".into()),
+                inputs: BTreeMap::from([("n".to_string(), json!(n))]),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            assert!(request(&mut s, &r).unwrap().is_ok());
+        }
+        let w = s.snapshot().unwrap();
+        let page = available_page(&w, OPERATOR, "Job", "finish", None, 2).unwrap();
+        assert_eq!(page.items.len(), 2);
+        assert!(page.cursor.is_some());
+        assert!(
+            w.held_count() < 600,
+            "a page of two held {}",
+            w.held_count()
+        );
+        drop(w);
+        let w = s.snapshot().unwrap();
+        let whole: Vec<String> = available(&w, OPERATOR, "Job", "finish")
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|i| i.id)
+            .collect();
+        drop(w);
+        assert_eq!(whole.len(), 600);
+        let mut paged = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let w = s.snapshot().unwrap();
+            let page =
+                available_page(&w, OPERATOR, "Job", "finish", cursor.as_deref(), 50).unwrap();
+            paged.extend(page.items.into_iter().map(|i| i.id));
+            match page.cursor {
+                Some(c) => cursor = Some(c),
+                None => break,
+            }
+        }
+        assert_eq!(paged, whole);
+    }
+
+    /// A query whose filter aggregates over a collection for each object,
+    /// itself or through a derived attribute, waits among the analytics
+    /// however an index narrows its page, where eight such left a plain
+    /// worklist waiting 16 s (twelfth production review); one the index
+    /// narrows and that aggregates nothing waits among the worklists.
+    #[test]
+    fn a_query_aggregating_for_each_object_waits_among_the_analytics() {
+        let text = "\nmodule: crews\ncategories: [live, closed]\ntypes:\n  Crew:\n    attributes:\n      jobs: { reference: \"Job[]\", opposite: crew }\n    derived_attributes:\n      busy: { expression: count(j in jobs) > 3 }\n    states:\n      ON: { category: live }\n    transitions:\n      form: { kind: initial, to: ON }\n  Job:\n    attributes:\n      crew: { reference: Crew, optional: true, opposite: jobs }\n      hours: { type: int, optional: true }\n    states:\n      OPEN: { category: live }\n      DONE: { category: closed, final: true }\n    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [crew] }\n";
+        let lib = Library::load(&[("crews.yaml".into(), text.into())]).unwrap();
+        let scans = |filter: &str| query_scans(&lib, "Crew", Some(filter), &[]);
+        assert!(!scans("state == ON"));
+        assert!(scans(
+            "state == ON and count(j in jobs where j.hours > 2) > 1"
+        ));
+        assert!(scans("state == ON and busy"));
+        assert!(scans("busy"));
+    }
 
     const JOBS: &str = r#"
 module: jobs

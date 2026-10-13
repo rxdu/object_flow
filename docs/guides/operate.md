@@ -15,12 +15,12 @@ One process, `objectflow-service`, serving one **store**: a SQLite file and the 
 Build the release binary from source (rustup installs the pinned toolchain on the first build):
 
 ```sh
-(cd core && cargo build --release -p objectflow-service)
+(cd core && OBJECTFLOW_COMMIT=$(git rev-parse --short HEAD) cargo build --release -p objectflow-service)
 core/target/release/objectflow-service --version
 sudo install -m 0755 core/target/release/objectflow-service /usr/local/bin/
 ```
 
-Tagged releases will be published on the repository's GitHub Releases page as an archive with its SHA-256 checksum, built on Ubuntu 22.04; none is published yet, so build from source. Check the checksum before installing. Releases are not signed yet. `--version` names the commit a release was built from. A build from source names its commit only when built with it set: `OBJECTFLOW_COMMIT=$(git rev-parse --short HEAD) cargo build --release -p objectflow-service`.
+Tagged releases will be published on the repository's GitHub Releases page as an archive with its SHA-256 checksum, built on Ubuntu 22.04; none is published yet, so build from source. Check the checksum before installing. Releases are not signed yet. `--version` names the commit a release was built from, and a build from source the one `OBJECTFLOW_COMMIT` names, as above; without it, none.
 
 ## Create the store
 
@@ -141,6 +141,8 @@ Durations are a count and a unit, with a space: `30 s`, `2 min`, `1 h`, `90 days
 | `--dry-run-timeout <duration>` | `2 min` | How long a change's dry run, its `submit`, `refresh`, `publish` preview or a `check` of its submit, may run, or wait for its one slot. *Deployment only.* |
 | `--max-reads <n>` | `4` | Reads that grow with the store allowed at once, in each pool. *Deployment only.* |
 
+An evaluator served over HTTPS under your own certificate authority is trusted through the system's store, or a bundle `SSL_CERT_FILE` names; its certificate must be one the authority issued, since the authority's own certificate is refused as the endpoint's (`CaUsedAsEndEntity`).
+
 `--help` prints the usage. An argument the service does not take is refused at start.
 
 ## Health
@@ -231,15 +233,15 @@ Read the standard error to its end, as journald does. The service writes the log
 
 | Pool | Reads | Limit |
 |---|---|---|
-| worklists | `query` narrowed by an index, `available`, `pull` | `--max-reads` |
+| worklists | `query` narrowed by an index and aggregating nothing, `available`, `pull` | `--max-reads` |
 | objects | `history`, `events` | `--max-reads` |
-| analytics | `metric`, `exceptions`, `diagnostics`, `export`, and a `query` that reads its type whole | `--max-reads` |
+| analytics | `metric`, `exceptions`, `diagnostics`, `export`, and a `query` that reads its type whole or aggregates over a collection for each object | `--max-reads` |
 | agents | every such read an agent actor makes | `--max-reads` |
 | dry runs | a change's `submit` or `refresh`, a `publish` preview, a `check` of a change's submit | one at a time |
 
-`get`, `lookup`, `availability`, `declaration`, `tools`, every other `check` and every write never wait for a pool, nor do `/health` and `/metrics`. A read that waits past its deadline is answered `503 read_timeout`, having done nothing. A `query` is narrowed by an index where its filter requires the states it holds (`state == SUBMITTED`) or holds a column equal to a value (`claim.id == "claim-4"`); one ordered or filtered without either reads its type whole and waits among the analytics, so it never holds a person's worklist slot. People polling `available` over a crowded state share the worklists pool: raise `--max-reads` for them, or poll less often.
+`get`, `lookup`, `availability`, `declaration`, `tools`, every other `check` and every write never wait for a pool, nor do `/health` and `/metrics`. A read that waits past its deadline is answered `503 read_timeout`, having done nothing. A `query` is narrowed by an index where its filter requires the states it holds (`state == SUBMITTED`) or holds a column equal to a value (`claim.id == "claim-4"`); one ordered or filtered without either reads its type whole and waits among the analytics, so it never holds a person's worklist slot, as does one whose filter aggregates over a collection for each object, itself or through a derived attribute it reads (`count(l in lines where …) > 3`), however an index narrows it. A page of `available` reads from its cursor until it holds its limit, so it costs what its page does where most objects in its states are open to the actor; where few are, it reads on through the state: raise `--max-reads` for people polling it, or build their list from a narrowed `query` and each object's `availability`.
 
-**Requests** are at most 2 MiB. Import in batches under that, about 3,000 objects of an expense claim's size each.
+**Requests** are at most 2 MiB. Import in batches under that, about 3,000 objects of an expense claim's size each. A client that sends a request's head and holds back its body keeps its connection's place until `--idle-timeout`, so a few such clients at the cap keep newcomers answered `503 busy` until then (`/health` on `--metrics-bind` still answers): put a reverse proxy that reads whole requests in front of the socket, or lower `--idle-timeout`, where clients you do not control share it.
 
 **Measured** on a shared Intel i7-8700 with NVMe, release build, 2026-10-12. Measure your own deployment.
 
@@ -249,10 +251,11 @@ Read the standard error to its end, as journald does. The service writes the log
 | a write | about 10 ms | |
 | publishing a version that adds an attribute: submit (runs beside writes) | about 2 s | about 6 s |
 | … approval (holds writes) | about 3 s | about 9 s |
+| … approval of a version that fills a new required attribute on every claim (holds writes) | | about 20 s |
 | peak memory: submit / approval | 0.5 GB / 1.1 GB | 1.5 GB / 3 GB |
 | a go-live import of 36k objects, 3,000 a batch | 36 s, each batch about 1.6 s | |
 
-Publishing grows linearly with the store: do it outside the busiest hours. Its approval holds writes for its whole run, longer while the read pools are busy (25 s on six years under load, against 9 s idle), and a stop waits only 30 s, so stop the service after a publish, never during one. A dry run has a deadline of its own, `--dry-run-timeout` (2 min unless given); one that passes it is answered `503 read_timeout` and records nothing: give a store whose dry run takes longer a longer one, which leaves every other read's deadline as it is.
+Publishing grows linearly with the store: do it outside the busiest hours, and pause the creation of objects of a type whose migration is being approved: a creation during the approval refuses it `impact_unchanged`, after it has held writes for most of its run. Its approval holds writes for its whole run, longer while the read pools are busy (25 s on six years under load, against 9 s idle), and a stop waits only 30 s, so stop the service after a publish, never during one. A dry run has a deadline of its own, `--dry-run-timeout` (2 min unless given); one that passes it is answered `503 read_timeout` and records nothing: give a store whose dry run takes longer a longer one, which leaves every other read's deadline as it is.
 
 Some flow constructs cost more than they look:
 
@@ -280,6 +283,33 @@ python3 -c "import sqlite3; sqlite3.connect('/var/lib/objectflow/store.sqlite').
 Copying the file alone is safe only with the service stopped: a clean stop folds the `-wal` into the file. A backup holds personal data, and an erasure cannot reach it: keep backups `0600`, and expire or encrypt them within the period your privacy rules allow.
 
 **Schedule them.** There is no replica: what you can recover is the last backup. Run the backup from a timer as often as the data you can afford to lose allows (every 15 minutes is a common choice), copy each off the machine, encrypted, and check each copy before trusting it, opened as immutable so the check leaves no `-wal` or `-shm` beside it and needs no `sqlite3` program: `python3 -c "import sqlite3; print(sqlite3.connect('file:/backup/store.sqlite?immutable=1', uri=True).execute('PRAGMA quick_check').fetchone()[0])"` prints `ok`. Expire copies on the schedule your privacy rules set, so a value erased in the store does not outlive it in a backup.
+
+A pair of units that takes one every 15 minutes, into a directory the service's user owns (copy each off the machine, check it, and expire it, with tools of your own):
+
+```ini
+# /etc/systemd/system/objectflow-backup.service
+[Unit]
+Description=ObjectFlow backup
+
+[Service]
+Type=oneshot
+User=objectflow
+UMask=0077
+ExecStart=/usr/bin/python3 -c "import sqlite3, time; sqlite3.connect('file:/var/lib/objectflow/store.sqlite?mode=ro', uri=True).backup(sqlite3.connect(time.strftime('/var/backups/objectflow/store-%%Y%%m%%dT%%H%%M.sqlite')))"
+
+# /etc/systemd/system/objectflow-backup.timer
+[Unit]
+Description=ObjectFlow backup every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable it with `sudo systemctl enable --now objectflow-backup.timer`. The copy is consistent and one file, made from a read-only connection while the service writes.
 
 **Restore:**
 
