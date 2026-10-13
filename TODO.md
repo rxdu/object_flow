@@ -359,6 +359,7 @@ Found 2026-10-12 at `879fb2c` (`production-review.md` §9); decided by ADR-0190 
 Found 2026-10-13 at `fc6c0e7` (`production-review.md` §10); decided by ADR-0192 on the author's standing instruction.
 
 - [x] A sixth production review. *Done 2026-10-13 at `fc6c0e7`: **NO-GO** from both, one blocker and four majors, below.*
+- [~] **A seventh production review**, running 2026-10-13 at `7d050a6`. The author kept the bar of ADR-0183 decision 1, a review finding no blocker and no major, over a stopping rule that would accept bounded majors and let a pilot decide ("keep the bar and continue the loop", 2026-10-13).
 - [x] **P8** a traversal invariant checked from what was written, along each chain it reads (decision 1). *Done 2026-10-13 (`a_traversal_invariant_is_checked_from_what_was_written`: no write reads the invariant's type whole, and a bound, a sum, a path, a part moved in and out, two hops and `referrers` each caught; seven mutations each failing it; the operator's go-live rerun: a draft 8.7 ms where 2,783, a category's creation 10.4 ms where 2,268, with a one-hop path invariant 13.1 ms).*
 - [x] **F9** each listener counts its own connections (decision 2). *Done 2026-10-13 (`the_metrics_listener_answers_beside_a_busy_main_one`, failing with the shared count).*
 - [x] **P5, FILTER-COST class** an agents' read pool; a filter calling no metric, at most 256 terms (decision 3). *Done 2026-10-13 (`an_agents_reads_wait_in_a_pool_of_their_own`, each pool held in turn; `a_filter_no_object_can_answer_is_malformed`, 64 comparisons taken and 65 refused, a metric refused; five mutations each failing them).*
@@ -366,6 +367,14 @@ Found 2026-10-13 at `fc6c0e7` (`production-review.md` §10); decided by ADR-0192
 - [x] **HISTORY** `history` paged, `history` and `events` waiting their turn (decision 5). *Done 2026-10-13 (`test_a_history_is_read_page_by_page_alike`, 251 events in pages of 100, 100 and 51 through both backends; `only_the_reads_that_grow_with_the_store_wait_their_turn`; the web's `wire.test.ts`; five mutations each failing them).*
 - [x] **IDENTITY** an identity that shows what it is, compared without case, not shaped as an id, not admitted by an import (decision 6). *Done 2026-10-13 (`test_an_identity_shows_what_it_is_alike`, thirteen identities refused and a case variant taken by both holders, through both backends; `an_identity_two_actors_hold_is_admitted_by_nothing`; nine mutations each failing them).*
 - [x] The minors (decision 7). *Done 2026-10-13 (`what_a_filter_a_key_and_a_store_are_told`, `a_derived_time_past_the_calendar_has_no_value_in_a_query`, the replaced store's read, the upgrade-due code and the evaluator's doubled verdict in their tests, the group walked once and the filters' money zero and nested set in theirs, the full disk in `a_stall_an_idle_trim_and_a_full_disk_are_told`; each mutation-checked); a second service on a store said and not refused, as ADR-0178 decision 2 lets one share it; the guides' clock, lock, stalled write, metric guard, glibc and `over_limit` lines.*
+
+## The guides
+
+Decided by ADR-0193 on the author's request, 2026-10-13.
+
+- [x] The guides rewritten for people and agents, `llms.txt`, and `scripts/check-guides.py` in `check-all`. *Done 2026-10-13: the tutorials' 27 commands compared with the service's answers; every verdict kind, remedy, reason, generated clause, read refusal, fault code, flag, metric, operation and key named, read from the source; both indexes whole; each check mutation-tested (a planted wrong answer, a removed code, a removed link, each caught); the old pages' backticked terms audited, seven omissions restored.*
+- [ ] **ORDER-KEY**: `query`'s `order` takes any attribute holding one value (`core/crates/objectflow-core/src/reads.rs`, the `order` keys, `t.attribute(name).is_some_and(|a| !a.many)`), where ADR-0127 decision 2 and the old `wire.md` said an indexed attribute. Verified 2026-10-13: `order: "days"`, an `int` not `indexed`, answered its page; `order: "nope"` was refused `unknown_order_key`. To decide with the seventh review's findings: refuse an unindexed key as decided, or amend ADR-0127, ordering being bounded by the read pools and the deadline as every scan is.
+- [ ] The eighth review's briefs read the new guides (`quickstart.md`, `concepts.md`, `operate.md`, `agents.md`, `errors.md`) beside `integrate.md`, `wire.md` and `write-a-flow.md`.
 
 ## Flow Studio
 

@@ -21554,7 +21554,7 @@
     40,
     "notice",
     "veto",
-    "Approval.by_the_requesters_manager reads through requisition, and every state of Approval is final, so no transition of its own can break it: it can only refuse a change to what it reads there. To hold a fact as it stood when the Approval was made, copy it onto the Approval then (write-a-flow.md §5, ADR-0176)"
+    "Approval.by_the_requesters_manager reads through requisition, and every state of Approval is final, so no transition of its own can break it: it can only refuse a change to what it reads there. To hold a fact as it stood when the Approval was made, copy it onto the Approval then (write-a-flow.md, Patterns, ADR-0176)"
    ]
   ],
   "analysed": {

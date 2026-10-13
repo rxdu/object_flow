@@ -131,10 +131,13 @@ ObjectFlow's case study, called the first consumer, is the author's robotics ope
 
 ## Getting started
 
-- **Write a flow**: [`docs/guides/write-a-flow.md`](docs/guides/write-a-flow.md), from an empty file to examples passing on both of the engine's implementations, and every key on one page, [`docs/guides/flow-format-card.md`](docs/guides/flow-format-card.md).
-- **Build an application on it**: [`docs/guides/integrate.md`](docs/guides/integrate.md), and the wire's reference, [`docs/guides/wire.md`](docs/guides/wire.md).
+The [guides](docs/guides/README.md) take you from a first request to production:
+
+- **New here**: the [quickstart](docs/guides/quickstart.md) runs the engine and makes your first requests in about ten minutes; [concepts](docs/guides/concepts.md) is the model on one page.
+- **Write a flow**: [write a flow](docs/guides/write-a-flow.md), from an empty file to examples passing on both of the engine's implementations, and every key on one page, the [flow format card](docs/guides/flow-format-card.md).
+- **Build an application on it**: [build an application](docs/guides/integrate.md), [agents](docs/guides/agents.md), the [API reference](docs/guides/wire.md) and [errors and refusals](docs/guides/errors.md).
+- **Run it**: [operate a deployment](docs/guides/operate.md); building the engine is [`core/README.md`](core/README.md).
 - **What a later release may change**: within the wire's `/v1` and the flow format, a release only adds; a check that would refuse a flow it accepted arrives as a notice first; a store is upgraded, never stranded ([ADR-0180](docs/adr/0180-what-a-release-promises.md), binding from release 1.0.0; a major version is maintained for 12 months after the next major's first release, [ADR-0182](docs/adr/0182-before-1-0-the-authors-decisions.md)).
-- **Run the engine**: [`core/README.md`](core/README.md).
 - **See a flow run**: the [Flow Studio](apps/flow-studio/README.md), an editor and simulator of flows.
 
 ## Where it stands

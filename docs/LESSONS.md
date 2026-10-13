@@ -574,3 +574,23 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Before a notice, a guide or a sample recommends a construct, measure a write with it on a store of realistic size; and hold each cost a design document states with a test that fails when the implementation does more, as the whole-type reads now counted do.
 - **Context:** Any recommendation an engine makes to its authors; ObjectFlow's checker notices and samples.
 
+### A decision written without reading the earlier one it reverses
+- **Pattern:** ADR-0192 decision 7 said to refuse a second service on a store, to answer a reviewer's "ambiguous start line"; ADR-0178 decision 2 had decided that a second process may share a store, an upgrade's old copy among them, and two deployment tests held it. The tests caught it; the decision text had not looked (2026-10-13).
+- **Correction:** Before deciding a behaviour, grep the ADRs for the area it touches and read the decisions there; where a finding asks only for a word, give the word rather than reverse a decision, and say in the new ADR which one it keeps.
+- **Context:** ObjectFlow's ADRs, decided on a standing instruction; any project with a decision record.
+
+### A mutation that turned a failing test into a hanging one
+- **Pattern:** A test that started the service on a read-only store expected it to exit, and waited with `output()`; the mutant that let the service start made the test wait for good, and the mutation run with it, until the service was stopped by hand (2026-10-13).
+- **Correction:** A test that runs a process expected to exit waits for it within a bound, then kills it and fails, so a regression fails the test rather than hanging it; a mutation check of such a test is what shows the difference.
+- **Context:** Integration tests that spawn the service; mutation checks of them.
+
+### A consumer the search listed, and nobody read
+- **Pattern:** Before rewriting the guides, a search for what reads them listed `apps/flow-studio/server/tests/test_golive.py`, which takes `write-a-flow.md`'s purchasing module from the page, and `scripts/check-flow-docs.py` checks every document's YAML blocks; neither was read, a first line naming each block's file was added, and three gates failed (2026-10-13).
+- **Correction:** Read every file a search lists as reading what is about to change, before changing it; a convention added to shared text, a comment line in a code block among them, is checked against each parser of that text, and taught to it where it is kept.
+- **Context:** Documentation that tests and checkers read; any text with more than one reader.
+
+### A fix that turned an indexed lookup into a sweep
+- **Pattern:** Comparing identities without case (ADR-0192 decision 6) replaced the indexed lookup of an actor's identity with a sweep of every actor for each actor checked; every gate passed, and the seventh review measured a publish five times slower on two years and 70 s of approval with 3,600 actors, bisected to that commit (2026-10-13).
+- **Correction:** A change that replaces a read by an index with a sweep, in a path a publish or a whole-store check runs per object, is held by a test counting what it enumerates (the world's `keyed`, `gathered` and `enumerated` counts) and measured on the review's store before it is committed.
+- **Context:** ObjectFlow's core; any lookup inside a per-object loop.
+

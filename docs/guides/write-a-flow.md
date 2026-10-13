@@ -1,20 +1,25 @@
-# Writing a flow
+# Write a flow
 
-A flow is a YAML module: the types of object it governs, the states each moves through, the transitions between them and the rules on each. Beside it, an examples file says what the rules should do, and the engine runs those examples every time the flow is published. This page takes a first flow from an empty file to examples passing on both of the engine's implementations. The format's specification is [`flow-format.md`](../design/flow-format.md), and its expression language is [`declaration-syntax.md`](../design/declaration-syntax.md) §8; [`integrate.md`](integrate.md) is how an application uses a flow once it exists. Every key, step and finding code is on one page in [`flow-format-card.md`](flow-format-card.md). A flow that is valid and whose examples pass under one release stays valid, means the same and passes under every later release of the same major version; a check that would refuse it arrives first as a notice (ADR-0180).
+How to write a flow, test it with examples, and grow it with common patterns. [Concepts](concepts.md) explains the model; the [flow format card](flow-format-card.md) lists every key on one page; [`flow-format.md`](../design/flow-format.md) is the full specification, and [`declaration-syntax.md`](../design/declaration-syntax.md) §8 the expression language.
 
-## 1. Set up
+A flow is a YAML **module**. Beside it, an **examples file** says what its rules should do. The checker runs the examples on every check, and the engine runs them again on every publish, so a rule that stops doing what you meant fails before it reaches a store.
+
+## Set up
+
+Run everything from the repository's root. Build the checker's Python environment once:
 
 ```sh
-scripts/setup/python-env                    # the checker's pinned Python environment, once
+scripts/setup/python-env
 ```
 
-To run examples on the Rust core as well, the core's toolchain (rustup, which installs the pinned version on first use) and the Flow Studio's server environment (`apps/flow-studio/README.md`).
+To run the examples on the engine's core as well, you need its Rust toolchain (rustup installs the pinned one on the first build) and the Flow Studio's server environment ([`apps/flow-studio/README.md`](../../apps/flow-studio/README.md)).
 
-## 2. A first module, and its examples
+## A first module
 
-`documents.yaml`, a document that is drafted and then published:
+A document that is drafted, then published:
 
 ```yaml
+# documents.yaml
 module: documents
 categories: [live, closed]
 
@@ -38,9 +43,14 @@ types:
           - assign: { location: published_at, expr: now }
 ```
 
-`documents.examples.yaml`, what it should do:
+`required_attributes` makes `published_at` required once a document is `PUBLISHED`, so `publish` must set it, as its effect does.
+
+## Its examples
+
+Each example states a starting point, a request and what should happen:
 
 ```yaml
+# documents.examples.yaml
 examples_for: documents
 
 setups:
@@ -70,62 +80,89 @@ examples:
     expect: { verdict: unavailable }
 ```
 
-## 3. Check it, and run its examples
+- A **setup** is a named starting state that examples build on with `given`. `as: doc` names the object a step creates, so later requests say `object: doc`.
+- `after: 1 h` moves the clock before the request. `now` in `values` means the time it ran.
+- `expect` gives the `verdict` (`applied`, or a refusal kind such as `unavailable` or `unsatisfied` with its `clause` and `remedy`), and the `state` and `values` it leaves.
+
+## Check it
 
 ```sh
 scripts/.venv/bin/python scripts/check-flows.py documents.yaml documents.examples.yaml
+```
+
+```text
+0 fatal · 0 notices
+examples: 3 run: 3 passed, 0 failed, 0 not run
+```
+
+The checker runs every publish check, then every example on the reference runner. Pass a module's imports before it, in import order: `people.yaml service.yaml service.examples.yaml`. Check a new version against the last one with `--previous=old.yaml`.
+
+- A **fatal** finding stops a publish. It names its line and how to fix it.
+- A **notice** does not stop a publish, but read each one. `coverage` lists the transitions no example tests. `unknown` flags a guard or filter that an absent optional value would make unknown, usually a bug. `agent_open` and `publishing_open` say what an agent could take ([Agents](agents.md)). `unbounded_reach` names a rule that reads an unbounded set, and the bound to declare.
+
+To run the same examples on the engine's core:
+
+```sh
 apps/flow-studio/scripts/examples-on-core documents.yaml documents.examples.yaml
 ```
 
-The checker runs the publish checks, then every example on the reference runner: `0 fatal · 0 notices`, `examples: 3 run: 3 passed`. The second command runs the same examples on the core. Pass a module's imports before it, in import order, as `people.yaml service.yaml service.examples.yaml`; check a new version against the last with `--previous=old.yaml`.
+The [Flow Studio](../../apps/flow-studio/README.md) is the same loop with a diagram, a simulator and a live view of what each object offers.
 
-A **fatal** finding stops a publish, and names its line and how to fix it. A **notice** does not. `coverage` lists, first, the transitions no example takes at all, by its request, a step, a setup or a cascade it expects, and second, those only a setup, a step or an expected cascade takes, which no example tests as its request; `unknown` a guard or filter that an absent optional value would make unknown, which is usually a bug.
+## Learn from the samples
 
-The [Flow Studio](../../apps/flow-studio/README.md) is the same loop with a diagram, a simulator and a live offer.
+[`docs/design/flow-format/examples/`](../design/flow-format/examples/) holds checked samples, each with its examples file, passing on both of the engine's implementations:
 
-## 4. Learn from the samples
-
-[`docs/design/flow-format/examples/`](../design/flow-format/examples/), each with its examples file, all checked and passing on both implementations:
-
-| Sample | What it shows |
+| Sample | Shows |
 |---|---|
-| `people.yaml` | actors: types whose objects make requests, with no roles |
-| `approvals.yaml` | a state machine shared by two types, one replacing its creation |
-| `reimbursement.yaml` | a claim with lines, policy flags that warn, an agent suggesting and a person confirming, an external system's check |
-| `delivery.yaml`, `inventory.yaml` | an item handed over with a checklist, cascades, and a proposal a person approves |
-| `service.yaml`, `service-v2.yaml` | observations recorded about a job, and a second version migrating live jobs |
-| `customers.yaml` | personal data corrected and erased, an override, a rule across objects |
-| `servicedesk.yaml` | mirror types another system owns, and importing them |
-| `issues.yaml` | Jira's work items: subtasks, links, sprints |
+| `people.yaml` | Actors: types whose objects make requests. |
+| `approvals.yaml` | A state machine two types share, one replacing its creation. |
+| `reimbursement.yaml` | A claim with lines, policy flags that warn, an agent suggesting and a person confirming, an outside system's check. |
+| `delivery.yaml`, `inventory.yaml` | An item handed over with a checklist, cascades, and a proposal a person approves. |
+| `service.yaml`, `service-v2.yaml` | Observations recorded about a job, and a second version migrating live jobs. |
+| `customers.yaml` | Personal data corrected and erased, an override, a rule across objects. |
+| `servicedesk.yaml` | Mirror types another system owns, and importing them. |
+| `issues.yaml` | Jira's work items: subtasks, links, sprints. |
 
-## 5. Patterns for common needs
+## Patterns
 
-- **Lines of a document**, such as a requisition's: a `Line[]` attribute with `aggregation: composite` and `opposite`, the line created by the parent's transition (`create:` in its effect, the line's creation `only_via` it), and a total as a `derived_attributes` sum (`reimbursement.yaml`).
-- **Approval by amount**: guards over the derived total on transitions to each level, and the decision recorded in a part. A transition has one target, so a level that either completes or escalates is two transitions with complementary guards, `approve` guarded `total <= SGD 5000.00` and `approve_and_escalate` guarded `total > SGD 5000.00`; `availability` tells a screen which of the two to show, the other refused (ADR-0176 decision 6).
-- **A transition a person must take**: mark it `taken_by: [human]` (or the kinds that may, `[human, service]`). It records the kind that took it as `<transition>_by_kind` and holds an invariant `<transition>_taken_by` over the record, so an agent is refused `delegable`, its offer is marked `actor_dependent`, and its tools leave the transition out, or, where it is also `proposable`, hand it over for proposing only: "an agent proposes, a person decides" is `taken_by: [human]` with `proposable: true`. State it on every such transition, approvals, payments, assertions and erasures among them, the erasure of a person first: nothing else stops an agent taking one, and an agent's tools otherwise include it (D579). Or state it once on the type, `taken_by: [human]` after its `tracking`, which every transition of it declaring none takes, and open what agents may do with `taken_by: [human, agent]` on those transitions (ADR-0182).
-- **Other rules about who acts**, "nobody approves their own", "the line's nature confirmed by a person": a condition may not read the actor, so record it in the outcome (`assign: { location: approved_by, expr: actor.id }`, or `actor.kind`) and constrain the record with an invariant, as `taken_by` does for you. An agent refused by one is told `delegable`, and its offer is marked `actor_dependent`.
-- **Check who acted against a fact as it stood**: an invariant holds at all times, so one reading through references, "approved by the requester's manager" written `approver == requisition.requester.manager.user_id`, is checked again whenever the requester's manager changes, and then refuses the change. Copy the fact onto the record when the decision is made, `create: { … inputs: { manager_id: requisition.requester.manager.user_id } }`, and write the invariant over the record's own attributes. The checker notices the first form, `veto`, where every state of the record is final.
-- **Several currencies**: an amount holds one currency, so a currency reference with a rate, the transaction's amounts as decimals, and the home-currency amount computed and kept on entry (§6).
-- **A value a state requires**: set it from an input, a literal, `now`, who acts (`actor.id`, `actor.kind`), or a path of references that are never empty ending in an attribute that is never empty (`cost_centre.fiscal_year`); anything else needs a required input or an invariant (`flow-format.md` §4.5).
-- **A metric's regression test**: an example's `expect` may say what a metric reads after its request, `metrics: { ServiceJob.transition_counts: 3 }` for its whole value, or its rows by every dimension, `ServiceJob.work_in_progress: [{ state: WORKING, value: 1 }]` (`flow-format.md` §11.4), as `service.examples.yaml`'s `a_reassignment_is_measured_as_a_handoff` does.
-- **A deadline**: keep it as an attribute the transition that starts the clock writes, `assign: { location: expires_at, expr: now + 7 days }`, guard the transition that ends it with `now >= expires_at`, and let the application's scheduler query `expires_at <= now`, so a version that changes the period changes one expression, never a copy of it in the scheduler; the engine starts no transition by itself (`integrate.md` §8). A retention period is the same: `erase_after` written when an application is rejected, the scheduler erasing those due.
-- **Back to the stage it came from**: an effect cannot read the state being left, since the state is written first (below), so a return to one of several stages is one transition per stage, each from the holding state with a guard on a recorded stage, `resume_to_interviews` guarded `held_from == Stage.INTERVIEWS`; `availability` offers only the one that applies.
-- **An effect sees the new state**: the state is written first, then the effect runs (`DESIGN.md` §6 step 5), so a derived value read in an effect already counts the object in its new state.
-- **An external system's check**: an `evaluators:` entry, read by a guard; an example or a setup gives its answer with `evaluators:`, as `xero.bill_matches: satisfied`, and a sandbox with `/sandbox/evaluators`.
-- **The agent proposes, a person decides**: mark the transition `proposable`; the agent files it with `propose: true`, and approving the proposal takes it as the approver.
-- **Existing records at go-live**: a first version declaring the families brought in as `mirror`, which `scripts/mirror-version.py <module.yaml> <Type>...` writes from the module, an import, then a publish of the module itself; `publish-and-import.md` §7 works one through, for §6's orders. Plan the model for it: a mirror may not reference a type the store owns, so a reference from a family brought in to one born here, an order to its requisition, makes that type a mirror too; keep the link on the new side, a requisition naming its order. And the import checks invariants, not guards: a rule legacy data may already break, such as never receiving more than ordered, is checked at go-live only if it is also an invariant.
+**Lines of a document**, such as a requisition's. Declare a `Line[]` attribute with `aggregation: composite` and an `opposite`. The parent's transition creates each line (`create:` in its effect), the line's creation is `only_via` that transition, and a total is a derived `sum` (`reimbursement.yaml`).
 
-## 6. Several currencies
+**Approval by amount.** Put guards over the derived total on the transitions to each level, and record the decision in a part. A transition has one target, so a level that either completes or escalates is two transitions with complementary guards: `approve` guarded `total <= SGD 5000.00`, `approve_and_escalate` guarded `total > SGD 5000.00`. `availability` tells a screen which one applies.
 
-An amount holds one currency, which its type names, `money(USD)`, so a sum, a comparison or a threshold never mixes two (ADR-0068). A flow whose orders are placed in several currencies and whose limits are in one keeps three things (ADR-0173 decision 5):
+**A transition a person must take.** Mark it `taken_by: [human]`, or the kinds that may (`[human, service]`). It records the kind that took it as `<transition>_by_kind`, refuses any other kind `delegable`, and is left out of an agent's tools. With `proposable: true` as well, an agent may propose it for a person to decide. Nothing else stops an agent, so state it on every such transition: approvals, payments, assertions and erasures, a person's erasure first. Or state it once on the type, `taken_by: [human]`, and open what agents may do with `taken_by: [human, agent]` on those transitions.
 
-1. **A currency reference with a rate**, an object finance keeps, here `Currency` with `rate_to_sgd`;
-2. **the transaction's amounts as decimals**, in the currency its reference names, here a line's `unit_price`, since no `money` type can hold whichever currency an order is placed in;
-3. **the home-currency amount computed and kept when the line is entered**, here `amount_sgd`, assigned from the rate that day, so a rate changed later does not change what was entered; limits, budgets and metrics are written against it.
+**Other rules about who acts**, such as "nobody approves their own request". A condition may not read the actor, so record the actor in the outcome (`assign: { location: approved_by, expr: actor.id }`, or `actor.kind`) and constrain the record with an invariant. An agent refused by one is told `delegable`.
 
-Nothing stops a flow adding two decimals in different currencies, since a decimal carries none: keep each total in one currency, the home currency's computed amounts or one order's own.
+**A rule about a fact as it stood.** An invariant holds at all times, so one reading through references, such as `approver == requisition.requester.manager.user_id`, is checked again whenever the requester's manager changes, and then refuses that change. Copy the fact onto the record when the decision is made (`create: { … inputs: { manager_id: requisition.requester.manager.user_id } }`) and write the invariant over the record's own attributes. The checker's `veto` notice finds the first form.
+
+**A value a state requires.** Set it from an input, a literal, `now`, the actor (`actor.id`, `actor.kind`), or a path of references that are never empty ending in an attribute that is never empty (`cost_centre.fiscal_year`). Anything else needs a required input or an invariant.
+
+**A deadline.** Keep it as an attribute the transition that starts the clock writes, `assign: { location: expires_at, expr: now + 7 days }`, and guard the transition that ends it with `now >= expires_at`. Your application's scheduler queries `expires_at <= now` and requests it: the engine starts nothing by itself. A version that changes the period changes one expression. A retention period works the same way: `erase_after` written when an application is rejected, and the scheduler erasing those due.
+
+**Back to the stage it came from.** An effect cannot read the state being left, because the state is written first. So a return to one of several stages is one transition per stage, each guarded on a recorded stage: `resume_to_interviews` guarded `held_from == Stage.INTERVIEWS`. `availability` offers only the one that applies.
+
+**An effect sees the new state.** The state is written first, then the effect runs, so a derived value read in an effect already counts the object in its new state.
+
+**A guard's input.** A guard runs before the transition writes anything, so on a creation it reads the value sent, `inputs.days`, not the attribute `days`, which has no value yet. The checker's `before` notice catches this.
+
+**An outside system's check.** Declare it under `evaluators:` and read it from a guard. An example gives its answer with `evaluators: { xero.bill_matches: satisfied }`; a sandbox with `/sandbox/evaluators`.
+
+**A metric's regression test.** An example's `expect` may state what a metric reads after its request: `metrics: { ServiceJob.transition_counts: 3 }` for its whole value, or its rows by every dimension, `ServiceJob.work_in_progress: [{ state: WORKING, value: 1 }]` (`service.examples.yaml`).
+
+**Existing records at go-live.** A first version declares the types brought in as `mirror`, which `scripts/mirror-version.py <module.yaml> <Type>...` writes from your module; an import fills them; then a publish of the module itself makes them the flow's own. Plan the model for it: a mirror may not reference a type the store owns, so keep a link on the new side (a requisition naming its order, not the order its requisition). The import checks invariants, not guards: a rule old data may already break is checked at go-live only if it is also an invariant. [`publish-and-import.md`](../design/publish-and-import.md) §7 works a go-live through.
+
+## Several currencies
+
+An amount holds one currency, which its type names (`money(USD)`), so no sum, comparison or threshold mixes two. A flow whose orders come in several currencies, with limits in one, keeps three things:
+
+1. **a currency object with a rate**, which finance keeps, here `Currency` with `rate_to_sgd`;
+2. **the transaction's amounts as decimals**, in the currency its reference names, here a line's `unit_price`, since no `money` type can hold whichever currency an order uses;
+3. **the home-currency amount, computed and kept when the line is entered**, here `amount_sgd`, so a rate changed later does not change what was entered. Write limits, budgets and metrics against it.
+
+Nothing stops a flow adding two decimals in different currencies, since a decimal carries none: keep each total in one currency.
 
 ```yaml
+# purchasing.yaml
 module: purchasing
 categories: [live, closed]
 
@@ -208,9 +245,10 @@ types:
           - assign: { location: amount_sgd, expr: SGD 1.00 * quantity * unit_price * order.currency.rate_to_sgd }
 ```
 
-Its examples show the line valued on entry, a rate changed afterwards leaving the order as valued, and the limit held in Singapore dollars:
+Its examples show a line valued on entry, a rate changed afterwards leaving the order as valued, and the limit held in Singapore dollars:
 
 ```yaml
+# purchasing.examples.yaml
 examples_for: purchasing
 
 setups:
@@ -244,3 +282,17 @@ examples:
     request: { object: order, transition: place }
     expect: { verdict: unsatisfied, clause: within_limit, remedy: delegable }
 ```
+
+```sh
+scripts/.venv/bin/python scripts/check-flows.py purchasing.yaml purchasing.examples.yaml
+```
+
+```text
+examples: 3 run: 3 passed, 0 failed, 0 not run
+```
+
+It also gives two `coverage` notices, since no example tests `Currency.retire` and three transitions are taken only by setups.
+
+## What a later release promises
+
+A flow that is valid, and whose examples pass, under one release stays valid, means the same and passes under every later release of the same major version. A check that would refuse it arrives first as a notice.

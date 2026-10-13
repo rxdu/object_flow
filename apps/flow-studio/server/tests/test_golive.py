@@ -1,6 +1,6 @@
 """The worked go-live of `publish-and-import.md` §7 (ADR-0173 decision 4), run
 as the section says, on a deployment's store (ADR-0174): the purchasing module
-of `docs/guides/write-a-flow.md` §6, its go-live version written by
+of `docs/guides/write-a-flow.md`, "Several currencies", its go-live version written by
 `scripts/mirror-version.py` and published; a legacy batch dry run, its class
 cleaned upstream and imported with the order number raised past the legacy
 system's last; the module published as the cutover; and the first requests
@@ -28,8 +28,9 @@ OPERATOR = {"id": "operator"}
 
 
 def guide_module() -> str:
-    """The purchasing module, as the guide's §6 writes it."""
-    blocks = re.findall(r"```yaml\n(.*?)```", GUIDE.read_text(), re.S)
+    """The purchasing module, as the guide's "Several currencies" writes it,
+    without the first line naming its file (ADR-0193)."""
+    blocks = re.findall(r"```yaml\n(?:# [\w.-]+\.yaml\n)?(.*?)```", GUIDE.read_text(), re.S)
     return next(b for b in blocks if b.startswith("module: purchasing"))
 
 

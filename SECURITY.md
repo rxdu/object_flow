@@ -10,7 +10,7 @@ Until 1.0.0, only the latest release receives fixes. From 1.0.0, a major version
 
 ## What the engine defends, and what it leaves to you
 
-The service **authenticates nobody** (ADR-0114, PRD N7): it records the actor a request names and enforces the flow's rules, and the application in front of it decides who someone is and what they may do. So whoever can reach the service can act as any actor, which is the design, not a vulnerability: give it a Unix socket whose owner and group are the service's and your application's users (`--socket`), or bind it to loopback behind the application, never on a network your users reach (`docs/guides/integrate.md` §9).
+The service **authenticates nobody** (ADR-0114, PRD N7): it records the actor a request names and enforces the flow's rules, and the application in front of it decides who someone is and what they may do. So whoever can reach the service can act as any actor, which is the design, not a vulnerability: give it a Unix socket whose owner and group are the service's and your application's users (`--socket`), or bind it to loopback behind the application, never on a network your users reach ([`docs/guides/operate.md`](docs/guides/operate.md)). What an application withholds from an AI agent is in [`docs/guides/agents.md`](docs/guides/agents.md).
 
 A vulnerability is a request that, within that design, does what the design says it cannot. Some examples:
 

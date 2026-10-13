@@ -1,0 +1,28 @@
+# ObjectFlow
+
+> An agent-safe system of record for business workflows. Flows are declared in YAML; people and AI agents change objects only through declared transitions, and every change is checked, recorded and measured. The engine is an HTTP service (POST /v1/<operation>, JSON) over one SQLite store, behind an application that authenticates its users.
+
+A refusal is an HTTP 200 whose `kind` names it and whose `remedy` (self_serviceable, delegable, temporal, dependent, unreachable_from_here) is the caller's next move. Faults are 4xx/5xx with a `code`.
+
+## Guides
+
+- [Quickstart](docs/guides/quickstart.md): run the engine, load a flow, make requests and meet refusals.
+- [Concepts](docs/guides/concepts.md): types, states, transitions, rules, actors, verdicts, events, versions.
+- [Write a flow](docs/guides/write-a-flow.md): modules, examples, the checker, and patterns.
+- [Build an application](docs/guides/integrate.md): actors, requests, refusals, screens, worklists, subscriptions, publishing.
+- [Agents](docs/guides/agents.md): generated tools, remedies as next moves, keeping an agent within bounds.
+- [Operate a deployment](docs/guides/operate.md): systemd, flags, health, metrics, backups, upgrades, capacity.
+
+## Reference
+
+- [API reference](docs/guides/wire.md): every operation, its keys and answers, and values on the wire.
+- [Errors and refusals](docs/guides/errors.md): every verdict kind, remedy, reason, refusal and fault code.
+- [Flow format card](docs/guides/flow-format-card.md): every key of a flow and its examples file.
+- [wire-v1.json](docs/guides/wire-v1.json): the keys each /v1 operation takes.
+
+## Optional
+
+- [Flow format specification](docs/design/flow-format.md)
+- [Expression language](docs/design/declaration-syntax.md)
+- [Publishing and importing](docs/design/publish-and-import.md)
+- [Design](docs/DESIGN.md) and [decision records](docs/adr/)

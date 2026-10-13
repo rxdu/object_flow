@@ -1,133 +1,103 @@
-# The wire
+# API reference
 
-What an application sends the engine's service and what comes back, operation by operation. It is written from the service as built (`core/crates/objectflow-service`), and every example below is an exchange captured from it on 2026-10-10. The design behind it is ADR-0150 (one `POST` per operation, values in the model's notation) and `docs/design/library-api.md`, whose types the answers carry as JSON; where the two differ, this page says what the service does. [`integrate.md`](integrate.md) walks through using it.
+Every operation of the engine's service: what it takes and what it answers. [Build an application](integrate.md) shows how to use them; [Errors and refusals](errors.md) lists every refusal and fault.
 
-**What `/v1` promises** (ADR-0180, binding from release 1.0.0; a major version maintained for 12 months after the next major's first release, ADR-0182). Within `/v1` a release only adds: an operation, an optional request key, an answer field, a verdict `kind`, an `invalid_input` reason, a finding code. It never removes or renames one, changes a field's type or meaning, makes an optional key required, changes a default such as a page's 100, or changes an operation's status codes; `GET /health`'s fields and the evaluator endpoint's call and answer (§4) are held to the same rule, and a flag of the service is renamed or removed only in a major release. So a client **ignores answer fields it does not know**, **handles a refusal of a `kind` it does not know by its `remedy`**, one of the five of §3, which are all there will be, and **sends only the keys this page lists**: the service refuses any other as `400`, which is how a client learns it has met an older service. A change that needs more is `/v2`, served beside `/v1` until a major release. [`wire-v1.json`](wire-v1.json) lists what each operation takes, and a test of the service holds it to the list. A sandbox's controls are held to the same rule (ADR-0181 decision 6), since an application's tests drive them.
+## Basics
 
-## 1. Requests, answers and faults
+- Every operation is `POST /v1/<operation>`, with a JSON object as its body and `Content-Type: application/json`. A body is at most 2 MiB.
+- An answer is `200` with the operation's result. **A refusal is also `200`**: a verdict whose `kind` names it.
+- A fault is a `4xx` or `5xx` whose body is `{"fault": "<reason>", "code": "<code>"}`. Branch on `code`; the reason is text for people and may change.
+- **Unknown keys are refused** `400`, and so is **a key named twice** in one object. `null` is the same as leaving a key out.
+- A flag such as `dry_run` is `true` or `false`, never a string; an id, a filter or a cursor is a string; `expected_version` is an integer.
+- An object that does not exist reads as `null` from `get`, `history` and `availability`; a request naming it is refused `not_found`.
+- `GET /health` and `GET /metrics` serve operators ([Operate](operate.md)). A sandbox also serves `POST /sandbox/<control>` ([below](#sandbox-controls)).
 
-Every operation is `POST /v1/<operation>` with a JSON object for a body and `Content-Type: application/json`; the sandbox's controls are `POST /sandbox/<control>`, which a deployment's store does not route (ADR-0174); and `GET /health` answers `{"release": "objectflow-core 0.2.0", "shape": "sandbox" | "deployment", "version": <the store's>, "now": <its clock>, "store_release": "objectflow-core 0.2.0", "upgrade_due": false, "clock_lead_seconds": 0, "writer_held_seconds": 0, "requests_in_flight": 1, "connections_open": 1, "disk_free_bytes": 52428800000}`, `503` while an upgrade is due, or below 64 MiB free on the store's volume, its fault `disk_low: …` (ADR-0188), or with the store's file moved or replaced under the service (`store_replaced`), a line of the log waiting more than 5 s to be written (`log_blocked`), or the last write stopped by another process's lock with none committed since, within the minute (`writes_stalled`), each with its `code` (fourth production review), the store's release and whether an upgrade is due being ADR-0177's, how long the writer has been held, `0` while it is free, the requests being answered and the connections open (ADR-0186), and the clock's lead how far the store's clock is ahead of the wall clock, which it never moves back from (ADR-0174 decision 4); a deployment's opens its store's file to answer, and answers `500` where it cannot. `GET /metrics` answers the requests answered by route and status, their seconds and a histogram of them by route, the requests' verdicts by kind, each evaluator's calls that answered nothing usable, the log's dropped lines, the requests in flight, how long the writer has been held, the process's resident memory, the store's version and the clock's lead, in Prometheus's text format, its metric names held as `/health`'s fields are (ADR-0183). A body is at most 2 MiB. An answer is `200` with the operation's result. **A refusal is a `200`**, a verdict whose `kind` names it, never an error: a caller branches on `kind`.
+**What `/v1` promises**, from release 1.0.0. Within `/v1` a release only adds: an operation, an optional request key, an answer field, a verdict `kind`, an `invalid_input` reason, a refusal or finding code. It never removes or renames one, changes a field's type or meaning, makes an optional key required, changes a default (such as a page's 100), or changes an operation's status codes. `/health`'s fields, the evaluator call and its answer, and the sandbox's controls are held to the same rule, and a service flag is renamed or removed only in a major release. A change that needs more is `/v2`, served beside `/v1`. [`wire-v1.json`](wire-v1.json) lists the keys each operation takes, and a test of the service holds it to that list.
 
-A **fault** is a `4xx` or `5xx` whose body is `{"fault": "<what is wrong>"}`, every time:
+## The actor
 
-| Status | When |
-|---|---|
-| `400` | a body that is not a JSON object, a key the operation does not take (`/v1/get takes no key folow`), a body past 2 MiB (`length limit exceeded`), an argument it needs left out, or a key of another JSON type than it takes, on every operation: a flag such as `dry_run` or `propose` is `true` or `false`, never `"true"`, `inputs` and `bind` objects, `filter`, `cursor` and an id strings, `expected_version` an integer, and `actor` an object taking `id` and `principal` alone; absent or `null` is a key not given |
-| `404` | an operation that does not exist (`no operation /v1/nope`) |
-| `405` | an operation asked by anything but `POST`, or `/health` or `/metrics` by anything but `GET` |
-| `408` | a request whose body did not arrive within the service's idle timeout (ADR-0184) |
-| `409` | the sandbox has no module loaded; an idempotency key reused for a different request (`key_reused: …`) |
-| `501` | a construct the core does not yet run (`not run: …`) |
-| `503` | `engine_mismatch: …`: the store is at another engine release than this copy of the service, an upgrade due or made by another copy (ADR-0177); or `read_timeout: …`: a deployment's read passed its deadline, 30 s unless the service is given another, and was stopped: narrow it, by an indexed member or a page (ADR-0184), and a change's dry run, a `submit`'s or a `publish` preview's, which recorded nothing, needs a longer deadline; or a read that grows with the store waited its whole deadline for its turn while its pool's others ran, `--max-reads` worklists or analytics, or a change's one dry run, and was not started: send it again later (ADR-0189, ADR-0190); or `busy: …`, its connection closed after it: every connection the service allows was answering a request, or this one, answering nothing, was closed to make room for another; nothing was done, so send it again on another connection (ADR-0186) |
-| `500` | the service's own fault |
+An operation that acts or reads as someone takes `"actor": {"id": "<who>"}`: the actor's identity (an `Employee`'s `user_id`, say) or its object's id. The store's first actor is `operator`. A request made for someone else names them as `principal`, in the actor (`"actor": {"id": …, "principal": …}`) or as the request's own key; the two must agree. The principal is checked as the actor is, and recorded.
 
-**A fault's body is `{"fault": <its reason>, "code": <its code>}`**: the reason is text, which is not promised, and the code is what a client branches on (fourth production review): the reason's own prefix where it has one, `read_timeout`, `busy`, `engine_mismatch`, `key_reused`, `disk_low`, `disk_full`, `store_replaced`, `log_blocked`, `writes_stalled`, else its status's name, `bad_request`, `not_found`, `method_not_allowed`, `slow_body`, `conflict`, `not_run`, `unavailable` or `internal`. A `503` with `disk_full` is a write the store's full volume stopped, and `store_replaced` one refused because the store's file was moved or replaced under the running service; either may be sent again once the operator has acted.
+An actor the store does not know is refused `unsatisfied`, clause `actor_known`. An actor or principal whose object is in a final state is refused `actor_active`. Both have remedy `dependent`.
 
-**Unknown keys are refused**, so a misspelt key is never read as absent, and **a key named twice in an object is refused `400`**, where the last one won, a second `actor` changing who was recorded (ADR-0190). The keys each operation takes are in §4.
+## Values
 
-**An object that does not exist** reads as `null` from `get`, `history` and `availability`; a request naming it is the verdict `not_found`.
-
-## 2. Values
-
-A value is JSON's own where JSON keeps it exactly, and otherwise a string in the model's notation (ADR-0150 decision 2). No value carries its type: a reader takes it from the declaration (`/v1/declaration`).
+A value is JSON's own where JSON keeps it exactly, and otherwise a string in the flow's notation. No value carries its type: read it from `declaration`.
 
 | Type | On the wire | Example |
 |---|---|---|
 | absent | `null` | |
 | `bool` | a boolean | `true` |
-| `int` | a number within ±(2⁵³ − 1), else a string of digits | `3` |
-| `string`, an identity | a string of at most 64 KiB in UTF-8, past which it is `out_of_range`; never U+0000; an identity is not empty, holds no whitespace at its ends nor any but a space within, no character that shows nothing (a control, a format character, a variation selector, a combining grapheme joiner, a Hangul filler, a tag, a line or paragraph separator), and is not shaped as an object's id, `<type>-<number>`, else `malformed`; it names one actor across every type whose objects are actors, compared without case, a second holder refused `invariant_violated`, `identity_taken`, the holder named first (ADR-0190, ADR-0192) | `"Taxis"` |
-| `decimal(p,s)` | a string with nothing around its digits, at most `s` places and `p` digits in all, past which an input is `out_of_range` and an effect's write refused `value_in_range` | `"19.90"` |
-| `money(CCC)` | a string, the currency, one space and the amount, at most its minor unit's places, nothing around them | `"USD 19.99"` |
-| `timestamp` | RFC 3339 at UTC, `Z` or `+00:00`, to the second or the minute, each field its digits exactly, no fraction of a second; a derived time past the calendar is answered `null`, as no request could send it back (ADR-0191) | `"2026-10-04T09:30:00Z"` |
-| `date` | `YYYY-MM-DD` exactly, the year 0001 to 9999 | `"2026-10-04"` |
-
-A date or a time stays in the calendar, 0001-01-01 to 9999-12-31T23:59:59Z: an effect writing one past it refuses its request `value_in_range`, and a date moved past it has no value, which a guard reads as unknown (ADR-0190 decision 1); one written past it was text no read took back, its object and its type answering `500` for good.
-| `duration` | a count and a unit | `"30 min"`, `"2 days"` |
+| `int` | a number within ±(2⁵³ − 1); a string of digits beyond | `3` |
+| `string` | a string of at most 64 KiB in UTF-8, past which it is `out_of_range`; never U+0000 | `"Taxis"` |
+| `identity` | a string, as above, that is not empty, has no whitespace at its ends and none but a space within, holds no character that shows nothing (a control or format character, a variation selector, a combining grapheme joiner, a Hangul filler, a tag, a line or paragraph separator), and is not shaped as an object id of the store's types; else `malformed`. It names one actor across every actor type, compared ignoring case: a second holder is refused `identity_taken`. | `"u-10442"` |
+| `decimal(p,s)` | a string of digits, at most `s` places and `p` digits in all; an input past that is `out_of_range`, an effect's write past it `value_in_range` | `"19.90"` |
+| `money(CCY)` | a string: the currency, one space, the amount in at most its minor unit's places | `"USD 19.99"` |
+| `timestamp` | RFC 3339 in UTC (`Z` or `+00:00`), to the second or the minute, no fraction of a second | `"2026-10-04T09:30:00Z"` |
+| `date` | `YYYY-MM-DD`, the year 0001 to 9999 | `"2026-10-04"` |
+| `duration` | a count and a unit: `s`, `min`, `h`, `day(s)`, `week(s)` | `"30 min"`, `"2 days"` |
 | enumeration member, state | its name | `"NEW"` |
 | reference | the object's id | `"employee-1"` |
 | set | an array, no element repeated | `["a-1", "a-2"]` |
-| `file` | an object: its content's SHA-256, its size in bytes and its media type; a name is refused `wrong_type` | `{"hash": "sha256:9f86…", "size": 48213, "media_type": "application/pdf"}` |
+| `file` | an object: the content's SHA-256, its size in bytes and its media type; a name is refused `wrong_type` | `{"hash": "sha256:9f86…", "size": 48213, "media_type": "application/pdf"}` |
 
-A duration a reader is given back is written in whichever unit reads best (`"15 days"`, `"1431 h"`); parse the count and the unit. An object's id is `<type in lower case>-<n>`.
+Dates and times stay within 0001-01-01 to 9999-12-31T23:59:59Z. An effect that would write one past that is refused `value_in_range`; a date computed past it has no value (a guard reads it as unknown); a derived time past it is answered `null`. A duration you are given back is written in whichever unit reads best (`"15 days"`, `"1431 h"`): parse the count and the unit. An object's id is `<type in lower case>-<number>`.
 
-## 3. Verdicts
+## Requests
 
-A request's answer, and each refusal inside an offer. Every refusal carries `remedy`, what its caller can do (`DESIGN.md` §5.5):
-
-| `remedy` | Meaning | What an agent does |
+| Operation | Keys | Answers |
 |---|---|---|
-| `self_serviceable` | change the request: an input, or re-read and resend | fix it and retry |
-| `delegable` | someone else must act: another person, or the approver of a proposal | hand it to a person |
-| `temporal` | wait: an evaluator not answered, a time not yet reached | retry later |
-| `dependent` | another object must change first | work on that object |
-| `unreachable_from_here` | nothing done from here helps | stop |
+| `request` | `actor`, `transition`; `type` to create, or `object_id`; `inputs`, `expected_version`, `idempotency_key`, `occurred_at`, `propose`, `expires_at`, `principal`, `context` | a verdict |
+| `check` | the same | `{"verdict": …, "unevaluated": […]}`: the verdict the request would get, nothing written |
 
-| `kind` | Fields beside `kind` and `remedy` |
-|---|---|
-| `satisfied` | `object_id`, `version`, `events` (positions, the request's own first), `replayed`, `flags` |
-| `unsatisfied` | `clause`, the guard that failed; `unknown`, whether it read something absent rather than was false; `objects`, what its remedy points at, the objects the clause names in ascending id order; `proposable`, whether filing the request as a proposal would be accepted; `consulted`, the evaluator verdicts and metric values it was decided on (ADR-0179) |
-| `invariant_violated` | `failures`: each `object_id`, `type`, `invariant`, `remedy`, on every object an invariant fails on, `object_id` `null` for the object the refused request was creating, which does not exist (D581); `objects`, the objects in conflict, such as the other holder of a unique value; `proposable`, whether the transition takes a proposal, as a `taken_by` refusal's does (D582) |
-| `invalid_input` | `inputs`, the names at fault, and `reasons`, each's why: `unknown_input`, `missing`, `wrong_type`, `malformed`, `wrong_currency`, `no_such_object`, `out_of_range`, `not_allowed` |
-| `unavailable` | `state`, the object's, which the transition is not taken from |
-| `unknown_transition` | `transition` |
-| `not_requestable` | `parents`, the transitions it is taken only through |
-| `not_proposable` | none: a proposal of a transition not marked proposable |
-| `stale` | `cause`: `expected_version`, with `expected` and `actual`, the version read and the one it is at; or `retries_exhausted`, remedy `temporal`, where the store's write lock was held past the busy timeout and every retry, by another process (ADR-0178) |
-| `not_found` | none |
-| `over_limit` | `loop`, `bound` |
-| `call_refused` | `step`, `object_id`, and `verdict`, the caused transition's own, whole, its `proposable` false |
+```json
+POST /v1/request
+{"actor": {"id": "u-10442"}, "type": "Claim", "transition": "draft",
+ "inputs": {"claimant": "employee-1", "title": "Taxis"}, "idempotency_key": "draft-1"}
+
+{"kind": "satisfied", "object_id": "claim-4", "version": 1, "events": [5], "replayed": false, "flags": []}
+```
+
+- `inputs`: the transition's inputs, by name, in the notation above.
+- `expected_version`: the version the caller read. If the object has moved on, the request is refused `stale`.
+- `idempotency_key`: at most 256 bytes. The same request under the same key, from the same actor, answers its first verdict with `"replayed": true`; a different request under it is a `409 key_reused` fault. The key belongs to the actor: another actor's request under it is a request of its own. Once an erasure has removed what a request sent, its key answers its first verdict whatever is sent under it, so a key confirms no guess of an erased value.
+- `occurred_at`: when the change happened, if earlier than now, within the transition's `backdating_limit`.
+- `propose`: `true` files the request as a `Proposal` instead of taking it, for a transition marked `proposable`. The verdict names the proposal. A person approves it with `{"object_id": "<proposal>", "transition": "approve"}`, which takes the request as the approver. `reject`, and `withdraw` by anyone but its proposer, are held to the kinds the transition's `taken_by` names. The proposal records its `proposer` by identity.
+- `expires_at`: when a proposal lapses, with `propose` only.
+- `context`: at most 16 KiB, the caller's reason, kept with the event. It is kept through an erasure, which removes only values marked `personal`: never put personal data in it.
+
+### Verdicts
+
+A verdict is `{"kind": …, "remedy": …}` with the fields of its kind; a satisfied one has no `remedy`. The kinds, their fields and the five remedies are in [Errors and refusals](errors.md#verdict-kinds).
 
 ```json
 {"kind": "invalid_input", "remedy": "self_serviceable", "inputs": ["amount", "expense_date"],
  "reasons": {"amount": "wrong_currency", "expense_date": "malformed"}}
 ```
 
-**`not_computed`.** A field the design names that the core does not yet compute is listed in the answer's `not_computed` rather than given a value that would mislead: today an offer's `consulted`, since an offer asks no evaluator, and an event's `object_seq`, `source`, `taint_version`, `txn` and `flags`. Read a field only where it is not listed. A flag carries `clause`, `remedy`, `unknown` and `objects`, as an unsatisfied clause does.
+**`not_computed`.** A field the design names but the engine does not compute yet is listed in the answer's `not_computed` instead of being given a misleading value: today an offer's `consulted` (an offer asks no evaluator) and an event's `object_seq`, `source`, `taint_version`, `txn` and `flags`. Read a field only where it is not listed.
 
-## 4. Operations
-
-**The actor.** An operation that acts or reads as someone takes `"actor": {"id": "<who>"}`, the actor's identity (an `Employee`'s `user_id`, say) or its object's id; the store's first actor is `operator`. A request made for someone else, an agent acting for a person, names that person as its `principal`, the request's own key or the actor's (`"actor": {"id": …, "principal": …}`), which must agree; it is checked as the actor is and recorded on the event. A request by an actor the store does not know is refused `unsatisfied`, clause `actor_known`; one by an actor, or for a principal, whose object is in a final state, a person who left or an agent retired, is refused `unsatisfied`, clause `actor_active`, each remedy `dependent` (ADR-0182). An object's built-in attributes that hold JSON, a `DeclarationChange`'s `source`, `report` and `evidence` and a `Proposal`'s `inputs`, are answered as JSON.
-
-### Requests
+## Reads
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `request` | `actor`, `transition`; `type` to create, `object_id` otherwise; `inputs`; `expected_version`, `idempotency_key`, `occurred_at`, `propose`, `expires_at`, `principal`, `context` | a verdict |
-| `check` | as `request` | `{"verdict": …, "unevaluated": [...]}`: the verdict it would have, nothing written |
+| `get` | `id`; `actor`, `follow` | the object, or `null`. With `"follow": true`, the object its supersession chain ends at. |
+| `history` | `id`; `actor`, `follow`, `limit`, `cursor` | `{"events": […], "cursor": …, "not_computed": […]}`, a page of the object's events in order, its imported legacy entries first on the first page; or `null`. With `"follow": true`, the events of every object whose chain ends where this one's does. |
+| `events` | `positions`; `actor` | `{"events": […]}`: each position's event, or `null`, in the order asked. At most a page's worth of positions, none twice. |
+| `availability` | `id`; `actor` | an offer per transition, or `null` |
+| `query` | `type`; `actor`, `filter`, `order`, `fields`, `cursor`, `limit` | `{"items": [{"id", "type", "fields"}…], "cursor": …, "refused": …}` |
+| `available` | `type`, `transition`; `actor`, `cursor`, `limit` | a page of the objects the transition is available to, with `actor_dependent` |
+| `exceptions` | `type`; `actor`, `cursor` | a page of the objects holding an admitted violation of an invariant |
+| `declaration` | `type`; `actor`, `version` | the type as declared, with its enumerations, `version`, `source_ref`, `source_digest` and `person_dimensions` |
+| `tools` | `actor_kind`; `actor` | `{"tools": [{"name", "description", "input_schema"}…]}`: the tools an actor of that kind is handed, sorted by name ([Agents](agents.md)) |
+| `metric` | `name`; `actor`, `bind`, `keep`, `over`, `filter`, `cursor` | `{"rows": [{"dimensions", "value"}…], "flags": […], "history_complete": …, "refused": …}` |
+| `lookup` | `source`, `value`; `actor` | the object an external identifier names, or `null`. `source` is an external system, or `legacy` with `"<Type>:<key>"`. |
+| `export` | `source`; `actor`, `cursor`, `limit` | `{"lines": […], "cursor": …}`: JSON lines of `log` (the event log), an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, with personal values left out |
+| `diagnostics` | `type`; `actor`, `window` | `{"diagnostics": […]}`: where the flow and its record disagree |
 
-```json
-POST /v1/request
-{"actor": {"id": "alice@corp"}, "type": "Claim", "transition": "draft",
- "inputs": {"claimant": "employee-1", "title": "Taxis"}, "idempotency_key": "draft-1"}
+A metric's `over` and diagnostics' `window` are positive durations; anything else is a `400`. The built-in attributes that hold JSON, a `DeclarationChange`'s `source`, `report` and `evidence` and a `Proposal`'s `inputs`, are answered as JSON.
 
-{"kind": "satisfied", "object_id": "claim-4", "version": 1, "events": [5], "replayed": false, "flags": []}
-```
-
-- `expected_version`, the version the caller read, refuses the request `stale` if the object has moved (ADR-0023).
-- `idempotency_key`, at most 256 bytes, makes a retry safe: the same request under the same key, from the same actor, answers its first verdict, `replayed: true`; a different request under it is a `409` fault. Once an erasure has redacted what the request sent, the key answers its first verdict whatever is sent under it, so it confirms no guess of the erased value (fourth production review). A key is the actor's: another actor's request under the same key is a request of its own, so a retry queue sends under the identity the first request named.
-- `propose: true` files the request as a `Proposal` instead of taking it, for a transition marked `proposable`; the verdict names the proposal, and a person approves it with `{"object_id": "<proposal>", "transition": "approve"}`, which takes the request as the approver. `reject`, and `withdraw` by any but its proposer, are held to the kinds the transition's `taken_by` names, refused as approving would be, `invariant_violated`, `<transition>_taken_by`, `delegable`; the proposal names its `proposer` by identity (ADR-0191).
-- `context`, at most 16 KiB, is the caller's reason, kept with the event, and kept through an erasure, which erases only values marked `personal`: never put personal data in it (production review F7).
-
-### Reads
-
-| Operation | Keys | Answers |
-|---|---|---|
-| `get` | `id`, `follow` | the object, or `null`; no `id` is a `400`; with `"follow": true`, the object its supersession chain ends at, its successor's successor and on (`DESIGN.md` §5) |
-| `history` | `id`, `follow`, `limit`, `cursor` | `{"events": [...], "cursor": …, "not_computed": [...]}`, its legacy entries first, on the first page, or `null`; no `id` is a `400`; with `"follow": true`, every member's whose chain ends where this one's does, their legacy entries first, then their events in position order (ADR-0147); a page of events, as **Pages** below says (ADR-0192) |
-| `events` | `positions` | `{"events": [...]}`, each position's event or `null`, in the order asked; at most a page's positions, each named once, a repeat `400` (ADR-0190) |
-| `availability` | `actor`, `id` | each transition's offer to the actor, or `null` |
-| `query` | `actor`, `type`, `filter`, `order`, `fields`, `cursor`, `limit` | `{"items": [...], "cursor": "<next page>" or null, "refused": null}` |
-| `available` | `actor`, `type`, `transition`, `cursor`, `limit` | a page of the objects the transition is available to |
-| `exceptions` | `actor`, `type`, `cursor` | a page of the objects holding an admitted violation |
-| `declaration` | `type`, `version` | the type as declared, with its enumerations, `version`, `source_ref`, `source_digest` and `person_dimensions` |
-| `tools` | `actor_kind` | `{"tools": [...]}`: each `{name, description, input_schema}` an agent of that kind is handed, sorted by name (`renderers.md` §3) |
-| `metric` | `actor`, `name`, `bind`, `keep`, `over`, `filter`, `cursor` | `{"rows": [{"dimensions": …, "value": …}], "flags": [...], "history_complete": …, "refused": null}` |
-| `lookup` | `actor`, `source`, `value` | the object an external identifier names (`source` an external system, or `legacy` with `"<Type>:<key>"`), or `null` |
-| `export` | `actor`, `source`, `cursor`, `limit` | `{"lines": [...], "cursor": …}`: JSON lines of `log`, the event log, an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, personal values left out; `refused: "invalid_cursor"` for a cursor past what the store has handed out |
-| `diagnostics` | `actor`, `type`, `window` | `{"diagnostics": [...]}`: where the flow and its record disagree |
-
-An **object**:
+### An object
 
 ```json
 {"id": "claim-4", "type": "Claim", "state": "DRAFT", "version": 2, "declaration_version": 1,
@@ -137,9 +107,11 @@ An **object**:
  "recorded_from": "2026-01-01T00:00:00Z", "open": true}
 ```
 
-Every attribute is there, derived ones among them; a set reference holds its members' ids, `[]` where there are none.
+Every attribute is there, derived ones included. A set holds its members' ids, `[]` when empty.
 
-An **offer**, one per transition, its inputs as types to build a form from (which are required is in `declaration`):
+### An offer
+
+One per transition, as `availability` answers it:
 
 ```json
 {"transition": "add_line", "creates": null, "availability": "unavailable",
@@ -148,11 +120,15 @@ An **offer**, one per transition, its inputs as types to build a form from (whic
  "unevaluated": [], "flags": [], "actor_dependent": false}
 ```
 
-`availability` is `available`, `available_with_input` or `unavailable`, with the refusal it would meet; `flags` are the warnings taking it would raise; `unevaluated`, the evaluators it would ask. **`actor_dependent: true`** says the transition writes who takes it into what an invariant reads, so it may be refused for who takes it. One that takes no input and asks no evaluator is decided for who asks: the request is simulated with no inputs, as `check` would, so an agent is offered no approval marked `taken_by: [human]` and sees why, `unavailable` with the `invariant_violated` it would meet (ADR-0176). One awaiting inputs cannot be decided until they are given, so an application `check`s it with them, or lets the request answer. `available`'s page carries `actor_dependent` for its transition, since a sweep is not simulated row by row.
+- `availability` is `available`, `available_with_input` or `unavailable`, with the `verdict` it would meet.
+- `inputs` are the input types to build a form from; which are required is in `declaration`.
+- `flags` are the warnings taking it would raise; `unevaluated`, the evaluators it would ask.
+- A transition taking no input and asking no evaluator is decided for the actor asking: the request is simulated, as `check` would, so an agent sees an approval marked `taken_by: [human]` as `unavailable` with the refusal it would meet. **`actor_dependent: true`** marks one awaiting inputs that may still be refused for who takes it: `check` it with the inputs, or let the request answer.
+- Every object offers the built-in `record`, `"creates": "label"`: a label anyone may put on any object, which metrics read. It takes `name`, an optional `note`, and an optional `corrects`, naming an earlier label it corrects.
 
-Every offer of an object carries the built-in `record` with `"creates": "label"`: a label, a name a person or an agent puts on any object, which a metric reads (`flow-format.md` §4.9). A form for it takes `name`, an optional `note`, and an optional `corrects`, an earlier label it corrects, as any observation's recording may (`declaration-syntax.md` §6.8).
+### An event
 
-An **event**, as `history`, `events` and `pull` answer it:
+As `history`, `events` and `pull` answer it:
 
 ```json
 {"position": 3, "object_id": "transfer-2", "transition": "settle", "from_state": "SENT", "to_state": "SETTLED",
@@ -164,36 +140,52 @@ An **event**, as `history`, `events` and `pull` answer it:
  "retries": 0}
 ```
 
-`retries` is how many times the request waited out another process's write lock (ADR-0178). `payload.inputs` holds what the request sent; `reads`, what its rules read; and `consulted` and `as_of`, by guard, each evaluator's verdict or metric's value it was given, by the call with its arguments, and when (`library-api.md` §5).
+`payload.inputs` holds what the request sent, `reads` what its rules read, and `consulted` and `as_of`, by guard, each outside answer or metric value it used and when. `retries` counts the times the request waited out another process's lock on the store.
 
-A **query filter** is an expression over the type's members (`declaration-syntax.md` §8): `amount > USD 100.00`, `state == ClaimLine.LISTED`, `claim.number == "EXP-00001"`. A reference is compared by its id, `claim.id == "claim-4"`: a filter comparing a reference with a string, or computing with one, is refused `malformed_filter`. A query's refusal is `refused`, a code: `unknown_type`, `malformed_filter`, `unknown_order_key`, `unknown_field`. A **metric's filter** reads its rows through the metric's item, `i.state == Claim.SUBMITTED` for `time_in_state`; one naming anything else is refused `malformed_filter`, as are `unknown_metric`, `unknown_dimension`, `filter_on_combined`, `no_window` and `personal` (`library-api.md` §5). A `malformed_filter` page, a query's or a metric's, carries a `reason`, a sentence saying what the filter did; a filter an object of the type cannot answer, one whose value is not a boolean or that adds text to a number, is `malformed_filter` too, its reason naming the kinds it met and never a value an object holds (ADR-0192 decision 7). A metric's `over` and a diagnostics' `window` are a positive duration, anything else `400` (ADR-0191).
+### Pages
 
-**Pages** (ADR-0179): `query`, `available`, `pull`, `export` and `history` answer at most `limit` items, 1 to 1000, **100 unless asked**, with the `cursor` of the next page, `null` where it is the last; send the cursor back, with the same read, until it is `null`. A cursor continues only the read it came from: another `query` or `available` refuses it `malformed_cursor`. A page goes on after the last object given, in the read's order, so an object created between pages is met once and none twice, unless an object's order key changes between pages. `pull` pages by its settled cursor and `export` by its own, each a position in a log that grows, so neither is ever `null`: a page with fewer than `limit` items is the end of what is there now, and the cursor kept reads what is added later (ADR-0089); a metric's read and `exceptions` answer one page.
+`query`, `available`, `history`, `pull` and `export` answer at most `limit` items, from 1 to 1000, **100 unless asked**, with the `cursor` of the next page, `null` on the last. Send the cursor back, with the same read, until it is `null`. A cursor continues only the read it came from: another `query` or `available` refuses it `malformed_cursor`. A page continues after the last object it gave, in the read's order, so an object created between pages is met once and none twice, unless an object's order key changes between pages.
 
-**Filters and order.** A `filter` is an expression of the flow's language over the type's members (`declaration-syntax.md` §8): a state or an enumeration's member by name (`state == Claim.SUBMITTED`), a reference by its id (`claim.id == "claim-4"`), money, numbers and text as literals, and a time against `now` (`submitted_at <= now - 30 days`), since there is no timestamp literal. A filter comparing a member with a literal its type cannot hold, a time with text, a name with a number, the state with text, is refused `malformed_filter` rather than answered empty (D580), as is one no stored object can answer, calling an evaluator, reading the request's `actor`, `inputs` or `this_event`, or dividing by a literal zero, and one with a literal past what its type holds, rather than answered not run (fourth production review), and so is a filter nested deeper than 64 levels or with a tree deeper than 128, or nesting aggregates more than two deep, or writing a set of more than 1,000 members, which held a read's slot for seconds each (ADR-0190 decision 3), or calling a metric, or holding more than 256 terms, a set of literals counting as one (ADR-0192 decision 3): a long list of alternatives, up to 1,000, is written `number in {"C-1", "C-2", …}`, not as a chain of `or`s. `order` is a key or a list of keys, each an indexed attribute, `created_at` or `entered_at(<tracked member>)`, ascending unless followed by ` desc`, the id breaking ties and an absent value last; any other key is refused `unknown_order_key` (ADR-0127).
+`pull` and `export` page through a log that grows, so their cursor is never `null`: a page with fewer than `limit` items is the end of what is there now, and the cursor you keep reads what is added later. A metric's read and `exceptions` answer one page.
 
-### Subscriptions
+### Filters and order
 
-A subscription is an object: `{"actor": …, "type": "Subscription", "transition": "subscribe", "inputs": {"target_type": "Claim"}}`, optionally with `target_family`, `transitions`, `changes_state_only`, `lagging_after` and `dead_after`.
+A `filter` is a boolean expression of the flow's language over the type's members ([`declaration-syntax.md`](../design/declaration-syntax.md) §8):
+
+- a state or an enumeration member by name: `state == Claim.SUBMITTED`;
+- a reference by its id: `claim.id == "claim-4"`;
+- money, numbers and text as literals: `amount > USD 100.00`, `claim.number == "EXP-00001"`;
+- a time against `now`, since there is no timestamp literal: `submitted_at <= now - 30 days`;
+- a set of literals for a list of alternatives, up to 1,000: `number in {"C-1", "C-2"}`.
+
+A filter is refused `malformed_filter`, with a `reason` naming what it did but never a value an object holds, when it: does not parse; compares a member with a literal its type cannot hold (a time with text, a reference with a string, the state with text); is not a boolean or adds text to a number; holds a literal past what its type holds; calls an evaluator or a metric; reads the request (`actor`, `inputs`, `this_event`); divides by a zero; nests deeper than 64 levels or has a tree deeper than 128; nests aggregates more than two deep; writes a set of more than 1,000 members; or holds more than 256 terms, a set of literals counting as one.
+
+`order` is a key or a list of keys, each ascending unless followed by ` desc`: `created_at`, `entered_at(<tracked member>)`, or an attribute holding one value. The object id breaks ties, and an absent value sorts last. Any other key is refused `unknown_order_key`.
+
+A **metric's filter** reads its rows through the metric's item, such as `i.state == Claim.SUBMITTED` for `time_in_state`; one naming anything else is refused `malformed_filter`, and one reading a personal value `personal`.
+
+## Subscriptions
+
+A subscription is an object: `{"actor": …, "type": "Subscription", "transition": "subscribe", "inputs": {"target_type": "Claim"}}`, optionally with `target_family`, `transitions`, `changes_state_only`, `lagging_after` and `dead_after`. `revoke` ends it.
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `pull` | `actor`, `subscription`, `cursor`, `limit` | `{"events": [...], "settled": "<cursor>", "refused": null}` |
-| `acknowledge` | `actor`, `subscription`, `cursor` | `{"refused": null}`: everything up to the settled cursor is handled; `invalid_cursor` for a cursor below 0 or past the log's last, 0 replaying the log from its start |
+| `pull` | `subscription`; `actor`, `cursor`, `limit` | `{"events": […], "settled": "<cursor>", "refused": …}` |
+| `acknowledge` | `subscription`, `cursor`; `actor` | `{"refused": …}`: everything up to the cursor is handled. `0` replays the log from its start. |
 
 There is no push: a consumer polls `pull` and acknowledges what it has handled.
 
-### Changing the declaration, and importing
+## Changing the flow, importing, and housekeeping
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `publish` | `actor`, `change`, `dry_run`, `expected_version` | `{"verdict": …, "report": {...}}`: a `DeclarationChange`'s dry run and its impact report, or its approval at the version read, which installs the version; an approver of a kind the installed version's `publishing.taken_by` does not name, the operator excepted, is refused `invariant_violated`, the invariant `publish_taken_by` on the change, `delegable` (ADR-0187) |
-| `import_batch` | `actor`, `batch`, `disposition`, `dry_run` | `{"written": …, "findings": [...], "refused_types": [...], "refusal": …}`; a batch's `sequences` raise only a sequence a module declares, with a `last` that leaves it a next number, from 0 to 2⁶³ − 3, else the batch is refused and writes nothing (D607) |
-| `maintain` | `actor`, `task` | `{"moved": …, "refused": …}`: `task` is `{"name": "prune_attempts" \| "prune_idempotency" \| "archive_events", "before": "<timestamp>"}`; its actor resolved as a request's is, so one the store does not know is refused `actor_known` and one in a final state `actor_active`; a prune inside the retention the service was started with is refused `inside_retention`, and one where it was started with none for the task `no_retention`, and `archive_events` is a `501`, since one SQLite file has no tier to move events to |
+| `publish` | `change`; `actor`, `dry_run`, `expected_version` | `{"verdict": …, "report": {…}}`: a `DeclarationChange`'s dry run and impact report (`"dry_run": true`), or its approval at the version read, which installs the new version. An approver of a kind the installed version's `publishing.taken_by` does not name, the operator excepted, is refused `invariant_violated`, `publish_taken_by`, `delegable`. |
+| `import_batch` | `batch`; `actor`, `disposition`, `dry_run` | `{"written": …, "findings": […], "refused_types": […], "refusal": …}` |
+| `maintain` | `task`; `actor` | `{"moved": …, "refused": …}`. `task` is `{"name": "prune_attempts" \| "prune_idempotency" \| "archive_events", "before": "<timestamp>"}`. |
 
-A change is an object: `{"type": "DeclarationChange", "transition": "draft", "inputs": {"source": {"<module>": "<its YAML>", …}, "source_ref": "git:…"}}`, then `submit`, which runs its dry run, then `publish` with `expected_version` to approve it. The whole procedure, and importing legacy data into mirror types, is `docs/design/publish-and-import.md`; §7 there works a go-live through.
+A **change** is an object: `{"type": "DeclarationChange", "transition": "draft", "inputs": {"source": {"<module>": "<its YAML>", "<module>.examples": "<its examples>"}, "source_ref": "git:…"}}`, then `submit`, which runs the dry run, then `publish` with `expected_version` to approve it. [`publish-and-import.md`](../design/publish-and-import.md) is the whole procedure.
 
-A **batch** (`publish-and-import.md` §4), each object of a mirror type, its references by the other's legacy key:
+A **batch** writes objects of `mirror` types, each referencing others by their legacy key:
 
 ```json
 {"objects": [
@@ -210,28 +202,43 @@ A **batch** (`publish-and-import.md` §4), each object of a mirror type, its ref
  "legacy_kinds": {"note": ["text"]}}
 ```
 
-`type`, `legacy_key` and `state` are required; the rest is what the legacy record can say: when the object was created and by what kind of actor, when it took its current state or a tracked member its value and who changed it (`entered`), its earlier values (`legacy_intervals`), its audit rows (`legacy_entries`, each kind's fields kept through an erasure in `legacy_kinds`), the spans the record is silent over, and each sequence's last number. A mirror's external identifier, `legacy_key` above, holds the key in `attributes` too. The **disposition file** is the dry run's `findings`, each with `disposition` set: `clean_upstream`, `admit` (an invariant), `exclude` or `drop` (a reference or a field), and optionally `decided_by` and `reason` (§6 there). A reference to a legacy key neither the batch nor the store has is a finding too, `"<Type>.<reference>: names nothing"`, so one dry run lists them all (ADR-0176).
+`type`, `legacy_key` and `state` are required; the rest is what the old record can say: when the object was created and by what kind of actor, when it took its current state or value and who changed it (`entered`), its earlier values (`legacy_intervals`), its audit rows (`legacy_entries`, each kind's fields listed in `legacy_kinds`), the spans the record is silent over, and each sequence's last number. A batch's `sequences` raise only a sequence a module declares, to a `last` from 0 to 2⁶³ − 3; anything else refuses the batch, which then writes nothing. The **disposition** is a dry run's `findings`, each given a `disposition`: `clean_upstream`, `admit` (an invariant), `exclude` or `drop` (a reference or a field), optionally with `decided_by` and `reason`. A reference to a legacy key neither the batch nor the store has is a finding, `"<Type>.<reference>: names nothing"`, so one dry run lists them all.
 
-A **deployment's evaluator endpoint** (ADR-0175) is posted each call as `{"evaluator": "xero", "function": "bill_paid", "arguments": ["BILL-0042"]}`, the arguments in the order the function declares them, each in this page's notation, and answers `{"verdict": "satisfied"}` or `{"verdict": "unsatisfied"}` with a `200`; anything else, or no answer within `--evaluator-timeout`, is the evaluator's unknown, so its guard is refused `temporal`, and the service writes why on its standard error, which is where an integration's fault shows. A check still pending, a background check not yet back, is neither verdict: answer it `{"verdict": "unanswered"}`, or any other body, and the guard is unknown, refused `temporal`, retried later, where an adverse result answered `unsatisfied` is refused with the condition's own remedy.
+## Upgrade
 
-### A deployment's upgrade
+| Operation | Keys | Answers |
+|---|---|---|
+| `upgrade` | `actor`, `dry_run` | the steps from the store's engine release to this one, run, or with `"dry_run": true` run and rolled back |
 
-`GET /health` answers `release`, this copy's engine release, `store_release`, the store's, and `upgrade_due`. A copy started on a store an earlier release made answers every operation but one `503 engine_mismatch`, and that one is **`POST /v1/upgrade`** `{"actor": {"id": "operator"}, "dry_run": true}`: the store's operator carries the store through each release between, or with `dry_run` runs every step and rolls it back, answering
+A service started on a store an earlier release made answers every operation but `upgrade` with `503 engine_mismatch`. The store's operator runs it:
 
 ```json
-{"from": "objectflow-core 0.1.0", "to": "objectflow-core 0.2.0", "dry_run": false, "upgraded": true,
+POST /v1/upgrade
+{"actor": {"id": "operator"}, "dry_run": true}
+
+{"from": "objectflow-core 0.1.0", "to": "objectflow-core 0.2.0", "dry_run": true, "upgraded": false,
  "steps": [{"release": "objectflow-core 0.2.0", "changes": "the store records its engine release in of_engine_release, …"}]}
 ```
 
-after which the copy serves the store. An actor that is not the store's operator is a `409`; a store at this release already answers `upgraded: false` with no steps; a store of a release this copy does not upgrade from, a later one's among them, does not start (`storage-schema.md` §12, ADR-0177).
+Another actor is answered `409`. A store already at this release answers `"upgraded": false` with no steps. A store of a release this one does not upgrade from, a later one included, does not start. [Operate](operate.md#upgrading-the-engine) gives the procedure.
 
-### The sandbox's controls
+## The evaluator endpoint
+
+A deployment posts each evaluator call to the endpoint `--evaluator <name>=<url>` names, with `Authorization: Bearer <token>` where `--evaluator-token` gives one:
+
+```json
+{"evaluator": "xero", "function": "bill_paid", "arguments": ["BILL-0042"]}
+```
+
+The arguments come in the order the function declares, in the notation above. Answer `200` with `{"verdict": "satisfied"}` or `{"verdict": "unsatisfied"}`. A check still pending answers `{"verdict": "unanswered"}`. Anything else, including no answer within `--evaluator-timeout`, makes the guard unknown, refused `temporal`, and the service logs why. An `unsatisfied` answer is refused with the condition's own remedy.
+
+## Sandbox controls
+
+A sandbox serves these beside every operation; a deployment serves none of them.
 
 | Control | Keys | Answers |
 |---|---|---|
-| `/sandbox/load` | `files` (each `name` and `text`, imports first), `attempt_retention`, `idempotency_retention` | `{"loaded": true, "modules": [...], "types": [...], "evaluators": [...], "now": …}` |
-| `/sandbox/reset` | none | `{"now": …}`: the loaded modules kept, every object gone |
+| `/sandbox/load` | `files` (each `name` and `text`, imported modules first), `attempt_retention`, `idempotency_retention` | `{"loaded": true, "modules": […], "notices": …, "types": […], "evaluators": […], "now": …}`. It installs the flow unchecked and empties the store. |
+| `/sandbox/reset` | none | `{"now": …}`: every object gone, the flow kept |
 | `/sandbox/clock` | `advance` (a duration) or `set` (a timestamp) | `{"now": …}` |
 | `/sandbox/evaluators` | `answers`: each `"<evaluator>.<function>"` to `satisfied`, `unsatisfied` or `unanswered` | the answers held |
-
-A deployment's service routes none of these: its clock is the wall's, its evaluators are answered at the endpoints it names, each call posted as `{"evaluator", "function", "arguments"}` and answered `{"verdict": "satisfied"}` or `{"verdict": "unsatisfied"}` (ADR-0175), and its flow arrives by `publish`.

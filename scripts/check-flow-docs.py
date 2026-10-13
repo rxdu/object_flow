@@ -25,6 +25,9 @@
 6. A mermaid block whose first line is `%% <module>.<Type>` is the state
    diagram scripts/flow-diagram.py draws for that type, so a diagram cannot
    drift from the module it shows.
+7. A ```yaml block may name the file it is, in a first line `# <name>.yaml`,
+   as the guides' tutorials do for a reader to save it (ADR-0193); that line
+   is no part of what the block holds, which begins on the next.
 
 Run with no arguments to check every document, or name the documents to
 report on. Exit status is non-zero if anything is reported.
@@ -37,6 +40,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "docs/design/flow-format/examples"
 CONTINUED = re.compile(r"^# (\w+), continued\s*$")
+FILE_NAME = re.compile(r"^# [\w.-]+\.yaml\s*$")
 
 # A module declared in more than one document names its home here, as
 # check-syntax-doc.py's MODULE_HOMES does for the text notation.
@@ -64,6 +68,10 @@ def fences(text):
         if info is None and line.startswith("```"):
             info, body, start = line[3:].strip(), [], i + 1
         elif info is not None and line.strip() == "```":
+            # a yaml block's first line naming the file it is, which it does
+            # not hold (item 7)
+            if info == "yaml" and body and FILE_NAME.match(body[0]):
+                body, start = body[1:], start + 1
             out.append((info, start, body))
             info = None
         elif info is not None:
@@ -324,6 +332,9 @@ def self_test(texts):
          {**base, trial: plain.replace("module: documents\n", "module: documents\nimports: { nowhere: [Customer] }\n")}),
         ("a module the flow checker refuses, at the line it is on", "names:",
          {**base, trial: plain.replace("        to: PUBLISHED\n", "        to: PUBLISH\n")}),
+        ("a module naming its file, refused at the line it is on", "names:",
+         {**base, trial: plain.replace("```yaml\nmodule: documents", "```yaml\n# documents.yaml\nmodule: documents", 1)
+                              .replace("        to: PUBLISHED\n", "        to: PUBLISH\n")}),
         ("a later version that removes a state with no mapping", "migration",
          {**base, trial: plain + "\n" + module.replace("      DRAFT:\n        description: Being written.\n        category: live\n", "")
                                                       .replace("        to: DRAFT\n", "        to: PUBLISHED\n")
@@ -361,6 +372,14 @@ def self_test(texts):
     clean = not [f for f in found if f[0] == trial]
     ok &= clean
     print(f"  a module split across two blocks, the diagram it draws and its examples are checked clean: "
+          f"{'yes' if clean else [f[2] for f in found if f[0] == trial]}")
+    # a module and its examples each naming its file, as the guides' are
+    named = (plain.replace("```yaml\nmodule: documents", "```yaml\n# documents.yaml\nmodule: documents", 1)
+             + examples.replace("```yaml\nexamples_for:", "```yaml\n# documents.examples.yaml\nexamples_for:", 1))
+    found, _checked = check_docs(list({**base, trial: named}.items()))
+    clean = not [f for f in found if f[0] == trial]
+    ok &= clean
+    print(f"  a module and its examples each naming its file are checked clean: "
           f"{'yes' if clean else [f[2] for f in found if f[0] == trial]}")
     return ok
 

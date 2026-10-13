@@ -250,7 +250,7 @@ pub fn vetoes(doc: &Value, library: &Obj) -> Found {
                 segs!["types", &tn, "invariants", i],
                 "veto".into(),
                 format!(
-                    "{tn}.{i} reads through {what}, and every state of {tn} is final, so no transition of its own can break it: it can only refuse a change to what it reads there. To hold a fact as it stood when the {tn} was made, copy it onto the {tn} then (write-a-flow.md §5, ADR-0176)"
+                    "{tn}.{i} reads through {what}, and every state of {tn} is final, so no transition of its own can break it: it can only refuse a change to what it reads there. To hold a fact as it stood when the {tn} was made, copy it onto the {tn} then (write-a-flow.md, Patterns, ADR-0176)"
                 ),
             ));
         }

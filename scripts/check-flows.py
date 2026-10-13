@@ -3589,7 +3589,7 @@ def vetoes(doc, library):
     """An invariant that can only refuse other objects' changes: one a type declares whose every state is final, so
     no transition of its own can break it once it is created, reading through a reference or its referrers, so it is
     checked again whenever what it reads changes, and refuses that change (flow-format.md §4.6, ADR-0176 decision 5).
-    A fact the record is to hold as it stood is copied onto it when it is made (write-a-flow.md §5)."""
+    A fact the record is to hold as it stood is copied onto it when it is made (write-a-flow.md, Patterns)."""
     out = []
     kinds = dict(library or {})
     kinds.update(dict(types(doc)))
@@ -3617,7 +3617,7 @@ def vetoes(doc, library):
             out.append((("types", tn, "invariants", i), "veto",
                         f"{tn}.{i} reads through {what}, and every state of {tn} is final, so no transition of its "
                         f"own can break it: it can only refuse a change to what it reads there. To hold a fact as it "
-                        f"stood when the {tn} was made, copy it onto the {tn} then (write-a-flow.md §5, ADR-0176)"))
+                        f"stood when the {tn} was made, copy it onto the {tn} then (write-a-flow.md, Patterns, ADR-0176)"))
     return out
 
 

@@ -4428,7 +4428,7 @@ async fn serve() -> std::io::Result<()> {
                     .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
                 if let Some(fault) = checked {
                     return Err(std::io::Error::other(format!(
-                        "{} fails SQLite's quick check ({fault}); a copy restored beside the -wal or -shm of another state does this: nothing was written, so restore the copy alone, with neither beside it (integrate.md §9)",
+                        "{} fails SQLite's quick check ({fault}); a copy restored beside the -wal or -shm of another state does this: nothing was written, so restore the copy alone, with neither beside it (operate.md, Backups and restore)",
                         path.display()
                     )));
                 }
