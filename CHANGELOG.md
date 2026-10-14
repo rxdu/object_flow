@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- An `int` literal past 64 bits is refused at publish (check 24), and in a reader's filter refused `value_in_range`, where it was read as a decimal (the values audit's L3).
 - A collection is a set: `{1, 2} == {2, 1}` and `{2} == {2.0}` are true, `{1, 1}` holds one element, and `x in {a, b}` is `unknown` where `b` is unknown and `a` is not `x`, so `not (2 in {1, code})` no longer holds with `code` absent; a literal holding an unknown element is `unknown` elsewhere (the values audit's A8).
 - The checker refuses `changed_since` given anything but an event, such as an int, which the engine read as a position in the log (the values audit's G7).
 - The checker refuses `avg`, `median`, `percentile` and the time buckets `day` … `year` in an attribute's or an input's default, a `create`'s or a `call`'s inputs, a loop's `where` and a migration's backfill, as check 56 says ("outside a metric"), where it refused them only in a derived attribute, an invariant, a condition and an effect's `set`, `add` and `remove` (the values audit's G8). A flow that wrote one there no longer publishes.

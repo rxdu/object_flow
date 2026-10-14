@@ -539,6 +539,10 @@ impl<'a> Evaluator<'a> {
         self.world.on_time()?;
         Ok(match e {
             Expr::Num(Number::Int(n)) => Term::Value(Value::Int(*n)),
+            // an int literal past 64 bits has no value, as an arithmetic past
+            // them has none (§8.1, §8.2), where it was read as a decimal of
+            // scale 0 the runner did not hold (the values audit's L3)
+            Expr::Num(Number::Decimal(t)) if !t.contains('.') => return Err(self.out_of_range()),
             Expr::Num(Number::Decimal(t)) => match Decimal::parse(t) {
                 Some(d) => Term::Value(Value::Decimal(d)),
                 None => return not_run(format!("the number {t}")),
@@ -2722,6 +2726,10 @@ types:
         assert_eq!(read("rate + 0.125"), Ok(dec("10.125")));
         let out = Err(NotRun::OutOfRange("job-1".into()));
         assert_eq!(read("hours + 1"), out);
+        // an int literal past 64 bits has none either, as a caller's filter
+        // writes it, where it was a decimal of scale 0 (the values audit's L3)
+        assert_eq!(read("hours < 9223372036854775808"), out);
+        assert_eq!(read("hours == 9223372036854775807"), Ok(Value::Bool(true)));
         assert_eq!(read("(hours + 1) is null"), out);
         assert_eq!(read("hours * 2 > 0 or true"), out);
         assert_eq!(read("-(0 - hours - 1)"), out);

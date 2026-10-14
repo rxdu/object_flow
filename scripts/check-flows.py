@@ -2445,6 +2445,10 @@ class Typing:
         loops' and aggregates' bound names in env; each rule it breaks noted in self.broken, in evaluation order."""
         k = e[0]
         if k == "num":
+            if isinstance(e[1], int) and e[1] > 2 ** 63 - 1:
+                # an int literal past 64 bits, which has no value (§8.1, the values audit's L3)
+                self.fail(f"the literal {e[1]} is past an int's 64 bits")
+                return ("int",)
             # a literal's scale is its digits after the point, which a product adds (§8.3); in a sum or a
             # comparison it takes the other operand's type
             return ("number", 0 if isinstance(e[1], int) else len(e[1].split(".", 1)[1]))
@@ -8126,6 +8130,9 @@ def expression_type_plants(people):
          [wrong("derived attribute probe", "XYZ is a currency whose minor unit the engine does not know")]),
         ("a fraction of a second", ledger("span + 1.5 s > span"), [wrong("derived attribute probe", "1.5 s is no whole number of seconds")]),
         ("literals held exactly", ledger("usd + USD 1.50 > usd and span + 0.5 min > span"), []),
+        ("an int literal past 64 bits", ledger("count + 9223372036854775808 > 0"),
+         [wrong("derived attribute probe", "the literal 9223372036854775808 is past an int's 64 bits")]),
+        ("the widest int literal", ledger("count < 9223372036854775807"), []),
         ("a count's body that is no condition", ledger("count(a in Account: a.count) > 0"),
          [wrong("derived attribute probe", "the body of count is an int, not a bool")]),
         ("a count's condition and a distinct count's value", ledger("count(a in Account: a.vip) > count(distinct a in Account: a.count)"), []),

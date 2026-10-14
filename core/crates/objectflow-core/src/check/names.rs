@@ -3285,6 +3285,12 @@ impl Typing<'_> {
         seen: &BTreeSet<(String, String)>,
     ) -> Option<Ty> {
         match e {
+            // an int literal past 64 bits, which has no value (§8.1, the
+            // values audit's L3)
+            Expr::Num(Number::Decimal(t)) if !t.contains('.') => {
+                self.fail(format!("the literal {t} is past an int's 64 bits"));
+                Some(Ty::Int)
+            }
             Expr::Num(n) => Some(Ty::Number(match n {
                 Number::Int(_) => 0,
                 Number::Decimal(t) => t.split_once('.').map_or(0, |(_, f)| f.len() as u32),
