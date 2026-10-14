@@ -2,7 +2,7 @@
 # HTTP service that is its one asynchronous layer.
 [workspace]
 resolver = "3"
-members = ["crates/objectflow-core", "crates/objectflow-service"]
+members = ["crates/objectflow-core", "crates/objectflow-service", "crates/objectflow-harness"]
 
 [workspace.package]
 version = "0.2.0"

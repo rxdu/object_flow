@@ -534,6 +534,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "objectflow-harness"
+version = "0.2.0"
+dependencies = [
+ "objectflow-core",
+ "serde_json",
+]
+
+[[package]]
 name = "objectflow-service"
 version = "0.2.0"
 dependencies = [

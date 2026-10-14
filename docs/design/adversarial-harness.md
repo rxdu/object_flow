@@ -16,6 +16,17 @@ Draft, 2026-09-09, amended 2026-09-23. The acceptance test, which PRD N4 names a
 
 **Amended 2026-09-28** for ADR-0132: the harness is written in Rust against the core in process, keeping ADR-0091's deterministic driving; the Python checkers stay independent of the core, and the same flows run through both are each the other's oracle.
 
+**Built, first slice, 2026-10-14** (ADR-0204 §6), as `core/crates/objectflow-harness`, run by `scripts/check-all` through the core's suites:
+- **Fixtures:** the shipped example flows of `flow-format/examples`, each with what it imports: people with service, people with issues, inventory with delivery, reimbursement, servicedesk, customers and approvals. The unit's journey of §3, written in a design document rather than a module, is left to a later slice.
+- **Behaviours:** the guesser, sending any transition of any object or type with generated inputs, now and then of the wrong type or missing; the retrier, sending a keyed request again as it was or with another transition; the skipper, naming a version the world has moved past; the backdater, one of the route-tester's routes; an eraser, erasing an object that was given personal values; and the clock and the evaluators' answers changed as a sandbox's caller changes them. The racer, which needs PostgreSQL to find anything (§5), and the route-tester's other routes, are left to a later slice.
+- **Failure conditions:**
+  - from §1: an object in a state no transition of its type reaches, a built-in type's excepted; an invariant false with no admission; a required attribute absent; a stored relationship end its far side disagrees with; a satisfied verdict with no event, or naming one the log has not or another actor made; an export of the log that skips an event or orders it otherwise; an erased object's personal value still held in an object, an interval, the log or an attempt;
+  - from ADR-0204 §3: a key that does not replay the request first sent under it, or that refuses a request it never saw.
+
+  Left to a later slice: a replay of the log reproducing each row, a read set re-evaluating to its verdict, a refusal replaying, and the interval index against the log.
+- **Determinism:** a run is a function of its fixture and its seed, held by a test, and a failing run is reduced to the shortest transcript that still fails. The gates run six seeds of 120 steps for each fixture, and `OBJECTFLOW_HARNESS_SEEDS` and `OBJECTFLOW_HARNESS_STEPS` widen a run.
+- **Held by planted defects:** invariants left unenforced, an erasure leaving events' payloads, an event recorded under another actor, and every key refused as reused are each caught at the gates' budget.
+
 **Amended 2026-09-24** for ADR-0105 and ADR-0106, from a review of the whole record against PRD revision 5:
 - the claim is stated in PRD F2's four routes;
 - UC-19's fourth route, retiring a catalogue entry, joins the route-tester;

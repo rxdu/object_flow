@@ -1,0 +1,15 @@
+[package]
+name = "objectflow-harness"
+description = "ObjectFlow's adversarial harness: a fallible actor, driven from a seed, against the core, the acceptance test PRD N4 names"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+objectflow-core.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

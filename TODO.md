@@ -517,10 +517,12 @@ Decided by the author 2026-10-14 ("go with your recommendations on all six"), af
 - [ ] `README.md` and `SECURITY.md` state ADR-0204 §10's limits.
 
 **B. The adversarial harness** (ADR-0204 §6, decision 9.2; `design/adversarial-harness.md`).
-- [ ] A crate driving the core in process from a seed: the fixtures of §3, a transcript, and a failing run reduced to its shortest failing prefix.
-- [ ] The failure conditions of §1, extended by ADR-0204 §3's A, V and E, each checked from the read surface.
-- [ ] The guesser, the retrier, the skipper and the route-tester; the racer on SQLite, whose serial writer leaves it little to find (§5).
-- [ ] Run in `scripts/check-all` with a fixed budget of seeds.
+- [x] A crate driving the core in process from a seed, the shipped examples as fixtures, a transcript, a failing run reduced to its shortest failing prefix. *Done 2026-10-14: `core/crates/objectflow-harness`; a run held to its seed by a test.*
+- [x] A first set of failure conditions from §1 and ADR-0204 §3's A and E, each checked from the read surface. *Done 2026-10-14: four planted engine defects each caught at the gates' budget (`adversarial-harness.md`, Built).*
+- [x] The guesser, the retrier, the skipper, the backdater and an eraser. *Done 2026-10-14.*
+- [x] Run in `scripts/check-all`, six seeds of 120 steps per fixture. *Done 2026-10-14: about 20 s.*
+- [ ] The rest of §1: the log replayed to each row, read sets and refusals re-evaluated, the interval index against the log; ADR-0204 §3's V against the reference runner; the unit's journey as a fixture; the route-tester's other routes.
+- [ ] The racer, which needs a store whose writers run at once to find anything (§5).
 
 **C. The audit** (ADR-0204 §6), six areas at once, each returning its whole inventory graded by §4 and delivered as checks.
 - [ ] Personal data end to end. Carries D671 and D682.
