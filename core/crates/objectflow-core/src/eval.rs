@@ -87,6 +87,18 @@ fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
     Err(NotRun::Unsupported(what.into()))
 }
 
+/// The members every object has, each read by its bare name as `state` is
+/// (`flow-format.md` §5), where `recorded_from` and `declaration_version`
+/// were read as a type and not run (the values audit's G9).
+const EVERY_OBJECT: [&str; 6] = [
+    "id",
+    "open",
+    "created_at",
+    "created_by_kind",
+    "recorded_from",
+    "declaration_version",
+];
+
 /// A member of a row of an object's flow data, as an expression reads it:
 /// its field, a span's `corrected_by` absent where no correction relabelled
 /// it (ADR-0146).
@@ -709,7 +721,7 @@ impl<'a> Evaluator<'a> {
                 || t.attribute(n).is_some()
                 || t.derived.iter().any(|(d, _)| d == n)
                 || t.observations.iter().any(|(c, _)| c == n)
-                || ["id", "open", "created_at", "created_by_kind"].contains(&n);
+                || EVERY_OBJECT.contains(&n);
             if member {
                 return match self.this {
                     Some(id) => self.member(&Term::Value(Value::Object(id.to_string())), n),
@@ -1080,7 +1092,7 @@ impl<'a> Evaluator<'a> {
                     || t.attribute(n).is_some()
                     || t.derived.iter().any(|(d, _)| d == n)
                     || t.observations.iter().any(|(c, _)| c == n)
-                    || ["id", "open", "created_at", "created_by_kind"].contains(&n))
+                    || EVERY_OBJECT.contains(&n))
                 && t.state(n).is_some()
         };
         // a bare name this evaluator reads as a type
@@ -1102,7 +1114,7 @@ impl<'a> Evaluator<'a> {
                         || t.attribute(n).is_some()
                         || t.derived.iter().any(|(d, _)| d == n)
                         || t.observations.iter().any(|(c, _)| c == n)
-                        || ["id", "open", "created_at", "created_by_kind"].contains(&n)
+                        || EVERY_OBJECT.contains(&n)
                         || t.state(n).is_some()
                         || t.states.iter().any(|(_, s)| s.category == n))
                 })

@@ -1177,6 +1177,31 @@ def test_an_only_via_transition_taken_by_a_transition_it_does_not_name_is_refuse
     alike(tee)
 
 
+def test_every_member_an_object_has_is_read_by_its_bare_name_alike(tee):
+    """`recorded_from` and `declaration_version` are read by their bare names as `state` is (`flow-format.md` §5),
+    alike through both backends, where the core read each as a type and did not run it, and the runner answered a
+    type name (the values audit's G9); a guard reading them is evaluated, held both ways."""
+    def guarded(expression):
+        text = CASCADE_SHOP.replace(
+            "      close_all: { kind: external, from: [OPEN], to: DONE }\n",
+            "      close_all: { kind: external, from: [OPEN], to: DONE, guards: { recorded: deny } }\n", 1).replace(
+            "    states: { OPEN: { category: live }, DONE: { category: closed, final: true } }\n",
+            "    states: { OPEN: { category: live }, DONE: { category: closed, final: true } }\n"
+            "    conditions:\n"
+            f"      recorded: {{ description: Its record is whole., expression: '{expression}', "
+            "remedy: self_serviceable }\n", 1)
+        assert text.count("      recorded: {") == 1 and text.count("guards: { recorded: deny }") == 1
+        return text
+    for expression, kind in (("recorded_from == created_at and declaration_version == 1", "satisfied"),
+                             ("declaration_version == 2", "unsatisfied")):
+        load(tee, "shop", guarded(expression))
+        tee.found.clear()
+        order = made(tee, "Order", "open")
+        v = tee.post("/v1/request", {"actor": OP, "object_id": order, "transition": "close_all"})
+        assert v["kind"] == kind, (expression, v)
+        alike(tee)
+
+
 def tiers(tee) -> list:
     page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.tiers",
                                    "keep": ["tier"]})

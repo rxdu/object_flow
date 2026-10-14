@@ -781,7 +781,7 @@ class Evaluator:
                 raise NotRunnable("`this_event` outside an effect")
             return ("event", self.event)
         if n == "state" or n in (self.t.get("attributes") or {}) or n in (self.t.get("derived_attributes") or {}) \
-                or n in (self.t.get("observations") or {}) or n in ("id", "open", "created_at", "created_by_kind"):
+                or n in (self.t.get("observations") or {}) or n in ("id", "open", "created_at", "created_by_kind", "recorded_from", "declaration_version"):
             return self.member(self.this, n) if self.this is not None else ABSENT
         if n in (self.t.get("states") or {}):
             return ("state", self.tn, n)

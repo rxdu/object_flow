@@ -164,6 +164,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Fixed
 
+- `recorded_from` and `declaration_version` are read by their bare names as `state` is, as `flow-format.md` §5 says, in the engine and the reference runner, where the engine did not run them and the runner answered a type name (the values audit's G9).
 - The reference runner refuses an `only_via` transition a call, a creation or a cascade takes from a transition it does not name, `not_requestable`, as the core does since the write path audit's R-05.
 - An upgrade, its dry run too, is refused `409` naming each recorded flow version this release's loader does not read, so the store stays at the release that reads it, where it was carried on and every request touching that version answered 500 (the audit's durability U4).
 - The release fingerprint covers a declared type's table and how a value of every type is held in its column, not only the built-ins' tables, so a release changing either is a new release; and `of_engine_release` records the commit each row's build was made from, where its build was told, as a release's is (U6, U7).
