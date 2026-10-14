@@ -1202,6 +1202,36 @@ def test_every_member_an_object_has_is_read_by_its_bare_name_alike(tee):
         alike(tee)
 
 
+@pytest.mark.parametrize("expression, kind, unknown", [
+    ("{1, 2} == {2, 1}", "satisfied", False),
+    ("{1, 1} == {1} and {2} == {2.0}", "satisfied", False),
+    ("1 in {1, code}", "satisfied", False),
+    ("not (2 in {1, code})", "unsatisfied", True),
+    ("{1, code} == {1, code}", "unsatisfied", True),
+    ("not (2 in {1, 3})", "satisfied", False),
+])
+def test_a_collection_is_a_set_and_an_unknown_element_is_unknown_alike(tee, expression, kind, unknown):
+    """A collection is a set: an element written twice is held once and two sets are equal in any order; `x in {a, b}`
+    is `x == a or x == b`, so an unknown element leaves it unknown where no known one equals, and a literal holding an
+    unknown element is unknown elsewhere (§8.2), alike through both backends, where both compared in order and read an
+    unknown element as unequal, so `not (2 in {1, code})` passed with `code` absent (the values audit's A8)."""
+    text = CASCADE_SHOP.replace(
+        "      close_all: { kind: external, from: [OPEN], to: DONE }\n",
+        "      close_all: { kind: external, from: [OPEN], to: DONE, guards: { held: deny } }\n", 1).replace(
+        "    states: { OPEN: { category: live }, DONE: { category: closed, final: true } }\n",
+        "    states: { OPEN: { category: live }, DONE: { category: closed, final: true } }\n"
+        "    conditions:\n"
+        f"      held: {{ description: The sets hold., expression: '{expression}', remedy: self_serviceable }}\n", 1).replace(
+        "    attributes:\n      lines:\n", "    attributes:\n      code: { type: int, optional: true }\n      lines:\n", 1)
+    assert text.count("      held: {") == 1 and text.count("guards: { held: deny }") == 1 and "code: { type: int" in text
+    load(tee, "shop", text)
+    tee.found.clear()
+    order = made(tee, "Order", "open")
+    v = tee.post("/v1/request", {"actor": OP, "object_id": order, "transition": "close_all"})
+    assert (v["kind"], v.get("unknown", False)) == (kind, unknown), v
+    alike(tee)
+
+
 def tiers(tee) -> list:
     page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.tiers",
                                    "keep": ["tier"]})

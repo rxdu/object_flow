@@ -551,9 +551,15 @@ impl Value {
         }
     }
 
-    /// Equality as `==` reads it: numbers by value, sets by their elements in
-    /// order, anything else by identity of kind and content.
+    /// Equality as `==` reads it: numbers by value, sets by their elements
+    /// in any order, each element of either equal to one of the other,
+    /// anything else by identity of kind and content. Their order decided it,
+    /// and `{2}` was not `{2.0}` (the values audit's A8).
     pub fn equals(&self, other: &Value) -> bool {
+        if let (Value::Set(a), Value::Set(b)) = (self, other) {
+            return a.iter().all(|x| b.iter().any(|y| x.equals(y)))
+                && b.iter().all(|y| a.iter().any(|x| x.equals(y)));
+        }
         match (self.number(), other.number()) {
             (Some(a), Some(b)) => a == b,
             _ => self == other,

@@ -602,12 +602,25 @@ impl<'a> Evaluator<'a> {
                 self.name_object(&t);
                 t
             }
+            // a set: an element written twice is held once, and one that is
+            // unknown makes the set unknown, as an operand does an operator
+            // (§8.2), where it held both and was a set (the values audit's A8)
             Expr::Set(items) => {
-                let mut out = Vec::new();
+                let mut out: Vec<Value> = Vec::new();
+                let mut unknown = false;
                 for i in items {
-                    out.push(self.value(i, env)?);
+                    let v = self.value(i, env)?;
+                    if v.is_absent() {
+                        unknown = true;
+                    } else if !out.iter().any(|o| o.equals(&v)) {
+                        out.push(v);
+                    }
                 }
-                Term::Value(Value::Set(out))
+                Term::Value(if unknown {
+                    Value::Absent
+                } else {
+                    Value::Set(out)
+                })
             }
             Expr::Not(inner) => {
                 let v = truth(&self.value(inner, env)?)?;
@@ -947,6 +960,26 @@ impl<'a> Evaluator<'a> {
         {
             let is = matches!(&l, Value::Member { enumeration, .. } if enumeration == n);
             return Ok(Term::Value(Value::Bool(is)));
+        }
+        // over a literal, `x in {a, b}` is `x == a or x == b`: true where a
+        // known element equals it, unknown where none does and one is
+        // unknown (§8.2), where an unknown element was never equal (the
+        // values audit's A8)
+        if let Expr::Set(items) = right {
+            let mut unknown = false;
+            for i in items {
+                let v = self.value(i, env)?;
+                if v.is_absent() {
+                    unknown = true;
+                } else if v.equals(&l) {
+                    return Ok(Term::Value(Value::Bool(true)));
+                }
+            }
+            return Ok(if unknown {
+                Term::absent()
+            } else {
+                Term::Value(Value::Bool(false))
+            });
         }
         match self.value(right, env)? {
             Value::Absent => Ok(Term::absent()),

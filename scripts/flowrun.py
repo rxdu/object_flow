@@ -161,6 +161,13 @@ def is_set(v):
     return isinstance(v, tuple) and not (len(v) in (2, 3, 4) and v[0] in TAGS)
 
 
+def set_equal(a, b):
+    """Two sets are equal when each element of either equals one of the other, in any order (the values audit's A8)."""
+    def eq(x, y):
+        return set_equal(x, y) if is_set(x) and is_set(y) else x == y
+    return all(any(eq(x, y) for y in b) for x in a) and all(any(eq(x, y) for x in a) for y in b)
+
+
 def is_set_attribute(spec):
     """A set the object stores: a set of values, or a set of references with no opposite end to compute it from."""
     spec = spec or {}
@@ -988,7 +995,15 @@ class Evaluator:
         if k == "path":
             return self.note(self.member(self.value(e[1], env), e[2]))
         if k == "set":
-            return tuple(self.value(i, env) for i in e[1])
+            # a set: an element written twice is held once, and one that is unknown makes it unknown (§8.2), as the
+            # core's (the values audit's A8)
+            out = []
+            for v in (self.value(i, env) for i in e[1]):
+                if v is ABSENT:
+                    return ABSENT
+                if not any(set_equal(v, o) if is_set(v) and is_set(o) else v == o for o in out):
+                    out.append(v)
+            return tuple(out)
         if k == "not":
             v = truth(self.value(e[1], env))
             return ABSENT if v is ABSENT else not v
@@ -1004,6 +1019,13 @@ class Evaluator:
                 return ABSENT
             if right[0] == "name" and right[1] in self.s.enums and right[1] not in env:
                 return isinstance(left, tuple) and left[0] == "enum" and left[1] == right[1]
+            if right[0] == "set":
+                # `x in {a, b}` is `x == a or x == b`: true where a known element equals it, unknown where none does
+                # and one is unknown (§8.2), as the core's (the values audit's A8)
+                items = [self.value(i, env) for i in right[1]]
+                if any(i is not ABSENT and i == left for i in items):
+                    return True
+                return ABSENT if any(i is ABSENT for i in items) else False
             coll = self.value(right, env)
             if coll is ABSENT:
                 return ABSENT
@@ -1057,6 +1079,8 @@ class Evaluator:
             except OverflowError:
                 # a date moved past the calendar is out of range, as the core's is (ADR-0190 decision 1, ADR-0205)
                 raise OutOfRange(self.this)
+        if op in ("==", "!=") and is_set(a) and is_set(b):
+            return set_equal(a, b) == (op == "==")
         if op == "==":
             return a == b
         if op == "!=":
