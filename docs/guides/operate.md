@@ -188,6 +188,8 @@ It answers `503` with a `code` when an operator must act:
 | `objectflow_reads_waiting` | Reads waiting for a turn, by pool. |
 | `objectflow_reads_most` | Each pool's limit. |
 | `objectflow_writer_held_seconds` | How long the current write has held the writer. |
+| `objectflow_request_groups_total` | Commits of requests: the requests that wait for the writer while it commits are committed together, with one flush, and a request alone is a group of one (ADR-0208). |
+| `objectflow_request_grouped_total` | The requests those commits held; divided by the groups, the requests each commit carried, about 1 at a light load and rising as writes queue. |
 | `objectflow_evaluator_failures_total` | Evaluator calls that gave no usable answer, by evaluator. |
 | `objectflow_store_version` | The installed flow version. |
 | `objectflow_store_bytes` | The store's file size. |

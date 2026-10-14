@@ -5923,3 +5923,69 @@ fn every_sample_publishes_with_its_examples() {
         }
     }
 }
+
+/// Requests sent at once commit together (ADR-0208): every one answered as
+/// it would be alone, each its own object, and fewer commits than requests,
+/// as `/metrics` counts them.
+#[test]
+fn requests_sent_at_once_commit_together() {
+    let path = fresh_store("grouped");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish_service(&s);
+    let metric = |name: &str| -> u64 {
+        let mut stream = TcpStream::connect(&s.addr).expect("a connection");
+        write!(
+            stream,
+            "GET /metrics HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        )
+        .expect("the request is written");
+        let mut text = String::new();
+        stream.read_to_string(&mut text).expect("the metrics");
+        text.lines()
+            .find_map(|l| l.strip_prefix(&format!("{name} ")))
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or_else(|| panic!("no {name}"))
+    };
+    let groups = metric("objectflow_request_groups_total");
+    let held = metric("objectflow_request_grouped_total");
+    let made: Vec<Value> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..40)
+            .map(|i| {
+                let s = &s;
+                scope.spawn(move || {
+                    post(
+                        s,
+                        "/v1/request",
+                        &json!({"actor": {"id": "operator"}, "type": "User", "transition": "add",
+                                "inputs": {"login": format!("u{i}"), "name": format!("U {i}")}}),
+                    )
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("answered"))
+            .collect()
+    });
+    let ids: std::collections::BTreeSet<&str> = made
+        .iter()
+        .map(|v| {
+            assert_eq!(v["kind"], "satisfied", "{v}");
+            v["object_id"].as_str().expect("an id")
+        })
+        .collect();
+    assert_eq!(ids.len(), 40);
+    let groups = metric("objectflow_request_groups_total") - groups;
+    let held = metric("objectflow_request_grouped_total") - held;
+    assert_eq!(held, 40);
+    assert!(
+        groups < held,
+        "{groups} commits for {held} requests: none was shared"
+    );
+}

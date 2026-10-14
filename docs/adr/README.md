@@ -205,7 +205,8 @@
 | [0202](0202-the-fifteenth-reviews-findings-decided.md) | The fifteenth review's findings, decided | Decided on the author's standing instruction — decision 3 superseded by ADR-0206; later refined by ADR-0203, ADR-0204, ADR-0205 |
 | [0203](0203-the-sixteenth-reviews-findings-decided.md) | The sixteenth review's findings, decided | Decided on the author's standing instruction — later refined by ADR-0205 |
 | [0204](0204-what-production-readiness-means-and-when-the-reviews-stop.md) | What production readiness means, and when the reviews stop | Decided by the author — later refined by ADR-0205, ADR-0206, ADR-0207 |
-| [0205](0205-the-audits-decisions.md) | The audit's decisions | Decided by the author — later refined by ADR-0206, ADR-0207 |
+| [0205](0205-the-audits-decisions.md) | The audit's decisions | Decided by the author — later refined by ADR-0206, ADR-0207, ADR-0208 |
 | [0206](0206-a-read-by-a-personal-value-is-opted-into.md) | A read by a personal value is opted into | Decided on the author's standing instruction |
 | [0207](0207-a-restored-store-skips-what-its-copy-never-saw.md) | A restored store skips what its copy never saw | Decided on the author's standing instruction |
+| [0208](0208-requests-waiting-for-the-writer-commit-together.md) | Requests waiting for the writer commit together | Decided on the author's standing instruction |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

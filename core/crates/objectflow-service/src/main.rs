@@ -311,16 +311,13 @@ fn consulting<T>(
     mut attempt: impl FnMut(&mut Store) -> Result<T, Fault>,
     stopped: impl Fn(&T) -> Option<Call>,
 ) -> Result<T, Fault> {
-    let mut asked_so_far: std::collections::BTreeMap<String, String> =
-        std::collections::BTreeMap::new();
-    let mut calls = 0;
-    let timeout = shared.evaluator_timeout;
-    loop {
-        // a check on a read of its own, a request on the writer (ADR-0178)
-        let out = {
+    consulting_with(
+        shared,
+        |asked| {
+            // a check on a read of its own, a request on the writer (ADR-0178)
             let mut run = |s: &mut Store| {
                 let given = s.answers.clone();
-                s.answers.extend(asked_so_far.clone());
+                s.answers.extend(asked.clone());
                 let out = attempt(s);
                 s.answers = given;
                 out
@@ -332,7 +329,25 @@ fn consulting<T>(
                 let mut sandbox = locked(shared)?;
                 run(store(&mut sandbox)?)
             }
-        };
+        },
+        stopped,
+    )
+}
+
+/// [`consulting`] with how an attempt runs given: on the writer or a read
+/// of its own, or queued for a group's commit (ADR-0208), each attempt
+/// carrying the evaluators' answers asked so far.
+fn consulting_with<T>(
+    shared: &Shared,
+    mut attempt: impl FnMut(&std::collections::BTreeMap<String, String>) -> Result<T, Fault>,
+    stopped: impl Fn(&T) -> Option<Call>,
+) -> Result<T, Fault> {
+    let mut asked_so_far: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+    let mut calls = 0;
+    let timeout = shared.evaluator_timeout;
+    loop {
+        let out = attempt(&asked_so_far);
         let call = match &out {
             Ok(t) if shared.deployment => stopped(t),
             _ => None,
@@ -430,6 +445,8 @@ struct Service {
     store_identity: Option<(u64, u64)>,
     /// What `/health` and `/metrics` say of the writes and the answers.
     watch: Watch,
+    /// The requests waiting for the writer, committed together (ADR-0208).
+    groups: Groups,
 }
 
 /// What the service watches of its writes and answers (fourth production
@@ -468,6 +485,48 @@ struct Watch {
 
 /// The upper bounds, in seconds, of `/metrics`' duration histogram.
 const BUCKETS: [f64; 8] = [0.005, 0.025, 0.1, 0.5, 1.0, 2.5, 10.0, 30.0];
+
+/// A request's answer from the writer: its verdict and what a refusal
+/// tells, or why it has none.
+type Requested = Result<Result<(Verdict, Told), request::NoVerdict>, Fault>;
+
+/// A request waiting for the writer, to be committed with the requests
+/// waiting beside it (ADR-0208): what it asks, the evaluators' answers it
+/// carries, and its answer once a group has run it.
+struct Ticket {
+    req: Request,
+    asked: std::collections::BTreeMap<String, String>,
+    answer: Mutex<Option<Requested>>,
+}
+
+impl Ticket {
+    fn give(&self, answer: Requested) {
+        *self
+            .answer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(answer);
+    }
+
+    fn taken(&self) -> Option<Requested> {
+        self.answer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+    }
+}
+
+/// The requests waiting for the writer, in the order they came, and the
+/// groups the writer committed and the requests they held, a request run
+/// alone a group of one (ADR-0208 decisions 1 and 5).
+#[derive(Default)]
+struct Groups {
+    waiting: Mutex<Vec<Arc<Ticket>>>,
+    commits: std::sync::atomic::AtomicU64,
+    held: std::sync::atomic::AtomicU64,
+}
+
+/// The most requests one group holds (ADR-0208 decision 1).
+const GROUP_MOST: usize = 64;
 
 /// How recently a write must have met another process's lock past its
 /// retries, with none committed since, for `/health` to say writes stall.
@@ -1669,6 +1728,156 @@ fn answering<T>(work: impl FnOnce() -> Result<T, Fault>) -> Result<T, Fault> {
     })
 }
 
+/// A request on the writer, committed with the requests waiting beside it
+/// (ADR-0208): queued, then run by whichever request takes the writer
+/// next, its own group's leader or a later one, in the order they queued
+/// and at most [`GROUP_MOST`] at a time, and answered once its group
+/// commits. A request finding the writer free and nothing queued is a
+/// group of one and runs alone, as before.
+fn queued(
+    shared: &Shared,
+    req: &Request,
+    asked: &std::collections::BTreeMap<String, String>,
+) -> Requested {
+    let ticket = Arc::new(Ticket {
+        req: req.clone(),
+        asked: asked.clone(),
+        answer: Mutex::new(None),
+    });
+    let waiting = || {
+        shared
+            .groups
+            .waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    };
+    waiting().push(ticket.clone());
+    loop {
+        let mut writing = match locked(shared) {
+            Ok(w) => w,
+            Err(f) => {
+                // answered by a group that ran before the writer refused,
+                // or else taken off the queue, so no later group runs a
+                // request whose caller was answered a fault
+                if let Some(a) = ticket.taken() {
+                    return a;
+                }
+                waiting().retain(|t| !Arc::ptr_eq(t, &ticket));
+                return Err(f);
+            }
+        };
+        if let Some(a) = ticket.taken() {
+            return a;
+        }
+        let group: Vec<Arc<Ticket>> = {
+            let mut w = waiting();
+            let n = w.len().min(GROUP_MOST);
+            w.drain(..n).collect()
+        };
+        run_group(shared, &mut writing, &group);
+        drop(writing);
+        if let Some(a) = ticket.taken() {
+            return a;
+        }
+    }
+}
+
+/// A group of requests run on the writer and committed with one flush, each
+/// given its answer once it has (ADR-0208 decisions 1 and 2). A store error
+/// or a panic during it, or a commit that fails, rolls it back, and each
+/// request runs again alone, so a fault answers only the request that
+/// meets it (decision 4). Every request of the group is given an answer.
+fn run_group(shared: &Shared, sandbox: &mut Sandbox, group: &[Arc<Ticket>]) {
+    shared.groups.commits.fetch_add(1, Ordering::SeqCst);
+    shared.groups.held.fetch_add(
+        u64::try_from(group.len()).unwrap_or(u64::MAX),
+        Ordering::SeqCst,
+    );
+    if let [one] = group {
+        one.give(alone(shared, sandbox, one));
+        return;
+    }
+    let begun = store(sandbox).is_ok_and(|s| s.begin_group().is_ok());
+    let mut answers = Vec::with_capacity(group.len());
+    let mut whole = begun;
+    for t in group.iter().take_while(|_| begun) {
+        let ran = {
+            let Ok(s) = store(sandbox) else {
+                whole = false;
+                break;
+            };
+            let given = s.answers.clone();
+            s.answers.extend(t.asked.clone());
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                request::request_told(s, &t.req)
+            }));
+            s.answers = given;
+            ran
+        };
+        match ran {
+            Ok(Ok(out)) => answers.push(out),
+            Ok(Err(_)) => {
+                whole = false;
+                break;
+            }
+            Err(_) => {
+                whole = false;
+                if let Ok(s) = store(sandbox) {
+                    s.abort_group();
+                }
+                say!(
+                    "a request panicked holding the writer in a group; {}",
+                    reopened(sandbox)
+                );
+                note_log(shared);
+                break;
+            }
+        }
+    }
+    let committed = whole && store(sandbox).is_ok_and(|s| s.commit_group().is_ok());
+    if !committed {
+        if let Ok(s) = store(sandbox) {
+            s.abort_group();
+        }
+        for t in group {
+            t.give(alone(shared, sandbox, t));
+        }
+        return;
+    }
+    for (t, out) in group.iter().zip(answers) {
+        t.give(Ok(out));
+    }
+}
+
+/// A request run alone on the writer, with the evaluators' answers it
+/// carries; one that panics is answered 500 and the store opened again, as
+/// a request holding the writer is (POISON).
+fn alone(shared: &Shared, sandbox: &mut Sandbox, t: &Ticket) -> Requested {
+    let ran = {
+        let s = store(sandbox)?;
+        let given = s.answers.clone();
+        s.answers.extend(t.asked.clone());
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            request::request_told(s, &t.req)
+        }));
+        s.answers = given;
+        ran
+    };
+    match ran {
+        Ok(out) => Ok(out?),
+        Err(_) => {
+            say!(
+                "a request panicked holding the writer; {}",
+                reopened(sandbox)
+            );
+            note_log(shared);
+            Err(Fault::Internal(
+                "a request panicked; the line above says where".to_string(),
+            ))
+        }
+    }
+}
+
 fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
     let guard = match shared.writer.lock() {
         Ok(guard) => guard,
@@ -2123,8 +2332,9 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
         // a change's dry run, which a `submit` or `refresh` records, computed
         // on a read beside the writes, so no write waits for it; the request
         // takes it only where nothing it read has changed (DRYRUN-LOCK)
+        let flow = req.object_id.is_some() && changes_the_flow(&shared, &req)?;
         let prepared = match &req.object_id {
-            Some(id) if shared.reads.is_some() && changes_the_flow(&shared, &req)? => {
+            Some(id) if shared.reads.is_some() && flow => {
                 // past its deadline, or stopped by an urgent cut, it is
                 // answered so, never computed again under the lock, where
                 // every write waited for it unbounded and unsaid
@@ -2147,18 +2357,25 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
             }
             _ => None,
         };
-        let (v, told) = consulting(
-            &shared,
-            false,
-            |s| {
-                s.prepared = prepared.clone().map(Box::new);
-                Ok(request::request_told(s, &req)?)
-            },
-            |out| match out {
-                Err(request::NoVerdict::NotRun(NotRun::Unanswered(c))) => Some((**c).clone()),
-                _ => None,
-            },
-        )??;
+        let stopped = |out: &Result<(Verdict, Told), request::NoVerdict>| match out {
+            Err(request::NoVerdict::NotRun(NotRun::Unanswered(c))) => Some((**c).clone()),
+            _ => None,
+        };
+        // a request that leaves the flow as it is commits with those
+        // waiting beside it (ADR-0208 decision 3)
+        let (v, told) = if prepared.is_none() && !flow {
+            consulting_with(&shared, |asked| queued(&shared, &req, asked), stopped)??
+        } else {
+            consulting(
+                &shared,
+                false,
+                |s| {
+                    s.prepared = prepared.clone().map(Box::new);
+                    Ok(request::request_told(s, &req)?)
+                },
+                stopped,
+            )??
+        };
         shared.watch.note(&v);
         let out = verdict_told(&v, Some(&told));
         if opted(&body)? {
@@ -2361,7 +2578,11 @@ async fn exceptions(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let (_slot, mut r) = heavy_reading(&shared, &shared.admission, actor_id(&body)?)?;
         let s = r.store()?;
         let world = s.snapshot()?;
-        Ok(Json(page_json(&reads::exceptions(&world, type_)?)))
+        Ok(Json(page_json(&reads::exceptions_from(
+            &world,
+            type_,
+            text(&body, "cursor")?,
+        )?)))
     })
     .await
 }
@@ -4112,9 +4333,15 @@ async fn metrics(State(shared): State<Shared>) -> Response {
         "# HELP objectflow_requests_in_flight Requests being answered now.\n\
          # TYPE objectflow_requests_in_flight gauge\nobjectflow_requests_in_flight {}\n\
          # HELP objectflow_writer_held_seconds How long the writer has been held, 0 while free.\n\
-         # TYPE objectflow_writer_held_seconds gauge\nobjectflow_writer_held_seconds {:.3}\n",
+         # TYPE objectflow_writer_held_seconds gauge\nobjectflow_writer_held_seconds {:.3}\n\
+         # HELP objectflow_request_groups_total Groups of requests the writer committed together, a request alone a group of one (ADR-0208).\n\
+         # TYPE objectflow_request_groups_total counter\nobjectflow_request_groups_total {}\n\
+         # HELP objectflow_request_grouped_total The requests those groups held.\n\
+         # TYPE objectflow_request_grouped_total counter\nobjectflow_request_grouped_total {}\n",
         shared.in_flight.load(Ordering::SeqCst),
-        writer_held(&shared)
+        writer_held(&shared),
+        shared.groups.commits.load(Ordering::SeqCst),
+        shared.groups.held.load(Ordering::SeqCst)
     ));
     // each verdict's kind, a refusal's among them, which an answer's status
     // does not tell, each route's durations, each evaluator's failed calls
@@ -5878,6 +6105,7 @@ async fn serve() -> std::io::Result<()> {
             wal_identity: Mutex::new(a.store.as_deref().and_then(|p| file_identity(&wal_path(p)))),
             ..Watch::default()
         },
+        groups: Groups::default(),
     };
     let shared = Arc::new(service);
     let router = app(shared.clone(), deployment);
@@ -6209,6 +6437,7 @@ mod tests {
             trimming: std::sync::atomic::AtomicBool::new(false),
             store_identity: None,
             watch: Watch::default(),
+            groups: Groups::default(),
         });
         let deadline = |pool: &Admission| -> Duration {
             let Ok((_slot, reading)) = heavy_reading(&shared, pool, None) else {
@@ -6393,6 +6622,7 @@ mod tests {
             trimming: std::sync::atomic::AtomicBool::new(false),
             store_identity: None,
             watch: Watch::default(),
+            groups: Groups::default(),
         });
         // a write, so the log holds frames
         let drafted = request_op(
@@ -6545,6 +6775,7 @@ mod tests {
             trimming: std::sync::atomic::AtomicBool::new(false),
             store_identity: None,
             watch: Watch::default(),
+            groups: Groups::default(),
         });
         let op = json!({"id": "operator"});
         let module = "module: m\ncategories: [live]\ntypes:\n  Bot:\n    description: An agent.\n    tracking: record\n    attributes:\n      key: { type: identity, actor_kind: agent }\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: live, final: true, description: Off. }\n    transitions:\n      issue: { kind: initial, to: ON, required_inputs: [key] }\n      retire: { kind: external, from: ON, to: OFF }\n";
@@ -6758,6 +6989,7 @@ mod tests {
             trimming: std::sync::atomic::AtomicBool::new(false),
             store_identity: None,
             watch: Watch::default(),
+            groups: Groups::default(),
         });
         let op = json!({"id": "operator"});
         // a type whose derived attribute scans its type, and one that reads
@@ -6928,6 +7160,7 @@ mod tests {
             trimming: std::sync::atomic::AtomicBool::new(false),
             store_identity: None,
             watch: Watch::default(),
+            groups: Groups::default(),
         });
         let op = json!({"id": "operator"});
         // a change of the flow to submit, drafted before any slot is held
@@ -7228,6 +7461,7 @@ mod tests {
             trimming: std::sync::atomic::AtomicBool::new(false),
             store_identity: None,
             watch: Watch::default(),
+            groups: Groups::default(),
         });
         let f = flag.clone();
         let router = Router::new()
@@ -7381,6 +7615,7 @@ mod tests {
             trimming: std::sync::atomic::AtomicBool::new(false),
             store_identity: None,
             watch: Watch::default(),
+            groups: Groups::default(),
         });
         assert_eq!(store_lost(&shared), None);
         assert!(locked(&shared).is_ok());
@@ -7424,6 +7659,7 @@ mod tests {
             trimming: std::sync::atomic::AtomicBool::new(false),
             store_identity: None,
             watch: Watch::default(),
+            groups: Groups::default(),
         });
         let router = Router::new()
             .route(
@@ -7502,6 +7738,7 @@ mod tests {
             trimming: std::sync::atomic::AtomicBool::new(false),
             store_identity: None,
             watch: Watch::default(),
+            groups: Groups::default(),
         });
         let held = shared.clone();
         let panicked = std::thread::spawn(move || {
@@ -7629,6 +7866,7 @@ mod tests {
             trimming: std::sync::atomic::AtomicBool::new(false),
             store_identity: None,
             watch: Watch::default(),
+            groups: Groups::default(),
         });
         let open: Arc<Mutex<Opened>> = Arc::new(Mutex::new(Opened::new()));
         shared.connections.open.fetch_add(1, Ordering::SeqCst);

@@ -73,6 +73,17 @@ pub const BUSY: &str = "busy";
 /// timeout is begun again before it is given up (ADR-0178 decision 2).
 pub const BUSY_RETRIES: i64 = 3;
 
+thread_local! {
+    /// How many groups of requests this thread has committed (ADR-0208).
+    static GROUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many groups of requests this thread has committed: what a test of
+/// requests sharing commits counts (ADR-0208).
+pub fn groups_committed() -> u64 {
+    GROUPS.with(std::cell::Cell::get)
+}
+
 /// The busy timeout a store's connections wait out unless told another.
 pub const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -908,7 +919,7 @@ fn event_of(
 /// library declares the attribute; a dropped column was personal where any
 /// earlier version declaring it marked it so.
 fn clear_kept(
-    tx: &Transaction<'_>,
+    tx: &Connection,
     lib: &Library,
     earlier: &BTreeMap<i64, Library>,
     o: &Object,
@@ -1016,7 +1027,7 @@ fn clear_kept(
 
 /// An erased object's legacy entries, each left with the fields its kind
 /// keeps, every other replaced by absence (`storage-schema.md` §9 step 6).
-fn redact_legacy(tx: &Transaction<'_>, id: &str) -> Stored<()> {
+fn redact_legacy(tx: &Connection, id: &str) -> Stored<()> {
     let rows: Vec<(i64, String, String)> = {
         let mut q =
             tx.prepare("SELECT ordinal, payload, kept FROM of_legacy_entry WHERE object_id = ?1")?;
@@ -1376,7 +1387,7 @@ pub(crate) fn read_log_heads_after(
 /// since the argument was masked is: `crm.known((personal))`, in the events
 /// and attempts of every type with a condition, the only ones a guard
 /// consults for (the audit's personal data S19, S20).
-fn masked_consulted(tx: &rusqlite::Transaction<'_>, lib: &Library, identity: &str) -> Stored<()> {
+fn masked_consulted(tx: &Connection, lib: &Library, identity: &str) -> Stored<()> {
     let folded = identity.to_ascii_lowercase();
     let mask = |text: &str| -> String {
         let lower = text.to_ascii_lowercase();
@@ -1520,7 +1531,7 @@ pub(crate) fn read_log(conn: &Connection) -> rusqlite::Result<Vec<Event>> {
 }
 
 /// One span of the interval index, inserted or brought up to date.
-fn upsert_span(tx: &Transaction<'_>, id: &str, dimension: &str, sp: &Span) -> Stored<()> {
+fn upsert_span(tx: &Connection, id: &str, dimension: &str, sp: &Span) -> Stored<()> {
     tx.execute(
         "INSERT INTO of_interval (object_id, dimension, value, entered_position, left_position, \
          entered_at, left_at, entered_by, entered_by_kind, declaration_version, migrated, legacy, corrected_by) \
@@ -2169,6 +2180,18 @@ pub(crate) fn restore_copy(tx: &Connection, now: i64) -> Stored<Option<Restore>>
     Ok(Some(restore))
 }
 
+/// A group of requests committed together (ADR-0208): one write
+/// transaction open on the store's connection, each request on a savepoint
+/// of it.
+#[derive(Debug)]
+struct Group {
+    /// The begin's retries, waiting out another process's lock, which each
+    /// request records as its own serialisation retries.
+    retries: i64,
+    /// The requests it applied.
+    applied: usize,
+}
+
 /// A store and the library its rules come from.
 #[derive(Debug)]
 pub struct Store {
@@ -2197,6 +2220,9 @@ pub struct Store {
     /// truncated, so the log's earlier frames still hold what it erased
     /// (D584).
     checkpoint_due: bool,
+    /// The group of requests whose transaction is open, each request on a
+    /// savepoint of it until the group commits (ADR-0208).
+    group: Option<Group>,
     /// A change's dry run prepared on a read for the next request, which
     /// takes it (DRYRUN-LOCK).
     pub prepared: Option<Box<crate::publish::Prepared>>,
@@ -2343,6 +2369,7 @@ impl Store {
             answers: BTreeMap::new(),
             attempt_retention: None,
             checkpoint_due: false,
+            group: None,
             deadline: None,
             stop: None,
             lock_wait: None,
@@ -2454,6 +2481,7 @@ impl Store {
             answers: BTreeMap::new(),
             attempt_retention: None,
             checkpoint_due: false,
+            group: None,
             deadline: None,
             stop: None,
             lock_wait: None,
@@ -2576,6 +2604,7 @@ impl Store {
             answers,
             attempt_retention: None,
             checkpoint_due: false,
+            group: None,
             deadline: None,
             stop: None,
             lock_wait: None,
@@ -2608,6 +2637,10 @@ impl Store {
         self.checkpoint_due |= erased;
         if !self.checkpoint_due {
             return Ok(true);
+        }
+        // in a group, once the group commits (ADR-0208 decision 3)
+        if self.group.is_some() {
+            return Ok(false);
         }
         // tried once, waiting for no reader: a reader holding the log keeps
         // it until it ends, and the truncation stays due after the next
@@ -2820,6 +2853,20 @@ impl Store {
     /// its own after the request's rolled back (`DESIGN.md` §6,
     /// `storage-schema.md` §6).
     pub fn record_attempt(&mut self, a: &Attempt) -> Stored<()> {
+        // in a group, on a savepoint of its transaction, where it had a
+        // transaction of its own after the rollback (ADR-0208 decision 2)
+        if self.group.is_some() {
+            self.conn.execute_batch("SAVEPOINT attempt")?;
+            release_held(&self.conn)?;
+            next(&self.conn, "txn")?;
+            insert_attempt(
+                &self.conn,
+                a,
+                "(SELECT value FROM of_counter WHERE name = 'txn')",
+            )?;
+            self.conn.execute_batch("RELEASE attempt")?;
+            return Ok(());
+        }
         let (tx, _) = begin_write!(self);
         release_held(&tx)?;
         next(&tx, "txn")?;
@@ -2934,6 +2981,9 @@ impl Store {
         &mut self,
         decide: impl FnOnce(&World<'_>, &mut Allocator) -> Result<(T, Option<Change>), E>,
     ) -> Result<Result<T, E>, StoreError> {
+        if self.group.is_some() {
+            return self.transact_grouped(decide);
+        }
         // the library of the version the store is at, inside the write's
         // transaction, which another process may have published since this
         // one read it (ADR-0178 decision 3)
@@ -2980,6 +3030,147 @@ impl Store {
                 Ok(Err(e))
             }
         }
+    }
+
+    /// A request's transaction in a group (ADR-0208 decision 2): a
+    /// savepoint of the group's, released where the request applies and
+    /// rolled back where it does not, the numbers a refusal drew kept on a
+    /// savepoint of their own. A store error leaves the savepoint open,
+    /// for the group to be rolled back whole (decision 4).
+    fn transact_grouped<T, E>(
+        &mut self,
+        decide: impl FnOnce(&World<'_>, &mut Allocator) -> Result<(T, Option<Change>), E>,
+    ) -> Result<Result<T, E>, StoreError> {
+        let retries = self.group.as_ref().map_or(0, |g| g.retries);
+        self.conn.execute_batch("SAVEPOINT request")?;
+        let world = snapshot(&self.conn, &self.lib, &self.earlier, self.now)?;
+        let mut alloc = Allocator::read(&self.conn)?;
+        let decided = decide(&world, &mut alloc);
+        drop(world);
+        match decided {
+            Ok((answer, Some(mut change))) => {
+                change.retries = retries;
+                alloc.write(&self.conn)?;
+                alloc.write_sequences(&self.conn)?;
+                write(&self.conn, &self.lib, &self.earlier, &change)?;
+                self.conn.execute_batch("RELEASE request")?;
+                if let Some(g) = &mut self.group {
+                    g.applied += 1;
+                }
+                Ok(Ok(answer))
+            }
+            Ok((answer, None)) => {
+                // a refused request writes nothing but the numbers it drew,
+                // which are not reused (flow-format.md §4.12)
+                self.conn
+                    .execute_batch("ROLLBACK TO request; RELEASE request")?;
+                if !alloc.drawn.is_empty() {
+                    self.conn.execute_batch("SAVEPOINT drawn")?;
+                    alloc.write_sequences(&self.conn)?;
+                    self.conn.execute_batch("RELEASE drawn")?;
+                }
+                Ok(Ok(answer))
+            }
+            Err(e) => {
+                self.conn
+                    .execute_batch("ROLLBACK TO request; RELEASE request")?;
+                Ok(Err(e))
+            }
+        }
+    }
+
+    /// A group of requests begun (ADR-0208): one write transaction, its
+    /// lock waited for as a request's is, at the version the store is at;
+    /// each request of the group then runs on a savepoint of it, until
+    /// [`Store::commit_group`] commits them with one flush or
+    /// [`Store::abort_group`] rolls them back.
+    pub fn begin_group(&mut self) -> Stored<()> {
+        if self.group.is_some() {
+            return Err(StoreError("a group of requests is already open".into()));
+        }
+        let mut retries = 0;
+        loop {
+            match self.conn.execute_batch("BEGIN IMMEDIATE") {
+                Ok(()) => {
+                    if let Some(w) = &self.lock_wait {
+                        w.store(0, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    break;
+                }
+                Err(e) if is_busy(&e) && retries < BUSY_RETRIES => {
+                    if let Some(w) = &self.lock_wait {
+                        let _ = w.compare_exchange(
+                            0,
+                            millis_now(),
+                            std::sync::atomic::Ordering::SeqCst,
+                            std::sync::atomic::Ordering::SeqCst,
+                        );
+                    }
+                    retries += 1;
+                }
+                Err(e) if is_busy(&e) => {
+                    return Err(StoreError(format!(
+                        "{BUSY}: the store's write lock was held past the busy timeout {} times",
+                        retries + 1
+                    )));
+                }
+                Err(e) => return Err(StoreError::from(e)),
+            }
+        }
+        // the library of the version the store is at, which another process
+        // may have published since this one read it (ADR-0178 decision 3)
+        let reloaded = (|| -> Stored<()> {
+            let at = declared_version(&self.conn)?;
+            if at != self.lib.version {
+                self.lib = Arc::new(
+                    self.library_at(at)?
+                        .ok_or_else(|| StoreError(format!("version {at} recorded no source")))?,
+                );
+            }
+            Ok(())
+        })();
+        if let Err(e) = reloaded {
+            let _ = self.conn.execute_batch("ROLLBACK");
+            return Err(e);
+        }
+        self.group = Some(Group {
+            retries,
+            applied: 0,
+        });
+        Ok(())
+    }
+
+    /// The group committed with one flush, every request in it answered
+    /// only after, and how many it applied (ADR-0208 decision 1); the log's
+    /// cut an erasure in it asked for tried once it has. A commit that
+    /// fails rolls the group back and is answered as an error, each request
+    /// to be run again alone (decision 4).
+    pub fn commit_group(&mut self) -> Stored<usize> {
+        let Some(g) = self.group.take() else {
+            return Ok(0);
+        };
+        if let Err(e) = self.conn.execute_batch("COMMIT") {
+            let _ = self.conn.execute_batch("ROLLBACK");
+            return Err(StoreError::from(e));
+        }
+        GROUPS.with(|n| n.set(n.get() + 1));
+        // committed whatever the cut does: one that fails stays due, tried
+        // again after the next write, never answering the group's requests
+        // with an error after their commit
+        let _ = self.after_erasure(false);
+        Ok(g.applied)
+    }
+
+    /// The group rolled back, nothing of it kept (ADR-0208 decision 4).
+    pub fn abort_group(&mut self) {
+        if self.group.take().is_some() && !self.conn.is_autocommit() {
+            let _ = self.conn.execute_batch("ROLLBACK");
+        }
+    }
+
+    /// Whether a group of requests is open.
+    pub fn grouped(&self) -> bool {
+        self.group.is_some()
     }
 
     /// A change's approval (`publish-and-import.md` §1 step 5, ADR-0155):
@@ -3949,7 +4140,7 @@ impl Allocator {
     }
 
     /// The numbers drawn, written whatever became of the request.
-    fn write_sequences(&self, tx: &Transaction<'_>) -> Stored<()> {
+    fn write_sequences(&self, tx: &Connection) -> Stored<()> {
         for key in &self.drawn {
             let value = self.sequences.get(key).copied().unwrap_or(0);
             tx.execute(
@@ -3982,7 +4173,7 @@ impl Allocator {
         format!("{}-{}", type_.to_lowercase(), self.object)
     }
 
-    fn write(&self, tx: &Transaction<'_>) -> Stored<()> {
+    fn write(&self, tx: &Connection) -> Stored<()> {
         for (n, v) in [
             ("position", self.position),
             ("txn", self.txn),
@@ -5199,7 +5390,7 @@ CREATE INDEX IF NOT EXISTS of_interval_by_entered ON of_interval (entered_by) WH
 ";
 
 fn write(
-    tx: &Transaction<'_>,
+    tx: &Connection,
     lib: &Library,
     earlier: &BTreeMap<i64, Library>,
     change: &Change,

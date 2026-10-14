@@ -25,6 +25,7 @@ erasure batch, a backup and a prune, belong to the soak (ADR-0204 §7) and are n
 Usage:
 
     load.py <objectflow-service> <store.sqlite> [--seconds 150] [--scale 1] [--memory-max 8G]
+            [--sessions N] [--reporters N] [--agents N]
 """
 import argparse
 import json
@@ -146,7 +147,15 @@ def main():
     ap.add_argument("--scale", type=int, default=1, choices=[1, 2])
     ap.add_argument("--memory-max", default="8G")
     ap.add_argument("--seed", type=int, default=11)
+    # each part of the profile set apart, to tell what a result comes from: `--reporters 0 --agents 0` plays the
+    # sessions and their writes alone
+    ap.add_argument("--sessions", type=int, help="people's sessions, 16 at scale 1")
+    ap.add_argument("--reporters", type=int, help="report readers, 4 at scale 1")
+    ap.add_argument("--agents", type=int, help="agents, 2 at scale 1")
     a = ap.parse_args()
+    sessions = 16 * a.scale if a.sessions is None else a.sessions
+    reporters = 4 * a.scale if a.reporters is None else a.reporters
+    agents = 2 * a.scale if a.agents is None else a.agents
     memory_max = size(a.memory_max)
     work = pathlib.Path(tempfile.mkdtemp(prefix="objectflow-profile-"))
     copy = work / "store.sqlite"
@@ -222,10 +231,10 @@ def main():
                     pass
                 time.sleep(0.5)
 
-        threads = [threading.Thread(target=session, args=(k,)) for k in range(16 * a.scale)]
-        threads += [threading.Thread(target=reports, args=(k, OPERATOR, "person")) for k in range(4 * a.scale)]
+        threads = [threading.Thread(target=session, args=(k,)) for k in range(sessions)]
+        threads += [threading.Thread(target=reports, args=(k, OPERATOR, "person")) for k in range(reporters)]
         threads += [threading.Thread(target=reports, args=(100 + k, {"id": "assistant"}, "agent"))
-                    for k in range(2 * a.scale)]
+                    for k in range(agents)]
         threads.append(threading.Thread(target=rss))
         load = os.getloadavg()
         for t in threads:
@@ -234,7 +243,8 @@ def main():
             t.join()
         failed = []
         print(f"Gate P: {pathlib.Path(a.store).name}, {len(claims)} claims, {len(staff)} employees, scale {a.scale}, "
-              f"{a.seconds} s; load average at the start {load[0]:.1f}, {os.cpu_count()} threads")
+              f"{a.seconds} s, {sessions} sessions, {reporters} report readers, {agents} agents; load average at the "
+              f"start {load[0]:.1f}, {os.cpu_count()} threads")
         print("| class | answers | p50 ms | p95 ms | max ms |")
         print("|---|---|---|---|---|")
         for kind in sorted(record.times):

@@ -1626,9 +1626,10 @@ fn take_unwound(
             let mut current: Option<String> = None;
             for (kn, k) in &lib.types {
                 if current.is_none() && k.attribute("corrects").is_some() {
+                    // by the column, never the kind whole (the audit's cost B10)
                     current = ctx
                         .work
-                        .of_type(kn)?
+                        .of_type_where(kn, None, &[("corrects".to_string(), named.clone())])?
                         .iter()
                         .find(|other| other.attr("corrects") == named)
                         .map(|other| other.id.clone());
@@ -2834,9 +2835,12 @@ fn invalidate_proposals(
         return Ok(());
     };
     let target = Value::Text(erased.to_string());
+    // the proposals on it by their target's column, never every proposal
+    // (the audit's cost B10)
+    let on_it = [("target".to_string(), target.clone())];
     let pending: Vec<String> = ctx
         .work
-        .of_type(PROPOSAL)?
+        .of_type_where(PROPOSAL, None, &on_it)?
         .iter()
         .filter(|p| p.state == "PENDING" && p.attr("target") == target)
         .map(|p| p.id.clone())
@@ -2892,7 +2896,7 @@ fn invalidate_proposals(
     // (thirteenth production review A)
     let decided: Vec<String> = ctx
         .work
-        .of_type(PROPOSAL)?
+        .of_type_where(PROPOSAL, None, &on_it)?
         .iter()
         .filter(|p| p.state != "PENDING" && p.attr("target") == target)
         .map(|p| p.id.clone())
@@ -3930,9 +3934,11 @@ fn forget_observations(
             continue; // a kind with no personal field has nothing to forget
         }
         let subject = Value::Object(id.to_string());
+        // its observations by their subject's column, never the kind whole
+        // (the audit's cost B10)
         let ids: Vec<String> = ctx
             .work
-            .of_type(kind)?
+            .of_type_where(kind, None, &[("subject".to_string(), subject.clone())])?
             .iter()
             .filter(|x| x.attr("subject") == subject)
             .map(|x| x.id.clone())
@@ -3956,9 +3962,15 @@ fn forget_observations(
     // and its labels' notes, corrected ones included, on its own event as
     // no transition (declaration-syntax.md §6.8)
     let subject = Value::Object(id.to_string());
+    // its labels by their subject's column, never every label (the audit's
+    // cost B10)
     let labels: Vec<String> = ctx
         .work
-        .of_type(crate::model::LABEL)?
+        .of_type_where(
+            crate::model::LABEL,
+            None,
+            &[("subject".to_string(), subject.clone())],
+        )?
         .iter()
         .filter(|l| l.attr("subject") == subject && l.attr("note") != Value::Absent)
         .map(|l| l.id.clone())
@@ -7315,6 +7327,23 @@ types:
             w.whole(&c).unwrap().unwrap().attr("number"),
             Value::Text("ORD-0003".into())
         );
+        // and in a group, the refusal's number kept on a savepoint of its
+        // own (ADR-0208 decision 2)
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        s.begin_group().unwrap();
+        created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        assert!(matches!(
+            req(&mut s, "open", OPERATOR, ("Order", true), json!({"cap": 9})),
+            Verdict::InvariantViolated { .. }
+        ));
+        let c = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        s.commit_group().unwrap();
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.whole(&c).unwrap().unwrap().attr("number"),
+            Value::Text("ORD-0003".into())
+        );
     }
 
     #[test]
@@ -8208,6 +8237,182 @@ types:
         );
     }
 
+    /// Requests committed together answer and record as the same requests
+    /// one by one (ADR-0208 decision 2): every table of the store is the
+    /// same, events, transaction numbers, attempt rows and counters, each
+    /// request decided against the store as the ones before it in the group
+    /// left it, a refused one rolled back alone with its attempt row kept,
+    /// a key applied earlier in the group replayed; the group commits once.
+    /// A group rolled back keeps nothing (decision 4).
+    #[test]
+    fn requests_committed_together_record_as_one_by_one() {
+        let ask = |xn: &str, target: (&str, bool), inputs: Json, key: Option<&str>| Request {
+            transition: xn.into(),
+            actor: OPERATOR.into(),
+            object_id: (!target.1).then(|| target.0.to_string()),
+            type_: target.1.then(|| target.0.to_string()),
+            inputs: inputs
+                .as_object()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: key.map(str::to_string),
+            context: None,
+        };
+        // one by one, each request kept to be sent again in a group
+        let mut alone = store();
+        let (mut sent, mut answered) = (Vec::new(), Vec::new());
+        let mut send = |s: &mut Store, r: Request| -> Verdict {
+            let v = request(s, &r).unwrap().unwrap();
+            sent.push(r);
+            answered.push(v.clone());
+            v
+        };
+        let ana = created(&send(
+            &mut alone,
+            ask("add", ("User", true), json!({"login": "ana"}), None),
+        ));
+        let fix = created(&send(
+            &mut alone,
+            ask(
+                "open",
+                ("Job", true),
+                json!({"title": "Fix", "priority": "HIGH"}),
+                None,
+            ),
+        ));
+        let big = created(&send(
+            &mut alone,
+            ask(
+                "open",
+                ("Job", true),
+                json!({"title": "Big", "hours": 50}),
+                None,
+            ),
+        ));
+        send(
+            &mut alone,
+            ask("start", (&fix, false), json!({"engineer": ana}), None),
+        );
+        // refused by a guard, and as unavailable, each an attempt row
+        send(
+            &mut alone,
+            ask("estimate", (&fix, false), json!({"hours": 50}), None),
+        );
+        send(&mut alone, ask("finish", (&big, false), json!({}), None));
+        // a key applied, then replayed
+        send(
+            &mut alone,
+            ask("annotate", (&big, false), json!({"note": "a"}), Some("k1")),
+        );
+        send(
+            &mut alone,
+            ask("annotate", (&big, false), json!({"note": "a"}), Some("k1")),
+        );
+        send(&mut alone, ask("finish", (&fix, false), json!({}), None));
+        // invalid input, an attempt row
+        send(&mut alone, ask("open", ("Job", true), json!({}), None));
+        // the same requests in one group
+        let mut grouped = store();
+        let groups = crate::store::groups_committed();
+        grouped.begin_group().unwrap();
+        let together: Vec<Verdict> = sent
+            .iter()
+            .map(|r| request(&mut grouped, r).unwrap().unwrap())
+            .collect();
+        assert_eq!(grouped.commit_group().unwrap(), 6, "applied in the group");
+        assert_eq!(crate::store::groups_committed() - groups, 1);
+        assert_eq!(together, answered);
+        let tables = |s: &Store| -> Vec<(String, Vec<String>)> {
+            let c = s.connection();
+            let names: Vec<String> = c
+                .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            names
+                .into_iter()
+                .map(|t| {
+                    let mut q = c
+                        .prepare(&format!("SELECT * FROM \"{t}\" ORDER BY 1"))
+                        .unwrap();
+                    let width = q.column_count();
+                    let rows = q
+                        .query_map([], |r| {
+                            Ok((0..width)
+                                .map(|i| format!("{:?}", r.get_ref(i).unwrap()))
+                                .collect::<Vec<_>>()
+                                .join("|"))
+                        })
+                        .unwrap()
+                        .collect::<Result<Vec<_>, _>>()
+                        .unwrap();
+                    (t, rows)
+                })
+                .collect()
+        };
+        let (a, b) = (tables(&alone), tables(&grouped));
+        for ((ta, ra), (tb, rb)) in a.iter().zip(&b) {
+            assert_eq!((ta, ra), (tb, rb), "the table {ta} differs");
+        }
+        assert_eq!(a.len(), b.len());
+        // a group rolled back keeps nothing
+        let mut aborted = store();
+        let before = tables(&aborted);
+        aborted.begin_group().unwrap();
+        for r in &sent[..4] {
+            request(&mut aborted, r).unwrap().unwrap();
+        }
+        aborted.abort_group();
+        assert!(!aborted.grouped());
+        assert_eq!(tables(&aborted), before);
+    }
+
+    /// A correction finds the correction already recorded by its kind's
+    /// `corrects` column, never the kind whole (the audit's cost B10).
+    #[test]
+    fn a_correction_reads_its_kind_by_column() {
+        let text = JOBS.replace(
+            "    states:\n      OPEN: { category: inbound }",
+            "    observations:\n      checks:\n        kind: Check\n        attributes:\n          \
+             remark: { type: string, optional: true }\n    states:\n      OPEN: { category: inbound }",
+        );
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix"}),
+        ));
+        let check = created(&req(
+            &mut s,
+            "record",
+            OPERATOR,
+            ("Check", true),
+            json!({"subject": &job, "remark": "first"}),
+        ));
+        let before = crate::world::whole_type_reads("Check");
+        created(&req(
+            &mut s,
+            "record",
+            OPERATOR,
+            ("Check", true),
+            json!({"subject": &job, "remark": "second", "corrects": &check}),
+        ));
+        assert_eq!(crate::world::whole_type_reads("Check"), before);
+    }
+
     #[test]
     fn an_erasure_redacts_its_history_reaches_its_observations_and_stays() {
         let text = JOBS
@@ -8285,7 +8490,14 @@ types:
             (&job, false),
             json!({"reason": "ana's number"}),
         ));
-        // the erasure admits the invariant it breaks, and forgets the check
+        // the erasure admits the invariant it breaks, and forgets the check,
+        // reading the labels, the observations and the proposals on the job
+        // by their columns, none of their types whole (the audit's cost B10)
+        let kinds = [crate::model::LABEL, "Check", PROPOSAL];
+        let before: Vec<u64> = kinds
+            .iter()
+            .map(|t| crate::world::whole_type_reads(t))
+            .collect();
         let v = req(
             &mut s,
             "forget",
@@ -8296,6 +8508,11 @@ types:
         let Verdict::Satisfied { events, .. } = &v else {
             panic!("{v:?}");
         };
+        let after: Vec<u64> = kinds
+            .iter()
+            .map(|t| crate::world::whole_type_reads(t))
+            .collect();
+        assert_eq!(after, before, "{kinds:?} read whole");
         // its own, the check's forget, and the label's redaction
         assert_eq!(events.len(), 3);
         let w = s.snapshot().unwrap();
@@ -10597,13 +10814,9 @@ types:
         ));
     }
 
-    /// A supersession group's erasure reads its members' predecessors by the
-    /// index on their successor's column, never a superseding type whole,
-    /// where a 41-member group held the writer 1.43 s (fifth production
-    /// review, ADR-0191 decision 5); what it erases is the same.
-    #[test]
-    fn a_groups_erasure_reads_no_type_whole() {
-        const ACCOUNTS: &str = r#"
+    /// Accounts merged into one another, a merged one superseded by the one
+    /// that absorbed it (ADR-0191 decision 5).
+    const GROUPED_ACCOUNTS: &str = r#"
 module: accounts
 categories: [live, closed]
 types:
@@ -10631,7 +10844,14 @@ types:
           - supersede: inputs.successor
       forget: { kind: erasure, inputs: { reason: { type: string } } }
 "#;
-        let lib = Library::load(&[("accounts.yaml".into(), ACCOUNTS.into())]).unwrap();
+
+    /// A supersession group's erasure reads its members' predecessors by the
+    /// index on their successor's column, never a superseding type whole,
+    /// where a 41-member group held the writer 1.43 s (fifth production
+    /// review, ADR-0191 decision 5); what it erases is the same.
+    #[test]
+    fn a_groups_erasure_reads_no_type_whole() {
+        let lib = Library::load(&[("accounts.yaml".into(), GROUPED_ACCOUNTS.into())]).unwrap();
         let mut s = Store::sandbox(lib, 0).unwrap();
         let mut ids = Vec::new();
         for i in 0..50 {
@@ -10677,6 +10897,45 @@ types:
         assert_eq!(
             snapshot.whole(&ids[6]).unwrap().unwrap().attr("name"),
             Value::Text("Person 6".into())
+        );
+    }
+
+    /// `history` with `follow` reads a group's members' predecessors by the
+    /// index on their successor's column, never a superseding type whole,
+    /// where it read the type whole for each member (the audit's cost B9);
+    /// the group is the same, a chain two deep among it.
+    #[test]
+    fn a_followed_history_reads_no_type_whole() {
+        let lib = Library::load(&[("accounts.yaml".into(), GROUPED_ACCOUNTS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let mut ids = Vec::new();
+        for _ in 0..50 {
+            ids.push(created(&req(
+                &mut s,
+                "open",
+                OPERATOR,
+                ("Account", true),
+                json!({}),
+            )));
+        }
+        // 7 into 6, then 1 to 6 into 0
+        for (into, other) in [(6, 7), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6)] {
+            created(&req(
+                &mut s,
+                "absorb",
+                OPERATOR,
+                (&ids[into], false),
+                json!({"other": ids[other]}),
+            ));
+        }
+        let w = s.snapshot().unwrap();
+        let before = crate::world::whole_type_reads("Account");
+        let group = crate::reads::superseded_group(&w, &ids[7]).unwrap();
+        assert_eq!(group, ids[..8].to_vec());
+        assert_eq!(
+            crate::world::whole_type_reads("Account"),
+            before,
+            "the follow read its type whole"
         );
     }
 

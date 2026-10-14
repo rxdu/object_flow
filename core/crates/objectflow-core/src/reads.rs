@@ -56,9 +56,12 @@ pub fn superseded_group(world: &World<'_>, id: &str) -> Result<Vec<String>, NotR
     let mut members = BTreeSet::from([end.clone()]);
     let mut todo = vec![end];
     while let Some(at) = todo.pop() {
+        // each member's predecessors by the index on the successor's column,
+        // as the write path reads them, where every superseding type was read
+        // whole for each member (the audit's cost B9, ADR-0191 decision 5)
         for tn in &superseding {
-            for p in world.of_type(tn)? {
-                if p.superseded_by.as_deref() == Some(at.as_str()) && members.insert(p.id.clone()) {
+            for p in world.superseded_into(tn, &at)? {
+                if members.insert(p.id.clone()) {
                     todo.push(p.id.clone());
                 }
             }
@@ -219,20 +222,52 @@ fn continued<'w>(
 /// those holding an admitted invariant violation, in id order, each with
 /// its state; a type the store does not declare is refused, a value.
 pub fn exceptions(world: &World<'_>, type_: &str) -> Result<QueryPage, NotRun> {
-    if world.lib.type_(type_).is_none() {
-        return Ok(QueryPage {
+    exceptions_from(world, type_, None)
+}
+
+/// `exceptions` from a cursor: a page of at most [`PAGE_DEFAULT`] of the
+/// objects, in creation order, and a cursor going on from its last where
+/// more follow, where every one was answered in one page and the cursor
+/// taken and ignored (the audit's cost A13); a cursor of another read is
+/// refused, as a query's is.
+pub fn exceptions_from(
+    world: &World<'_>,
+    type_: &str,
+    after: Option<&str>,
+) -> Result<QueryPage, NotRun> {
+    let refuse = |why: &str| -> Result<QueryPage, NotRun> {
+        Ok(QueryPage {
             items: Vec::new(),
-            refused: Some("unknown_type".into()),
+            refused: Some(why.to_string()),
             reason: None,
             cursor: None,
-        });
+        })
+    };
+    if world.lib.type_(type_).is_none() {
+        return refuse("unknown_type");
     }
-    let items = world.excepted(type_)?.into_iter().map(state_item).collect();
+    let read = format!("exceptions {type_}");
+    let from = match after {
+        None => None,
+        Some(c) => match continued(world, &read, type_, c)? {
+            Some(o) => Some(o.order),
+            None => return refuse("malformed_cursor"),
+        },
+    };
+    let mut rest = world
+        .excepted(type_)?
+        .into_iter()
+        .filter(|o| from.is_none_or(|f| o.order > f));
+    let page: Vec<&Object> = rest.by_ref().take(PAGE_DEFAULT).collect();
+    let cursor = match (page.last(), rest.next()) {
+        (Some(last), Some(_)) => Some(cursor_of(&read, &last.id)),
+        _ => None,
+    };
     Ok(QueryPage {
-        items,
+        items: page.into_iter().map(state_item).collect(),
         refused: None,
         reason: None,
-        cursor: None,
+        cursor,
     })
 }
 
@@ -2987,6 +3022,75 @@ types:
         assert_eq!(
             exceptions(&w, "Nope").unwrap().refused.as_deref(),
             Some("unknown_type")
+        );
+    }
+
+    /// `exceptions` answers a page at a time, at most a hundred, in creation
+    /// order, a cursor going on from its last where more follow, every
+    /// excepted object once, where it answered all in one page and took its
+    /// cursor and ignored it (the audit's cost A13); a cursor of another read
+    /// is refused, as a query's is.
+    #[test]
+    fn exceptions_answer_a_page_at_a_time() {
+        let text = "\nmodule: shop\ncategories: [live]\ntypes:\n  Job:\n    attributes:\n      n: { type: int }\n    states:\n      OPEN: { category: live }\n    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [n] }\n";
+        let lib = Library::load(&[("shop.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let mut made = Vec::new();
+        for n in 0..250 {
+            let r = Request {
+                transition: "open".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some("Job".into()),
+                inputs: BTreeMap::from([("n".to_string(), json!(n))]),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            match request(&mut s, &r).unwrap().unwrap() {
+                Verdict::Satisfied { object_id, .. } => made.push(object_id),
+                other => panic!("{other:?}"),
+            }
+        }
+        let conn = s.connection();
+        let at: i64 = conn
+            .query_row("SELECT MAX(position) FROM of_event", [], |r| r.get(0))
+            .unwrap();
+        for id in &made {
+            conn.execute(
+                "INSERT INTO of_admission (object_id, invariant, position, reason) \
+                 VALUES (?1, 'bounded', ?2, 'test')",
+                rusqlite::params![id, at],
+            )
+            .unwrap();
+        }
+        let w = s.snapshot().unwrap();
+        let (mut seen, mut pages, mut cursor) = (Vec::new(), Vec::new(), None::<String>);
+        // a bounded walk, so a cursor that never moves fails rather than hangs
+        for _ in 0..10 {
+            let p = exceptions_from(&w, "Job", cursor.as_deref()).unwrap();
+            assert_eq!(p.refused, None);
+            pages.push(p.items.len());
+            seen.extend(p.items.iter().map(|i| i.id.clone()));
+            match p.cursor {
+                Some(c) => cursor = Some(c),
+                None => break,
+            }
+        }
+        assert_eq!(pages, [100, 100, 50]);
+        assert_eq!(seen, made);
+        let another = format!("{}.{}", "0".repeat(12), made[0]);
+        assert_eq!(
+            exceptions_from(&w, "Job", Some(&another))
+                .unwrap()
+                .refused
+                .as_deref(),
+            Some("malformed_cursor")
         );
     }
 }

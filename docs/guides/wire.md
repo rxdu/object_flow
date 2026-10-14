@@ -91,7 +91,7 @@ A verdict is `{"kind": …, "remedy": …}` with the fields of its kind; a satis
 | `availability` | `actor`, `id` | an offer per transition, or `null` |
 | `query` | `actor`, `type`; `filter`, `order`, `fields`, `cursor`, `limit` | `{"items": [{"id", "type", "fields"}…], "cursor": …, "refused": …}`; `order` names at most 8 keys and `fields` at most 256, each once |
 | `available` | `actor`, `type`, `transition`; `cursor`, `limit` | a page of the objects the transition is available to, with `actor_dependent` |
-| `exceptions` | `actor`, `type`; `cursor` | a page of the objects holding an admitted violation of an invariant |
+| `exceptions` | `actor`, `type`; `cursor` | a page of at most 100 of the objects holding an admitted violation of an invariant, in creation order, `{"items": [{"id", "type", "fields"}…], "cursor": …}`, the `cursor` going on from its last where more follow |
 | `declaration` | `type`; `actor`, `version` | the type as declared, with its enumerations, `version`, `source_ref`, `source_digest` and `person_dimensions` |
 | `tools` | `actor_kind`; `actor` | `{"tools": [{"name", "description", "request", "input_schema"}…]}`: the tools an actor of that kind is handed, sorted by name ([Agents](agents.md)) |
 | `metric` | `actor`, `name`; `bind`, `keep`, `over`, `filter`, `cursor` | `{"rows": [{"dimensions", "value"}…], "flags": […], "history_complete": …, "refused": …}` |
