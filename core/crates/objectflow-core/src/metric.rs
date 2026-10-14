@@ -2823,8 +2823,13 @@ pub fn person_dimensions(lib: &Library, tn: &str) -> Result<Vec<String>, NotRun>
                 && lib.type_(&k).and_then(Type::actor_identity).is_some()
             {
                 out.push(format!("{tn}.{n}.{d}"));
-            } else if source == "objects" && identity_path(lib, &owner, &item, &e) {
-                // an actor's identity, as `actor.id` records it (D565)
+            } else if let Some(row) = row_type(lib, &owner, &source)
+                && identity_path(lib, &row, &item, &e)
+            {
+                // an actor's identity, as `actor.id` records it (D565), on
+                // an object of the type or an observation of one of its
+                // kinds, where an observation's was left unmarked (the
+                // audit's personal data R8)
                 out.push(format!("{tn}.{n}.{d}"));
             }
         }
@@ -2836,6 +2841,20 @@ pub fn person_dimensions(lib: &Library, tn: &str) -> Result<Vec<String>, NotRun>
 /// Whether a metric's dimension reads an `identity` attribute of its row's
 /// object, or of one its single references reach: an actor's identity, as
 /// `assign … actor.id` records who acted (D565).
+/// The type a metric's rows are objects of: the owner's for `objects`, an
+/// observation kind's for a source naming one of the owner's kinds; none
+/// for rows that are no objects, spans, events or attempts.
+fn row_type(lib: &Library, owner: &str, source: &str) -> Option<String> {
+    if source == "objects" {
+        return Some(owner.to_string());
+    }
+    lib.type_(owner)?
+        .observations
+        .iter()
+        .find(|(c, _)| c == source)
+        .map(|(_, kind)| kind.clone())
+}
+
 fn identity_path(lib: &Library, owner: &str, item: &str, e: &Expr) -> bool {
     fn type_of(lib: &Library, owner: &str, item: &str, x: &Expr) -> Option<String> {
         match x {
@@ -2923,6 +2942,57 @@ types:
       by_actor: { description: Requests by who made them., source: transitions, item: t, dimensions: { actor: t.actor_id }, expression: count() }
       by_queue: { description: Tickets by queue., source: objects, item: o, dimensions: { queue: o.queue }, expression: count() }
 "#;
+
+    /// An identity copied into an observation, as `actor.id` records who
+    /// signed off, is marked when a metric over the observations groups by
+    /// it, as one on the type's own objects is, where it was left unmarked
+    /// for the gateway (the audit's personal data R8).
+    #[test]
+    fn an_identity_an_observation_holds_is_marked() {
+        let memos = r#"
+module: memos
+categories: [live, closed]
+types:
+  User:
+    description: A person.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: [ACTIVE], to: GONE }
+  Memo:
+    description: A memo.
+    tracking: record
+    attributes:
+      title: { type: string }
+    observations:
+      signoffs:
+        kind: Signoff
+        description: Who signed the memo off.
+        attributes:
+          who: { type: identity }
+    states:
+      OPEN: { category: live }
+      FILED: { category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: OPEN, required_inputs: [title] }
+      file: { kind: external, from: [OPEN], to: FILED }
+    metrics:
+      signoffs_by_who: { description: Sign-offs by who gave them., source: signoffs, item: s, dimensions: { who: s.who }, expression: count() }
+"#;
+        let lib = Library::load(&[("memos.yaml".into(), memos.into())]).unwrap();
+        assert!(
+            person_dimensions(&lib, "Memo")
+                .unwrap()
+                .contains(&"Memo.signoffs_by_who.who".to_string()),
+            "{:?}",
+            person_dimensions(&lib, "Memo").unwrap()
+        );
+    }
 
     /// `declaration`'s marks (`library-api.md` §6, D451): an actor's id and
     /// every standard assignment metric's assignee, an object of a type that

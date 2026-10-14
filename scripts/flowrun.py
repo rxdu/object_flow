@@ -3369,9 +3369,20 @@ def person_dimensions(store, tn):
                 kind = ev.kind(e, {f["item"]: row})
             if kind[0] == "object" and store.actor_attr(kind[1]) is not None:
                 out.append(f"{tn}.{n}.{d}")
-            elif f["source"] == "objects" and identity_path(store.kinds, owner, f["item"], e):
-                out.append(f"{tn}.{n}.{d}")         # an actor's identity, as `actor.id` records it (D565)
+            elif (rows := row_type(store.kinds, owner, f["source"])) and \
+                    identity_path(store.kinds, rows, f["item"], e):
+                # an actor's identity, as `actor.id` records it (D565), on an object of the type or an observation
+                # of one of its kinds (the audit's personal data R8)
+                out.append(f"{tn}.{n}.{d}")
     return sorted(out)
+
+
+def row_type(kinds, owner, source):
+    """The type a metric's rows are objects of: the owner's for `objects`, an observation kind's for a source naming
+    one of the owner's kinds; none for rows that are no objects."""
+    if source == "objects":
+        return owner
+    return (((kinds.get(owner) or {}).get("observations") or {}).get(source) or {}).get("kind")
 
 
 def reads_only_its_rows(e, bound, kinds, enums):

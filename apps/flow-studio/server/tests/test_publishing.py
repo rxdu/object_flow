@@ -1085,6 +1085,53 @@ def test_a_taken_by_a_cascade_breaks_names_delegable_alike(tee):
     alike(tee)
 
 
+MEMOS = """module: memos
+categories: [live, closed]
+types:
+  User:
+    description: A person.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: [ACTIVE], to: GONE }
+  Memo:
+    description: A memo.
+    tracking: record
+    attributes:
+      title: { type: string }
+    observations:
+      signoffs:
+        kind: Signoff
+        description: Who signed the memo off.
+        attributes:
+          who: { type: identity }
+    states:
+      OPEN: { category: live }
+      FILED: { category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: OPEN, required_inputs: [title] }
+      file: { kind: external, from: [OPEN], to: FILED }
+    metrics:
+      signoffs_by_who: { description: Sign-offs by who gave them., source: signoffs, item: s, dimensions: { who: s.who }, expression: count() }
+"""
+
+
+def test_an_identity_an_observation_holds_is_marked_alike(tee):
+    """An identity copied into an observation is marked in `declaration`'s `person_dimensions` when a metric over the
+    observations groups by it, alike through both backends, where it was left unmarked for the gateway (the audit's
+    personal data R8)."""
+    load(tee, "memos", MEMOS)
+    tee.found.clear()
+    d = tee.post("/v1/declaration", {"type": "Memo"})
+    assert "Memo.signoffs_by_who.who" in d["person_dimensions"], d["person_dimensions"]
+    alike(tee)
+
+
 def tiers(tee) -> list:
     page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.tiers",
                                    "keep": ["tier"]})

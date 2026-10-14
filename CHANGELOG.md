@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- `declaration`'s and a publish report's `person_dimensions` mark a metric dimension reading an `identity` copied into an observation, as one on the type's own objects is, where it was left unmarked for the gateway (the audit's personal data R8).
 - A part's `taken_by` that its whole's cascade breaks is refused with the remedy `delegable`, as through a call, where it said `unreachable_from_here`, telling an agent the request could never be done rather than to hand it to a person (the audit's write path A-04).
 - A satisfied `check` names no `events`, and a creation's no `object_id`, each in the verdict's `not_computed`, where it named the positions and the id its simulation took, which the next real request was given for something else (the audit's write path A-05).
 - The service sample's two examples that publish version 2 over version 1 moved to `service-migration.examples.yaml`, a file no change carries, since a publish step reads its files beside the examples file and a publish refused them `example_not_run`; `service.examples.yaml` now publishes with its module, as every shipped sample set does, which a deployment test holds (the guides' audit G-18).
