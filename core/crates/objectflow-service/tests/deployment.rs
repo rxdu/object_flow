@@ -819,6 +819,19 @@ fn a_deployments_edges_are_said() {
     let (code, said) = refused(&["--store", path.to_str().expect("a path"), "--port", "0"]);
     assert_eq!(code, Some(1));
     assert!(said.contains("fails SQLite's quick check"), "{said}");
+    // said on one stamped line, where SQLite's fault text broke it in two,
+    // its second line unstamped, reported as the refusal printed twice
+    // (ADR-0202 decision 8)
+    let stamped = |l: &str| {
+        let b = l.as_bytes();
+        b.len() > 20 && b[4] == b'-' && b[10] == b'T' && b[19] == b'Z'
+    };
+    assert!(said.lines().all(stamped), "{said}");
+    assert_eq!(
+        said.lines().filter(|l| l.contains("quick check")).count(),
+        1,
+        "{said}"
+    );
     // the refused start changed neither, where it wrote the log into the
     // file and emptied it (fourth and fifth production reviews)
     assert!(

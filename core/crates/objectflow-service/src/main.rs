@@ -112,7 +112,10 @@ fn log_blocked(since: i64, now: i64) -> bool {
 /// thread marks when the line it writes began, which `/health` reads as
 /// `log_blocked` past `LOG_BLOCKED_MS` (fourth production review).
 fn say(line: std::fmt::Arguments<'_>) {
-    let text = format!("{} {line}", timestamp_text(wall_clock()));
+    // one line, stamped, whatever its text holds: SQLite's fault text holds
+    // a line break, which broke a refused start's line in two, the second
+    // unstamped, reported as the refusal printed twice (ADR-0202 decision 8)
+    let text = format!("{} {line}", timestamp_text(wall_clock())).replace(['\r', '\n'], " ");
     match LOG.get_or_init(start_log).try_send(text) {
         Ok(()) => {
             LOG_QUEUED.fetch_add(1, Ordering::SeqCst);

@@ -171,6 +171,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Fixed
 
+- Every line the service logs is one line stamped with its time: a refused start's fault in SQLite's words, which holds a line break, took two lines, the second unstamped.
 - `recorded_from` and `declaration_version` are read by their bare names as `state` is, as `flow-format.md` §5 says, in the engine and the reference runner, where the engine did not run them and the runner answered a type name (the values audit's G9).
 - The reference runner refuses an `only_via` transition a call, a creation or a cascade takes from a transition it does not name, `not_requestable`, as the core does since the write path audit's R-05.
 - An upgrade, its dry run too, is refused `409` naming each recorded flow version this release's loader does not read, so the store stays at the release that reads it, where it was carried on and every request touching that version answered 500 (the audit's durability U4).
