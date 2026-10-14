@@ -163,6 +163,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Fixed
 
+- The reference runner refuses an `only_via` transition a call, a creation or a cascade takes from a transition it does not name, `not_requestable`, as the core does since the write path audit's R-05.
 - An upgrade, its dry run too, is refused `409` naming each recorded flow version this release's loader does not read, so the store stays at the release that reads it, where it was carried on and every request touching that version answered 500 (the audit's durability U4).
 - The release fingerprint covers a declared type's table and how a value of every type is held in its column, not only the built-ins' tables, so a release changing either is a new release; and `of_engine_release` records the commit each row's build was made from, where its build was told, as a release's is (U6, U7).
 - A crash while `--create` made a store left a half-made one that every later start refused as "not an ObjectFlow store", `--create` included. A store is now made in one transaction, and a file holding an empty database, what a crash leaves, is no store: a start without `--create` says so, and one with it makes the store (the audit's durability W11).

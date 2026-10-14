@@ -1922,6 +1922,8 @@ class Ctx:
         self.erased = {}            # object id -> the personal attributes this request erased on it
         self.renamed = []           # each erased actor's identity and its object's id (ADR-0192 decision 4)
         self.position_of = {}       # object id -> the position of the event its current transition records
+        self.taking = []            # (type, transition) of each transition being taken, the innermost last, which a
+                                    # nested `only_via` reads its caller from (the audit's write path R-05)
         self.causes = []            # the positions of the transitions being taken, the innermost last: each event's
                                     # cause is the one taken when it began (storage-schema.md §2, cause_position)
         self.before = None          # the store as the request found it
@@ -2305,7 +2307,25 @@ class Runner:
         if work.objects[oid].state not in froms:
             raise Refused("unavailable", remedy="unreachable_from_here", detail=f"it is in {work.objects[oid].state}")
 
-    def take(self, ctx, tn, xn, oid, inputs, depth):  # noqa: C901  one transition, as DESIGN.md §6 orders it
+    def take(self, ctx, tn, xn, oid, inputs, depth):
+        """One transition, the requested one or one it causes, as `taken` takes it: one a call, a creation or a cascade
+        takes, where `only_via` names its callers, refused `not_requestable` unless the transition taking it is one it
+        names, as a request for it is (the audit's write path R-05). Returns the object's id."""
+        x = ((self.kinds.get(tn) or {}).get("transitions") or {}).get(xn)
+        if depth and x is not None and x.get("only_via"):
+            parent = ctx.taking[-1] if ctx.taking else None
+            named = parent is not None and any(
+                "." in v and v.split(".", 1)[1] == parent[1] and ctx.work.is_a(parent[0], v.split(".", 1)[0])
+                for v in x["only_via"])
+            if not named:
+                raise Refused("not_requestable", remedy="unreachable_from_here", parents=list(x["only_via"]))
+        ctx.taking.append((tn, xn))
+        try:
+            return self.taken(ctx, tn, xn, oid, inputs, depth)
+        finally:
+            ctx.taking.pop()
+
+    def taken(self, ctx, tn, xn, oid, inputs, depth):  # noqa: C901  one transition, as DESIGN.md §6 orders it
         """One transition, the requested one or one it causes: its checks, guards, outcome, effect and cascades.
         Returns the object's id."""
         work = ctx.work

@@ -1156,6 +1156,27 @@ def test_a_retyped_attribute_names_each_object_holding_a_value_alike(tee):
     alike(tee)
 
 
+def test_an_only_via_transition_taken_by_a_transition_it_does_not_name_is_refused_alike(tee):
+    """A creation into an `only_via` transition from a transition it does not name is refused `not_requestable`,
+    through a call as for a request, alike through both backends, where the runner took it (the audit's write path
+    R-05); one it names is taken."""
+    sneaky = CASCADE_SHOP.replace(
+        "      close_all: { kind: external, from: [OPEN], to: DONE }\n",
+        "      close_all: { kind: external, from: [OPEN], to: DONE }\n"
+        "      sneak: { kind: internal, from: [OPEN], effect: [ { create: { type: Line, transition: add, "
+        "inputs: { order: this } } } ] }\n", 1)
+    assert sneaky != CASCADE_SHOP
+    load(tee, "shop", sneaky)
+    tee.found.clear()
+    order = made(tee, "Order", "open")
+    v = tee.post("/v1/request", {"actor": OP, "object_id": order, "transition": "sneak"})
+    assert (v["kind"], v["verdict"]["kind"], v["verdict"]["parents"]) == (
+        "call_refused", "not_requestable", ["Order.add_line"]), v
+    assert tee.post("/v1/request", {"actor": OP, "object_id": order,
+                                    "transition": "add_line"})["kind"] == "satisfied"
+    alike(tee)
+
+
 def tiers(tee) -> list:
     page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.tiers",
                                    "keep": ["tier"]})
