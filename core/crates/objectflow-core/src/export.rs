@@ -432,7 +432,7 @@ fn personal(lib: &Library, type_: Option<&str>, transition: &str, name: &str) ->
     };
     t.attribute(name).is_some_and(|a| a.personal)
         || t.transition(transition)
-            .is_some_and(|x| crate::request::input_personal(t, x, name))
+            .is_some_and(|x| crate::request::input_personal(lib, t, x, name))
 }
 
 /// Each span of each object of the type, after the cursor, by the event that

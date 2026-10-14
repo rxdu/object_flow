@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- An input a create or a call passes into another object's personal attribute is personal on the caller's request too: `export` omits it from the caller's event, a refused attempt withholds it, and a request's digest masks it, where it was exported and kept in clear (caller taint, found probing the write path audit's last minor). What an erasure reaches through such an input is unchanged.
 - A publish changing an attribute's type names, in its `type_changed` notice, each object holding a value it sets aside, and gives each a `migrate` event naming the change, where the notice said nothing was affected and the objects' histories said nothing (the audit's write path A-06).
 - `declaration`'s and a publish report's `person_dimensions` mark a metric dimension reading an `identity` copied into an observation, as one on the type's own objects is, where it was left unmarked for the gateway (the audit's personal data R8).
 - A part's `taken_by` that its whole's cascade breaks is refused with the remedy `delegable`, as through a call, where it said `unreachable_from_here`, telling an agent the request could never be done rather than to hand it to a person (the audit's write path A-04).

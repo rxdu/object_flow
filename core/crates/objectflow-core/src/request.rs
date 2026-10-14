@@ -1059,7 +1059,7 @@ fn decide_or_stop(
     // a caller stayed in the admission (the audit's personal data S29)
     let reason = match lib.type_(&tn).and_then(|t| {
         t.transition(&req.transition)
-            .map(|x| input_personal(t, x, "reason"))
+            .map(|x| input_personal(lib, t, x, "reason"))
     }) {
         Some(true) => crate::eval::PERSONAL.to_string(),
         _ => inputs.get("reason").map(text_of).unwrap_or_default(),
@@ -1996,11 +1996,15 @@ fn take_unwound(
                 continue;
             };
             let mut tainted = BTreeSet::new();
+            // personal by the event's own transition alone: what an erasure
+            // reaches through a caller's input that only flowed on into
+            // another object is the author's to decide (TODO.md, caller
+            // taint), so the walk reaches what it did before
             if let Some(recorded) = e.payload["inputs"].as_object() {
                 for name in recorded.keys() {
-                    if input_personal(tv, ex, name)
+                    if personal_by_own(tv, ex, name)
                         || tv.attribute(name).is_some_and(|a| a.personal)
-                        || input_personal(t, ex, name)
+                        || personal_by_own(t, ex, name)
                         || t.attribute(name).is_some_and(|a| a.personal)
                     {
                         ctx.redacted_inputs.push((e.position, name.clone()));
@@ -2322,7 +2326,7 @@ fn take_unwound(
             // correction's, unless the reason is personal (flow-format.md
             // §4.8, declaration-syntax.md §6.4)
             if (x.kind == Kind::Assertion || !x.corrects.is_empty())
-                && !input_personal(t, x, "reason")
+                && !input_personal(ctx.work.lib, t, x, "reason")
                 && let Some(r) = inputs.get("reason")
             {
                 p["reason"] = wire::encode(r);
@@ -2666,7 +2670,51 @@ fn steps_taking<'s>(
 /// Whether an input is personal (`declaration-syntax.md` §10, check 10):
 /// marked so, or written by the transition's effect into a personal
 /// attribute, which makes it personal without the marking.
-pub(crate) fn input_personal(t: &Type, x: &Transition, name: &str) -> bool {
+pub(crate) fn input_personal(lib: &Library, t: &Type, x: &Transition, name: &str) -> bool {
+    // what a create or a call passes it into, one hop on, as `writes_of`
+    // reads a step (D547): an argument the taken transition holds personal,
+    // where the input was recorded in clear on the caller's event and
+    // exported, though the object it reached holds it personal (the caller
+    // taint found probing the write path audit's last minor). A call's
+    // target is read by every type taking a transition of its name, so it
+    // errs to holding the input personal
+    fn passes(lib: &Library, steps: &[Step], name: &str) -> bool {
+        steps.iter().any(|st| match st {
+            Step::Create {
+                type_,
+                transition,
+                inputs,
+                ..
+            } => lib
+                .type_(type_)
+                .is_some_and(|tt| into(tt, transition, inputs, name)),
+            Step::Call {
+                transition, inputs, ..
+            } => lib
+                .types
+                .values()
+                .any(|tt| into(tt, transition, inputs, name)),
+            Step::Foreach { steps, .. } => passes(lib, steps, name),
+            _ => false,
+        })
+    }
+    fn into(tt: &Type, xn: &str, inputs: &[(String, Expr)], name: &str) -> bool {
+        let Some(tx) = tt.transition(xn) else {
+            return false;
+        };
+        inputs.iter().any(|(arg, e)| {
+            let mut read = BTreeSet::new();
+            e.inputs_read(&mut read);
+            read.contains(name)
+                && (tt.attribute(arg).is_some_and(|a| a.personal) || personal_by_own(tt, tx, arg))
+        })
+    }
+    personal_by_own(t, x, name) || passes(lib, &x.effect, name)
+}
+
+/// Whether an input is personal by its own transition alone: marked so, or
+/// written by its effect into a personal attribute (check 10).
+fn personal_by_own(t: &Type, x: &Transition, name: &str) -> bool {
     fn writes(steps: &[Step], t: &Type, name: &str) -> bool {
         steps.iter().any(|st| match st {
             Step::Assign { location, expr } | Step::Add { location, expr } => {
@@ -2931,7 +2979,7 @@ fn invalidate_proposals(
         };
         let personal: BTreeSet<String> = inputs
             .keys()
-            .filter(|k| input_personal(t, x, k))
+            .filter(|k| personal_by_own(t, x, k))
             .cloned()
             .collect();
         if personal.is_empty() {
@@ -6274,7 +6322,7 @@ pub(crate) fn refused_attempt(
             .map(|(_, i)| i.personal)
             .or_else(|| t.and_then(|t| t.attribute(k)).map(|a| a.personal))
             .unwrap_or(false)
-            || matches!((t, x), (Some(t), Some(x)) if input_personal(t, x, k))
+            || matches!((t, x), (Some(t), Some(x)) if input_personal(lib, t, x, k))
     };
     let declared = |k: &str| {
         x.is_some_and(|x| {
@@ -8497,6 +8545,61 @@ types:
         aborted.abort_group();
         assert!(!aborted.grouped());
         assert_eq!(tables(&aborted), before);
+    }
+
+    /// An input a creation passes into another object's personal attribute
+    /// is personal on the caller's event too, as one its own effect writes
+    /// into its own is (check 10), one hop on: the export omits it, where it
+    /// exported it in clear (caller taint, found probing the write path
+    /// audit's last minor). What an erasure reaches through it is left as
+    /// it was, the author's to decide.
+    #[test]
+    fn an_input_passed_into_a_personal_attribute_is_personal_for_the_caller() {
+        const CRM: &str = r#"
+module: crm
+categories: [live, closed]
+types:
+  Customer:
+    attributes:
+      name: { type: string, optional: true, personal: true }
+      contacts: { reference: "Contact[]", aggregation: composite, opposite: customer }
+    states: { ACTIVE: { category: live }, GONE: { category: closed, final: true } }
+    transitions:
+      join: { kind: initial, to: ACTIVE, optional_inputs: [name] }
+      add_contact: { kind: internal, from: [ACTIVE], inputs: { phone: { type: string } }, effect: [ { create: { type: Contact, transition: add, inputs: { customer: this, phone: inputs.phone } } } ] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Contact:
+    attributes:
+      customer: { reference: Customer, opposite: contacts }
+      phone: { type: string, optional: true, personal: true }
+    states: { ON: { category: live } }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [customer], optional_inputs: [phone], only_via: [Customer.add_contact] }
+"#;
+        let lib = Library::load(&[("crm.yaml".into(), CRM.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let customer = created(&req(
+            &mut s,
+            "join",
+            OPERATOR,
+            ("Customer", true),
+            json!({}),
+        ));
+        created(&req(
+            &mut s,
+            "add_contact",
+            OPERATOR,
+            (&customer, false),
+            json!({"phone": "555-0100"}),
+        ));
+        let w = s.snapshot().unwrap();
+        let page = crate::export::export_page(&w, "log", None, 100).unwrap();
+        let line = page
+            .lines
+            .iter()
+            .find(|l| l.contains("\"add_contact\""))
+            .expect("the caller's event");
+        assert!(!line.contains("555-0100"), "{line}");
     }
 
     /// A correction finds the correction already recorded by its kind's

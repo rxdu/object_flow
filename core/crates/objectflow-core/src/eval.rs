@@ -1808,7 +1808,7 @@ pub(crate) fn personal_names(lib: &crate::model::Library) -> BTreeSet<String> {
                 .chain(&x.optional_inputs)
                 .chain(x.inputs.iter().map(|(n, _)| n));
             for n in named {
-                if crate::request::input_personal(t, x, n) {
+                if crate::request::input_personal(lib, t, x, n) {
                     out.insert(n.clone());
                 }
             }
