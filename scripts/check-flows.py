@@ -2529,6 +2529,11 @@ class Typing:
                 return ("int",)
             return {"entered_at": ("timestamp",), "time_in": ("duration",), "date": ("date",)}.get(f[1] if f[0] == "name" else None)
         if k == "changed":
+            # the event it reads is one no type here names, so a value of a type it can tell is not one, where an int
+            # was read as a log position (the values audit's G7)
+            given = self.of(e[2], tn, x, env, seen)
+            if given is not None:
+                self.fail(f"changed_since reads an event, and is given {type_text(given)}")
             return ("bool",)
         if k == "isnull":
             self.of(e[1], tn, x, env, seen)
@@ -8124,6 +8129,12 @@ def expression_type_plants(people):
         ("a count's body that is no condition", ledger("count(a in Account: a.count) > 0"),
          [wrong("derived attribute probe", "the body of count is an int, not a bool")]),
         ("a count's condition and a distinct count's value", ledger("count(a in Account: a.vip) > count(distinct a in Account: a.count)"), []),
+        # an event, never an int read as a log position (the audit's values G7)
+        ("changed_since given an int", ledger("changed_since([label], count)"),
+         [wrong("derived attribute probe", "changed_since reads an event, and is given an int")]),
+        ("changed_since given a literal", ledger("changed_since([label], 3)"),
+         [wrong("derived attribute probe", "changed_since reads an event, and is given a number")]),
+        ("changed_since given an event", ledger("changed_since([label], signed)").replace("      label: { type: string }\n", "      label: { type: string }\n      signed: { type: event, optional: true }\n", 1), []),
         ("a narrower decimal written", writing("rate", "fine"),
          [misfit("fine", "a decimal of scale 3, to rate, which holds a decimal of scale 2: only a product or a quotient is rounded to its target")]),
         ("a literal of more places than its partner", writing("rate", "rate + 0.005"),

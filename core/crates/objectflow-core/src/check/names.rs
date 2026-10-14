@@ -3424,7 +3424,18 @@ impl Typing<'_> {
                     _ => None,
                 }
             }
-            Expr::Changed(..) => Some(Ty::Bool),
+            // the event it reads is one no type here names, so a value of a
+            // type it can tell is not one, where an int was read as a log
+            // position (the values audit's G7)
+            Expr::Changed(_, ev) => {
+                if let Some(given) = self.of(ev, tn, x, env, seen) {
+                    self.fail(format!(
+                        "changed_since reads an event, and is given {}",
+                        given.text()
+                    ));
+                }
+                Some(Ty::Bool)
+            }
             Expr::IsNull(inner, _) => {
                 self.of(inner, tn, x, env, seen);
                 Some(Ty::Bool)
