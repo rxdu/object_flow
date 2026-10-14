@@ -52,7 +52,7 @@ The fifteenth production review (`production-review.md` §19) found no blocker. 
    - `consulted` carries a per-person metric's value, filtered as the metric is (D671);
    - a crash's `-wal` is kept, and only a restore's is removed (D672);
    - erasures are asked again after a restore, from a record kept outside the store (D673);
-   - the first publish runs once the unit serves, there is a prune script and its units, verified against a service, the store is on a local filesystem, metric names are checked after each upgrade, and `/health` is watched with the metrics (D674);
+   - the first publish runs once the unit serves, there is a prune script and its units, verified against a service, the store is on a local filesystem, and `/health` is watched with the metrics (D674). *Retracted 2026-10-14:* this decision also said metric names are not promised and are to be checked after each upgrade; that was taken from a reviewer's statement without checking, and contradicts ADR-0183, which holds `/metrics`' names under ADR-0180's promise; `operate.md` is corrected;
    - agents.md's refusal code (D675);
    - the flag in a busy `--metrics-bind`'s refusal (D676).
 8. **Unchanged, or recorded for later:**

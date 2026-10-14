@@ -203,7 +203,7 @@ It answers `503` with a `code` when an operator must act:
 | `objectflow_build_info` | The release and commit serving. |
 | `objectflow_start_time_seconds` | When the process started. |
 
-**Alert on** these, checking their names after each upgrade: the metrics' names are the service's own, not among what a release promises to keep (ADR-0180), and a renamed one would fall silent. `/health` stays `200` while the clock leads, while an evaluator fails, while a publish holds the writer, and while the main listener refuses newcomers `503 busy`, so watch the metrics too:
+**Alert on** these. Their names are held as `/health`'s fields are, from 1.0.0 (ADR-0183, ADR-0180). `/health` stays `200` while the clock leads, while an evaluator fails, while a publish holds the writer, and while the main listener refuses newcomers `503 busy`, so watch the metrics too:
 
 - `/health` not `200`, on the `--metrics-bind` address;
 - `objectflow_disk_free_bytes` well before 64 MiB;

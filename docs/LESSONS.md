@@ -702,3 +702,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Where a rule protects a class of value, apply it through every way the language reaches that value, reusing the reading that already follows them; and plant a case for each way.
 - **Context:** The checkers' personal-data rules; 2026-10-14.
 
+### A guard decided against a PRD row it never read
+- **Pattern:** ADR-0201 decision 4 and ADR-0202 decision 3 made the engine refuse an agent's, then an unknown actor's, read by a personal member, reading the actor's kind. PRD T5, a Must, says "the engine filters no read by who is asking"; neither ADR checked it, and an independent critique of ADR-0204 found the conflict.
+- **Correction:** Before deciding any behaviour about actors, visibility or storage, read the PRD's §6 rows that govern it, and cite them in the ADR; a decision that contradicts a Must is a PRD §12 revision for the author, never a quiet exception.
+- **Context:** ADRs decided under a standing instruction; 2026-10-14.
+
+### A reviewer's claim about a promise taken without checking the decision
+- **Pattern:** The fifteenth operator wrote that `/metrics`' names are not promised by ADR-0180; I put that into `operate.md`, ADR-0202 and the register. ADR-0183 holds those names under ADR-0180's promise.
+- **Correction:** A reviewer's statement about what the project promises is a claim to check against the ADRs before it changes a guide; cite the decision it rests on.
+- **Context:** Folding review findings into the guides; 2026-10-14.
+

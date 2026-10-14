@@ -4355,7 +4355,7 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **Resolved** 2026-10-14: `operate.md` says to keep a record of erasure requests outside the store and ask again after a restore (ADR-0202 decision 7).
 
 ### D674
-**`operate.md` lacked a prune unit, the socket's order and other steps**: the first publish used a socket only the next section's unit makes, the daily prune had no unit, nothing said the store is on a local filesystem, the alert list leaned on metric names no release promises, and `/health` stays `200` while the listener is full. Found 2026-10-14 by the fifteenth production review's operator.
+**`operate.md` lacked a prune unit, the socket's order and other steps**: the first publish used a socket only the next section's unit makes, the daily prune had no unit, nothing said the store is on a local filesystem, and `/health` stays `200` while the listener is full. *Retracted 2026-10-14:* this entry also said the alert list leaned on metric names no release promises; ADR-0183 holds `/metrics`' names under ADR-0180's promise, so that part was no defect, and the guide's text written for it was wrong and is corrected. Found 2026-10-14 by the fifteenth production review's operator.
 
 **Resolved** 2026-10-14: each said; the prune script, which fails on a refused prune answered `200`, run against a service on a socket, and its units checked with `systemd-analyze verify` (ADR-0202 decision 7).
 
