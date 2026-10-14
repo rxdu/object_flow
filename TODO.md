@@ -514,7 +514,7 @@ Decided by the author 2026-10-14 ("go with your recommendations on all six"), af
 
 **A. The records.**
 - [x] ADR-0204 decided; ADR-0183 decision 1 superseded; PRD revision 25 revises N1. *Done 2026-10-14.*
-- [ ] `README.md` and `SECURITY.md` state ADR-0204 §10's limits.
+- [x] `README.md` and `SECURITY.md` state ADR-0204 §10's limits. *Done 2026-10-15: `SECURITY.md` "The limits a 1.0.0 production accepts", each with its ADR, and `README.md` "Where it stands" naming them and pointing there.*
 
 **B. The adversarial harness** (ADR-0204 §6, decision 9.2; `design/adversarial-harness.md`).
 - [x] A crate driving the core in process from a seed, the shipped examples as fixtures, a transcript, a failing run reduced to its shortest failing prefix. *Done 2026-10-14: `core/crates/objectflow-harness`; a run held to its seed by a test.*

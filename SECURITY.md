@@ -21,3 +21,14 @@ A vulnerability is a request that, within that design, does what the design says
 - a store's files that hold an erased value.
 
 Reports of these are welcome, and so are reports of a dependency's advisory that reaches the service, which CI checks against the RustSec database on every push.
+
+## The limits a 1.0.0 production accepts
+
+These are limits of the design, accepted for 1.0.0 ([ADR-0204](docs/adr/0204-what-production-readiness-means-and-when-the-reviews-stop.md) §10), not vulnerabilities:
+
+- **One machine, one writer, no replica** ([ADR-0178](docs/adr/0178-more-than-one-request-at-a-time.md)). The store is one SQLite file served by one process; a second machine is no standby.
+- **Recovery is the last backup.** What was written since it is lost, so the recovery point is the backup interval you choose ([ADR-0197](docs/adr/0197-the-tenth-reviews-findings-decided.md) decision 8). A restore advances the store's counters past a margin estimated from its own history, so an id an integration kept from the lost period does not come to name another object; this needs the copy marked, which the guide's backup commands do and its restore steps do for a copy made otherwise ([ADR-0207](docs/adr/0207-a-restored-store-skips-what-its-copy-never-saw.md)). A request the lost period applied is applied again if retried, under a new id.
+- **An approval holds writes while it runs** ([ADR-0199](docs/adr/0199-the-twelfth-reviews-findings-decided.md) decision 7): a version's approval takes the writer, and every write waits for it.
+- **The engine authenticates nobody** ([ADR-0183](docs/adr/0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md), PRD N7), as the section above says.
+- **A store's clock that ran ahead is not brought back** ([ADR-0174](docs/adr/0174-a-deployments-service-its-first-slice.md) decision 4, ADR-0183): the store's clock never moves back, so if the host's clock jumps ahead and returns, every event is stamped at the latest time reached until the wall clock catches up. The service says so in its log, in `/health` and in `objectflow_clock_lead_seconds` ([`docs/guides/operate.md`](docs/guides/operate.md)).
+- **Performance beyond the stated targets, and the log's text, are not promised** ([ADR-0180](docs/adr/0180-what-a-release-promises.md)). The names `/metrics` exports are, as `/health`'s fields are (ADR-0183).
