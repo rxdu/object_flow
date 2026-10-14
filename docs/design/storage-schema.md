@@ -556,6 +556,9 @@ CREATE TABLE t_proposal (
     ('PENDING','EXECUTED','REJECTED','WITHDRAWN','INVALIDATED'))
 );
 CREATE INDEX t_proposal_target_ix ON t_proposal (target_id, state);
+-- the core names the column `target`, and made this index only on
+-- 2026-10-15, an erasure scanning every proposal until then; this table's
+-- sketch differs from the core's in more columns (TODO.md)
 
 -- DeclarationChange is a built-in object type: how a flow changes (ADR-0085).
 -- The publish event belongs to it (D212).

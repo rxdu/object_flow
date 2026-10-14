@@ -888,6 +888,18 @@ fn attribute_indexes(lib: &Library, t: &Type) -> Vec<String> {
         )
         .chain(paged)
         .chain(
+            // a proposal's target and state, which an erasure reads the
+            // pending proposals on the erased object by, where it scanned
+            // every proposal under the writer though `storage-schema.md` §6
+            // gave the index (found building ADR-0191 decision 5)
+            (t.name == crate::model::PROPOSAL).then(|| {
+                format!(
+                    "CREATE INDEX IF NOT EXISTS {} ON {name} (target, state);",
+                    quote(&format!("{name}_target_ix"))
+                )
+            }),
+        )
+        .chain(
             // the successor's column, which a group erasure reads each
             // member's predecessors by, where it read every superseding
             // type whole for each member (fifth production review,
@@ -6595,6 +6607,41 @@ types:
         assert!(
             plan.iter()
                 .any(|p| p.contains("USING INDEX t_label_by_name")),
+            "{plan:?}"
+        );
+    }
+
+    /// The proposals on an object are read by their target's index, which an
+    /// erasure reads them by, where it scanned every proposal under the
+    /// writer (found building ADR-0191 decision 5).
+    #[test]
+    fn the_proposals_on_an_object_are_read_through_their_index() {
+        let store = Store::sandbox(Library::load(&[]).unwrap(), 1_767_225_600).unwrap();
+        let target = Value::Text("job-1".into());
+        let n = narrowing(
+            &store.conn,
+            &store.lib,
+            crate::model::PROPOSAL,
+            None,
+            &[("target", &target)],
+        )
+        .unwrap()
+        .unwrap();
+        let (cond, bound) = n.conditions("t.");
+        let mut st = store
+            .conn
+            .prepare(&format!(
+                "EXPLAIN QUERY PLAN SELECT t.id FROM t_proposal t WHERE {cond}"
+            ))
+            .unwrap();
+        let plan: Vec<String> = st
+            .query_map(rusqlite::params_from_iter(bound), |r| r.get(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(
+            plan.iter()
+                .any(|p| p.contains("USING INDEX t_proposal_target_ix")),
             "{plan:?}"
         );
     }
