@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 689 entries and five cosmetics; 683 are closed and 6 are open. The PRD is at revision 24, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 691 entries and five cosmetics; 686 are closed and 5 are open. The PRD is at revision 24, with no revision awaiting the author.
 
 **Every ADR is accepted or superseded.** In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
@@ -386,7 +386,7 @@ A **metric** is a declared formula across many objects, grouped and windowed as 
 - a **value**, which may combine `count`, `sum`, `min`, `max`, `avg`, `median` and `percentile` arithmetically, over a window relative to `now` if it wants one; a metric over spans may split each across the calendar periods it covers, so a share of time is right per period. How each aggregate, percentile, average, window and piece is computed and rounded, the same on both backends, is `design/declaration-syntax.md` §6.9's (ADR-0106, ADR-0139, ADR-0142, ADR-0148);
 - optional **flags**: named conditions on the value, on which groups and rows they are evaluated, and what an unknown one gives, being `design/declaration-syntax.md` §6.9's (ADR-0146, ADR-0148).
 
-Metrics are **computed on read, over every row their source and filter select** (ADR-0114). A reader narrows a metric by passing a filter, as it narrows a query, and an upper layer decides who may read which metric and passes the filter that scopes it to what its user may see. So every reader of a definition over the same filter gets the same value (PRD C2), a reader limited to part of the data gets the value over that part (PRD M2), and who may see what stays the upper layer's (PRD T5).
+Metrics are **computed on read, over every row their source and filter select** (ADR-0114). A reader narrows a metric by passing a filter, as it narrows a query, and an upper layer decides who may read which metric and passes the filter that scopes it to what its user may see. So every reader of a definition over the same filter gets the same value (PRD C2), a reader limited to part of the data gets the value over that part (PRD M2), and who may see what stays the upper layer's (PRD T5). A read that **selects by a personal value**, a filter or an order reading one, a lookup, an offer decided by one, or a metric's binding of a person, is refused `personal` unless its request opts in with `reads_personal`, which the gateway sets where its caller may read by such values. The guard reads no actor, so it holds for a person's forwarded filter as for an agent's (ADR-0206).
 
 **Every result also says how far the record covers it** (ADR-0106).
 - **`recorded_from`.** Each object records the time from which its record is continuous: its creation, or for a ported object what `design/publish-and-import.md` §4 reads from its intervals (§11, ADR-0148).
@@ -570,7 +570,7 @@ Erasure follows the person, not only the id (ADR-0087). It erases every member o
 - it redacts an affected proposal's personal inputs in the proposal's own event as well as its record, the invalidation and the redaction being one event;
 - it follows the erased object's events down to the events they caused, and erases what flowed from it into other objects' personal attributes, by the same taint analysis;
 - it reaches every observation in the subject's collections, corrected ones included;
-- for an actor whose identity the flow marks personal, it replaces the identity by the actor's object's id wherever the store keeps it, in every event's actor and principal, attempt, interval entry, idempotency record and the actors a proposal and a change record, so a person's email given as their identity leaves the log (ADR-0192 decision 4).
+- for an actor whose identity the flow marks personal, it replaces the identity by the actor's object's id wherever the store keeps it, in every event's actor and principal, attempt, interval entry, idempotency record, the actors a proposal and a change record and the approver of a version, and wherever a value of type `identity` holds it, matched in any case of its letters: an attribute, a set, an event's and a proposal's inputs, a refused request's, a correction's record and a guard's consulted key, so a person's email given as their identity leaves the store (ADR-0192 decision 4, ADR-0203 decision 1, ADR-0205 decision 6). An actor's identity is written only at its creation, since the record names actors by it (ADR-0205 decision 5).
 
 **Every object whose value an erasure redacts, an attribute it holds or a value in one of its past events, gets an event** (ADR-0147). The event has source `erased`, is caused by the erasure's own event, and names the attributes redacted and never their values. The object's version advances, so a subscriber sees the change and a request carrying the old `expected_version` is refused as `stale` (ADR-0105).
 

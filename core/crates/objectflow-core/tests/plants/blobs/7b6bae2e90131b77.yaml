@@ -1,0 +1,28 @@
+module: memos
+categories: [live, closed]
+types:
+  Writer:
+    description: A writer.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true, personal: true, optional: true }
+    states:
+      ON: { category: live }
+      OFF: { category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ON, required_inputs: [login] }
+      leave: { kind: external, from: [ON], to: OFF }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Memo:
+    description: A memo.
+    tracking: record
+    attributes:
+      author: { type: identity, optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: OPEN, effect: [ { assign: { location: author, expr: actor.id } } ] }
+      close: { kind: external, from: [OPEN], to: DONE }
+    metrics:
+      by_author: { description: Memos by author., source: objects, item: m, dimensions: { author: m.author }, expression: count() }

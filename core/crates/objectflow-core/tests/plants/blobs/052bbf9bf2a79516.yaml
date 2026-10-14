@@ -1,0 +1,16 @@
+module: crew
+categories: [live, closed]
+types:
+  Member:
+    description: A member.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human }
+      alias: { type: identity, optional: true }
+    states:
+      ON: { category: live }
+      OFF: { category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ON, required_inputs: [login] }
+      leave: { kind: external, from: [ON], to: OFF }
+      swap: { kind: internal, from: [ON], effect: [ { assign: { location: login, expr: alias } } ] }

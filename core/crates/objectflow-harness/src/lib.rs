@@ -149,9 +149,11 @@ struct Run {
     store: Store,
     /// Each object's personal values, given in a request it satisfied.
     markers: BTreeMap<String, BTreeSet<String>>,
-    /// Each actor's keys, with the request first sent under it and the
-    /// object it answered.
-    keys: BTreeMap<(String, String), (Request, String)>,
+    /// Each actor's keys, with the request first sent under it, the object
+    /// it answered and whether it gave that object a personal value.
+    keys: BTreeMap<(String, String), (Request, String, bool)>,
+    /// The objects an erasure has erased.
+    erased: BTreeSet<String>,
     counts: Counts,
 }
 
@@ -164,6 +166,7 @@ impl Run {
             store,
             markers: BTreeMap::new(),
             keys: BTreeMap::new(),
+            erased: BTreeSet::new(),
             counts: Counts::default(),
         })
     }
@@ -230,6 +233,7 @@ impl Run {
                         self.remember(r, object_id);
                         if self.erasure(r, object_id) && !*replayed {
                             self.counts.erasures += 1;
+                            self.erased.insert(object_id.clone());
                             if let Some(f) = self.erased(object_id) {
                                 return Some(fail("erasure", f));
                             }
@@ -244,13 +248,16 @@ impl Run {
 
     /// A key's promise (ADR-0204 §3 A): sent again with the request it was
     /// first sent with, it replays that request's answer; sent with
-    /// another transition, it is refused. A key is first recorded by the
-    /// request it satisfied.
+    /// another transition, it is refused. Once an erasure has erased the
+    /// personal value the request gave its object, every request under the
+    /// key is refused, so it confirms no guess of the value (ADR-0205
+    /// decision 3). A key is first recorded by the request it satisfied.
     fn keyed(&mut self, r: &Request, verdict: Option<&Verdict>) -> Option<String> {
         let key = r.idempotency_key.clone()?;
         let at = (r.actor.clone(), key);
         match (self.keys.get(&at), verdict) {
-            (Some((first, object)), v) => {
+            (Some((first, object, gave)), v) => {
+                let spent = *gave && self.erased.contains(object);
                 let same = first.transition == r.transition
                     && first.object_id == r.object_id
                     && first.type_ == r.type_
@@ -261,11 +268,12 @@ impl Run {
                     && first.principal == r.principal
                     && first.context == r.context;
                 match v {
+                    None if spent => None,
                     Some(Verdict::Satisfied {
                         object_id,
                         replayed: true,
                         ..
-                    }) if same && object_id == object => None,
+                    }) if same && object_id == object && !spent => None,
                     None if !same && first.transition != r.transition => None,
                     _ if !same && first.transition == r.transition => None,
                     _ => Some(format!(
@@ -275,7 +283,8 @@ impl Run {
                 }
             }
             (None, Some(Verdict::Satisfied { object_id, .. })) => {
-                self.keys.insert(at, (r.clone(), object_id.clone()));
+                let gave = !self.given(r, object_id).is_empty();
+                self.keys.insert(at, (r.clone(), object_id.clone(), gave));
                 None
             }
             (None, None) => Some(format!(
@@ -322,8 +331,20 @@ impl Run {
     /// The personal values a satisfied request gave its object, so an
     /// erasure of the object can be checked for them.
     fn remember(&mut self, r: &Request, object: &str) {
+        let given = self.given(r, object);
+        if !given.is_empty() {
+            self.markers
+                .entry(object.to_string())
+                .or_default()
+                .extend(given);
+        }
+    }
+
+    /// The personal values a request gave its object, as markers.
+    fn given(&self, r: &Request, object: &str) -> BTreeSet<String> {
+        let mut given = BTreeSet::new();
         let Ok(world) = self.store.snapshot() else {
-            return;
+            return given;
         };
         let Some(t) = world
             .type_of(object)
@@ -331,16 +352,15 @@ impl Run {
             .flatten()
             .and_then(|tn| world.lib.type_(&tn))
         else {
-            return;
+            return given;
         };
         let Some((_, x)) = t.transitions.iter().find(|(n, _)| *n == r.transition) else {
-            return;
+            return given;
         };
         let personal = |n: &str| {
             t.attribute(n).is_some_and(|a| a.personal)
                 || x.inputs.iter().any(|(i, s)| i == n && s.personal)
         };
-        let mut given = BTreeSet::new();
         for (n, v) in &r.inputs {
             if let Some(s) = v.as_str()
                 && s.starts_with("pm")
@@ -350,12 +370,7 @@ impl Run {
                 given.insert(s.to_string());
             }
         }
-        if !given.is_empty() {
-            self.markers
-                .entry(object.to_string())
-                .or_default()
-                .extend(given);
-        }
+        given
     }
 
     fn erasure(&self, r: &Request, object: &str) -> bool {

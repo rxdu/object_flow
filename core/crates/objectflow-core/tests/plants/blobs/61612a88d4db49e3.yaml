@@ -1,0 +1,19 @@
+module: desk
+categories: [live, closed]
+sequences:
+  ticket: { description: Tickets. }
+types:
+  Ticket:
+    description: A ticket.
+    tracking: record
+    attributes:
+      requester_name: { type: string, personal: true, indexed: true, optional: true }
+      queue: { type: string, indexed: true }
+      number: { type: string, identifier: { sequence: ticket, scope: queue, format: "{queue}-{n}" } }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      raise: { kind: initial, to: OPEN, required_inputs: [requester_name, queue] }
+      close: { kind: external, from: [OPEN], to: DONE }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }

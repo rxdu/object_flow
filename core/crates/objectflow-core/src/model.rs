@@ -292,28 +292,32 @@ pub struct Type {
 /// Members by type, as `(type, member)`.
 pub type Held = Vec<(String, String)>;
 
+/// Where a library holds values of type `identity`, each by type and name.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct IdentityHeld {
+    pub attrs: Held,
+    pub sets: Held,
+    pub inputs: Held,
+}
+
 impl Library {
-    /// The members whose every value is timed: the state, each enumeration
-    /// attribute, and each singular reference the object stores (PRD D11,
-    /// `DESIGN.md` §7).
-    /// Where an actor's identity may be held beside its own attribute:
-    /// each concrete type's single attributes of type `identity`, and each
-    /// input of that type a concrete type's transition takes, which its
-    /// events record, by type. An erasure of an actor whose identity is
-    /// personal rewrites its identity to its object's id in them, as it does
-    /// where the engine records an actor: a value of type `identity` reaches
-    /// an attribute or an input only as one, from `actor.id`, from another
-    /// such attribute or from a client, where a memo's `author` set to
-    /// `actor.id` kept the erased person's address (fifteenth production
-    /// review) and so did an order's `requester` copied from it (sixteenth,
-    /// ADR-0203 decision 1).
-    pub fn identity_held(&self) -> (Held, Held) {
+    /// Where a value of type `identity` is held, by type: a single
+    /// attribute, a set, and an input a transition takes, its own or an
+    /// attribute's, which an erasure of an actor whose identity is personal
+    /// replaces wherever it is (ADR-0203 decision 1, ADR-0205 decision 6).
+    pub fn identity_held(&self) -> IdentityHeld {
         let identity = |d: &Declared| matches!(d, Declared::Scalar(s) if s == "identity");
-        let (mut attrs, mut inputs) = (Vec::new(), BTreeSet::new());
+        let mut held = IdentityHeld::default();
+        let mut inputs = BTreeSet::new();
         for t in self.types.values().filter(|t| !t.abstract_) {
             for (n, a) in &t.attributes {
-                if !a.many && identity(&a.declared) {
-                    attrs.push((t.name.clone(), n.clone()));
+                if identity(&a.declared) {
+                    let at = if a.many {
+                        &mut held.sets
+                    } else {
+                        &mut held.attrs
+                    };
+                    at.push((t.name.clone(), n.clone()));
                 }
             }
             for (_, x) in &t.transitions {
@@ -329,9 +333,13 @@ impl Library {
                 }
             }
         }
-        (attrs, inputs.into_iter().collect())
+        held.inputs = inputs.into_iter().collect();
+        held
     }
 
+    /// The members whose every value is timed: the state, each enumeration
+    /// attribute, and each singular reference the object stores (PRD D11,
+    /// `DESIGN.md` §7).
     pub fn tracked(&self, t: &Type) -> Vec<String> {
         let mut out = vec!["state".to_string()];
         for (n, a) in &t.attributes {

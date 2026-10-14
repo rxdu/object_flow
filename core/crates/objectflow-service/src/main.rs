@@ -1146,6 +1146,43 @@ impl From<NotRun> for Fault {
     }
 }
 
+/// Whether a request opts into reading by a personal value, which the
+/// gateway sets where the person or agent it acts for may (ADR-0206).
+fn opted(body: &J) -> Result<bool, Fault> {
+    flag(body, "reads_personal")
+}
+
+/// A read refused for selecting by a personal value without the opt-in, as
+/// a read's refusals are answered (ADR-0206 decision 2).
+fn personal_refused(reason: &str) -> Fault {
+    Fault::Refused(json!({ "refused": "personal", "reason": reason }))
+}
+
+/// A refusal's answer without the holder of a personal value it names: a
+/// uniqueness over a personal member, or `identity_taken` where identities
+/// are personal, names no object without the request's opt-in, where a
+/// write's refusal named the person holding an address (the audit's
+/// personal data R16, ADR-0206 decision 3).
+fn without_holder(lib: &objectflow_core::model::Library, mut out: J) -> J {
+    let names = |c: &J| {
+        c.as_str()
+            .is_some_and(|c| reads::clause_names_personal_holder(lib, c))
+    };
+    let mut held = names(&out["clause"]);
+    if let Some(failures) = out.get_mut("failures").and_then(J::as_array_mut) {
+        for f in failures.iter_mut() {
+            if names(&f["invariant"]) {
+                f["object_id"] = J::Null;
+                held = true;
+            }
+        }
+    }
+    if held && out.get("objects").is_some() {
+        out["objects"] = json!([]);
+    }
+    out
+}
+
 /// A key reused for a different request is the caller's fault, a conflict
 /// with what the key already applied (`library-api.md` §7, ADR-0077).
 impl From<request::NoVerdict> for Fault {
@@ -1187,14 +1224,31 @@ const TAKES: &[(&str, &[&str])] = &[
     (
         "/v1/query",
         &[
-            "actor", "type", "filter", "order", "cursor", "fields", "limit",
+            "actor",
+            "type",
+            "filter",
+            "order",
+            "cursor",
+            "fields",
+            "limit",
+            "reads_personal",
         ],
     ),
-    ("/v1/lookup", &["actor", "source", "value"]),
-    ("/v1/availability", &["actor", "id"]),
+    (
+        "/v1/lookup",
+        &["actor", "source", "value", "reads_personal"],
+    ),
+    ("/v1/availability", &["actor", "id", "reads_personal"]),
     (
         "/v1/available",
-        &["actor", "type", "transition", "cursor", "limit"],
+        &[
+            "actor",
+            "type",
+            "transition",
+            "cursor",
+            "limit",
+            "reads_personal",
+        ],
     ),
     ("/v1/history", &["actor", "id", "follow", "limit", "cursor"]),
     ("/v1/events", &["actor", "positions"]),
@@ -1205,7 +1259,16 @@ const TAKES: &[(&str, &[&str])] = &[
     ("/v1/acknowledge", &["actor", "subscription", "cursor"]),
     (
         "/v1/metric",
-        &["actor", "name", "bind", "keep", "over", "filter", "cursor"],
+        &[
+            "actor",
+            "name",
+            "bind",
+            "keep",
+            "over",
+            "filter",
+            "cursor",
+            "reads_personal",
+        ],
     ),
     ("/v1/export", &["actor", "source", "cursor", "limit"]),
     ("/v1/diagnostics", &["actor", "type", "window"]),
@@ -1228,6 +1291,7 @@ const TAKES: &[(&str, &[&str])] = &[
     ("/sandbox/evaluators", &["answers"]),
 ];
 const REQUEST_KEYS: &[&str] = &[
+    "reads_personal",
     "transition",
     "actor",
     "object_id",
@@ -1861,7 +1925,13 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
             },
         )??;
         shared.watch.note(&v);
-        Ok(Json(verdict_told(&v, Some(&told))))
+        let out = verdict_told(&v, Some(&told));
+        if opted(&body)? {
+            return Ok(Json(out));
+        }
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        Ok(Json(without_holder(&s.lib, out)))
     })
 }
 
@@ -1874,6 +1944,26 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
             return Err(Fault::Bad(
                 "a check simulates a request, not a proposal".to_string(),
             ));
+        }
+        // a check decided by a personal member, opted into, as a read by it
+        // is (ADR-0206 decision 2)
+        {
+            let mut r = reading(&shared)?;
+            let s = r.store()?;
+            let tn = match (&req.type_, &req.object_id) {
+                (Some(t), _) => Some(t.clone()),
+                (None, Some(id)) => s.snapshot()?.get(id)?.map(|o| o.type_.clone()),
+                _ => None,
+            };
+            if !opted(&body)?
+                && tn.is_some_and(|tn| {
+                    reads::transition_reads_personal(&s.lib, &tn, &req.transition)
+                })
+            {
+                return Err(personal_refused(
+                    "the transition is decided by a personal member, and the request does not set reads_personal",
+                ));
+            }
         }
         // a check of a change's submit runs its dry run, one at a time as a
         // submit's does, where six at once took 9.3 GB outside every bound
@@ -1922,8 +2012,16 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 _ => None,
             },
         )??;
+        let told = verdict_told(&c.verdict, Some(&c.told));
+        let told = if opted(&body)? {
+            told
+        } else {
+            let mut r = reading(&shared)?;
+            let s = r.store()?;
+            without_holder(&s.lib, told)
+        };
         Ok(Json(
-            json!({ "verdict": verdict_told(&c.verdict, Some(&c.told)), "unevaluated": c.unevaluated }),
+            json!({ "verdict": told, "unevaluated": c.unevaluated }),
         ))
     })
 }
@@ -2037,6 +2135,11 @@ async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let (_slot, mut r) = heavy_reading(&shared, &shared.worklists, actor_id(&body)?)?;
         let s = r.store()?;
+        if !opted(&body)? && reads::transition_reads_personal(&s.lib, type_, transition) {
+            return Err(personal_refused(
+                "the transition is decided by a personal member, and the request does not set reads_personal",
+            ));
+        }
         let world = s.snapshot()?;
         let mut page = page_json(&reads::available_page(
             &world,
@@ -2800,6 +2903,11 @@ async fn lookup(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let mut r = reading(&shared)?;
         let s = r.store()?;
+        if !opted(&body)? && reads::lookup_reads_personal(&s.lib, source) {
+            return Err(personal_refused(
+                "the lookup matches a personal identifier, and its request does not set reads_personal",
+            ));
+        }
         let world = s.snapshot()?;
         match world.external_id(source, value)?.as_ref() {
             Some(id) => object_json(s, &id.clone()),
@@ -3002,6 +3110,18 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
         )?;
         let mut r = reading(&shared)?;
         let s = r.store()?;
+        if !opted(&body)?
+            && let Some(o) = s.snapshot()?.get(id)?
+            && s.lib.type_(&o.type_).is_some_and(|t| {
+                t.transitions
+                    .iter()
+                    .any(|(xn, _)| reads::transition_reads_personal(&s.lib, &o.type_, xn))
+            })
+        {
+            return Err(personal_refused(
+                "an offer is decided by a personal member, and the request does not set reads_personal",
+            ));
+        }
         let decided = {
             let world = s.snapshot()?;
             let t = reads::get(&world, id)?.and_then(|v| s.lib.type_(&v.object.type_));
@@ -3110,17 +3230,9 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let (scans, personal) = {
             let mut r = reading(&shared)?;
             let s = r.store()?;
-            // an agent's, or an actor's the store does not know, where an
-            // agent not yet registered read people's names (fifteenth
-            // production review); a person's, the operator's among them,
-            // and a service's are answered
-            let agent = match actor_id(&body)? {
-                Some(a) => !matches!(
-                    objectflow_core::request::actor_kind(&s.snapshot()?, a)?.as_deref(),
-                    Some("human" | "service")
-                ),
-                None => false,
-            };
+            // whoever asks, unless the request opts in, where an agent's
+            // alone was refused, by its kind (ADR-0206, superseding ADR-0201
+            // decision 4 and ADR-0202 decision 3)
             (
                 reads::query_scans(
                     &s.lib,
@@ -3129,7 +3241,8 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
                     &order,
                     fields.as_deref(),
                 ),
-                agent && reads::query_reads_personal(&s.lib, text(&body, "filter")?, &order),
+                !opted(&body)?
+                    && reads::query_reads_personal(&s.lib, text(&body, "filter")?, &order),
             )
         };
         if personal {
@@ -3137,7 +3250,7 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 items: Vec::new(),
                 refused: Some("personal".into()),
                 reason: Some(
-                    "an agent's query filters or orders by a member marked personal".into(),
+                    "the query filters or orders by a personal member, and its request does not set reads_personal".into(),
                 ),
                 cursor: None,
             })));
@@ -3214,7 +3327,7 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let (_slot, mut r) = heavy_reading(&shared, &shared.admission, actor_id(&body)?)?;
         let s = r.store()?;
         let world = s.snapshot()?;
-        let page = objectflow_core::metric::page(
+        let page = objectflow_core::metric::page_as(
             &world,
             Some(&s.answers),
             name,
@@ -3222,6 +3335,7 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
             keep.as_deref(),
             over,
             text(&body, "filter")?,
+            opted(&body)?,
         )?;
         let mut out = objectflow_core::metric::page_json(&page);
         if let Some(o) = out.as_object_mut() {

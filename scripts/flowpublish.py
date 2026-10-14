@@ -449,12 +449,29 @@ def impact(store, new, found, actor, change_id):
     import flowrun
     old_kinds = store.kinds
     kinds = dict(new.kinds)
-    # a type the version drops is retired: its objects stay readable, and nothing creates or changes one
+    # a type the version drops is retired: its objects stay readable, and nothing creates or changes one but its
+    # erasure, so the personal data its objects hold can still be erased, as the core keeps it (the audit's personal
+    # data S14)
     retired = set()
     for tn, t in old_kinds.items():
         if tn not in kinds and tn not in BUILT_IN:
-            kinds[tn] = {**copy.deepcopy(t), "transitions": {}}
+            kinds[tn] = {**copy.deepcopy(t), "transitions": {
+                xn: x for xn, x in (t.get("transitions") or {}).items() if (x or {}).get("kind") == "erasure"}}
             retired.add(tn)
+    # a type the version adds names its objects `<type>-<n>`, which an actor's identity of that shape, in any case,
+    # would then name too: refused, naming the actors holding one by their objects, as the core refuses it (D669)
+    for tn, t in new.kinds.items():
+        if tn in old_kinds or (t or {}).get("abstract"):
+            continue
+        prefix = f"{tn.lower()}-"
+        for o in sorted(store.objects.values(), key=lambda o: o.id_order):
+            spec = (old_kinds.get(o.type) or {}).get("attributes") or {}
+            marked = [a for a, sp in spec.items() if isinstance(sp, dict) and sp.get("actor_kind")]
+            held = o.attrs.get(marked[0]) if marked else None
+            rest = held.lower()[len(prefix):] if isinstance(held, str) and held.lower().startswith(prefix) else ""
+            if rest.isdigit() and rest.isascii():
+                found.add("fatal", f"identity_shadowed:{tn}",
+                          f"{tn} names its objects as these actors' identities are written; give them others first", o.id)
     sim = copy.deepcopy(store)
     sim.kinds, sim.enums = flowrun.with_labels(kinds), new.enums
     sim.decl = flowrun.Shared(metrics=new.declared, homes=new.homes)
@@ -594,7 +611,7 @@ def impact(store, new, found, actor, change_id):
             if covered and sim.final(o):
                 found.add("notice", f"admit_final:{q}",
                           "an admission on objects in a final state, which no transition can discharge", oid)
-    clauses_and_offers(store, sim, kinds, new.enums, actor, found)
+    clauses_and_offers(store, sim, kinds, new.enums, actor, found, retired)
     invalidated = proposals(store, kinds, found)
     # every other open change, which the publish supersedes
     for oid, o in store.objects.items():
@@ -644,14 +661,16 @@ def offer_classes(runner, store, actor, oid, kinds):
     return out
 
 
-def clauses_and_offers(store, sim, kinds, enums, actor, found):
+def clauses_and_offers(store, sim, kinds, enums, actor, found, retired=frozenset()):
     """The clauses the version newly enforces that would refuse an object, and the transitions each object gains or
     loses, judged as the dry run may: a clause or a verdict waiting on an input, an evaluator or a metric is neither
-    (publish-and-import.md §1 step 3)."""
+    (publish-and-import.md §1 step 3). A retired type's objects are not judged, as the core judges them not, its
+    erasure all it keeps."""
     import flowrun
     old_runner, new_runner = flowrun.Runner(store.kinds, store.enums), flowrun.Runner(kinds, enums)
     for oid, o in sim.objects.items():
-        if o.type in BUILT_IN or oid not in store.objects or o.type not in kinds or not (kinds[o.type].get("transitions")):
+        if (o.type in BUILT_IN or o.type in retired or oid not in store.objects or o.type not in kinds
+                or not (kinds[o.type].get("transitions"))):
             continue
         nt, ot = kinds[o.type], store.kinds.get(o.type) or {}
         for xn, x in (nt.get("transitions") or {}).items():

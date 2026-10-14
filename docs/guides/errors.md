@@ -50,9 +50,9 @@ Every refusal carries a `remedy`: what the caller can do about it.
 | `unavailable` | The object's state does not allow this transition. | `state` |
 | `unknown_transition` | The type has no transition of that name. | `transition` |
 | `not_requestable` | The transition runs only as part of another, or through its own operation, as a change's `publish` runs through `publish`. | `parents` (the transitions or operation that run it) |
-| `not_proposable` | A proposal (`"propose": true`) of a transition not marked `proposable`. | none |
+| `not_proposable` | A proposal (`"propose": true`) of a transition not marked `proposable`, or of a change's or a proposal's own transitions. | none |
 | `stale` | The object moved on, or the store stayed locked. | `cause`: `expected_version` with `expected` and `actual` (re-read, then decide again; an approval's `target_version` is refused the same way), or `retries_exhausted` (remedy `temporal`: another process held the store's write lock too long) |
-| `not_found` | The object does not exist. | none |
+| `not_found` | The object does not exist, or is not of the `type` named beside its id, a proposal's or a change's included. | none |
 | `over_limit` | A loop or cascade would pass its declared bound. Nothing was done. | `loop`, `bound` |
 | `call_refused` | A transition this one calls on another object was refused. | `step`, `object_id`, `verdict` (that transition's own verdict, whole) |
 
@@ -83,10 +83,11 @@ Besides the rules a flow declares, the engine adds some of its own. A refusal na
 | `actor_active` | `dependent` | an actor, or a `principal`, whose object is in a final state: someone who left, an agent retired. |
 | `<attribute>_provided` | `self_serviceable` | a required input left out, where its attribute is optional elsewhere. |
 | `occurred_within` | `self_serviceable` | an `occurred_at` further back than the transition's `backdating_limit` allows. |
-| `whole_open` | `self_serviceable` | moving a part to a whole that is in a final state. |
+| `whole_open` | `self_serviceable` | moving a part to a whole that is in a final state, by an input, an effect or a creation from another whole's transition. |
+| `identity_unchanged` | `unreachable_from_here` | changing an actor's identity after its creation: the record names actors by it. |
 | `successor_not_superseded` | `self_serviceable` | naming as successor the object itself, or one already superseded. |
 | `corrects_current` | `self_serviceable` | a correction of an observation that was already corrected. |
-| `not_erased` | `unreachable_from_here` | writing a personal attribute again on an object whose personal data was erased. |
+| `not_erased` | `unreachable_from_here` | writing a personal attribute again on an object whose personal data was erased, by an input or a step at any depth, a loop's included. |
 | `subject_open` | `unreachable_from_here` | recording a label or an observation on an object in a final state. |
 | `subject_owned` | `unreachable_from_here` | recording on an object another system owns (a `mirror` type). |
 | `value_in_range` | `unreachable_from_here` | an arithmetic past its type's bound, wherever the request evaluates it, a guard, an invariant, a loop's filter or an effect: an integer past 64 bits, a decimal past its digits, a date past 9999, a date moved by part of a day. An effect's division by zero, or an operand absent (`count + 1` where `count` is unset: give it a `default`, or guard the transition with `count is not null`). A value written that its attribute's type does not hold: text to a number, a decimal with a fraction to an integer. |
@@ -126,7 +127,7 @@ A read that cannot be answered says why in `refused`, with no items. Some carry 
 | `unknown_dimension` | `metric` | `keep` or `bind` names a dimension the metric does not have. |
 | `filter_on_combined` | `metric` | A filter on a combined metric, which takes none. |
 | `no_window` | `metric` | `over` on a metric that has no time window. |
-| `personal` | `metric`, `query` | The filter reads a value marked `personal`; for a query, an agent's, or an actor's the store does not know, whose `filter` or `order` does. |
+| `personal` | `query`, `lookup`, `available`, `availability`, `check`, `metric` | The read selects by a personal value, and its body does not set `"reads_personal": true`: a query's filter or order, a lookup by a personal identifier, a transition decided by a personal member, a metric's filter or its binding of a dimension that names a person. A personal value is one a flow marks `personal`, and, where an actor type marks its identity personal, any value of type `identity`. The gateway sets the opt-in where the caller may read by such a value (`wire.md`). |
 | `unknown_source` | `export` | No such source. Sources are `log`, an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`. |
 | `invalid_cursor` | `export`, `pull`, `acknowledge` | A cursor below 0 or past the end of the log. |
 | `unknown` | `pull`, `acknowledge` | No such subscription. |

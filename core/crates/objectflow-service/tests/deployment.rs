@@ -2049,6 +2049,8 @@ fn bank() -> (
                 }
                 let (status, answer) = match call["arguments"][0].as_str() {
                     Some("T-1") => (200, r#"{"verdict": "satisfied"}"#),
+                    // a person, by an email, known
+                    Some(a) if a.contains('@') => (200, r#"{"verdict": "satisfied"}"#),
                     Some("T-2") => (200, r#"{"verdict": "unsatisfied"}"#),
                     Some("T-4") => {
                         std::thread::sleep(std::time::Duration::from_secs(3));
@@ -4281,6 +4283,314 @@ types:
       drop: { kind: external, from: KEPT, to: GONE }
 ";
 
+const COPIES: &str = "module: copies
+categories: [live, closed]
+evaluators:
+  crm:
+    description: The CRM, which says whether it knows a person.
+    functions:
+      known:
+        description: Whether the CRM knows this person.
+        arguments:
+          who: { type: identity }
+types:
+  Person:
+    description: A person, signing in by email.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true, personal: true, optional: true }
+    states:
+      ON: { category: live, description: Here. }
+      OFF: { category: closed, final: true, description: Gone. }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [login] }
+      leave: { kind: external, from: ON, to: OFF }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Memo:
+    description: A memo, by who wrote it, watched and handed on.
+    tracking: record
+    attributes:
+      author: { type: identity, optional: true }
+      owner: { type: identity, optional: true }
+      watchers: { type: \"identity[]\", optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    conditions:
+      known: { description: The CRM knows its author., expression: crm.known(author), remedy: dependent }
+      unknown: { description: The CRM does not know its author., expression: not crm.known(author), remedy: dependent }
+    transitions:
+      write:
+        kind: initial
+        to: OPEN
+        effect:
+          - assign: { location: author, expr: actor.id }
+      watch:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - add: { location: watchers, expr: actor.id }
+      hand:
+        kind: internal
+        from: [OPEN]
+        proposable: true
+        inputs: { to: { type: identity } }
+        effect:
+          - assign: { location: owner, expr: inputs.to }
+      fix_author: { kind: internal, from: [OPEN], corrects: [author], required_inputs: [author], inputs: { reason: { type: string } } }
+      vouch: { kind: internal, from: [OPEN], guards: { known: deny } }
+      doubt: { kind: internal, from: [OPEN], guards: { unknown: deny } }
+      close: { kind: external, from: OPEN, to: DONE }
+";
+
+/// An erased actor's identity leaves every copy the store holds of it, in
+/// any case of its letters, as identities compare: a set of identities, a
+/// value sent in another case, a proposal's inputs, pending and decided, a
+/// guard's consulted key in an event and in an attempt, a refused request's
+/// input, an unknown actor's attempt, a correction's record, and the
+/// approver of a version; no byte of it is in the store's file or its
+/// `-wal` once the log is cut back, where the first audit found each (the
+/// audit's personal data S16 to S23, ADR-0205 decision 6).
+#[test]
+fn an_erased_identity_leaves_every_copy() {
+    let (url, _, _) = bank();
+    let file = fresh_store("copies");
+    let path = file.to_str().expect("a path");
+    let crm = format!("crm={url}");
+    let s = start(&[
+        "--store",
+        path,
+        "--create",
+        "--port",
+        "0",
+        "--evaluator",
+        &crm,
+    ]);
+    publish(&s, &json!({"copies": COPIES}));
+    let email = "ann.secret@corp.example";
+    let op = json!({"id": "operator"});
+    let me = json!({"id": email});
+    let ask = |actor: &Value, body: Value| -> Value {
+        let mut body = body;
+        body["actor"] = actor.clone();
+        post(&s, "/v1/request", &body)
+    };
+    // before she is known, a request in her name, in another case
+    let unknown = ask(
+        &json!({"id": "Ann.Secret@Corp.Example"}),
+        json!({"type": "Memo", "transition": "write"}),
+    );
+    assert_eq!(unknown["clause"], "actor_known", "{unknown}");
+    let ann = ask(
+        &op,
+        json!({"type": "Person", "transition": "add", "inputs": {"login": email}}),
+    )["object_id"]
+        .as_str()
+        .expect("the person")
+        .to_string();
+    let memo = ask(&me, json!({"type": "Memo", "transition": "write"}))["object_id"]
+        .as_str()
+        .expect("the memo")
+        .to_string();
+    let took = |actor: &Value, body: Value| {
+        let v = ask(actor, body);
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        v
+    };
+    took(&me, json!({"object_id": memo, "transition": "watch"}));
+    took(&me, json!({"object_id": memo, "transition": "vouch"}));
+    let doubted = ask(&me, json!({"object_id": memo, "transition": "doubt"}));
+    assert_eq!(doubted["kind"], "unsatisfied", "{doubted}");
+    took(
+        &op,
+        json!({"object_id": memo, "transition": "hand", "inputs": {"to": "ANN.SECRET@CORP.EXAMPLE"}}),
+    );
+    took(
+        &me,
+        json!({"object_id": memo, "transition": "hand", "inputs": {"to": email}, "propose": true}),
+    );
+    let second = took(
+        &me,
+        json!({"object_id": memo, "transition": "hand", "inputs": {"to": "Ann.Secret@corp.EXAMPLE"}, "propose": true}),
+    )["object_id"]
+        .as_str()
+        .expect("the proposal")
+        .to_string();
+    took(&op, json!({"object_id": second, "transition": "approve"}));
+    took(
+        &op,
+        json!({"object_id": memo, "transition": "fix_author", "inputs": {"author": "someone@else.example", "reason": "mistyped"}}),
+    );
+    took(&op, json!({"object_id": memo, "transition": "close"}));
+    let late = ask(
+        &op,
+        json!({"object_id": memo, "transition": "hand", "inputs": {"to": email}}),
+    );
+    assert_eq!(late["kind"], "unavailable", "{late}");
+    // she approves the next version
+    let drafted = took(
+        &op,
+        json!({"type": "DeclarationChange", "transition": "draft",
+               "inputs": {"source": {"copies": COPIES.replace("A memo, by who", "A memo, by whoever")},
+                          "source_ref": "test:copies"}}),
+    );
+    let change = drafted["object_id"]
+        .as_str()
+        .expect("the change")
+        .to_string();
+    let submitted = took(&op, json!({"object_id": change, "transition": "submit"}));
+    let approved = post(
+        &s,
+        "/v1/publish",
+        &json!({"actor": me, "change": change, "expected_version": submitted["version"]}),
+    );
+    assert_eq!(approved["verdict"]["kind"], "satisfied", "{approved}");
+    let erased = took(
+        &op,
+        json!({"object_id": ann, "transition": "forget", "inputs": {"reason": "asked"}}),
+    );
+    assert_eq!(erased["kind"], "satisfied", "{erased}");
+    // what the reads answer names her object
+    let got = post(&s, "/v1/get", &json!({"actor": op, "id": memo}));
+    assert_eq!(got["attributes"]["watchers"], json!([ann]), "{got}");
+    assert_eq!(got["attributes"]["owner"], json!(ann), "{got}");
+    // and no byte of her address, in any case, once the log is cut back
+    let wal = format!("{path}-wal");
+    let holds = || {
+        [path, wal.as_str()].iter().any(|f| {
+            std::fs::read(f)
+                .unwrap_or_default()
+                .windows(email.len())
+                .any(|w| w.eq_ignore_ascii_case(email.as_bytes()))
+        })
+    };
+    let began = std::time::Instant::now();
+    while holds() && began.elapsed() < std::time::Duration::from_secs(15) {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    let conn = rusqlite::Connection::open(&file).expect("the store");
+    let mut left = Vec::new();
+    let tables: Vec<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .and_then(|mut q| q.query_map([], |r| r.get(0)).and_then(|r| r.collect()))
+        .expect("the tables");
+    // where it is left, by table, to say on a failure
+    for t in tables {
+        let Ok(mut q) = conn.prepare(&format!("SELECT * FROM \"{t}\"")) else {
+            continue;
+        };
+        let columns = q.column_count();
+        let Ok(mut rows) = q.query([]) else {
+            continue;
+        };
+        let mut found = 0;
+        while let Ok(Some(row)) = rows.next() {
+            for i in 0..columns {
+                let text = match row.get::<_, rusqlite::types::Value>(i) {
+                    Ok(rusqlite::types::Value::Text(t)) => t,
+                    Ok(rusqlite::types::Value::Blob(b)) => String::from_utf8_lossy(&b).into_owned(),
+                    _ => continue,
+                };
+                if text.to_ascii_lowercase().contains(email) {
+                    found += 1;
+                }
+            }
+        }
+        if found > 0 {
+            left.push(format!("{t}: {found}"));
+        }
+    }
+    drop(conn);
+    assert!(
+        !holds(),
+        "her address is still in the store's files; rows: {left:?}"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+const STAFFED: &str = "module: staffed
+categories: [live, closed]
+types:
+  Person:
+    description: A person, by name.
+    tracking: record
+    attributes:
+      name: { type: string, personal: true, optional: true }
+    states:
+      ON: { category: live, description: Here. }
+      OFF: { category: closed, final: true, description: Gone. }
+    transitions:
+      join: { kind: initial, to: ON, required_inputs: [name] }
+      leave: { kind: external, from: ON, to: OFF }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Desk:
+    description: A desk.
+    tracking: record
+    attributes:
+      label: { type: string }
+    states:
+      FREE: { category: live, description: Free. }
+      GONE: { category: closed, final: true, description: Gone. }
+    transitions:
+      place: { kind: initial, to: FREE, required_inputs: [label] }
+      remove: { kind: external, from: FREE, to: GONE }
+";
+
+/// A type a version drops keeps its objects readable, after a restart as
+/// before, and keeps its erasure, so the personal data its objects hold can
+/// still be erased, where no erasure could reach it once its type was
+/// dropped (the audit's personal data S14, ADR-0205).
+#[test]
+fn a_dropped_types_objects_stay_readable_and_erasable() {
+    let file = fresh_store("dropped");
+    let path = file.to_str().expect("a path");
+    let s = start(&["--store", path, "--create", "--port", "0"]);
+    publish(&s, &json!({"staffed": STAFFED}));
+    let op = json!({"id": "operator"});
+    let secret = "Retired Person Secret";
+    let person = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Person", "transition": "join", "inputs": {"name": secret}}),
+    )["object_id"]
+        .as_str()
+        .expect("the person")
+        .to_string();
+    let without = format!(
+        "{}  Desk:\n{}",
+        &STAFFED[..STAFFED.find("  Person:").expect("Person")],
+        &STAFFED[STAFFED.find("  Desk:\n").expect("Desk") + "  Desk:\n".len()..]
+    );
+    assert!(
+        !without.contains("Person") && without.contains("Desk"),
+        "{without}"
+    );
+    publish(&s, &json!({"staffed": without}));
+    let got = post(&s, "/v1/get", &json!({"actor": op, "id": person}));
+    assert_eq!(got["attributes"]["name"], secret, "{got}");
+    drop(s);
+    let s = start(&["--store", path, "--port", "0"]);
+    let got = post(&s, "/v1/get", &json!({"actor": op, "id": person}));
+    assert_eq!(got["attributes"]["name"], secret, "after a restart: {got}");
+    let erased = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": person, "transition": "forget", "inputs": {"reason": "asked"}}),
+    );
+    assert_eq!(erased["kind"], "satisfied", "{erased}");
+    let left = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": person, "transition": "leave"}),
+    );
+    assert_eq!(left["kind"], "unknown_transition", "{left}");
+    let got = post(&s, "/v1/get", &json!({"actor": op, "id": person}));
+    assert!(got["attributes"]["name"].is_null(), "{got}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
 /// An erased actor's identity leaves the store: an email marked personal,
 /// erased with the person, is in no event, attempt, interval, idempotency
 /// record or proposal, which name the person's object instead, and neither
@@ -4462,10 +4772,11 @@ fn what_a_filter_a_key_and_a_store_are_told() {
         "text == \"x\" and text",
         "not text",
     ] {
+        // opted into, as a filter on a personal member is (ADR-0206)
         let page = post(
             &s,
             "/v1/query",
-            &json!({"actor": op, "type": "Note", "filter": filter}),
+            &json!({"actor": op, "type": "Note", "filter": filter, "reads_personal": true}),
         );
         assert_eq!(page["refused"], "malformed_filter", "{filter}: {page}");
         assert!(
@@ -4643,59 +4954,96 @@ fn a_store_readable_by_others_is_said_with_its_log() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
-/// An agent's query filtering or ordering by a member marked personal, or
-/// an unknown actor's, is refused `personal`, as a metric's filter is, where an agent ranged over people's names to
-/// recover what its answers left out; a person's is answered (fourteenth
-/// production review N4).
+/// A read selecting by a personal value is refused `personal` unless its
+/// request opts in with `reads_personal`, whoever asks, a person and the
+/// operator as an agent, where an agent's query alone was refused, by its
+/// kind: a query's filter and order, a lookup by a personal identifier,
+/// `available`, `availability` and `check` decided by a personal member, a
+/// metric's filter and its binding of a person; and a request's refusal by
+/// a personal value names its holder only when opted into (ADR-0206; the
+/// audit's personal data R3 to R7, R15 to R17).
 #[test]
-fn an_agents_query_by_a_personal_member_is_refused() {
+fn a_read_by_a_personal_value_is_opted_into() {
     let file = fresh_store("personal-query");
     let path = file.to_str().expect("a path");
     let s = start(&["--store", path, "--create", "--port", "0"]);
-    let people = "module: people\ncategories: [live, closed]\ntypes:\n  Person:\n    description: A person.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human }\n      name: { type: string, personal: true, optional: true }\n      team: { type: string }\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login, team], optional_inputs: [name] }\n      leave: { kind: external, from: ON, to: OFF }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Bot:\n    description: An agent.\n    tracking: record\n    attributes:\n      key: { type: identity, actor_kind: agent }\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    transitions:\n      add: { kind: initial, to: ON, required_inputs: [key] }\n      retire: { kind: external, from: ON, to: OFF }\n";
+    let people = "module: people\ncategories: [live, closed]\ntypes:\n  Person:\n    description: A person.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human }\n      name: { type: string, personal: true, optional: true, unique: true }\n      badge: { type: string, personal: true, optional: true, external: badges }\n      team: { type: string }\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    conditions:\n      named: { description: Named., expression: name is not null, remedy: self_serviceable }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login, team], optional_inputs: [name, badge] }\n      promote: { kind: internal, from: [ON], guards: { named: deny } }\n      leave: { kind: external, from: ON, to: OFF }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n    metrics:\n      by_team: { description: People by team., source: objects, item: p, dimensions: { team: p.team }, expression: count() }\n      by_login: { description: People by login., source: objects, item: p, dimensions: { who: p.login }, expression: count() }\n  Bot:\n    description: An agent.\n    tracking: record\n    attributes:\n      key: { type: identity, actor_kind: agent }\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    transitions:\n      add: { kind: initial, to: ON, required_inputs: [key] }\n      retire: { kind: external, from: ON, to: OFF }\n";
     publish(&s, &json!({"people": people}));
     let op = json!({"id": "operator"});
     let v = post(
         &s,
         "/v1/request",
         &json!({"actor": op, "type": "Person", "transition": "join",
-                "inputs": {"login": "ana", "name": "Ana Secret", "team": "blue"}}),
+                "inputs": {"login": "ana", "name": "Ana Secret", "badge": "B-77", "team": "blue"}}),
     );
     assert_eq!(v["kind"], "satisfied", "{v}");
+    let ana = v["object_id"].as_str().expect("her id").to_string();
     let v = post(
         &s,
         "/v1/request",
         &json!({"actor": op, "type": "Bot", "transition": "add", "inputs": {"key": "helper"}}),
     );
     assert_eq!(v["kind"], "satisfied", "{v}");
-    let bot = json!({"id": "helper"});
-    for q in [
-        json!({"actor": bot, "type": "Person", "filter": "name >= \"Ana\""}),
-        json!({"actor": bot, "type": "Person", "order": "name desc"}),
-    ] {
-        let page = post(&s, "/v1/query", &q);
-        assert_eq!(page["refused"], "personal", "{page}");
+    let opted = |mut body: Value| {
+        body["reads_personal"] = json!(true);
+        body
+    };
+    // each read, by anyone, refused without the opt-in and answered with it
+    for actor in [json!({"id": "helper"}), json!({"id": "ana"}), op.clone()] {
+        for (path, body) in [
+            (
+                "/v1/query",
+                json!({"actor": actor, "type": "Person", "filter": "name >= \"Ana\""}),
+            ),
+            (
+                "/v1/query",
+                json!({"actor": actor, "type": "Person", "order": "name desc"}),
+            ),
+            (
+                "/v1/lookup",
+                json!({"actor": actor, "source": "badges", "value": "B-77"}),
+            ),
+            (
+                "/v1/available",
+                json!({"actor": actor, "type": "Person", "transition": "promote"}),
+            ),
+            ("/v1/availability", json!({"actor": actor, "id": ana})),
+            (
+                "/v1/check",
+                json!({"actor": actor, "object_id": ana, "transition": "promote"}),
+            ),
+            (
+                "/v1/metric",
+                json!({"actor": actor, "name": "Person.by_team", "filter": "p.name >= \"A\""}),
+            ),
+            (
+                "/v1/metric",
+                json!({"actor": actor, "name": "Person.by_login", "bind": {"who": "ana"}}),
+            ),
+        ] {
+            let refused = post(&s, path, &body);
+            assert_eq!(refused["refused"], "personal", "{path} {body}: {refused}");
+            let answered = post(&s, path, &opted(body.clone()));
+            assert_ne!(answered["refused"], "personal", "{path} {body}: {answered}");
+            assert!(!answered.is_null(), "{path}: {answered}");
+        }
     }
+    // a read by what is not personal is answered as it was
     let page = post(
         &s,
         "/v1/query",
-        &json!({"actor": bot, "type": "Person", "filter": "team == \"blue\""}),
+        &json!({"actor": {"id": "helper"}, "type": "Person", "filter": "team == \"blue\""}),
     );
     assert_eq!(page["refused"], Value::Null, "{page}");
-    // and an actor the store does not know, as an agent not yet registered
-    // (fifteenth production review)
-    let page = post(
-        &s,
-        "/v1/query",
-        &json!({"actor": {"id": "stranger"}, "type": "Person", "filter": "name >= \"Ana\""}),
-    );
-    assert_eq!(page["refused"], "personal", "{page}");
-    let page = post(
-        &s,
-        "/v1/query",
-        &json!({"actor": op, "type": "Person", "filter": "name >= \"Ana\""}),
-    );
-    assert_eq!(page["items"].as_array().map(Vec::len), Some(1), "{page}");
+    // a request's refusal by a personal value names its holder when opted
+    // into alone
+    let again = json!({"actor": op, "type": "Person", "transition": "join",
+                       "inputs": {"login": "anna", "name": "Ana Secret", "team": "red"}});
+    let refused = post(&s, "/v1/request", &again);
+    assert_eq!(refused["kind"], "invariant_violated", "{refused}");
+    assert!(!refused.to_string().contains(&ana), "{refused}");
+    let named = post(&s, "/v1/request", &opted(again));
+    assert!(named.to_string().contains(&ana), "{named}");
     drop(s);
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }

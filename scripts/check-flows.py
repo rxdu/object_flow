@@ -1271,13 +1271,21 @@ def personal_errors(doc, library):
         visit(tree)
         return found
 
+    # a copy of an identity is the identity, personal where an actor type marks its own so (ADR-0203 decision 1), where
+    # a metric grouped by an approver set from actor.id answered each person's address (the audit's personal data R8)
+    identities_personal = any(isinstance(spec, dict) and spec.get("actor_kind") and spec.get("personal")
+                              for k in kinds.values() for spec in ((k or {}).get("attributes") or {}).values())
+
     def reaches(tn, members):
-        """What personal value a path from an object of the type reaches past its first member, or None."""
+        """What personal value a path from an object of the type reaches past its first member, or None; a member of
+        type identity at any hop, where identities are personal."""
         u = tn
         for i, mbr in enumerate(members):
             k = kinds.get(u) or {}
             spec = (k.get("attributes") or {}).get(mbr)
             if isinstance(spec, dict):
+                if identities_personal and str(spec.get("type", "")).removesuffix("[]") == "identity":
+                    return f"the identity {u}.{mbr}, personal as an actor's is"
                 if spec.get("personal"):
                     return f"the personal {u}.{mbr}" if i > 0 else None
                 if spec.get("reference"):
@@ -2822,10 +2830,20 @@ def argument_type_errors(doc, library):
 
 def write_type_errors(doc, tn, t, library):
     """Each assign whose value does not fit its target, where both kinds can be told: an enumeration's member
-    written to a string, money of one currency to another, a timestamp to an int (the model's check 17)."""
+    written to a string, money of one currency to another, a timestamp to an int; and a write of an actor's identity
+    after its creation, which the record names actors by (the model's check 17, ADR-0205 decision 5)."""
     enums = set(doc.get("enumerations") or {})
     out = []
+    identity = next((a for a, spec in (t.get("attributes") or {}).items() if isinstance(spec, dict) and "actor_kind" in spec), None)
     for xn, x in (t.get("transitions") or {}).items():
+        if identity and x.get("kind") not in ("initial", "erasure"):
+            by_input = identity in (x.get("required_inputs") or []) + (x.get("optional_inputs") or [])
+            by_step = any(k in ("assign", "clear") and (identity in st[k] if k == "clear" else st[k].get("location") == identity)
+                          for st, k, _p, _d in walk(x.get("effect")))
+            if by_input or by_step:
+                out.append((("types", tn, "transitions", xn), "names",
+                            f"{tn}.{xn} writes {identity}, the identity {tn}'s actors are named by, which is written only "
+                            "at their creation (the model's check 17)"))
         for st, kind, path, _d in walk(x.get("effect")):
             if kind == "foreach" and "range" in st["foreach"]:
                 # a range counts from 1 to an int, an absent or non-positive one running no step (ADR-0146)
@@ -3232,6 +3250,10 @@ def identifier_errors(doc, tn, t, library):
                 out.append((where + ("scope",), "names", f"{tn}.{a} is scoped by '{sc}', which is not indexed"))
             elif creates and sc not in written:
                 out.append((where + ("scope",), "names", f"{tn}.{a} is scoped by '{sc}', which not every creation of {tn} writes"))
+            # a scope is kept with its sequence, which no erasure reaches (the audit's personal data S27)
+            if ss is not None and ss.get("personal"):
+                out.append((where + ("scope",), "names", f"{tn}.{a} is scoped by '{sc}', which is personal; a sequence "
+                                                         "keeps its scope's value, which no erasure reaches"))
         fmt = ident["format"]
         depth, numbered = 0, False
         for m in re.finditer(r"\[|\]|\{([^{}]*)\}", fmt):
@@ -3284,6 +3306,10 @@ def identifier_errors(doc, tn, t, library):
                 out.append((where + ("format",), "names", f"{tn}.{a}'s format reads {ph}, which is not a string or an enumeration"))
             elif optional(target) and depth == 0:
                 out.append((where + ("format",), "names", f"{tn}.{a}'s format reads {ph}, which is optional, outside [ … ]; a segment that may be absent goes in brackets"))
+            # an identifier is kept past an erasure, so it holds no personal value (the audit's personal data S28)
+            if target.get("personal"):
+                out.append((where + ("format",), "names", f"{tn}.{a}'s format reads {ph}, which is personal; an "
+                                                          "identifier is kept past an erasure"))
         if depth:
             out.append((where + ("format",), "names", f"{tn}.{a}'s format leaves a [ open"))
         if not numbered:
@@ -8117,6 +8143,100 @@ def expression_type_plants(people):
     return ok
 
 
+def identifier_personal_plants(people):
+    """An identifier is kept past an erasure, and a sequence keeps its scope's value, so neither reads a personal
+    value: a scope by a personal attribute and a format reading one are refused (the audit's personal data S27, S28),
+    and an identifier from what is not personal is not."""
+    def desk(ident):
+        return ("module: desk\ncategories: [live, closed]\nsequences:\n  ticket: { description: Tickets. }\ntypes:\n"
+                "  Ticket:\n    description: A ticket.\n    tracking: record\n    attributes:\n"
+                "      requester_name: { type: string, personal: true, indexed: true, optional: true }\n"
+                "      queue: { type: string, indexed: true }\n"
+                f"      number: {{ type: string, identifier: {ident} }}\n"
+                "    states:\n      OPEN: { category: live }\n      DONE: { category: closed, final: true }\n"
+                "    transitions:\n      raise: { kind: initial, to: OPEN, required_inputs: [requester_name, queue] }\n"
+                "      close: { kind: external, from: [OPEN], to: DONE }\n"
+                "      forget: { kind: erasure, inputs: { reason: { type: string } } }\n")
+    cases = [
+        ("a scope by a personal attribute", desk('{ sequence: ticket, scope: requester_name, format: "T-{n}" }'),
+         ["Ticket.number is scoped by 'requester_name', which is personal; a sequence keeps its scope's value, which no "
+          "erasure reaches"]),
+        ("a format reading a personal attribute", desk('{ sequence: ticket, format: "T-[{requester_name}-]{n}" }'),
+         ["Ticket.number's format reads requester_name, which is personal; an identifier is kept past an erasure"]),
+        ("an identifier from what is not personal", desk('{ sequence: ticket, scope: queue, format: "{queue}-{n}" }'), []),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, _ = check([("people.yaml", people), ("desk.yaml", text)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  an identifier, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
+def identity_metric_plants(people):
+    """A metric reads no identity where an actor type marks its own personal, a copy of an identity being the identity:
+    a dimension of type identity is refused there (the audit's personal data R8), and answered where identities are
+    not personal."""
+    def memos(personal):
+        return ("module: memos\ncategories: [live, closed]\ntypes:\n  Writer:\n    description: A writer.\n"
+                "    tracking: record\n    attributes:\n"
+                f"      login: {{ type: identity, actor_kind: human, unique: true, personal: {str(personal).lower()}, optional: true }}\n"
+                "    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n"
+                "    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login] }\n"
+                "      leave: { kind: external, from: [ON], to: OFF }\n"
+                "      forget: { kind: erasure, inputs: { reason: { type: string } } }\n"
+                "  Memo:\n    description: A memo.\n    tracking: record\n    attributes:\n"
+                "      author: { type: identity, optional: true }\n    states:\n      OPEN: { category: live }\n"
+                "      DONE: { category: closed, final: true }\n    transitions:\n"
+                "      write: { kind: initial, to: OPEN, effect: [ { assign: { location: author, expr: actor.id } } ] }\n"
+                "      close: { kind: external, from: [OPEN], to: DONE }\n    metrics:\n"
+                "      by_author: { description: Memos by author., source: objects, item: m, dimensions: { author: m.author }, expression: count() }\n")
+    cases = [
+        ("an identity dimension where identities are personal", memos(True),
+         ["metric by_author reads m.author, which reaches the identity Memo.author, personal as an actor's is; a metric "
+          "reads no personal value, through a reference or a derived attribute either (ADR-0203)"]),
+        ("an identity dimension where they are not", memos(False), []),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, _ = check([("people.yaml", people), ("memos.yaml", text)])
+        got = sorted(x[4] for x in found if x[3] == "names")
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a metric over identities, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
+def identity_write_plants(people):
+    """An actor's identity is written only at its creation: a transition other than a creation or an erasure writing
+    it, by an input or by a step, is refused (the model's check 17, ADR-0205 decision 5), and one writing it at
+    creation is not."""
+    crew = ("module: crew\ncategories: [live, closed]\ntypes:\n  Member:\n    description: A member.\n"
+            "    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human }\n"
+            "      alias: { type: identity, optional: true }\n    states:\n      ON: { category: live }\n"
+            "      OFF: { category: closed, final: true }\n    transitions:\n"
+            "      join: { kind: initial, to: ON, required_inputs: [login] }\n"
+            "      leave: { kind: external, from: [ON], to: OFF }\n")
+    wrong = ("Member.{} writes login, the identity Member's actors are named by, which is written only at their creation "
+             "(the model's check 17)")
+    cases = [
+        ("by an input", crew + "      relogin: { kind: internal, from: [ON], required_inputs: [login] }\n", [wrong.format("relogin")]),
+        ("by a step", crew + "      swap: { kind: internal, from: [ON], effect: [ { assign: { location: login, expr: alias } } ] }\n",
+         [wrong.format("swap")]),
+        ("at creation alone", crew, []),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, _ = check([("people.yaml", people), ("crew.yaml", text)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  an identity written, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
 def argument_type_plants(people):
     """An argument of a call or a create whose value does not fit the input it is given to is refused, an input the
     transition declares or an attribute input (the model's check 2, its types): a number to a string, the clock to an
@@ -8882,6 +9002,9 @@ def main():
     ok &= could_violate_plants(people)
     ok &= symmetry_plants(people)
     ok &= argument_type_plants(people)
+    ok &= identity_write_plants(people)
+    ok &= identity_metric_plants(people)
+    ok &= identifier_personal_plants(people)
     ok &= expression_type_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)

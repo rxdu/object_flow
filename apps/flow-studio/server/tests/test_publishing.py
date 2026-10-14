@@ -848,6 +848,151 @@ def published(tee, text: str, ref: str = "git:shop@2") -> None:
     approved(tee, c)
 
 
+def test_a_dropped_types_object_is_erased_alike(tee):
+    """A type a version drops keeps its erasure, so the personal values its objects hold can still be erased, alike
+    through both backends, where a dropped type kept no transition at all (the audit's personal data S14)."""
+    redeem = "      redeem: { kind: external, from: [ISSUED], to: USED }\n"
+    v1 = SHOP_V1.replace(
+        "      code: { type: string }\n",
+        "      code: { type: string }\n      holder: { type: string, optional: true, personal: true }\n").replace(
+        "required_inputs: [code] }", "required_inputs: [code], optional_inputs: [holder] }").replace(
+        redeem, redeem + "      forget: { kind: erasure, inputs: { reason: { type: string } } }\n")
+    load(tee, "shop", v1)
+    coupon = made(tee, "Coupon", "issue", code="C1", holder="zelda.secret@example.com")
+    tee.found.clear()
+    published(tee, v1[:v1.index("  Coupon:")])
+    took(tee, coupon, "forget", reason="asked")
+    read = tee.post("/v1/get", {"id": coupon})
+    assert read["state"] == "ISSUED" and "zelda" not in json.dumps(read), read
+    alike(tee)
+
+
+def test_a_type_whose_ids_would_name_an_identity_is_refused_alike(tee):
+    """A version adding a type whose ids would name an identity an actor holds, in any case, is refused, naming the
+    actor by its object, alike through both backends; an identity of no type's shape is not (D669, ADR-0205
+    decision 4)."""
+    load(tee, "handed", HANDED)
+    made(tee, "Person", "add", login="Widget-66")
+    made(tee, "Person", "add", login="ann.secret@corp.example")
+    tee.found.clear()
+    gadget = HANDED + """  Widget:
+    description: A widget.
+    tracking: record
+    states:
+      ON: { category: live, description: Here. }
+    transitions:
+      make: { kind: initial, to: ON }
+"""
+    _, codes = dry_run(tee, {"handed": gadget})
+    assert "identity_shadowed:Widget" in codes, sorted(codes)
+    _, codes = dry_run(tee, {"handed": gadget.replace("Widget", "Gizmo")})
+    assert not any(c.startswith("identity_shadowed") for c in codes), sorted(codes)
+    alike(tee)
+
+
+PHONES = """module: phones
+categories: [live, closed]
+types:
+  Person:
+    description: A person, and the phones they gave.
+    tracking: record
+    attributes:
+      phones: { type: "string[]", optional: true, personal: true }
+    states:
+      ON: { category: live, description: Here. }
+      OFF: { category: closed, final: true, description: Gone. }
+    transitions:
+      join: { kind: initial, to: ON }
+      leave: { kind: external, from: ON, to: OFF }
+      add_phones:
+        kind: internal
+        from: [ON]
+        inputs: { numbers: { type: "string[]" } }
+        effect:
+          - foreach:
+              item: n
+              array: inputs.numbers
+              limit: 5
+              steps:
+                - add: { location: phones, expr: n }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"""
+
+
+def test_a_loop_writes_no_erased_value_again_alike(tee):
+    """A loop's step writing a personal attribute of an erased object is refused `not_erased`, as a plain step is,
+    alike through both backends, where a step inside a loop was not read (the audit's write path R-02)."""
+    load(tee, "phones", PHONES)
+    ana = made(tee, "Person", "join")
+    took(tee, ana, "add_phones", numbers=["555-0100"])
+    took(tee, ana, "forget", reason="asked")
+    tee.found.clear()
+    v = tee.post("/v1/request", {"transition": "add_phones", "actor": OP, "object_id": ana,
+                                 "inputs": {"numbers": ["555-0199"]}})
+    assert (v["kind"], v.get("clause")) == ("unsatisfied", "not_erased"), v
+    alike(tee)
+
+
+def test_an_erasure_records_its_redaction_on_a_label_alike(tee):
+    """An erasure removing a label's note records a `redact` event on the label, alike through both backends, where
+    the note went with no event (the audit's write path A-01)."""
+    load(tee, "shop", SHOP_V1)
+    c = made(tee, "Customer", "join", name="N")
+    tag = tee.post("/v1/request", {"transition": "record", "actor": OP, "type": "label",
+                                   "inputs": {"subject": c, "name": "VIP", "note": "rang"}})
+    assert tag["kind"] == "satisfied", tag
+    tee.found.clear()
+    took(tee, c, "forget", reason="asked")
+    history = tee.post("/v1/history", {"id": tag["object_id"]})
+    assert [e["transition"] for e in history["events"]][-1] == "redact", history
+    alike(tee)
+
+
+RAISED = """module: raised
+categories: [live, closed]
+types:
+  Person:
+    description: A person, signing in by email.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, personal: true, optional: true }
+    states:
+      ON: { category: live, description: Here. }
+      OFF: { category: closed, final: true, description: Gone. }
+    transitions:
+      join: { kind: initial, to: ON, required_inputs: [login] }
+      leave: { kind: external, from: ON, to: OFF }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Ticket:
+    description: A ticket.
+    tracking: record
+    attributes:
+      title: { type: string }
+    states:
+      NEW: { category: live, description: New. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      raise: { kind: initial, to: NEW, required_inputs: [title] }
+      close: { kind: external, from: NEW, to: DONE }
+    metrics:
+      by_actor: { description: Tickets raised by each actor., source: transitions, item: t, dimensions: { actor: t.actor_id }, expression: count() }
+"""
+
+
+def test_a_metric_names_an_actor_by_its_object_alike(tee):
+    """Where an actor type marks its identity personal, a metric's rows name each actor by its object, never its
+    identity, alike through both backends (the audit's personal data R8, ADR-0205 decision 6)."""
+    load(tee, "raised", RAISED)
+    ana = made(tee, "Person", "join", login="ana@corp.example")
+    tee.found.clear()
+    v = tee.post("/v1/request", {"transition": "raise", "actor": {"id": "ana@corp.example"}, "type": "Ticket",
+                                 "inputs": {"title": "Fix"}})
+    assert v["kind"] == "satisfied", v
+    page = tee.post("/v1/metric", {"actor": OP, "name": "Ticket.by_actor", "keep": ["actor"]})
+    assert [r["dimensions"]["actor"] for r in page["rows"]] == [ana], page
+    alike(tee)
+
+
 def tiers(tee) -> list:
     page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.tiers",
                                    "keep": ["tier"]})
@@ -2365,6 +2510,65 @@ def test_an_erased_actors_identity_leaves_what_an_effect_wrote_alike(tee):
     assert v["kind"] == "satisfied", v
     held = tee.post("/v1/get", {"id": note})["attributes"]
     assert (held["author"], held["kept_by"]) == (ann, ann), held
+    alike(tee)
+
+
+HANDED = """module: handed
+categories: [live, closed]
+types:
+  Person:
+    description: A person, signing in by email.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true, personal: true, optional: true }
+    states:
+      ON: { category: live, description: Here. }
+      OFF: { category: closed, final: true, description: Gone. }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [login] }
+      leave: { kind: external, from: ON, to: OFF }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Memo:
+    description: A memo, handed to someone.
+    tracking: record
+    attributes:
+      owner: { type: identity, optional: true }
+      watchers: { type: "identity[]", optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      write: { kind: initial, to: OPEN }
+      close: { kind: external, from: OPEN, to: DONE }
+      hand:
+        kind: internal
+        from: [OPEN]
+        inputs: { to: { type: identity } }
+        effect:
+          - assign: { location: owner, expr: inputs.to }
+          - add: { location: watchers, expr: inputs.to }
+"""
+
+
+def test_an_erased_identity_sent_in_another_case_leaves_alike(tee):
+    """An erasure replaces an erased identity sent in another case of its letters, in an attribute, a set and the
+    event's input, as identities compare, alike through both backends, where the runner matched it exactly (the
+    audit's personal data S17, ADR-0205 decision 6)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "handed.yaml", "text": HANDED}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    ann = tee.post("/v1/request", {"transition": "add", "actor": OP, "type": "Person",
+                                   "inputs": {"login": "ann.secret@corp.example"}})["object_id"]
+    memo = tee.post("/v1/request", {"transition": "write", "actor": OP, "type": "Memo"})["object_id"]
+    v = tee.post("/v1/request", {"transition": "hand", "actor": OP, "object_id": memo,
+                                 "inputs": {"to": "Ann.Secret@CORP.example"}})
+    assert v["kind"] == "satisfied", v
+    v = tee.post("/v1/request", {"transition": "forget", "actor": OP, "object_id": ann, "inputs": {"reason": "asked"}})
+    assert v["kind"] == "satisfied", v
+    held = tee.post("/v1/get", {"id": memo})["attributes"]
+    assert (held["owner"], held["watchers"]) == (ann, [ann]), held
+    history = tee.post("/v1/history", {"id": memo})
+    assert "ann.secret" not in json.dumps(history).lower(), history
     alike(tee)
 
 

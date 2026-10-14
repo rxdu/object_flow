@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-14 on the author's standing instruction, "keep the bar and continue the loop", each decision the recommendation stated here; built the same day
 - **Date:** 2026-10-14
+- **Superseded by:** ADR-0206 — decision 4, a query refused `personal` by the actor's kind, replaced by a guard that reads no actor, opted out of by a gateway's `reads_personal`. This record keeps the guard as it was decided.
 - **Refined by:** ADR-0202 — the build's configuration at the repository's root, its flag required by a build script, and the personal guard on every actor the store does not know as a person or a service. ADR-0203 — a metric read's filter on a derived attribute reading a personal value refused too. ADR-0204 — decision 4's read guard by actor kind to be replaced by a guard that reads no actor (decision 9.3). ADR-0205 — decision 6's single masked digest replaced by two, the personal one deleted by an erasure.
 - **Refines:** ADR-0200 decision 4 (where object reads that grow wait); ADR-0198 decision 1 (the bound on derived attributes, now on their depth too); ADR-0190 decision 7 (a reach a limit may stop); ADR-0197 (a derived value past its bound of hops)
 - **Relates to:** `design/production-review.md` §18; `guides/operate.md`; `guides/agents.md`; `guides/wire.md`; `guides/errors.md`; `design/flow-format.md`

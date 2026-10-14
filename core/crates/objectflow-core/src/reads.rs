@@ -819,14 +819,25 @@ fn growing_derived(lib: &Library) -> BTreeSet<String> {
     }
 }
 
-/// Whether a query's filter or order reads anything the library marks
-/// personal, by name in any type, as a consulted reference masks it
-/// (`eval::personal_names`): an agent's query doing so is refused, where an
-/// agent ranged over people's names to recover what the gateway left out of
-/// its answers (fourteenth production review N4). A filter that does not
-/// parse reads nothing here; the query refuses it.
+/// The members a read may not select by without its request's opt-in:
+/// those marked personal, by name in any type, an input written into one
+/// and a derived attribute reading one, and, where an actor type marks its
+/// identity personal, every member of type `identity`, a copy of an
+/// identity being the identity (ADR-0206 decision 1).
+pub fn personal_members(lib: &Library) -> BTreeSet<String> {
+    let mut out = crate::eval::personal_names(lib);
+    if crate::eval::identities_personal(lib) {
+        out.extend(crate::eval::identity_names(lib));
+    }
+    out
+}
+
+/// Whether a query's filter or order reads a personal member, which its
+/// request then opts into or is refused `personal` (ADR-0206 decision 2),
+/// whoever asks, where an agent's alone was refused, by the actor's kind
+/// (ADR-0201 decision 4, ADR-0202 decision 3, superseded).
 pub fn query_reads_personal(lib: &Library, filter: Option<&str>, order: &[String]) -> bool {
-    let personal = crate::eval::personal_names(lib);
+    let personal = personal_members(lib);
     let filtered = filter
         .and_then(|f| crate::expr::parse(f).ok())
         .is_some_and(|e| crate::eval::reads_any(&e, &personal));
@@ -839,6 +850,58 @@ pub fn query_reads_personal(lib: &Library, filter: Option<&str>, order: &[String
         personal.contains(member)
     });
     filtered || ordered
+}
+
+/// Whether a transition's answer is decided by a personal member: a guard
+/// it enforces, or an invariant of its type, reading one, which `check`,
+/// `availability` and `available` then opt into or are refused
+/// `personal`, where an agent's `available` listed the people a salary
+/// guard passed (the audit's personal data R5, R15, R17; ADR-0206
+/// decision 2).
+pub fn transition_reads_personal(lib: &Library, type_: &str, transition: &str) -> bool {
+    let Some(t) = lib.type_(type_) else {
+        return false;
+    };
+    let personal = personal_members(lib);
+    let guards = t
+        .transition(transition)
+        .map(|x| x.guards.iter().map(|(g, _)| g.clone()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let by_guard = t
+        .conditions
+        .iter()
+        .filter(|(n, _)| guards.contains(n))
+        .any(|(_, c)| crate::eval::reads_any(&c.expression, &personal));
+    let by_invariant = t
+        .invariants
+        .iter()
+        .any(|(_, i)| crate::eval::reads_any(i, &personal));
+    by_guard || by_invariant
+}
+
+/// Whether a refusal's clause decides by the holder of a personal value: a
+/// uniqueness over a personal member, or `identity_taken` where an actor
+/// type marks its identity personal, whose answer then names no object
+/// without its request's opt-in (ADR-0206 decision 3).
+pub fn clause_names_personal_holder(lib: &Library, clause: &str) -> bool {
+    if clause == crate::request::IDENTITY_TAKEN {
+        return crate::eval::identities_personal(lib);
+    }
+    clause
+        .strip_suffix("_unique")
+        .is_some_and(|a| personal_members(lib).contains(a))
+}
+
+/// Whether a `lookup` by an external identifier of this source matches a
+/// personal attribute's value, which its request then opts into or is
+/// refused `personal` (the audit's personal data R6, ADR-0206 decision 2).
+pub fn lookup_reads_personal(lib: &Library, source: &str) -> bool {
+    let personal = personal_members(lib);
+    lib.types.values().any(|t| {
+        t.attributes.iter().any(|(n, a)| {
+            a.external.as_deref() == Some(source) && (a.personal || personal.contains(n))
+        })
+    })
 }
 
 /// Whether an expression aggregates over a collection, itself or through a
@@ -1996,6 +2059,57 @@ types:
     /// refused malformed where it was answered empty, and one with a literal
     /// past its type's range where it was not run (D580, fourth production
     /// review A-10).
+    /// A personal member is one marked so, and, where an actor type marks
+    /// its identity personal, every member of type `identity`, which a
+    /// read selecting by one then opts into (ADR-0206 decision 1).
+    #[test]
+    fn an_identity_is_personal_where_an_actors_is() {
+        for (personal, refused) in [(true, true), (false, false)] {
+            let text = format!(
+                "\nmodule: crm\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      login: {{ type: identity, actor_kind: human, personal: {personal}, optional: true }}\n    states:\n      ON: {{ category: live }}\n    transitions:\n      join: {{ kind: initial, to: ON, required_inputs: [login] }}\n  Memo:\n    attributes:\n      author: {{ type: identity, optional: true }}\n    states:\n      ON: {{ category: live }}\n    transitions:\n      write: {{ kind: initial, to: ON }}\n"
+            );
+            let lib = Library::load(&[("crm.yaml".into(), text)]).unwrap();
+            assert_eq!(
+                query_reads_personal(&lib, Some("author >= \"a\""), &[]),
+                refused,
+                "personal: {personal}"
+            );
+        }
+    }
+
+    /// A filter refused for a value of the wrong kind says the kind and
+    /// never the value an object holds, where `month(name)` quoted the name
+    /// (the audit's personal data R14, `wire.md`).
+    #[test]
+    fn a_refused_filter_names_no_stored_value() {
+        let text = "\nmodule: crm\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      name: { type: string }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [name] }\n";
+        let lib = Library::load(&[("crm.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let r = crate::request::Request {
+            transition: "join".into(),
+            actor: crate::model::OPERATOR.into(),
+            object_id: None,
+            type_: Some("Person".into()),
+            inputs: [("name".to_string(), serde_json::json!("Alice Liddell"))]
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        crate::request::request(&mut s, &r).unwrap().unwrap();
+        let w = s.snapshot().unwrap();
+        let p = query(&w, "Person", Some(r#"month(name) == "x""#), &[], None).unwrap();
+        assert_eq!(p.refused.as_deref(), Some("malformed_filter"));
+        let reason = p.reason.unwrap_or_default();
+        assert!(!reason.contains("Alice"), "{reason}");
+    }
+
     #[test]
     fn a_filter_no_object_can_answer_is_malformed() {
         const LEDGER: &str = r#"

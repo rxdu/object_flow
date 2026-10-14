@@ -729,6 +729,24 @@ class Evaluator:
         self.t = store.kinds.get(tn) or {}
         self.naming = None                      # where the objects a refusing clause names are noted (DESIGN.md §5.5)
 
+    def actor_named(self, identity):
+        """How a row names an actor its record names by identity: by the actor's object id where an actor type marks
+        its identity personal, as a metric reads no personal value, by the identity where none does, as the core's
+        World::actor_named (the audit's personal data R8)."""
+        if not isinstance(identity, str):
+            return identity
+        if getattr(self, "_actors", None) is None:
+            personal = any(isinstance(sp, dict) and sp.get("actor_kind") and sp.get("personal")
+                           for k in self.s.kinds.values() for sp in ((k or {}).get("attributes") or {}).values())
+            self._actors = {}
+            if personal:
+                for o in sorted(self.s.objects.values(), key=lambda o: o.id_order):
+                    marked = self.s.actor_attr(o.type)
+                    held = o.attrs.get(marked[0]) if marked else None
+                    if isinstance(held, str):
+                        self._actors[held.lower()] = o.id
+        return self._actors.get(identity.lower(), identity)
+
     def noting(self, exclude):
         """Noting the objects the clause names, but the object it is evaluated on: every object a reference evaluates
         to, both sides of `and`, `or` and `implies` and the derived attributes it reads included; of a collection,
@@ -789,6 +807,8 @@ class Evaluator:
                 return ("state", base[1], m)
             raise NotRunnable(f"`{base[1]}.{m}`")
         if isinstance(base, Row):
+            if m == "actor_id" and m in base:
+                return self.actor_named(base[m])
             if m in base:
                 return base[m]
             if m == "corrected_by":
@@ -1772,6 +1792,19 @@ class _DryRun(_NeverAsked):
 
 DRY_RUN = _DryRun()
 
+def written_locations(steps):
+    """The attributes an effect's steps assign or add to, at any depth, a loop's among them, as the core reads them
+    for not_erased (the audit's write path R-02)."""
+    out = set()
+    for st in steps or []:
+        for k in ("assign", "add"):
+            if k in st:
+                out.add(st[k]["location"])
+        if "foreach" in st:
+            out |= written_locations(st["foreach"].get("steps"))
+    return out
+
+
 GENERATED_REMEDY = {"actor_known": "dependent", "actor_active": "dependent", "occurred_within": "self_serviceable", "whole_open": "self_serviceable",
                     "not_erased": "unreachable_from_here", "subject_open": "unreachable_from_here",
                     "corrects_current": "self_serviceable", "subject_owned": "unreachable_from_here",
@@ -2174,7 +2207,7 @@ class Runner:
             personal = {a for a, sp in attrs.items() if (sp or {}).get("personal")}
             if x["kind"] != "erasure" and o.erased:
                 # decided on what its effect writes; what its inputs would write waits for them (ADR-0147)
-                writes = {st[k]["location"] for st in x.get("effect") or [] for k in ("assign", "add") if k in st}
+                writes = written_locations(x.get("effect"))
                 if writes & personal:
                     raise Refused("unsatisfied", "not_erased", GENERATED_REMEDY["not_erased"])
             conditions = t.get("conditions") or {}
@@ -2344,7 +2377,7 @@ class Runner:
             writes = set(inputs) & set(x.get("required_inputs", []) + x.get("optional_inputs", []))
             # decided here, from the inputs and the steps that assign or add to an attribute, whatever they compute; a
             # clear writes absence and passes (ADR-0147)
-            writes |= {st[k]["location"] for st in x.get("effect") or [] for k in ("assign", "add") if k in st}
+            writes |= written_locations(x.get("effect"))
             if writes & personal:
                 raise Refused("unsatisfied", "not_erased", GENERATED_REMEDY["not_erased"])
         # a successor an input names is neither this object nor one already superseded, so no chain closes on itself;
@@ -2458,6 +2491,9 @@ class Runner:
         # 6. the effect, then the cascades to parts, depth-first (ADR-0038, ADR-0138)
         self.effects(ctx, tn, o, x.get("effect") or [], inputs, {}, depth)
         self.cascades(ctx, t, tn, xn, o, inputs, depth)
+        # an actor's identity is written only at its creation (the audit's write path I-01, ADR-0205 decision 5): the
+        # checker refuses a flow writing it later before the runner runs one, so the core's refusal at run time,
+        # `identity_unchanged`, holds only flows an earlier release published, which the runner never runs
         if x["kind"] == "erasure":
             self.forget_observations(ctx, o, inputs, depth)
             self.erase_chain(ctx, o, inputs, depth)
@@ -2829,23 +2865,61 @@ class Runner:
             tn = k.get("extends")
         return out
 
+    def identity_inputs(self, tn):
+        """The inputs of type identity a type's transitions take, their own or an identity attribute's, which its
+        events record, as the core's `Library::identity_held`."""
+        k = self.kinds.get(tn) or {}
+        attrs = self.identity_attrs(tn)
+        out = set()
+        for x in (k.get("transitions") or {}).values():
+            out.update(n for n, spec in (x.get("inputs") or {}).items()
+                       if isinstance(spec, dict) and spec.get("type") == "identity")
+            out.update(n for n in (x.get("required_inputs") or []) + (x.get("optional_inputs") or []) if n in attrs)
+        return out
+
     def rename_erased_actors(self, ctx):
         """Each erased actor's identity, wherever the store keeps it, replaced by its object's id, which names no
         person: the events' actor, the attempts', and a proposal's or a change's recorded actors, this request's own
-        among them, as the core's (ADR-0192 decision 4); and every attribute of type identity holding it, however it got
-        there, where a memo's author set to actor.id kept the erased person's address (fifteenth production review)
-        and an order's requester copied from it did (sixteenth, ADR-0203 decision 1)."""
+        among them, as the core's (ADR-0192 decision 4); and every copy of it of type identity, however it got there,
+        an attribute, a set, an event's or a proposal's input, matched in any case of its ASCII letters as identities
+        compare (ADR-0203 decision 1, ADR-0205 decision 6)."""
         work = ctx.work
         for identity, oid in getattr(ctx, "renamed", ()):
+            def same(v):
+                return isinstance(v, str) and v.lower() == identity.lower()
+
+            def renamed_inputs(inputs, names):
+                return {n: (oid if n in names and same(v) else v) for n, v in (inputs or {}).items()}
             for o in work.objects.values():
+                spec = (self.kinds.get(o.type) or {}).get("attributes") or {}
                 for a in self.identity_attrs(o.type):
-                    if o.attrs.get(a) == identity:
+                    if same(o.attrs.get(a)):
                         o.attrs[a] = oid
+                for a, sp in spec.items():
+                    if isinstance(sp, dict) and sp.get("type") == "identity[]" and isinstance(o.attrs.get(a), tuple):
+                        kept = []
+                        for v in o.attrs[a]:
+                            v = oid if same(v) else v
+                            if v not in kept:
+                                kept.append(v)
+                        o.attrs[a] = tuple(kept)
+                if o.type == PROPOSAL and isinstance(o.attrs.get("inputs"), str):
+                    try:
+                        held = json.loads(o.attrs["inputs"])
+                    except ValueError:
+                        held = None
+                    if isinstance(held, dict):
+                        o.attrs["inputs"] = json.dumps(
+                            renamed_inputs(held, self.identity_inputs(o.attrs.get("target_type"))))
             for e in work.events:
                 if e.get("actor_id") == identity:
                     e["actor_id"] = oid
+                o = work.objects.get(e.get("object"))
+                if o is not None and isinstance(e.get("inputs"), dict):
+                    tn = o.attrs.get("target_type") if o.type == PROPOSAL else o.type
+                    e["inputs"] = renamed_inputs(e["inputs"], self.identity_inputs(tn))
             for row in getattr(work, "attempts", ()):
-                if row.get("actor_id") == identity:
+                if same(row.get("actor_id")):
                     row["actor_id"] = oid
             for o in work.objects.values():
                 for a in ("proposer", "drafted_by", "approved_by"):
@@ -2892,16 +2966,23 @@ class Runner:
                     p.attrs[a] = ()
                 else:
                     p.attrs.pop(a, None)
-            work.position += 1
-            p.version += 1
-            state = ("state", p.type, p.state)
-            work.events.append({
-                "position": work.position, "object": oid, "type": p.type, "transition": "redact",
-                "from_state": state, "to_state": state, "completes": False, "returns": False,
-                "occurred_at": ctx.at, "recorded_at": work.now, "actor_id": ctx.who["id"],
-                "actor_kind": ctx.who["kind"], "asserted": False, "overrides": False, "imported": False,
-                "migrated": False, "redacted": True, "reason": ABSENT, "declaration_version": work.version, "held": {},
-                "cause": ctx.causes[-1] if ctx.causes else None, "inputs": []})
+            self.redact_event(ctx, p)
+
+    @staticmethod
+    def redact_event(ctx, p):
+        """The event an erasure records on another object whose value it redacts, its version advanced, caused by the
+        erasure (DESIGN.md §8)."""
+        work = ctx.work
+        work.position += 1
+        p.version += 1
+        state = ("state", p.type, p.state)
+        work.events.append({
+            "position": work.position, "object": p.id, "type": p.type, "transition": "redact",
+            "from_state": state, "to_state": state, "completes": False, "returns": False,
+            "occurred_at": ctx.at, "recorded_at": work.now, "actor_id": ctx.who["id"],
+            "actor_kind": ctx.who["kind"], "asserted": False, "overrides": False, "imported": False,
+            "migrated": False, "redacted": True, "reason": ABSENT, "declaration_version": work.version, "held": {},
+            "cause": ctx.causes[-1] if ctx.causes else None, "inputs": []})
 
     def walk_down(self, ctx, e, tainted, holding, redacted, cleared):
         work = ctx.work
@@ -2937,11 +3018,13 @@ class Runner:
             for other in sorted((x for x in work.objects.values() if x.type == ob["kind"] and x.attrs.get("subject") == o.id),
                                 key=lambda x: x.id_order):
                 self.take(ctx, ob["kind"], "forget", other.id, {"reason": inputs.get("reason", "erasure")}, depth + 1)
-        # and its labels' notes, corrected ones included, on its own event as no transition (declaration-syntax.md §6.8)
-        for label in work.objects.values():
+        # and its labels' notes, corrected ones included, each with a redact event of the label's own, as the core
+        # records it (declaration-syntax.md §6.8, the audit's write path A-01)
+        for label in sorted(work.objects.values(), key=lambda x: x.id_order):
             if label.type == LABEL and label.attrs.get("subject") == o.id and "note" in label.attrs:
                 del label.attrs["note"]
                 ctx.erased.setdefault(label.id, set()).add("note")
+                self.redact_event(ctx, label)
 
     def erase_chain(self, ctx, o, inputs, depth):
         """Every member of its supersession chain, predecessors and successors, each through its own type's erasure,

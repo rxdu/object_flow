@@ -819,7 +819,7 @@ impl<'a> Evaluator<'a> {
                         .log()?
                         .filter(|e| e.object_id == o.id)
                         .map(|e| transition_row(self.world, o, p, t, e))
-                        .collect(),
+                        .collect::<Result<_, _>>()?,
                 )
             }
             "attempts" => Value::Set(
@@ -827,8 +827,8 @@ impl<'a> Evaluator<'a> {
                     .attempts()?
                     .iter()
                     .filter(|a| a.object_id.as_deref() == Some(o.id.as_str()))
-                    .map(attempt_row)
-                    .collect(),
+                    .map(|a| attempt_row(self.world, a))
+                    .collect::<Result<_, _>>()?,
             ),
             "labels" => {
                 return not_run(format!("an object's `{m}`, its flow data"));
@@ -1547,7 +1547,7 @@ impl<'a> Evaluator<'a> {
                     Value::Absent => Value::Absent,
                     Value::Timestamp(t) => Value::Text(bucket(name, t)),
                     Value::Date(d) => Value::Text(bucket(name, d.saturating_mul(86_400))),
-                    other => return not_run(format!("the {name} of {other:?}")),
+                    other => return not_run(format!("the {name} of {}", other.kind())),
                 })
             }
             _ => not_run(format!("the function `{name}`")),
@@ -1744,7 +1744,7 @@ impl<'a> Evaluator<'a> {
             None => None,
             Some(o) => match self.value(o, env)? {
                 Value::Duration(s) => Some(s),
-                other => return not_run(format!("a window of {other:?}")),
+                other => return not_run(format!("a window of {}", other.kind())),
             },
         };
         let value = crate::metric::read(committed, self.answers, &found, &bound, window)?;
@@ -1836,6 +1836,41 @@ pub(crate) fn reads_any(e: &Expr, names: &BTreeSet<String>) -> bool {
 /// personal inputs out, carried it (thirteenth production review A).
 fn reads_personal(lib: &crate::model::Library, e: &Expr) -> bool {
     reads_any(e, &personal_names(lib))
+        || (identities_personal(lib) && reads_any(e, &identity_names(lib)))
+}
+
+/// Whether a value of type `identity` is personal: an actor type marks its
+/// identity attribute so, and a copy of an identity is the identity
+/// (ADR-0203 decision 1), so a consulted key masks one, where `crm.known`
+/// of an author's address kept it past her erasure (the audit's personal
+/// data S19, ADR-0205 decision 6).
+pub(crate) fn identities_personal(lib: &crate::model::Library) -> bool {
+    lib.types.values().any(|t| {
+        t.actor_identity()
+            .is_some_and(|(a, _)| t.attribute(a).is_some_and(|s| s.personal))
+    })
+}
+
+/// The names of the members and inputs of type `identity`, by name in any
+/// type, as `personal_names` reads its own.
+pub(crate) fn identity_names(lib: &crate::model::Library) -> BTreeSet<String> {
+    let identity = |d: &crate::model::Declared| matches!(d, crate::model::Declared::Scalar(s) if s == "identity");
+    let mut out = BTreeSet::new();
+    for t in lib.types.values() {
+        for (n, a) in &t.attributes {
+            if identity(&a.declared) {
+                out.insert(n.clone());
+            }
+        }
+        for (_, x) in &t.transitions {
+            for (n, i) in &x.inputs {
+                if identity(&i.declared) {
+                    out.insert(n.clone());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// A bound value as a consulted reference writes it: as the wire does,
@@ -2255,7 +2290,7 @@ pub(crate) fn transition_row(
     p: &crate::world::Parts,
     t: &Type,
     e: &crate::store::Event,
-) -> Value {
+) -> Result<Value, NotRun> {
     let state = |name: &str| Value::State {
         type_: o.type_.clone(),
         name: name.to_string(),
@@ -2323,7 +2358,10 @@ pub(crate) fn transition_row(
         Value::Timestamp(e.occurred_at.unwrap_or(e.recorded_at)),
     );
     row.insert("recorded_at".to_string(), Value::Timestamp(e.recorded_at));
-    row.insert("actor_id".to_string(), Value::Text(e.actor_id.clone()));
+    row.insert(
+        "actor_id".to_string(),
+        Value::Text(world.actor_named(&e.actor_id)?),
+    );
     row.insert("actor_kind".to_string(), Value::Text(e.actor_kind.clone()));
     row.insert("asserted".to_string(), Value::Bool(asserted));
     // an assertion's event, and any that recorded an admission (§6.9)
@@ -2343,12 +2381,12 @@ pub(crate) fn transition_row(
         Value::Int(e.declaration_version),
     );
     row.insert("held".to_string(), held(world.lib, t, p, e.position, false));
-    Value::row(row)
+    Ok(Value::row(row))
 }
 
 /// A row of the attempt log as a row of `attempts` (`declaration-syntax.md`
 /// §6.9): what the log holds of it, a remedy the core could not tell absent.
-pub(crate) fn attempt_row(a: &crate::store::Attempt) -> Value {
+pub(crate) fn attempt_row(world: &World<'_>, a: &crate::store::Attempt) -> Result<Value, NotRun> {
     let text = |t: &Option<String>| t.clone().map_or(Value::Absent, Value::Text);
     let mut row = BTreeMap::new();
     row.insert(
@@ -2369,14 +2407,17 @@ pub(crate) fn attempt_row(a: &crate::store::Attempt) -> Value {
     row.insert("unknown".to_string(), Value::Bool(a.unknown));
     row.insert("enforced".to_string(), Value::Bool(a.enforced));
     row.insert("flagged".to_string(), Value::Bool(a.flagged));
-    row.insert("actor_id".to_string(), Value::Text(a.actor_id.clone()));
+    row.insert(
+        "actor_id".to_string(),
+        Value::Text(world.actor_named(&a.actor_id)?),
+    );
     row.insert("actor_kind".to_string(), Value::Text(a.actor_kind.clone()));
     row.insert("at".to_string(), Value::Timestamp(a.at));
     row.insert(
         "declaration_version".to_string(),
         Value::Int(a.declaration_version),
     );
-    Value::row(row)
+    Ok(Value::row(row))
 }
 
 /// A time's UTC calendar bucket, as a metric's dimension writes it:

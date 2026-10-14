@@ -42,15 +42,16 @@ MAX_BODY = 4 * 1024 * 1024
 # (ADR-0173 decision 12, D555)
 REQUEST_KEYS = ("transition", "actor", "object_id", "type", "inputs",
                 "occurred_at", "propose", "expires_at", "expected_version", "target_version",
-                "principal", "idempotency_key", "context")
+                "principal", "idempotency_key", "context", "reads_personal")
 TAKES = {
     "/v1/request": REQUEST_KEYS, "/v1/check": REQUEST_KEYS,
     "/v1/get": ("actor", "id", "follow"),
     "/v1/query": ("actor", "type", "filter", "order", "cursor", "fields",
-                  "limit"),
-    "/v1/lookup": ("actor", "source", "value"),
-    "/v1/availability": ("actor", "id"),
-    "/v1/available": ("actor", "type", "transition", "cursor", "limit"),
+                  "limit", "reads_personal"),
+    "/v1/lookup": ("actor", "source", "value", "reads_personal"),
+    "/v1/availability": ("actor", "id", "reads_personal"),
+    "/v1/available": ("actor", "type", "transition", "cursor", "limit",
+                      "reads_personal"),
     "/v1/history": ("actor", "id", "follow", "limit", "cursor"),
     "/v1/events": ("actor", "positions"),
     "/v1/exceptions": ("actor", "type", "cursor"),
@@ -59,7 +60,7 @@ TAKES = {
     "/v1/pull": ("actor", "subscription", "cursor", "limit"),
     "/v1/acknowledge": ("actor", "subscription", "cursor"),
     "/v1/metric": ("actor", "name", "bind", "keep", "over", "filter",
-                   "cursor"),
+                   "cursor", "reads_personal"),
     "/v1/export": ("actor", "source", "cursor", "limit"),
     "/v1/diagnostics": ("actor", "type", "window"),
     "/v1/import_batch": ("actor", "batch", "disposition", "dry_run"),
@@ -209,6 +210,11 @@ def handler(box: Sandbox, cat: Catalogue, origin: str | None,
                 return
             if forwarded:
                 assert core is not None
+                # the studio reads as the flow's author, so it opts into
+                # reading by a personal value, unless the caller says
+                # otherwise (ADR-0206)
+                if path in TAKES and "reads_personal" in TAKES[path]:
+                    body = {**body, "reads_personal": body.get("reads_personal", True)}
                 self.answer_forwarded(core, path, body)
                 return
             with box.lock:

@@ -978,6 +978,38 @@ fn decide(
         }
         excluded.extend(more);
     }
+    // an invariant of an object the batch does not place, which its writes
+    // could break through a reference or a scan, refuses the batch when it
+    // held before: no disposition admits it, the object being none of the
+    // batch's, where a mirror's refresh left an owned laptop held by a
+    // person who had left (the audit's write path R-04)
+    let placed_ids: BTreeSet<String> = placed.iter().map(|p| p.id.clone()).collect();
+    for id in crate::request::affected_by_writes(&work, world)? {
+        if placed_ids.contains(&id) {
+            continue;
+        }
+        let (Some(now), Some(was)) = (work.get(&id)?, world.get(&id)?) else {
+            continue;
+        };
+        let held: BTreeSet<String> = failing_invariants(world, was)?.into_iter().collect();
+        let admitted = work.parts(now)?.admissions.clone();
+        if let Some(n) = failing_invariants(&work, now)?
+            .into_iter()
+            .find(|n| !held.contains(n) && !admitted.contains(n))
+        {
+            let type_ = now.type_.clone();
+            return refused(
+                report,
+                ImportRefusal {
+                    reason: format!(
+                        "the batch breaks {type_}.{n} on {id}, an object it does not place"
+                    ),
+                    type_,
+                    legacy_key: String::new(),
+                },
+            );
+        }
+    }
     // each class as the file decides it, counted and sampled
     for (c, objects) in &found_classes {
         let mut class = c.clone();
@@ -1761,6 +1793,108 @@ types:
             .get(&("legacy".to_string(), format!("Employee:{key}")))
             .cloned()
             .unwrap()
+    }
+
+    /// A batch whose writes break an invariant of an object it does not
+    /// place, through a reference to what it refreshes, is refused, naming
+    /// the object and the invariant, and writes nothing, where it was
+    /// answered clean and the laptop stayed out with a person who had left
+    /// (the audit's write path R-04).
+    #[test]
+    fn an_import_breaking_an_owned_objects_invariant_is_refused() {
+        const LENT: &str = r#"
+module: hr
+categories: [active, closed]
+types:
+  Employee:
+    mirror: true
+    attributes:
+      employee_id: { type: string, external: hr }
+    states:
+      EMPLOYED: { category: active }
+      LEFT: { category: closed, final: true }
+  Laptop:
+    attributes:
+      tag: { type: string }
+      holder: { reference: Employee, optional: true }
+    states:
+      IN: { category: active }
+      OUT: { category: active }
+    invariants:
+      held_by_staff: { expression: "state != Laptop.OUT or holder.state == Employee.EMPLOYED" }
+    transitions:
+      receive: { kind: initial, to: IN, required_inputs: [tag] }
+      lend: { kind: external, from: [IN], to: OUT, required_inputs: [holder] }
+"#;
+        let lib = Library::load(&[("hr.yaml".into(), LENT.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let r = run(
+            &mut s,
+            vec![employee("E1", "EMPLOYED", json!({"employee_id": "E1"}))],
+            &[],
+            false,
+        );
+        assert_eq!(r.written, 1, "{r:?}");
+        let ana = id_of(&s, "E1");
+        let laptop = match request(
+            &mut s,
+            &crate::request::Request {
+                transition: "receive".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some("Laptop".into()),
+                inputs: [("tag".to_string(), json!("L-1"))].into_iter().collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            },
+        )
+        .unwrap()
+        .unwrap()
+        {
+            Verdict::Satisfied { object_id, .. } => object_id,
+            other => panic!("{other:?}"),
+        };
+        let lent = request(
+            &mut s,
+            &crate::request::Request {
+                transition: "lend".into(),
+                actor: OPERATOR.into(),
+                object_id: Some(laptop.clone()),
+                type_: None,
+                inputs: [("holder".to_string(), json!(ana))].into_iter().collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            },
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(lent, Verdict::Satisfied { .. }), "{lent:?}");
+        let r = run(
+            &mut s,
+            vec![employee("E1", "LEFT", json!({"employee_id": "E1"}))],
+            &[],
+            false,
+        );
+        let refusal = r.refusal.clone().unwrap_or_else(|| panic!("{r:?}"));
+        assert!(
+            refusal.reason.contains("Laptop.held_by_staff") && refusal.reason.contains(&laptop),
+            "{refusal:?}"
+        );
+        assert_eq!(r.written, 0);
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.get(&ana).unwrap().unwrap().state, "EMPLOYED");
     }
 
     #[test]

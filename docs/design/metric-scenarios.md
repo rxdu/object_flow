@@ -2795,7 +2795,7 @@ Read: `metric(ServiceJob.cycle_time_by_assignee.engineer, keep: [assignee]) as A
 | U-BEN | 89d | |
 | U-CHEN | 8d | |
 
-A read that keeps no marked dimension can still be one person's. Bound to Ben, the team-wide read gives Ben's figure, and keeps nothing the marking names (§44):
+A read that keeps no marked dimension can still be one person's. Bound to Ben, the team-wide read selects by a person, so the engine refuses it `personal` unless the request opts in, whoever asks (ADR-0206); the gateway sets the opt-in only where it allows the read. Passed on with it, the read gives Ben's figure, and keeps nothing the marking names (§44):
 
 Read: `metric(ServiceJob.cycle_time_by_assignee.engineer, bind: {assignee: U-BEN}, keep: []) as A-SCOUT`
 

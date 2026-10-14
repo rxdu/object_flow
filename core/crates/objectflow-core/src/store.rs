@@ -1273,6 +1273,78 @@ pub(crate) fn read_log_heads_after(
     rows.collect()
 }
 
+/// A guard's consulted keys holding an identity, masked as one written
+/// since the argument was masked is: `crm.known((personal))`, in the events
+/// and attempts of every type with a condition, the only ones a guard
+/// consults for (the audit's personal data S19, S20).
+fn masked_consulted(tx: &rusqlite::Transaction<'_>, lib: &Library, identity: &str) -> Stored<()> {
+    let folded = identity.to_ascii_lowercase();
+    let mask = |text: &str| -> String {
+        let lower = text.to_ascii_lowercase();
+        let mut out = String::new();
+        let mut at = 0;
+        while let Some(i) = lower[at..].find(&folded) {
+            out.push_str(&text[at..at + i]);
+            out.push_str(crate::eval::PERSONAL);
+            at += i + folded.len();
+        }
+        out.push_str(&text[at..]);
+        out
+    };
+    // each consulted record is an object by guard, of `values` keyed by
+    // the reference consulted
+    let masked = |c: &serde_json::Value| -> serde_json::Value {
+        let mut c = c.clone();
+        if let Some(guards) = c.as_object_mut() {
+            for g in guards.values_mut() {
+                if let Some(values) = g.get_mut("values").and_then(|v| v.as_object_mut()) {
+                    *values = std::mem::take(values)
+                        .into_iter()
+                        .map(|(k, v)| (mask(&k), v))
+                        .collect();
+                }
+            }
+        }
+        c
+    };
+    for t in lib.types.values().filter(|t| !t.conditions.is_empty()) {
+        let rows: Vec<(i64, String)> = {
+            let mut q = tx.prepare(&format!(
+                "SELECT position, payload FROM of_event WHERE object_id IN (SELECT id FROM {}) \
+                 AND instr(lower(json_extract(payload, '$.consulted')), ?1) > 0",
+                table(&t.name)
+            ))?;
+            q.query_map([&folded], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        for (position, payload) in rows {
+            let mut p: serde_json::Value = serde_json::from_str(&payload).unwrap_or_default();
+            if let Some(c) = p.get("consulted") {
+                p["consulted"] = masked(c);
+                tx.execute(
+                    "UPDATE of_event SET payload = ?2 WHERE position = ?1",
+                    params![position, p.to_string()],
+                )?;
+            }
+        }
+        let rows: Vec<(i64, String)> = {
+            let mut q = tx.prepare(
+                "SELECT id, consulted FROM of_attempt WHERE type = ?2 AND instr(lower(consulted), ?1) > 0",
+            )?;
+            q.query_map(params![&folded, &t.name], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        for (row, consulted) in rows {
+            let c: serde_json::Value = serde_json::from_str(&consulted).unwrap_or_default();
+            tx.execute(
+                "UPDATE of_attempt SET consulted = ?2 WHERE id = ?1",
+                params![row, masked(&c).to_string()],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 /// The digest an idempotency record holds once an erasure redacted what its
 /// request sent, where its digest was made before personal values were
 /// masked in it: the key replays its verdict whatever is sent under it
@@ -2061,10 +2133,23 @@ impl Store {
             store
                 .conn
                 .query_row("SELECT max(version) FROM of_declaration", [], |r| r.get(0))?;
-        store.lib = store
+        let mut lib = store
             .library_at(latest)?
-            .map(Arc::new)
             .ok_or_else(|| StoreError(format!("version {latest} recorded no source")))?;
+        // the types an earlier version declared and a later one dropped,
+        // retired as the publish that dropped them retired them, where a
+        // restart left their objects naming a type the library lacked and
+        // every read of one answered 500
+        for v in (1..latest).rev() {
+            if let Some(earlier) = store.library_at(v)? {
+                for (tn, t) in earlier.types {
+                    if !lib.types.contains_key(&tn) && !crate::publish::builtin(&tn) {
+                        lib.types.insert(tn, crate::publish::retired(&t));
+                    }
+                }
+            }
+        }
+        store.lib = Arc::new(lib);
         // an index the version declares and the store lacks, which a core
         // before D593 never made: made now, since an index changes no answer,
         // only how much of the store a read by it reads
@@ -2519,6 +2604,43 @@ impl Store {
     /// otherwise the version installed in one transaction, with the report it
     /// was decided on.
     pub fn publish(
+        &mut self,
+        actor: &str,
+        change: &str,
+        expected_version: i64,
+    ) -> Stored<Result<(Verdict, Option<PublishReport>), NotRun>> {
+        let decided = self.publish_decided(actor, change, expected_version)?;
+        // a refused approval is a row of the attempt log, as every refused
+        // request is, its transition `publish` on the change, where none
+        // was written (the audit's write path A-02)
+        if let Ok((v, _)) = &decided
+            && !matches!(v, Verdict::Satisfied { .. })
+        {
+            let attempt = {
+                let world = self.snapshot()?;
+                let asked = crate::request::Request {
+                    transition: "publish".into(),
+                    actor: actor.to_string(),
+                    object_id: Some(change.to_string()),
+                    type_: None,
+                    inputs: BTreeMap::new(),
+                    occurred_at: None,
+                    propose: false,
+                    expires_at: None,
+                    expected_version: Some(expected_version),
+                    target_version: None,
+                    principal: None,
+                    idempotency_key: None,
+                    context: None,
+                };
+                crate::request::refused_attempt(&world, &asked, v, &Default::default())?
+            };
+            self.record_attempt(&attempt)?;
+        }
+        Ok(decided)
+    }
+
+    fn publish_decided(
         &mut self,
         actor: &str,
         change: &str,
@@ -4320,9 +4442,12 @@ fn read_parts(
             p.writes.insert(attribute, position);
         }
     }
-    // an object whose own erasure is recorded
+    // an object whose own erasure is recorded: not one an erasure of
+    // another redacted or a proposal it invalidated, whose events are of
+    // its source too (DESIGN.md §8)
     let mut erasures = conn.prepare(&format!(
-        "SELECT DISTINCT object_id FROM of_event WHERE source = 'erased'{}",
+        "SELECT DISTINCT object_id FROM of_event WHERE source = 'erased' \
+         AND transition NOT IN ('redact', 'invalidate'){}",
         scope.on_object("AND")
     ))?;
     let rows = erasures.query_map(rusqlite::params_from_iter(&only), |r| r.get::<_, String>(0))?;
@@ -4596,6 +4721,8 @@ const ACTOR_INDEXES: &str = "\
 CREATE INDEX IF NOT EXISTS of_event_by_actor ON of_event (actor_id);
 CREATE INDEX IF NOT EXISTS of_event_by_principal ON of_event (actor_principal) WHERE actor_principal IS NOT NULL;
 CREATE INDEX IF NOT EXISTS of_attempt_by_principal ON of_attempt (actor_principal) WHERE actor_principal IS NOT NULL;
+CREATE INDEX IF NOT EXISTS of_attempt_by_folded_actor ON of_attempt (lower(actor_id));
+CREATE INDEX IF NOT EXISTS of_attempt_by_folded_principal ON of_attempt (lower(actor_principal)) WHERE actor_principal IS NOT NULL;
 CREATE INDEX IF NOT EXISTS of_interval_by_entered ON of_interval (entered_by) WHERE entered_by IS NOT NULL;
 ";
 
@@ -4856,41 +4983,100 @@ fn write(
     // and every input of that type an event recorded, however the value got
     // there (fifteenth and sixteenth production reviews, ADR-0203
     // decision 1)
-    let (identity_attrs, identity_inputs) = if change.renamed_actors.is_empty() {
+    let held = if change.renamed_actors.is_empty() {
         Default::default()
     } else {
         lib.identity_held()
     };
+    // each copy matched as identities compare, ignoring the case of their
+    // ASCII letters (`wire.md`), where one sent in another case kept it
+    // (the audit's personal data S22, ADR-0205 decision 6)
     for (identity, id) in &change.renamed_actors {
-        for (tn, name) in &identity_inputs {
+        for (tn, name) in &held.inputs {
             let path = format!("$.inputs.\"{}\"", name.replace('"', ""));
             tx.execute(
                 &format!(
                     "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
-                     WHERE object_id IN (SELECT id FROM {}) AND json_extract(payload, ?3) = ?1",
+                     WHERE object_id IN (SELECT id FROM {}) AND lower(json_extract(payload, ?3)) = lower(?1)",
                     table(tn)
                 ),
                 params![identity, id, path],
             )?;
+            // a proposal of a transition of the type: its own events and the
+            // inputs it holds, pending or decided (S18)
+            tx.execute(
+                "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
+                 WHERE object_id IN (SELECT id FROM t_proposal WHERE target_type = ?4) \
+                 AND lower(json_extract(payload, ?3)) = lower(?1)",
+                params![identity, id, path, tn],
+            )?;
+            tx.execute(
+                "UPDATE t_proposal SET inputs = json_set(inputs, ?3, ?2) \
+                 WHERE target_type = ?4 AND json_valid(inputs) AND lower(json_extract(inputs, ?3)) = lower(?1)",
+                params![identity, id, format!("$.\"{}\"", name.replace('"', "")), tn],
+            )?;
+            // a refused request's, as its attempt recorded it (S21)
+            tx.execute(
+                "UPDATE of_attempt SET request_values = json_set(request_values, ?3, ?2) \
+                 WHERE type = ?4 AND json_valid(request_values) \
+                 AND lower(json_extract(request_values, ?3)) = lower(?1)",
+                params![
+                    identity,
+                    id,
+                    format!("$.values.inputs.\"{}\"", name.replace('"', "")),
+                    tn
+                ],
+            )?;
         }
-        for (tn, name) in &identity_attrs {
+        for (tn, name) in &held.attrs {
             tx.execute(
                 &format!(
-                    "UPDATE {} SET {} = ?2 WHERE {} = ?1",
+                    "UPDATE {} SET {} = ?2 WHERE lower({}) = lower(?1)",
                     table(tn),
                     quote(name),
                     quote(name)
                 ),
                 params![identity, id],
             )?;
+            // a correction's record of it, what it replaced and wrote (S17)
+            for part in ["replaced", "value"] {
+                let path = format!("$.corrected.\"{}\".{part}", name.replace('"', ""));
+                tx.execute(
+                    &format!(
+                        "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
+                         WHERE object_id IN (SELECT id FROM {}) AND lower(json_extract(payload, ?3)) = lower(?1)",
+                        table(tn)
+                    ),
+                    params![identity, id, path],
+                )?;
+            }
         }
+        // a set of identities, which holds an element once (S16)
+        for (tn, name) in &held.sets {
+            let set = quote(&format!("{}__{name}", table(tn)));
+            tx.execute(
+                &format!(
+                    "DELETE FROM {set} WHERE lower(value) = lower(?1) \
+                     AND object_id IN (SELECT object_id FROM {set} WHERE value = ?2)"
+                ),
+                params![identity, id],
+            )?;
+            tx.execute(
+                &format!("UPDATE {set} SET value = ?2 WHERE lower(value) = lower(?1)"),
+                params![identity, id],
+            )?;
+        }
+        // where the engine records an actor, by the identity it holds; an
+        // attempt by its name as sent, an unknown actor's in any case, by
+        // the folded index; and the approver of a version (S23)
         for sql in [
             "UPDATE of_event SET actor_id = ?2 WHERE actor_id = ?1",
             "UPDATE of_event SET actor_principal = ?2 WHERE actor_principal = ?1",
-            "UPDATE of_attempt SET actor_id = ?2 WHERE actor_id = ?1",
-            "UPDATE of_attempt SET actor_principal = ?2 WHERE actor_principal = ?1",
+            "UPDATE of_attempt SET actor_id = ?2 WHERE lower(actor_id) = lower(?1)",
+            "UPDATE of_attempt SET actor_principal = ?2 WHERE lower(actor_principal) = lower(?1)",
             "UPDATE of_interval SET entered_by = ?2 WHERE entered_by = ?1",
             "UPDATE OR REPLACE of_idempotency SET actor_id = ?2 WHERE actor_id = ?1",
+            "UPDATE of_declaration SET published_by = ?2 WHERE published_by = ?1",
         ] {
             tx.execute(sql, params![identity, id])?;
         }
@@ -4911,6 +5097,9 @@ fn write(
                 )?;
             }
         }
+        // a guard's consulted key a store wrote before an identity argument
+        // was masked in it, in an event and in an attempt (S19, S20)
+        masked_consulted(tx, lib, identity)?;
     }
     // the legacy entries an import attaches (ADR-0163)
     for (id, e) in &change.legacy {
@@ -4954,6 +5143,15 @@ fn write(
              (SELECT MIN(position) FROM of_event WHERE txn = (SELECT txn FROM of_event WHERE position = ?1)) \
              AND substr(request_digest, 1, length(?3)) != ?3",
             params![position, ERASED_DIGEST, MASKED_DIGEST],
+        )?;
+        // and a masked digest's half over its personal values, so the key
+        // replays nothing once what it sent is erased (ADR-0205 decision 3)
+        tx.execute(
+            "UPDATE of_idempotency SET request_digest = substr(request_digest, 1, instr(request_digest, '/')) || ?2 \
+             WHERE first_position = \
+             (SELECT MIN(position) FROM of_event WHERE txn = (SELECT txn FROM of_event WHERE position = ?1)) \
+             AND instr(request_digest, '/') > 0",
+            params![position, ERASED_DIGEST],
         )?;
     }
     for (id, dimension, entered) in &change.redacted_spans {

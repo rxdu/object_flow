@@ -727,3 +727,23 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The Studio's sandbox runs the checker on what it loads, so a tee test can hold only flows both checkers accept. Once the checkers refuse a construct at publish, the runtime refusal of the same construct, in the runner as in the core, is reachable only through an expression whose type the checkers cannot tell, and a mutant of it survives a tee test written with the plain construct.
 - **Correction:** Hold a runtime refusal the checkers also make by a unit test of the runtime itself (the core's `Library::load` does not check; the runner's evaluator can be driven directly), and hold it through a checked flow by an expression the typing cannot tell.
 - **Context:** The reference runner and the Studio's tests; 2026-10-14.
+
+### State a publish builds in memory, lost on a restart
+- **Pattern:** A publish dropping a type retired it in the library it installed, in memory. A store opened again loaded the latest version's source alone, so the retired type was gone, and every read of its objects answered `500`. No test restarted after a drop; the audit found the type's missing erasure, and only the test written for that fix restarted.
+- **Correction:** Whatever an operation derives into the running state, the open path must derive again from what is stored. Test each such derivation across a restart, the way an operator meets it.
+- **Context:** The store's library and every in-memory product of a publish; 2026-10-14.
+
+### A flag read from a shared marker
+- **Pattern:** An object counted as erased when any of its events had source `erased`. The `redact` events an erasure records on other objects carry that source too, so an object whose value another's erasure redacted could never have its personal attributes written again. It was found only when a new kind of `redact` event, on a label, showed the label as erased.
+- **Correction:** Derive a state from the event that means it, by its transition, not from an attribute several kinds of event share; and when adding a new event of an existing source, check what reads that source.
+- **Context:** The store's derivation of `erased`; 2026-10-14.
+
+### A fix in both backends tested in one
+- **Pattern:** The identity area's fixes were built in the core and in the reference runner, and tested by core tests alone. Mutation testing found seven of the runner's halves held by nothing: its case-folded rename, a dropped type's erasure, the shadowing refusal, a loop's `not_erased`, a label's `redact` event and a metric naming actors by their objects. Writing the missing test then found a real difference, the runner reporting `lost:` transitions for a retired type's objects, which the core does not.
+- **Correction:** A fix made in both backends gets a test through both, a `tee` test ending in `alike`, written with the fix. A runner path the checker makes unreachable is removed and its comment says why, never kept as an untested copy of the core.
+- **Context:** `scripts/flowrun.py`, `scripts/flowpublish.py` and the Flow Studio's tee tests; 2026-10-14.
+
+### An oracle holding the rule a decision replaced
+- **Pattern:** ADR-0205 decision 3 changed what a key answers after an erasure: refused, where it replayed. The core, its tests and the guides changed with it; the adversarial harness's key oracle did not, and failed the first full run, the core being right.
+- **Correction:** When a decision changes a promise, search every oracle that states it, the harness's checks and the reference runner included, and change them in the same commit as the code.
+- **Context:** `objectflow-harness`, ADR-0204 §3's promises; 2026-10-14.

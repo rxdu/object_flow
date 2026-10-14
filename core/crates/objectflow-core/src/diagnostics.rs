@@ -69,7 +69,7 @@ pub fn diagnostics(
         let Some(ot) = lib.type_(&o.type_) else {
             continue;
         };
-        if let Value::Row(f) = transition_row(world, o, world.parts(o)?, ot, e) {
+        if let Value::Row(f) = transition_row(world, o, world.parts(o)?, ot, e)? {
             rows.push(std::sync::Arc::unwrap_or_clone(f));
         }
     }

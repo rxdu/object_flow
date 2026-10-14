@@ -147,7 +147,7 @@ In a sandbox, set the answers instead: `POST /sandbox/evaluators {"answers": {"x
 
 ## Metrics and reports
 
-`metric` reads a declared or standard metric, whole or by its dimensions: `{"actor": …, "name": "Claim.time_in_state", "keep": ["state"], "over": "30 days"}`. Standard metrics per assignee are named `<Type>.<metric>.<reference>`, such as `Interview.open_work.interviewer`. A metric that names a person is listed in its type's `person_dimensions`: keep those behind your own permissions. `export` gives the log and each type's intervals, transitions, attempts and labels as JSON lines, personal values left out, for your own analysis.
+`metric` reads a declared or standard metric, whole or by its dimensions: `{"actor": …, "name": "Claim.time_in_state", "keep": ["state"], "over": "30 days"}`. Standard metrics per assignee are named `<Type>.<metric>.<reference>`, such as `Interview.open_work.interviewer`. A metric that names a person is listed in its type's `person_dimensions`: keep those behind your own permissions. A read that selects by a personal value, a query's filter or order, a lookup, `available`, `availability`, `check` or a metric's filter or person binding, is refused `personal` unless your gateway sets `"reads_personal": true` in its body, which it does where the person or agent it acts for may read by such values (ADR-0206). `export` gives the log and each type's intervals, transitions, attempts and labels as JSON lines, personal values left out, for your own analysis.
 
 ## Changing the flow
 

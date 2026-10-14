@@ -324,11 +324,24 @@ fn event_row(world: &World<'_>, e: &Event) -> Result<Json, NotRun> {
     // the object's type alone, where its whole object was held for the page,
     // a change's source of 1.9 MB with each of its events, 550 MB for a page
     // of 178 KB (eleventh production review)
-    let type_ = world.type_of(&e.object_id)?;
+    let mut type_ = world.type_of(&e.object_id)?;
+    let mut transition = e.transition.clone();
+    // a proposal's event holds the inputs of the transition it proposed,
+    // judged under that transition, where they were judged under the
+    // proposal's, which declares none, and its personal inputs were
+    // exported (the audit's personal data R12)
+    if type_.as_deref() == Some(crate::model::PROPOSAL)
+        && let Some(p) = world.get(&e.object_id)?
+        && let (crate::value::Value::Text(target), crate::value::Value::Text(proposed)) =
+            (p.attr("target_type"), p.attr("transition"))
+    {
+        type_ = Some(target);
+        transition = proposed;
+    }
     let mut payload = e.payload.clone();
     for part in ["inputs", "corrected"] {
         if let Some(values) = payload.get_mut(part).and_then(Json::as_object_mut) {
-            values.retain(|k, _| !personal(world.lib, type_.as_deref(), &e.transition, k));
+            values.retain(|k, _| !personal(world.lib, type_.as_deref(), &transition, k));
         }
     }
     Ok(json!({
@@ -722,6 +735,57 @@ types:
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
         (rows, p.cursor)
+    }
+
+    /// A proposal's events leave out the personal inputs of the transition
+    /// it proposed, as that transition's own events do, where they were
+    /// judged under the proposal's type, which declares none, and exported
+    /// (the audit's personal data R12).
+    #[test]
+    fn a_proposals_events_leave_its_transitions_personal_inputs_out() {
+        let text = "\nmodule: crm\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      remark: { type: string, optional: true, personal: true }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON }\n      note: { kind: internal, from: [ON], required_inputs: [remark], proposable: true }\n";
+        let lib = Library::load(&[("crm.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask = |s: &mut Store, xn: &str, id: Option<&str>, propose: bool, inputs: Json| {
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: id.map(str::to_string),
+                type_: id.is_none().then(|| "Person".to_string()),
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            match request(s, &r).unwrap().unwrap() {
+                Verdict::Satisfied { object_id, .. } => object_id,
+                other => panic!("{other:?}"),
+            }
+        };
+        let ana = ask(&mut s, "join", None, false, json!({}));
+        ask(
+            &mut s,
+            "note",
+            Some(&ana),
+            true,
+            json!({"remark": "Secret remark about her"}),
+        );
+        let (log, _) = page(&s, "log", None);
+        let said = serde_json::to_string(&log).unwrap();
+        assert!(!said.contains("Secret remark"), "{said}");
+        let (proposed, _) = page(&s, "Proposal.transitions", None);
+        let said = serde_json::to_string(&proposed).unwrap();
+        assert!(!said.contains("Secret remark"), "{said}");
     }
 
     /// A transaction's attempts are never split between pages, however many

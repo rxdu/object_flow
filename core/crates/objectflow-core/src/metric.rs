@@ -84,7 +84,7 @@ pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Result<Vec<V
         .iter()
         .filter(|a| a.type_.as_deref().is_some_and(|t| world.lib.is_a(t, owner)))
     {
-        let Value::Row(f) = attempt_row(a) else {
+        let Value::Row(f) = attempt_row(world, a)? else {
             continue;
         };
         add(key_of(Value::Date(a.at.div_euclid(86_400)), &f), 1);
@@ -441,7 +441,7 @@ impl Num {
             Value::Duration(s) | Value::Timestamp(s) => Ok(Num::Frac(Rat::int(i128::from(*s)))),
             // a date placed at the start of its day, UTC (ADR-0145)
             Value::Date(d) => Ok(Num::Frac(Rat::int(i128::from(*d) * 86_400))),
-            other => not_run(format!("a metric's arithmetic over {other:?}")),
+            other => not_run(format!("a metric's arithmetic over {}", other.kind())),
         }
     }
 
@@ -960,7 +960,7 @@ impl<'w> Reader<'w> {
             for e in world.log()? {
                 if let Some(o) = by_id.get(e.object_id.as_str()) {
                     let p = world.parts(o)?;
-                    rows.push(transition_row(world, o, p, self.type_of(&o.type_)?, e));
+                    rows.push(transition_row(world, o, p, self.type_of(&o.type_)?, e)?);
                 }
             }
             return Ok(Rows {
@@ -1006,8 +1006,8 @@ impl<'w> Reader<'w> {
                 .attempts()?
                 .iter()
                 .filter(|a| a.type_.as_deref().is_some_and(|t| world.lib.is_a(t, owner)))
-                .map(attempt_row)
-                .collect();
+                .map(|a| attempt_row(world, a))
+                .collect::<Result<_, _>>()?;
             if source == "attempts" {
                 return Ok(Rows {
                     rows: mine,
@@ -2223,28 +2223,36 @@ impl<'w> Reader<'w> {
         // on `d.owner_name >= "B"` was answered (sixteenth production review
         // N6, ADR-0203 decision 2)
         let personal = crate::eval::personal_names(lib);
+        // and a member of type identity, where an actor type marks its
+        // identity personal (ADR-0206 decision 1)
+        let identities = crate::eval::identities_personal(lib);
         fn walk(
             r: &Reader<'_>,
             e: &Expr,
             env: &BTreeMap<String, Kind>,
             personal: &BTreeSet<String>,
+            identities: bool,
         ) -> Result<bool, NotRun> {
             if let Expr::Path(base, m) = e
                 && let Kind::Object(tn) = r.kind(base, env, None)?
                 && let Some(t) = r.world.lib.type_(&tn)
                 && (t.attribute(m).is_some_and(|a| a.personal)
-                    || (t.derived.iter().any(|(d, _)| d == m) && personal.contains(m)))
+                    || (t.derived.iter().any(|(d, _)| d == m) && personal.contains(m))
+                    || (identities
+                        && t.attribute(m).is_some_and(
+                            |a| matches!(&a.declared, Declared::Scalar(s) if s == "identity"),
+                        )))
             {
                 return Ok(true);
             }
             for c in crate::check::children_of(e) {
-                if walk(r, c, env, personal)? {
+                if walk(r, c, env, personal, identities)? {
                     return Ok(true);
                 }
             }
             Ok(false)
         }
-        walk(self, filter, &env, &personal)
+        walk(self, filter, &env, &personal, identities)
     }
 
     /// A page's order between two keys: by each kept dimension ascending, an
@@ -2356,6 +2364,25 @@ pub fn page(
     over: Option<i64>,
     filter: Option<&str>,
 ) -> Result<Page, NotRun> {
+    page_as(world, answers, name, bind, keep, over, filter, false)
+}
+
+/// A page, its request opting into reading by a personal value or not: a
+/// filter reading one, or a binding of a dimension that names a person, is
+/// refused `personal` without the opt-in, whoever asks (ADR-0206 decision
+/// 2), where a binding of an author's address was answered to an agent
+/// (the audit's personal data R7).
+#[allow(clippy::too_many_arguments)]
+pub fn page_as(
+    world: &World<'_>,
+    answers: Option<&BTreeMap<String, String>>,
+    name: &str,
+    bind: &BTreeMap<String, Json>,
+    keep: Option<&[String]>,
+    over: Option<i64>,
+    filter: Option<&str>,
+    reads_personal: bool,
+) -> Result<Page, NotRun> {
     let refused = |why: &'static str| {
         Ok(Page {
             refused: Some(why),
@@ -2439,9 +2466,19 @@ pub fn page(
         }
     }
     if let Some(f) = &theirs
+        && !reads_personal
         && reader.reads_personal(owner.unwrap_or_default(), &found.spec, f)?
     {
         return refused("personal");
+    }
+    if !reads_personal
+        && !bind.is_empty()
+        && let Some(o) = owner
+    {
+        let marked = person_dimensions(lib, o)?;
+        if bind.keys().any(|d| marked.contains(&format!("{name}.{d}"))) {
+            return refused("personal");
+        }
     }
     let bound: Bound = bind
         .iter()
@@ -2970,6 +3007,88 @@ metrics:
         assert_eq!(read("d.placed"), None);
     }
 
+    /// A metric's rows name an actor by its object where an actor type
+    /// marks its identity personal, as a metric reads no personal value,
+    /// and by its identity where none does, where `requests by who made
+    /// them` answered each person's address (the audit's personal data R8).
+    #[test]
+    fn a_metric_names_an_actor_by_its_object_where_identities_are_personal() {
+        for personal in [true, false] {
+            let text = format!(
+                "\nmodule: desk\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      login: {{ type: identity, actor_kind: human, personal: {personal}, optional: true }}\n    states:\n      ON: {{ category: live }}\n    transitions:\n      join: {{ kind: initial, to: ON, required_inputs: [login] }}\n  Ticket:\n    attributes:\n      title: {{ type: string }}\n    states:\n      NEW: {{ category: live }}\n    transitions:\n      raise: {{ kind: initial, to: NEW, required_inputs: [title] }}\n    metrics:\n      by_actor: {{ source: transitions, item: t, dimensions: {{ actor: t.actor_id }}, expression: count() }}\n"
+            );
+            let lib = Library::load(&[("desk.yaml".into(), text)]).unwrap();
+            let mut s = Store::sandbox(lib, 0).unwrap();
+            let ask = |s: &mut Store, actor: &str, tn: &str, xn: &str, inputs: Json| {
+                let r = Request {
+                    transition: xn.into(),
+                    actor: actor.into(),
+                    object_id: None,
+                    type_: Some(tn.into()),
+                    inputs: inputs
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect(),
+                    occurred_at: None,
+                    propose: false,
+                    expires_at: None,
+                    expected_version: None,
+                    target_version: None,
+                    principal: None,
+                    idempotency_key: None,
+                    context: None,
+                };
+                match request(s, &r).unwrap().unwrap() {
+                    Verdict::Satisfied { object_id, .. } => object_id,
+                    other => panic!("{other:?}"),
+                }
+            };
+            let ana = ask(
+                &mut s,
+                OPERATOR,
+                "Person",
+                "join",
+                json!({"login": "ana@corp.example"}),
+            );
+            ask(
+                &mut s,
+                "ana@corp.example",
+                "Ticket",
+                "raise",
+                json!({"title": "Broken"}),
+            );
+            let w = s.snapshot().unwrap();
+            let p = page(
+                &w,
+                None,
+                "Ticket.by_actor",
+                &BTreeMap::new(),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            let named: Vec<String> = p
+                .rows
+                .iter()
+                .filter_map(|r| {
+                    r.dimensions.iter().find_map(|(d, v)| match v {
+                        Value::Text(t) if d == "actor" => Some(t.clone()),
+                        _ => None,
+                    })
+                })
+                .collect();
+            let want = if personal {
+                ana.clone()
+            } else {
+                "ana@corp.example".to_string()
+            };
+            assert_eq!(named, vec![want], "personal: {personal}");
+        }
+    }
+
     /// A metric read whose filter or value passes its type's bound refuses
     /// the read as out of range, where the filter dropped the row and the
     /// value was answered not run (the audit's values U5 and U8, ADR-0205
@@ -3108,10 +3227,21 @@ metrics:
             .unwrap();
         assert_eq!(v, Value::Absent);
         // and a read of it bound to one claimant on the wire, as the service
-        // reads it, the same, without the type (fifteenth production review)
+        // reads it, the same, without the type (fifteenth production review);
+        // a claimant is a person, which the request opts into (ADR-0206)
         let before = crate::world::whole_type_reads("Claim");
         let bind = BTreeMap::from([("claimant".to_string(), json!(ana))]);
-        let p = page(&w, None, "Claim.claimed", &bind, Some(&[]), None, None).unwrap();
+        let p = page_as(
+            &w,
+            None,
+            "Claim.claimed",
+            &bind,
+            Some(&[]),
+            None,
+            None,
+            true,
+        )
+        .unwrap();
         assert_eq!(p.rows.len(), 1, "{:?}", p.refused);
         assert_eq!(p.rows[0].value, Value::Int(40));
         assert_eq!(crate::world::whole_type_reads("Claim"), before);
@@ -3452,13 +3582,37 @@ metrics:
         over: Option<i64>,
         filter: Option<&str>,
     ) -> Page {
+        page_read(s, name, bind, keep, over, filter, false)
+    }
+
+    /// A page as [`page_of`] reads it, the request opting into reading by
+    /// a personal value or not (ADR-0206).
+    fn page_read(
+        s: &Store,
+        name: &str,
+        bind: &[(&str, Value)],
+        keep: Option<&[&str]>,
+        over: Option<i64>,
+        filter: Option<&str>,
+        reads_personal: bool,
+    ) -> Page {
         let w = s.snapshot().unwrap();
         let bind: BTreeMap<String, Json> = bind
             .iter()
             .map(|(d, v)| (d.to_string(), crate::wire::encode(v)))
             .collect();
         let keep: Option<Vec<String>> = keep.map(|k| k.iter().map(|d| d.to_string()).collect());
-        page(&w, None, name, &bind, keep.as_deref(), over, filter).unwrap()
+        page_as(
+            &w,
+            None,
+            name,
+            &bind,
+            keep.as_deref(),
+            over,
+            filter,
+            reads_personal,
+        )
+        .unwrap()
     }
 
     fn dims(pairs: &[(&str, Value)]) -> Vec<(String, Value)> {
@@ -3523,14 +3677,16 @@ metrics:
             )),
             vec![(vec![], None)]
         );
+        // bound to an engineer, a person, which the request opts into
         assert_eq!(
-            rows_of(&page_of(
+            rows_of(&page_read(
                 &s,
                 "Job.pass_rate",
                 &[("engineer", b.clone())],
                 Some(&[]),
                 None,
-                None
+                None,
+                true
             )),
             vec![(vec![], rat(1, 1))]
         );

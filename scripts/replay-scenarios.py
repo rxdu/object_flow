@@ -430,7 +430,8 @@ class Driver:
             inputs["evidence"] = []
             for text in evidence:
                 body, _keep = self.metric_body(text)
-                ref = {"metric" if k == "name" else k: v for k, v in body.items() if k != "actor"}
+                ref = {"metric" if k == "name" else k: v for k, v in body.items()
+                       if k not in ("actor", "reads_personal")}
                 self.cited[json.dumps(ref, sort_keys=True)] = text
                 inputs["evidence"].append(ref)
         v = self.core.call("/v1/request", {"type": "DeclarationChange", "transition": "draft", "actor": {"id": actor},
@@ -861,7 +862,7 @@ class Driver:
         if not m:
             raise NotRun(f"a read the driver does not parse: {spec_}")
         fields = [c for c in header if c != "object"]
-        body = {"actor": {"id": OPERATOR}, "type": m.group(1), "fields": fields}
+        body = {"actor": {"id": OPERATOR}, "type": m.group(1), "fields": fields, "reads_personal": True}
         if m.group(2):
             body["filter"] = self.labelled(m.group(2))
         if m.group(3):
@@ -898,8 +899,10 @@ class Driver:
         if not m:
             raise NotRun(f"a read the driver does not parse: {spec_}")
         keep = [k.strip() for k in m.group(4).split(",") if k.strip()]
+        # each read the document quotes is one the application passes on, which carries the opt-in to reading by a
+        # personal value where the application allows it, as the Flow Studio's server does (ADR-0206)
         body = {"actor": {"id": self.ids.get(reader.group(1), OPERATOR) if reader else OPERATOR}, "name": m.group(1),
-                "keep": keep}
+                "keep": keep, "reads_personal": True}
         if m.group(2):
             body["bind"] = {m.group(2): self.wire(m.group(3))}
         if m.group(5):

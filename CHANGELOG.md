@@ -8,6 +8,10 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- An erasure of an actor whose identity is personal replaces it in every copy, in any case of its letters (ADR-0205 decision 6): sets, a proposal's inputs and events, a refused request's attempt, a guard's consulted key, a correction's record and the approver of a version. A consulted argument of type `identity` is written `(personal)` there.
+- An erasure records a `redact` event on each label whose note it removes, and on an object erased before whose history it redacts. A refused `publish` writes an attempt.
+- Where an actor type marks its identity personal, a metric's rows name each actor by its object, never its identity.
+- A dropped type keeps its erasure, and its objects stay readable after a restart, where they answered `500` (D690). An object a later erasure redacted no longer counts as erased itself (D691).
 - A quotient written to a decimal is computed exactly and rounded once at the target's scale, half to even: `total / 3` with `total` 10.00 writes 3.3333 into a `decimal(12,4)`, where 0.2.0 wrote 3.3300 (ADR-0205 decision 1).
 - A decimal literal combined with a wider decimal takes its scale, as `declaration-syntax.md` §8.1 says: `2.5 / w` with `w` 10.00 is 0.25, where it was 0.2.
 - The body of `any`, `none` and `count` is a condition each element meets: `any(f in flags: f)` over `[false]` is false, where it was true, in both backends.
@@ -15,6 +19,27 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes that may refuse what 0.2.0 accepted
 
+- A read that selects by a personal value is refused `personal` unless its body sets `"reads_personal": true`, whoever asks (ADR-0206). That covers:
+  - a query's filter or order;
+  - a `lookup` by a personal identifier;
+  - `available`, `availability` and `check` decided by a guard or an invariant reading one;
+  - a metric's filter and its binding of a dimension that names a person.
+
+  0.2.0 answered a person's, a service's and the operator's, and refused only an agent's query, by its kind. Where an actor type marks its identity personal, every value of type `identity` counts. A request's refusal by a personal value names its holder only with the opt-in.
+- An actor's identity is written only at its creation, refused `identity_unchanged` after it, and by both checkers at publish (ADR-0205 decision 5).
+- A version adding a type whose ids would name an identity an actor holds is refused `identity_shadowed` (D669). An actor string naming both an object and another actor's identity names no actor.
+- A key replays only the request it was first sent with: a different personal value is `key_reused`, and once an erasure removed what it sent, so is every request under it, a key 0.2.0 recorded included (ADR-0205 decision 3).
+- `type` beside a proposal's or a change's id is held, refused `not_found` outside its family, and a proposal of either's transitions is refused `not_proposable`.
+- More routes are refused:
+  - `whole_open` refuses an effect moving a part, and a creation placing one, into a finished whole;
+  - `not_erased` reads a step at any depth;
+  - `only_via` holds through a call, a creation and a cascade;
+  - an import is refused when its writes break an invariant of an object it does not place.
+- Both checkers refuse:
+  - a sequence scoped by a personal attribute;
+  - an identifier format reading one;
+  - a metric reading a value of type `identity` where actors' identities are personal;
+  - a transition other than a creation or an erasure writing an actor's identity.
 - An arithmetic past its type's bound is never unknown (ADR-0205 decision 2). That is an integer past 64 bits, a decimal or an amount past its digits, a date moved by part of a day, or a time past the calendar.
   - A guard, an invariant or a loop's filter reading one refuses the request `value_in_range`. An invariant held on one and admitted the write it should refuse, and a loop dropped the element.
   - A `get`, a `query` or a `metric` meeting one is refused `value_in_range`, naming the object and no value. A derived value was answered `null`, and a filter left the object out of its matches and of their negation.

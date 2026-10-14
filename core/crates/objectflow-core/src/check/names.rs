@@ -1968,11 +1968,25 @@ fn personal_errors(doc: &Value, library: &Obj) -> Found {
             chains(c, item, out);
         }
     }
+    // a copy of an identity is the identity, personal where an actor type
+    // marks its own so (ADR-0203 decision 1), where a metric grouped by an
+    // approver set from actor.id answered each person's address (the
+    // audit's personal data R8)
+    let identities_personal = check.kinds.values().any(|k| {
+        obj(k, "attributes")
+            .values()
+            .any(|spec| spec.get("actor_kind").is_some() && flag(spec, "personal"))
+    });
     let reaches = |tn: &str, members: &[String]| -> Option<String> {
         let mut u = tn.to_string();
         for (i, m) in members.iter().enumerate() {
             let k = check.kinds.get(&u).cloned().unwrap_or(Value::Null);
             if let Some(spec) = obj(&k, "attributes").get(m).filter(|s| s.is_object()) {
+                if identities_personal
+                    && str_or(spec, "type", "").trim_end_matches("[]") == "identity"
+                {
+                    return Some(format!("the identity {u}.{m}, personal as an actor's is"));
+                }
                 if flag(spec, "personal") {
                     return (i > 0).then(|| format!("the personal {u}.{m}"));
                 }
@@ -4119,7 +4133,38 @@ fn argument_type_errors(doc: &Value, library: &Obj) -> Found {
 fn write_type_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
     let enums: BTreeSet<String> = keys(doc, "enumerations").into_iter().collect();
     let mut out = Found::new();
+    // an actor's identity is written only at its creation, which the record
+    // names actors by (ADR-0205 decision 5)
+    let identity = obj(t, "attributes")
+        .iter()
+        .find(|(_, spec)| spec.get("actor_kind").is_some())
+        .map(|(a, _)| a.clone());
     for (xn, x) in obj(t, "transitions") {
+        if let Some(identity) = &identity
+            && !matches!(str_or(x, "kind", "").as_str(), "initial" | "erasure")
+        {
+            let by_input = strings(x, "required_inputs")
+                .iter()
+                .chain(strings(x, "optional_inputs").iter())
+                .any(|n| n == identity);
+            let by_step = walk(x.get("effect")).iter().any(|step| match step.kind {
+                "assign" => body_text(step.body(), "location") == *identity,
+                "clear" => step
+                    .body()
+                    .as_array()
+                    .is_some_and(|a| a.iter().any(|v| v.as_str() == Some(identity.as_str()))),
+                _ => false,
+            });
+            if by_input || by_step {
+                out.push(finding(
+                    segs!["types", tn, "transitions", xn],
+                    "names",
+                    format!(
+                        "{tn}.{xn} writes {identity}, the identity {tn}'s actors are named by, which is written only at their creation (the model's check 17)"
+                    ),
+                ));
+            }
+        }
         for step in walk(x.get("effect")) {
             let body = step.body();
             if step.kind == "foreach"
@@ -4997,6 +5042,15 @@ fn identifier_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
                 )),
                 Some(_) => {}
             }
+            // a scope is kept with its sequence, which no erasure reaches
+            // (the audit's personal data S27)
+            if attrs.get(&sc).is_some_and(|ss| flag(ss, "personal")) {
+                out.push(finding(
+                    ext(&where_, segs!["scope"]),
+                    "names",
+                    format!("{tn}.{a} is scoped by '{sc}', which is personal; a sequence keeps its scope's value, which no erasure reaches"),
+                ));
+            }
         }
         let fmt = ident.get("format").map(py_str).unwrap_or_default();
         let fw = ext(&where_, segs!["format"]);
@@ -5126,6 +5180,15 @@ fn identifier_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
                     fw.clone(),
                     "names",
                     format!("{tn}.{a}'s format reads {ph}, which is optional, outside [ … ]; a segment that may be absent goes in brackets"),
+                ));
+            }
+            // an identifier is kept past an erasure, so it holds no personal
+            // value (the audit's personal data S28)
+            if flag(&target, "personal") {
+                out.push(finding(
+                    fw.clone(),
+                    "names",
+                    format!("{tn}.{a}'s format reads {ph}, which is personal; an identifier is kept past an erasure"),
                 ));
             }
         }

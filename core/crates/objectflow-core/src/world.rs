@@ -462,6 +462,10 @@ pub struct World<'l> {
     /// `attempts` or `attempt_counts` reads (`storage-schema.md` §6), read
     /// on first use (ADR-0162 step 1).
     stored_attempts: std::cell::OnceCell<Result<Vec<crate::store::Attempt>, String>>,
+    /// Each actor's object, by its identity folded to lower case, where an
+    /// actor type marks its identity personal; none where none does. Built
+    /// on first use from the actor types, which hold few objects.
+    actors_by_identity: std::cell::OnceCell<Result<Option<BTreeMap<String, String>>, String>>,
     /// Each subscription's acknowledged cursor, where one was acknowledged:
     /// runtime state, not versioned (`DESIGN.md` §7).
     pub acknowledged: BTreeMap<String, i64>,
@@ -486,6 +490,41 @@ pub struct World<'l> {
 const TICKS: u32 = 256;
 
 impl<'l> World<'l> {
+    /// How a metric's row names an actor its record names by identity: by
+    /// the actor's object id, where an actor type marks its identity
+    /// personal, as a metric reads no personal value; by the identity where
+    /// none does (the audit's personal data R8, ADR-0203 decision 1). An
+    /// identity no actor holds, as an erased one renamed already is, is kept.
+    pub(crate) fn actor_named(&self, identity: &str) -> Result<String, crate::eval::NotRun> {
+        let map = self.actors_by_identity.get_or_init(|| {
+            if !crate::eval::identities_personal(self.lib) {
+                return Ok(None);
+            }
+            let mut out = BTreeMap::new();
+            for (tn, t) in &self.lib.types {
+                let Some((attr, _)) = t.actor_identity() else {
+                    continue;
+                };
+                for o in self.of_type(tn).map_err(|e| e.to_string())? {
+                    if let Value::Text(held) = o.attr(attr) {
+                        out.insert(held.to_ascii_lowercase(), o.id.clone());
+                    }
+                }
+            }
+            Ok(Some(out))
+        });
+        match map {
+            Ok(None) => Ok(identity.to_string()),
+            Ok(Some(m)) => Ok(m
+                .get(&identity.to_ascii_lowercase())
+                .cloned()
+                .unwrap_or_else(|| identity.to_string())),
+            Err(e) => Err(crate::eval::NotRun::Unreadable(format!(
+                "the actors, by identity: {e}"
+            ))),
+        }
+    }
+
     pub fn new(lib: &'l Library, now: i64) -> World<'l> {
         World {
             families: std::cell::RefCell::new(BTreeMap::new()),
@@ -500,6 +539,7 @@ impl<'l> World<'l> {
             admitting: BTreeSet::new(),
             stored_imported: std::cell::OnceCell::new(),
             stored_attempts: std::cell::OnceCell::new(),
+            actors_by_identity: std::cell::OnceCell::new(),
             acknowledged: BTreeMap::new(),
             stored_rollup: std::cell::OnceCell::new(),
             deadline: None,

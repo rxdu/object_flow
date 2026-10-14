@@ -528,6 +528,18 @@ fn simulating<'l>(new: &'l Library, world: &World<'_>) -> World<'l> {
 /// Steps 2 and 3 over the objects, after the checks: the source loaded,
 /// compared with the installed version, and every object it touches read
 /// into the report.
+/// A type a version dropped, as the store keeps it: its objects and history
+/// readable, no transition but its erasure, so the personal data its objects
+/// hold can still be erased, where none could be once its type was dropped
+/// (`storage-schema.md` §10, the audit's personal data S14).
+pub(crate) fn retired(t: &crate::model::Type) -> crate::model::Type {
+    let mut r = t.clone();
+    r.transitions
+        .retain(|(_, x)| x.kind == crate::model::Kind::Erasure);
+    r.retired = true;
+    r
+}
+
 fn impact(
     world: &World<'_>,
     draft: &Draft<'_>,
@@ -557,10 +569,42 @@ fn impact(
     // readable, and nothing creates or changes one (storage-schema.md §10)
     for (tn, t) in &old.types {
         if !new.types.contains_key(tn) {
-            let mut retired = t.clone();
-            retired.transitions.clear();
-            retired.retired = true;
-            new.types.insert(tn.clone(), retired);
+            new.types.insert(tn.clone(), retired(t));
+        }
+    }
+    // a type the version adds names its objects `<type>-<n>`, which an
+    // actor's identity of that shape, in any case, would then name too, and
+    // a request naming it would find the object: refused, naming the actors
+    // that hold such an identity by their objects, never the identity
+    // (D669, ADR-0205 decision 4)
+    for (tn, nt) in &new.types {
+        if old.types.contains_key(tn) || nt.abstract_ {
+            continue;
+        }
+        let prefix = format!("{}-", tn.to_ascii_lowercase());
+        for (an, at) in &old.types {
+            let Some((attr, _)) = at.actor_identity() else {
+                continue;
+            };
+            for o in world.of_type(an)? {
+                let shadowed = match o.attr(attr) {
+                    Value::Text(held) => held
+                        .to_ascii_lowercase()
+                        .strip_prefix(&prefix)
+                        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())),
+                    _ => false,
+                };
+                if o.type_ == *an && shadowed {
+                    found.add(
+                        Severity::Fatal,
+                        format!("identity_shadowed:{tn}"),
+                        format!(
+                            "{tn} names its objects as these actors' identities are written; give them others first"
+                        ),
+                        Some(&o.id),
+                    );
+                }
+            }
         }
     }
     let m = new.migration.clone();
@@ -710,6 +754,24 @@ fn impact(
                 .attribute(attr)
                 .map(|a| crate::request::fit_value(&a.declared, a.many, v.clone()))
             {
+                // an identity well formed, as one an input sends is, where a
+                // backfill wrote one the wire refuses (the audit's write
+                // path I-03)
+                Some(Ok(Value::Text(text)))
+                    if t
+                        .attribute(attr)
+                        .is_some_and(|a| matches!(&a.declared, crate::model::Declared::Scalar(d) if d == "identity"))
+                        && crate::wire::identity_fault(&text, &new).is_some() =>
+                {
+                    let why = crate::wire::identity_fault(&text, &new).unwrap_or_default();
+                    found.add(
+                        Severity::Fatal,
+                        format!("mapping:backfill:{tn}.{attr}"),
+                        format!("the backfill of {tn}.{attr} writes what it cannot hold: {why}"),
+                        Some(&id),
+                    );
+                    continue;
+                }
                 Some(Ok(fitted)) => fitted,
                 Some(Err(why)) => {
                     found.add(
@@ -1404,6 +1466,120 @@ types:
 
     fn ids(r: &PublishReport, code: &str) -> Vec<String> {
         r.affected().get(code).cloned().unwrap_or_default()
+    }
+
+    /// A refused approval is a row of the attempt log, its transition
+    /// `publish` on the change, by its actor, with its verdict, where none
+    /// was written (the audit's write path A-02).
+    #[test]
+    fn a_refused_approval_is_an_attempt() {
+        let (mut s, _, _, _) = fleet();
+        let text = v2(true, true, true);
+        let change = draft(&mut s, &text);
+        let (v, _) = s.publish(OPERATOR, &change, 1).unwrap().unwrap();
+        assert!(matches!(v, Verdict::Unavailable { .. }), "{v:?}");
+        let w = s.snapshot().unwrap();
+        let rows: Vec<_> = w
+            .attempts()
+            .unwrap()
+            .iter()
+            .filter(|a| a.transition.as_deref() == Some("publish"))
+            .collect();
+        assert_eq!(rows.len(), 1, "{rows:#?}");
+        assert_eq!(
+            (
+                rows[0].type_.as_deref(),
+                rows[0].object_id.as_deref(),
+                rows[0].verdict.as_str(),
+                rows[0].actor_id.as_str()
+            ),
+            (
+                Some(crate::model::DECLARATION_CHANGE),
+                Some(change.as_str()),
+                "unavailable",
+                OPERATOR
+            )
+        );
+    }
+
+    /// A version adding a type whose ids would name an identity an actor
+    /// holds, in any case of its letters, is refused, naming the actor by
+    /// its object and never the identity, where a person whose identity
+    /// was `gadget-12` was then found as the gadget of that id (D669,
+    /// ADR-0205 decision 4).
+    #[test]
+    fn a_type_whose_ids_would_name_a_held_identity_is_refused() {
+        let v1 = "\nmodule: fleet\ncategories: [live, closed]\ntypes:\n  Staff:\n    description: A person on the staff.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human }\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      hire: { kind: initial, to: ON, required_inputs: [login] }\n      leave: { kind: external, from: [ON], to: OFF }\n";
+        let v2 = format!(
+            "{v1}  Gadget:\n    description: A gadget.\n    tracking: record\n    states:\n      UP: {{ category: live }}\n      DOWN: {{ category: closed, final: true }}\n    transitions:\n      make: {{ kind: initial, to: UP }}\n      scrap: {{ kind: external, from: [UP], to: DOWN }}\n"
+        );
+        let lib = Library::load(&[("fleet.yaml".into(), v1.to_string())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let shadowed = created(&req(
+            &mut s,
+            "hire",
+            ("Staff", true),
+            json!({"login": "Gadget-12"}),
+        ));
+        created(&req(
+            &mut s,
+            "hire",
+            ("Staff", true),
+            json!({"login": "gadget-twelve"}),
+        ));
+        let change = draft(&mut s, &v2);
+        let r = run(&s, &change, &v2);
+        assert!(!r.accepted, "{:#?}", r.findings);
+        assert_eq!(ids(&r, "identity_shadowed:Gadget"), vec![shadowed]);
+        let said = format!("{:?}", r.findings);
+        assert!(!said.to_lowercase().contains("gadget-12"), "{said}");
+    }
+
+    /// A backfill of an actor's identity is held as an input sending it
+    /// is: one the wire refuses, shaped as an object's id, refuses the
+    /// publish, and one another actor holds is `identity_taken`, where a
+    /// backfill gave a person an agent's identity and the person could act
+    /// as no one (the audit's write path I-03).
+    #[test]
+    fn a_backfilled_identity_is_held_as_one_sent() {
+        let v1 = "\nmodule: fleet\ncategories: [live, closed]\ntypes:\n  Staff:\n    description: A person on the staff.\n    tracking: record\n    attributes:\n      staff_no: { type: string }\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      hire: { kind: initial, to: ON, required_inputs: [staff_no] }\n      leave: { kind: external, from: [ON], to: OFF }\n  Bot:\n    description: An agent.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: agent }\n    states:\n      UP: { category: live }\n      DOWN: { category: closed, final: true }\n    transitions:\n      start: { kind: initial, to: UP, required_inputs: [login] }\n      stop: { kind: external, from: [UP], to: DOWN }\n";
+        let v2 = v1
+            .replace(
+                "      staff_no: { type: string }\n",
+                "      staff_no: { type: string }\n      login: { type: identity, actor_kind: human, optional: true }\n",
+            )
+            + "migration:\n  description: Each person signs in by staff number.\n  backfill:\n    Staff: { login: staff_no }\n";
+        let refused = |staff_no: &str| {
+            let lib = Library::load(&[("fleet.yaml".into(), v1.to_string())]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            created(&req(
+                &mut s,
+                "start",
+                ("Bot", true),
+                json!({"login": "helper"}),
+            ));
+            created(&req(
+                &mut s,
+                "hire",
+                ("Staff", true),
+                json!({"staff_no": staff_no}),
+            ));
+            let change = draft(&mut s, &v2);
+            let r = run(&s, &change, &v2);
+            assert!(!r.accepted, "{staff_no}: {:#?}", r.findings);
+            r.findings
+                .iter()
+                .map(|f| format!("{} {}", f.code, f.message))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let shaped = refused("bot-2");
+        assert!(
+            shaped.contains("mapping:backfill:Staff.login") && shaped.contains("cannot hold"),
+            "{shaped}"
+        );
+        let taken = refused("HELPER");
+        assert!(taken.contains("identity_taken"), "{taken}");
     }
 
     /// A backfill writes what its attribute holds and refuses the publish

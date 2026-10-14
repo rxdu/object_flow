@@ -90,19 +90,37 @@ impl std::convert::From<NotRun> for NoVerdict {
 /// version it names: a retry is the original request re-sent, its occurred
 /// time among what the key identifies, and it replays whatever version it
 /// carries, a body's difference being the digest's to find and not the
-/// version's (`DESIGN.md` §6 step 2, ADR-0076). An input marked personal,
-/// by name in any type as a consulted reference masks it, counts by its
-/// name alone: the store keeps no digest of personal data, which an erasure
-/// then left nothing to compare and replayed a different request's verdict
-/// under its key (fourteenth production review N2, ADR-0201).
-fn request_digest(lib: &Library, req: &Request, actor: Option<&str>) -> String {
+/// version's (`DESIGN.md` §6 step 2, ADR-0076). It is two digests, as
+/// `masked/personal`: an input marked personal, by name in any type as a
+/// consulted reference masks it, counts in the first by its name alone, and
+/// its value in the second, which an erasure of what it sent replaces with
+/// `erased`, so the key then replays nothing and confirms no guess, where
+/// one masked digest replayed a request differing in a personal value
+/// (fourteenth production review N2, ADR-0201; the audit's write path K-01
+/// and K-02, ADR-0205 decision 3). The actor and the principal count as
+/// resolved, so a request naming either by its object, its identity or
+/// another case is one request (ADR-0192 decision 7, K-04).
+fn request_digest(
+    lib: &Library,
+    req: &Request,
+    actor: Option<&str>,
+    principal: Option<&str>,
+) -> String {
     use sha2::{Digest, Sha256};
+    let hex = |body: &Json| -> String {
+        Sha256::digest(body.to_string().as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    };
     let personal = crate::eval::personal_names(lib);
+    let mut held: BTreeMap<&String, Json> = BTreeMap::new();
     let inputs: BTreeMap<&String, Json> = req
         .inputs
         .iter()
         .map(|(n, v)| {
             let v = if personal.contains(n) {
+                held.insert(n, v.clone());
                 json!(crate::eval::PERSONAL)
             } else {
                 v.clone()
@@ -110,8 +128,6 @@ fn request_digest(lib: &Library, req: &Request, actor: Option<&str>) -> String {
             (n, v)
         })
         .collect();
-    // the actor as resolved, so a key sent by an actor named by its object
-    // and then by its identity is one request (ADR-0192 decision 7)
     let body = json!({
         "transition": req.transition,
         "actor": actor.unwrap_or(&req.actor),
@@ -121,14 +137,25 @@ fn request_digest(lib: &Library, req: &Request, actor: Option<&str>) -> String {
         "occurred_at": req.occurred_at,
         "propose": req.propose,
         "expires_at": req.expires_at,
-        "principal": req.principal,
+        "principal": principal.or(req.principal.as_deref()),
         "context": req.context,
     });
-    let hex: String = Sha256::digest(body.to_string().as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    format!("{}{hex}", crate::store::MASKED_DIGEST)
+    let masked = format!("{}{}", crate::store::MASKED_DIGEST, hex(&body));
+    if held.is_empty() {
+        masked
+    } else {
+        format!("{masked}/{}", hex(&json!(held)))
+    }
+}
+
+/// Whether a key's recorded digest replays a request of this digest: the
+/// same digest, both halves alike (ADR-0205 decision 3). A digest an erasure
+/// marked, whole as 0.2.0 did or its personal half as this release does,
+/// equals none a request makes, so it replays nothing and a key confirms no
+/// guess of what was erased, where 0.2.0's `erased` digest replayed whatever
+/// was sent (the audit's write path K-03).
+fn replays(recorded: &str, digest: &str) -> bool {
+    recorded == digest
 }
 
 /// A satisfied verdict as `of_idempotency` records it, and back.
@@ -221,6 +248,22 @@ pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Result<Option<Who
         })
     };
     if let Some(o) = world.get(actor)? {
+        // an id that is also an identity another actor holds, in any case,
+        // names neither, since which was meant cannot be told, where the
+        // object of that id was taken for the person (the audit's write path
+        // I-02, D669)
+        for (tn, t) in &world.lib.types {
+            let Some((attr, _)) = t.actor_identity() else {
+                continue;
+            };
+            if world
+                .with_folded(tn, attr, actor)?
+                .iter()
+                .any(|h| h.type_ == *tn && h.id != o.id)
+            {
+                return Ok(None);
+            }
+        }
         return Ok(identity(o));
     }
     // by the identity's column and its index, never every object of each
@@ -697,6 +740,9 @@ struct Ctx<'w> {
     /// The positions of the transitions taking place, the innermost last:
     /// each event's cause is the one below its own (`DESIGN.md` §6 step 8).
     causes: Vec<i64>,
+    /// The transitions being taken, outermost first, by type and name,
+    /// which `only_via` reads its caller from.
+    taking: Vec<(String, String)>,
     /// The spans a correction merged into the one before them: an object,
     /// a dimension, and the span's entered position and time.
     merged: Vec<(String, String, i64, i64)>,
@@ -771,10 +817,16 @@ fn decide_as(
     let deciding = target.is_some_and(|o| o.type_ == PROPOSAL);
     let changing = target.is_some_and(|o| o.type_ == DECLARATION_CHANGE)
         || (req.object_id.is_none() && req.type_.as_deref() == Some(DECLARATION_CHANGE));
-    let answer = if changing {
-        decide_change(world, alloc, req, answers, prepared)
+    // a proposal of a change's transition or of a proposal's is refused
+    // `not_proposable`, where it took the change (the audit's write path
+    // R-06)
+    let answer = if req.propose && (changing || deciding) {
+        // after its actor, as every refusal is
+        request_who(world, req).and_then(|_| refused(Verdict::NotProposable))
     } else if req.propose {
         file(world, alloc, req)
+    } else if changing {
+        decide_change(world, alloc, req, answers, prepared)
     } else if deciding {
         decide_proposal(world, alloc, req, answers, checking)
     } else {
@@ -924,6 +976,7 @@ fn decide_or_stop(
         observed: Vec::new(),
         checking: checking.clone(),
         causes: cause.into_iter().collect(),
+        taking: Vec::new(),
         merged: Vec::new(),
         wrote: BTreeMap::new(),
         index: Vec::new(),
@@ -943,8 +996,16 @@ fn decide_or_stop(
         read: Reading::default(),
         readings: BTreeMap::new(),
     };
-    // an admission records the request's reason (ADR-0054)
-    let reason = inputs.get("reason").map(text_of).unwrap_or_default();
+    // an admission records the request's reason (ADR-0054), unless it is
+    // personal, which nothing then erases, where an erasure's reason naming
+    // a caller stayed in the admission (the audit's personal data S29)
+    let reason = match lib.type_(&tn).and_then(|t| {
+        t.transition(&req.transition)
+            .map(|x| input_personal(t, x, "reason"))
+    }) {
+        Some(true) => crate::eval::PERSONAL.to_string(),
+        _ => inputs.get("reason").map(text_of).unwrap_or_default(),
+    };
     let root = match take(&mut ctx, alloc, &tn, &req.transition, oid, inputs, 0) {
         Ok(root) => root,
         Err(Stop::Refused(v, mut r)) => {
@@ -1170,6 +1231,41 @@ fn take(
     tn: &str,
     xn: &str,
     oid: Option<String>,
+    inputs: BTreeMap<String, Value>,
+    depth: usize,
+) -> Result<String, Stop> {
+    // only_via holds through a call, a creation and a cascade, as for a
+    // request: the transition taking this one is one it names, where a
+    // call from any transition took it (the audit's write path R-05)
+    let lib = ctx.work.lib;
+    if depth > 0
+        && let Some(x) = lib.type_(tn).and_then(|t| t.transition(xn))
+        && !x.only_via.is_empty()
+    {
+        let named = ctx.taking.last().is_some_and(|(pt, px)| {
+            x.only_via.iter().any(|v| {
+                v.split_once('.')
+                    .is_some_and(|(vt, vx)| vx == px && lib.is_a(pt, vt))
+            })
+        });
+        if !named {
+            return refused(Verdict::NotRequestable {
+                parents: x.only_via.clone(),
+            });
+        }
+    }
+    ctx.taking.push((tn.to_string(), xn.to_string()));
+    let taken = take_unwound(ctx, alloc, tn, xn, oid, inputs, depth);
+    ctx.taking.pop();
+    taken
+}
+
+fn take_unwound(
+    ctx: &mut Ctx<'_>,
+    alloc: &mut Allocator,
+    tn: &str,
+    xn: &str,
+    oid: Option<String>,
     mut inputs: BTreeMap<String, Value>,
     depth: usize,
 ) -> Result<String, Stop> {
@@ -1389,13 +1485,25 @@ fn take(
             .iter()
             .chain(&x.optional_inputs)
             .filter(|k| inputs.contains_key(*k));
-        let by_step = x.effect.iter().filter_map(|st| match st {
-            Step::Assign { location, .. } | Step::Add { location, .. } => Some(location),
-            _ => None,
-        });
+        // a step at any depth, a loop's among them, where one nested in a
+        // `foreach` wrote the attribute again (the audit's write path R-02)
+        fn written(steps: &[Step], out: &mut Vec<String>) {
+            for st in steps {
+                match st {
+                    Step::Assign { location, .. } | Step::Add { location, .. } => {
+                        out.push(location.clone());
+                    }
+                    Step::Foreach { steps, .. } => written(steps, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut by_step = Vec::new();
+        written(&x.effect, &mut by_step);
         if by_input
+            .cloned()
             .chain(by_step)
-            .any(|a| t.attribute(a).is_some_and(|spec| spec.personal))
+            .any(|a| t.attribute(&a).is_some_and(|spec| spec.personal))
         {
             return refused(Verdict::Unsatisfied {
                 clause: "not_erased".into(),
@@ -1907,6 +2015,63 @@ fn take(
         position,
     )?;
     cascades(ctx, alloc, t, xn, &id, &inputs, depth)?;
+    // whole_open after the effect as well: a part an effect moved, or a
+    // creation placed, into a whole already finished, where only an input
+    // naming the whole was decided (the audit's write path R-03)
+    for (a, spec) in &t.attributes {
+        let (Declared::Reference(target), Some(back)) = (&spec.declared, &spec.opposite) else {
+            continue;
+        };
+        if !lib
+            .type_(target)
+            .and_then(|tt| tt.attribute(back))
+            .is_some_and(|b| b.composite)
+        {
+            continue;
+        }
+        let Some(Value::Object(whole)) = ctx.work.get(&id)?.map(|o| o.attr(a)) else {
+            continue;
+        };
+        let was = ctx.before.get(&id)?.map(|o| o.attr(a));
+        if was == Some(Value::Object(whole.clone())) {
+            continue;
+        }
+        let finished = ctx.before.get(&whole)?.is_some_and(|w| {
+            lib.type_(&w.type_)
+                .and_then(|wt| wt.state(&w.state))
+                .is_some_and(|st| st.is_final)
+        });
+        if finished {
+            return refused_naming(
+                Verdict::Unsatisfied {
+                    clause: "whole_open".into(),
+                    remedy: Some(Remedy::SelfServiceable),
+                },
+                &whole,
+            );
+        }
+    }
+    // identity_unchanged: an actor's identity is written only at its
+    // creation, since the record names actors by it, where a changed email
+    // was taken by another person, who then withdrew the first one's
+    // proposal as its proposer (the audit's write path I-01, ADR-0205
+    // decision 5); an erasure renames it, as the record does
+    if x.kind != Kind::Erasure
+        && let Some((attr, _)) = t.actor_identity()
+        && let Some(was) = ctx.before.get(&id)?
+        && ctx
+            .work
+            .get(&id)?
+            .is_some_and(|now| now.attr(attr) != was.attr(attr))
+    {
+        return refused_naming(
+            Verdict::Unsatisfied {
+                clause: "identity_unchanged".into(),
+                remedy: Some(Remedy::UnreachableFromHere),
+            },
+            &id,
+        );
+    }
     // an erasure reaches its observations through each one's forget, then
     // every member of its supersession chain, after its own steps and
     // cascades (DESIGN.md §8, ADR-0087, ADR-0147)
@@ -2322,7 +2487,12 @@ fn redact_others(
         };
         ctx.work.parts(held)?;
         let mut p = held.clone();
-        if p.held_parts()?.erased {
+        // an object erased before holds nothing personal to clear, and still
+        // gets the event naming the inputs redacted in its history, where it
+        // got none (the audit's write path A-03)
+        let erased_before = p.held_parts()?.erased;
+        // one this request erases has its erasure's own event
+        if erased_before && ctx.erased.contains_key(&id) {
             continue;
         }
         let stored_set = |a: &str| {
@@ -2332,7 +2502,10 @@ fn redact_others(
                 .and_then(|t| t.attribute(a))
                 .is_some_and(|s| s.stored_set())
         };
-        for (_, a, flowed) in cleared.iter().filter(|(o, _, _)| *o == id) {
+        for (_, a, flowed) in cleared
+            .iter()
+            .filter(|(o, _, _)| *o == id && !erased_before)
+        {
             if stored_set(a) {
                 p.attrs.insert(a.clone(), Value::Set(Vec::new()));
             } else {
@@ -2353,28 +2526,7 @@ fn redact_others(
         }
         let position = alloc.position();
         p.version += 1;
-        let event = Event {
-            position,
-            retries: 0,
-            object_id: id.clone(),
-            object_seq: p.version,
-            transition: "redact".into(),
-            from_state: Some(p.state.clone()),
-            to_state: p.state.clone(),
-            changes_state: false,
-            source: "erased".into(),
-            actor_id: ctx.who.id.clone(),
-            actor_kind: ctx.who.kind.clone(),
-            principal: ctx.who.principal.clone(),
-            cause: ctx.causes.last().copied(),
-            declaration_version: ctx.work.lib.version,
-            recorded_at: ctx.work.now,
-            occurred_at: Some(ctx.at),
-            context: ctx.context.clone(),
-            imported: false,
-            payload: json!({ "redacted": redacted }),
-            reads: json!({}),
-        };
+        let event = redact_event(ctx, &p, position, json!({ "redacted": redacted }));
         ctx.work.appended.push(event.clone());
         ctx.events.push(event);
         ctx.work.insert(p)?;
@@ -3126,6 +3278,17 @@ fn decide_change(
     };
     let xn = req.transition.as_str();
     let held = world.get_if(req.object_id.as_deref())?;
+    // a type named beside the id holds a change as it holds a declared
+    // type's object, so a tool bound to another type decides none (the
+    // audit's write path R-01)
+    if held.is_some()
+        && req
+            .type_
+            .as_deref()
+            .is_some_and(|tn| !lib.is_a(DECLARATION_CHANGE, tn))
+    {
+        return refused(Verdict::NotFound);
+    }
     // the change's own record, which its event extends
     if let Some(h) = held {
         world.parts(h)?;
@@ -3438,6 +3601,16 @@ fn decide_proposal(
     let Some(p) = world.get_if(req.object_id.as_deref())? else {
         return refused(Verdict::NotFound);
     };
+    // a type named beside the id holds a proposal as it holds a declared
+    // type's object, where an agent's propose-only tool bound to Claim
+    // approved, and so took, its own proposal (the audit's write path R-01)
+    if req
+        .type_
+        .as_deref()
+        .is_some_and(|tn| !lib.is_a(PROPOSAL, tn))
+    {
+        return refused(Verdict::NotFound);
+    }
     let Some(pt) = lib.type_(PROPOSAL) else {
         return stop_not_run("a store without the built-in Proposal");
     };
@@ -3716,12 +3889,53 @@ fn forget_observations(
         .map(|l| l.id.clone())
         .collect();
     for l in labels {
-        if let Some(label) = ctx.work.get_mut(&l)? {
-            label.attrs.remove("note");
-        }
+        // each with a `redact` event of its own, caused by the erasure, its
+        // version advanced, as every object whose value an erasure redacts
+        // (DESIGN.md §8), where its note went with nothing in its history
+        // (the audit's write path A-01)
+        let Some(held) = ctx.work.get(&l)? else {
+            continue;
+        };
+        ctx.work.parts(held)?;
+        let mut label = held.clone();
+        label.attrs.remove("note");
+        label.version += 1;
+        let position = alloc.position();
+        let event = redact_event(ctx, &label, position, json!({ "redacted": ["note"] }));
+        ctx.work.appended.push(event.clone());
+        ctx.events.push(event);
+        ctx.work.insert(label)?;
         ctx.erased.entry(l).or_default().insert("note".into());
     }
     Ok(())
+}
+
+/// The event an erasure records on another object whose value it redacts:
+/// source `erased`, caused by the erasure, its state unchanged
+/// (`DESIGN.md` §8, ADR-0147).
+fn redact_event(ctx: &Ctx<'_>, o: &Object, position: i64, payload: Json) -> Event {
+    Event {
+        position,
+        retries: 0,
+        object_id: o.id.clone(),
+        object_seq: o.version,
+        transition: "redact".into(),
+        from_state: Some(o.state.clone()),
+        to_state: o.state.clone(),
+        changes_state: false,
+        source: "erased".into(),
+        actor_id: ctx.who.id.clone(),
+        actor_kind: ctx.who.kind.clone(),
+        principal: ctx.who.principal.clone(),
+        cause: ctx.causes.last().copied(),
+        declaration_version: ctx.work.lib.version,
+        recorded_at: ctx.work.now,
+        occurred_at: Some(ctx.at),
+        context: ctx.context.clone(),
+        imported: false,
+        payload,
+        reads: json!({}),
+    }
 }
 
 /// Every other member of the object's supersession chain, predecessors and
@@ -5050,7 +5264,10 @@ fn reads_only_this(lib: &Library, t: &Type, e: &Expr, seen: &mut BTreeSet<String
 /// reach is not told (`DESIGN.md` §5.6, ADR-0045, ADR-0162 step 3). A kind's
 /// invariants are checked on the recording alone (§5.11, ADR-0146), so an
 /// observation is never reached from another object.
-fn affected_by_writes(work: &World<'_>, before: &World<'_>) -> Result<Vec<String>, NotRun> {
+pub(crate) fn affected_by_writes(
+    work: &World<'_>,
+    before: &World<'_>,
+) -> Result<Vec<String>, NotRun> {
     let lib = work.lib;
     let mut affected: BTreeMap<String, i64> = BTreeMap::new();
     // each object written, as it is now and as the store held it
@@ -5692,16 +5909,25 @@ pub fn request_told(
             Some(key) => resolve_actor(world, &req.actor)?.map(|who| (who.id, key.clone())),
             None => None,
         };
-        let digest = request_digest(world.lib, req, keyed.as_ref().map(|(a, _)| a.as_str()));
+        let principal = match (&keyed, &req.principal) {
+            (Some(_), Some(p)) => resolve_actor(world, p)?.map(|w| w.id),
+            _ => None,
+        };
+        let digest = request_digest(
+            world.lib,
+            req,
+            keyed.as_ref().map(|(a, _)| a.as_str()),
+            principal.as_deref(),
+        );
         let held = match &keyed {
             Some((actor, key)) => world.idempotency_of(actor, key)?,
             None => None,
         };
         if let (Some((_, key)), Some((applied, recorded))) = (&keyed, &held) {
-            // a request whose inputs an erasure redacted before its digest
-            // masked them is matched by its key alone, so the key confirms
-            // no guess (fourth production review A-5)
-            if *applied != digest && applied != crate::store::ERASED_DIGEST {
+            // a key replays only the request it was first sent with, and
+            // none once an erasure redacted what it sent (ADR-0205
+            // decision 3)
+            if !replays(applied, &digest) {
                 return Err(NoVerdict::KeyReused { key: key.clone() });
             }
             let v = replayed_verdict(recorded)?;
@@ -5857,7 +6083,7 @@ fn refused_reads(ctx: &Ctx<'_>) -> Result<Json, NotRun> {
 /// (ATTEMPT-INPUTS). An approval its request
 /// refused is a row of the proposed transition, on its object, naming the
 /// proposal.
-fn refused_attempt(
+pub(crate) fn refused_attempt(
     world: &World<'_>,
     req: &Request,
     verdict: &Verdict,
@@ -5893,11 +6119,16 @@ fn refused_attempt(
     };
     let t = type_.as_deref().and_then(|n| lib.type_(n));
     let x = t.and_then(|t| t.transition(&asked.transition));
+    // an input personal by its marking, by the attribute it names, or by
+    // the personal attribute its effect writes it into, as check 10 reads
+    // it, where an unmarked input an effect added to a personal set stayed
+    // in the attempt log (the audit's personal data S26)
     let personal = |k: &str| {
         x.and_then(|x| x.inputs.iter().find(|(n, _)| n == k))
             .map(|(_, i)| i.personal)
             .or_else(|| t.and_then(|t| t.attribute(k)).map(|a| a.personal))
             .unwrap_or(false)
+            || matches!((t, x), (Some(t), Some(x)) if input_personal(t, x, k))
     };
     let declared = |k: &str| {
         x.is_some_and(|x| {
@@ -7862,7 +8093,8 @@ types:
         let Verdict::Satisfied { events, .. } = &v else {
             panic!("{v:?}");
         };
-        assert_eq!(events.len(), 2);
+        // its own, the check's forget, and the label's redaction
+        assert_eq!(events.len(), 3);
         let w = s.snapshot().unwrap();
         let o = w.whole(&job).unwrap().unwrap();
         assert_eq!(o.attr("note"), Value::Absent);
@@ -7901,8 +8133,10 @@ types:
                 json!("typo")
             )
         );
-        // its label's note leaves the label's row and its creation event, as
-        // no transition, the name kept (declaration-syntax.md §6.8)
+        // its label's note leaves the label's row and its creation event,
+        // the name kept, with a `redact` event of the label's own, caused by
+        // the erasure, where it went with nothing in the label's history
+        // (declaration-syntax.md §6.8, the audit's write path A-01)
         let l = w.whole(&tag).unwrap().unwrap();
         assert_eq!(
             (
@@ -7913,9 +8147,19 @@ types:
             (Value::Absent, Value::Text("vip".into()), false)
         );
         let labelled = s.history(&tag).unwrap();
-        assert_eq!(labelled.len(), 1);
+        assert_eq!(labelled.len(), 2);
         assert_eq!(labelled[0].payload["inputs"]["note"], Json::Null);
         assert_eq!(labelled[0].payload["inputs"]["name"], json!("vip"));
+        assert_eq!(
+            (
+                labelled[1].transition.as_str(),
+                labelled[1].source.as_str(),
+                labelled[1].payload.clone(),
+                labelled[1].cause.is_some(),
+                l.version
+            ),
+            ("redact", "erased", json!({"redacted": ["note"]}), true, 2)
+        );
         // and a label's own forget redacts its note
         let own = created(&req(
             &mut s,
@@ -8135,6 +8379,401 @@ types:
             .eval(&crate::expr::parse("count(a in Asset)").unwrap())
             .unwrap();
         assert_eq!(n, Value::Int(2));
+    }
+
+    /// A part is put into no finished whole by any route: an effect moving
+    /// it and a creation from another whole's transition are refused
+    /// `whole_open`, naming the whole, where only an input naming it was
+    /// decided (the audit's write path R-03); and a transition `only_via`
+    /// names is taken through a call from those alone, refused
+    /// `not_requestable` from any other, where a call took it (R-05).
+    #[test]
+    fn a_part_enters_no_finished_whole_and_only_via_holds_through_a_call() {
+        let text = r#"
+module: orders
+categories: [open, closed]
+types:
+  Order:
+    attributes:
+      ref: { type: string }
+      lines: { reference: "Line[]", opposite: order, aggregation: composite }
+    states:
+      OPEN: { category: open }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      place: { kind: initial, to: OPEN, required_inputs: [ref] }
+      close: { kind: external, from: [OPEN], to: CLOSED }
+      add_line:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: this } }
+      add_line_to:
+        kind: internal
+        from: [OPEN]
+        inputs: { other: { reference: Order } }
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: inputs.other } }
+      note_line:
+        kind: internal
+        from: [OPEN]
+        inputs: { line: { reference: Line } }
+        effect:
+          - call: { target: inputs.line, transition: note }
+  Line:
+    attributes:
+      order: { reference: Order, opposite: lines }
+    states:
+      ACTIVE: { category: open }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [order], only_via: [Order.add_line, Order.add_line_to] }
+      shift:
+        kind: internal
+        from: [ACTIVE]
+        inputs: { to: { reference: Order } }
+        effect:
+          - assign: { location: order, expr: inputs.to }
+      note: { kind: internal, from: [ACTIVE], only_via: [Order.add_line] }
+"#;
+        let lib = Library::load(&[("orders.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let place = |s: &mut Store, r: &str| {
+            created(&req(
+                s,
+                "place",
+                OPERATOR,
+                ("Order", true),
+                json!({"ref": r}),
+            ))
+        };
+        let (open, closed) = (place(&mut s, "A"), place(&mut s, "B"));
+        created(&req(
+            &mut s,
+            "add_line",
+            OPERATOR,
+            (&open, false),
+            json!({}),
+        ));
+        created(&req(&mut s, "close", OPERATOR, (&closed, false), json!({})));
+        let line = s.snapshot().unwrap().of_type("Line").unwrap()[0].id.clone();
+        let whole_open = Verdict::Unsatisfied {
+            clause: "whole_open".into(),
+            remedy: Some(Remedy::SelfServiceable),
+        };
+        assert_eq!(
+            req(
+                &mut s,
+                "shift",
+                OPERATOR,
+                (&line, false),
+                json!({"to": closed})
+            ),
+            whole_open
+        );
+        // a creation's and a call's refusals are the step's, with the
+        // transition's own verdict
+        let refused_with = |v: Verdict| match v {
+            Verdict::CallRefused { verdict, .. } => *verdict,
+            other => other,
+        };
+        let created_into = req(
+            &mut s,
+            "add_line_to",
+            OPERATOR,
+            (&open, false),
+            json!({"other": closed}),
+        );
+        assert_eq!(refused_with(created_into), whole_open);
+        let called = req(
+            &mut s,
+            "note_line",
+            OPERATOR,
+            (&open, false),
+            json!({"line": line}),
+        );
+        assert_eq!(
+            refused_with(called),
+            Verdict::NotRequestable {
+                parents: vec!["Order.add_line".into()],
+            }
+        );
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.of_type("Line").unwrap().len(), 1);
+        assert_eq!(
+            w.get(&line).unwrap().unwrap().attr("order"),
+            Value::Object(open)
+        );
+    }
+
+    /// An erasure whose reason is personal, leaving an invariant admitted,
+    /// records the admission without it, where the reason stayed in the
+    /// admission, which nothing erases (the audit's personal data S29).
+    #[test]
+    fn an_admission_keeps_no_personal_reason() {
+        let text = "\nmodule: crm\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      name: { type: string, optional: true, personal: true }\n    states:\n      ON: { category: live }\n    invariants:\n      named: { expression: name is not null }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [name] }\n      forget: { kind: erasure, inputs: { reason: { type: string, personal: true } } }\n";
+        let lib = Library::load(&[("crm.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let zed = created(&req(
+            &mut s,
+            "join",
+            OPERATOR,
+            ("Person", true),
+            json!({"name": "Zelda Zed"}),
+        ));
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&zed, false),
+            json!({"reason": "Requested by Zelda Zed on the phone"}),
+        ));
+        let reasons: Vec<String> = s
+            .connection()
+            .prepare("SELECT reason FROM of_admission")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(reasons, vec![crate::eval::PERSONAL.to_string()]);
+    }
+
+    /// A refused request's input its effect writes into a personal
+    /// attribute is withheld from the attempt log, named and not kept, as
+    /// one marked personal is, where it stayed past the person's erasure
+    /// (the audit's personal data S26).
+    #[test]
+    fn a_refused_input_personal_by_its_effect_is_withheld() {
+        let text = "\nmodule: crm\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      nicknames: { type: \"string[]\", optional: true, personal: true }\n      open: { type: bool, optional: true }\n    states:\n      ON: { category: live }\n    conditions:\n      shut: { expression: open is null, remedy: unreachable_from_here }\n    transitions:\n      join: { kind: initial, to: ON }\n      nick:\n        kind: internal\n        from: [ON]\n        inputs: { m: { type: string } }\n        guards: { shut: deny }\n        effect:\n          - add: { location: nicknames, expr: inputs.m }\n      unlock: { kind: internal, from: [ON], required_inputs: [open] }\n";
+        let lib = Library::load(&[("crm.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ana = created(&req(&mut s, "join", OPERATOR, ("Person", true), json!({})));
+        created(&req(
+            &mut s,
+            "unlock",
+            OPERATOR,
+            (&ana, false),
+            json!({"open": true}),
+        ));
+        let refused = req(
+            &mut s,
+            "nick",
+            OPERATOR,
+            (&ana, false),
+            json!({"m": "Allison"}),
+        );
+        assert!(
+            matches!(refused, Verdict::Unsatisfied { .. }),
+            "{refused:?}"
+        );
+        let w = s.snapshot().unwrap();
+        let row = w
+            .attempts()
+            .unwrap()
+            .iter()
+            .find(|a| a.transition.as_deref() == Some("nick"))
+            .unwrap();
+        assert_eq!(row.withheld, vec!["m".to_string()]);
+        assert!(
+            !row.request_values.to_string().contains("Allison"),
+            "{}",
+            row.request_values
+        );
+    }
+
+    /// What was erased stays erased through a loop too: a step nested in a
+    /// `foreach` writing an erased object's personal attribute is refused
+    /// `not_erased`, where it added a phone after the erasure (the audit's
+    /// write path R-02).
+    #[test]
+    fn a_loop_writes_no_erased_value_again() {
+        let text = "\nmodule: crm\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      phones: { type: \"string[]\", optional: true, personal: true }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON }\n      add_phones:\n        kind: internal\n        from: [ON]\n        inputs: { numbers: { type: \"string[]\" } }\n        effect:\n          - foreach:\n              item: n\n              array: inputs.numbers\n              limit: 5\n              steps:\n                - add: { location: phones, expr: n }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+        let lib = Library::load(&[("crm.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ana = created(&req(&mut s, "join", OPERATOR, ("Person", true), json!({})));
+        created(&req(
+            &mut s,
+            "add_phones",
+            OPERATOR,
+            (&ana, false),
+            json!({"numbers": ["555-0100"]}),
+        ));
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&ana, false),
+            json!({"reason": "asked"}),
+        ));
+        assert_eq!(
+            req(
+                &mut s,
+                "add_phones",
+                OPERATOR,
+                (&ana, false),
+                json!({"numbers": ["555-0199"]})
+            ),
+            Verdict::Unsatisfied {
+                clause: "not_erased".into(),
+                remedy: Some(Remedy::UnreachableFromHere),
+            }
+        );
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.get(&ana).unwrap().unwrap().attr("phones"),
+            Value::Set(Vec::new())
+        );
+    }
+
+    /// An object erased before still gets a `redact` event when a later
+    /// erasure redacts an input in its history, naming the input, where the
+    /// customer's event lost a contact's phone with nothing in its history
+    /// (the audit's write path A-03).
+    #[test]
+    fn an_erased_caller_records_what_a_later_erasure_redacts() {
+        let text = "\nmodule: crm\ncategories: [live]\ntypes:\n  Customer:\n    attributes:\n      name: { type: string, optional: true, personal: true }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON, optional_inputs: [name] }\n      add_contact:\n        kind: internal\n        from: [ON]\n        inputs: { phone: { type: string } }\n        effect:\n          - create: { type: Contact, transition: make, inputs: { phone: inputs.phone } }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Contact:\n    attributes:\n      phone: { type: string, optional: true, personal: true }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [phone] }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+        let lib = Library::load(&[("crm.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let customer = created(&req(
+            &mut s,
+            "join",
+            OPERATOR,
+            ("Customer", true),
+            json!({"name": "Ana"}),
+        ));
+        created(&req(
+            &mut s,
+            "add_contact",
+            OPERATOR,
+            (&customer, false),
+            json!({"phone": "555-0100"}),
+        ));
+        let contact = s
+            .snapshot()
+            .unwrap()
+            .of_type("Contact")
+            .unwrap()
+            .first()
+            .map(|c| c.id.clone())
+            .unwrap();
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&customer, false),
+            json!({"reason": "asked"}),
+        ));
+        let before = s.history(&customer).unwrap().len();
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&contact, false),
+            json!({"reason": "asked"}),
+        ));
+        let history = s.history(&customer).unwrap();
+        assert_eq!(history.len(), before + 1);
+        let last = history.last().unwrap();
+        assert_eq!(
+            (
+                last.transition.as_str(),
+                last.source.as_str(),
+                last.payload.clone()
+            ),
+            ("redact", "erased", json!({"redacted": ["phone"]}))
+        );
+        assert!(
+            history
+                .iter()
+                .all(|e| e.payload["inputs"]["phone"] != json!("555-0100"))
+        );
+    }
+
+    /// A type named beside a proposal's or a change's id holds it as it
+    /// holds a declared type's object, refused `not_found` outside the
+    /// family, where a tool bound to another type decided either (the
+    /// audit's write path R-01); and a proposal of a change's or a
+    /// proposal's transition is refused `not_proposable`, where it took it
+    /// (R-06).
+    #[test]
+    fn a_proposal_and_a_change_are_held_to_the_type_named_beside_them() {
+        let text = JOBS.replace(
+            "      annotate: { kind: internal, from: [OPEN], required_inputs: [note] }",
+            "      annotate: { kind: internal, from: [OPEN], required_inputs: [note], proposable: true }",
+        );
+        let lib = Library::load(&[("jobs.yaml".into(), text.clone())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask = |xn: &str, id: &str, type_: Option<&str>, propose: bool, inputs: Json| Request {
+            transition: xn.into(),
+            actor: OPERATOR.into(),
+            object_id: Some(id.into()),
+            type_: type_.map(str::to_string),
+            inputs: inputs
+                .as_object()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix"}),
+        ));
+        let proposal = created(
+            &request(
+                &mut s,
+                &ask("annotate", &job, None, true, json!({"note": "x"})),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        let change = created(&req(
+            &mut s,
+            "draft",
+            OPERATOR,
+            (DECLARATION_CHANGE, true),
+            json!({"source": {"jobs": text}, "source_ref": "git:jobs@1"}),
+        ));
+        let mut decided = |xn: &str, id: &str, type_: Option<&str>, propose: bool| {
+            request(&mut s, &ask(xn, id, type_, propose, json!({})))
+                .unwrap()
+                .unwrap()
+        };
+        assert_eq!(
+            decided("approve", &proposal, Some("Job"), false),
+            Verdict::NotFound
+        );
+        assert_eq!(
+            decided("withdraw", &change, Some("Job"), false),
+            Verdict::NotFound
+        );
+        assert_eq!(
+            decided("approve", &proposal, None, true),
+            Verdict::NotProposable
+        );
+        assert_eq!(
+            decided("withdraw", &change, None, true),
+            Verdict::NotProposable
+        );
+        assert!(matches!(
+            decided("approve", &proposal, Some(PROPOSAL), false),
+            Verdict::Satisfied { .. }
+        ));
+        assert!(matches!(
+            decided("withdraw", &change, Some(DECLARATION_CHANGE), false),
+            Verdict::Satisfied { .. }
+        ));
     }
 
     #[test]
@@ -8438,7 +9077,7 @@ types:
             .log()
             .unwrap()
             .filter(|e| e.object_id == j)
-            .map(|e| crate::eval::transition_row(&w, o, w.parts(o).unwrap(), t, e))
+            .map(|e| crate::eval::transition_row(&w, o, w.parts(o).unwrap(), t, e).unwrap())
             .collect();
         // the original write's event is not changed, and the start credits
         // the corrected crew
@@ -8503,13 +9142,7 @@ types:
         );
         let last = w.log().unwrap().rfind(|e| e.object_id == j).unwrap();
         assert_eq!(
-            held_crew(&crate::eval::transition_row(
-                &w,
-                o,
-                w.parts(o).unwrap(),
-                t,
-                last
-            )),
+            held_crew(&crate::eval::transition_row(&w, o, w.parts(o).unwrap(), t, last).unwrap()),
             crew("NORTH")
         );
         drop(w);
@@ -8563,13 +9196,9 @@ types:
         assert_eq!(
             (
                 held_crew(states.last().unwrap()),
-                held_crew(&crate::eval::transition_row(
-                    &w,
-                    o,
-                    w.parts(o).unwrap(),
-                    t,
-                    start
-                )),
+                held_crew(
+                    &crate::eval::transition_row(&w, o, w.parts(o).unwrap(), t, start).unwrap()
+                ),
                 o.held_parts().unwrap().spans["crew"]
                     .iter()
                     .map(|sp| sp.value.clone())
@@ -9070,7 +9699,8 @@ types:
             let t = w.lib.type_("Job").unwrap();
             let e = w.log().unwrap().rfind(|e| e.transition == "fix").unwrap();
             assert_eq!(e.payload["inputs"]["reason"], json!("Dana asked"));
-            let Value::Row(row) = crate::eval::transition_row(&w, o, w.parts(o).unwrap(), t, e)
+            let Value::Row(row) =
+                crate::eval::transition_row(&w, o, w.parts(o).unwrap(), t, e).unwrap()
             else {
                 panic!("a transition's row")
             };
@@ -9293,12 +9923,13 @@ types:
         );
     }
 
-    /// A keyed request's digest masks its personal values, so the key
-    /// confirms no guess of one, before an erasure or after it (fourth
-    /// production review A-5); and another request under the key is refused,
-    /// before an erasure and after it, where after it its verdict was
-    /// replayed for a request that never ran (fourteenth production review
-    /// N2).
+    /// A key replays only the request it was first sent with: before an
+    /// erasure, the same request replays and one with another personal
+    /// value is refused `key_reused`, where it replayed the first's verdict
+    /// for a contact never created; after it, every request under the key
+    /// is refused, so the key confirms no guess of what was erased (fourth
+    /// production review A-5, fourteenth N2, the audit's write path K-02,
+    /// ADR-0205 decision 3).
     #[test]
     fn an_erased_requests_key_confirms_no_guess() {
         const CRM: &str = r#"
@@ -9338,20 +9969,14 @@ types:
             context: None,
         };
         let id = created(&request(&mut s, &keyed("Lead", "Dana")).unwrap().unwrap());
-        let guesses = |s: &mut Store| {
-            for guess in ["Dana", "Ana"] {
-                let again = request(s, &keyed("Lead", guess)).unwrap();
-                assert!(
-                    matches!(&again, Ok(Verdict::Satisfied { object_id, .. }) if *object_id == id),
-                    "{guess}: {again:?}"
-                );
-            }
-            assert_eq!(
-                request(s, &keyed("Cold", "Dana")).unwrap(),
-                Err(NoVerdict::KeyReused { key: "k".into() })
-            );
-        };
-        guesses(&mut s);
+        let reused = Err(NoVerdict::KeyReused { key: "k".into() });
+        let again = request(&mut s, &keyed("Lead", "Dana")).unwrap();
+        assert!(
+            matches!(&again, Ok(Verdict::Satisfied { object_id, .. }) if *object_id == id),
+            "{again:?}"
+        );
+        assert_eq!(request(&mut s, &keyed("Lead", "Ana")).unwrap(), reused);
+        assert_eq!(request(&mut s, &keyed("Cold", "Dana")).unwrap(), reused);
         created(&req(
             &mut s,
             "forget",
@@ -9359,7 +9984,60 @@ types:
             (&id, false),
             json!({"reason": "asked"}),
         ));
-        guesses(&mut s);
+        for (title, guess) in [("Lead", "Dana"), ("Lead", "Ana"), ("Cold", "Dana")] {
+            assert_eq!(
+                request(&mut s, &keyed(title, guess)).unwrap(),
+                reused,
+                "{title} {guess}"
+            );
+        }
+        // a key 0.2.0 marked erased, its digest made whole, replays nothing
+        // either, where it replayed whatever was sent (K-03)
+        s.connection()
+            .execute("UPDATE of_idempotency SET request_digest = 'erased'", [])
+            .unwrap();
+        assert_eq!(request(&mut s, &keyed("Lead", "Dana")).unwrap(), reused);
+    }
+
+    /// A key's request names its principal as resolved, as its actor: sent
+    /// by identity, in another case or by object id, it is one request and
+    /// replays, where the second was refused `key_reused` (the audit's write
+    /// path K-04).
+    #[test]
+    fn a_keys_principal_counts_as_resolved() {
+        let text = "\nmodule: crew\ncategories: [live, closed]\ntypes:\n  Person:\n    attributes:\n      login: { type: identity, actor_kind: human }\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login] }\n      leave: { kind: external, from: [ON], to: OFF }\n  Note:\n    attributes:\n      text: { type: string }\n    states:\n      ON: { category: live }\n    transitions:\n      write: { kind: initial, to: ON, required_inputs: [text] }\n";
+        let lib = Library::load(&[("crew.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ana = created(&req(
+            &mut s,
+            "join",
+            OPERATOR,
+            ("Person", true),
+            json!({"login": "ana"}),
+        ));
+        let keyed = |principal: &str| Request {
+            transition: "write".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Note".into()),
+            inputs: [("text".to_string(), json!("hello"))].into_iter().collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: Some(principal.into()),
+            idempotency_key: Some("k".into()),
+            context: None,
+        };
+        let note = created(&request(&mut s, &keyed("ana")).unwrap().unwrap());
+        for named in ["ANA", ana.as_str()] {
+            let again = request(&mut s, &keyed(named)).unwrap();
+            assert!(
+                matches!(&again, Ok(Verdict::Satisfied { object_id, .. }) if *object_id == note),
+                "{named}: {again:?}"
+            );
+        }
     }
 
     /// An assignment whose arithmetic reads an absent optional attribute has
@@ -11820,6 +12498,159 @@ types:
         // the side of an `or` that does not decide refuses nothing, though a
         // guard reads it for the record
         created(&req(&mut s, "poke", OPERATOR, (&item, false), json!({})));
+    }
+
+    /// Where an actor type marks its identity personal, a guard's consulted
+    /// key writes an argument of type `identity` as `(personal)`, as a
+    /// personal one, where `crm.known` of an author's address kept it (the
+    /// audit's personal data S19); and an erasure masks one a store wrote
+    /// before, so it leaves the store (S20, ADR-0205 decision 6).
+    #[test]
+    fn a_consulted_identity_is_masked_and_an_erasure_masks_one_written_before() {
+        let text = "\nmodule: crm\ncategories: [live]\nevaluators:\n  crm:\n    functions:\n      known: { arguments: { who: { type: identity } } }\ntypes:\n  Person:\n    attributes:\n      login: { type: identity, actor_kind: human, personal: true, optional: true }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login] }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Memo:\n    attributes:\n      author: { type: identity, optional: true }\n    states:\n      ON: { category: live }\n    conditions:\n      known: { expression: crm.known(author), remedy: dependent }\n    transitions:\n      write: { kind: initial, to: ON, effect: [ { assign: { location: author, expr: actor.id } } ] }\n      vouch: { kind: internal, from: [ON], guards: { known: deny } }\n";
+        let lib = Library::load(&[("crm.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let email = "zelda@corp.example";
+        let zed = created(&req(
+            &mut s,
+            "join",
+            OPERATOR,
+            ("Person", true),
+            json!({"login": email}),
+        ));
+        let memo = created(&req(&mut s, "write", email, ("Memo", true), json!({})));
+        s.answers.insert("crm.known".into(), "satisfied".into());
+        created(&req(&mut s, "vouch", OPERATOR, (&memo, false), json!({})));
+        let vouched = s.history(&memo).unwrap().pop().unwrap();
+        assert_eq!(
+            vouched.payload["consulted"]["known"]["values"],
+            json!({ "crm.known((personal))": "satisfied" })
+        );
+        // as a store an earlier release wrote it, the address in the key
+        let unmasked = vouched
+            .payload
+            .to_string()
+            .replace("crm.known((personal))", &format!("crm.known({email})"));
+        s.connection()
+            .execute(
+                "UPDATE of_event SET payload = ?1 WHERE position = ?2",
+                rusqlite::params![unmasked, vouched.position],
+            )
+            .unwrap();
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&zed, false),
+            json!({"reason": "asked"}),
+        ));
+        let held: Vec<String> = s
+            .connection()
+            .prepare("SELECT payload FROM of_event")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(held.iter().all(|p| !p.contains(email)), "{held:?}");
+    }
+
+    /// An actor's identity is written only at its creation: a later
+    /// transition changing it is refused `identity_unchanged`, naming the
+    /// actor, where a changed email was taken by another person, who then
+    /// acted as the first in its records (the audit's write path I-01,
+    /// ADR-0205 decision 5); one writing the identity it holds changes
+    /// nothing and passes.
+    #[test]
+    fn an_actors_identity_is_written_only_at_its_creation() {
+        let text = "\nmodule: crew\ncategories: [live, closed]\ntypes:\n  Person:\n    attributes:\n      login: { type: identity, actor_kind: human }\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login] }\n      relogin: { kind: internal, from: [ON], required_inputs: [login] }\n      leave: { kind: external, from: [ON], to: OFF }\n";
+        let lib = Library::load(&[("crew.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ana = created(&req(
+            &mut s,
+            "join",
+            OPERATOR,
+            ("Person", true),
+            json!({"login": "ana"}),
+        ));
+        assert_eq!(
+            req(
+                &mut s,
+                "relogin",
+                OPERATOR,
+                (&ana, false),
+                json!({"login": "anna"})
+            ),
+            Verdict::Unsatisfied {
+                clause: "identity_unchanged".into(),
+                remedy: Some(Remedy::UnreachableFromHere),
+            }
+        );
+        created(&req(
+            &mut s,
+            "relogin",
+            OPERATOR,
+            (&ana, false),
+            json!({"login": "ana"}),
+        ));
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.get(&ana).unwrap().unwrap().attr("login"),
+            Value::Text("ana".into())
+        );
+    }
+
+    /// An actor named by a string that is an object's id and, in any case,
+    /// another actor's identity names neither, which an earlier release's
+    /// store can hold, where the object was taken for the person (the
+    /// audit's write path I-02, D669); named by its own object's id, the
+    /// person still acts.
+    #[test]
+    fn an_actor_named_ambiguously_is_no_actor() {
+        let text = "\nmodule: crew\ncategories: [live, closed]\ntypes:\n  Person:\n    attributes:\n      login: { type: identity, actor_kind: human }\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login] }\n      leave: { kind: external, from: [ON], to: OFF }\n  Bot:\n    attributes:\n      name: { type: identity, actor_kind: agent }\n    states:\n      UP: { category: live }\n      DOWN: { category: closed, final: true }\n    transitions:\n      start: { kind: initial, to: UP, required_inputs: [name] }\n      stop: { kind: external, from: [UP], to: DOWN }\n";
+        let lib = Library::load(&[("crew.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let bot = created(&req(
+            &mut s,
+            "start",
+            OPERATOR,
+            ("Bot", true),
+            json!({"name": "helper"}),
+        ));
+        let person = created(&req(
+            &mut s,
+            "join",
+            OPERATOR,
+            ("Person", true),
+            json!({"login": "ana"}),
+        ));
+        // as an earlier release could leave it: her identity, the bot's id
+        s.connection()
+            .execute(
+                "UPDATE t_person SET login = ?1 WHERE id = ?2",
+                [bot.to_uppercase(), person.clone()],
+            )
+            .unwrap();
+        assert_eq!(
+            req(
+                &mut s,
+                "join",
+                &bot,
+                ("Person", true),
+                json!({"login": "bo"})
+            ),
+            Verdict::Unsatisfied {
+                clause: "actor_known".into(),
+                remedy: Some(Remedy::Dependent),
+            }
+        );
+        created(&req(
+            &mut s,
+            "join",
+            &person,
+            ("Person", true),
+            json!({"login": "cy"}),
+        ));
     }
 
     #[test]
