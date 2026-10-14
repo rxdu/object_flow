@@ -1142,7 +1142,15 @@ fn decide_or_stop(
                 object_id: existed.then(|| obj.id.clone()),
                 type_: obj.type_.clone(),
                 invariant: n.clone(),
-                remedy: invariant_remedy(&ctx.work, x, obj, n, &root, &requested_type),
+                remedy: invariant_remedy(
+                    &ctx.work,
+                    x,
+                    &req.transition,
+                    obj,
+                    n,
+                    &root,
+                    &requested_type,
+                ),
             }));
             continue;
         }
@@ -5707,6 +5715,7 @@ pub(crate) fn names_read(e: &Expr, out: &mut BTreeSet<String>) {
 fn invariant_remedy(
     world: &World<'_>,
     x: &Transition,
+    xn: &str,
     obj: &Object,
     n: &str,
     requested: &str,
@@ -5770,7 +5779,13 @@ fn invariant_remedy(
         }
         (reads, other)
     };
-    let (writes, by_actor) = writes_of(lib, x, &obj.type_, obj.id == requested || unique_other);
+    let (writes, by_actor) = writes_of(
+        lib,
+        x,
+        &obj.type_,
+        obj.id == requested || unique_other,
+        lib.type_(mine).map(|t| (t, xn)),
+    );
     if reads.iter().any(|r| by_actor.contains(r)) {
         Some(Remedy::Delegable)
     } else if reads.iter().any(|r| writes.contains(r)) {
@@ -5807,7 +5822,7 @@ pub fn actor_dependent(lib: &Library, t: &Type, x: &Transition) -> bool {
         }
         names
     };
-    let (_, own) = writes_of(lib, x, &t.name, true);
+    let (_, own) = writes_of(lib, x, &t.name, true, None);
     if own.iter().any(|w| read_by(t).contains(w)) {
         return true;
     }
@@ -5825,7 +5840,7 @@ pub fn actor_dependent(lib: &Library, t: &Type, x: &Transition) -> bool {
     let mut kinds = BTreeSet::new();
     created(&x.effect, &mut kinds);
     kinds.iter().filter_map(|k| lib.type_(k)).any(|t2| {
-        let (_, by) = writes_of(lib, x, &t2.name, false);
+        let (_, by) = writes_of(lib, x, &t2.name, false, None);
         by.iter().any(|w| read_by(t2).contains(w))
     })
 }
@@ -5840,6 +5855,7 @@ fn writes_of(
     x: &Transition,
     tn: &str,
     requested: bool,
+    cascading: Option<(&Type, &str)>,
 ) -> (BTreeSet<String>, BTreeSet<String>) {
     // an effect's step that writes a value computed from an input writes
     // that input to it (ADR-0122 decisions 33 and 36), and one computed from
@@ -5927,6 +5943,49 @@ fn writes_of(
         effect(&x.effect, &mut writes, &mut by_actor);
     } else {
         caused(lib, &x.effect, tn, &mut writes, &mut by_actor);
+        // a part's transition its whole's cascade takes, one hop away as a
+        // call's is: the clause's inputs, and what that transition's effect
+        // writes from the actor, where a cascade was not looked at and a
+        // `taken_by` it broke was answered unreachable, not delegable (the
+        // audit's write path A-04)
+        if let Some((owner, xn)) = cascading {
+            for (_, end) in &owner.attributes {
+                let Declared::Reference(part) = &end.declared else {
+                    continue;
+                };
+                if !end.composite || !lib.is_a(tn, part) {
+                    continue;
+                }
+                for clause in end.cascade.iter().filter(|c| c.on.iter().any(|o| o == xn)) {
+                    let Some(taken) = lib.type_(tn).and_then(|t| t.transition(&clause.transition))
+                    else {
+                        continue;
+                    };
+                    for (name, e) in &clause.inputs {
+                        let mut read = BTreeSet::new();
+                        names_read(e, &mut read);
+                        if read.contains("inputs") {
+                            writes.insert(name.clone());
+                        }
+                        if read.contains("actor") {
+                            by_actor.insert(name.clone());
+                        }
+                    }
+                    for st in &taken.effect {
+                        if let Step::Assign { location, expr }
+                        | Step::Add { location, expr }
+                        | Step::Remove { location, expr } = st
+                        {
+                            let mut read = BTreeSet::new();
+                            names_read(expr, &mut read);
+                            if read.contains("actor") {
+                                by_actor.insert(location.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     (writes, by_actor)
 }
@@ -6407,6 +6466,69 @@ types:
                 assert_eq!(remedy, Some(Remedy::Delegable));
                 assert_eq!(failures[0].invariant, "not_own");
                 assert_eq!(failures[0].remedy, Some(Remedy::Delegable));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A part's `taken_by` its whole's cascade breaks names `delegable`, as a
+    /// call's does, since another kind of actor taking the whole can pass,
+    /// where the cascade was not looked at and the refusal said
+    /// `unreachable_from_here` (the audit's write path A-04).
+    #[test]
+    fn a_taken_by_a_cascade_breaks_names_delegable() {
+        const SHOP: &str = r#"
+module: shop
+categories: [live, closed]
+types:
+  Bot:
+    attributes:
+      key: { type: identity, actor_kind: agent, unique: true }
+    states: { ACTIVE: { category: live } }
+    transitions:
+      register: { kind: initial, to: ACTIVE, required_inputs: [key] }
+  Order:
+    attributes:
+      lines:
+        reference: "Line[]"
+        aggregation: composite
+        opposite: order
+        cascade:
+          - { on: [close_all], transition: close, limit: 200 }
+    states: { OPEN: { category: live }, DONE: { category: closed, final: true } }
+    transitions:
+      open: { kind: initial, to: OPEN }
+      close_all: { kind: external, from: [OPEN], to: DONE }
+  Line:
+    attributes:
+      order: { reference: Order, opposite: lines }
+    states: { OPEN: { category: live }, SHUT: { category: closed, final: true } }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [order] }
+      close: { kind: external, from: [OPEN], to: SHUT, taken_by: [human] }
+"#;
+        let lib = Library::load(&[("shop.yaml".into(), SHOP.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        created(&req(
+            &mut s,
+            "register",
+            OPERATOR,
+            ("Bot", true),
+            json!({"key": "bot"}),
+        ));
+        let order = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"order": order}),
+        ));
+        match req(&mut s, "close_all", "bot", (&order, false), json!({})) {
+            Verdict::InvariantViolated { failures, remedy } => {
+                assert_eq!(failures[0].invariant, "close_taken_by");
+                assert_eq!(failures[0].remedy, Some(Remedy::Delegable));
+                assert_eq!(remedy, Some(Remedy::Delegable));
             }
             other => panic!("{other:?}"),
         }

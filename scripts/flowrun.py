@@ -2097,7 +2097,7 @@ class Runner:
                     elif self.erasure_broke(ctx, obj, n):
                         obj.admissions.add(n)           # an erasure admits what it leaves violated, on that object (§4.13)
                     else:
-                        failures.append((obj, n, self.invariant_remedy(work, x, obj, n, requested)))
+                        failures.append((obj, n, self.invariant_remedy(work, x, obj, n, requested, xn)))
                         conflicting |= self.invariant_objects(work, obj, n)
             if failures:
                 obj, first, remedy = failures[0]
@@ -3055,7 +3055,7 @@ class Runner:
             except Refused as r:
                 raise self.call_refused(r, "group erasure", m.type, member)
 
-    def invariant_remedy(self, work, x, obj, n, requested):
+    def invariant_remedy(self, work, x, obj, n, requested, xn=None):
         """The remedy DESIGN.md §5.5 infers for an invariant that fails, a property of the transition requested:
         `delegable` where it writes a value from the actor that the invariant reads, since another actor taking it can
         pass (ADR-0173); else `self_serviceable` where it takes an input it writes to a value the invariant reads, an
@@ -3095,7 +3095,8 @@ class Runner:
                     reads.add(m)
                 other |= m in (t.get("observations") or {}) or "reference" in (attrs.get(m) or {}) \
                     or m == "referrers" or (m in self.kinds and m not in (t.get("states") or {}))
-        writes, by_actor = self.writes_of(x, obj.type, obj.id == requested or unique_other)
+        writes, by_actor = self.writes_of(x, obj.type, obj.id == requested or unique_other,
+                                          (mine, xn) if xn else None)
         if by_actor & reads:
             return "delegable"
         if writes & reads:
@@ -3135,7 +3136,7 @@ class Runner:
         return any(self.writes_of(x, k, False)[1] & read_by(self.kinds.get(k) or {})
                    for k in set(created(x.get("effect"))) if k in self.kinds)
 
-    def writes_of(self, x, tn, requested):
+    def writes_of(self, x, tn, requested, cascading=None):
         """What transition x writes to an object of type tn, from its inputs and from its actor: to the requested
         object, its inputs and its effect's writes; to an object it creates or calls, one hop away, that step's inputs
         and the effect of the transition the step takes (DESIGN.md §5.5, D547, ADR-0173)."""
@@ -3184,6 +3185,39 @@ class Runner:
             effect(x.get("effect"))
         else:
             caused(x.get("effect"))
+            # a part's transition its whole's cascade takes, one hop away as a call's is: the clause's inputs, and
+            # what that transition's effect writes from the actor (the audit's write path A-04)
+            if cascading:
+                owner, xn = cascading
+
+                def is_a(t, want):
+                    seen = set()
+                    while t and t not in seen:
+                        if t == want:
+                            return True
+                        seen.add(t)
+                        t = (self.kinds.get(t) or {}).get("extends")
+                    return False
+                for end in ((self.kinds.get(owner) or {}).get("attributes") or {}).values():
+                    part = str(end.get("reference") or "").rstrip("[]")
+                    if end.get("aggregation") != "composite" or not part or not is_a(tn, part):
+                        continue
+                    for clause in end.get("cascade") or []:
+                        if xn not in (clause.get("on") or []):
+                            continue
+                        taken = ((self.kinds.get(tn) or {}).get("transitions") or {}).get(clause.get("transition"))
+                        if taken is None:
+                            continue
+                        for name, e in (clause.get("inputs") or {}).items():
+                            read = names_read(parsed(str(e)))
+                            if "inputs" in read:
+                                writes.add(name)
+                            if "actor" in read:
+                                by_actor.add(name)
+                        for st2 in taken.get("effect") or []:
+                            k2 = next(iter(st2))
+                            if k2 in ("assign", "add", "remove") and "actor" in names_read(parsed(st2[k2]["expr"])):
+                                by_actor.add(st2[k2]["location"])
         return writes, by_actor
 
     def erasure_broke(self, ctx, obj, n):

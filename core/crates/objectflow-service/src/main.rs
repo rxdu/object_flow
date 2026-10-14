@@ -2464,7 +2464,20 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 _ => None,
             },
         )??;
-        let told = verdict_told(&c.verdict, Some(&c.told));
+        let mut told = verdict_told(&c.verdict, Some(&c.told));
+        // a check writes nothing: the positions its simulation took, and a
+        // creation's id, the next real request takes for what it writes, so
+        // a satisfied check names none and says them not computed, where it
+        // named them as its own (the audit's write path A-05)
+        if matches!(c.verdict, Verdict::Satisfied { .. }) {
+            told["events"] = json!([]);
+            let mut not = vec!["events"];
+            if req.object_id.is_none() {
+                told["object_id"] = J::Null;
+                not.push("object_id");
+            }
+            told["not_computed"] = json!(not);
+        }
         let told = if opted(&body)? {
             told
         } else {

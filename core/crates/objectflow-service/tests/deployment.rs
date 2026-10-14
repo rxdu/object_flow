@@ -6154,3 +6154,51 @@ fn an_import_killed_midway_leaves_all_or_none() {
         assert_eq!(count(&s), 3000);
     }
 }
+
+/// A satisfied check names no event and no id of its simulation, each said
+/// not computed, which the next real request takes for what it writes; a
+/// check on an object names the object, which is real (the audit's write
+/// path A-05).
+#[test]
+fn a_satisfied_check_names_nothing_it_simulated() {
+    let path = fresh_store("check-names");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish_service(&s);
+    let op = json!({"id": "operator"});
+    let add = json!({"actor": op, "type": "User", "transition": "add",
+                     "inputs": {"login": "ana", "name": "Ana"}});
+    let checked = post(&s, "/v1/check", &add)["verdict"].clone();
+    assert_eq!(
+        (
+            &checked["kind"],
+            &checked["object_id"],
+            &checked["events"],
+            &checked["not_computed"]
+        ),
+        (
+            &json!("satisfied"),
+            &Value::Null,
+            &json!([]),
+            &json!(["events", "object_id"])
+        ),
+        "{checked}"
+    );
+    let ana = post(&s, "/v1/request", &add)["object_id"].clone();
+    let checked = post(
+        &s,
+        "/v1/check",
+        &json!({"actor": op, "object_id": ana, "transition": "leave"}),
+    )["verdict"]
+        .clone();
+    assert_eq!(
+        (&checked["object_id"], &checked["not_computed"]),
+        (&ana, &json!(["events"])),
+        "{checked}"
+    );
+}

@@ -1030,6 +1030,61 @@ def test_a_declaration_without_its_type_is_refused_alike(tee):
     alike(tee)
 
 
+CASCADE_SHOP = """module: shop
+categories: [live, closed]
+types:
+  Bot:
+    description: A bot.
+    tracking: record
+    attributes:
+      key: { type: identity, actor_kind: agent, unique: true }
+    states: { ACTIVE: { category: live }, RETIRED: { category: closed, final: true } }
+    transitions:
+      register: { kind: initial, to: ACTIVE, required_inputs: [key] }
+      retire: { kind: external, from: [ACTIVE], to: RETIRED }
+  Order:
+    description: An order.
+    tracking: record
+    attributes:
+      lines:
+        reference: "Line[]"
+        aggregation: composite
+        opposite: order
+        cascade:
+          - { on: [close_all], transition: close, limit: 200 }
+    states: { OPEN: { category: live }, DONE: { category: closed, final: true } }
+    transitions:
+      open: { kind: initial, to: OPEN }
+      add_line: { kind: internal, from: [OPEN], effect: [ { create: { type: Line, transition: add, inputs: { order: this } } } ] }
+      close_all: { kind: external, from: [OPEN], to: DONE }
+  Line:
+    description: A line of an order.
+    tracking: record
+    attributes:
+      order: { reference: Order, opposite: lines }
+    states: { OPEN: { category: live }, SHUT: { category: closed, final: true } }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [order], only_via: [Order.add_line] }
+      close: { kind: external, from: [OPEN], to: SHUT, taken_by: [human] }
+"""
+
+
+def test_a_taken_by_a_cascade_breaks_names_delegable_alike(tee):
+    """A part's `taken_by` its whole's cascade breaks names `delegable`, as a call's does, alike through both
+    backends, where the cascade was not looked at and the refusal said `unreachable_from_here` (the audit's write path
+    A-04)."""
+    load(tee, "shop", CASCADE_SHOP)
+    tee.found.clear()
+    ask = lambda actor, body: tee.post("/v1/request", {"actor": {"id": actor}, **body})
+    assert ask("operator", {"type": "Bot", "transition": "register", "inputs": {"key": "bot"}})["kind"] == "satisfied"
+    order = ask("operator", {"type": "Order", "transition": "open"})["object_id"]
+    assert ask("operator", {"object_id": order, "transition": "add_line"})["kind"] == "satisfied"
+    v = ask("bot", {"object_id": order, "transition": "close_all"})
+    assert (v["kind"], v["remedy"], v["failures"][0]["remedy"]) == (
+        "invariant_violated", "delegable", "delegable"), v
+    alike(tee)
+
+
 def tiers(tee) -> list:
     page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.tiers",
                                    "keep": ["tier"]})

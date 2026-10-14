@@ -50,7 +50,7 @@ In each table, the keys before a `;` are required and those after it optional; a
 | Operation | Keys | Answers |
 |---|---|---|
 | `request` | `actor`, `transition`; `type` to create, or `object_id`, with `type` beside it to require the object be of that type (else `not_found`); `inputs`, `expected_version`, `target_version`, `idempotency_key`, `occurred_at`, `propose`, `expires_at`, `principal`, `context` | a verdict |
-| `check` | the same | `{"verdict": …, "unevaluated": […]}`: the verdict the request would get, nothing written; `unevaluated` names the conditions whose evaluators it did not ask, whose guards may still refuse the request. A satisfied verdict's `object_id` and `events` are what the request would be given now, and another request may be given them first: never keep them |
+| `check` | the same | `{"verdict": …, "unevaluated": […]}`: the verdict the request would get, nothing written; `unevaluated` names the conditions whose evaluators it did not ask, whose guards may still refuse the request. A satisfied verdict names no `events`, and a creation's no `object_id`, each listed in its `not_computed`: what the request would be given, another request may be given first. A check on an object names that object |
 
 ```json
 POST /v1/request
