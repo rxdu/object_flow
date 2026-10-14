@@ -592,3 +592,27 @@ The minors not given an entry:
 ### What the sixteenth review asks
 
 The author's standing instruction decides what the findings ask (ADR-0203); the majors and the minors that cost little are fixed, then a seventeenth review, or the author's acceptance of what remains.
+
+## 21. The audit by property, after ADR-0204
+
+At commit `698034b`, 2026-10-14, after ADR-0204 replaced the series' bar: six reviewers at once, each owning one area of ADR-0204 §6. Each returned the whole inventory of its area, graded by ADR-0204 §4, with the check that would keep each item held. The inventories are kept in `design/audit/`; the scripts and stores the reviewers used stayed in the session's scratch directory, which is not kept. The reviewers ran the release binary on stores they made, or on the synthetic stores of the provided sizes an earlier operator built; none read the provided stores.
+
+| Area | Blockers | Majors | Minors | Inventory |
+|---|---|---|---|---|
+| Personal data end to end | 13 | 10 | 1 | `audit/personal-data.md` |
+| Rules and the record on the write path | 1 | 12 | 7 | `audit/write-path.md` |
+| Values and agreement | 2 | about 10 | about 20, twelve causes of `not_run` | `audit/values.md` |
+| Cost, pools and robustness | 1 | 7 | several | `audit/cost.md` |
+| Durability, recovery, upgrade, events | 0 | 11, in six classes | about 11 | `audit/durability.md` |
+| The guides and the gateway contract | 0 | 2 | about 24 | `audit/guides.md` |
+
+The counts are the reviewers' grades. Several blockers in personal data are one class, an erased identity's copies, and several reads there are one guard, ADR-0204 decision 9.3's, which was decided and not yet built.
+
+What holds, measured:
+- no acknowledged write lost through repeated kills during writes, approvals, imports and the `-wal`'s cut;
+- events delivered at least once, in each object's order;
+- three-valued logic, money's rounding and aggregates over nothing;
+- the input bounds and the connection cap;
+- the guides' quickstart, first publish, backups and prunes, run as written on deployments.
+
+The audit's decisions are ADR-0205's. The fixes land area by area, each class closed whole and held by a kept check, as `TODO.md` lists them.

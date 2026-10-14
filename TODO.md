@@ -525,12 +525,7 @@ Decided by the author 2026-10-14 ("go with your recommendations on all six"), af
 - [ ] The racer, which needs a store whose writers run at once to find anything (§5).
 
 **C. The audit** (ADR-0204 §6), six areas at once, each returning its whole inventory graded by §4 and delivered as checks.
-- [ ] Personal data end to end. Carries D671 and D682.
-- [ ] Rules and the record on the write path. Carries D669.
-- [ ] Values and agreement. Carries D687 and F5-REST.
-- [ ] Cost, pools and robustness, against C5. Carries D656 and D688.
-- [ ] Durability, recovery, upgrade, events and release. Carries D689.
-- [ ] The guides and the gateway contract.
+- [x] The six areas audited at `698034b`. *Done 2026-10-14: the inventories in `docs/design/audit/`, summarised in `production-review.md` §21; their decisions ADR-0205.*
 
 **D. The author's decisions** (ADR-0204 §9).
 - [ ] The personal-read opt-in, a guard that reads no actor, replacing ADR-0201 decision 4 and ADR-0202 decision 3, before 1.0.0: its ADR, then its build.
@@ -539,6 +534,42 @@ Decided by the author 2026-10-14 ("go with your recommendations on all six"), af
 - [ ] C5 on the six-year store at the profile: one-object reads within 100 ms and metric reads within 1 s at p95, or each miss accepted by name.
 
 **E. The fixes,** area by area, each class closed whole, mutation-tested, the gates run after each area; every fix that refuses what 0.2.0 accepted listed (ADR-0204 §11).
+
+*Values* (`audit/values.md`, ADR-0205 decisions 1 and 2):
+- [ ] A value written at its column's kind and scale: an integer to a decimal (W1), a decimal to an integer (W2), a value of another type refused (W3), the store refusing a value its column does not hold.
+- [ ] A quotient rounded once at the target's scale, a literal at its operand's (W4, A1); a decimal comparison exact (A3, A4).
+- [ ] Failed arithmetic refused, never unknown, in reads, filters, invariants, guards, loops and metrics (U1 to U5); §8.2 and `wire.md` rewritten.
+- [ ] `any`, `none` and `count` reading their body (G1); `time_in` of a non-state (G2); silent rounding of a written decimal, amount and duration (W5, L1, L2).
+- [ ] The checkers refuse what the engine does not run, by cause (K-1 to K-12, D687); a gate from the audit's differential battery against the reference runner.
+
+*Identities, the record and personal reads* (`audit/personal-data.md`, `audit/write-path.md`, ADR-0205 decisions 3 to 6 and 11):
+- [ ] An erased identity replaced in every case and every copy: sets, proposals, attempts, consulted keys, corrections, a version's approver (S16 to S23).
+- [ ] Decision 9.3's guard over every read that lets a personal value be inferred (R3 to R8, R15 to R17).
+- [ ] The idempotency key's two digests (K-01 to K-03); an identity written only at creation (I-01); D669 refused at publish (I-02, A3); a backfill's identity checked (I-03).
+- [ ] `type` beside an id held for proposals and changes (R-01); rules on every route: `whole_open`, `not_erased`, `only_via`'s converse, an import's refresh (R-02 to R-05).
+- [ ] The record: an event for every object an erasure redacts (A-01, A-03), an attempt for a refused publish (A-02), and the minors (A-04 to A-06, K-04, R-06).
+- [ ] Personal values kept by retired types, identifiers, sequences' scopes and admissions' reasons (S14, S26 to S29); the guides' sentences (G3, R12, R13).
+
+*Durability and events* (`audit/durability.md`, ADR-0205 decisions 7 to 10):
+- [ ] A restore advances every counter and refuses cursors in the gap.
+- [ ] A store found bad latches (D688).
+- [ ] The intervals export's tombstones, with their migration.
+- [ ] Subscriptions checked as they are made (D689).
+- [ ] A start refused before the store is touched; an erasure's pending `-wal` cut taken at open; the minors.
+- [ ] The 0.2.0-to-1.0.0 upgrade: its release entry, a fixture from the last 0.2.0 commit, every recorded flow version loadable.
+
+*Cost* (`audit/cost.md`, ADR-0205 decisions 12 to 17):
+- [ ] Per-object constructs over growing sets read by index and pooled (B1).
+- [ ] Metric reads within C5 at the profile (B2, B3, B7), or each miss brought to the author by name.
+- [ ] The urgent `-wal` cut stopping only the pools that did not drain (E4).
+- [ ] A metric filter's bounds and attempt counts by key (B5, B6).
+- [ ] A read stops when its client goes (D656, D5).
+- [ ] The writer's cost per commit, measured and reduced (A1); the minors.
+
+*The guides* (`audit/guides.md`):
+- [ ] The restore instruction the service prints and `operate.md` gives (G-83); identity examples (G-27).
+- [ ] `scripts/check-guides.py` running every `operate.md` and `integrate.md` procedure on a deployment.
+- [ ] The minors, each sentence or example corrected.
 
 **F. The release gate** (ADR-0204 §7, §8).
 - [ ] The version raised to 1.0.0 with its release entry and a 0.2.0-to-1.0.0 upgrade fixture.

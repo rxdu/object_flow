@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-14 on the author's standing instruction, "keep the bar and continue the loop", each decision the recommendation stated here; built the same day
 - **Date:** 2026-10-14
+- **Refined by:** ADR-0205 — an erased identity replaced in sets, proposals, attempts, corrections and a version's approver too.
 - **Refines:** ADR-0202 decision 1 (where an erased actor's identity is replaced); ADR-0148 and ADR-0106 (no metric reads a personal value); ADR-0201 decision 4 (a filter by a personal member)
 - **Relates to:** `design/production-review.md` §20; `guides/operate.md`; `guides/errors.md`
 

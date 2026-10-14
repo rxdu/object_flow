@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-14 by the author. Proposed the same day, it was critiqued by an independent reviewer, and the author accepted the six recommendations made from that critique ("go with your recommendations on all six"). It is written here as revised by the critique.
 - **Date:** 2026-10-14
+- **Refined by:** ADR-0205 — decisions 9.3 and 9.4 widened by the audit.
 - **Supersedes:** ADR-0183 decision 1, the bar of a production review that finds no blocker and no major
 - **Relates to:**
   - ADR-0180 (what a release promises); ADR-0183 (the production review, the release workflow, `/metrics`' names); ADR-0174, ADR-0178, ADR-0197 and ADR-0199 (the limits of section 10); ADR-0201 decision 4 and ADR-0202 decision 3 (the read guards this ADR replaces);
