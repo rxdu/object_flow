@@ -187,7 +187,7 @@ There is no push: a consumer polls `pull` and acknowledges what it has handled.
 |---|---|---|
 | `publish` | `actor`, `change`; `dry_run`, `expected_version` | `{"verdict": …, "report": {…}}`: a `DeclarationChange`'s dry run and impact report (`"dry_run": true`), or its approval at the version read, which installs the new version. An approver of a kind the installed version's `publishing.taken_by` does not name, the operator excepted, is refused `invariant_violated`, `publish_taken_by`, `delegable`. |
 | `import_batch` | `actor`, `batch`; `disposition`, `dry_run` | `{"written": …, "findings": […], "refused_types": […], "refusal": …}` |
-| `maintain` | `actor`, `task` | `{"moved": …, "refused": …}`. `task` is `{"name": "prune_attempts" \| "prune_idempotency" \| "archive_events", "before": "<timestamp>"}`. |
+| `maintain` | `actor`, `task` | `{"moved": …, "refused": …}`. `task` is `{"name": "prune_attempts" \| "prune_idempotency" \| "archive_events", "before": "<timestamp>"}`, or `{"name": "rebuild_indexes"}`, which rebuilds every index once an erasure has been recorded since the last rebuild, `moved` the number rebuilt. |
 
 A **change** is an object: `{"type": "DeclarationChange", "transition": "draft", "inputs": {"source": {"<module>": "<its YAML>", "<module>.examples": "<its examples>"}, "source_ref": "git:…"}}`, then `submit`, which runs the dry run, then `publish` with `expected_version` to approve it. [`publish-and-import.md`](../design/publish-and-import.md) is the whole procedure.
 

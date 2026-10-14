@@ -376,13 +376,16 @@ POST /v1/maintain
 
 `prune_idempotency` works the same way. A prune inside the retention is refused `inside_retention`, and one for a task the service has no retention for, `no_retention`, each answered `200` with its reason in `refused`. The event log is kept whole: `archive_events` answers `501`. A prune of 15,000 attempts took 0.1 s.
 
+`rebuild_indexes` takes no `before`. Once an erasure has been recorded since the last rebuild, it rebuilds every index, so a value an erasure removed that an index page's free space kept is gone (below, Personal data on disk); with none recorded, it does nothing. It answers `moved`, the number of indexes rebuilt. It rebuilds them one at a time, each taking the writer alone: on a six-year store, 61 indexes took 4.1 s in all and the longest 0.6 s, which is the most a write waits for it.
+
 Run both daily, `before` set to the retention's edge. A script, installed as `/usr/local/bin/objectflow-prune`, `0755`, its retentions those of the unit above, which fails where a prune is refused:
 
 ```sh
 #!/bin/sh
 # Prunes refused attempts and idempotency records past the retentions the
-# service runs with (operate.md, Housekeeping); fails where a prune is
-# refused, which the service answers 200 with its reason.
+# service runs with, and rebuilds the indexes after an erasure (operate.md,
+# Housekeeping); fails where a task is refused, which the service answers
+# 200 with its reason.
 set -eu
 SOCK=${SOCK:-/run/objectflow/objectflow.sock}
 prune() {
@@ -395,6 +398,11 @@ prune() {
 }
 prune prune_attempts "${ATTEMPTS:-90 days}"
 prune prune_idempotency "${KEYS:-30 days}"
+said=$(curl -sf --unix-socket "$SOCK" http://localhost/v1/maintain \
+  -H 'Content-Type: application/json' \
+  -d '{"actor": {"id": "operator"}, "task": {"name": "rebuild_indexes"}}')
+echo "rebuild_indexes: $said"
+case "$said" in *'"refused":null'*) ;; *) exit 1 ;; esac
 ```
 
 and a pair of units that runs it:
@@ -431,7 +439,7 @@ An erasure overwrites what it erased in the store's file and truncates the `-wal
 
 What an erasure reaches is what the flow marks `personal`, and nothing else. Free text in inputs not marked `personal`, and a request's `context`, keep what was typed, refused attempts included. Where an actor's identity attribute is `personal`, erasing the actor replaces its identity with its object id, in any case of its letters, wherever the engine records an actor and wherever a value of type `identity` holds it, however it got there: an attribute, a set, an event's and a proposal's inputs, a refused request's, a correction's record, a guard's consulted key and the approver of a version. An identity sent in an input of another type, a `string`, keeps what was sent: declare such inputs `identity`, or mark them `personal`. `history`, `events`, `pull` and `export` answer each event's actor by its identity, every other value of type `identity`, and each guard's `consulted` values, until then: where identities are personal, filter `actor_id`, every value of type `identity` and `consulted` from what you pass on, or give actors opaque identities.
 
-SQLite overwrites what an erasure removes, but a value an index entry held may stay in a page's free space after the entry moves: 14 copies of an erased address were found in one index page after 4,000 rows holding it were rewritten. Nothing reads them through the service. To leave the file holding none, `VACUUM` the store with the service stopped, which writes it afresh, and keep backups encrypted. Better: give actors opaque identities, such as an employee number, never an email or a name, written in one Unicode form (the engine compares identities as written, ignoring only the case of ASCII letters).
+SQLite overwrites what an erasure removes, but a value an index entry held may stay in a page's free space after the entry moves: 14 copies of an erased address were found in one index page after 4,000 rows holding it were rewritten. Nothing reads them through the service. The daily housekeeping above rebuilds every index after an erasure, `maintain`'s `rebuild_indexes`, so none is left past a day; `VACUUM` with the service stopped writes the whole file afresh as well. Keep backups encrypted. Better: give actors opaque identities, such as an employee number, never an email or a name, written in one Unicode form (the engine compares identities as written, ignoring only the case of ASCII letters).
 
 A restore brings back what was erased after the backup was taken, so keep a record of erasure requests, outside the store, and ask again for each one made since the backup's time once a restore is serving.
 

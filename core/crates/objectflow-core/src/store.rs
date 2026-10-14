@@ -73,6 +73,10 @@ pub const BUSY: &str = "busy";
 /// timeout is begun again before it is given up (ADR-0178 decision 2).
 pub const BUSY_RETRIES: i64 = 3;
 
+/// The `of_counter` row holding the last erasure's position the indexes
+/// were rebuilt past (ADR-0204 decision 9.5).
+const INDEXES_REBUILT: &str = "indexes_rebuilt";
+
 thread_local! {
     /// How many groups of requests this thread has committed (ADR-0208).
     static GROUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
@@ -2901,6 +2905,78 @@ impl Store {
     /// state or history, and returns the rows it moved or removed. Archiving
     /// events, a tiering of the log a single SQLite file has none of, is not
     /// run.
+    /// The indexes a rebuild covers, and the last erasure's position it
+    /// covers (ADR-0204 decision 9.5): every index the store's tables
+    /// carry, its own and its types', none of SQLite's own, by name, so an
+    /// erased value an index page's free space kept is gone once each is
+    /// rebuilt; none where no erasure has been recorded since the last
+    /// rebuild. Refused, as `maintain` is, for an actor the store does not
+    /// know or whose object is in a final state.
+    pub fn indexes_to_rebuild(
+        &mut self,
+        actor: &str,
+    ) -> Stored<Result<(Vec<String>, i64), &'static str>> {
+        {
+            let world = self.snapshot()?;
+            match crate::request::active(resolve_actor(&world, actor)?) {
+                Ok(_) => {}
+                Err(Verdict::Unsatisfied { clause, .. }) if clause == "actor_active" => {
+                    return Ok(Err("actor_active"));
+                }
+                Err(_) => return Ok(Err("actor_known")),
+            }
+        }
+        let covered: i64 = self
+            .conn
+            .query_row(
+                "SELECT value FROM of_counter WHERE name = ?1",
+                params![INDEXES_REBUILT],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        let erased: i64 = self.conn.query_row(
+            "SELECT COALESCE(max(position), 0) FROM of_event WHERE source = 'erased'",
+            [],
+            |r| r.get(0),
+        )?;
+        if erased <= covered {
+            return Ok(Ok((Vec::new(), covered)));
+        }
+        let names = self
+            .conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY name",
+            )?
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Ok((names, erased)))
+    }
+
+    /// One index rebuilt, in a transaction of its own, so a rebuild of
+    /// every index holds the writer for one at a time (ADR-0204 decision
+    /// 9.5): its pages written anew, and the old ones freed, which
+    /// `secure_delete` zeroes.
+    pub fn rebuild_index(&mut self, name: &str) -> Stored<()> {
+        let (tx, _) = begin_write!(self);
+        tx.execute_batch(&format!("REINDEX {}", quote(name)))?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The erasures a rebuild covered, through the position given, recorded
+    /// so the next finds nothing to do until another erasure.
+    pub fn indexes_rebuilt(&mut self, through: i64) -> Stored<()> {
+        let (tx, _) = begin_write!(self);
+        tx.execute(
+            "INSERT INTO of_counter (name, value) VALUES (?1, ?2) \
+             ON CONFLICT (name) DO UPDATE SET value = max(value, excluded.value)",
+            params![INDEXES_REBUILT, through],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn maintain(
         &mut self,
         actor: &str,

@@ -2682,6 +2682,30 @@ async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
 async fn maintain(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answering(move || {
         let task = object(&body, "task")?.map(|_| &body["task"]);
+        // the indexes rebuilt, one at a time, the writer taken for each
+        // alone, so writes wait at most one index's rebuild, 0.6 s on the
+        // six-year store, where the whole took 5.2 s (ADR-0204 decision 9.5)
+        if let (Some(actor), Some("rebuild_indexes")) = (
+            actor_id(&body)?,
+            task.map(|t| text(t, "name")).transpose()?.flatten(),
+        ) {
+            let (indexes, through) = {
+                let mut sandbox = locked(&shared)?;
+                match store(&mut sandbox)?.indexes_to_rebuild(actor)? {
+                    Ok(due) => due,
+                    Err(why) => return Ok(Json(json!({ "moved": 0, "refused": why }))),
+                }
+            };
+            for name in &indexes {
+                let mut sandbox = locked(&shared)?;
+                store(&mut sandbox)?.rebuild_index(name)?;
+            }
+            if !indexes.is_empty() {
+                let mut sandbox = locked(&shared)?;
+                store(&mut sandbox)?.indexes_rebuilt(through)?;
+            }
+            return Ok(Json(json!({ "moved": indexes.len(), "refused": J::Null })));
+        }
         let (Some(actor), Some(name), Some(before)) = (
             actor_id(&body)?,
             task.map(|t| text(t, "name")).transpose()?.flatten(),

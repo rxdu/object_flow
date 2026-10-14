@@ -528,10 +528,10 @@ Decided by the author 2026-10-14 ("go with your recommendations on all six"), af
 - [x] The six areas audited at `698034b`. *Done 2026-10-14: the inventories in `docs/design/audit/`, summarised in `production-review.md` §21; their decisions ADR-0205.*
 
 **D. The author's decisions** (ADR-0204 §9).
-- [ ] The personal-read opt-in, a guard that reads no actor, replacing ADR-0201 decision 4 and ADR-0202 decision 3, before 1.0.0: its ADR, then its build.
-- [ ] A restore advances every counter past a margin: its ADR, then its build.
-- [ ] A `maintain` task rebuilding the indexes an erasure touched, measured, and its timer in `operate.md`.
-- [ ] C5 on the six-year store at the profile: one-object reads within 100 ms and metric reads within 1 s at p95, or each miss accepted by name.
+- [x] The personal-read opt-in, a guard that reads no actor, replacing ADR-0201 decision 4 and ADR-0202 decision 3, before 1.0.0: its ADR, then its build. *Done 2026-10-14: ADR-0206, built in `37e8825`.*
+- [x] A restore advances every counter past a margin: its ADR, then its build. *Done 2026-10-14: ADR-0207, built in `99e0e0b`.*
+- [x] A `maintain` task rebuilding the indexes an erasure touched, measured, and its timer in `operate.md`. *Done 2026-10-15: `rebuild_indexes`, every index once an erasure is recorded since the last, one a writer's turn; measured on the six-year store, 61 indexes in 4.1 s, the longest 0.6 s, the whole at once 5.2 s; run by `operate.md`'s daily housekeeping; held by `indexes_are_rebuilt_after_an_erasure` and two mutants (F3).*
+- [ ] C5 on the six-year store at the profile: one-object reads within 100 ms and metric reads within 1 s at p95, or each miss accepted by name. *Measured 2026-10-15: one-object reads hold (p95 under 10 ms); metric reads miss, brought to the author as question 16.*
 
 **E. The fixes,** area by area, each class closed whole, mutation-tested, the gates run after each area; every fix that refuses what 0.2.0 accepted listed (ADR-0204 §11).
 

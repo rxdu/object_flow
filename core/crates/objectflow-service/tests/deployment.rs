@@ -6202,3 +6202,62 @@ fn a_satisfied_check_names_nothing_it_simulated() {
         "{checked}"
     );
 }
+
+/// `maintain`'s `rebuild_indexes` rebuilds every index once an erasure has
+/// been recorded since the last rebuild, one at a time, so an erased value
+/// an index page's free space kept is gone, and does nothing otherwise; an
+/// actor the store does not know is refused as `maintain` refuses one
+/// (ADR-0204 decision 9.5, the audit's personal data F3).
+#[test]
+fn indexes_are_rebuilt_after_an_erasure() {
+    let file = fresh_store("rebuild");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish(
+        &s,
+        &json!({"people": example("people.yaml"), "servicedesk": example("servicedesk.yaml")}),
+    );
+    let op = json!({"id": "operator"});
+    let rebuild = |actor: &Value| {
+        post(
+            &s,
+            "/v1/maintain",
+            &json!({"actor": actor, "task": {"name": "rebuild_indexes"}}),
+        )
+    };
+    assert_eq!(rebuild(&op), json!({"moved": 0, "refused": null}));
+    let imported = post(
+        &s,
+        "/v1/import_batch",
+        &json!({"actor": op, "batch": {"objects": [{"type": "Employee", "legacy_key": "E-1",
+                "state": "EMPLOYED", "attributes": {"employee_id": "1", "name": "Ana Example"}}]}}),
+    );
+    assert_eq!(imported["written"], json!(1), "{imported}");
+    let id = post(
+        &s,
+        "/v1/lookup",
+        &json!({"source": "legacy", "value": "Employee:E-1"}),
+    )["id"]
+        .clone();
+    let erased = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": id, "transition": "forget", "inputs": {"reason": "asked"}}),
+    );
+    assert_eq!(erased["kind"], "satisfied", "{erased}");
+    let done = rebuild(&op);
+    assert!(done["refused"].is_null(), "{done}");
+    assert!(done["moved"].as_u64().unwrap_or(0) > 10, "{done}");
+    assert_eq!(rebuild(&op), json!({"moved": 0, "refused": null}));
+    assert_eq!(
+        rebuild(&json!({"id": "nobody"})),
+        json!({"moved": 0, "refused": "actor_known"})
+    );
+    let got = post(&s, "/v1/get", &json!({"actor": op, "id": id}));
+    assert_eq!(got["state"], json!("EMPLOYED"), "{got}");
+}

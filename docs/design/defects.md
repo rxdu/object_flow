@@ -4399,7 +4399,7 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 ### D682
 **An erased value stayed in an index page's free space**: after 4,000 rows holding an erased address were rewritten, 14 copies stayed in one index page's free gap despite `secure_delete`; nothing reads them through the service. Found 2026-10-14 by the sixteenth production review's adversary.
 
-**Resolved** 2026-10-14: `operate.md` says a `VACUUM` with the service stopped leaves none, measured on a copy where 929 such copies became none (ADR-0203 decision 4).
+**Resolved** 2026-10-14: `operate.md` says a `VACUUM` with the service stopped leaves none, measured on a copy where 929 such copies became none (ADR-0203 decision 4). Since 2026-10-15 `maintain`'s `rebuild_indexes`, which `operate.md`'s daily housekeeping runs, rebuilds every index after an erasure with the service running, one a writer's turn (ADR-0204 decision 9.5).
 
 ### D683
 **A page's memory followed what it read, unsaid**: a 9.8 MB page of text-heavy objects took 145 MB, twelve at once 1.1 GB. Found 2026-10-14 by the sixteenth production review's adversary.
