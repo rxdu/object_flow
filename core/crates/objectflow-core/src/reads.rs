@@ -111,11 +111,10 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
     // with, read from that approval's attempt row and never stored, since
     // the refusal records no event on it (DESIGN.md §9, ADR-0157)
     if o.type_ == crate::model::PROPOSAL {
-        let refused = world
-            .attempts()?
-            .iter()
-            .rev()
-            .find(|a| a.proposal.as_deref() == Some(id));
+        // its approvals' attempts by their index, where it read the whole
+        // attempt log (the audit's cost B14)
+        let proposing = world.attempts_proposing(id)?;
+        let refused = proposing.last();
         derived.push((
             "last_verdict".into(),
             refused.map_or(Value::Absent, |a| {
@@ -519,6 +518,31 @@ fn calls_metric(e: &Expr) -> bool {
     matches!(e, Expr::Metric { .. }) || e.children().into_iter().any(calls_metric)
 }
 
+/// Why a reader's filter costs more than a read takes, the reason a
+/// `malformed_filter` refusal gives, or none: it calls a metric, holds more
+/// than [`FILTER_NODES`] terms, nests aggregates deeper than
+/// [`FILTER_AGGREGATES`] or writes a set of more than [`FILTER_MEMBERS`]. A
+/// query's filter and a metric's take the same bounds (ADR-0190, ADR-0192,
+/// ADR-0205 decision 15).
+pub(crate) fn filter_cost(e: &Expr) -> Option<String> {
+    if calls_metric(e) {
+        return Some(
+            "it calls a metric, which a filter does not: a metric read per row ran to the read's deadline; read the metric itself (ADR-0192)".to_string(),
+        );
+    }
+    if nodes(e) > FILTER_NODES {
+        return Some(format!(
+            "it holds more than {FILTER_NODES} terms; a long list of alternatives is written as a set, `number in {{\"C-1\", \"C-2\"}}` (ADR-0192)"
+        ));
+    }
+    if costly(e) {
+        return Some(format!(
+            "it nests aggregates more than {FILTER_AGGREGATES} deep or writes a set of more than {FILTER_MEMBERS} members (ADR-0190)"
+        ));
+    }
+    None
+}
+
 /// Whether a filter nests aggregates deeper, or writes a larger set, than a
 /// query takes.
 fn costly(e: &Expr) -> bool {
@@ -751,6 +775,11 @@ pub enum ObjectRead {
 /// transition waited, 25.5 s behind per-person metrics (fourteenth
 /// production review).
 pub fn grows_with_store(lib: &Library, type_: &str, what: ObjectRead) -> bool {
+    // a proposal's read carries the verdict its approvals' attempts left it
+    // with (B14)
+    if type_ == crate::model::PROPOSAL {
+        return true;
+    }
     let growing = growing_derived(lib);
     let Some(t) = lib.type_(type_) else {
         return false;
@@ -774,10 +803,22 @@ pub fn grows_with_store(lib: &Library, type_: &str, what: ObjectRead) -> bool {
 }
 
 /// Whether an expression reads what grows with the store itself: a metric,
-/// a type scan by a type's name, or the objects referring to one.
+/// a type scan by a type's name, or the objects referring to one; or what
+/// grows with one object's life, read by an index: its transitions, its
+/// attempts, its declaration version and an observation collection, which
+/// a rule of one object's read the whole log, attempt log or kind for (the
+/// audit's cost B1, ADR-0205 decision 12).
 fn wide(lib: &Library, e: &Expr) -> bool {
+    let growing_member = |m: &str| {
+        matches!(m, "transitions" | "attempts" | "declaration_version")
+            || lib
+                .types
+                .values()
+                .any(|t| t.observations.iter().any(|(c, _)| c == m))
+    };
     match e {
         Expr::Metric { .. } => true,
+        Expr::Name(n) | Expr::Path(_, n) if growing_member(n) => true,
         // a type scan: an aggregate over a type's objects by its name
         Expr::Agg {
             collection: Some(c),
@@ -1001,20 +1042,8 @@ pub fn query_page(
                 "it writes a set within a set, which no member holds (ADR-0192)".to_string(),
             );
         }
-        Some(Ok(e)) if calls_metric(&e) => {
-            return malformed(
-                "it calls a metric, which a query filter does not: a metric read per object ran to the read's deadline; read the metric itself (ADR-0192)".to_string(),
-            );
-        }
-        Some(Ok(e)) if nodes(&e) > FILTER_NODES => {
-            return malformed(format!(
-                "it holds more than {FILTER_NODES} terms; a long list of alternatives is written as a set, `number in {{\"C-1\", \"C-2\"}}` (ADR-0192)"
-            ));
-        }
-        Some(Ok(e)) if costly(&e) => {
-            return malformed(format!(
-                "it nests aggregates more than {FILTER_AGGREGATES} deep or writes a set of more than {FILTER_MEMBERS} members (ADR-0190)"
-            ));
+        Some(Ok(e)) if filter_cost(&e).is_some() => {
+            return malformed(filter_cost(&e).unwrap_or_default());
         }
         Some(Ok(e)) if literal_out_of_range(world, t, &e)? => {
             return malformed("it holds a literal past what its type holds".to_string());
@@ -1827,6 +1856,181 @@ mod tests {
     use crate::request::{Request, request};
     use crate::store::Store;
     use serde_json::json;
+
+    /// One object's rules reading its transitions, its attempts, its
+    /// declaration version or an observation collection read each by an
+    /// index in a `get`, an `availability` and a `check`, never the whole
+    /// log, the whole attempt log or the kind, and give what the whole read
+    /// gave; each is classed as growing, so those reads wait in a pool (the
+    /// audit's cost B1 and B14, ADR-0205 decision 12).
+    #[test]
+    fn an_objects_rules_read_its_own_by_index_and_wait_in_a_pool() {
+        let text = "\nmodule: grown\ncategories: [live]\ntypes:\n  Job:\n    attributes:\n      title: { type: string, optional: true }\n    derived_attributes:\n      moves: { expression: count(t in this.transitions) }\n      tries: { expression: count(a in this.attempts) }\n      version: { expression: this.declaration_version }\n      read: { expression: count(r in this.readings) }\n    states:\n      ON: { category: live }\n    conditions:\n      few: { expression: count(t in this.transitions) < 2, remedy: dependent }\n    transitions:\n      open: { kind: initial, to: ON, optional_inputs: [title] }\n      note: { kind: internal, from: [ON], guards: { few: deny }, optional_inputs: [title] }\n    observations:\n      readings:\n        kind: Reading\n        description: A reading.\n        attributes:\n          level: { type: int }\n  Plain:\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON }\n";
+        let lib = Library::load(&[("grown.yaml".into(), text.into())]).unwrap();
+        for what in [ObjectRead::Get, ObjectRead::Availability, ObjectRead::Check] {
+            assert!(grows_with_store(&lib, "Job", what));
+            assert!(!grows_with_store(&lib, "Plain", what));
+            assert!(grows_with_store(&lib, crate::model::PROPOSAL, what));
+        }
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask =
+            |s: &mut Store, tn: &str, xn: &str, id: Option<&str>, inputs: serde_json::Value| {
+                let r = Request {
+                    transition: xn.into(),
+                    actor: OPERATOR.into(),
+                    object_id: id.map(str::to_string),
+                    type_: id.is_none().then(|| tn.to_string()),
+                    inputs: inputs
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect(),
+                    occurred_at: None,
+                    propose: false,
+                    expires_at: None,
+                    expected_version: None,
+                    target_version: None,
+                    principal: None,
+                    idempotency_key: None,
+                    context: None,
+                };
+                request(s, &r).unwrap().unwrap()
+            };
+        let mut jobs = Vec::new();
+        for _ in 0..3 {
+            let crate::verdict::Verdict::Satisfied { object_id, .. } =
+                ask(&mut s, "Job", "open", None, json!({}))
+            else {
+                panic!("not opened")
+            };
+            ask(&mut s, "", "note", Some(&object_id), json!({"title": "a"}));
+            // refused, its transitions now two: an attempt on it
+            ask(&mut s, "", "note", Some(&object_id), json!({"title": "b"}));
+            ask(
+                &mut s,
+                "Reading",
+                "record",
+                None,
+                json!({"subject": object_id, "level": 3}),
+            );
+            jobs.push(object_id);
+        }
+        let job = &jobs[1];
+        let before = (
+            crate::world::whole_log_reads(),
+            crate::world::whole_attempt_reads(),
+            crate::world::whole_type_reads("Reading"),
+        );
+        let w = s.snapshot().unwrap();
+        let view = get(&w, job).unwrap().unwrap();
+        let derived: BTreeMap<String, Value> = view.derived.iter().cloned().collect();
+        assert_eq!(
+            (
+                &derived["moves"],
+                &derived["tries"],
+                &derived["version"],
+                &derived["read"]
+            ),
+            (
+                &Value::Int(2),
+                &Value::Int(1),
+                &Value::Int(1),
+                &Value::Int(1)
+            )
+        );
+        assert!(availability(&w, OPERATOR, job).unwrap().is_some());
+        drop(w);
+        let checked = crate::request::check(
+            &mut s,
+            &Request {
+                transition: "note".into(),
+                actor: OPERATOR.into(),
+                object_id: Some(job.clone()),
+                type_: None,
+                inputs: BTreeMap::new(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            },
+        )
+        .unwrap();
+        assert!(checked.is_ok());
+        assert_eq!(
+            (
+                crate::world::whole_log_reads(),
+                crate::world::whole_attempt_reads(),
+                crate::world::whole_type_reads("Reading"),
+            ),
+            before
+        );
+    }
+
+    /// A proposal's read carries the verdict its last refused approval left
+    /// it with, read from its approvals' attempts by their index, never the
+    /// whole attempt log (the audit's cost B14).
+    #[test]
+    fn a_proposals_last_verdict_reads_its_attempts_by_index() {
+        let text = "\nmodule: memo\ncategories: [live]\ntypes:\n  Doc:\n    attributes:\n      n: { type: int, optional: true }\n    states:\n      ON: { category: live }\n    conditions:\n      small: { expression: inputs.n < 3, remedy: self_serviceable }\n    transitions:\n      make: { kind: initial, to: ON }\n      grow: { kind: internal, from: [ON], proposable: true, required_inputs: [n], guards: { small: deny } }\n";
+        let lib = Library::load(&[("memo.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask = |s: &mut Store,
+                   xn: &str,
+                   tn: Option<&str>,
+                   id: Option<&str>,
+                   inputs: serde_json::Value,
+                   propose: bool| {
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: id.map(str::to_string),
+                type_: tn.map(str::to_string),
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            request(s, &r).unwrap().unwrap()
+        };
+        let crate::verdict::Verdict::Satisfied { object_id: doc, .. } =
+            ask(&mut s, "make", Some("Doc"), None, json!({}), false)
+        else {
+            panic!("no doc")
+        };
+        let crate::verdict::Verdict::Satisfied {
+            object_id: proposal,
+            ..
+        } = ask(&mut s, "grow", None, Some(&doc), json!({"n": 5}), true)
+        else {
+            panic!("not proposed")
+        };
+        let refused = ask(&mut s, "approve", None, Some(&proposal), json!({}), false);
+        assert!(
+            !matches!(refused, crate::verdict::Verdict::Satisfied { .. }),
+            "{refused:?}"
+        );
+        let before = crate::world::whole_attempt_reads();
+        let w = s.snapshot().unwrap();
+        let view = get(&w, &proposal).unwrap().unwrap();
+        let derived: BTreeMap<String, Value> = view.derived.iter().cloned().collect();
+        assert!(!derived["last_verdict"].is_absent(), "{derived:?}");
+        assert_eq!(crate::world::whole_attempt_reads(), before);
+    }
 
     /// A page of `available` reads from its cursor a chunk at a time, to the
     /// page and one more, where each page read every object in the

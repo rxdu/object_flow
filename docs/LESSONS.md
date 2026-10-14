@@ -757,3 +757,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A new deployment test named its store `restored`, as an older test already did. Tests run at once in one process and share the store's path, so the two collided and one failed now and then. It passed alone, which looked like a flaky test rather than a fault of the new one.
 - **Correction:** Give each test's store a name of its own, and check for a repeated name when adding a test: `grep 'fresh_store("' … | sort | uniq -d`.
 - **Context:** `objectflow-service/tests/deployment.rs`; 2026-10-14.
+
+### A test rewritten by an unchecked replace
+- **Pattern:** A probe was turned into the real test by string replacements on its text. One, its final `eprintln!` into an assertion, matched nothing, since the formatter had reflowed the line, and the replace raised nothing. The test asserted nothing and passed; only a mutant disabling the behaviour it was for showed it.
+- **Correction:** Every scripted edit checks that its target occurs exactly once, inside helper loops as well as at the top; a new test is trusted once a mutant of what it holds has made it fail.
+- **Context:** Python edit scripts over rustfmt-formatted Rust; `objectflow-service`'s unit tests; 2026-10-14.

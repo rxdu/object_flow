@@ -66,10 +66,23 @@ pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Result<Vec<V
             )
             .collect()
     };
+    // each key's count found by the key, where each attempt searched every
+    // count before it, quadratic in the keys; the family's attempts read by
+    // their type's index, never the whole attempt log; and the read's
+    // deadline looked at as it goes (the audit's cost B5, ADR-0205 decision
+    // 15). The keys' members are text, flags, numbers and a day, whose
+    // printed forms are equal exactly where they are.
     let mut counts: Vec<(Vec<Value>, i64)> = Vec::new();
-    let mut add = |key: Vec<Value>, n: i64| match counts.iter_mut().find(|(k, _)| *k == key) {
-        Some((_, c)) => *c += n,
-        None => counts.push((key, n)),
+    let mut found: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut add = |key: Vec<Value>, n: i64| {
+        let printed = format!("{key:?}");
+        match found.get(&printed) {
+            Some(&i) => counts[i].1 += n,
+            None => {
+                found.insert(printed, counts.len());
+                counts.push((key, n));
+            }
+        }
     };
     for (f, n) in world.rollup()? {
         if matches!(f.get("type"), Some(Value::Text(t)) if world.lib.is_a(t, owner)) {
@@ -79,15 +92,16 @@ pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Result<Vec<V
             );
         }
     }
-    for a in world
-        .attempts()?
-        .iter()
-        .filter(|a| a.type_.as_deref().is_some_and(|t| world.lib.is_a(t, owner)))
-    {
-        let Value::Row(f) = attempt_row(world, a)? else {
-            continue;
-        };
-        add(key_of(Value::Date(a.at.div_euclid(86_400)), &f), 1);
+    for t in world.family(owner).iter() {
+        for (i, a) in world.attempts_of_type(t)?.iter().enumerate() {
+            if i % 1024 == 0 {
+                world.due()?;
+            }
+            let Value::Row(f) = attempt_row(world, a)? else {
+                continue;
+            };
+            add(key_of(Value::Date(a.at.div_euclid(86_400)), &f), 1);
+        }
     }
     Ok(counts
         .into_iter()
@@ -934,6 +948,31 @@ impl<'w> Reader<'w> {
                 by_kind: "created_by_kind",
             });
         }
+        if source == "attempts" || source == "attempt_counts" {
+            // the rows of the family's types, read by the index on their
+            // type, and never the owner's objects, which they do not read,
+            // where each read the type whole and the whole attempt log (the
+            // audit's cost B4, B5); a row of no type, an unknown id's, is
+            // none of them (DESIGN.md §7)
+            if source == "attempt_counts" {
+                return Ok(Rows {
+                    rows: attempt_count_rows(world, owner)?,
+                    kind: Kind::AttemptCount(owner.to_string()),
+                    by_kind: "actor_kind",
+                });
+            }
+            let mut mine = Vec::new();
+            for tn in world.family(owner).iter() {
+                for a in world.attempts_of_type(tn)? {
+                    mine.push(attempt_row(world, &a)?);
+                }
+            }
+            return Ok(Rows {
+                rows: mine,
+                kind: Kind::Attempt(owner.to_string()),
+                by_kind: "actor_kind",
+            });
+        }
         let family = world.of_type(owner)?;
         if source == "intervals" || source.starts_with("intervals(") {
             let member = source
@@ -956,11 +995,25 @@ impl<'w> Reader<'w> {
                 family.iter().map(|o| (o.id.as_str(), *o)).collect();
             // what each transition held, which its row reads from the flow data
             world.with_parts(&family)?;
+            // the family's events, a page at a time by their types' index and
+            // the read's deadline between pages, where it read the whole log
+            // (the audit's cost B3, ADR-0205 decision 13)
+            const PAGE: usize = 4_096;
+            let types: Vec<String> = world.family(owner).to_vec();
             let mut rows = Vec::new();
-            for e in world.log()? {
-                if let Some(o) = by_id.get(e.object_id.as_str()) {
-                    let p = world.parts(o)?;
-                    rows.push(transition_row(world, o, p, self.type_of(&o.type_)?, e)?);
+            let mut after = 0;
+            loop {
+                world.due()?;
+                let page = world.log_after(after, Some(&types), PAGE)?;
+                for e in &page {
+                    if let Some(o) = by_id.get(e.object_id.as_str()) {
+                        let p = world.parts(o)?;
+                        rows.push(transition_row(world, o, p, self.type_of(&o.type_)?, e)?);
+                    }
+                }
+                match page.last() {
+                    Some(e) if page.len() == PAGE => after = e.position,
+                    _ => break,
                 }
             }
             return Ok(Rows {
@@ -997,28 +1050,6 @@ impl<'w> Reader<'w> {
                 rows: uncorrected_on(&family, &labels, &world.corrected(label)?),
                 kind: Kind::Label(owner.to_string()),
                 by_kind: "recorded_by_kind",
-            });
-        }
-        if source == "attempts" || source == "attempt_counts" {
-            // the rows of the family's types; a row of no type, an unknown
-            // id's, is none of them (DESIGN.md §7)
-            let mine: Vec<Value> = world
-                .attempts()?
-                .iter()
-                .filter(|a| a.type_.as_deref().is_some_and(|t| world.lib.is_a(t, owner)))
-                .map(|a| attempt_row(world, a))
-                .collect::<Result<_, _>>()?;
-            if source == "attempts" {
-                return Ok(Rows {
-                    rows: mine,
-                    kind: Kind::Attempt(owner.to_string()),
-                    by_kind: "actor_kind",
-                });
-            }
-            return Ok(Rows {
-                rows: attempt_count_rows(world, owner)?,
-                kind: Kind::AttemptCount(owner.to_string()),
-                by_kind: "actor_kind",
             });
         }
         not_run(format!("a metric over `{source}`"))
@@ -2448,6 +2479,17 @@ pub fn page_as(
             });
         }
     };
+    // and takes a query filter's bounds, where a set of 5,000 members ran to
+    // the read's deadline, holding a pool's slot (the audit's cost B6,
+    // ADR-0205 decision 15)
+    if let Some(why) = theirs.as_ref().and_then(crate::reads::filter_cost) {
+        return Ok(Page {
+            refused: Some("malformed_filter"),
+            reason: Some(why),
+            history_complete: true,
+            ..Page::default()
+        });
+    }
     if let Some(f) = &theirs {
         let item = formula(lib, owner.unwrap_or_default(), &found.spec)?
             .get("item")
@@ -2928,6 +2970,94 @@ metrics:
             Verdict::Satisfied { object_id, .. } => Ok(object_id),
             Verdict::Unsatisfied { clause, .. } => Err(("unsatisfied".into(), clause)),
             other => Err((other.kind().into(), String::new())),
+        }
+    }
+
+    /// A type's attempt counts read its family's attempts by their type's
+    /// index, never the whole attempt log, merged by key, and a read past
+    /// its deadline stops among them (the audit's cost B5, ADR-0205
+    /// decision 15).
+    #[test]
+    fn attempt_counts_read_by_type_and_stop_at_the_deadline() {
+        let text = "\nmodule: gate\ncategories: [live]\ntypes:\n  Gate:\n    attributes:\n      n: { type: int }\n    states:\n      ON: { category: live }\n    conditions:\n      small: { expression: n < 3, remedy: self_serviceable }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [n] }\n      pass: { kind: internal, from: [ON], guards: { small: deny } }\n  Other:\n    states:\n      ON: { category: live }\n    conditions:\n      never: { expression: false, remedy: dependent }\n    transitions:\n      make: { kind: initial, to: ON }\n      try: { kind: internal, from: [ON], guards: { never: deny } }\n";
+        let lib = Library::load(&[("gate.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let big = req(&mut s, "Gate", "make", None, json!({"n": 5})).unwrap();
+        let other = req(&mut s, "Other", "make", None, json!({})).unwrap();
+        for _ in 0..30 {
+            assert!(req(&mut s, "Gate", "pass", Some(&big), json!({})).is_err());
+            assert!(req(&mut s, "Other", "try", Some(&other), json!({})).is_err());
+        }
+        let before = crate::world::whole_attempt_reads();
+        let w = s.snapshot().unwrap();
+        let rows = attempt_count_rows(&w, "Gate").unwrap();
+        assert_eq!(crate::world::whole_attempt_reads(), before);
+        let Some(Value::Row(f)) = rows.first() else {
+            panic!("{rows:?}")
+        };
+        assert_eq!((rows.len(), f.get("count")), (1, Some(&Value::Int(30))));
+        let mut w = s.snapshot().unwrap();
+        w.deadline = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(1));
+        assert!(matches!(
+            attempt_count_rows(&w, "Gate"),
+            Err(NotRun::TimedOut(_))
+        ));
+        drop(w);
+        // a standard metric over attempt counts reads no object of its owner,
+        // and one over transitions the family's events by their index,
+        // never the whole log (the audit's cost B3, B4)
+        let before = (
+            crate::world::whole_type_reads("Gate"),
+            crate::world::whole_attempt_reads(),
+            crate::world::whole_log_reads(),
+        );
+        let refusals = page_of(&s, "Gate.refusals", &[], Some(&[]), None, None);
+        assert_eq!(refusals.rows.len(), 1, "{:?}", refusals.refused);
+        assert_eq!(
+            (
+                crate::world::whole_type_reads("Gate"),
+                crate::world::whole_attempt_reads()
+            ),
+            (before.0, before.1)
+        );
+        let throughput = page_of(&s, "Gate.throughput", &[], Some(&[]), None, None);
+        assert!(throughput.refused.is_none(), "{:?}", throughput.refused);
+        assert_eq!(crate::world::whole_log_reads(), before.2);
+    }
+
+    /// A metric's filter takes a query filter's bounds: a set of more than
+    /// 1,000 members, aggregates nested three deep, more than 256 terms and
+    /// a metric called within are each refused `malformed_filter`, where a
+    /// set of 5,000 ran to the read's deadline (the audit's cost B6,
+    /// ADR-0205 decision 15).
+    #[test]
+    fn a_metric_filter_takes_a_query_filters_bounds() {
+        let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
+        let s = Store::sandbox(lib, 0).unwrap();
+        let refused = |filter: &str| {
+            page_of(&s, "Job.jobs_opened", &[], Some(&[]), None, Some(filter)).refused
+        };
+        let set = |n: usize| {
+            let members: Vec<String> = (0..n).map(|i| format!("\"s{i}\"")).collect();
+            format!("o.state in {{{}}}", members.join(", "))
+        };
+        let terms = |n: usize| {
+            let alternatives: Vec<String> = (0..n).map(|i| format!("o.id == \"j{i}\"")).collect();
+            alternatives.join(" or ")
+        };
+        for (filter, malformed) in [
+            (set(1_000), false),
+            (set(1_001), true),
+            (terms(20), false),
+            (terms(200), true),
+            ("metric(Job.jobs_opened) > 0".to_string(), true),
+        ] {
+            assert_eq!(
+                refused(&filter) == Some("malformed_filter"),
+                malformed,
+                "{}",
+                &filter[..filter.len().min(60)]
+            );
         }
     }
 

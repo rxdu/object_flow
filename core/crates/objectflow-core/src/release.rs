@@ -57,7 +57,7 @@ pub const RELEASES: &[Release] = &[
     Release {
         name: "objectflow-core 1.0.0",
         from: &["objectflow-core 0.2.0"],
-        fingerprint: "sha256:a0f20066820ae8de12b2e533df6a18e17807663602902e9610bfd06610c43b3a",
+        fingerprint: "sha256:6fc6ebf3e7d952a38b1fd9572ce77bbd23b8a110c16a35bfc084835a738146de",
         changes: "the store records each restore of a copy in of_restore, so a restored store hands out no id, position or number its copy never saw, and refuses a cursor from the gap (ADR-0207); and each interval a later commit deleted or moved in of_interval_retraction, which the intervals export retracts (ADR-0205 decision 9)",
         builtins_changed: false,
         migrate: restore_table,

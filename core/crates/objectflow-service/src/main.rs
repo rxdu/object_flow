@@ -456,9 +456,6 @@ struct Watch {
     cuts: std::sync::atomic::AtomicU64,
     cuts_missed: std::sync::atomic::AtomicU64,
     cuts_deferred: std::sync::atomic::AtomicU64,
-    /// The epoch each read begins in, moved to stop the reads running when
-    /// a cut is urgent (ADR-0194 decision 4).
-    cut_epoch: Arc<std::sync::atomic::AtomicU64>,
     /// Why the service serves its store no more, once it found the store
     /// lost: its file replaced or written over, its log removed or
     /// replaced, or the store unreadable; kept until a restart (ADR-0205
@@ -846,6 +843,68 @@ struct Admission {
     /// its own flag, where it named --read-timeout and --max-reads (ninth
     /// production review N-8).
     dry_runs: bool,
+    /// The stop of each read running in it, which an urgent cut of the log
+    /// moves where it finds the pool not drained; a pool that drained keeps
+    /// its reads running, where one epoch for every pool stopped a worklist
+    /// of 0.1 s as readily as a 30 s report (the audit's cost E4, ADR-0205
+    /// decision 14).
+    readers: Mutex<Vec<Arc<std::sync::atomic::AtomicU64>>>,
+}
+
+thread_local! {
+    /// The stop of the read this thread runs: moved where its client has
+    /// gone (ADR-0205 decision 16), or where an urgent cut of the log finds
+    /// its pool not drained (decision 14).
+    static READ_STOP: std::cell::RefCell<Option<Arc<std::sync::atomic::AtomicU64>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The stop of the read this thread runs, made where it has none.
+fn read_stop() -> (Arc<std::sync::atomic::AtomicU64>, bool) {
+    READ_STOP.with(|s| {
+        let mut held = s.borrow_mut();
+        match held.as_ref() {
+            Some(stop) => (stop.clone(), false),
+            None => {
+                let stop = Arc::new(std::sync::atomic::AtomicU64::new(0));
+                *held = Some(stop.clone());
+                (stop, true)
+            }
+        }
+    })
+}
+
+/// A read's work, run off its connection's task, so the connection sees
+/// its client go and drops the answer it waits for, which moves the read's
+/// stop: the read ends at its next step, where it ran to its deadline for
+/// no one, and a client retrying filled a pool with reads nobody waited
+/// for (D656, ADR-0205 decision 16). A panic in it is answered `500`, as
+/// [`answering`]'s is. A write stays on [`answering`], since a write
+/// completes whether or not its client waits, its key replaying it.
+async fn answered_off<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, Fault> + Send + 'static,
+) -> Result<T, Fault> {
+    struct Gone(Arc<std::sync::atomic::AtomicU64>);
+    impl Drop for Gone {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let stop = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let _gone = Gone(stop.clone());
+    tokio::task::spawn_blocking(move || {
+        READ_STOP.with(|s| *s.borrow_mut() = Some(stop));
+        let out =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).unwrap_or_else(|_| {
+                Err(Fault::Internal(
+                    "a request panicked; the line above says where".to_string(),
+                ))
+            });
+        READ_STOP.with(|s| *s.borrow_mut() = None);
+        out
+    })
+    .await
+    .unwrap_or_else(|e| Err(Fault::Internal(format!("a read's work ended: {e}"))))
 }
 
 impl Admission {
@@ -857,6 +916,7 @@ impl Admission {
             waiting: std::sync::atomic::AtomicUsize::new(0),
             barred: std::sync::atomic::AtomicBool::new(false),
             dry_runs: false,
+            readers: Mutex::new(Vec::new()),
         }
     }
 
@@ -871,7 +931,7 @@ impl Admission {
     /// New reads held back, and those running waited out until `until`:
     /// whether none is running then. `release` lets the held ones in.
     fn hold(&self, until: std::time::Instant) -> bool {
-        self.barred.store(true, Ordering::SeqCst);
+        self.bar();
         let Ok(mut running) = self.running.lock() else {
             return false;
         };
@@ -886,6 +946,11 @@ impl Admission {
             };
         }
         true
+    }
+
+    /// New reads held back, those running left to run.
+    fn bar(&self) {
+        self.barred.store(true, Ordering::SeqCst);
     }
 
     /// The reads held back let in.
@@ -929,7 +994,22 @@ impl Admission {
             Ok(())
         })();
         self.waiting.fetch_sub(1, Ordering::SeqCst);
-        taken.map(|()| Slot(Some(self)))
+        taken.map(|()| {
+            let (stop, made) = read_stop();
+            if let Ok(mut readers) = self.readers.lock() {
+                readers.push(stop.clone());
+            }
+            Slot(Some((self, stop, made)))
+        })
+    }
+
+    /// Each read running in it stopped at its next step.
+    fn stop_readers(&self) {
+        if let Ok(readers) = self.readers.lock() {
+            for stop in readers.iter() {
+                stop.fetch_add(1, Ordering::SeqCst);
+            }
+        }
     }
 
     fn running(&self) -> usize {
@@ -937,13 +1017,20 @@ impl Admission {
     }
 }
 
-/// A heavy read's slot, given back when the read ends; none for a
-/// sandbox's, which take the writer.
-struct Slot<'a>(Option<&'a Admission>);
+/// A heavy read's slot, given back when the read ends, with its read's
+/// stop, which the pool keeps while it runs, and whether taking the slot
+/// made it; none for a sandbox's, which take the writer.
+struct Slot<'a>(Option<(&'a Admission, Arc<std::sync::atomic::AtomicU64>, bool)>);
 
 impl Drop for Slot<'_> {
     fn drop(&mut self) {
-        if let Some(a) = self.0 {
+        if let Some((a, stop, made)) = &self.0 {
+            if let Ok(mut readers) = a.readers.lock() {
+                readers.retain(|r| !Arc::ptr_eq(r, stop));
+            }
+            if *made {
+                READ_STOP.with(|s| *s.borrow_mut() = None);
+            }
             if let Ok(mut running) = a.running.lock() {
                 *running = running.saturating_sub(1);
             }
@@ -1098,10 +1185,14 @@ fn reading_until(shared: &Shared, until: std::time::Instant) -> Result<Reading<'
     // (ADR-0184 decision 3); and is stopped where an urgent cut of the log
     // moves the epoch it began in (ADR-0194 decision 4)
     store.deadline = Some(until);
-    store.stop = Some((
-        shared.watch.cut_epoch.clone(),
-        shared.watch.cut_epoch.load(Ordering::SeqCst),
-    ));
+    // the epoch of the pool whose slot it holds; a read holding none is
+    // short, never held by a cut, and the cut waits for it (ADR-0205
+    // decision 14)
+    store.stop = READ_STOP.with(|s| {
+        s.borrow()
+            .as_ref()
+            .map(|stop| (stop.clone(), stop.load(Ordering::SeqCst)))
+    });
     Ok(Reading::Own(Some(Box::new(store)), reads))
 }
 
@@ -2062,7 +2153,7 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// The verdict a request would receive, simulated and never written, with
 /// the guards it did not evaluate (`library-api.md` §6, ADR-0054).
 async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let req = request_of(&body)?;
         if req.propose {
             return Err(Fault::Bad(
@@ -2148,6 +2239,7 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
             json!({ "verdict": told, "unevaluated": c.unevaluated }),
         ))
     })
+    .await
 }
 
 /// A settled cursor as the wire carries it, an opaque string, which on
@@ -2168,7 +2260,7 @@ fn cursor_of(body: &J) -> Result<Option<i64>, Fault> {
 /// A page of the events a subscription selects after a cursor, or its
 /// acknowledged one, and the settled cursor (`library-api.md` §6).
 async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let (Some(_actor), Some(subscription)) = (actor_id(&body)?, text(&body, "subscription")?)
         else {
             return Err(Fault::Bad(
@@ -2189,6 +2281,7 @@ async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
             "not_computed": EVENT_NOT_COMPUTED,
         })))
     })
+    .await
 }
 
 /// A page of objects as the wire gives it: each object's id, type and
@@ -2231,7 +2324,7 @@ fn limit_of(body: &J) -> Result<usize, Fault> {
 /// The objects an assertion put in their state, the import's excepted, and
 /// those holding an admitted violation (`DESIGN.md` §10).
 async fn exceptions(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let (Some(_actor), Some(type_)) = (actor_id(&body)?, text(&body, "type")?) else {
             return Err(Fault::Bad(
                 "exceptions names its actor and the type".to_string(),
@@ -2242,12 +2335,13 @@ async fn exceptions(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let world = s.snapshot()?;
         Ok(Json(page_json(&reads::exceptions(&world, type_)?)))
     })
+    .await
 }
 
 /// The objects of a type a transition is offered to, asking no evaluator
 /// (`DESIGN.md` §10, ADR-0048).
 async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let (Some(actor), Some(type_), Some(transition)) = (
             actor_id(&body)?,
             text(&body, "type")?,
@@ -2284,12 +2378,13 @@ async fn available(State(shared): State<Shared>, Body(body): Body) -> Answer {
         page["actor_dependent"] = json!(dependent);
         Ok(Json(page))
     })
+    .await
 }
 
 /// Where a type's flow and reality disagree, over a window (`DESIGN.md`
 /// §10, ADR-0160); a type it does not declare is refused, a value.
 async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let (Some(_actor), Some(type_), Some(window)) = (
             actor_id(&body)?,
             text(&body, "type")?,
@@ -2317,6 +2412,7 @@ async fn diagnostics(State(shared): State<Shared>, Body(body): Body) -> Answer {
             },
         ))
     })
+    .await
 }
 
 /// A maintenance task run outside the retention the store was built with:
@@ -2352,7 +2448,7 @@ async fn maintain(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// A source's rows after a cursor, as JSON lines, every personal value
 /// omitted; a refusal is a value (`library-api.md` §6, ADR-0094).
 async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let (Some(_actor), Some(source)) = (actor_id(&body)?, text(&body, "source")?) else {
             return Err(Fault::Bad(
                 "export names its actor and the source".to_string(),
@@ -2374,6 +2470,7 @@ async fn export(State(shared): State<Shared>, Body(body): Body) -> Answer {
             "refused": page.refused,
         })))
     })
+    .await
 }
 
 /// A subscription's progress moved, back as well as forward; a refusal is
@@ -2803,11 +2900,9 @@ fn object_json(s: &Store, id: &str) -> Answer {
         return Err(Fault::Internal(format!("the type {}", o.type_)));
     };
     // the version its row was last written under, which its last event
-    // carries (storage-schema.md §3)
-    let declaration_version = s
-        .history(&o.id)?
-        .last()
-        .map_or(s.lib.version, |e| e.declaration_version);
+    // carries (storage-schema.md §3), read by the object's index alone,
+    // where its whole history was read (the audit's cost B11)
+    let declaration_version = world.version_of(&o.id)?;
     let mut attributes = Map::new();
     // each as a reader reads it, an end the other side stores by its
     // members, so a set is never null (`flow-format.md` §4.3, D552)
@@ -2830,7 +2925,7 @@ fn object_json(s: &Store, id: &str) -> Answer {
 }
 
 async fn get(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         // the argument it needs, a fault and never an absent object (D570)
         let id =
             text(&body, "id")?.ok_or_else(|| Fault::Bad("get names an object's id".to_string()))?;
@@ -2852,6 +2947,7 @@ async fn get(State(shared): State<Shared>, Body(body): Body) -> Answer {
         }
         object_json(s, id)
     })
+    .await
 }
 
 /// A change's dry run, its report the impact a publish would have, or its
@@ -3021,7 +3117,7 @@ fn preview(world: &objectflow_core::world::World<'_>, actor: &str, change: &str)
 /// The object whose external identifier for a source has a value, a legacy
 /// key among them (`library-api.md` §6, ADR-0154).
 async fn lookup(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let (Some(source), Some(value)) = (text(&body, "source")?, text(&body, "value")?) else {
             return Err(Fault::Bad("lookup names a source and a value".to_string()));
         };
@@ -3038,10 +3134,11 @@ async fn lookup(State(shared): State<Shared>, Body(body): Body) -> Answer {
             None => Ok(Json(J::Null)),
         }
     })
+    .await
 }
 
 async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let id = text(&body, "id")?
             .ok_or_else(|| Fault::Bad("history names an object's id".to_string()))?;
         let follow = flag(&body, "follow")?;
@@ -3092,10 +3189,11 @@ async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
             "not_computed": EVENT_NOT_COMPUTED,
         })))
     })
+    .await
 }
 
 async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let Some(positions) = array(&body, "positions")?
             .and_then(|ps| ps.iter().map(J::as_i64).collect::<Option<Vec<i64>>>())
         else {
@@ -3139,12 +3237,13 @@ async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
             "not_computed": EVENT_NOT_COMPUTED,
         })))
     })
+    .await
 }
 
 /// The tool schemas an agent of a kind is handed, rendered from the
 /// installed version's declaration (`renderers.md` §3, ADR-0173 decision 10).
 async fn tools(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let kind = text(&body, "actor_kind")?
             .filter(|k| objectflow_core::tools::ACTOR_KINDS.contains(k))
             .ok_or_else(|| {
@@ -3157,10 +3256,11 @@ async fn tools(State(shared): State<Shared>, Body(body): Body) -> Answer {
             json!({"tools": objectflow_core::tools::tools(&s.lib, &kind)}),
         ))
     })
+    .await
 }
 
 async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let mut r = reading(&shared)?;
         let s = r.store()?;
         let name = text(&body, "type")?.unwrap_or_default();
@@ -3216,10 +3316,11 @@ async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
         }
         Ok(Json(out))
     })
+    .await
 }
 
 async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let (Some(actor), Some(id)) = (actor_id(&body)?, text(&body, "id")?) else {
             return Err(Fault::Bad(
                 "availability names its actor and an object's id".to_string(),
@@ -3302,6 +3403,7 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
         }
         Ok(Json(J::Array(out)))
     })
+    .await
 }
 
 /// A reader's read of a metric: one page holding every group, so its
@@ -3310,7 +3412,7 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
 /// (`library-api.md` §6, ADR-0127): every object the filter holds for, on
 /// one page, so no cursor; a refusal is a value.
 async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let (Some(_actor), Some(type_)) = (actor_id(&body)?, text(&body, "type")?) else {
             return Err(Fault::Bad("query names its actor and the type".to_string()));
         };
@@ -3398,10 +3500,11 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
         )?;
         Ok(Json(page_json(&page)))
     })
+    .await
 }
 
 async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
-    answering(move || {
+    answered_off(move || {
         let (Some(_actor), Some(name)) = (actor_id(&body)?, text(&body, "name")?) else {
             return Err(Fault::Bad(
                 "metric names its actor and the metric".to_string(),
@@ -3467,6 +3570,7 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
         }
         Ok(Json(out))
     })
+    .await
 }
 
 /// `GET /health`: the release, the store's version and its clock (ADR-0174
@@ -4660,7 +4764,15 @@ fn cut_back(shared: &Service, limit: u64) -> bool {
     ];
     // every pool held a moment, one that does not drain in it holding the
     // rest too
+    // every pool barred before any is waited for, so no read begins in one
+    // while the cut waits on another, to be found running and stopped, as a
+    // worklist begun while a report held the cut was (ADR-0205 decision 14)
     let moment = std::time::Instant::now() + CUT_HOLD;
+    for p in &pools {
+        p.bar();
+    }
+    // each pool waited on, none skipped once one has not drained, as a
+    // short-circuiting `all` would skip it
     let mut drained = true;
     for p in &pools {
         drained &= p.hold(moment);
@@ -4673,9 +4785,13 @@ fn cut_back(shared: &Service, limit: u64) -> bool {
         return false;
     }
     if !drained {
-        // the reads running stopped at their next step, and waited for
-        // within the read deadline
-        shared.watch.cut_epoch.fetch_add(1, Ordering::SeqCst);
+        // the reads still running stopped at their next step, and waited for
+        // within the read deadline: those of the pools that did not drain in
+        // the moment, since a pool that drained has none running (ADR-0205
+        // decision 14)
+        for p in &pools {
+            p.stop_readers();
+        }
         let until = std::time::Instant::now() + shared.read_timeout;
         drained = true;
         for p in &pools {
@@ -6251,23 +6367,34 @@ mod tests {
         wal.push("-wal");
         let bytes = std::fs::metadata(&wal).map_or(0, |m| m.len());
         assert!(bytes >= 64, "the log holds {bytes} bytes");
-        // a long read: a worklist slot held until the cut's epoch moves, or 10 s
+        // a long read: a worklist slot held until its read's stop moves, or
+        // 10 s
         let (taken, held) = std::sync::mpsc::channel();
+        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let reader = {
-            let s = shared.clone();
+            let (s, stopped) = (shared.clone(), stopped.clone());
             std::thread::spawn(move || {
-                let began = s.watch.cut_epoch.load(Ordering::SeqCst);
                 let slot = s.worklists.take(
                     Instant::now() + Duration::from_secs(60),
                     Duration::from_secs(60),
                 );
-                let _ = taken.send(slot.is_ok());
+                let (stop, _) = read_stop();
+                let began = stop.load(Ordering::SeqCst);
+                // the read it begins carries the stop its slot holds
+                let carried = reading(&s).ok().is_some_and(|mut r| {
+                    r.store()
+                        .ok()
+                        .and_then(|st| st.stop.clone())
+                        .is_some_and(|(e, _)| Arc::ptr_eq(&e, &stop))
+                });
+                let _ = taken.send(slot.is_ok() && carried);
                 let start = Instant::now();
-                while s.watch.cut_epoch.load(Ordering::SeqCst) == began
+                while stop.load(Ordering::SeqCst) == began
                     && start.elapsed() < Duration::from_secs(10)
                 {
                     std::thread::sleep(Duration::from_millis(10));
                 }
+                stopped.store(stop.load(Ordering::SeqCst) != began, Ordering::SeqCst);
                 drop(slot);
             })
         };
@@ -6287,9 +6414,31 @@ mod tests {
         );
         assert!(let_in.is_ok(), "a new read was held past the cut");
         drop(let_in);
-        // urgent: the read running stopped, and the log cut
+        // urgent: every pool barred as the cut's moment begins, so none
+        // starts a read the cut would find running (the audit's cost E4,
+        // ADR-0205 decision 14); the read running stopped, and the log cut
+        let barred = {
+            let s = shared.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(300));
+                [
+                    &s.admission,
+                    &s.worklists,
+                    &s.objects,
+                    &s.dry_runs,
+                    &s.agents,
+                ]
+                .iter()
+                .all(|p| p.barred.load(Ordering::SeqCst))
+            })
+        };
         let began = Instant::now();
         assert!(cut_back(&shared, bytes / 5));
+        assert_eq!(
+            barred.join().ok(),
+            Some(true),
+            "a pool was not barred in the moment"
+        );
         assert!(
             began.elapsed() < Duration::from_secs(5),
             "{:?}",
@@ -6297,6 +6446,10 @@ mod tests {
         );
         assert_eq!(shared.watch.cuts.load(Ordering::SeqCst), 1);
         assert!(reader.join().is_ok());
+        assert!(
+            stopped.load(Ordering::SeqCst),
+            "the long read was not stopped"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -7006,6 +7159,135 @@ mod tests {
     /// next write takes it back, and a deployment's store is opened again
     /// from its file, where every write after was refused 500 until a
     /// restart (POISON).
+    /// A read whose client goes is stopped at its next step: the connection
+    /// drops the answer it waited for, which moves the read's stop, where the
+    /// read ran to its deadline for no one (D656, ADR-0205 decision 16).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    async fn a_read_whose_client_goes_is_stopped() {
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let shared: Shared = Arc::new(Service {
+            writer: Mutex::new(Sandbox::default()),
+            reads: None,
+            endpoints: std::collections::BTreeMap::new(),
+            tokens: std::collections::BTreeMap::new(),
+            evaluator_timeout: std::time::Duration::from_secs(5),
+            deployment: false,
+            read_timeout: std::time::Duration::from_secs(30),
+            dry_run_timeout: std::time::Duration::from_secs(30),
+            admission: Admission::new(MAX_READS),
+            worklists: Admission::new(MAX_READS),
+            objects: Admission::new(MAX_READS),
+            dry_runs: Admission::for_dry_runs(),
+            agents: Admission::new(MAX_READS),
+            served: Mutex::new(std::collections::BTreeMap::new()),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
+            writer_since: AtomicI64::new(0),
+            connections: Connections::default(),
+            store_path: None,
+            trims: std::sync::atomic::AtomicU64::new(0),
+            trimming: std::sync::atomic::AtomicBool::new(false),
+            store_identity: None,
+            watch: Watch::default(),
+        });
+        let f = flag.clone();
+        let router = Router::new()
+            .route(
+                "/v1/slow",
+                post(move || {
+                    let f = f.clone();
+                    async move {
+                        // a read's work, watching its stop as a read's steps do
+                        answered_off(move || {
+                            let (stop, _) = read_stop();
+                            let began = stop.load(Ordering::SeqCst);
+                            let start = std::time::Instant::now();
+                            while stop.load(Ordering::SeqCst) == began
+                                && start.elapsed() < std::time::Duration::from_secs(5)
+                            {
+                                std::thread::sleep(std::time::Duration::from_millis(10));
+                            }
+                            f.store(stop.load(Ordering::SeqCst) != began, Ordering::SeqCst);
+                            Ok(Json(json!({})))
+                        })
+                        .await
+                    }
+                }),
+            )
+            .with_state(shared.clone());
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let at = l.local_addr().unwrap();
+        tokio::spawn(served(
+            Listening::Tcp(l),
+            router,
+            shared.clone(),
+            std::future::pending::<()>(),
+            std::time::Duration::from_secs(30),
+            16,
+        ));
+        tokio::task::spawn_blocking(move || {
+            use std::io::Write;
+            let mut c = std::net::TcpStream::connect(at).unwrap();
+            c.write_all(b"POST /v1/slow HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n")
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            drop(c);
+        })
+        .await
+        .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+        assert!(
+            flag.load(Ordering::SeqCst),
+            "the read ran on after its client went"
+        );
+    }
+
+    /// A `get` reads its object's last event alone for the version it
+    /// answers, never the object's history, which grew with it (the audit's
+    /// cost B11).
+    #[test]
+    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    fn a_get_reads_no_history() {
+        let text = "\nmodule: notes\ncategories: [live]\ntypes:\n  Job:\n    attributes:\n      title: { type: string, optional: true }\n    states:\n      ON: { category: live }\n    transitions:\n      open: { kind: initial, to: ON }\n      note: { kind: internal, from: [ON], optional_inputs: [title] }\n";
+        let lib =
+            objectflow_core::model::Library::load(&[("notes.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask = |s: &mut Store, xn: &str, id: Option<&str>| {
+            let r = objectflow_core::request::Request {
+                transition: xn.into(),
+                actor: objectflow_core::model::OPERATOR.into(),
+                object_id: id.map(str::to_string),
+                type_: id.is_none().then(|| "Job".to_string()),
+                inputs: std::collections::BTreeMap::new(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            match objectflow_core::request::request(s, &r).unwrap().unwrap() {
+                objectflow_core::verdict::Verdict::Satisfied { object_id, .. } => object_id,
+                other => panic!("{other:?}"),
+            }
+        };
+        let job = ask(&mut s, "open", None);
+        for _ in 0..50 {
+            ask(&mut s, "note", Some(&job));
+        }
+        let before = objectflow_core::world::events_read();
+        let Ok(Json(got)) = object_json(&s, &job) else {
+            panic!("the get not answered")
+        };
+        assert_eq!(got["declaration_version"], json!(s.lib.version));
+        assert_eq!(objectflow_core::world::events_read(), before);
+        // as a history read counts what it reads
+        assert_eq!(s.history(&job).unwrap().len(), 51);
+        assert_eq!(objectflow_core::world::events_read(), before + 51);
+    }
+
     /// A store a read or a write finds unreadable, by SQLite's words for a
     /// corrupt file or one that is no database, answers 503
     /// `store_unreadable` and marks its answer, which the logging layer

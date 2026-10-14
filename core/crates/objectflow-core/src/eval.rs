@@ -812,21 +812,23 @@ impl<'a> Evaluator<'a> {
                 None => Value::Absent,
             },
             "intervals" => self.intervals(o, t, "state")?,
+            // its own events and attempts, read by their index, where each
+            // read the whole log or attempt log (the audit's cost B1,
+            // ADR-0205 decision 12)
             "transitions" => {
                 let p = self.world.parts(o)?;
                 Value::Set(
                     self.world
-                        .log()?
-                        .filter(|e| e.object_id == o.id)
+                        .events_of(&o.id)?
+                        .iter()
                         .map(|e| transition_row(self.world, o, p, t, e))
                         .collect::<Result<_, _>>()?,
                 )
             }
             "attempts" => Value::Set(
                 self.world
-                    .attempts()?
+                    .attempts_of(&o.id)?
                     .iter()
-                    .filter(|a| a.object_id.as_deref() == Some(o.id.as_str()))
                     .map(|a| attempt_row(self.world, a))
                     .collect::<Result<_, _>>()?,
             ),
@@ -1621,7 +1623,15 @@ impl<'a> Evaluator<'a> {
     /// A subject's collection of a kind: its observations nothing has
     /// corrected, in ascending id order (`declaration-syntax.md` §6.8).
     fn collection(&self, o: &Object, kind: &str) -> Result<Value, NotRun> {
-        let of_kind = self.world.of_type(kind)?;
+        // its subject's observations alone, by the subject's column, where
+        // each read the whole kind; a correction shares its subject, so the
+        // corrected are among them (the audit's cost B1, ADR-0205 decision
+        // 12)
+        let of_kind = self.world.of_type_where(
+            kind,
+            None,
+            &[("subject".to_string(), Value::Object(o.id.clone()))],
+        )?;
         let corrected: Vec<Value> = of_kind.iter().map(|x| x.attr("corrects")).collect();
         let subject = Value::Object(o.id.clone());
         Ok(Value::Set(

@@ -731,6 +731,15 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
 /// the store; [`Store::open`] makes one a store lacks.
 fn attribute_indexes(lib: &Library, t: &Type) -> Vec<String> {
     let name = table(&t.name);
+    // an observation kind's and the labels' last event, which their export
+    // pages by, where each page read the whole log and every record (the
+    // audit's cost B12)
+    let paged = (t.observation_on.is_some() || t.name == crate::model::LABEL).then(|| {
+        format!(
+            "CREATE INDEX IF NOT EXISTS {} ON {name} (last_event);",
+            quote(&format!("{name}_last_event_ix"))
+        )
+    });
     t.attributes
         .iter()
         .filter(|(n, a)| {
@@ -766,6 +775,7 @@ fn attribute_indexes(lib: &Library, t: &Type) -> Vec<String> {
                     )
                 }),
         )
+        .chain(paged)
         .chain(
             // the successor's column, which a group erasure reads each
             // member's predecessors by, where it read every superseding
@@ -1050,6 +1060,77 @@ pub(crate) fn read_attempts(conn: &Connection) -> rusqlite::Result<Vec<Attempt>>
     )?;
     let rows = attempts.query_map([], attempt_row)?;
     rows.collect()
+}
+
+/// The attempts where a clause on one of their indexed columns holds, in the
+/// order written (ADR-0205 decision 12).
+pub(crate) fn read_attempts_where(
+    conn: &Connection,
+    clause: &str,
+    value: &dyn rusqlite::ToSql,
+) -> rusqlite::Result<Vec<Attempt>> {
+    let mut attempts = conn.prepare(&format!(
+        "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
+         flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn, call, context, \
+         proposal FROM of_attempt WHERE {clause} ORDER BY id"
+    ))?;
+    let rows = attempts.query_map([value], attempt_row)?;
+    rows.collect()
+}
+
+/// The ids of a type's objects whose last event is past `after`, with it,
+/// in that order, at most `limit`, by the index on it; and, for the labels,
+/// only those whose subject is of the types given (the audit's cost B12).
+pub(crate) fn read_ids_after(
+    conn: &Connection,
+    lib: &Library,
+    type_: &str,
+    subjects: Option<&[String]>,
+    after: i64,
+    limit: usize,
+) -> Stored<Vec<(String, i64)>> {
+    let name = table(type_);
+    let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+    let rows: Vec<(String, i64)> = match subjects {
+        None => {
+            let mut q = conn.prepare(&format!(
+                "SELECT id, last_event FROM {name} WHERE last_event > ?1 ORDER BY last_event LIMIT ?2"
+            ))?;
+            q.query_map(params![after, limit], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?
+        }
+        Some(types) => {
+            let subject = lib
+                .type_(type_)
+                .and_then(|t| t.attribute("subject").map(|a| column("subject", a)))
+                .ok_or_else(|| StoreError(format!("{type_} has no subject")))?;
+            let marks: Vec<String> = (0..types.len()).map(|n| format!("?{}", n + 3)).collect();
+            let mut binds: Vec<Sql> = vec![Sql::Integer(after), Sql::Integer(limit)];
+            binds.extend(types.iter().map(|t| Sql::Text(t.clone())));
+            let mut q = conn.prepare(&format!(
+                "SELECT l.id, l.last_event FROM {name} l JOIN of_object o ON o.id = l.{} \
+                 WHERE l.last_event > ?1 AND o.type IN ({}) ORDER BY l.last_event LIMIT ?2",
+                quote(&subject),
+                marks.join(", ")
+            ))?;
+            q.query_map(rusqlite::params_from_iter(&binds), |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?
+            .collect::<rusqlite::Result<_>>()?
+        }
+    };
+    Ok(rows)
+}
+
+/// The declaration version an object's last event was recorded under, by
+/// the object's index; none where it has no event.
+pub(crate) fn read_last_version(conn: &Connection, id: &str) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT declaration_version FROM of_event WHERE object_id = ?1 ORDER BY object_seq DESC LIMIT 1",
+        params![id],
+        |r| r.get(0),
+    )
+    .optional()
 }
 
 /// The attempts on objects of the types given after a place in the order
@@ -3664,8 +3745,11 @@ impl Store {
             "{EVENT_SELECT} WHERE object_id = ?1 ORDER BY object_seq"
         ))?;
         let rows = stmt.query_map(params![id], event_row)?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(StoreError::from)
+        let events = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(StoreError::from)?;
+        crate::world::events_counted(events.len());
+        Ok(events)
     }
 
     /// A page of the events of objects, after a position, in position
@@ -5082,6 +5166,8 @@ const EXPORT_INDEXES: &str = "\
 CREATE INDEX IF NOT EXISTS of_interval_by_cursor ON of_interval (max(entered_position, coalesce(left_position, 0), coalesce(corrected_by, 0), coalesce(moved_position, 0)));
 CREATE INDEX IF NOT EXISTS of_event_imported ON of_event (position) WHERE imported = 1;
 CREATE INDEX IF NOT EXISTS of_attempt_by_txn ON of_attempt (txn);
+CREATE INDEX IF NOT EXISTS of_attempt_by_object ON of_attempt (object_id) WHERE object_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS of_attempt_by_proposal ON of_attempt (proposal) WHERE proposal IS NOT NULL;
 ";
 
 /// The indexes on the actor's columns an erasure rewrites, which a store

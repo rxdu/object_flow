@@ -389,6 +389,14 @@ thread_local! {
     /// a test of a read that must read the records of its page alone reads
     /// (thirteenth production review N3).
     static RECORDS_READ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// How many times this thread has read the store's whole attempt log
+    /// (ADR-0205 decision 12).
+    static WHOLE_ATTEMPT_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times this thread has read the store's whole attempt log.
+pub fn whole_attempt_reads() -> u64 {
+    WHOLE_ATTEMPT_READS.with(std::cell::Cell::get)
 }
 
 /// How many objects' records this thread has read from the store.
@@ -408,6 +416,12 @@ pub fn events_read() -> u64 {
 
 fn counted(n: usize) {
     EVENTS_READ.with(|c| c.set(c.get() + n as u64));
+}
+
+/// Counts events read whole from the store outside a world, as a history
+/// reads them.
+pub(crate) fn events_counted(n: usize) {
+    counted(n);
 }
 
 /// How many times this thread has read the store's whole log.
@@ -828,6 +842,29 @@ impl<'l> World<'l> {
         })
     }
 
+    /// The ids of a type's objects whose last event is past `after`, with it,
+    /// at most `limit`, by its index; for the labels, those on objects of
+    /// the types given (the audit's cost B12). None for a world that reads
+    /// no store, which reads its objects as it holds them.
+    pub fn ids_after(
+        &self,
+        type_: &str,
+        subjects: Option<&[String]>,
+        after: i64,
+        limit: usize,
+    ) -> Result<Option<Vec<(String, i64)>>, crate::eval::NotRun> {
+        let Some(conn) = self.conn.filter(|_| self.appended.is_empty()) else {
+            return Ok(None);
+        };
+        crate::store::read_ids_after(conn, self.lib, type_, subjects, after, limit)
+            .map(Some)
+            .map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the objects of {type_} written after {after}, which could not be read: {e}"
+                ))
+            })
+    }
+
     /// The interval rows of the types given a commit past `after` and at
     /// most `upto` retracted (ADR-0205 decision 9).
     pub fn retractions_between(
@@ -931,12 +968,63 @@ impl<'l> World<'l> {
     /// cannot be read stops the operation as not run, naming why.
     pub fn attempts(&self) -> Result<&[crate::store::Attempt], crate::eval::NotRun> {
         let stored = self.stored_attempts.get_or_init(|| match self.conn {
-            Some(conn) => crate::store::read_attempts(conn).map_err(|e| e.to_string()),
+            Some(conn) => {
+                WHOLE_ATTEMPT_READS.with(|n| n.set(n.get() + 1));
+                crate::store::read_attempts(conn).map_err(|e| e.to_string())
+            }
             None => Ok(Vec::new()),
         });
         stored.as_deref().map_err(|e| {
             crate::eval::NotRun::Unreadable(format!(
                 "the store's attempt log, which could not be read: {e}"
+            ))
+        })
+    }
+
+    /// An object's attempts, in the order written, read by their index,
+    /// where a rule reading `o.attempts` read the whole attempt log for each
+    /// object (the audit's cost B1, ADR-0205 decision 12).
+    pub fn attempts_of(&self, id: &str) -> Result<Vec<crate::store::Attempt>, crate::eval::NotRun> {
+        self.attempts_where("object_id = ?1", &id, |a| {
+            a.object_id.as_deref() == Some(id)
+        })
+    }
+
+    /// A type's own attempts, in the order written, read by the index on
+    /// their type (the audit's cost B5).
+    pub fn attempts_of_type(
+        &self,
+        type_: &str,
+    ) -> Result<Vec<crate::store::Attempt>, crate::eval::NotRun> {
+        self.attempts_where("type = ?1", &type_, |a| a.type_.as_deref() == Some(type_))
+    }
+
+    /// The attempts an approval of a proposal left, in the order written,
+    /// read by their index (B14).
+    pub fn attempts_proposing(
+        &self,
+        id: &str,
+    ) -> Result<Vec<crate::store::Attempt>, crate::eval::NotRun> {
+        self.attempts_where("proposal = ?1", &id, |a| a.proposal.as_deref() == Some(id))
+    }
+
+    fn attempts_where(
+        &self,
+        clause: &str,
+        value: &dyn rusqlite::ToSql,
+        keep: impl Fn(&crate::store::Attempt) -> bool,
+    ) -> Result<Vec<crate::store::Attempt>, crate::eval::NotRun> {
+        let Some(conn) = self.conn.filter(|_| self.stored_attempts.get().is_none()) else {
+            return Ok(self
+                .attempts()?
+                .iter()
+                .filter(|a| keep(a))
+                .cloned()
+                .collect());
+        };
+        crate::store::read_attempts_where(conn, clause, value).map_err(|e| {
+            crate::eval::NotRun::Unreadable(format!(
+                "the store's attempts where {clause}, which could not be read: {e}"
             ))
         })
     }
@@ -1757,10 +1845,24 @@ impl<'l> World<'l> {
     /// The version an object's last event was recorded under, the
     /// installed one for an object with none.
     pub fn version_of(&self, id: &str) -> Result<i64, crate::eval::NotRun> {
-        Ok(self
-            .log()?
-            .rfind(|e| e.object_id == id)
-            .map_or(self.lib.version, |e| e.declaration_version))
+        // the operation's own last, then the store's by the object's index,
+        // where every object's version scanned the whole log back (the
+        // audit's cost B1, ADR-0205 decision 12)
+        if let Some(e) = self.appended.iter().rfind(|e| e.object_id == id) {
+            return Ok(e.declaration_version);
+        }
+        let stored = match self.conn.filter(|_| self.stored.get().is_none()) {
+            Some(conn) => crate::store::read_last_version(conn, id).map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "{id}'s last event, which could not be read: {e}"
+                ))
+            })?,
+            None => self
+                .log()?
+                .rfind(|e| e.object_id == id)
+                .map(|e| e.declaration_version),
+        };
+        Ok(stored.unwrap_or(self.lib.version))
     }
 
     /// The next place in creation order: after every object the store

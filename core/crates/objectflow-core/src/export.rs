@@ -60,7 +60,7 @@ pub fn export_page(
     if let Some(type_) = source.strip_suffix(".attempt_counts")
         && world.lib.type_(type_).is_some()
     {
-        return counts_page(world, type_, cursor);
+        return counts_page(world, type_, cursor, limit);
     }
     let after = match cursor {
         None => 0,
@@ -93,8 +93,12 @@ pub fn export_page(
         .type_(source)
         .is_some_and(|t| t.observation_on.is_some())
     {
-        // an observation kind's records, each by its latest event
-        object_rows(world, world.of_type(source)?, after)?
+        // an observation kind's records, each by its latest event, a page
+        // read by the index on it (the audit's cost B12)
+        match world.ids_after(source, None, after, limit.saturating_add(1))? {
+            Some(ids) => paged_rows(world, &ids)?,
+            None => object_rows(world, world.of_type(source)?, after)?,
+        }
     } else {
         let Some((type_, kind)) = source.split_once('.') else {
             return refuse("unknown_source");
@@ -118,16 +122,26 @@ pub fn export_page(
             }
             // the labels on the type's family's objects
             "labels" => {
-                let family = family_of(world, type_)?;
-                let on: Vec<&Object> = world
-                    .of_type(crate::model::LABEL)?
-                    .into_iter()
-                    .filter(|l| {
-                        matches!(l.attr("subject"), crate::value::Value::Object(s)
+                let types: Vec<String> = world.family(type_).to_vec();
+                if let Some(ids) = world.ids_after(
+                    crate::model::LABEL,
+                    Some(&types),
+                    after,
+                    limit.saturating_add(1),
+                )? {
+                    paged_rows(world, &ids)?
+                } else {
+                    let family = family_of(world, type_)?;
+                    let on: Vec<&Object> = world
+                        .of_type(crate::model::LABEL)?
+                        .into_iter()
+                        .filter(|l| {
+                            matches!(l.attr("subject"), crate::value::Value::Object(s)
                             if family.contains(s.as_str()))
-                    })
-                    .collect();
-                object_rows(world, on, after)?
+                        })
+                        .collect();
+                    object_rows(world, on, after)?
+                }
             }
             _ => return refuse("unknown_source"),
         }
@@ -204,7 +218,12 @@ fn log_rows(
 /// the last day exported, `YYYY-MM-DD`, an empty one the start. A day's
 /// counts never change once it is over, attempts being dated by when they
 /// were recorded, and a prune moves a count without changing it.
-fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> Result<ExportPage, NotRun> {
+fn counts_page(
+    world: &World<'_>,
+    type_: &str,
+    cursor: Option<&str>,
+    limit: usize,
+) -> Result<ExportPage, NotRun> {
     let day_of = |text: &str| {
         crate::value::parse_timestamp(&format!("{text}T00:00:00Z")).map(|t| t.div_euclid(86_400))
     };
@@ -254,6 +273,22 @@ fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> Result<E
         })
         .collect();
     rows.sort();
+    // a page ends at its limit or its bytes, never among one day's rows,
+    // since the day is its cursor, where every settled day came in one page
+    // (the audit's cost B13)
+    let mut bytes = 0;
+    let end = rows.iter().enumerate().find_map(|(i, (_, r))| {
+        bytes += r.len() + 1;
+        (i + 1 >= limit || bytes >= crate::reads::PAGE_BYTES).then_some(i)
+    });
+    let more = match end {
+        Some(i) if i + 1 < rows.len() => {
+            let day = rows[i].0;
+            rows.retain(|(d, _)| *d <= day);
+            true
+        }
+        _ => false,
+    };
     let last = rows.last().map(|(d, _)| *d);
     Ok(ExportPage {
         cursor: match (last, cursor) {
@@ -264,10 +299,20 @@ fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> Result<E
             (None, c) => c.unwrap_or_default().to_string(),
         },
         lines: rows.into_iter().map(|(_, r)| r).collect(),
-        // every settled day's counts in one page, each row a count
-        more: false,
+        more,
         refused: None,
     })
+}
+
+/// The rows of the objects given by id, each at its last event.
+fn paged_rows(world: &World<'_>, ids: &[(String, i64)]) -> Result<Vec<(i64, Json)>, NotRun> {
+    let mut rows = Vec::new();
+    for (id, at) in ids {
+        if let Some(o) = world.get(id)? {
+            rows.push((*at, object_row(world, o)?));
+        }
+    }
+    Ok(rows)
 }
 
 /// Each object after the cursor by its latest event, which a correction or a
@@ -763,6 +808,134 @@ types:
             context: None,
         };
         request(s, &r).unwrap().unwrap()
+    }
+
+    /// An export of an observation kind, or of a type's labels, reads a
+    /// page by the index on each record's last event, never the whole log
+    /// or every record, and gives, page by page, what reading them whole
+    /// gave (the audit's cost B12).
+    #[test]
+    fn an_export_of_records_reads_a_page_by_its_index() {
+        let lib = Library::load(&[("crews.yaml".into(), CREWS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let Verdict::Satisfied { object_id: job, .. } =
+            req(&mut s, "open", None, json!({"crew": "NORTH"}))
+        else {
+            panic!("no job")
+        };
+        let mut ask = |tn: &str, inputs: Json| {
+            let r = Request {
+                transition: "record".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some(tn.into()),
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            assert!(matches!(
+                request(&mut s, &r).unwrap().unwrap(),
+                Verdict::Satisfied { .. }
+            ));
+        };
+        for i in 0..12 {
+            ask("Reading", json!({"subject": job, "level": i}));
+            ask(
+                crate::model::LABEL,
+                json!({"subject": job, "name": format!("L{i}")}),
+            );
+        }
+        for (source, kind) in [("Reading", "Reading"), ("Job.labels", crate::model::LABEL)] {
+            // as the log, read whole, gave each record's last event
+            let w = s.snapshot().unwrap();
+            let mut walked = object_rows(&w, w.of_type(kind).unwrap(), 0).unwrap();
+            walked.sort_by_key(|(c, _)| *c);
+            let whole: Vec<Json> = walked.into_iter().map(|(_, r)| r).collect();
+            drop(w);
+            assert_eq!(whole.len(), 12, "{source}");
+            let before = (
+                crate::world::whole_log_reads(),
+                crate::world::whole_type_reads(kind),
+            );
+            let (mut paged, mut cursor) = (Vec::new(), None::<String>);
+            loop {
+                let w = s.snapshot().unwrap();
+                let p = export_page(&w, source, cursor.as_deref(), 5).unwrap();
+                assert_eq!(p.refused, None);
+                paged.extend(
+                    p.lines
+                        .iter()
+                        .map(|l| serde_json::from_str::<Json>(l).unwrap()),
+                );
+                cursor = Some(p.cursor);
+                if !p.more {
+                    break;
+                }
+            }
+            assert_eq!(paged, whole, "{source}");
+            assert_eq!(
+                (
+                    crate::world::whole_log_reads(),
+                    crate::world::whole_type_reads(kind)
+                ),
+                before,
+                "{source}"
+            );
+        }
+    }
+
+    /// A type's attempt counts come in pages of `limit` rows, never ending
+    /// among one day's, their cursor the last day, where every settled day
+    /// came in one page (the audit's cost B13).
+    #[test]
+    fn attempt_counts_come_a_day_at_a_time() {
+        let lib = Library::load(&[("crews.yaml".into(), CREWS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let Verdict::Satisfied {
+            object_id: cross, ..
+        } = req(
+            &mut s,
+            "open",
+            None,
+            json!({"crew": "NORTH", "mood": "CROSS"}),
+        )
+        else {
+            panic!("no job")
+        };
+        for day in 0..3 {
+            s.now = day * 86_400 + 100;
+            assert!(matches!(
+                req(&mut s, "start", Some(&cross), json!({})),
+                Verdict::Unsatisfied { .. }
+            ));
+        }
+        s.now = 3 * 86_400 + 100;
+        let whole = page(&s, "Job.attempt_counts", None).0;
+        assert_eq!(whole.len(), 3);
+        let (mut paged, mut cursor) = (Vec::new(), None::<String>);
+        for expected in [true, true, false] {
+            let w = s.snapshot().unwrap();
+            let p = export_page(&w, "Job.attempt_counts", cursor.as_deref(), 1).unwrap();
+            assert_eq!((p.lines.len(), p.more), (1, expected), "{p:?}");
+            paged.extend(
+                p.lines
+                    .iter()
+                    .map(|l| serde_json::from_str::<Json>(l).unwrap()),
+            );
+            cursor = Some(p.cursor);
+        }
+        assert_eq!(paged, whole);
     }
 
     fn page(s: &Store, source: &str, cursor: Option<&str>) -> (Vec<Json>, String) {
