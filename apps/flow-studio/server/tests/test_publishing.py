@@ -1872,9 +1872,10 @@ def test_a_time_moved_past_the_calendar_is_refused_alike(tee):
             "unsatisfied", "value_in_range", [endless]), v
         v = tee.post("/v1/request", {"transition": xn, "actor": OP, "object_id": usual})
         assert v["kind"] == "satisfied", v
-    # a guard over a date moved past it is unknown, and refuses
+    # a guard over a date moved past it refuses value_in_range, never unknown
+    # (ADR-0205 decision 2)
     v = tee.post("/v1/request", {"transition": "renew", "actor": OP, "object_id": endless})
-    assert (v["kind"], v.get("clause"), v.get("unknown")) == ("unsatisfied", "room", True), v
+    assert (v["kind"], v.get("clause"), v.get("objects")) == ("unsatisfied", "value_in_range", [endless]), v
     assert tee.post("/v1/request", {"transition": "renew", "actor": OP, "object_id": usual})["kind"] == "satisfied"
     # what was refused left the object readable, as it was
     assert tee.post("/v1/get", {"id": endless})["attributes"]["ends_on"] == "9999-12-31"
@@ -1886,8 +1887,8 @@ def test_an_effects_arithmetic_past_its_bound_is_refused_alike(tee):
     zero, refuses its request as the generated clause value_in_range, naming
     its object, alike through both backends, where the core stopped 501 and
     the runner, its integers unbounded, stored the value; a guard over the
-    same arithmetic stays unknown and refuses (production review F5,
-    ADR-0185)."""
+    same arithmetic refuses so too, where it was unknown (production review
+    F5, ADR-0185, ADR-0205 decision 2)."""
     loaded = tee.post("/sandbox/load", {"files": [
         {"name": "tally.yaml", "text": BOUNDED}]})
     assert loaded["loaded"], loaded
@@ -1910,8 +1911,11 @@ def test_an_effects_arithmetic_past_its_bound_is_refused_alike(tee):
         v = take(xn, oid, **inputs)
         assert (v["kind"], v.get("clause"), v.get("remedy"), v.get("objects")) == (
             "unsatisfied", "value_in_range", "unreachable_from_here", [oid]), v
+    # a guard over it refuses value_in_range too, never unknown (ADR-0205
+    # decision 2)
     guarded = take("check")
-    assert (guarded["kind"], guarded.get("clause"), guarded.get("unknown")) == ("unsatisfied", "small", True), guarded
+    assert (guarded["kind"], guarded.get("clause"), guarded.get("objects")) == (
+        "unsatisfied", "value_in_range", [t]), guarded
     assert take("add", by=7)["kind"] == "satisfied"
     alike(tee)
 
@@ -2684,8 +2688,9 @@ types:
 
 def test_what_a_read_answers_a_request_can_send_alike(tee):
     """Money an effect writes past what an input holds is refused
-    value_in_range, a derived time past the calendar is answered without a
-    value, and a metric's window is positive, alike through both backends,
+    value_in_range, a derived time past the calendar refuses the read
+    value_in_range (ADR-0205 decision 2), and a metric's window is positive,
+    alike through both backends,
     where the core stored an amount no request could send, answered year
     2,739,933 and read "-5 days" as an empty page (fifth production review,
     ADR-0191 decision 3)."""
@@ -2707,10 +2712,13 @@ def test_what_a_read_answers_a_request_can_send_alike(tee):
     small = till("USD 4000000000000000.00", 30)
     assert tee.post("/v1/request", {"transition": "grow", "actor": OP, "object_id": small})["kind"] == "satisfied"
     assert tee.post("/v1/get", {"id": small})["attributes"]["float"] == "USD 8000000000000000.00"
-    # a time past the calendar, derived, has no value; one within it has
+    # a time within the calendar, derived, is answered
     assert tee.post("/v1/get", {"id": big})["attributes"]["due_back"] == "2026-11-12T00:00:00Z"
     far = till("USD 1.00", 1_000_000_000)
-    assert tee.post("/v1/get", {"id": far})["attributes"]["due_back"] is None
+    # one past it refuses the read, naming the object and no value (ADR-0205
+    # decision 2), where it was answered null
+    got = tee.post("/v1/get", {"id": far})
+    assert (got.get("refused"), got.get("object_id")) == ("value_in_range", far), got
     # a window back from now is positive
     # a positive one is read, here refused as a value, since the metric takes none
     assert tee.post("/v1/metric", {"actor": OP, "name": "Till.refusals", "over": "5 days"})["refused"] == "no_window"

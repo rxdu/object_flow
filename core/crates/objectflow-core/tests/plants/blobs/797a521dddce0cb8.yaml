@@ -85,7 +85,7 @@ types:
         remedy: dependent
       calm:
         description: A planted guard.
-        expression: metric(priced) < PHP 3.00
+        expression: metric(priced) <= metric(priced)
         remedy: dependent
       photo_attached:
         description: A photo is attached.

@@ -431,7 +431,7 @@ impl Num {
     fn of(v: &Value) -> Result<Num, NotRun> {
         let frac = |r: Option<Rat>| {
             r.map(Num::Frac)
-                .ok_or_else(|| NotRun::Unsupported("a metric's value past 128 bits".into()))
+                .ok_or_else(|| NotRun::OutOfRange(String::new()))
         };
         match v {
             Value::Absent => Ok(Num::Absent),
@@ -456,7 +456,7 @@ impl Num {
     /// An operator between two values, as the language's arithmetic gives
     /// it, exactly: `int / int` discards the remainder (§8.3).
     fn combine(op: BinOp, a: Num, b: Num) -> Result<Num, NotRun> {
-        let past = || NotRun::Unsupported("a metric's value past 128 bits".into());
+        let past = || NotRun::OutOfRange(String::new());
         let (Some(x), Some(y)) = (a.rat(), b.rat()) else {
             return Ok(Num::Absent);
         };
@@ -1184,9 +1184,7 @@ impl<'w> Reader<'w> {
                         for v in &values {
                             total = total
                                 .checked_add(v.rat().unwrap_or(Rat::int(0)))
-                                .ok_or_else(|| {
-                                    NotRun::Unsupported("a metric's value past 128 bits".into())
-                                })?;
+                                .ok_or_else(|| NotRun::OutOfRange(String::new()))?;
                         }
                         Ok(total
                             .checked_div(Rat::int(n))
@@ -1211,9 +1209,7 @@ impl<'w> Reader<'w> {
                         let n = i128::try_from(ordered.len()).unwrap_or(i128::MAX);
                         let rank = p
                             .checked_mul(Rat::int(n))
-                            .ok_or_else(|| {
-                                NotRun::Unsupported("a metric's value past 128 bits".into())
-                            })?
+                            .ok_or_else(|| NotRun::OutOfRange(String::new()))?
                             .ceil()
                             .max(1);
                         let at = usize::try_from(rank - 1)
@@ -1570,7 +1566,7 @@ fn rounded(v: Num, kind: &Kind) -> Result<Value, NotRun> {
     let Some(r) = v.rat() else {
         return Ok(Value::Absent);
     };
-    let past = || NotRun::Unsupported("a metric's value past its type's range".into());
+    let past = || NotRun::OutOfRange(String::new());
     let whole = |places: u8| r.half_even(places).ok_or_else(past);
     let int64 = |n: i128| i64::try_from(n).map_err(|_| past());
     Ok(match kind {
@@ -2972,6 +2968,68 @@ metrics:
         assert_eq!(read(r#"d.owner_name >= "B""#), Some("personal"));
         assert_eq!(read(r#"d.owner.name == "Ann""#), Some("personal"));
         assert_eq!(read("d.placed"), None);
+    }
+
+    /// A metric read whose filter or value passes its type's bound refuses
+    /// the read as out of range, where the filter dropped the row and the
+    /// value was answered not run (the audit's values U5 and U8, ADR-0205
+    /// decision 2).
+    #[test]
+    fn a_metric_past_its_bound_refuses_the_read() {
+        let text = "\nmodule: tally\ncategories: [live]\ntypes:\n  Claim:\n    attributes:\n      total: { type: int }\n    states:\n      OPEN: { category: live }\n    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [total] }\n    metrics:\n      claimed:\n        source: objects\n        item: c\n        expression: sum(c.total)\n      vast:\n        source: objects\n        item: c\n        expression: sum(c.total) * 100000000000000000000000\n";
+        let lib = Library::load(&[("tally.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        for total in [i64::MAX, 7] {
+            let r = Request {
+                transition: "open".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some("Claim".into()),
+                inputs: BTreeMap::from([("total".to_string(), json!(total))]),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            assert!(matches!(
+                request(&mut s, &r).unwrap().unwrap(),
+                Verdict::Satisfied { .. }
+            ));
+        }
+        let w = s.snapshot().unwrap();
+        let read = |filter: Option<&str>| {
+            page(
+                &w,
+                None,
+                "Claim.claimed",
+                &BTreeMap::new(),
+                None,
+                None,
+                filter,
+            )
+            .map(|p| p.rows.len())
+        };
+        assert!(matches!(
+            read(Some("c.total * 2 > 0")),
+            Err(NotRun::OutOfRange(_))
+        ));
+        assert!(matches!(
+            read(Some("c.total + 1 > 0")),
+            Err(NotRun::OutOfRange(_))
+        ));
+        assert!(matches!(read(None), Err(NotRun::OutOfRange(_))));
+        assert_eq!(read(Some("c.total < 10")), Ok(1));
+        // past 128 bits within the metric's own arithmetic
+        let vast = page(&w, None, "Claim.vast", &BTreeMap::new(), None, None, None);
+        assert!(
+            matches!(vast, Err(NotRun::OutOfRange(_))),
+            "{:?}",
+            vast.map(|p| p.rows.len())
+        );
     }
 
     /// A metric over objects bound to one of the item's own stored

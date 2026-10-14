@@ -89,7 +89,7 @@ Besides the rules a flow declares, the engine adds some of its own. A refusal na
 | `not_erased` | `unreachable_from_here` | writing a personal attribute again on an object whose personal data was erased. |
 | `subject_open` | `unreachable_from_here` | recording a label or an observation on an object in a final state. |
 | `subject_owned` | `unreachable_from_here` | recording on an object another system owns (a `mirror` type). |
-| `value_in_range` | `unreachable_from_here` | an effect whose arithmetic has no value: past its type's bound, a division by zero, a date past 9999, a date moved by part of a day, an operand absent (`count + 1` where `count` is unset: give it a `default`, or guard the transition with `count is not null`). |
+| `value_in_range` | `unreachable_from_here` | an arithmetic past its type's bound, wherever the request evaluates it, a guard, an invariant, a loop's filter or an effect: an integer past 64 bits, a decimal past its digits, a date past 9999, a date moved by part of a day. An effect's division by zero, or an operand absent (`count + 1` where `count` is unset: give it a `default`, or guard the transition with `count is not null`). A value written that its attribute's type does not hold: text to a number, a decimal with a fraction to an integer. |
 | `<attribute>_unique` | (invariant) | a second object holding a value declared `unique`. `objects` names the holder. |
 | `identity_taken` | (invariant) | an actor identity another actor already holds, compared ignoring the case of ASCII letters. |
 | `<state>_invariant` | (invariant) | entering a state without its `required_attributes`. |
@@ -117,6 +117,7 @@ A read that cannot be answered says why in `refused`, with no items. Some carry 
 | `unknown_type` | `query`, `available`, `exceptions`, `diagnostics` | The flow has no such type. |
 | `unknown_transition` | `available` | The type has no such transition. |
 | `not_requestable` | `available` | The transition runs only as part of another. |
+| `value_in_range` | `get`, `query`, `metric` | A value the read derives or filters by is past what its type holds: an integer past 64 bits, a time past the calendar. `object_id` names the object, where one is known; the answer names no value. `availability` and `check` say it as a transition's verdict, as a request would be refused. |
 | `malformed_filter` | `query`, `metric` | The filter cannot be answered. `reason` says why: it does not parse; compares a member with a literal its type cannot hold; is not a boolean; calls an evaluator or a metric; reads the request (`actor`, `inputs`); divides by zero; nests too deep; holds more than 256 terms; or, for a metric, reads something other than the metric's item. |
 | `unknown_order_key` | `query` | An `order` key that is not `created_at`, `entered_at(<tracked member>)` or an attribute holding one value. |
 | `unknown_field` | `query` | A `fields` entry the type does not have. |

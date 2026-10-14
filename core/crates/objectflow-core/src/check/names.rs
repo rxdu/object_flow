@@ -3122,12 +3122,42 @@ fn object_member_type(m: &str) -> Option<Ty> {
 /// goes through at most `eval::DERIVED_HOPS` (tenth production review).
 const TYPING_DEPTH: usize = 64;
 
+/// `tracked_attributes` of `check-flows.py`: an attribute whose every value
+/// is timed, an enumeration's, or a single reference that stores its value,
+/// one with no opposite, one marked stored, or one whose opposite end is a
+/// set (ADR-0083).
+fn tracked_attribute(t: &Value, a: &str, kinds: &Obj) -> bool {
+    let Some(spec) = obj(t, "attributes").get(a) else {
+        return false;
+    };
+    let typ = str_or(spec, "type", "");
+    let reference = str_or(spec, "reference", "");
+    if typ.chars().next().is_some_and(char::is_uppercase) && !typ.ends_with("[]") {
+        return true;
+    }
+    if reference.is_empty() || reference.ends_with("[]") {
+        return false;
+    }
+    let opposite = str_or(spec, "opposite", "");
+    let far = kinds
+        .get(&reference)
+        .map(|k| obj(k, "attributes"))
+        .and_then(|attrs| attrs.get(&opposite).cloned());
+    spec.get("opposite").is_none()
+        || flag(spec, "stored")
+        || far.is_some_and(|f| str_or(&f, "reference", "").ends_with("[]"))
+}
+
 struct Typing<'a> {
     kinds: &'a Obj,
     enums: &'a BTreeSet<String>,
     categories: &'a BTreeSet<String>,
     evaluators: &'a BTreeSet<String>,
     broken: Vec<String>,
+    /// Whether a flow function's argument is checked here: in the places
+    /// check 58 does not reach through a transition's body, a derived
+    /// attribute, an invariant, a uniqueness condition and a backfill.
+    flow_names: bool,
     /// Each derived attribute's type, by its type and name, once typed: a
     /// chain of attributes each reading the one before twice typed each
     /// 2^n times, forty holding the dry run's slot past six minutes
@@ -3172,6 +3202,7 @@ impl Typing<'_> {
                 categories: self.categories,
                 evaluators: self.evaluators,
                 broken: Vec::new(),
+                flow_names: false,
                 known: self.known,
             };
             let mut deeper = seen.clone();
@@ -3181,6 +3212,50 @@ impl Typing<'_> {
             return ty;
         }
         None
+    }
+
+    /// A flow function names what its object's type has: `time_in` a
+    /// state, `entered_at` a state or a tracked member, wherever an
+    /// expression is typed, as the model's check 58 has it for a
+    /// transition's body (the audit's values G2, where `time_in` of a member
+    /// answered 0 s).
+    fn flow_function_names(
+        &mut self,
+        f: &Expr,
+        args: &[Expr],
+        tn: &str,
+        x: Option<&Value>,
+        env: &TyEnv,
+        seen: &BTreeSet<(String, String)>,
+    ) {
+        if !self.flow_names {
+            return;
+        }
+        let (on, fname) = match f {
+            Expr::Name(n) => (Some(tn.to_string()), n.as_str()),
+            Expr::Path(b, n) => match self.of(b, tn, x, env, seen) {
+                Some(Ty::Reference(t)) => (Some(t), n.as_str()),
+                _ => (None, n.as_str()),
+            },
+            _ => return,
+        };
+        let ([Expr::Name(arg)], Some(on)) = (args, on) else {
+            return;
+        };
+        if !matches!(fname, "time_in" | "entered_at") {
+            return;
+        }
+        let Some(ot) = self.kinds.get(&on) else {
+            return;
+        };
+        let state = obj(ot, "states").contains_key(arg);
+        if fname == "time_in" && !state {
+            self.fail(format!("time_in({arg}) names no state of {on}"));
+        } else if fname == "entered_at" && !state && !tracked_attribute(ot, arg, self.kinds) {
+            self.fail(format!(
+                "entered_at({arg}) names neither a state of {on} nor a member it tracks"
+            ));
+        }
     }
 
     fn fail(&mut self, detail: String) {
@@ -3202,8 +3277,39 @@ impl Typing<'_> {
             })),
             Expr::Str(_) => Some(Ty::Str),
             Expr::Bool(_) => Some(Ty::Bool),
-            Expr::Money(c, _) => Some(Ty::Money(c.clone())),
-            Expr::Dur(..) => Some(Ty::Duration),
+            // an amount in a currency the engine has no minor unit for, or
+            // with more places than its minor unit, is one it cannot hold,
+            // where it was rounded (the audit's values L1 and L6)
+            Expr::Money(c, amount) => {
+                match crate::value::minor_unit(c) {
+                    None => self.fail(format!(
+                        "{c} is a currency whose minor unit the engine does not know"
+                    )),
+                    Some(m) => {
+                        let exact = crate::value::Decimal::parse(amount)
+                            .is_some_and(|d| d.rescale(m).is_some_and(|r| r == d));
+                        if !exact {
+                            self.fail(format!(
+                                "{c} {amount} has more places than {c}'s minor unit"
+                            ));
+                        }
+                    }
+                }
+                Some(Ty::Money(c.clone()))
+            }
+            // a duration is whole seconds, where `1.5 s` was rounded to 2 s
+            // (the audit's values L2)
+            Expr::Dur(n, unit) => {
+                if let (Number::Decimal(t), Some(size)) = (n, crate::value::unit_seconds(unit)) {
+                    let whole = crate::value::Decimal::parse(t)
+                        .and_then(|d| d.checked_mul(&crate::value::Decimal::from_int(size)))
+                        .is_some_and(|d| d.rescale(0).is_some_and(|w| w == d));
+                    if !whole {
+                        self.fail(format!("{t} {unit} is no whole number of seconds"));
+                    }
+                }
+                Some(Ty::Duration)
+            }
             Expr::Name(n) => {
                 if let Some(t) = env.get(n) {
                     return t.clone();
@@ -3277,6 +3383,7 @@ impl Typing<'_> {
                 {
                     return Some(Ty::Verdict);
                 }
+                self.flow_function_names(f, args, tn, x, env, seen);
                 let Expr::Name(name) = &**f else {
                     return None;
                 };
@@ -3320,6 +3427,7 @@ impl Typing<'_> {
             Expr::Neg(inner) => self.of(inner, tn, x, env, seen),
             Expr::Agg {
                 kind,
+                distinct,
                 var,
                 collection,
                 filter,
@@ -3360,7 +3468,18 @@ impl Typing<'_> {
                     None => None,
                 };
                 match kind.as_str() {
-                    "count" => Some(Ty::Int),
+                    // a count of elements counts those its body holds for,
+                    // a condition, as `any`'s is (§8.3, the audit's values
+                    // G1); a distinct count counts its body's values
+                    "count" => {
+                        if !*distinct
+                            && let Some(b) = b
+                            && b != Ty::Bool
+                        {
+                            self.fail(format!("the body of count is {}, not a bool", b.text()));
+                        }
+                        Some(Ty::Int)
+                    }
                     "all" | "any" | "none" => {
                         if let Some(b) = b
                             && b != Ty::Bool
@@ -3512,6 +3631,19 @@ impl Typing<'_> {
         };
         if matches!(op, BinOp::Add | BinOp::Sub) {
             if l.scalar() && r.scalar() {
+                // a literal takes its partner's scale (§8.1), and one of more
+                // places than a decimal holds would lose them, where `rate +
+                // 0.005` was rounded on its write (the audit's values W5)
+                for (a, b) in [(&l, &r), (&r, &l)] {
+                    if let (Ty::Number(p), Ty::Decimal(Some(s))) = (a, b)
+                        && p > s
+                    {
+                        self.fail(format!(
+                            "it {verb} a number of {p} places and a decimal of scale {s}, which holds fewer"
+                        ));
+                        return None;
+                    }
+                }
                 if matches!(l, Ty::Number(_)) {
                     return Some(r);
                 }
@@ -3630,6 +3762,88 @@ impl Typing<'_> {
 /// and a condition that is no bool or verdict and an invariant or a
 /// uniqueness condition that is no bool (the model's check 24;
 /// `check-flows.py`'s `expression_type_errors`).
+/// A type the typing infers as check 17's kinds spell it, none where they
+/// spell none: a number literal is a number where it is whole and a decimal
+/// where it has places.
+fn typed_kind(ty: &Ty) -> Option<Vec<String>> {
+    let one = |k: &str| Some(vec![k.to_string()]);
+    match ty {
+        Ty::Number(0) => one("number"),
+        Ty::Number(_) | Ty::Decimal(_) => one("decimal"),
+        Ty::Money(c) => Some(vec!["money".into(), c.clone()]),
+        Ty::Reference(t) => Some(vec!["reference".into(), t.clone()]),
+        Ty::Enumeration(e) => Some(vec!["enumeration".into(), e.clone()]),
+        Ty::Int
+        | Ty::Str
+        | Ty::Bool
+        | Ty::Timestamp
+        | Ty::Duration
+        | Ty::Identity
+        | Ty::File
+        | Ty::Date
+        | Ty::ActorKind => one(ty.tag()),
+        _ => None,
+    }
+}
+
+/// What check 17 refuses of an assign by the type the typing infers, where
+/// `value_kind` tells none: a value of another kind than its target's, as a
+/// decimal computed into an int (the audit's values W2 and W3); and a
+/// decimal of more places than its target's that is no product or quotient,
+/// which §8.3 alone rounds (W5). `check-flows.py`'s `typed_write_error`.
+#[allow(clippy::too_many_arguments)]
+fn typed_write_error(
+    typing: &mut Typing<'_>,
+    t: &Value,
+    body: &Value,
+    tn: &str,
+    x: &Value,
+    env: &TyEnv,
+    kinds: &Obj,
+    enums: &BTreeSet<String>,
+) -> Option<String> {
+    let loc = body_text(body, "location");
+    let attrs = obj(t, "attributes");
+    let spec = attrs.get(&loc);
+    let tree = parse(&squash(&body_text(body, "expr"))).ok()?;
+    let target = attribute_type(spec, enums);
+    typing.broken.clear();
+    let got = typing.of(&tree, tn, Some(x), env, &BTreeSet::new());
+    let (Some(target), Some(got)) = (target, got) else {
+        return None;
+    };
+    let product = matches!(tree, Expr::Bin(BinOp::Mul | BinOp::Div, ..));
+    let scale = match got {
+        Ty::Decimal(Some(s)) | Ty::Number(s) => Some(s),
+        _ => None,
+    };
+    if let (Ty::Decimal(Some(ts)), Some(s)) = (&target, scale)
+        && s > *ts
+        && !product
+    {
+        return Some(format!(
+            "a decimal of scale {s}, to {loc}, which holds a decimal of scale {ts}: only a product or a quotient is rounded to its target"
+        ));
+    }
+    let want = written_kind(spec, enums);
+    let kind = typed_kind(&got);
+    if let Some(told) = value_kind(&tree, tn, t, x, enums)
+        && !(told == ["number"] && kind.as_deref() == Some(&["decimal".to_string()][..]))
+    {
+        return None;
+    }
+    if let (Some(want), Some(kind)) = (want, kind)
+        && !fits(&want, &kind, kinds)
+    {
+        return Some(format!(
+            "{}, to {loc}, which holds {}: a write's value must fit its target",
+            got.text(),
+            want.join(" ")
+        ));
+    }
+    None
+}
+
 fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
     let mut kinds = library.clone();
     for (tn, t) in types(doc) {
@@ -3655,6 +3869,7 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
         categories: &cats,
         evaluators: &evaluators,
         broken: Vec::new(),
+        flow_names: false,
         known: &known,
     };
     let mut out = Found::new();
@@ -3675,6 +3890,13 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
             return;
         };
         typing.broken.clear();
+        // a transition's guards and effects are check 58's, through its
+        // body; any other place is the typing's
+        typing.flow_names = !matches!(
+            (where_.first(), where_.get(2)),
+            (Some(Seg::Key(a)), Some(Seg::Key(b)))
+                if a == "types" && (b == "conditions" || b == "transitions")
+        );
         let got = typing.of(&tree, tn, x, env, &BTreeSet::new());
         if typing.broken.is_empty()
             && !want.is_empty()
@@ -3779,6 +4001,19 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
                         &env,
                         &[],
                     );
+                }
+                if step.kind == "assign"
+                    && let Some(misfit) =
+                        typed_write_error(&mut typing, t, step.body(), &tn, x, &env, &kinds, &enums)
+                {
+                    out.push(finding(
+                        where_.clone(),
+                        "names",
+                        format!(
+                            "{tn}.{xn} writes {}, {misfit} (the model's check 17)",
+                            body_text(step.body(), "expr")
+                        ),
+                    ));
                 }
             }
         }

@@ -6,8 +6,35 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 Release 1.0.0 is held until a production review, on the same 36.7k-object store as the first, finds no blocker or major (ADR-0183 decision 1; `docs/design/production-review.md`); each of the sixteen so far found some.
 
+### Changes to what 0.2.0 answered
+
+- A quotient written to a decimal is computed exactly and rounded once at the target's scale, half to even: `total / 3` with `total` 10.00 writes 3.3333 into a `decimal(12,4)`, where 0.2.0 wrote 3.3300 (ADR-0205 decision 1).
+- A decimal literal combined with a wider decimal takes its scale, as `declaration-syntax.md` §8.1 says: `2.5 / w` with `w` 10.00 is 0.25, where it was 0.2.
+- The body of `any`, `none` and `count` is a condition each element meets: `any(f in flags: f)` over `[false]` is false, where it was true, in both backends.
+- Two decimals, and two rationals in a metric, compare exactly at any scale. Where they did not align within 128 bits, 0.2.0 compared them by sign alone, so `0.000…01 == 1000000000` held, and a metric compared them as floats.
+
 ### Changes that may refuse what 0.2.0 accepted
 
+- An arithmetic past its type's bound is never unknown (ADR-0205 decision 2). That is an integer past 64 bits, a decimal or an amount past its digits, a date moved by part of a day, or a time past the calendar.
+  - A guard, an invariant or a loop's filter reading one refuses the request `value_in_range`. An invariant held on one and admitted the write it should refuse, and a loop dropped the element.
+  - A `get`, a `query` or a `metric` meeting one is refused `value_in_range`, naming the object and no value. A derived value was answered `null`, and a filter left the object out of its matches and of their negation.
+  - A division by zero stays unknown, and only the side of an `and` or an `or` that does not decide refuses nothing.
+- A value an effect, a default, a creation's argument or a backfill writes is held as its attribute's type holds it (ADR-0205 decision 1):
+  - An integer written to a decimal is written at its scale. A store 0.2.0 wrote may hold `5` read as `0.05`, and the upgrade cannot tell those from values written so.
+  - A decimal written to an integer is written only where it is whole. 0.2.0 stored `10.50` as `1050`.
+  - A value of another type is refused `value_in_range`. 0.2.0 wrote it: an amount's currency relabelled, text into a number, and a date into a time column that left the object and its type's queries unreadable.
+  - A backfill writing one refuses the publish.
+- An `add` or a `remove` of an absent value is refused `value_in_range`, as a `set` of one is, where it answered `501 not run`.
+- Both checkers refuse at publish, by the type their typing infers (ADR-0205 decision 1):
+  - a write of a value of another type than its target's, such as a decimal computed into an int or an int into a string, where only a value whose kind was plain to see was checked;
+  - a write that would round a decimal to fewer places unless it is a product or a quotient, as §8.3 says;
+  - a number literal in a sum or a difference with more places than the decimal it is combined with;
+  - an amount with more places than its currency's minor unit, or in a currency the engine has no minor unit for;
+  - a duration literal that is no whole number of seconds;
+  - a `count` whose body is no condition, `count(a in T: a.n)`, as `all`, `any` and `none` already were;
+  - `time_in` naming no state, or `entered_at` neither a state nor a tracked member, in a derived attribute, an invariant, a uniqueness condition or a backfill, as check 58 already refused them in a transition's guards and effects.
+
+  At run time a write that would round its decimal is refused `value_in_range`, and each literal and each such `time_in` is not run, where 0.2.0 rounded them or answered `0 s`.
 - A metric over objects reaching a personal value through a reference or a derived attribute, `d.owner.name` or `d.owner_name`, is refused in both checkers, and a metric read's filter on a derived attribute reading one is refused `personal`; `pull` refuses a cursor past the log `invalid_cursor`, as `export` and `acknowledge` do (sixteenth production review, ADR-0203).
 - An identity shaped as an object's id in any case of its letters, `Staff-2` as `staff-2`, is `malformed`, in both backends; a query by an actor the store does not know is refused `personal` where its filter or order reads a personal member, as an agent's is; a date moved by part of a day has no value, so an effect writing it is refused `value_in_range`, in both backends, where it answered `501 not_run`; a build of the engine from outside the repository stops unless `LIBSQLITE3_FLAGS` holds `-USQLITE_ENABLE_MEMORY_MANAGEMENT` (fifteenth production review, ADR-0202).
 - A derived attribute whose reads go more than 64 deep, each reading the next, is refused `order` in both checkers, its first link past the depth named, and a read past it in a version installed before is `not_run`, where a chain of 9,500 that both checkers accepted answered all past the 65th as null; an agent's query whose `filter` or `order` reads a member marked personal is refused `personal`, as a metric's filter is; an assignment whose arithmetic has an absent operand refuses its request `value_in_range`, in both backends, where it answered `501 not_run`; an import's entry time for a dimension its type does not track is refused, where it was taken and dropped; a `--socket` path past 107 bytes is refused with the arguments, before `--create` makes a store (fourteenth production review, ADR-0201).

@@ -22,13 +22,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{Value as Json, json};
 
 use crate::eval::{Evaluator, NotRun, Reading, Who, truth};
-use crate::expr::Expr;
+use crate::expr::{BinOp, Expr};
 use crate::model::{
     DECLARATION_CHANGE, Declared, Enforce, From, Kind, Library, PROPOSAL, Remedy, Step, Transition,
     Type, Unique,
 };
 use crate::store::{Allocator, Change, Event};
-use crate::value::{Value, parse_duration};
+use crate::value::{Decimal, Value, parse_duration};
 use crate::verdict::{Flag, InputReason, InvariantFailure, Told, Verdict};
 use crate::wire;
 use crate::world::{Object, Span, World};
@@ -314,8 +314,23 @@ enum Stop {
 }
 
 impl std::convert::From<NotRun> for Stop {
+    /// A value past its type's range, in a guard, an invariant, a loop's
+    /// filter or an effect, refuses the request as the generated guard
+    /// `value_in_range`, naming the object (ADR-0205 decision 2).
     fn from(e: NotRun) -> Stop {
-        Stop::NotRun(e)
+        match e {
+            NotRun::OutOfRange(id) => Stop::Refused(
+                Verdict::Unsatisfied {
+                    clause: "value_in_range".into(),
+                    remedy: Some(Remedy::UnreachableFromHere),
+                },
+                Box::new(Refusal {
+                    objects: if id.is_empty() { Vec::new() } else { vec![id] },
+                    ..Refusal::default()
+                }),
+            ),
+            e => Stop::NotRun(e),
+        }
     }
 }
 
@@ -389,31 +404,155 @@ fn invariant_objects(world: &World<'_>, o: &Object, n: &str) -> Result<BTreeSet<
     Ok(BTreeSet::new())
 }
 
-/// A decimal written to an attribute, at the attribute's declared scale: a
-/// product or quotient rounds half to even to the target's scale, as money
-/// does (`declaration-syntax.md` §8.3, F4), and a value past the store's
-/// 18 digits is not written. Any other value, or an attribute of another
-/// type, is written as it is.
+/// A value written to an attribute, as its declared type holds it, or why
+/// it cannot be:
+/// - an integer is written to a decimal at its scale, and a decimal to a
+///   decimal or an integer rounded half to even to its scale, as §8.3 says a
+///   product or quotient is (F4);
+/// - an amount keeps its currency at its minor unit;
+/// - text stays within what a request can send;
+/// - every other kind is written only to an attribute of its own kind.
+///
+/// An integer written to a decimal was stored in its units, `5` read as
+/// `0.05`, and a decimal to an integer likewise, `10.50` read as `1050`; a
+/// date written to a timestamp left its object unreadable (the audit's
+/// values, ADR-0205 decision 1). Past the store's 18 digits nothing is
+/// written.
+pub(crate) fn fit_value(declared: &Declared, many: bool, v: Value) -> Result<Value, String> {
+    if v.is_absent() {
+        return Ok(v);
+    }
+    if many {
+        let Value::Set(items) = v else {
+            return Err(format!("a {} where a set is held", v.kind()));
+        };
+        return items
+            .into_iter()
+            .map(|i| fit_value(declared, false, i))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Set);
+    }
+    let kind = v.kind();
+    let wrong = || Err(format!("a {kind} where {declared:?} is held"));
+    let digits = |d: Decimal| -> Result<Decimal, String> {
+        if d.units().abs() <= 999_999_999_999_999_999 {
+            Ok(d)
+        } else {
+            Err(format!("{d} is past the 18 digits a value holds"))
+        }
+    };
+    let ty = match declared {
+        Declared::Reference(_) => {
+            return if matches!(v, Value::Object(_)) {
+                Ok(v)
+            } else {
+                wrong()
+            };
+        }
+        Declared::Scalar(ty) => ty.as_str(),
+    };
+    if let Some(rest) = ty.strip_prefix("decimal(") {
+        let scale = rest
+            .trim_end_matches(')')
+            .rsplit(',')
+            .next()
+            .and_then(|s| s.trim().parse::<u8>().ok())
+            .unwrap_or(0);
+        let p = rest
+            .split(',')
+            .next()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .unwrap_or(18);
+        let d = match &v {
+            Value::Int(n) => Decimal::from_int(*n),
+            Value::Decimal(d) => *d,
+            _ => return wrong(),
+        };
+        let held = d
+            .rescale(scale)
+            .ok_or_else(|| format!("{d} has no value at {scale} places"))?;
+        if held.units().abs() > 10i128.saturating_pow(p).saturating_sub(1) {
+            return Err(format!("{held} has more than {p} digits"));
+        }
+        return digits(held).map(Value::Decimal);
+    }
+    if let Some(ccy) = ty.strip_prefix("money(").map(|c| c.trim_end_matches(')')) {
+        let Value::Money { currency, amount } = &v else {
+            return wrong();
+        };
+        if currency != ccy {
+            return Err(format!("an amount in {currency} where {ccy} is held"));
+        }
+        let minor = crate::value::minor_unit(ccy).unwrap_or(2);
+        let held = amount
+            .rescale(minor)
+            .ok_or_else(|| format!("{amount} has no value at {minor} places"))?;
+        return digits(held).map(|amount| Value::Money {
+            currency: currency.clone(),
+            amount,
+        });
+    }
+    match (ty, &v) {
+        ("int" | "counter" | "event", Value::Int(_)) => Ok(v),
+        // a decimal to an integer only where it is whole, never rounded
+        ("int" | "counter", Value::Decimal(d)) => d
+            .rescale(0)
+            .filter(|w| w == d)
+            .and_then(|w| w.to_int())
+            .map(Value::Int)
+            .ok_or_else(|| format!("{d} has no integer value")),
+        ("string" | "text" | "identity" | "actor_kind", Value::Text(s)) => {
+            if s.len() > crate::wire::TEXT_BYTES {
+                Err(format!(
+                    "a string of {} bytes, past the {} a value holds",
+                    s.len(),
+                    crate::wire::TEXT_BYTES
+                ))
+            } else {
+                Ok(v)
+            }
+        }
+        // a date or a time past the calendar, which no read takes back
+        // (fifth production review BRICK, ADR-0190 decision 1)
+        ("date", Value::Date(d)) if !crate::value::in_calendar(*d) => {
+            Err("a date past the calendar".to_string())
+        }
+        ("timestamp", Value::Timestamp(s))
+            if !(crate::value::FIRST_SECOND..=crate::value::LAST_SECOND).contains(s) =>
+        {
+            Err("a time past the calendar".to_string())
+        }
+        ("bool", Value::Bool(_))
+        | ("date", Value::Date(_))
+        | ("timestamp", Value::Timestamp(_))
+        | ("duration", Value::Duration(_))
+        | ("file", Value::File { .. }) => Ok(v),
+        // an enumeration's member, of that enumeration and no other
+        (e, Value::Member { enumeration, .. }) if enumeration == e => Ok(v),
+        _ => wrong(),
+    }
+}
+
+/// The scale of a declared `decimal(p,s)`, none for any other type.
+fn decimal_scale(declared: &Declared) -> Option<u8> {
+    let Declared::Scalar(ty) = declared else {
+        return None;
+    };
+    ty.strip_prefix("decimal(")
+        .and_then(|r| r.trim_end_matches(')').rsplit(',').next())
+        .and_then(|s| s.trim().parse::<u8>().ok())
+}
+
+/// A value written to an attribute, fitted to its declared type
+/// (`fit_value`); one it cannot hold refuses the request `value_in_range`,
+/// as arithmetic past its bound does.
 fn at_declared_scale(t: &Type, name: &str, v: Value, id: &str) -> Result<Value, Stop> {
-    let Value::Decimal(d) = &v else {
+    let Some(a) = t.attribute(name) else {
         return Ok(v);
     };
-    let scale = t.attribute(name).and_then(|a| match &a.declared {
-        Declared::Scalar(ty) => ty
-            .strip_prefix("decimal(")
-            .and_then(|r| r.trim_end_matches(')').rsplit(',').next())
-            .and_then(|s| s.trim().parse::<u8>().ok()),
-        Declared::Reference(_) => None,
-    });
-    let Some(scale) = scale else {
-        return Ok(v);
-    };
-    match d.rescale(scale) {
-        Some(held) if held.units().abs() <= 999_999_999_999_999_999 => Ok(Value::Decimal(held)),
-        // past the store's 18 digits it refuses the request, as an
-        // arithmetic past its bound does, where it was answered 501 not run
-        // (eleventh production review)
-        _ => refused_naming(
+    match fit_value(&a.declared, a.many, v) {
+        Ok(v) => Ok(v),
+        Err(_) => refused_naming(
             Verdict::Unsatisfied {
                 clause: "value_in_range".into(),
                 remedy: Some(Remedy::UnreachableFromHere),
@@ -3747,6 +3886,18 @@ fn dotted(e: &Expr) -> String {
     }
 }
 
+/// How an effect's expression is evaluated: as a value, as a loop's filter,
+/// or as a value written to a decimal of the scale given, whose quotient is
+/// computed exactly and rounded once at that scale, half to even, where it
+/// was rounded at its dividend's scale first (§8.3, the audit's values W4,
+/// ADR-0205 decision 1).
+#[derive(Clone, Copy)]
+enum Evaluated {
+    Plain,
+    Filtering,
+    WrittenAt(u8),
+}
+
 #[allow(clippy::too_many_arguments)]
 fn effect_value(
     ctx: &Ctx<'_>,
@@ -3756,7 +3907,7 @@ fn effect_value(
     env: &BTreeMap<String, Value>,
     position: i64,
     e: &Expr,
-    filtering: bool,
+    how: Evaluated,
 ) -> Result<Value, Stop> {
     let ev = Evaluator::new(&ctx.work, Some(t), Some(id))
         .with_committed(&ctx.before)
@@ -3764,10 +3915,14 @@ fn effect_value(
         .with_actor(&ctx.who)
         .with_answers(&ctx.answers)
         .with_event(position);
-    if filtering {
-        return Ok(ev.filtering().eval_in(e, env)?);
-    }
-    let v = ev.eval_in(e, env)?;
+    let v = match (how, e) {
+        (Evaluated::Filtering, _) => return Ok(ev.filtering().eval_in(e, env)?),
+        // a quotient written to a decimal is divided once at its scale
+        (Evaluated::WrittenAt(scale), Expr::Bin(BinOp::Div, l, r)) => {
+            ev.quotient_at(l, r, env, scale)?
+        }
+        _ => ev.eval_in(e, env)?,
+    };
     // an effect's value an arithmetic left with none, past its bound or a
     // division by zero, refuses the request, naming its object, where it
     // stopped as not run (production review F5, ADR-0185)
@@ -3854,7 +4009,27 @@ fn effects(
                 if unsupplied(expr, inputs) {
                     continue;
                 }
-                let v = effect_value(ctx, t, id, inputs, &env, position, expr, false)?;
+                let how = t
+                    .attribute(location)
+                    .and_then(|a| decimal_scale(&a.declared))
+                    .map_or(Evaluated::Plain, Evaluated::WrittenAt);
+                let v = effect_value(ctx, t, id, inputs, &env, position, expr, how)?;
+                // a write that would round a decimal to its target's scale
+                // loses what it holds, which §8.3 permits a product or a
+                // quotient alone, where `set d2 := d4` rounded 2.5555 to
+                // 2.56 (the audit's values W5)
+                if let (Evaluated::WrittenAt(scale), Value::Decimal(d)) = (how, &v)
+                    && !matches!(expr, Expr::Bin(BinOp::Mul | BinOp::Div, ..))
+                    && d.rescale(scale).is_none_or(|r| r != *d)
+                {
+                    return refused_naming(
+                        Verdict::Unsatisfied {
+                            clause: "value_in_range".into(),
+                            remedy: Some(Remedy::UnreachableFromHere),
+                        },
+                        id,
+                    );
+                }
                 // an assignment's arithmetic on an absent operand has no
                 // value, which refuses the request as one past its bound
                 // does, where it answered not run (fourteenth production
@@ -3868,27 +4043,9 @@ fn effects(
                         id,
                     );
                 }
-                let v = at_declared_scale(t, location, v, id)?;
                 // a date or a time past the calendar refuses the request, as
-                // an arithmetic past its bound does, where it was written as
-                // text no read takes back (fifth production review BRICK,
-                // ADR-0190 decision 1)
-                let outside = match &v {
-                    Value::Timestamp(s) => {
-                        !(crate::value::FIRST_SECOND..=crate::value::LAST_SECOND).contains(s)
-                    }
-                    Value::Date(d) => !crate::value::in_calendar(*d),
-                    _ => false,
-                };
-                if outside {
-                    return refused_naming(
-                        Verdict::Unsatisfied {
-                            clause: "value_in_range".into(),
-                            remedy: Some(Remedy::UnreachableFromHere),
-                        },
-                        id,
-                    );
-                }
+                // an arithmetic past its bound does (`fit_value`)
+                let v = at_declared_scale(t, location, v, id)?;
                 // a decimal written past its `p` digits refuses the request,
                 // as an arithmetic past its bound does (ADR-0185, third
                 // production review, minor)
@@ -3945,10 +4102,26 @@ fn effects(
                 if unsupplied(expr, inputs) {
                     continue;
                 }
-                let v = effect_value(ctx, t, id, inputs, &env, position, expr, false)?;
-                if v.is_absent() {
-                    return stop_not_run("adding or removing an absent value");
-                }
+                let v = effect_value(ctx, t, id, inputs, &env, position, expr, Evaluated::Plain)?;
+                // an absent element, or one of another kind than the set
+                // holds, refuses the request as an assignment of one does,
+                // where it answered not run (the audit's values W6, ADR-0205
+                // decision 1)
+                let fitted = t
+                    .attribute(location)
+                    .map_or(Ok(v.clone()), |a| fit_value(&a.declared, false, v));
+                let v = match fitted {
+                    Ok(v) if !v.is_absent() => v,
+                    _ => {
+                        return refused_naming(
+                            Verdict::Unsatisfied {
+                                clause: "value_in_range".into(),
+                                remedy: Some(Remedy::UnreachableFromHere),
+                            },
+                            id,
+                        );
+                    }
+                };
                 ctx.wrote
                     .entry(id.to_string())
                     .or_default()
@@ -3987,13 +4160,21 @@ fn effects(
                 transition,
                 inputs: binds,
             } => {
-                let target_id =
-                    match effect_value(ctx, t, id, inputs, &env, position, target, false)? {
-                        // a call through an absent optional end reaches nothing (DESIGN.md §5.4)
-                        Value::Absent => continue,
-                        Value::Object(tid) if ctx.work.get(&tid)?.is_some() => tid,
-                        _ => return stop_not_run("a call whose target is not one object"),
-                    };
+                let target_id = match effect_value(
+                    ctx,
+                    t,
+                    id,
+                    inputs,
+                    &env,
+                    position,
+                    target,
+                    Evaluated::Plain,
+                )? {
+                    // a call through an absent optional end reaches nothing (DESIGN.md §5.4)
+                    Value::Absent => continue,
+                    Value::Object(tid) if ctx.work.get(&tid)?.is_some() => tid,
+                    _ => return stop_not_run("a call whose target is not one object"),
+                };
                 let values = arguments(ctx, t, id, inputs, &env, position, binds)?;
                 let ttype = ctx
                     .work
@@ -4027,13 +4208,13 @@ fn effects(
                 steps,
             } => {
                 let mut items: Vec<Value> = if let Some(r) = range {
-                    match effect_value(ctx, t, id, inputs, &env, position, r, false)? {
+                    match effect_value(ctx, t, id, inputs, &env, position, r, Evaluated::Plain)? {
                         Value::Int(n) => (1..=n).map(Value::Int).collect(),
                         // absent or not positive: no step (ADR-0146)
                         _ => Vec::new(),
                     }
                 } else if let Some(a) = array {
-                    match effect_value(ctx, t, id, inputs, &env, position, a, false)? {
+                    match effect_value(ctx, t, id, inputs, &env, position, a, Evaluated::Plain)? {
                         Value::Set(items) => items,
                         _ => return stop_not_run("a loop over what is not a collection"),
                     }
@@ -4048,7 +4229,14 @@ fn effects(
                         let mut inner = env.clone();
                         inner.insert(item.clone(), i.clone());
                         if truth(&effect_value(
-                            ctx, t, id, inputs, &inner, position, f, true,
+                            ctx,
+                            t,
+                            id,
+                            inputs,
+                            &inner,
+                            position,
+                            f,
+                            Evaluated::Filtering,
                         )?)? == Some(true)
                         {
                             kept.push(i);
@@ -4075,7 +4263,7 @@ fn effects(
                 }
             }
             Step::Supersede(expr) => {
-                match effect_value(ctx, t, id, inputs, &env, position, expr, false)? {
+                match effect_value(ctx, t, id, inputs, &env, position, expr, Evaluated::Plain)? {
                     Value::Object(successor) => {
                         if let Some(o) = ctx.work.get_mut(id)? {
                             o.superseded_by = Some(successor);
@@ -4105,7 +4293,7 @@ fn arguments(
         if unsupplied(e, inputs) {
             continue;
         }
-        let v = effect_value(ctx, t, id, inputs, env, position, e, false)?;
+        let v = effect_value(ctx, t, id, inputs, env, position, e, Evaluated::Plain)?;
         if !v.is_absent() {
             out.insert(k.clone(), v);
         }
@@ -7944,7 +8132,7 @@ types:
         // and a scan of the base reads the family
         let w = s.snapshot().unwrap();
         let n = Evaluator::new(&w, None, None)
-            .eval(&crate::expr::parse("count(a in Asset: a)").unwrap())
+            .eval(&crate::expr::parse("count(a in Asset)").unwrap())
             .unwrap();
         assert_eq!(n, Value::Int(2));
     }
@@ -11386,7 +11574,254 @@ types:
     /// past 64 bits, a negation of the least or a division by zero, refuses
     /// its request as `value_in_range`, naming its object and storing
     /// nothing, where it stopped not run; a guard over the same arithmetic
-    /// stays unknown (production review F5, ADR-0185).
+    /// refuses it so too, where it was unknown (production review F5,
+    /// ADR-0185, ADR-0205 decision 2).
+    const VALS: &str = r#"module: vals
+categories: [live, closed]
+types:
+  Item:
+    description: Values held at their types.
+    tracking: record
+    attributes:
+      d2: { type: "decimal(10,2)", default: 5 }
+      d4: { type: "decimal(12,4)", optional: true }
+      n: { type: int, optional: true }
+      label: { type: string, optional: true }
+      tags: { type: "string[]", optional: true }
+      big: { type: int, optional: true }
+      huge: { type: int, optional: true }
+    derived_attributes:
+      twice: { expression: huge * 2 }
+    invariants:
+      doubled: { expression: big is null or big * 2 <= 100 }
+    conditions:
+      decided: { description: Decided on its left., expression: label is null or huge * 2 > 0, remedy: unreachable_from_here }
+    states:
+      OPEN: { category: live, description: Open. }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [big, d2] }
+      third:
+        kind: internal
+        from: OPEN
+        effect:
+          - assign: { location: d4, expr: d2 / 3 }
+      count:
+        kind: internal
+        from: OPEN
+        inputs: { k: { type: int } }
+        effect:
+          - assign: { location: d2, expr: inputs.k }
+      price:
+        kind: internal
+        from: OPEN
+        inputs: { p: { type: "decimal(10,2)" } }
+        effect:
+          - assign: { location: d2, expr: inputs.p }
+      times:
+        kind: internal
+        from: OPEN
+        inputs: { k: { type: int } }
+        effect:
+          - assign: { location: n, expr: inputs.k * d2 }
+      text:
+        kind: internal
+        from: OPEN
+        inputs: { s: { type: string } }
+        effect:
+          - assign: { location: n, expr: inputs.s }
+      tag:
+        kind: internal
+        from: OPEN
+        effect:
+          - add: { location: tags, expr: label }
+      narrow:
+        kind: internal
+        from: OPEN
+        effect:
+          - assign: { location: d2, expr: d4 }
+      nudge:
+        kind: internal
+        from: OPEN
+        effect:
+          - assign: { location: d2, expr: d2 + 0.005 }
+      spawn:
+        kind: internal
+        from: OPEN
+        effect:
+          - create: { type: Item, transition: open, inputs: { d2: 7 } }
+      grow:
+        kind: internal
+        from: OPEN
+        inputs: { h: { type: int } }
+        effect:
+          - assign: { location: huge, expr: inputs.h }
+      poke: { kind: internal, from: OPEN, guards: { decided: deny } }
+      sweep:
+        kind: internal
+        from: OPEN
+        effect:
+          - foreach:
+              item: x
+              array: "{1, 2, -3}"
+              where: "x * 4611686018427387904 > 0"
+              limit: 5
+              steps:
+                - assign: { location: n, expr: x }
+"#;
+
+    /// A value is written as its attribute's type holds it, by a default, an
+    /// effect and a creation's argument alike: an integer to a decimal at its
+    /// scale, where `5` was stored as `0.05`; a decimal to an integer only
+    /// where it is whole, where `10.50` was stored as `1050`; a value of
+    /// another kind, or an absent element added to a set, refused
+    /// `value_in_range`; and a quotient written to a wider decimal divided
+    /// once at its scale, where it was rounded at its dividend's first (the
+    /// audit's values W1 to W4 and W6, ADR-0205 decision 1).
+    #[test]
+    fn a_value_is_written_as_its_type_holds_it() {
+        use crate::value::Decimal;
+        let lib = Library::load(&[("vals.yaml".into(), VALS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let dec = |t: &str| Value::Decimal(Decimal::parse(t).unwrap());
+        let held =
+            |s: &Store, id: &str, a: &str| s.snapshot().unwrap().get(id).unwrap().unwrap().attr(a);
+        let out = |v: &Verdict| matches!(v, Verdict::Unsatisfied { clause, remedy: Some(Remedy::UnreachableFromHere) } if clause == "value_in_range");
+        let item = created(&req(&mut s, "open", OPERATOR, ("Item", true), json!({})));
+        assert_eq!(held(&s, &item, "d2"), dec("5.00"));
+        created(&req(&mut s, "third", OPERATOR, (&item, false), json!({})));
+        assert_eq!(held(&s, &item, "d4"), dec("1.6667"));
+        created(&req(
+            &mut s,
+            "count",
+            OPERATOR,
+            (&item, false),
+            json!({"k": 7}),
+        ));
+        assert_eq!(held(&s, &item, "d2"), dec("7.00"));
+        created(&req(
+            &mut s,
+            "times",
+            OPERATOR,
+            (&item, false),
+            json!({"k": 3}),
+        ));
+        assert_eq!(held(&s, &item, "n"), Value::Int(21));
+        created(&req(
+            &mut s,
+            "price",
+            OPERATOR,
+            (&item, false),
+            json!({"p": "1.50"}),
+        ));
+        assert!(out(&req(
+            &mut s,
+            "times",
+            OPERATOR,
+            (&item, false),
+            json!({"k": 7})
+        )));
+        assert!(out(&req(
+            &mut s,
+            "text",
+            OPERATOR,
+            (&item, false),
+            json!({"s": "3"})
+        )));
+        assert_eq!(held(&s, &item, "n"), Value::Int(21));
+        assert!(out(&req(
+            &mut s,
+            "tag",
+            OPERATOR,
+            (&item, false),
+            json!({})
+        )));
+        // a plain write that would round its decimal is refused, as §8.3
+        // permits rounding a product or a quotient alone (W5)
+        assert!(out(&req(
+            &mut s,
+            "narrow",
+            OPERATOR,
+            (&item, false),
+            json!({})
+        )));
+        assert!(out(&req(
+            &mut s,
+            "nudge",
+            OPERATOR,
+            (&item, false),
+            json!({})
+        )));
+        assert_eq!(held(&s, &item, "d2"), dec("1.50"));
+        created(&req(&mut s, "spawn", OPERATOR, (&item, false), json!({})));
+        let w = s.snapshot().unwrap();
+        let spawned: Vec<Value> = w
+            .of_type("Item")
+            .unwrap()
+            .iter()
+            .filter(|o| o.id != item)
+            .map(|o| o.attr("d2"))
+            .collect();
+        assert_eq!(spawned, vec![dec("7.00")]);
+    }
+
+    /// Arithmetic past its bound is refused wherever it is read, never
+    /// unknown: an invariant refuses its request, where it held and admitted
+    /// the write; a loop's filter refuses it, where it dropped the element;
+    /// and a read of a derived value or by a filter refuses the read, where
+    /// it answered null and left the object out (the audit's values U1 to
+    /// U4, ADR-0205 decision 2).
+    #[test]
+    fn arithmetic_past_its_bound_is_refused_where_it_is_read() {
+        let lib = Library::load(&[("vals.yaml".into(), VALS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let out = |v: &Verdict| matches!(v, Verdict::Unsatisfied { clause, .. } if clause == "value_in_range");
+        assert!(out(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Item", true),
+            json!({"big": 1i64 << 62})
+        )));
+        assert!(matches!(
+            req(&mut s, "open", OPERATOR, ("Item", true), json!({"big": 60})),
+            Verdict::InvariantViolated { .. }
+        ));
+        let item = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Item", true),
+            json!({"big": 10}),
+        ));
+        assert!(out(&req(
+            &mut s,
+            "sweep",
+            OPERATOR,
+            (&item, false),
+            json!({})
+        )));
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.get(&item).unwrap().unwrap().attr("n"), Value::Absent);
+        assert!(crate::reads::get(&w, &item).is_ok());
+        created(&req(
+            &mut s,
+            "grow",
+            OPERATOR,
+            (&item, false),
+            json!({"h": i64::MAX}),
+        ));
+        let w = s.snapshot().unwrap();
+        let refused = Err(NotRun::OutOfRange(item.clone()));
+        assert_eq!(crate::reads::get(&w, &item).map(|_| ()), refused);
+        let q = |f: &str| crate::reads::query(&w, "Item", Some(f), &[], None).map(|_| ());
+        assert_eq!(q("huge + 1 > 0"), refused);
+        assert_eq!(q("not (huge + 1 > 0)"), refused);
+        assert_eq!(q("huge is not null"), Ok(()));
+        // the side of an `or` that does not decide refuses nothing, though a
+        // guard reads it for the record
+        created(&req(&mut s, "poke", OPERATOR, (&item, false), json!({})));
+    }
+
     #[test]
     fn an_effects_arithmetic_past_its_bound_is_refused() {
         let lib = Library::load(&[("tally.yaml".into(), TALLY.into())]).unwrap();
@@ -11446,12 +11881,14 @@ types:
             w.get(&big).unwrap().unwrap().attrs.get("n"),
             Some(&crate::value::Value::Int(i64::MAX - 5))
         );
+        // a guard whose arithmetic passes its bound refuses its request
+        // so too, where it was unknown (ADR-0205 decision 2)
         let (v, t) = told(&mut s, "check", &big, json!({}));
         assert!(
-            matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "small"),
+            matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "value_in_range"),
             "{v:?}"
         );
-        assert!(t.unknown);
+        assert_eq!(t.objects, vec![big.clone()]);
         let (v, _) = told(&mut s, "add", &big, json!({"by": 5}));
         assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
     }

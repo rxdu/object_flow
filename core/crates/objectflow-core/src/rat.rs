@@ -98,16 +98,31 @@ impl Rat {
     }
 }
 
+/// The 256-bit product of two 128-bit magnitudes, its high and low halves.
+fn wide_mul(a: u128, b: u128) -> (u128, u128) {
+    let half = u128::from(u64::MAX);
+    let (a1, a0) = (a >> 64, a & half);
+    let (b1, b0) = (b >> 64, b & half);
+    let (p00, p01, p10, p11) = (a0 * b0, a0 * b1, a1 * b0, a1 * b1);
+    let mid = (p00 >> 64) + (p01 & half) + (p10 & half);
+    let low = (p00 & half) | (mid << 64);
+    let high = p11 + (p01 >> 64) + (p10 >> 64) + (mid >> 64);
+    (high, low)
+}
+
 impl Ord for Rat {
+    /// Exact: by sign, then by the cross products in 256 bits, where two
+    /// whose products passed 128 bits were compared as floats (the audit's
+    /// values A4).
     fn cmp(&self, o: &Rat) -> Ordering {
-        // compared without overflow: by sign, then by the cross products,
-        // which two values a metric compares keep within 128 bits
         match (self.n.signum(), o.n.signum()) {
             (a, b) if a != b => a.cmp(&b),
-            _ => match (self.n.checked_mul(o.d), o.n.checked_mul(self.d)) {
-                (Some(a), Some(b)) => a.cmp(&b),
-                _ => (self.n as f64 / self.d as f64).total_cmp(&(o.n as f64 / o.d as f64)),
-            },
+            (0, _) => Ordering::Equal,
+            (sign, _) => {
+                let x = wide_mul(self.n.unsigned_abs(), o.d.unsigned_abs());
+                let y = wide_mul(o.n.unsigned_abs(), self.d.unsigned_abs());
+                if sign > 0 { x.cmp(&y) } else { y.cmp(&x) }
+            }
         }
     }
 }
@@ -122,6 +137,21 @@ impl PartialOrd for Rat {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    /// Two values whose cross products pass 128 bits compare exactly, where
+    /// they compared as floats and two neighbours were equal (the audit's
+    /// values A4).
+    #[test]
+    fn rationals_compare_exactly_past_128_bits() {
+        let m = i128::MAX;
+        let a = Rat::new(m - 1, m).unwrap();
+        let b = Rat::new(m - 2, m - 1).unwrap();
+        assert_eq!(a.cmp(&b), Ordering::Greater);
+        let (na, nb) = (Rat::new(1 - m, m).unwrap(), Rat::new(2 - m, m - 1).unwrap());
+        assert_eq!(na.cmp(&nb), Ordering::Less);
+        assert_eq!(Rat::int(0).cmp(&Rat::int(0)), Ordering::Equal);
+        assert_eq!(wide_mul(u128::MAX, u128::MAX), (u128::MAX - 1, 1));
+    }
 
     #[test]
     fn half_even_rounds_a_tie_to_the_even_neighbour() {

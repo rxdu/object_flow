@@ -74,3 +74,44 @@ def test_a_member_on_the_wire_is_qualified_for_the_runner():
         == "Priority.HIGH"
     assert values.decode_input(["LOW"], {"type": "Priority[]"}, enums) \
         == ["Priority.LOW"]
+
+
+def test_a_value_is_written_as_its_type_holds_it():
+    """The runner writes a value as the core's `fit_value` does: an integer
+    to a decimal at its scale, a number to an integer only where it is
+    whole, and refuses one of another type `value_in_range`, naming the
+    object (the audit's values W1 to W3, ADR-0205 decision 1)."""
+    fit = flowrun.at_declared_scale
+    assert fit({"type": "decimal(10,2)"}, 5) == Fraction(5)
+    assert fit({"type": "decimal(12,4)"}, Fraction(10, 3)) == Fraction("3.3333")
+    assert fit({"type": "int"}, Fraction(21)) == 21
+    for spec, v in (({"type": "int"}, Fraction(21, 2)),
+                    ({"type": "int"}, "3"),
+                    ({"type": "decimal(10,2)"}, "5"),
+                    ({"type": "string"}, 3),
+                    ({"type": "bool"}, 1),
+                    ({"type": "Priority"}, ("enum", "Level", "HIGH"))):
+        with pytest.raises(flowrun.Refused) as refused:
+            fit(spec, v, "item-1")
+        assert (refused.value.clause, refused.value.objects) == \
+            ("value_in_range", ["item-1"]), (spec, v)
+
+
+def test_what_the_engine_cannot_hold_is_not_run():
+    """A literal the engine cannot hold exactly, a fraction of a second or an
+    amount past its currency's minor unit or in a currency it does not know,
+    and `time_in` of what is no state, are not run by the runner as by the
+    core, never rounded or answered 0 s (the audit's values L1, L2 and
+    G2)."""
+    from types import SimpleNamespace
+    store = SimpleNamespace(kinds={"T": {"states": {"OPEN": {}}}}, now=0)
+    ev = flowrun.Evaluator(store, "T")
+    for text in ("1.5 s", "USD 1.005", "JPY 2.5", "PHP 1.00"):
+        with pytest.raises(flowrun.NotRunnable):
+            ev.value(flowrun.parsed(text), {})
+    assert ev.value(flowrun.parsed("0.5 min"), {}) == 30
+    assert ev.value(flowrun.parsed("USD 1.50"), {}) == Fraction(3, 2)
+    o = SimpleNamespace(type="T", spans={})
+    with pytest.raises(flowrun.NotRunnable):
+        ev.time_in(o, "label")
+    assert ev.time_in(o, "OPEN") == 0

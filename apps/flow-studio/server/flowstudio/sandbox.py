@@ -164,6 +164,15 @@ def written(modules: dict) -> dict:
     return out
 
 
+def out_of_range(e: "flowrun.OutOfRange") -> dict:
+    """A read a value past what its type holds refuses, naming its object
+    and no value, as the core refuses it (ADR-0205 decision 2)."""
+    return {"refused": "value_in_range",
+            "reason": "a value it derives or filters by is past what its "
+                      "type holds",
+            "object_id": e.objects[0] if e.objects else None}
+
+
 class Sandbox:
     """One store, its clock and its evaluators' answers, held by the caller."""
 
@@ -716,16 +725,18 @@ class Sandbox:
                 typ = values.type_of_kind(
                     ev.kind(expr, {"this": ("object", o.type)}))
                 v = ev.member(o.id, k)
-                # a derived time past the calendar is answered without a
-                # value, as the core answers it (ADR-0191 decision 3)
+                # a derived time past the calendar refuses the read, as the
+                # core refuses it (ADR-0191 decision 3, ADR-0205 decision 2)
                 if typ == ("timestamp",) and isinstance(v, (int, Fraction)) \
                         and not flowrun.FIRST_SECOND <= v <= flowrun.LAST_SECOND:
-                    v = flowrun.ABSENT
+                    raise flowrun.OutOfRange(o.id)
                 attrs[k] = values.encode(v, typ)
             built = {k: values.encode(ev.member(o.id, k), typ)
                      for k, typ in BUILT_IN.items()}
             if o.type == flowrun.PROPOSAL:
                 attrs["last_verdict"] = self.last_verdict(oid)
+        except flowrun.OutOfRange as e:
+            return out_of_range(e)
         except flowrun.NotRunnable as e:
             raise not_run(e)
         except values.Unencodable as e:
@@ -885,6 +896,8 @@ class Sandbox:
                     for r in page["rows"]]
             flags = [{"flag": f["flag"], "group": group(f["group"]),
                       "unknown": f["unknown"]} for f in page["flags"]]
+        except flowrun.OutOfRange as e:
+            return out_of_range(e)
         except flowrun.NotRunnable as e:
             raise not_run(e)
         except values.Unencodable as e:

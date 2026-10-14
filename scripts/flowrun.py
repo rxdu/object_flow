@@ -90,6 +90,16 @@ class Refused(Exception):
         self.objects, self.failures = list(objects or ()), failures
 
 
+class OutOfRange(Refused):
+    """An arithmetic of present values past its type's bound, or a date moved past the calendar, on the object named:
+    a request refuses it value_in_range and a read refuses it so, never answering it as unknown, as the core does
+    (ADR-0205 decision 2). A division by zero is unknown, as §8.2 defines it."""
+
+    def __init__(self, object_id=None):
+        super().__init__("unsatisfied", "value_in_range", "unreachable_from_here",
+                         objects=[object_id] if object_id else [])
+
+
 def seconds(duration):
     """A duration written as a count and a unit, `2 days`, in seconds."""
     n, unit = str(duration).split()
@@ -170,12 +180,31 @@ def computed_end(kinds, spec):
     return not str(other.get("reference", "")).endswith("[]") and bool(other.get("stored")) and not spec.get("stored")
 
 
-def at_declared_scale(spec, v):
-    """A value written to an attribute, at the attribute's declared scale: a decimal product or quotient rounds half to
-    even to the target's scale, as money does (declaration-syntax.md §8.3, F4); any other value as it is."""
+def at_declared_scale(spec, v, oid=None):
+    """A value written to an attribute, as its declared type holds it, as the core's `fit_value` writes it: a number to
+    a decimal at its scale, a quotient rounded once half to even (declaration-syntax.md §8.3, F4); a number to an
+    integer only where it is whole; text, a boolean or an enumeration's member only to its own type. A value it cannot
+    hold refuses the request value_in_range, naming the object (the audit's values W1 to W3, ADR-0205 decision 1)."""
     typ = str((spec or {}).get("type") or "")
-    if typ.startswith("decimal(") and isinstance(v, (int, Fraction)) and not isinstance(v, bool):
-        return half_even(v, int(typ.rstrip(")").rsplit(",", 1)[1]))
+    if v is ABSENT or not typ or (spec or {}).get("reference") or typ.endswith("[]"):
+        return v
+    number = isinstance(v, (int, Fraction)) and not isinstance(v, bool)
+    fits = True
+    if typ.startswith("decimal("):
+        if number:
+            return half_even(v, int(typ.rstrip(")").rsplit(",", 1)[1]))
+        fits = False
+    elif typ in ("int", "counter"):
+        fits = number and Fraction(v).denominator == 1
+        v = int(v) if fits else v
+    elif typ in ("string", "text", "identity", "actor_kind"):
+        fits = isinstance(v, str)
+    elif typ == "bool":
+        fits = isinstance(v, bool)
+    elif isinstance(v, tuple) and v[:1] == ("enum",):
+        fits = v[1] == typ
+    if not fits:
+        raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[oid] if oid else [])
     return v
 
 
@@ -884,6 +913,9 @@ class Evaluator:
     def time_in(self, o, state):
         """Real elapsed time: every span in the state, a current one up to now, whatever state the object is in; the
         closed stretch is a rule of a span's .duration in a metric, not of time_in (declaration-syntax.md §8.3, ADR-0147)."""
+        if state not in ((self.s.kinds.get(o.type) or {}).get("states") or {}):
+            # of what is no state it is not run, as the core does not run it, where it was 0 s (the audit's values G2)
+            raise NotRunnable(f"`time_in({state})`, which names no state of {o.type}")
         spans = [sp for sp in o.spans.get("state", []) if sp["state"] == ("state", o.type, state)]
         return sum(((sp["left_at"] if sp["left_at"] is not ABSENT else self.s.now) - sp["entered_at"] for sp in spans), Fraction(0))
 
@@ -918,9 +950,18 @@ class Evaluator:
         if k == "bool":
             return e[1]
         if k == "dur":
-            return Fraction(str(e[1])) * SECONDS[e[2]]
+            # a duration is whole seconds, and a literal of a fraction of one is not run, as the core does not run it
+            # (the audit's values L2)
+            v = Fraction(str(e[1])) * SECONDS[e[2]]
+            if v.denominator != 1:
+                raise NotRunnable(f"the duration {e[1]} {e[2]}, which is no whole number of seconds")
+            return v
         if k == "money":
-            return Fraction(e[2])
+            # an amount with more places than its currency's minor unit is not run, as the core does not run it (L1)
+            v, places = Fraction(e[2]), MINOR_UNITS.get(e[1])
+            if places is None or (v * 10 ** places).denominator != 1:
+                raise NotRunnable(f"an amount in {e[1]} with more places than its minor unit")
+            return v
         if k == "name":
             v = self.name(e[1], env)
             return v if e[1] in env else self.note(v)       # a name an aggregate binds is no reference
@@ -994,9 +1035,8 @@ class Evaluator:
             try:
                 return self.dates(op, a, b)
             except OverflowError:
-                # a date moved past the calendar has no value, as the core's has none (ADR-0190 decision 1)
-                self.failed_arithmetic = True
-                return ABSENT
+                # a date moved past the calendar is out of range, as the core's is (ADR-0190 decision 1, ADR-0205)
+                raise OutOfRange(self.this)
         if op == "==":
             return a == b
         if op == "!=":
@@ -1016,12 +1056,11 @@ class Evaluator:
         raise NotRunnable(f"the operator {op}")
 
     def bounded(self, a, b, r):
-        """An integer result within 64 bits, as the core's; past them it has no value, which a guard reads as unknown and
-        an effect refuses as value_in_range (ADR-0185)."""
+        """An integer result within 64 bits, as the core's; past them it is out of range, which a request and a read
+        refuse value_in_range, never unknown (ADR-0185, ADR-0205 decision 2)."""
         ints = all(isinstance(x, int) and not isinstance(x, bool) for x in (a, b))
         if ints and not -2 ** 63 <= r <= 2 ** 63 - 1:
-            self.failed_arithmetic = True
-            return ABSENT
+            raise OutOfRange(self.this)
         return r
 
     @staticmethod
@@ -1079,6 +1118,23 @@ class Evaluator:
                 selected.append(inner)
                 if chosen is not None:
                     chosen.append(it)
+        # the body of `any`, `none` and a count of elements is a condition each selected element meets too, as its
+        # where is, as the core reads it (§8.3, the audit's values G1)
+        if body is not None and (kind in ("any", "none") or (kind == "count" and not distinct)):
+            met = []
+            for inner in selected:
+                b = truth(self.value(body, inner))
+                if b is ABSENT:
+                    if not self.filter_mode:
+                        undecided = True
+                elif b:
+                    met.append(inner)
+            if chosen is not None:
+                kept = [i[var] for i in met]
+                chosen[:] = [c for c in chosen if c in kept]
+            selected = met
+            if kind == "count":
+                return ABSENT if undecided else len(selected)
         if kind in ("any", "none", "all"):
             if kind == "all":
                 results = [truth(self.value(body, i)) if body is not None else True for i in selected]
@@ -2360,7 +2416,7 @@ class Runner:
                     o.attrs[a] = 0
                 elif "default" in (spec or {}):
                     o.attrs[a] = at_declared_scale(spec, Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs).value(
-                        flowexpr.parse(str(spec["default"])), {}))
+                        flowexpr.parse(str(spec["default"])), {}), o.id)
             if xn == "record" and "subject" in inputs:
                 o.attrs["recorded_at"] = work.now
                 # a correction replaces the fact it corrects, so it keeps that fact's occurred time (ADR-0146)
@@ -2382,7 +2438,7 @@ class Runner:
                 self.erase(ctx, o)
         for k in x.get("required_inputs", []) + x.get("optional_inputs", []):
             if k in inputs:
-                o.attrs[k] = at_declared_scale(attrs.get(k), inputs[k])
+                o.attrs[k] = at_declared_scale(attrs.get(k), inputs[k], o.id)
         if oid is None:
             self.mint(ctx, o, attrs)
         ctx.wrote(o.id)
@@ -2551,7 +2607,13 @@ class Runner:
                     raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
                 if self.owner_end(attrs.get(spec["location"])) and o.attrs.get(spec["location"]) not in (None, v):
                     raise NotRunnable("re-parenting a part by an effect, whose whole_open guard this runner does not yet evaluate")
-                written = at_declared_scale(attrs.get(spec["location"]), v)
+                written = at_declared_scale(attrs.get(spec["location"]), v, o.id)
+                # a write that would round a decimal to its target's scale loses what it holds, which §8.3 permits a
+                # product or a quotient alone, as the core refuses it (the audit's values W5)
+                if (str((attrs.get(spec["location"]) or {}).get("type") or "").startswith("decimal(")
+                        and not (tree[0] == "bin" and tree[1] in ("*", "/"))
+                        and isinstance(v, (int, Fraction)) and not isinstance(v, bool) and Fraction(written) != v):
+                    raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
                 # a decimal written past its p digits refuses the request, as an arithmetic past its bound does (ADR-0185)
                 digits = precision_of((attrs.get(spec["location"]) or {}).get("type"))
                 scale = int(str(attrs[spec["location"]]["type"]).rstrip(")").rsplit(",", 1)[1]) if digits else 0
@@ -2582,7 +2644,12 @@ class Runner:
                     continue
                 v = ev(tree)
                 if v is ABSENT:
-                    raise NotRunnable(f"an `{kind}` of an absent value")
+                    # an absent element refuses the request as an assignment of one does, as the core refuses it (the
+                    # audit's values W6)
+                    raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
+                element = dict(attrs.get(spec["location"]) or {})
+                element["type"] = str(element.get("type") or "").removesuffix("[]")
+                v = at_declared_scale(element, v, o.id)
                 ctx.attr_writes.setdefault(o.id, set()).add(spec["location"])
                 current = tuple(o.attrs.get(spec["location"], ()))
                 if kind == "add" and v not in current:

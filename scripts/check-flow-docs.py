@@ -354,7 +354,7 @@ def self_test(texts):
         # unit of, so neither can round it (declaration-syntax.md §8.3)
         ("an example the runner does not run", "notrun:",
          {**base, trial: plain.replace("    transitions:\n", "    conditions:\n      calm:\n        description: Few priced.\n"
-                                       "        expression: metric(priced) < PHP 3.00\n        remedy: dependent\n\n    transitions:\n", 1)
+                                       "        expression: metric(priced) <= metric(priced)\n        remedy: dependent\n\n    transitions:\n", 1)
                               .replace("        to: PUBLISHED\n", "        to: PUBLISHED\n        guards:\n          calm: deny\n", 1)
                               .replace("expr: now }\n```\n", "expr: now }\n\n    metrics:\n      priced:\n        description: Documents priced in pesos.\n"
                                        "        source: objects\n        item: o\n        expression: count() * PHP 1.00\n```\n", 1) + examples}),

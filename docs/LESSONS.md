@@ -712,3 +712,18 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** A reviewer's statement about what the project promises is a claim to check against the ADRs before it changes a guide; cite the decision it rests on.
 - **Context:** Folding review findings into the guides; 2026-10-14.
 
+
+### One value standing for absent data and for a failed computation
+- **Pattern:** The evaluator answered an arithmetic past its bound as absent, the same value as data nobody had supplied, and recorded the difference in a flag beside it that only the effect path read. A derivation answered null, a query's filter dropped the object from its matches and from their negation, an invariant held and admitted the write it should refuse, and a guard masked it with `is null`. Each place read the absence as absence.
+- **Correction:** A failure is not a value. Make it an error the evaluator returns, distinct from the value domain, so every caller must handle it and none can read it as data; keep "unknown" for what the language defines as unknown. Exempt only where the answer stands without it, such as the side of an `or` that does not decide.
+- **Context:** The core's evaluator and the reference runner (ADR-0205 decision 2); 2026-10-14.
+
+### A decision worded wider than its evidence
+- **Pattern:** I wrote ADR-0205 decision 2 as "Unknown is absent data alone". The audit's evidence and my recommendation were about arithmetic past its bound, and ADR-0047 keeps a division by zero unknown. Built as worded, it would have made `done / total` with `total` 0 refuse the read of every object it is derived on. It was found only while building.
+- **Correction:** Before recording a decision, read each sentence against the decisions that define the same term, and word it at the scope of the evidence. A definition of a term ("unknown means …") is a claim about every existing use of it.
+- **Context:** ADRs written from audit findings; 2026-10-14.
+
+### A tee test that cannot reach a runtime refusal
+- **Pattern:** The Studio's sandbox runs the checker on what it loads, so a tee test can hold only flows both checkers accept. Once the checkers refuse a construct at publish, the runtime refusal of the same construct, in the runner as in the core, is reachable only through an expression whose type the checkers cannot tell, and a mutant of it survives a tee test written with the plain construct.
+- **Correction:** Hold a runtime refusal the checkers also make by a unit test of the runtime itself (the core's `Library::load` does not check; the runner's evaluator can be driven directly), and hold it through a checked flow by an expression the typing cannot tell.
+- **Context:** The reference runner and the Studio's tests; 2026-10-14.

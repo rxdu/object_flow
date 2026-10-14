@@ -2,7 +2,7 @@
 
 - **Status:** **Decided** 2026-10-14 by the author ("go with your recommendations on the decisions"), each the recommendation stated here
 - **Date:** 2026-10-14
-- **Refines:** ADR-0204 decisions 9.3 and 9.4; ADR-0201 decision 6 (the idempotency digest); ADR-0202 decision 8 and ADR-0203 decision 1 (identities); `declaration-syntax.md` §8.1 to §8.3
+- **Refines:** ADR-0204 decisions 9.3 and 9.4; ADR-0201 decision 6 (the idempotency digest); ADR-0202 decision 8 and ADR-0203 decision 1 (identities); ADR-0191 decision 3 and ADR-0192 decision 7 (a derived time past the calendar, refused where it was answered null); `declaration-syntax.md` §8.1 to §8.3
 - **Relates to:** ADR-0204 §6 (the audit); its six inventories, `design/audit/personal-data.md`, `write-path.md`, `values.md`, `cost.md`, `durability.md` and `guides.md`, summarised in `design/production-review.md` §21; `TODO.md`
 
 ## Context
@@ -40,16 +40,19 @@ Several findings needed a decision, not only a fix. The author accepted the reco
 ### Values
 
 1. **A quotient written to a decimal is computed exactly and rounded once, half to even, at the target's scale**, as `declaration-syntax.md` §8.3 says and the reference runner does. A decimal literal takes its other operand's scale (§8.1). An integer written to a decimal is converted to its scale before the write, and the store refuses a value whose kind or scale is not its column's.
-2. **Arithmetic that fails is never unknown.** Unknown is absent data alone.
-   - A read whose derived value or filter fails is refused `value_in_range`, naming no value.
-   - An invariant or a guard that fails refuses its request.
-   - A metric whose filter fails refuses the read.
+2. **Arithmetic past its type's bound is never unknown.** That covers an integer past 64 bits, a decimal or an amount past its digits, a time or a date past the calendar, and a date moved by part of a day. Unknown is absent data, and a division by zero, as ADR-0047 and §8.3 define it.
+   - A read whose derived value or filter is past its bound is refused `value_in_range`, naming the object and no value.
+   - An invariant, a guard or a loop's filter past its bound refuses its request `value_in_range`.
+   - A metric whose filter or value is past its bound refuses the read.
+   - The side of an `and`, an `or` or an `implies` that does not decide refuses nothing.
    - §8.2's table and `wire.md` are rewritten to say so.
+
+   *(Corrected 2026-10-14, while building it: as first written, this said "Unknown is absent data alone", which would have refused a read of `done / total` with `total` 0, and every object it is derived on. The audit's findings, and the recommendation the author accepted, were of arithmetic past its bound; ADR-0047 keeps a division by zero unknown.)*
 
 ### Identities and the record
 
 3. **An idempotency key keeps two digests.** One is masked; the other covers the personal values, and an erasure deletes it. Before an erasure, the same request with another personal value is `key_reused`; after it, the key confirms no guess. This replaces ADR-0201 decision 6's trade-off.
-4. **A publish that adds or renames a type whose ids would name an identity the store holds is refused**, naming the identities (D669). Every `<word>-<number>` identity is not refused, since employee numbers take that shape. The guides' examples change, and say why.
+4. **A publish that adds or renames a type whose ids would name an identity the store holds is refused**, naming the actors that hold them by their objects (D669). Every `<word>-<number>` identity is not refused, since employee numbers take that shape. The guides' examples change, and say why. *(Corrected 2026-10-14, while building it: this said the finding names the identities, which would keep a personal identity in a change's report past the actor's erasure.)*
 5. **An actor's identity attribute is written only at its creation**, since the record names actors by it.
 6. **An erasure replaces an erased identity in every case of its ASCII letters**, as identities compare:
    - in sets of identities;

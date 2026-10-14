@@ -196,12 +196,33 @@ impl PartialOrd for Decimal {
 }
 
 impl Ord for Decimal {
+    /// Exact at any two scales: aligned where both fit 128 bits, else by
+    /// sign, then whole part, then fraction, each of which fits, where two
+    /// that did not align were compared by sign alone and
+    /// `0.000…01 == 1000000000` held (the audit's values A3).
     fn cmp(&self, other: &Decimal) -> Ordering {
-        match self.aligned(other) {
-            Some((a, b, _)) => a.cmp(&b),
-            // past 38 places neither fits; compare by sign, then by the
-            // larger scale's rounding, which no declared decimal reaches
-            None => self.units.signum().cmp(&other.units.signum()),
+        if let Some((a, b, _)) = self.aligned(other) {
+            return a.cmp(&b);
+        }
+        let sign = self.units.signum().cmp(&other.units.signum());
+        let (Some(pa), Some(pb)) = (pow10(self.scale), pow10(other.scale)) else {
+            return sign;
+        };
+        if sign != Ordering::Equal {
+            return sign;
+        }
+        let whole = (self.units / pa).cmp(&(other.units / pb));
+        if whole != Ordering::Equal {
+            return whole;
+        }
+        // each fraction is below one, so at the larger scale it fits
+        let scale = self.scale.max(other.scale);
+        let fraction = |d: &Decimal, p: i128| {
+            pow10(scale - d.scale).and_then(|f| (d.units % p).checked_mul(f))
+        };
+        match (fraction(self, pa), fraction(other, pb)) {
+            (Some(a), Some(b)) => a.cmp(&b),
+            _ => sign,
         }
     }
 }
@@ -546,6 +567,24 @@ mod tests {
 
     fn d(text: &str) -> Decimal {
         Decimal::parse(text).unwrap()
+    }
+
+    /// Two decimals compare exactly at any two scales, where two that did
+    /// not align within 128 bits compared by sign alone (the audit's values
+    /// A3).
+    #[test]
+    fn decimals_compare_exactly_at_any_two_scales() {
+        let d = |s: &str| Decimal::parse(s).unwrap();
+        let tiny = d("0.00000000000000000000000000000001");
+        let big = d("1000000000");
+        assert!(tiny < big);
+        assert_ne!(tiny, big);
+        assert!(big.checked_neg().unwrap() < tiny.checked_neg().unwrap());
+        let wide = d("99999999999999999999.999999999999999999");
+        let least = d("0.0000000000000000000000000000000000001");
+        assert!(least < wide);
+        assert!(wide.checked_neg().unwrap() < least);
+        assert_eq!(d("1.50"), d("1.5"));
     }
 
     #[test]

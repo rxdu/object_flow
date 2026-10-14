@@ -4577,11 +4577,13 @@ types:
       close: { kind: external, from: OPEN, to: CLOSED }
 ";
 
-/// A derived time past the calendar is answered without a value in a
-/// query's fields, as `get` answers it, where a query answered year
-/// 10239 (sixth production review, ADR-0192 decision 7).
+/// A derived time past the calendar refuses the read `value_in_range`,
+/// naming the object and no value, a query's fields and a `get` alike,
+/// where a query answered year 10239 (sixth production review, ADR-0192
+/// decision 7) and then null (ADR-0205 decision 2); the store's other
+/// objects are read as before.
 #[test]
-fn a_derived_time_past_the_calendar_has_no_value_in_a_query() {
+fn a_derived_time_past_the_calendar_refuses_the_read() {
     let file = fresh_store("tills");
     let s = start(&[
         "--store",
@@ -4592,26 +4594,32 @@ fn a_derived_time_past_the_calendar_has_no_value_in_a_query() {
     ]);
     publish(&s, &json!({"tills": TILLS}));
     let op = json!({"id": "operator"});
+    let mut tills = Vec::new();
     for days in [30, 3_000_000] {
-        post(
+        let v = post(
             &s,
             "/v1/request",
             &json!({"actor": op, "type": "Till", "transition": "open",
                     "inputs": {"opened_at": "2026-10-13T00:00:00Z", "days": days}}),
         );
+        tills.push(v["object_id"].as_str().expect("its id").to_string());
     }
-    let page = post(
+    let refused = |answer: &Value| {
+        assert_eq!(answer["refused"], "value_in_range", "{answer}");
+        assert_eq!(answer["object_id"], json!(tills[1]), "{answer}");
+        assert!(!answer.to_string().contains("10239"), "{answer}");
+    };
+    refused(&post(
         &s,
         "/v1/query",
         &json!({"actor": op, "type": "Till", "fields": ["due_back"]}),
+    ));
+    refused(&post(&s, "/v1/get", &json!({"actor": op, "id": tills[1]})));
+    let first = post(&s, "/v1/get", &json!({"actor": op, "id": tills[0]}));
+    assert_eq!(
+        first["attributes"]["due_back"], "2026-11-12T00:00:00Z",
+        "{first}"
     );
-    let due: Vec<Value> = page["items"]
-        .as_array()
-        .expect("its items")
-        .iter()
-        .map(|i| i["fields"]["due_back"].clone())
-        .collect();
-    assert_eq!(due, [json!("2026-11-12T00:00:00Z"), Value::Null], "{page}");
 }
 
 /// A store readable by others is said at its start with its `-wal` and

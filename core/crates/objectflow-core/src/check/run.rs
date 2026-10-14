@@ -85,6 +85,7 @@ impl From<crate::eval::NotRun> for Stop {
             crate::eval::NotRun::Unanswered(c) => Stop::NotRun(c.said),
             crate::eval::NotRun::Unreadable(w) => Stop::Failed(format!("the store failed: {w}")),
             crate::eval::NotRun::TimedOut(w) => Stop::Failed(w),
+            e @ crate::eval::NotRun::OutOfRange(_) => Stop::NotRun(e.what().to_string()),
         }
     }
 }

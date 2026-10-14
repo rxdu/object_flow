@@ -2395,6 +2395,9 @@ class Typing:
     def __init__(self, kinds, enums, categories, evaluators, known=None):
         self.kinds, self.enums, self.categories, self.evaluators = kinds, enums, categories, evaluators
         self.broken = []
+        # whether a flow function's argument is checked here: in the places check 58 does not reach through a
+        # transition's body, a derived attribute, an invariant, a uniqueness condition and a backfill
+        self.flow_names = False
         # each derived attribute's type, by its type and name, once typed: a chain of attributes each reading the one
         # before twice typed each 2^n times, forty holding the dry run's slot past six minutes (eleventh production
         # review)
@@ -2442,8 +2445,18 @@ class Typing:
         if k == "bool":
             return ("bool",)
         if k == "money":
+            # an amount in a currency the engine has no minor unit for, or with more places than its minor unit, is
+            # one it cannot hold, where it was rounded (the audit's values L1 and L6)
+            places = flowrun.MINOR_UNITS.get(e[1])
+            if places is None:
+                self.fail(f"{e[1]} is a currency whose minor unit the engine does not know")
+            elif (Fraction(str(e[2])) * 10 ** places).denominator != 1:
+                self.fail(f"{e[1]} {e[2]} has more places than {e[1]}'s minor unit")
             return ("money", e[1])
         if k == "dur":
+            # a duration is whole seconds, where `1.5 s` was rounded to 2 s (the audit's values L2)
+            if e[2] in flowrun.SECONDS and (Fraction(str(e[1])) * flowrun.SECONDS[e[2]]).denominator != 1:
+                self.fail(f"{e[1]} {e[2]} is no whole number of seconds")
             return ("duration",)
         if k == "name":
             n = e[1]
@@ -2485,6 +2498,22 @@ class Typing:
             f = e[1]
             if f[0] == "path" and f[1][0] == "name" and f[1][1] in self.evaluators:
                 return ("verdict",)
+            # a flow function names what its object's type has: `time_in` a state, `entered_at` a state or a tracked
+            # member, wherever an expression is typed, as the model's check 58 has it for a transition's body (the
+            # audit's values G2, where `time_in` of a member answered 0 s)
+            fname = f[1] if f[0] == "name" else f[2] if f[0] == "path" else None
+            if self.flow_names and fname in ("time_in", "entered_at") and len(e[2]) == 1 and e[2][0][0] == "name":
+                on = tn
+                if f[0] == "path":
+                    bt = self.of(f[1], tn, x, env, seen)
+                    on = bt[1] if bt is not None and bt[0] == "reference" else None
+                ot = self.kinds.get(on) if on is not None else None
+                if ot is not None:
+                    arg, states = e[2][0][1], ot.get("states") or {}
+                    if fname == "time_in" and arg not in states:
+                        self.fail(f"time_in({arg}) names no state of {on}")
+                    elif fname == "entered_at" and arg not in states and arg not in tracked_attributes(ot, self.kinds):
+                        self.fail(f"entered_at({arg}) names neither a state of {on} nor a member it tracks")
             if f == ("name", "length"):
                 arg = self.of(e[2][0], tn, x, env, seen) if len(e[2]) == 1 else None
                 if arg is not None and arg[0] != "string":
@@ -2515,6 +2544,10 @@ class Typing:
                     self.fail(f"the condition of a {fn} is {type_text(w)}, not a bool")
             b = self.of(body, tn, x, inner, seen) if body is not None else None
             if fn == "count":
+                # a count of elements counts those its body holds for, a condition, as `any`'s is (§8.3, the
+                # audit's values G1); a distinct count counts its body's values
+                if not _distinct and b is not None and b[0] != "bool":
+                    self.fail(f"the body of count is {type_text(b)}, not a bool")
                 return ("int",)
             if fn in ("all", "any", "none"):
                 if b is not None and b[0] != "bool":
@@ -2593,6 +2626,13 @@ class Typing:
             return v[0] in SCALARS
         if op in ("+", "-"):
             if numeric(l) and numeric(r):
+                # a literal takes its partner's scale (§8.1), and one of more places than a decimal holds would lose
+                # them, where `rate + 0.005` was rounded on its write (the audit's values W5)
+                for a, b in ((l, r), (r, l)):
+                    if a[0] == "number" and b[0] == "decimal" and b[1] is not None and a[1] > b[1]:
+                        self.fail(f"it {'adds' if op == '+' else 'subtracts'} a number of {a[1]} places and a decimal of "
+                                  f"scale {b[1]}, which holds fewer")
+                        return None
                 if l[0] == "number":
                     return r
                 if r[0] == "number":
@@ -2649,6 +2689,47 @@ class Typing:
         return None
 
 
+def typed_kind(ty):
+    """A type the typing infers as check 17's kinds spell it, None where they spell none: a number literal is a number
+    where it is whole and a decimal where it has places."""
+    if ty[0] == "number":
+        return ("number",) if ty[1] == 0 else ("decimal",)
+    if ty[0] in ("decimal", "int"):
+        return (ty[0],)
+    if ty[0] in ("money", "reference", "enumeration"):
+        return ty
+    return (ty[0],) if ty[0] in SIMPLE_TYPES else None
+
+
+def typed_write_error(typing, t, step, tn, x, env, kinds, enums):
+    """What check 17 refuses of an assign by the type the typing infers, where value_kind tells none: a value of
+    another kind than its target's, as a decimal computed into an int (the audit's values W2 and W3); and a decimal of
+    more places than its target's that is no product or quotient, which §8.3 alone rounds (W5)."""
+    loc = step.get("location")
+    spec = (t.get("attributes") or {}).get(loc)
+    try:
+        tree = flowexpr.parse(" ".join(str(step.get("expr", "")).split()))
+    except flowexpr.ParseError:
+        return None
+    target = attribute_type(spec, enums)
+    typing.broken = []
+    got = typing.of(tree, tn, x, dict(env or {}))
+    if target is None or got is None:
+        return None
+    product = tree[0] == "bin" and tree[1] in ("*", "/")
+    if target[0] == "decimal" and target[1] is not None and got[0] in ("decimal", "number") and got[1] is not None \
+            and got[1] > target[1] and not product:
+        return (f"a decimal of scale {got[1]}, to {loc}, which holds a decimal of scale {target[1]}: only a product or "
+                "a quotient is rounded to its target")
+    want, kind = written_kind(spec, enums), typed_kind(got)
+    told = value_kind(tree, tn, t, x, enums)
+    if told is not None and not (told == ("number",) and kind == ("decimal",)):
+        return None                     # check 17's own, decided by the kind value_kind tells
+    if want is not None and kind is not None and not fits(want, kind, kinds):
+        return f"{type_text(got)}, to {loc}, which holds {' '.join(want)}: a write's value must fit its target"
+    return None
+
+
 def expression_type_errors(doc, library):
     """Each expression of a module that does not type by declaration-syntax.md §8.3, where the types it combines can
     be told: a condition, an invariant, a derived attribute, a uniqueness condition, an effect's value, argument, loop
@@ -2667,6 +2748,8 @@ def expression_type_errors(doc, library):
         except flowexpr.ParseError:
             return                              # step 2 refuses what does not parse
         typing.broken = []
+        # a transition's guards and effects are check 58's, through its body; any other place is the typing's
+        typing.flow_names = where[2] not in ("conditions", "transitions") if where[0] == "types" else True
         got = typing.of(tree, tn, x, dict(env or {}))
         if not typing.broken and want and got is not None and got[0] not in want:
             typing.broken.append(f"it is {type_text(got)}, not a bool")
@@ -2692,6 +2775,10 @@ def expression_type_errors(doc, library):
                 env = {n: (("reference", k) if k else None) for n, k in binders(kinds, tn, x, path).items()}
                 for e in step_expressions(st, kind):
                     check(where, f"{tn}.{xn}'s effect", e, tn, x, env)
+                if kind == "assign":
+                    misfit = typed_write_error(typing, t, st["assign"], tn, x, env, kinds, enums)
+                    if misfit:
+                        out.append((where, "names", f"{tn}.{xn} writes {st['assign']['expr']}, {misfit} (the model's check 17)"))
     for tn, given in ((doc.get("migration") or {}).get("backfill") or {}).items():
         for a, e in (given or {}).items():
             check(("migration", "backfill", tn, a), f"the backfill of {tn}.{a}", e, tn, None)
@@ -6776,9 +6863,10 @@ def runner_plants(people, service, examples):
         ("a guard reading a metric that has no rows yet, and so is unknown", "example",
          guarded("        backdating_limit: 2 days\n", "quick", "metric(time_working) < 30 days", "dependent"), None),
         # a guard reading a metric whose value is an amount in a currency whose minor unit neither the runner nor the
-        # core knows, so neither can round it (declaration-syntax.md §8.3)
+        # core knows, so neither can round it (declaration-syntax.md §8.3); the guard names no amount itself, which
+        # the typing refuses in such a currency (the audit's values L6), and a metric's expression is not yet typed
         ("an example the runner cannot yet run", "notrun",
-         guarded("        backdating_limit: 2 days\n", "calm", "metric(priced) < PHP 3.00", "dependent").replace(
+         guarded("        backdating_limit: 2 days\n", "calm", "metric(priced) <= metric(priced)", "dependent").replace(
              "    metrics:\n", "    metrics:\n      priced:\n        description: Jobs priced in pesos.\n"
                            "        source: objects\n        item: o\n        expression: count() * PHP 1.00\n", 1), None),
     ]
@@ -7950,6 +8038,15 @@ def expression_type_plants(people):
 
     def wrong(name, why):
         return f"{name} does not type: {why} (the model's check 24)"
+
+    def writing(location, expr):
+        # a transition writing the value, on the ledger's shut
+        return TYPED_LEDGER.replace(
+            "shut: { kind: external, from: [OPEN], to: SHUT }",
+            f"shut: {{ kind: external, from: [OPEN], to: SHUT, effect: [ {{ assign: {{ location: {location}, expr: \"{expr}\" }} }} ] }}")
+
+    def misfit(expr, why):
+        return f"Account.shut writes {expr}, {why} (the model's check 17)"
     cases = [
         ("money of two currencies", ledger("usd + sgd"), [wrong("derived attribute probe", "it adds money of two currencies, USD and SGD")]),
         ("decimals of two scales", ledger("rate + fine"), [wrong("derived attribute probe", "it adds decimals of two scales, 2 and 3")]),
@@ -7979,6 +8076,32 @@ def expression_type_plants(people):
          [wrong("derived attribute probe", "it adds decimals of two scales, 2 and 3")]),
         ("a sum of products", ledger("sum(a in Account: a.rate * a.rate) - rate"),
          [wrong("derived attribute probe", "it subtracts decimals of two scales, 4 and 2")]),
+        # what an expression names or writes, its literals held exactly (the audit's values G2, L1, L2, W2, W3, W5)
+        ("time_in of a member", ledger("time_in(label) > 1 h"), [wrong("derived attribute probe", "time_in(label) names no state of Account")]),
+        ("entered_at of an untracked member", ledger("entered_at(label) < now"),
+         [wrong("derived attribute probe", "entered_at(label) names neither a state of Account nor a member it tracks")]),
+        ("time_in of a state and entered_at of a tracked member", ledger("time_in(OPEN) > 1 h and entered_at(tier) < now"), []),
+        ("an amount past its minor unit", ledger("usd + USD 1.005 > usd"),
+         [wrong("derived attribute probe", "USD 1.005 has more places than USD's minor unit")]),
+        ("an amount in an unknown currency", ledger("XYZ 1 == XYZ 1"),
+         [wrong("derived attribute probe", "XYZ is a currency whose minor unit the engine does not know")]),
+        ("a fraction of a second", ledger("span + 1.5 s > span"), [wrong("derived attribute probe", "1.5 s is no whole number of seconds")]),
+        ("literals held exactly", ledger("usd + USD 1.50 > usd and span + 0.5 min > span"), []),
+        ("a count's body that is no condition", ledger("count(a in Account: a.count) > 0"),
+         [wrong("derived attribute probe", "the body of count is an int, not a bool")]),
+        ("a count's condition and a distinct count's value", ledger("count(a in Account: a.vip) > count(distinct a in Account: a.count)"), []),
+        ("a narrower decimal written", writing("rate", "fine"),
+         [misfit("fine", "a decimal of scale 3, to rate, which holds a decimal of scale 2: only a product or a quotient is rounded to its target")]),
+        ("a literal of more places than its partner", writing("rate", "rate + 0.005"),
+         [wrong("Account.shut's effect", "it adds a number of 3 places and a decimal of scale 2, which holds fewer")]),
+        ("a decimal written to an int", writing("count", "rate * 2"),
+         [misfit("rate * 2", "a decimal of scale 2, to count, which holds int: a write's value must fit its target")]),
+        ("a literal with places written to an int", writing("count", "2.5"),
+         [misfit("2.5", "a number, to count, which holds int: a write's value must fit its target")]),
+        ("an int written to a string", writing("label", "if vip then count else count"),
+         [misfit("if vip then count else count", "an int, to label, which holds string: a write's value must fit its target")]),
+        ("writes that fit", writing("rate", "fine * rate"), []),
+        ("a quotient and a wider decimal written", writing("fine", "rate / 3"), []),
         ("products and quotients that type", ledger("rate * fine - fine * rate > fine / rate and rate * 2 + rate > rate"), []),
         ("what types", ledger("if vip then usd / count + usd * 2 else usd - usd"), []),
         ("a duration of timestamps, a quotient of like amounts and a tier", ledger(

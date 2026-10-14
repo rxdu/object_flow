@@ -1082,11 +1082,16 @@ enum Fault {
     /// What the service cannot do now and may later, its code its reason's
     /// prefix: `disk_full`, `store_replaced` (fourth production review).
     Unavailable(String),
+    /// A read refused for what it reads, answered as a read's refusals are,
+    /// `refused` and a `reason` and no items (`errors.md`, ADR-0205
+    /// decision 2).
+    Refused(J),
 }
 
 impl IntoResponse for Fault {
     fn into_response(self) -> Response {
         let (status, message) = match self {
+            Fault::Refused(body) => return (StatusCode::OK, Json(body)).into_response(),
             Fault::Bad(m) => (StatusCode::BAD_REQUEST, m),
             Fault::Missing(m) => (StatusCode::NOT_FOUND, m),
             Fault::Method(m) => (StatusCode::METHOD_NOT_ALLOWED, m),
@@ -1129,6 +1134,14 @@ impl From<NotRun> for Fault {
             NotRun::Unanswered(c) => Fault::NotRun(c.said),
             NotRun::Unreadable(w) => Fault::Internal(format!("storage unavailable: {w}")),
             NotRun::TimedOut(w) => Fault::TimedOut(w),
+            // a value a read derives or filters by past what its type
+            // holds, refused naming its object and no value, where it was
+            // answered null or its object left out (ADR-0205 decision 2)
+            NotRun::OutOfRange(id) => Fault::Refused(json!({
+                "refused": "value_in_range",
+                "reason": "a value it derives or filters by is past what its type holds",
+                "object_id": if id.is_empty() { J::Null } else { J::String(id) },
+            })),
         }
     }
 }

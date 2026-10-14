@@ -702,6 +702,26 @@ fn impact(
                 continue;
             }
             let v = Evaluator::new(&sim, Some(t), Some(&id)).eval(e)?;
+            // a backfill writes what its attribute holds, an integer to a
+            // decimal at its scale; a value it cannot hold refuses the
+            // publish, where it was written as it came (the audit's values
+            // W1 and W3, ADR-0205 decision 1)
+            let v = match t
+                .attribute(attr)
+                .map(|a| crate::request::fit_value(&a.declared, a.many, v.clone()))
+            {
+                Some(Ok(fitted)) => fitted,
+                Some(Err(why)) => {
+                    found.add(
+                        Severity::Fatal,
+                        format!("mapping:backfill:{tn}.{attr}"),
+                        format!("the backfill of {tn}.{attr} writes what it cannot hold: {why}"),
+                        Some(&id),
+                    );
+                    continue;
+                }
+                None => v,
+            };
             if o.attr(attr) != v {
                 found.add(
                     Severity::Notice,
@@ -1386,6 +1406,25 @@ types:
         r.affected().get(code).cloned().unwrap_or_default()
     }
 
+    /// A backfill writes what its attribute holds and refuses the publish
+    /// where it cannot, where an integer was written to a string as it came
+    /// (the audit's values W1 and W3, ADR-0205 decision 1).
+    #[test]
+    fn a_backfill_of_another_type_refuses_the_publish() {
+        let (mut s, _, _, _) = fleet();
+        let text = v2(true, true, true).replace(r#"site: '"north"'"#, "site: '5'");
+        let change = draft(&mut s, &text);
+        let r = run(&s, &change, &text);
+        assert!(!r.accepted);
+        assert!(
+            r.findings.iter().any(|f| f.severity == Severity::Fatal
+                && f.code == "mapping:backfill:Robot.site"
+                && f.message.contains("cannot hold")),
+            "{:#?}",
+            r.findings
+        );
+    }
+
     #[test]
     fn a_dry_run_names_every_object_each_impact_reaches() {
         let (mut s, [ready, held, bare], proposal, other) = fleet();
@@ -1606,7 +1645,9 @@ types:
         // an example reaching what the core does not yet run refuses the
         // publish, which cannot say it passed
         // a guard reading a metric whose value is an amount in a currency
-        // whose minor unit the core does not know, so it cannot round it
+        // whose minor unit the core does not know, so it cannot round it;
+        // the guard names no amount itself, which the typing refuses in
+        // such a currency, and a metric's expression is not yet typed
         let metered = text
             .replace(
                 "migration:\n",
@@ -1614,7 +1655,7 @@ types:
             )
             .replace(
                 "remedy: self_serviceable }\n",
-                "remedy: self_serviceable }\n      settled: { description: Few robots priced., expression: \"metric(priced) < PHP 3.00\", remedy: dependent }\n",
+                "remedy: self_serviceable }\n      settled: { description: Few robots priced., expression: \"metric(priced) <= metric(priced)\", remedy: dependent }\n",
             )
             .replace("guards: { graded: deny }", "guards: { graded: deny, settled: deny }");
         assert!(metered.contains("metric(priced)") && metered.contains("settled: deny"));

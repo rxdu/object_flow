@@ -85,15 +85,15 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
     let mut derived = Vec::new();
     for (n, e) in &t.derived {
         let v = Evaluator::new(world, Some(t), Some(id)).eval(e)?;
-        // a derived time past the calendar is answered without a value, as
-        // no request could send it back, where year 2,739,933 was answered;
-        // a guard compares it as the number it is (fifth production review,
-        // ADR-0191 decision 3)
+        // a derived time past the calendar refuses the read, as an
+        // arithmetic past its bound does, where it was answered null; a
+        // guard compares it as the number it is (fifth production review,
+        // ADR-0191 decision 3, ADR-0205 decision 2)
         let v = match crate::metric::typed_derived(world, t, e, v) {
             Value::Timestamp(s)
                 if !(crate::value::FIRST_SECOND..=crate::value::LAST_SECOND).contains(&s) =>
             {
-                Value::Absent
+                return Err(NotRun::OutOfRange(id.to_string()));
             }
             v => v,
         };
@@ -1229,15 +1229,15 @@ pub fn query_page(
                 return refuse("unknown_field");
             }
             let member = Expr::Path(Box::new(Expr::Name("this".into())), f.clone());
-            // a derived time past the calendar is answered without a value,
-            // as `get` answers it (ADR-0191 decision 3, ADR-0192 decision 7)
+            // a derived time past the calendar refuses the read, as `get`
+            // refuses it (ADR-0191 decision 3, ADR-0205 decision 2)
             let v = match reader.eval(&member)? {
                 Value::Timestamp(s)
                     if ot.derived.iter().any(|(d, _)| d == f)
                         && !(crate::value::FIRST_SECOND..=crate::value::LAST_SECOND)
                             .contains(&s) =>
                 {
-                    Value::Absent
+                    return Err(NotRun::OutOfRange(o.id.clone()));
                 }
                 v => v,
             };

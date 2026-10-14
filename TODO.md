@@ -536,11 +536,13 @@ Decided by the author 2026-10-14 ("go with your recommendations on all six"), af
 **E. The fixes,** area by area, each class closed whole, mutation-tested, the gates run after each area; every fix that refuses what 0.2.0 accepted listed (ADR-0204 §11).
 
 *Values* (`audit/values.md`, ADR-0205 decisions 1 and 2):
-- [ ] A value written at its column's kind and scale: an integer to a decimal (W1), a decimal to an integer (W2), a value of another type refused (W3), the store refusing a value its column does not hold.
-- [ ] A quotient rounded once at the target's scale, a literal at its operand's (W4, A1); a decimal comparison exact (A3, A4).
-- [ ] Failed arithmetic refused, never unknown, in reads, filters, invariants, guards, loops and metrics (U1 to U5); §8.2 and `wire.md` rewritten.
-- [ ] `any`, `none` and `count` reading their body (G1); `time_in` of a non-state (G2); silent rounding of a written decimal, amount and duration (W5, L1, L2).
-- [ ] The checkers refuse what the engine does not run, by cause (K-1 to K-12, D687); a gate from the audit's differential battery against the reference runner.
+- [x] A value written at its column's kind and scale: an integer to a decimal (W1), a decimal to an integer only where whole (W2), a value of another type refused (W3), by an effect, a default, an input, a creation's argument, a set's element and a backfill. *Done 2026-10-14: `request::fit_value`, the runner's `at_declared_scale`; check 17 by the typing's type in both checkers. Not done: the store itself refusing a value of another kind than its column's, below every route.*
+- [x] A quotient divided once at the target's scale (W4); a literal widened to its partner's scale (A1, A2); decimals and a metric's rationals compared exactly (A3, A4). *Done 2026-10-14.*
+- [x] Arithmetic past its bound refused, never unknown, in reads, filters, invariants, guards, loops and metrics (U1 to U5, U8); a division by zero stays unknown. §8.2, `wire.md` and `errors.md` rewritten. *Done 2026-10-14: `NotRun::OutOfRange`, the runner's `OutOfRange`.*
+- [x] `any`, `none` and `count` read their body (G1); `time_in` and `entered_at` of what they cannot name (G2); a plain write rounding a decimal (W5), an amount past its minor unit (L1, L6), a fraction of a second (L2), refused at publish by both checkers and at run time. *Done 2026-10-14; each fix mutation-tested (`audit/values.md` rows).*
+- [ ] The checkers refuse what the engine does not run, by cause (K-1 to K-12, M2, D687), from one table of each operator's and function's operand kinds read by both checkers' typing, the metric language typed over its rows, and `inherited_parts` built or refused (K-11). Then the audit's differential battery as a gate: every expression both checkers accept runs on the core and equals the reference runner. Minor by ADR-0204 §4, each refused at run time.
+- [ ] The reference runner brought to the core's scales and bounds (R1 to R9): a quotient at its left operand's scale, amounts with their currency, bounds on decimals, durations and times, enumerations by declaration order. Minor, the sandbox's alone.
+- [ ] The documents state what they leave unsaid (A5's duration rounding, A8's set equality, L3's integer literal past 64 bits, L5's backslash in a string); G7, G8 and G9's minors; the C2 YAML edges planted in both checkers.
 
 *Identities, the record and personal reads* (`audit/personal-data.md`, `audit/write-path.md`, ADR-0205 decisions 3 to 6 and 11):
 - [ ] An erased identity replaced in every case and every copy: sets, proposals, attempts, consulted keys, corrections, a version's approver (S16 to S23).

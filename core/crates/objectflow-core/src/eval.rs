@@ -32,6 +32,12 @@ pub enum NotRun {
     /// A read that passed the deadline it was given, stopped there
     /// (ADR-0184 decision 3).
     TimedOut(String),
+    /// An arithmetic of present values past its type's bound, a date moved
+    /// by part of a day or a time past the calendar, on the object named
+    /// (empty where none is): a request refuses it `value_in_range` and a
+    /// read refuses it so, never answering it as unknown (ADR-0205
+    /// decision 2). A division by zero is unknown, as §8.2 defines it.
+    OutOfRange(String),
 }
 
 /// An evaluator's call: the namespace, the function and its arguments, each
@@ -64,6 +70,7 @@ impl NotRun {
         match self {
             NotRun::Unsupported(w) | NotRun::Unreadable(w) | NotRun::TimedOut(w) => w,
             NotRun::Unanswered(c) => &c.said,
+            NotRun::OutOfRange(_) => "a value past what its type holds",
         }
     }
 }
@@ -208,10 +215,9 @@ pub struct Evaluator<'a> {
     /// guard's remedy temporal (ADR-0138), or a metric it consults none of
     /// was read.
     pub unanswered: std::cell::Cell<bool>,
-    /// Whether an arithmetic of present values had no value: an integer, a
-    /// duration or an amount past its bound, or a division by zero, which
-    /// a guard reads as unknown and an effect refuses as `value_in_range`
-    /// (ADR-0185).
+    /// Whether a division of present values was by zero, which a guard
+    /// reads as unknown and an effect refuses as `value_in_range`
+    /// (ADR-0185); an arithmetic past its bound is [`NotRun::OutOfRange`].
     pub failed_arithmetic: std::cell::Cell<bool>,
     /// Whether a metric is computed where it is read: a dry run consults
     /// none, a metric's read left unanswered as an evaluator's call is
@@ -427,7 +433,13 @@ impl<'a> Evaluator<'a> {
             self.aside.set(self.aside.get() + 1);
             let read = self.value(e, env);
             self.aside.set(self.aside.get() - 1);
-            read?;
+            // an arithmetic past its bound on a side that decides nothing
+            // refuses nothing, as the answer stands without it
+            if let Err(e) = read
+                && !matches!(e, NotRun::OutOfRange(_))
+            {
+                return Err(e);
+            }
             self.unanswered.set(asked);
         }
         Ok(())
@@ -530,21 +542,32 @@ impl<'a> Evaluator<'a> {
                         Some(s) => Term::Value(Value::Duration(s)),
                         None => return not_run("a duration past 64 bits"),
                     },
+                    // a duration is whole seconds, and a literal of a fraction
+                    // of one is not run, where `1.5 s` was rounded to 2 s (the
+                    // audit's values L2)
                     Number::Decimal(t) => {
                         let seconds = Decimal::parse(t)
                             .and_then(|d| d.checked_mul(&Decimal::from_int(size)))
-                            .and_then(|d| d.rescale(0))
+                            .and_then(|d| d.rescale(0).filter(|w| *w == d))
                             .and_then(|d| d.to_int());
                         match seconds {
                             Some(s) => Term::Value(Value::Duration(s)),
-                            None => return not_run(format!("the duration {t} {unit}")),
+                            None => {
+                                return not_run(format!(
+                                    "the duration {t} {unit}, which is no whole number of seconds"
+                                ));
+                            }
                         }
                     }
                 }
             }
+            // an amount with more places than its currency's minor unit is
+            // not run, where `USD 1.005` was rounded to `USD 1.00`, as one on
+            // the wire is malformed (the audit's values L1, D685)
             Expr::Money(currency, amount) => {
-                let amount = minor_unit(currency)
-                    .and_then(|m| Decimal::parse(amount).and_then(|d| d.rescale(m)));
+                let amount = minor_unit(currency).and_then(|m| {
+                    Decimal::parse(amount).and_then(|d| d.rescale(m).filter(|r| *r == d))
+                });
                 match amount {
                     Some(amount) => Term::Value(Value::Money {
                         currency: currency.clone(),
@@ -595,7 +618,7 @@ impl<'a> Evaluator<'a> {
                     other => return not_run(format!("negating {}", other.kind())),
                 };
                 if negated.is_absent() && !v.is_absent() {
-                    self.failed_arithmetic.set(true);
+                    return Err(self.out_of_range());
                 }
                 negated
             }),
@@ -951,19 +974,86 @@ impl<'a> Evaluator<'a> {
                 },
             });
         }
-        let a = self.value(l, env)?;
-        let b = self.value(r, env)?;
+        let (a, b) = self.operands(l, r, env)?;
         self.combined(op, &a, &b)
     }
 
-    /// [`combine`], an arithmetic of present values with no value noted as
-    /// failed.
+    /// An arithmetic's two operands, a decimal literal widened to the scale
+    /// of a decimal it is combined with that has more places, as §8.1 says
+    /// it takes it, which loses nothing: `2.5 / w` divides at `w`'s scale
+    /// where it divided at one place, and `w * 2.5` has the places the
+    /// metric evaluator gives it (the audit's values A1 and A2).
+    fn operands(
+        &self,
+        l: &Expr,
+        r: &Expr,
+        env: &BTreeMap<String, Value>,
+    ) -> Result<(Value, Value), NotRun> {
+        let a = self.value(l, env)?;
+        let b = self.value(r, env)?;
+        let literal = |e: &Expr| matches!(e, Expr::Num(Number::Decimal(_)));
+        let widened = |v: Value, other: &Value| match (&v, other) {
+            (Value::Decimal(d), Value::Decimal(o)) if o.scale() > d.scale() => {
+                d.rescale(o.scale()).map_or(v, Value::Decimal)
+            }
+            _ => v,
+        };
+        Ok(match (literal(l), literal(r)) {
+            (true, false) => (widened(a, &b), b),
+            (false, true) => {
+                let b = widened(b, &a);
+                (a, b)
+            }
+            _ => (a, b),
+        })
+    }
+
+    /// A quotient written to a decimal of `scale` places, computed exactly
+    /// and rounded once there, half to even (§8.3, ADR-0205 decision 1); any
+    /// other quotient as `/` gives it.
+    pub fn quotient_at(
+        &self,
+        l: &Expr,
+        r: &Expr,
+        env: &BTreeMap<String, Value>,
+        scale: u8,
+    ) -> Result<Value, NotRun> {
+        let (a, b) = self.operands(l, r, env)?;
+        let divisor = match &b {
+            Value::Int(n) => Some(Decimal::from_int(*n)),
+            Value::Decimal(d) => Some(*d),
+            _ => None,
+        };
+        match (&a, divisor) {
+            (Value::Decimal(p), Some(q)) if !q.is_zero() => p
+                .checked_div(&q, scale)
+                .map(Value::Decimal)
+                .ok_or_else(|| self.out_of_range()),
+            _ => self.combined(BinOp::Div, &a, &b),
+        }
+    }
+
+    /// [`combine`], an arithmetic of present values with no value refused
+    /// as out of range, where it was unknown and a filter dropped the
+    /// object, a derivation answered null and an invariant held (the
+    /// audit's values U1 to U5, ADR-0205 decision 2); a division by zero
+    /// stays unknown (§8.2, ADR-0047), noted for an effect to refuse.
     fn combined(&self, op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
         let v = combine(op, a, b)?;
         if v.is_absent() && !a.is_absent() && !b.is_absent() {
-            self.failed_arithmetic.set(true);
+            if op == BinOp::Div && zero(b) {
+                self.failed_arithmetic.set(true);
+            } else {
+                return Err(self.out_of_range());
+            }
         }
         Ok(v)
+    }
+
+    /// The refusal of a value past its type's range, naming the object the
+    /// evaluation is of.
+    fn out_of_range(&self) -> NotRun {
+        NotRun::OutOfRange(self.this.unwrap_or_default().to_string())
     }
 
     /// The states a scan's filter requires of the object it binds to the
@@ -1259,6 +1349,28 @@ impl<'a> Evaluator<'a> {
                 .entry(t.clone())
                 .or_default()
                 .extend(matched);
+        }
+        // the body of `any`, `none` and a count of elements is a condition
+        // each selected element meets too, as its `where` is, where it was
+        // ignored and `any(f in flags: f)` was true over `[false]` (§8.3,
+        // the audit's values G1); the elements named are those meeting both
+        if let Some(b) = body
+            && (matches!(kind, "any" | "none") || (kind == "count" && !distinct))
+        {
+            let mut met = Vec::new();
+            for inner in selected {
+                match truth(&self.value(b, &inner)?)? {
+                    Some(true) => met.push(inner),
+                    None if self.filter_mode => {}
+                    None => undecided = true,
+                    Some(false) => {}
+                }
+            }
+            chosen.retain(|id| {
+                met.iter()
+                    .any(|inner| matches!(inner.get(var), Some(Value::Object(o)) if o == id))
+            });
+            selected = met;
         }
         match kind {
             "any" => Ok(if !selected.is_empty() {
@@ -1556,6 +1668,10 @@ impl<'a> Evaluator<'a> {
             },
             // real elapsed time in the state, a current span up to now,
             // whatever state the object is in (ADR-0147)
+            "time_in" if t.state(arg).is_none() => not_run(format!(
+                "`time_in({arg})`, which names no state of {}",
+                t.name
+            )),
             "time_in" => Ok(Value::Duration(
                 state_spans()
                     .map(|sp| sp.left_at.unwrap_or(self.world.now) - sp.entered_at)
@@ -2057,6 +2173,16 @@ pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
     })
 }
 
+/// Whether a value is a zero divisor: of a number, a duration or an amount.
+fn zero(v: &Value) -> bool {
+    match v {
+        Value::Int(n) | Value::Duration(n) => *n == 0,
+        Value::Decimal(d) => d.is_zero(),
+        Value::Money { amount, .. } => amount.is_zero(),
+        _ => false,
+    }
+}
+
 /// The stretches, by occurred time, an object spent in a closed or terminal
 /// state.
 pub(crate) fn closed_periods(p: &crate::world::Parts, t: &Type, now: i64) -> Vec<(i64, i64)> {
@@ -2350,6 +2476,8 @@ types:
       priority: { type: Priority, optional: true }
       hours: { type: int, optional: true }
       tags: { type: "string[]", optional: true }
+      rate: { type: "decimal(10,2)", optional: true }
+      flags: { type: "bool[]", optional: true }
     derived_attributes:
       urgent: { expression: priority == Priority.HIGH }
     states:
@@ -2443,6 +2571,67 @@ types:
         assert_eq!(eval(&w, "job-1", "1 / 0"), Ok(Value::Absent));
         assert_eq!(eval(&w, "job-1", "7 / 2"), Ok(Value::Int(3)));
         assert_eq!(eval(&w, "job-1", "-7 / 2"), Ok(Value::Int(-3)));
+    }
+
+    /// A decimal literal combined with a wider decimal takes its scale, so
+    /// a literal dividend divides at its divisor's (§8.1, the audit's values
+    /// A1 and A2); an arithmetic of present values past its bound is out of
+    /// range, never unknown, through `is null` too, where a division by zero
+    /// stays unknown (§8.2, ADR-0205 decision 2); and the body of `any`,
+    /// `none` and a count is a condition each element meets (G1).
+    #[test]
+    fn literals_take_their_partners_scale_and_overflow_is_never_unknown() {
+        let lib = lib();
+        let mut w = World::new(&lib, 0);
+        let dec = |s: &str| Value::Decimal(Decimal::parse(s).unwrap());
+        w.insert(job(
+            "job-1",
+            1,
+            "OPEN",
+            &[
+                ("rate", dec("10.00")),
+                ("hours", Value::Int(i64::MAX)),
+                ("flags", Value::Set(vec![Value::Bool(false)])),
+            ],
+        ))
+        .unwrap();
+        let read = |e: &str| eval(&w, "job-1", e);
+        assert_eq!(read("2.5 / rate"), Ok(dec("0.25")));
+        assert!(matches!(read("rate * 2.5"), Ok(Value::Decimal(d)) if d.scale() == 4));
+        assert!(matches!(read("2.5 * rate"), Ok(Value::Decimal(d)) if d.scale() == 4));
+        // a literal with more places than its partner keeps them, exactly
+        assert_eq!(read("rate + 0.125"), Ok(dec("10.125")));
+        let out = Err(NotRun::OutOfRange("job-1".into()));
+        assert_eq!(read("hours + 1"), out);
+        assert_eq!(read("(hours + 1) is null"), out);
+        assert_eq!(read("hours * 2 > 0 or true"), out);
+        assert_eq!(read("-(0 - hours - 1)"), out);
+        assert_eq!(read("sum(h in {hours, 1}: h)"), out);
+        assert_eq!(read("hours / 0"), Ok(Value::Absent));
+        assert_eq!(read("rate / 0"), Ok(Value::Absent));
+        assert_eq!(read("(rate / 0) is null"), Ok(Value::Bool(true)));
+        assert_eq!(read("any(f in flags: f)"), Ok(Value::Bool(false)));
+        assert_eq!(read("none(f in flags: f)"), Ok(Value::Bool(true)));
+        assert_eq!(read("count(f in flags: f)"), Ok(Value::Int(0)));
+        assert_eq!(read("count(f in flags: not f)"), Ok(Value::Int(1)));
+        assert_eq!(read("all(f in flags: f)"), Ok(Value::Bool(false)));
+        assert_eq!(
+            read("any(f in flags where true: not f)"),
+            Ok(Value::Bool(true))
+        );
+        // a literal its type cannot hold exactly is not run, never rounded,
+        // and `time_in` of what is no state is not run, never 0 s (the
+        // audit's values L1, L2 and G2)
+        assert!(matches!(read("1.5 s"), Err(NotRun::Unsupported(_))));
+        assert_eq!(read("0.5 min"), Ok(Value::Duration(30)));
+        assert!(matches!(read("USD 1.005"), Err(NotRun::Unsupported(_))));
+        assert!(matches!(read("JPY 2.5"), Err(NotRun::Unsupported(_))));
+        assert!(matches!(read("USD 1.5"), Ok(Value::Money { .. })));
+        assert!(matches!(
+            read("time_in(hours)"),
+            Err(NotRun::Unsupported(_))
+        ));
+        assert!(matches!(read("time_in(OPEN)"), Ok(Value::Duration(_))));
     }
 
     #[test]
