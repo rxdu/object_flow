@@ -6061,3 +6061,96 @@ fn an_upgrade_is_refused_over_a_version_this_release_cannot_read() {
         (&json!(true), &recorded["release"])
     );
 }
+
+/// An import batch killed while it runs leaves all of it or none, and sent
+/// again after the restart writes what was missing once, never a second
+/// copy (the audit's durability W5). Killed at three moments, each on a
+/// store of its own: while the writer holds the batch's transaction, which
+/// keeps none; long after it committed, which keeps all; and early, either.
+#[test]
+fn an_import_killed_midway_leaves_all_or_none() {
+    let op = json!({"id": "operator"});
+    let batch: Vec<Value> = (0..3000)
+        .map(|i| {
+            json!({"type": "Employee", "legacy_key": format!("E-{i}"), "state": "EMPLOYED",
+                   "attributes": {"employee_id": format!("{i}"), "department": "Operations"}})
+        })
+        .collect();
+    let body = json!({"actor": op, "batch": {"objects": batch}});
+    let count = |s: &Service| -> usize {
+        let mut n = 0;
+        let mut cursor = Value::Null;
+        loop {
+            let page = post(
+                s,
+                "/v1/query",
+                &json!({"actor": op, "type": "Employee", "limit": 1000, "cursor": cursor}),
+            );
+            n += page["items"].as_array().map_or(0, Vec::len);
+            if page["cursor"].is_null() {
+                return n;
+            }
+            cursor = page["cursor"].clone();
+        }
+    };
+    // the moment of each kill: the writer held, past the commit, early
+    enum At {
+        Held,
+        After,
+        Early,
+    }
+    for (trial, at) in [At::Held, At::After, At::Early].into_iter().enumerate() {
+        let file = fresh_store(&format!("import-kill-{trial}"));
+        let path = file.to_str().expect("a path");
+        let s = start(&["--store", path, "--create", "--port", "0"]);
+        publish(
+            &s,
+            &json!({"people": example("people.yaml"), "servicedesk": example("servicedesk.yaml")}),
+        );
+        let addr = s.addr.clone();
+        let sent = body.to_string();
+        // the batch sent by hand, its answer never read: the kill ends it
+        let sender = std::thread::spawn(move || {
+            if let Ok(mut stream) = TcpStream::connect(&addr) {
+                let _ = write!(
+                    stream,
+                    "POST /v1/import_batch HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sent}",
+                    sent.len()
+                );
+                let mut answer = String::new();
+                let _ = stream.read_to_string(&mut answer);
+            }
+        });
+        match at {
+            At::Held => {
+                let began = std::time::Instant::now();
+                while call(&s, "GET", "/health", None).1["writer_held_seconds"]
+                    .as_f64()
+                    .unwrap_or(0.0)
+                    <= 0.0
+                {
+                    assert!(
+                        began.elapsed() < std::time::Duration::from_secs(20),
+                        "the writer was never seen held"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            At::After => std::thread::sleep(std::time::Duration::from_secs(8)),
+            At::Early => std::thread::sleep(std::time::Duration::from_millis(80)),
+        }
+        drop(s);
+        let _ = sender.join();
+        let s = start(&["--store", path, "--port", "0"]);
+        let held = count(&s);
+        match at {
+            At::Held => assert_eq!(held, 0, "killed in the transaction, some kept"),
+            At::After => assert_eq!(held, 3000, "killed after the commit, some lost"),
+            At::Early => assert!(held == 0 || held == 3000, "{held} of 3000 kept"),
+        }
+        let again = post(&s, "/v1/import_batch", &body);
+        assert!(again["refusal"].is_null(), "{again}");
+        assert_eq!(again["written"], json!(3000 - held), "{again}");
+        assert_eq!(count(&s), 3000);
+    }
+}
