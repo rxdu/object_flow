@@ -2602,6 +2602,18 @@ pub fn page_as(
             ..Page::default()
         });
     }
+    // and a literal past what its type holds, as a query's is, where an int
+    // or a duration past 64 bits was refused `value_in_range` once read
+    if let Some(f) = &theirs
+        && crate::reads::literal_out_of_range(world, None, f)?
+    {
+        return Ok(Page {
+            refused: Some("malformed_filter"),
+            reason: Some("it holds a literal past what its type holds".to_string()),
+            history_complete: true,
+            ..Page::default()
+        });
+    }
     if let Some(f) = &theirs {
         let item = formula(lib, owner.unwrap_or_default(), &found.spec)?
             .get("item")
@@ -3211,7 +3223,7 @@ metrics:
     /// 1,000 members, aggregates nested three deep, more than 256 terms and
     /// a metric called within are each refused `malformed_filter`, where a
     /// set of 5,000 ran to the read's deadline (the audit's cost B6,
-    /// ADR-0205 decision 15).
+    /// ADR-0205 decision 15), and so is a literal past its type's range.
     #[test]
     fn a_metric_filter_takes_a_query_filters_bounds() {
         let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
@@ -3233,6 +3245,18 @@ metrics:
             (terms(20), false),
             (terms(200), true),
             ("metric(Job.jobs_opened) > 0".to_string(), true),
+            // a literal past what its type holds, as a query's, where it was
+            // read once a row met it (the values audit's L3, ADR-0202
+            // decision 8)
+            (
+                "o.created_at < now + 9223372036854775808 s".to_string(),
+                true,
+            ),
+            ("o.id != \"j\" or 1 < 9223372036854775808".to_string(), true),
+            (
+                "o.id != \"j\" or 1 < 9223372036854775807".to_string(),
+                false,
+            ),
         ] {
             assert_eq!(
                 refused(&filter) == Some("malformed_filter"),

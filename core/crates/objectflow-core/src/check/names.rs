@@ -3319,13 +3319,25 @@ impl Typing<'_> {
             }
             // a duration is whole seconds, where `1.5 s` was rounded to 2 s
             // (the audit's values L2)
+            // and holds 64 bits of them, where one past was not run (ADR-0202
+            // decision 8)
             Expr::Dur(n, unit) => {
-                if let (Number::Decimal(t), Some(size)) = (n, crate::value::unit_seconds(unit)) {
-                    let whole = crate::value::Decimal::parse(t)
-                        .and_then(|d| d.checked_mul(&crate::value::Decimal::from_int(size)))
-                        .is_some_and(|d| d.rescale(0).is_some_and(|w| w == d));
-                    if !whole {
-                        self.fail(format!("{t} {unit} is no whole number of seconds"));
+                if let Some(size) = crate::value::unit_seconds(unit) {
+                    let t = match n {
+                        Number::Int(i) => i.to_string(),
+                        Number::Decimal(t) => t.clone(),
+                    };
+                    let seconds = crate::value::Decimal::parse(&t)
+                        .and_then(|d| d.checked_mul(&crate::value::Decimal::from_int(size)));
+                    match seconds {
+                        Some(d) if d.rescale(0).is_some_and(|w| w == d) => {
+                            if d.to_int().is_none() {
+                                self.fail(format!(
+                                    "{t} {unit} is past a duration's 64 bits of seconds"
+                                ));
+                            }
+                        }
+                        _ => self.fail(format!("{t} {unit} is no whole number of seconds")),
                     }
                 }
                 Some(Ty::Duration)
@@ -3725,6 +3737,19 @@ impl Typing<'_> {
         // * and /
         if l.scalar() && r.scalar() {
             if op == BinOp::Div {
+                // an int divided by a decimal is not run, its rounding to an
+                // int being unsaid (ADR-0202 decision 8)
+                let whole = |t: &Ty| matches!(t, Ty::Int | Ty::Number(0));
+                let fraction =
+                    |t: &Ty| matches!(t, Ty::Decimal(_)) || matches!(t, Ty::Number(s) if *s > 0);
+                if whole(&l) && fraction(&r) {
+                    self.fail(format!(
+                        "it divides {} by {}, which the engine does not run: divide a decimal, such as n * 1.0, for the fraction",
+                        l.text(),
+                        r.text()
+                    ));
+                    return None;
+                }
                 // / yields its left operand's type
                 return Some(l);
             }

@@ -2481,9 +2481,14 @@ class Typing:
                 self.fail(f"{e[1]} {e[2]} has more places than {e[1]}'s minor unit")
             return ("money", e[1])
         if k == "dur":
-            # a duration is whole seconds, where `1.5 s` was rounded to 2 s (the audit's values L2)
-            if e[2] in flowrun.SECONDS and (Fraction(str(e[1])) * flowrun.SECONDS[e[2]]).denominator != 1:
-                self.fail(f"{e[1]} {e[2]} is no whole number of seconds")
+            # a duration is whole seconds, where `1.5 s` was rounded to 2 s (the audit's values L2), and holds 64 bits of
+            # them, where one past was not run (ADR-0202 decision 8)
+            if e[2] in flowrun.SECONDS:
+                seconds = Fraction(str(e[1])) * flowrun.SECONDS[e[2]]
+                if seconds.denominator != 1:
+                    self.fail(f"{e[1]} {e[2]} is no whole number of seconds")
+                elif seconds > 2 ** 63 - 1:
+                    self.fail(f"{e[1]} {e[2]} is past a duration's 64 bits of seconds")
             return ("duration",)
         if k == "name":
             n = e[1]
@@ -2694,6 +2699,11 @@ class Typing:
         # * and /
         if numeric(l) and numeric(r):
             if op == "/":
+                # an int divided by a decimal is not run, its rounding to an int being unsaid (ADR-0202 decision 8)
+                if (l[0] == "int" or l == ("number", 0)) and (r[0] == "decimal" or r[0] == "number" and r[1] > 0):
+                    self.fail(f"it divides {type_text(l)} by {type_text(r)}, which the engine does not run: divide a "
+                              "decimal, such as n * 1.0, for the fraction")
+                    return None
                 return l                        # / yields its left operand's type
             if l[0] == r[0] == "number":
                 return ("number", l[1] + r[1])
@@ -8161,6 +8171,17 @@ def expression_type_plants(people):
         ("an amount in an unknown currency", ledger("XYZ 1 == XYZ 1"),
          [wrong("derived attribute probe", "XYZ is a currency whose minor unit the engine does not know")]),
         ("a fraction of a second", ledger("span + 1.5 s > span"), [wrong("derived attribute probe", "1.5 s is no whole number of seconds")]),
+        # what the engine does not run, refused at publish (ADR-0202 decision 8)
+        ("a duration past 64 bits", ledger("span + 9223372036854775808 s > span"),
+         [wrong("derived attribute probe", "9223372036854775808 s is past a duration's 64 bits of seconds")]),
+        ("a duration in minutes past 64 bits", ledger("span < 153722867280912931 min"),
+         [wrong("derived attribute probe", "153722867280912931 min is past a duration's 64 bits of seconds")]),
+        ("the widest durations", ledger("span < 9223372036854775807 s and span < 153722867280912930 min"), []),
+        ("an int divided by a decimal", ledger("count / rate > rate"),
+         [wrong("derived attribute probe", "it divides an int by a decimal of scale 2, which the engine does not run: divide a decimal, such as n * 1.0, for the fraction")]),
+        ("an int literal divided by a decimal literal", ledger("7 / 2.0 > rate"),
+         [wrong("derived attribute probe", "it divides a number by a number, which the engine does not run: divide a decimal, such as n * 1.0, for the fraction")]),
+        ("a decimal dividend", ledger("count * 1.0 / rate > rate and rate / count > rate"), []),
         ("literals held exactly", ledger("usd + USD 1.50 > usd and span + 0.5 min > span"), []),
         ("an int literal past 64 bits", ledger("count + 9223372036854775808 > 0"),
          [wrong("derived attribute probe", "the literal 9223372036854775808 is past an int's 64 bits")]),

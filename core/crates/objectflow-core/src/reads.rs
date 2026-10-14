@@ -607,10 +607,17 @@ fn zero(n: &crate::expr::Number) -> bool {
 /// 5,000 digits or a duration of 10^15 weeks, which every object's
 /// evaluation answered not run, or a type with no object answered empty
 /// (fourth production review A-10).
-fn literal_out_of_range(world: &World<'_>, t: &Type, e: &Expr) -> Result<bool, NotRun> {
+pub(crate) fn literal_out_of_range(
+    world: &World<'_>,
+    t: Option<&Type>,
+    e: &Expr,
+) -> Result<bool, NotRun> {
     if matches!(e, Expr::Num(_) | Expr::Money(..) | Expr::Dur(..)) {
-        return match Evaluator::new(world, Some(t), None).eval(e) {
-            Err(NotRun::Unsupported(_)) => Ok(true),
+        // past its type's range, a literal has no value whatever object
+        // reads it (§8.2), where an int or a duration past 64 bits escaped
+        // as an error once its evaluation answered it out of range
+        return match Evaluator::new(world, t, None).eval(e) {
+            Err(NotRun::Unsupported(_) | NotRun::OutOfRange(_)) => Ok(true),
             Err(other) => Err(other),
             Ok(_) => Ok(false),
         };
@@ -1080,7 +1087,7 @@ pub fn query_page(
         Some(Ok(e)) if filter_cost(&e).is_some() => {
             return malformed(filter_cost(&e).unwrap_or_default());
         }
-        Some(Ok(e)) if literal_out_of_range(world, t, &e)? => {
+        Some(Ok(e)) if literal_out_of_range(world, Some(t), &e)? => {
             return malformed("it holds a literal past what its type holds".to_string());
         }
         Some(Ok(e)) => Some(e),
@@ -2414,6 +2421,8 @@ types:
             "count / 0.00 > 1",
             huge.as_str(),
             "created_at < now + 999999999999999 weeks",
+            "count < 9223372036854775808",
+            "created_at < now + 9223372036854775808 s",
         ] {
             assert_eq!(refused(f), malformed, "{}", &f[..f.len().min(60)]);
         }

@@ -554,9 +554,12 @@ impl<'a> Evaluator<'a> {
                     return not_run(format!("the unit {unit}"));
                 };
                 match n {
+                    // past 64 bits of seconds it has no value, as an arithmetic
+                    // past them has none (§8.2), where it was not run (ADR-0202
+                    // decision 8)
                     Number::Int(n) => match n.checked_mul(size) {
                         Some(s) => Term::Value(Value::Duration(s)),
-                        None => return not_run("a duration past 64 bits"),
+                        None => return Err(self.out_of_range()),
                     },
                     // a duration is whole seconds, and a literal of a fraction
                     // of one is not run, where `1.5 s` was rounded to 2 s (the
@@ -564,10 +567,12 @@ impl<'a> Evaluator<'a> {
                     Number::Decimal(t) => {
                         let seconds = Decimal::parse(t)
                             .and_then(|d| d.checked_mul(&Decimal::from_int(size)))
-                            .and_then(|d| d.rescale(0).filter(|w| *w == d))
-                            .and_then(|d| d.to_int());
+                            .and_then(|d| d.rescale(0).filter(|w| *w == d));
                         match seconds {
-                            Some(s) => Term::Value(Value::Duration(s)),
+                            Some(s) => match s.to_int() {
+                                Some(s) => Term::Value(Value::Duration(s)),
+                                None => return Err(self.out_of_range()),
+                            },
                             None => {
                                 return not_run(format!(
                                     "the duration {t} {unit}, which is no whole number of seconds"
@@ -2729,6 +2734,11 @@ types:
         // an int literal past 64 bits has none either, as a caller's filter
         // writes it, where it was a decimal of scale 0 (the values audit's L3)
         assert_eq!(read("hours < 9223372036854775808"), out);
+        // and a duration literal past 64 bits of seconds, where it was not
+        // run (ADR-0202 decision 8)
+        assert_eq!(read("1 s < 9223372036854775808 s"), out);
+        assert_eq!(read("1 s < 153722867280912931 min"), out);
+        assert_eq!(read("1 s < 9223372036854775807 s"), Ok(Value::Bool(true)));
         assert_eq!(read("hours == 9223372036854775807"), Ok(Value::Bool(true)));
         assert_eq!(read("(hours + 1) is null"), out);
         assert_eq!(read("hours * 2 > 0 or true"), out);

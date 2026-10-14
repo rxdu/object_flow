@@ -33918,6 +33918,428 @@
   }
  },
  {
+  "label": "expression_type_plants: a duration past 64 bits",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "ledger.yaml",
+    "7e90c6fe60d930bf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: 9223372036854775808 s is past a duration's 64 bits of seconds (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "expression_type_plants: a duration in minutes past 64 bits",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "ledger.yaml",
+    "f4b403cf1f8ef859"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: 153722867280912931 min is past a duration's 64 bits of seconds (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "expression_type_plants: the widest durations",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "ledger.yaml",
+    "60144e8920fcf1cb"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
+  "analysed": {
+   "Account": [
+    0,
+    0
+   ],
+   "Agent": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "expression_type_plants: an int divided by a decimal",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "ledger.yaml",
+    "9db7597d9d3bdfd8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it divides an int by a decimal of scale 2, which the engine does not run: divide a decimal, such as n * 1.0, for the fraction (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "expression_type_plants: an int literal divided by a decimal literal",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "ledger.yaml",
+    "98c447ebe18563c3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    24,
+    "fatal",
+    "names",
+    "derived attribute probe does not type: it divides a number by a number, which the engine does not run: divide a decimal, such as n * 1.0, for the fraction (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "expression_type_plants: a decimal dividend",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "ledger.yaml",
+    "ad5d88cd722f5ce9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
+  "analysed": {
+   "Account": [
+    0,
+    0
+   ],
+   "Agent": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
   "label": "expression_type_plants: literals held exactly",
   "files": [
    [

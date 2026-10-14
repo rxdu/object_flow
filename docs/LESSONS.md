@@ -772,3 +772,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Clippy and `scripts/check-all` were started in one background command, clippy without `-D warnings`. Only the gate's verdict was read, so two `needless_borrow` warnings went unseen until the gate failed on them 20 minutes later.
 - **Correction:** Run clippy on its own, with `-- -D warnings` as CI does, and read its output before starting the gate. A warning is an error the gate will find.
 - **Context:** Rust work in this repository, `scripts/check-all`; found 2026-10-14.
+
+### Changing which error an evaluation returns means reading every caller that branches on it
+- **Pattern:** An int literal past 64 bits (the values audit's L3), then a duration literal past them, were made to answer `NotRun::OutOfRange` where they had answered a value or `NotRun::Unsupported`. `reads::literal_out_of_range` matched only `Unsupported`, so a reader's filter holding such a literal made `query` return an error instead of refusing `malformed_filter`, and a metric read's filter answered `value_in_range`. L3's commit carried it unseen, since no test sent that literal in a filter; the gate caught it only when the duration case met an existing test.
+- **Correction:** When a change moves a result from one error variant to another, grep every `match` on that error type (`NotRun::Unsupported`, `NotRun::OutOfRange`, …) and decide each caller before running anything, then add a test for each path the new variant reaches.
+- **Context:** `objectflow-core`'s `NotRun` and its callers in `reads.rs`, `metric.rs` and `publish.rs`; found 2026-10-15.
