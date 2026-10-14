@@ -624,7 +624,7 @@ def impact(store, new, found, actor, change_id):
     for oid, o in store.objects.items():
         if o.type == DECLARATION_CHANGE and oid != change_id and o.state in ("DRAFTED", "SUBMITTED"):
             found.add("notice", "superseded", "open changes the publish supersedes", oid)
-    attribute_notices(old_kinds, kinds, retired, m, found)
+    attribute_notices(old_kinds, kinds, retired, m, found, store)
     return invalidated, (sim, new, retired)
 
 
@@ -737,9 +737,10 @@ def proposals(store, kinds, found):
     return n
 
 
-def attribute_notices(old, new, retired, m, found):
-    """Notices of the declaration alone: an attribute dropped where one of its type is added, which may be a rename,
-    and an attribute whose type changed, a drop and an add of the same name."""
+def attribute_notices(old, new, retired, m, found, store=None):
+    """Notices of the declaration: an attribute dropped where one of its type is added, which may be a rename, and an
+    attribute whose type changed, a drop and an add of the same name, naming each object holding a value it sets
+    aside, which its migration records (the audit's write path A-06)."""
     for tn, nt in new.items():
         ot = old.get(tn)
         if ot is None or tn in BUILT_IN or tn in retired:
@@ -749,7 +750,13 @@ def attribute_notices(old, new, retired, m, found):
         for a, spec in oattrs.items():
             now = nattrs.get(a)
             if now is not None and declared_as(now) != declared_as(spec):
-                found.add("notice", f"type_changed:{tn}.{a}", f"{tn}.{a} changes its type, a drop and an add of the same name")
+                code = f"type_changed:{tn}.{a}"
+                message = f"{tn}.{a} changes its type, a drop and an add of the same name"
+                found.add("notice", code, message)
+                for oid, o in sorted((store.objects if store is not None else {}).items(),
+                                     key=lambda kv: kv[1].id_order):
+                    if o.type == tn and o.attrs.get(a, ABSENT) is not ABSENT:
+                        found.add("notice", code, message, oid)
             elif now is None and a not in renamed and any(
                     n not in oattrs and declared_as(x) == declared_as(spec) for n, x in nattrs.items()):
                 found.add("notice", f"possible_rename:{tn}.{a}",
@@ -849,7 +856,9 @@ def install(store, installed, report, change_id, identity, kind):
         if oid not in store.objects or x.type in BUILT_IN or x.type in retired or x.type not in kinds:
             continue
         was = store.objects[oid]
-        codes = of("mapping:", oid)
+        # a mapping's, and a type change's setting a value aside, each recorded on the object's migration (the
+        # audit's write path A-06)
+        codes = of("mapping:", oid) + of("type_changed:", oid)
         admits = [code.rpartition(".")[2] for code in of("invariant:", oid)
                   if admitted(new, code[len("invariant:"):])]
         discharges = [code.rpartition(".")[2] for code in of("discharged:", oid)]

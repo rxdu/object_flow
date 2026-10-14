@@ -981,7 +981,7 @@ fn impact(
             );
         }
     }
-    attribute_notices(old, &new, &mut found);
+    attribute_notices(world, &new, &mut found)?;
     report.findings = found.0;
     report.accepted = !report.fatal()
         && report.findings.iter().all(|f| {
@@ -1223,10 +1223,13 @@ fn proposals(world: &World<'_>, new: &Library, found: &mut Found) -> Result<usiz
     Ok(n)
 }
 
-/// Notices of the declaration alone: an attribute dropped where one of its
-/// type is added, which may be a rename, and an attribute whose type
-/// changed, which is a drop and an add of the same name.
-fn attribute_notices(old: &Library, new: &Library, found: &mut Found) {
+/// Notices of the declaration: an attribute dropped where one of its type
+/// is added, which may be a rename, and an attribute whose type changed,
+/// which is a drop and an add of the same name, naming each object holding
+/// a value it sets aside, which its migration records, where it named none
+/// and said nothing was affected (the audit's write path A-06).
+fn attribute_notices(world: &World<'_>, new: &Library, found: &mut Found) -> Result<(), NotRun> {
+    let old = world.lib;
     for (tn, nt) in &new.types {
         let Some(ot) = old.type_(tn) else { continue };
         let renamed = |a: &str| {
@@ -1237,12 +1240,17 @@ fn attribute_notices(old: &Library, new: &Library, found: &mut Found) {
         };
         for (a, spec) in &ot.attributes {
             match nt.attribute(a) {
-                Some(now) if now.declared != spec.declared || now.many != spec.many => found.add(
-                    Severity::Notice,
-                    format!("type_changed:{tn}.{a}"),
-                    format!("{tn}.{a} changes its type, a drop and an add of the same name"),
-                    None,
-                ),
+                Some(now) if now.declared != spec.declared || now.many != spec.many => {
+                    let code = format!("type_changed:{tn}.{a}");
+                    let message =
+                        format!("{tn}.{a} changes its type, a drop and an add of the same name");
+                    found.add(Severity::Notice, code.clone(), message.clone(), None);
+                    for o in world.of_type(tn)? {
+                        if o.type_ == *tn && !o.attr(a).is_absent() {
+                            found.add(Severity::Notice, code.clone(), message.clone(), Some(&o.id));
+                        }
+                    }
+                }
                 None if !renamed(a)
                     && nt.attributes.iter().any(|(n, x)| {
                         ot.attribute(n).is_none()
@@ -1261,6 +1269,7 @@ fn attribute_notices(old: &Library, new: &Library, found: &mut Found) {
             }
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -3021,6 +3030,67 @@ types:
         ));
     }
 
+    /// A version changing an attribute's type names each object holding a
+    /// value it sets aside, and records the setting aside on each, a
+    /// migration naming the change, where its notice named none and said
+    /// nothing was affected (the audit's write path A-06); an object holding
+    /// no value is untouched.
+    #[test]
+    fn a_retyped_attribute_names_each_object_holding_a_value() {
+        let retyped = SHOP_V1.replace(
+            "nick: { type: string, optional: true }",
+            "nick: { type: int, optional: true }",
+        );
+        let lib = Library::load(&[("shop.yaml".into(), SHOP_V1.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let ana = created(&req(
+            &mut s,
+            "join",
+            ("Customer", true),
+            json!({"nick": "a"}),
+        ));
+        let bo = created(&req(&mut s, "join", ("Customer", true), json!({})));
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"shop": retyped}, "source_ref": "git:shop@2"}),
+        ));
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let w = s.snapshot().unwrap();
+        let c = w.whole(&change).unwrap().unwrap();
+        let v = c.version;
+        // the report the submit attached, as the approver reads it
+        let Value::Text(attached) = c.attr("report") else {
+            panic!("no report attached");
+        };
+        let attached: serde_json::Value = serde_json::from_str(&attached).unwrap();
+        drop(w);
+        let (verdict, _) = approve(&mut s, &change, v);
+        assert!(matches!(verdict, Verdict::Satisfied { .. }), "{verdict:?}");
+        let finding = attached["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["code"] == "type_changed:Customer.nick")
+            .expect("the type change's notice")
+            .clone();
+        // one affected, the customer holding a nick
+        assert_eq!(finding["affected"], json!(1));
+        let last = s.history(&ana).unwrap().last().cloned().unwrap();
+        assert_eq!(last.transition, "migrate");
+        assert_eq!(
+            last.payload["mappings"],
+            json!(["type_changed:Customer.nick"])
+        );
+        assert!(
+            s.history(&bo)
+                .unwrap()
+                .iter()
+                .all(|e| e.transition != "migrate")
+        );
+    }
+
     #[test]
     /// Erasure reaches every value personal under any version an object's
     /// history was written under (ADR-0146 decision 2): after a version
@@ -3463,9 +3533,34 @@ types:
         let Verdict::Satisfied { events, .. } = verdict else {
             panic!("{verdict:?} {report:#?}")
         };
-        // the publish, and the erased customer's redaction; a rename and a
-        // type change write no event
-        assert_eq!(events.len(), 2);
+        // the publish; a migration for each customer whose retyped size it
+        // sets aside, the erased one and the kept one, in id order (the
+        // audit's write path A-06); then the erased customer's redaction,
+        // after every migration (publish-and-import.md §1 step 5); a rename
+        // writes no event
+        assert_eq!(events.len(), 4);
+        let by_position = |p: i64| {
+            let w = s.snapshot().unwrap();
+            let e = w
+                .log()
+                .unwrap()
+                .into_iter()
+                .find(|e| e.position == p)
+                .unwrap()
+                .clone();
+            (e.object_id, e.transition)
+        };
+        assert_eq!(
+            events[1..]
+                .iter()
+                .map(|p| by_position(*p))
+                .collect::<Vec<_>>(),
+            [
+                (erased.clone(), "migrate".to_string()),
+                (kept.clone(), "migrate".to_string()),
+                (erased.clone(), "redact".to_string()),
+            ]
+        );
         let w = s.snapshot().unwrap();
         let k = w.whole(&kept).unwrap().unwrap();
         let tier = |m: &str| Value::Member {

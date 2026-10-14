@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- A publish changing an attribute's type names, in its `type_changed` notice, each object holding a value it sets aside, and gives each a `migrate` event naming the change, where the notice said nothing was affected and the objects' histories said nothing (the audit's write path A-06).
 - `declaration`'s and a publish report's `person_dimensions` mark a metric dimension reading an `identity` copied into an observation, as one on the type's own objects is, where it was left unmarked for the gateway (the audit's personal data R8).
 - A part's `taken_by` that its whole's cascade breaks is refused with the remedy `delegable`, as through a call, where it said `unreachable_from_here`, telling an agent the request could never be done rather than to hand it to a person (the audit's write path A-04).
 - A satisfied `check` names no `events`, and a creation's no `object_id`, each in the verdict's `not_computed`, where it named the positions and the id its simulation took, which the next real request was given for something else (the audit's write path A-05).

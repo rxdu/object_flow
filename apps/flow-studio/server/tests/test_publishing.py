@@ -1132,6 +1132,30 @@ def test_an_identity_an_observation_holds_is_marked_alike(tee):
     alike(tee)
 
 
+def test_a_retyped_attribute_names_each_object_holding_a_value_alike(tee):
+    """A version changing an attribute's type names each object holding a value it sets aside, and records the
+    setting aside on each as a migration naming the change, alike through both backends, where its notice named none
+    (the audit's write path A-06)."""
+    load(tee, "shop", SHOP_V1)
+    tee.found.clear()
+    ana = made(tee, "Customer", "join", nick="a")
+    bo = made(tee, "Customer", "join")
+    c = change(tee, "draft", source={"shop": SHOP_V1.replace(
+        "nick: { type: string, optional: true }", "nick: { type: int, optional: true }", 1)},
+        source_ref="git:shop@2")["object_id"]
+    tee.post("/v1/request", {"transition": "submit", "actor": OP, "object_id": c})
+    report = tee.post("/v1/publish", {"actor": OP, "change": c, "dry_run": True})["report"]
+    notice = next(f for f in report["findings"] if f["code"] == "type_changed:Customer.nick")
+    assert notice["affected"] == 1, notice
+    version = tee.post("/v1/get", {"id": c})["version"]
+    approved = tee.post("/v1/publish", {"actor": OP, "change": c, "expected_version": version})
+    assert approved["verdict"]["kind"] == "satisfied", approved
+    events = tee.post("/v1/history", {"id": ana})["events"]
+    assert events[-1]["transition"] == "migrate", events[-1]
+    assert all(e["transition"] != "migrate" for e in tee.post("/v1/history", {"id": bo})["events"])
+    alike(tee)
+
+
 def tiers(tee) -> list:
     page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.tiers",
                                    "keep": ["tier"]})

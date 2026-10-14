@@ -3736,7 +3736,13 @@ impl Store {
         let codes_of = |id: &str| -> Vec<String> {
             affected
                 .iter()
-                .filter(|(code, ids)| code.starts_with("mapping:") && ids.iter().any(|i| i == id))
+                // a mapping's, and a type change's setting a value aside, each
+                // recorded on the object's migration (the audit's write path
+                // A-06)
+                .filter(|(code, ids)| {
+                    (code.starts_with("mapping:") || code.starts_with("type_changed:"))
+                        && ids.iter().any(|i| i == id)
+                })
                 .map(|(code, _)| code.clone())
                 .collect()
         };
@@ -3771,6 +3777,9 @@ impl Store {
         };
         let mut in_order: Vec<&Object> = objects.values().collect();
         in_order.sort_by_key(|o| o.order);
+        // each erased object's newly personal attributes, redacted after
+        // every migration (publish-and-import.md §1 step 5)
+        let mut redactions: Vec<(Object, Vec<String>)> = Vec::new();
         for o in in_order {
             let Some(t) = new.type_(&o.type_) else {
                 continue;
@@ -3944,52 +3953,61 @@ impl Store {
                 })
                 .map(|(n, _)| n.clone())
                 .collect();
+            // redacted once every object has migrated, as publish-and-import.md
+            // §1 step 5 orders them, where each object's redaction followed its
+            // own migration and the two backends numbered them apart
             if !newly.is_empty() {
-                let position = alloc.position();
-                positions.push(position);
-                for n in &newly {
-                    x.attrs.remove(n);
-                    for sp in x.parts_mut()?.spans.get_mut(n).into_iter().flatten() {
-                        sp.value = Value::Absent;
-                    }
-                }
-                let mut after = World::new(new, now);
-                for o in objects.values() {
-                    after.insert(o.clone())?;
-                }
-                after.insert(x.clone())?;
-                for n in failing_invariants(&after, &x).map_err(StoreError::from)? {
-                    if !x.parts_mut()?.admissions.contains(&n)
-                        && invariant_reads(t, &n).iter().any(|r| newly.contains(r))
-                    {
-                        x.parts_mut()?.admissions.insert(n.clone());
-                        change_set
-                            .admitted
-                            .push((x.id.clone(), n, position, String::new()));
-                    }
-                }
-                let state = x.state.clone();
-                let event = event_of(
-                    &mut x,
-                    None,
-                    Some(state),
-                    "redact",
-                    position,
-                    now,
-                    who,
-                    "erased",
-                    new.version,
-                    new.version,
-                    serde_json::json!({ "redacted": newly }),
-                )?;
-                // a migration is caused by the publish's event (DESIGN.md §5.9)
-                let event = Event {
-                    cause: Some(publish_position),
-                    ..event
-                };
-                change_set.redacted.push((x.id.clone(), newly));
-                change_set.writes.push((x, false, event));
+                redactions.push((x, newly));
             }
+        }
+        for (mut x, newly) in redactions {
+            let Some(t) = new.type_(&x.type_) else {
+                continue;
+            };
+            let position = alloc.position();
+            positions.push(position);
+            for n in &newly {
+                x.attrs.remove(n);
+                for sp in x.parts_mut()?.spans.get_mut(n).into_iter().flatten() {
+                    sp.value = Value::Absent;
+                }
+            }
+            let mut after = World::new(new, now);
+            for o in objects.values() {
+                after.insert(o.clone())?;
+            }
+            after.insert(x.clone())?;
+            for n in failing_invariants(&after, &x).map_err(StoreError::from)? {
+                if !x.parts_mut()?.admissions.contains(&n)
+                    && invariant_reads(t, &n).iter().any(|r| newly.contains(r))
+                {
+                    x.parts_mut()?.admissions.insert(n.clone());
+                    change_set
+                        .admitted
+                        .push((x.id.clone(), n, position, String::new()));
+                }
+            }
+            let state = x.state.clone();
+            let event = event_of(
+                &mut x,
+                None,
+                Some(state),
+                "redact",
+                position,
+                now,
+                who,
+                "erased",
+                new.version,
+                new.version,
+                serde_json::json!({ "redacted": newly }),
+            )?;
+            // a migration is caused by the publish's event (DESIGN.md §5.9)
+            let event = Event {
+                cause: Some(publish_position),
+                ..event
+            };
+            change_set.redacted.push((x.id.clone(), newly));
+            change_set.writes.push((x, false, event));
         }
         // the other open changes, which the publish supersedes, and the
         // pending proposals it invalidates
