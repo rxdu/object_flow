@@ -1955,6 +1955,10 @@ fn event(e: &Event) -> J {
         "position": e.position, "object_id": e.object_id, "transition": e.transition,
         "from_state": e.from_state, "to_state": e.to_state, "changes_state": e.changes_state,
         "actor_id": e.actor_id, "actor_kind": e.actor_kind, "principal": e.principal,
+        // its place among its object's events and its source, which the store
+        // records and `export` answered while every other read listed them
+        // not computed (the guides' audit G-96)
+        "object_seq": e.object_seq, "source": e.source,
         "declaration_version": e.declaration_version,
         "recorded_at": timestamp_text(e.recorded_at),
         "occurred_at": e.occurred_at.map(timestamp_text), "imported": e.imported,
@@ -1965,7 +1969,7 @@ fn event(e: &Event) -> J {
     })
 }
 
-const EVENT_NOT_COMPUTED: [&str; 5] = ["object_seq", "source", "taint_version", "txn", "flags"];
+const EVENT_NOT_COMPUTED: [&str; 3] = ["taint_version", "txn", "flags"];
 
 fn offer(o: &Offer, actor_dependent: bool) -> J {
     let inputs: Map<String, J> = o
@@ -2057,6 +2061,13 @@ async fn clock(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answering(move || {
         let mut sandbox = locked(&shared)?;
         let s = store(&mut sandbox)?;
+        // one move at a time, where both were taken in an order of their own
+        // (the guides' audit G-46)
+        if body.get("advance").is_some() && body.get("set").is_some() {
+            return Err(Fault::Bad(
+                "the clock takes advance or set, not both".to_string(),
+            ));
+        }
         let target = if let Some(by) = text(&body, "advance")? {
             let step = parse_duration(by).ok_or_else(|| {
                 Fault::Bad(format!("advance takes a duration such as '1 h': {by}"))
@@ -2083,6 +2094,15 @@ async fn evaluators(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let mut sandbox = locked(&shared)?;
         store(&mut sandbox)?;
         if let Some(answers) = object(&body, "answers")? {
+            // each answer one an evaluator gives, where any other was taken
+            // and then read as unanswered (the guides' audit G-46)
+            if let Some((f, a)) = answers.iter().find(|(_, a)| {
+                !matches!(a.as_str(), Some("satisfied" | "unsatisfied" | "unanswered"))
+            }) {
+                return Err(Fault::Bad(format!(
+                    "{f} answers {a}: an evaluator answers satisfied, unsatisfied or unanswered"
+                )));
+            }
             sandbox.answers.extend(answers.clone());
         }
         // the store asks its evaluators through these answers (PRD F13)
@@ -2251,8 +2271,16 @@ fn cursor_of(body: &J) -> Result<Option<i64>, Fault> {
             .parse::<i64>()
             .map(Some)
             .map_err(|_| Fault::Bad(format!("{c} is no cursor this store handed out"))),
+        // a cursor of another JSON type said as one, where a number read as
+        // a value the store never handed out (the guides' audit G-98)
         Some(other) => Err(Fault::Bad(format!(
-            "{other} is no cursor this store handed out"
+            "a cursor is a string, as the store hands it out, and {other} is a {}",
+            match other {
+                J::Number(_) => "number",
+                J::Bool(_) => "boolean",
+                J::Array(_) => "list",
+                _ => "map",
+            }
         ))),
     }
 }
@@ -3263,7 +3291,10 @@ async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answered_off(move || {
         let mut r = reading(&shared)?;
         let s = r.store()?;
-        let name = text(&body, "type")?.unwrap_or_default();
+        // its type required, as wire.md says, where none was read as a type
+        // of no name and answered 404 (the guides' audit G-93)
+        let name = text(&body, "type")?
+            .ok_or_else(|| Fault::Bad("declaration names a type".to_string()))?;
         // the version asked for, the installed one where none is
         // (library-api.md §6)
         let earlier = match body.get("version") {
@@ -3738,7 +3769,7 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
         Ok(Json(
             json!({"release": BUILTINS, "shape": shape, "version": version, "now": now,
                "store_release": BUILTINS, "upgrade_due": false, "clock_lead_seconds": 0,
-               "writer_held_seconds": 0, "requests_in_flight": shared.in_flight.load(Ordering::SeqCst),
+               "writer_held_seconds": 0.0, "requests_in_flight": shared.in_flight.load(Ordering::SeqCst),
                "connections_open": shared.connections.open.load(Ordering::SeqCst)}),
         )
         .into_response())
@@ -3881,7 +3912,8 @@ fn app(shared: Shared, deployment: bool) -> Router {
             Fault::Missing(format!("no operation {}", uri.path()))
         })
         .method_not_allowed_fallback(|| async {
-            Fault::Method("an operation is a POST".to_string())
+            // the two GETs said too (the guides' audit G-106)
+            Fault::Method("an operation is a POST, and /health and /metrics a GET".to_string())
         })
         .layer(axum::middleware::from_fn_with_state(shared.clone(), logged))
         .with_state(shared)
@@ -4275,8 +4307,9 @@ most n at once, 4 unless given, a read waiting for its turn within its
 timeout (ADR-0189); a change's dry run, one at a time, stopped at the
 dry-run timeout, 2 min unless given (ADR-0194); and its writes one at a time, each waiting out another process's
 write lock for the busy timeout, 5 s unless given, before it is retried
-and then refused stale (ADR-0178). It authenticates nothing: bind it beyond loopback only behind
-the application that does (core/README.md).";
+and then refused stale (ADR-0178). It authenticates nothing: give it a --socket its application's
+user alone reaches, since any user of the machine reaches a loopback port, and never bind it beyond
+loopback (core/README.md, SECURITY.md).";
 
 /// The command line: where to listen, and a deployment's store and
 /// retentions where it names one.
@@ -4460,6 +4493,12 @@ fn args() -> Result<Args, String> {
     if out.read_timeout.is_some() && out.store.is_none() {
         return Err(
             "a read's timeout is a deployment's; a sandbox's reads take the writer's lock"
+                .to_string(),
+        );
+    }
+    if out.busy_timeout.is_some() && out.store.is_none() {
+        return Err(
+            "how long a write waits out another process's lock is a deployment's; a sandbox's store is its own"
                 .to_string(),
         );
     }
@@ -4711,7 +4750,7 @@ fn tell_a_stall(shared: &Service) -> bool {
         return false;
     }
     say!(
-        "writes are waiting for another process's lock on the store, {} s so far; each waits --busy-timeout up to four times, then is refused stale (writes_stalled)",
+        "writes are waiting for another process's lock on the store, {} s so far; each waits --busy-timeout up to four times, then is refused stale after up to four more to record its refusal (writes_stalled)",
         (wall_millis() - since).max(0) / 1000
     );
     true
@@ -6996,7 +7035,7 @@ mod tests {
             }};
         }
         light!(get, json!({"actor": op, "id": "subscription-1"}));
-        light!(declaration, json!({"actor": op}));
+        light!(declaration, json!({"actor": op, "type": "Subscription"}));
         light!(lookup, json!({"source": "legacy", "value": "x"}));
         // a transition named submit on what is no change of the flow is an
         // ordinary write, taking no slot (fifth production review N-1)

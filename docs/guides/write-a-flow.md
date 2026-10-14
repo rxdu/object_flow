@@ -112,16 +112,18 @@ The [Flow Studio](../../apps/flow-studio/README.md) is the same loop with a diag
 
 [`docs/design/flow-format/examples/`](../design/flow-format/examples/) holds checked samples, each with its examples file, passing on both of the engine's implementations:
 
-| Sample | Shows |
-|---|---|
-| `people.yaml` | Actors: types whose objects make requests. |
-| `approvals.yaml` | A state machine two types share, one replacing its creation. |
-| `reimbursement.yaml` | A claim with lines, policy flags that warn, an agent suggesting and a person confirming, an outside system's check. |
-| `delivery.yaml`, `inventory.yaml` | An item handed over with a checklist, cascades, and a proposal a person approves. |
-| `service.yaml`, `service-v2.yaml` | Observations recorded about a job, and a second version migrating live jobs. |
-| `customers.yaml` | Personal data corrected and erased, an override, a rule across objects. |
-| `servicedesk.yaml` | Mirror types another system owns, and importing them. |
-| `issues.yaml` | Jira's work items: subtasks, links, sprints. |
+| Sample | Shows | Checked with |
+|---|---|---|
+| `people.yaml` | Actors: types whose objects make requests. | `people.yaml` |
+| `approvals.yaml` | A state machine two types share, one replacing its creation. | `approvals.yaml approvals.examples.yaml` |
+| `reimbursement.yaml` | A claim with lines, policy flags that warn, an agent suggesting and a person confirming, an outside system's check. | `reimbursement.yaml reimbursement.examples.yaml` |
+| `delivery.yaml`, `inventory.yaml` | An item handed over with a checklist, cascades, and a proposal a person approves. | `inventory.yaml inventory.examples.yaml`; `people.yaml inventory.yaml delivery.yaml delivery.examples.yaml` |
+| `service.yaml`, `service-v2.yaml` | Observations recorded about a job, and a second version migrating live jobs. | `people.yaml service.yaml service.examples.yaml`; `--previous=service.yaml people.yaml service-v2.yaml service-v2.examples.yaml`; `people.yaml service.yaml service-migration.examples.yaml`, whose examples publish version 2 over version 1 and so are never carried into a change |
+| `customers.yaml` | Personal data corrected and erased, an override, a rule across objects. | `people.yaml customers.yaml customers.examples.yaml` |
+| `servicedesk.yaml` | Mirror types another system owns, and importing them. | `people.yaml servicedesk.yaml servicedesk.examples.yaml` |
+| `issues.yaml` | Jira's work items: subtasks, links, sprints. | `people.yaml issues.yaml issues.examples.yaml` |
+
+The "Checked with" column gives each sample's files in the order the checker takes them: an examples file creating actors needs `people.yaml` first, which declares them, even where its module does not import it.
 
 ## Patterns
 

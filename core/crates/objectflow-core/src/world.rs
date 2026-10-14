@@ -257,6 +257,11 @@ struct Held {
     /// The records read alone, by type, past [`BATCH`] of which the rest
     /// of a type's are read together.
     alone: std::cell::RefCell<BTreeMap<String, usize>>,
+    /// Whether a scan of many rows is reading, which reads whole a type it
+    /// reaches past [`BATCH`] times, by id or narrowed: see [`World::scan`].
+    scanning: std::cell::Cell<bool>,
+    /// The reads of each type, by id or narrowed, during a scan.
+    scan_reads: std::cell::RefCell<BTreeMap<String, usize>>,
     /// The held objects by a column's value, each column built on its
     /// first use and kept as objects are held and changed (PERF-SCAN).
     index: std::cell::RefCell<BTreeMap<(String, String), Column>>,
@@ -367,6 +372,18 @@ fn index_key(v: &Value) -> Option<Option<String>> {
 /// How many of a type's records an operation reads one by one before it
 /// reads the rest it holds together (ADR-0165).
 pub(crate) const BATCH: usize = 8;
+
+/// A scan of many rows, which ends when it is dropped: see [`World::scan`].
+pub(crate) struct Scan<'a> {
+    flag: &'a std::cell::Cell<bool>,
+    was: bool,
+}
+
+impl Drop for Scan<'_> {
+    fn drop(&mut self) {
+        self.flag.set(self.was);
+    }
+}
 
 /// No earlier version's library: a store with one version, or a world
 /// built without them.
@@ -696,7 +713,7 @@ impl<'l> World<'l> {
         let held = self.stored.get().is_some();
         if held || self.conn.is_none() {
             return Ok(self
-                .log_after(after, types, limit)?
+                .log_after(after, types, None, limit)?
                 .iter()
                 .map(crate::store::Head::of)
                 .collect());
@@ -778,15 +795,17 @@ impl<'l> World<'l> {
         &self,
         after: i64,
         types: Option<&[String]>,
+        entering: Option<&[String]>,
         limit: usize,
     ) -> Result<Vec<Event>, crate::eval::NotRun> {
         let of_types = |e: &Event| -> Result<bool, crate::eval::NotRun> {
-            Ok(match types {
-                None => true,
-                Some(types) => self
-                    .get(&e.object_id)?
-                    .is_some_and(|o| types.contains(&o.type_)),
-            })
+            Ok(entering.is_none_or(|s| s.contains(&e.to_state))
+                && match types {
+                    None => true,
+                    Some(types) => self
+                        .get(&e.object_id)?
+                        .is_some_and(|o| types.contains(&o.type_)),
+                })
         };
         let mut out = Vec::new();
         let held = self.stored.get().is_some();
@@ -802,11 +821,12 @@ impl<'l> World<'l> {
             return Ok(out);
         }
         if let Some(conn) = self.conn {
-            out = crate::store::read_log_after(conn, after, types, limit).map_err(|e| {
-                crate::eval::NotRun::Unreadable(format!(
-                    "the store's log after {after}, which could not be read: {e}"
-                ))
-            })?;
+            out =
+                crate::store::read_log_after(conn, after, types, entering, limit).map_err(|e| {
+                    crate::eval::NotRun::Unreadable(format!(
+                        "the store's log after {after}, which could not be read: {e}"
+                    ))
+                })?;
             counted(out.len());
         }
         for e in &self.appended {
@@ -1159,12 +1179,44 @@ impl<'l> World<'l> {
             })?,
             None => None,
         };
+        let type_ = fetched.as_ref().map(|o| o.type_.clone());
         let slot = match fetched {
             Some(o) => Some(self.hold(o)?),
             None => None,
         };
         self.held.by_id.borrow_mut().insert(id.to_string(), slot);
+        if let Some(t) = type_
+            && self.scanned_past(&t)
+        {
+            self.hold_type(&t)?;
+        }
         Ok(slot.and_then(|n| self.held.slots.get(n)))
+    }
+
+    /// A scan of many rows, until the guard is dropped: a type its rows
+    /// reach object by object, by id or narrowed, past [`BATCH`] times is
+    /// read whole once and served from what is held, so a row's reach, a
+    /// claim's lines summed for its total, is a lookup, where each row read
+    /// its own by a query of its own. Only the types the rows reach are read,
+    /// where reading every type a row's type refers to made a metric that
+    /// reads none three times slower (the audit's cost B2, ADR-0205
+    /// decision 13). A write never scans: its reads stay its own.
+    pub(crate) fn scan(&self) -> Scan<'_> {
+        Scan {
+            flag: &self.held.scanning,
+            was: self.held.scanning.replace(true),
+        }
+    }
+
+    /// Whether a scan has now read a type alone past [`BATCH`] times.
+    fn scanned_past(&self, type_: &str) -> bool {
+        if !self.held.scanning.get() {
+            return false;
+        }
+        let mut reads = self.held.scan_reads.borrow_mut();
+        let n = reads.entry(type_.to_string()).or_default();
+        *n += 1;
+        *n > BATCH
     }
 
     /// The type of the object an id names: the held object's, or the store's
@@ -1568,7 +1620,9 @@ impl<'l> World<'l> {
         let pairs: Vec<(&str, &Value)> = columns.iter().map(|(a, v)| (a.as_str(), v)).collect();
         for t in self.family(type_).iter() {
             let whole = self.held.whole.borrow().contains(t);
-            if !whole && let Some(conn) = self.conn {
+            if !whole && self.scanned_past(t) {
+                self.hold_type(t)?;
+            } else if !whole && let Some(conn) = self.conn {
                 let fetched =
                     crate::store::read_type_where(conn, self.lib, t, wanted.as_deref(), &pairs)
                         .map_err(|e| {

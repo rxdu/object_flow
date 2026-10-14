@@ -148,6 +148,85 @@ def run_page(name, binary):
             proc.wait(timeout=40)
 
 
+def run_restore(binary):
+    """Run operate.md's backup and restore as it writes them, on a deployment of a store made for it: the one-off
+    backup command, the copy's check, the timer unit's backup command, and the restore's steps with the mark a copy
+    made otherwise is given, the paths swapped for the store's and the copies'; the restored store said to be one.
+    Where the page's commands change, this is the gate that they still work (ADR-0207)."""
+    page = (GUIDES / "operate.md").read_text()
+    one_off = re.search(r"^python3 -c \"(import sqlite3; c = sqlite3\.connect\('/backup/store\.sqlite'\).*)\"$",
+                        page, re.M)
+    checked = re.search(r"`python3 -c \"(import sqlite3; c = sqlite3\.connect\('file:/backup/store\.sqlite\?immutable=1'"
+                        r"[^`]*)\"` prints", page)
+    timer = re.search(r"^ExecStart=/usr/bin/python3 -c \"(.*)\"$", page, re.M)
+    mark = re.search(r"`python3 -c \"(import sqlite3; c = sqlite3\.connect\('/var/lib/objectflow/store\.sqlite'\);"
+                     r"[^`]*)\"`", page)
+    for found, what in ((one_off, "the one-off backup"), (checked, "the copy's check"), (timer, "the timer's backup"),
+                        (mark, "the restore's mark")):
+        if found is None:
+            fail(f"operate.md: {what} is not where the check reads it")
+            return 0
+    with tempfile.TemporaryDirectory() as work:
+        work = pathlib.Path(work)
+        store, copy, copies = work / "store.sqlite", work / "backup.sqlite", work / "copies"
+        copies.mkdir()
+
+        def swapped(code):
+            return (code.replace("/var/lib/objectflow/store.sqlite", str(store))
+                    .replace("/backup/store.sqlite", str(copy))
+                    .replace("/var/backups/objectflow", str(copies)).replace("%%", "%"))
+
+        def python(code):
+            return subprocess.run([sys.executable, "-c", swapped(code)], capture_output=True, text=True, timeout=60)
+
+        proc = subprocess.Popen([str(binary), "--store", str(store), "--create", "--port", "0"],
+                                stderr=subprocess.PIPE, text=True)
+        try:
+            while not re.search(r"listening on http", proc.stderr.readline()):
+                pass
+            for code, what in ((one_off.group(1), "the one-off backup"), (timer.group(1), "the timer's backup")):
+                ran = python(code)
+                if ran.returncode != 0:
+                    fail(f"operate.md: {what} exited {ran.returncode}: {ran.stderr.strip()[:300]}")
+            said = python(checked.group(1))
+            if not said.stdout.startswith("ok objectflow-core "):
+                fail(f"operate.md: the copy's check printed {said.stdout.strip()!r}, {said.stderr.strip()[:200]}")
+            if not list(copies.glob("store-*.sqlite")):
+                fail("operate.md: the timer's backup made no copy")
+        finally:
+            proc.terminate()
+            proc.wait(timeout=40)
+        # two restores: the backup's copy, which its command marked, and the file copied with the service stopped,
+        # which step 4 marks; each the -wal and -shm gone, in the store's place, and started
+        stopped = work / "stopped.sqlite"
+        stopped.write_bytes(store.read_bytes())
+        for source, marks, what in ((copy, False, "the backup's copy"), (stopped, True, "a copy taken stopped")):
+            for end in ("-wal", "-shm"):
+                pathlib.Path(f"{store}{end}").unlink(missing_ok=True)
+            store.write_bytes(source.read_bytes())
+            if marks:
+                ran = python(mark.group(1))
+                if ran.returncode != 0:
+                    fail(f"operate.md: the restore's mark exited {ran.returncode}: {ran.stderr.strip()[:300]}")
+            proc = subprocess.Popen([str(binary), "--store", str(store), "--port", "0"], stderr=subprocess.PIPE,
+                                    text=True)
+            try:
+                # the start's notes follow its listening line, and the store's version closes them
+                lines = []
+                while not any(" at version " in line for line in lines[-1:]):
+                    line = proc.stderr.readline()
+                    if not line:
+                        break
+                    lines.append(line)
+                if not any("is a restored copy" in line for line in lines):
+                    fail(f"operate.md: {what}, restored as the page says, was not said to be a restored copy: "
+                         + "".join(lines)[-400:])
+            finally:
+                proc.terminate()
+                proc.wait(timeout=40)
+    return 5
+
+
 # ── 2. the references name every code ───────────────────────────────────
 
 
@@ -233,6 +312,25 @@ def check_references():
     named("wire.md", keys, "key")
 
 
+def check_required():
+    """Each operation's row in wire.md names before its `;` exactly the keys wire-v1.json records as required, which
+    the service's test holds, where the tables marked `actor` optional on operations that refused a request without
+    it (the guides' audit G-93)."""
+    required = json.loads((GUIDES / "wire-v1.json").read_text()).get("required", {})
+    text = (GUIDES / "wire.md").read_text()
+    for op, keys in required.items():
+        name = op.split("/")[-1]
+        row = re.search(rf"^\| `{name}` \| ([^|]*) \|", text, re.M)
+        if row is None:
+            fail(f"wire.md: no row for `{name}`")
+            continue
+        if row.group(1).strip() == "the same":
+            continue
+        said = set(re.findall(r"`([a-z_]+)`", row.group(1).split(";")[0]))
+        if said != set(keys):
+            fail(f"wire.md: `{name}` requires {sorted(said)} before its `;`, and wire-v1.json {sorted(keys)}")
+
+
 def check_indexes():
     pages = sorted(p.name for p in GUIDES.glob("*.md") if p.name != "README.md")
     for index, prefix in ((GUIDES / "README.md", ""), (ROOT / "llms.txt", "docs/guides/")):
@@ -256,8 +354,10 @@ def main():
     else:
         sys.exit(__doc__.split("Usage: ")[1])
     check_references()
+    check_required()
     check_indexes()
     ran = {name: run_page(name, binary) for name in RUNNABLE}
+    ran["operate.md"] = run_restore(binary)
     for f in failures:
         print(f"  {f}")
     compared = ", ".join(f"{name} {n}" for name, n in ran.items())

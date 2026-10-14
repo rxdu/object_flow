@@ -194,7 +194,7 @@ fn log_rows(
     let mut bytes = 0;
     let mut at = after;
     while rows.len() < limit && bytes < crate::reads::PAGE_BYTES {
-        let page = world.log_after(at, types, CHUNK.min(limit - rows.len()))?;
+        let page = world.log_after(at, types, None, CHUNK.min(limit - rows.len()))?;
         let done = page.len() < CHUNK.min(limit - rows.len());
         for e in &page {
             at = e.position;

@@ -123,7 +123,7 @@ Existing data from another system comes in through `import_batch`, into types ma
 
 ## Personal data
 
-An attribute or input marked `personal` holds personal data. An `erasure` transition removes every personal value of its object: from the object, from its history, from exports and from the store's files. Free text a flow does not mark `personal`, and a request's `context`, are kept as written, so mark every input that may name a person.
+An attribute or input marked `personal` holds personal data. An `erasure` transition removes every personal value of its object: from the object, from its history, from exports and from the store's file and its `-wal` once the log is cut back, the free space of an index it touched aside, which [Operate](operate.md) says how to clear. Free text a flow does not mark `personal`, and a request's `context`, are kept as written, so mark every input that may name a person.
 
 ## Sandbox and deployment
 

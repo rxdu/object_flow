@@ -244,6 +244,9 @@ class Sandbox:
 
     def clock(self, body: dict) -> dict:
         self.loaded()
+        # one move at a time, as the core takes it (the guides' audit G-46)
+        if "advance" in body and "set" in body:
+            raise Fault(400, "the clock takes advance or set, not both")
         if "advance" in body:
             try:
                 step = flowrun.seconds(body["advance"])
@@ -266,7 +269,12 @@ class Sandbox:
         """The answers its evaluators give, written as an example stubs them
         (`flow-format.md` §11.3), added to those already given."""
         self.loaded()
-        self.stubs.update(body.get("answers") or {})
+        answers = body.get("answers") or {}
+        # each answer one an evaluator gives, as the core takes it (the guides' audit G-46)
+        for f, a in answers.items():
+            if a not in ("satisfied", "unsatisfied", "unanswered"):
+                raise Fault(400, f"{f} answers {a}: an evaluator answers satisfied, unsatisfied or unanswered")
+        self.stubs.update(answers)
         return {"answers": self.stubs}
 
     # ── the library's operations (`library-api.md` §6) ─────────────────────
@@ -946,6 +954,9 @@ class Sandbox:
         ADR-0135, D451)."""
         self.loaded()
         tn = body.get("type")
+        # its type required, as the core requires it (the guides' audit G-93)
+        if tn is None:
+            raise Fault(400, "declaration names a type")
         s = self.store
         asked = body.get("version")
         if asked is not None and (not isinstance(asked, int)

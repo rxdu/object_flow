@@ -3257,7 +3257,14 @@ fn reference_formed(r: &Json) -> bool {
 }
 
 fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
-    let mut wrong: Vec<String> = Vec::new();
+    // each input wrong, missing where it was not sent, as any input is,
+    // where a draft without a `source_ref` was told it was malformed (the
+    // guides' audit G-44)
+    let mut wrong: Vec<(String, InputReason)> = Vec::new();
+    let why = |k: &str| match req.inputs.get(k) {
+        None | Some(Json::Null) => InputReason::Missing,
+        Some(_) => InputReason::Malformed,
+    };
     let source: Vec<(String, String)> = match req.inputs.get("source") {
         // each file under the name it declares, a module's or its examples',
         // which the digest is computed over (ADR-0135, ADR-0155); a file that
@@ -3276,7 +3283,7 @@ fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
                 .collect()
         }
         _ => {
-            wrong.push("source".to_string());
+            wrong.push(("source".to_string(), why("source")));
             Vec::new()
         }
     };
@@ -3287,7 +3294,7 @@ fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
             r.clone()
         }
         _ => {
-            wrong.push("source_ref".to_string());
+            wrong.push(("source_ref".to_string(), why("source_ref")));
             String::new()
         }
     };
@@ -3295,7 +3302,7 @@ fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
         None => None,
         Some(Json::Array(refs)) if refs.iter().all(reference_formed) => Some(refs.clone()),
         Some(_) => {
-            wrong.push("evidence".to_string());
+            wrong.push(("evidence".to_string(), InputReason::Malformed));
             None
         }
     };
@@ -3311,9 +3318,7 @@ fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
         ));
     }
     if !wrong.is_empty() {
-        return refused(Verdict::invalid_input(
-            wrong.into_iter().map(|k| (k, InputReason::Malformed)),
-        ));
+        return refused(Verdict::invalid_input(wrong));
     }
     let Some(digest) = crate::source::digest(&source) else {
         return refused(Verdict::invalid_input([(

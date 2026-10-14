@@ -6829,7 +6829,8 @@ def example_rule_plants():
     # a publish its dry run refuses fails its example, the version beside the examples file given a guard on no
     # condition (§11.3, ADR-0166 decision 3)
     broken = read("service-v2.yaml").replace("photo_attached: deny", "photo_attachd: deny", 1)
-    found, _notes = check([(f, read(f)) for f in service], None, None, None,
+    migration = ["people.yaml", "service.yaml", "service-migration.examples.yaml"]
+    found, _notes = check([(f, read(f)) for f in migration], None, None, None,
                           lambda n: broken if n == "service-v2.yaml" else beside(EXAMPLES)(n))
     hit = [x for x in found if x[3] == "example" and "refused at submission" in x[4]]
     ok &= bool(hit)
@@ -8948,6 +8949,18 @@ def main():
         unrun = [x for x in notes if x[3] == "notrun"]
         for x in unrun:
             print(f"  {x[0]}:{x[1]} notrun {x[4]}")
+        clean &= not found and not unrun
+    # an examples file a change never carries, whose `publish` steps read their files beside it, checked with its
+    # module as a corpus file is (§11.3, ADR-0166 decision 3)
+    for module, examples in (("service.yaml", "service-migration.examples.yaml"),):
+        files = [("people.yaml", people), (module, (EXAMPLES / module).read_text()),
+                 (examples, (EXAMPLES / examples).read_text())]
+        found, notes = check(files, None, None, None, beside(EXAMPLES))
+        unrun = [x for x in notes if x[3] == "notrun"]
+        print(f"{examples}: {'clean' if not found else str(len(found)) + ' finding(s)'}, "
+              f"{len(notes)} notice{'s' if len(notes) != 1 else ''}")
+        for x in found + unrun:
+            print(f"  {x[0]}:{x[1]} {x[3]} {x[4]}")
         clean &= not found and not unrun
     ok = self_test(people, (EXAMPLES / "service.yaml").read_text(), (EXAMPLES / "inventory.yaml").read_text(),
                    (EXAMPLES / "delivery.yaml").read_text(), (EXAMPLES / "approvals.yaml").read_text(),

@@ -132,7 +132,7 @@ of tools '{"actor_kind": "agent"}' | jq -c '[.tools[].name]'
 ["get_object", "leave_request_approve", "leave_request_open", "leave_request_submit", "object_availability", "query_objects", "read_metric"]
 ```
 
-Each tool is `{name, description, request, input_schema}`, the schema in JSON Schema ([`renderers.md`](../design/renderers.md) §3 defines them). Hand them to your model; send each write it calls as a request in the agent's name, its `type` and `transition` the tool's `request` and the rest the call's arguments, and each read as the operation it names. Always send the `type` beside the `object_id`: the store then refuses, `not_found`, an object of any other type the id names, so `customer_revoke` cannot revoke a subscription, nor a label's `forget` reach another type's object of a same-named transition.
+Each tool is `{name, description, request, input_schema}`, the schema in JSON Schema ([`renderers.md`](../design/renderers.md) §3 defines them). Hand them to your model; send each write it calls as a request in the agent's name, its `type` and `transition` the tool's `request` and the rest the call's arguments, and each read as the operation it names, `object_availability`'s `object_id` sent as `availability`'s `id` and `get_object`'s as `get`'s `id`. Always send the `type` beside the `object_id`: the store then refuses, `not_found`, an object of any other type the id names, so `customer_revoke` cannot revoke a subscription, nor a label's `forget` reach another type's object of a same-named transition.
 
 The agent drafts and submits a request for Ana. Naming her as `principal` records whom it acted for:
 

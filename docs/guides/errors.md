@@ -64,12 +64,12 @@ Every refusal carries a `remedy`: what the caller can do about it.
 |---|---|
 | `unknown_input` | is not one the transition takes. |
 | `missing` | is required and was not sent, or was `null`. |
-| `wrong_type` | is a different JSON type than its declared type takes. |
-| `malformed` | has the right JSON type but the wrong form: a bad date, an identity with invisible characters, a decimal with more places than its scale, which is never rounded. |
+| `wrong_type` | is a different JSON type than its declared type takes, or a string naming no member of the enumeration it takes. |
+| `malformed` | has the right JSON type but the wrong form: a bad date, an identity with invisible characters, a decimal with more places than its scale, which is never rounded, a set repeating an element. |
 | `wrong_currency` | is money in another currency than the declared one. |
 | `no_such_object` | names an object that does not exist, or one of another type. |
 | `out_of_range` | is past what its type holds: more digits than a decimal or an amount holds, an integer past 64 bits, a string over 64 KiB. |
-| `not_allowed` | is a value the transition does not accept here, such as a repeated element of a set. |
+| `not_allowed` | is a value of its type the transition does not take here: an assertion's `to` or `admits` it does not list, an observation's `corrects` naming another subject's, a subscription selecting nothing. |
 
 A required input whose attribute is optional elsewhere is refused another way: `unsatisfied` with the clause `<attribute>_provided`. Map both shapes to the same form field.
 
@@ -119,7 +119,7 @@ A read that cannot be answered says why in `refused`, with no items. Some carry 
 | `unknown_transition` | `available` | The type has no such transition. |
 | `not_requestable` | `available` | The transition runs only as part of another. |
 | `value_in_range` | `get`, `query`, `metric` | A value the read derives or filters by is past what its type holds: an integer past 64 bits, a time past the calendar. `object_id` names the object, where one is known; the answer names no value. `availability` and `check` say it as a transition's verdict, as a request would be refused. |
-| `malformed_filter` | `query`, `metric` | The filter cannot be answered. `reason` says why: it does not parse; compares a member with a literal its type cannot hold; is not a boolean; calls an evaluator or a metric; reads the request (`actor`, `inputs`); divides by zero; nests too deep; holds more than 256 terms; or, for a metric, reads something other than the metric's item. |
+| `malformed_filter` | `query`, `metric` | The filter cannot be answered. `reason` says why: it does not parse; compares a member with a literal its type cannot hold; is not a boolean; calls an evaluator or a metric; reads the request (`actor`, `inputs`); divides by zero; nests too deep; holds more than 256 terms (about 64 comparisons chained by `or`); or, for a metric, reads something other than the metric's item. |
 | `unknown_order_key` | `query` | An `order` key that is not `created_at`, `entered_at(<tracked member>)` or an attribute holding one value. |
 | `unknown_field` | `query` | A `fields` entry the type does not have. |
 | `malformed_cursor` | `query`, `available` | A cursor that did not come from this read. Start again without one. |
@@ -168,4 +168,5 @@ A fault's body is always `{"fault": "<reason>", "code": "<code>"}`.
 
 - Send an `idempotency_key` with every write. A retry with the same key and the same body returns the first answer, `"replayed": true`, and applies nothing twice. The key belongs to the actor, so retry under the same actor.
 - Retry a `temporal` refusal, a `busy`, `read_timeout` or `slow_body` fault, and a write that got no answer at all. Don't retry `unreachable_from_here`.
+- A read you give up on stops at its next step and gives back its place in its pool, so sending it again does not stack reads nobody waits for; still give a read a timeout above the service's `--read-timeout`, so one that would answer is not abandoned ([Operate](operate.md)). A write you give up on runs to its end: retry it under its key.
 - A `stale` with cause `expected_version` means someone else changed the object. Re-read it and let the person, or the agent, decide again before resending.

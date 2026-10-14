@@ -30,7 +30,7 @@ A value is JSON's own where JSON keeps it exactly, and otherwise a string in the
 | `bool` | a boolean | `true` |
 | `int` | a number within ±(2⁵³ − 1); a string of digits beyond | `3` |
 | `string` | a string of at most 64 KiB in UTF-8, past which it is `out_of_range`; never U+0000 | `"Taxis"` |
-| `identity` | a string, as above, that is not empty, has no whitespace at its ends and none but a space within, holds no character that shows nothing (a control or format character, a variation selector, a combining grapheme joiner, a Hangul filler, a tag, a line or paragraph separator, a blank braille pattern, U+17B4 or U+17B5), no private-use character and no noncharacter, and is not shaped as an object id of the store's types, in any case of its letters (`Staff-2` as `staff-2`); else `malformed`. It names one actor across every actor type, compared ignoring the case of its ASCII letters, a letter outside ASCII as written: a second holder is refused `identity_taken`, and a request naming the identity in another ASCII case is that actor's, recorded under the identity it holds. | `"u-10442"` |
+| `identity` | a string, as above, that is not empty, has no whitespace at its ends and none but a space within, holds no character that shows nothing (a control or format character, a variation selector, a combining grapheme joiner, a Hangul filler, a tag, a line or paragraph separator, a blank braille pattern, U+17B4 or U+17B5), no private-use character and no noncharacter, and is not shaped as an object id of the store's types, in any case of its letters (`Staff-2` as `staff-2`); else `malformed`. It names one actor across every actor type, compared ignoring the case of its ASCII letters, a letter outside ASCII as written: a second holder is refused `identity_taken`, and a request naming the identity in another ASCII case is that actor's, recorded under the identity it holds. | `"u10442"` |
 | `decimal(p,s)` | a string of digits, at most `s` places and `p` digits in all; an input past that is `out_of_range`, an effect's write past it `value_in_range` | `"19.90"` |
 | `money(CCY)` | a string: the currency, one space, the amount in at most its minor unit's places | `"USD 19.99"` |
 | `timestamp` | RFC 3339 in UTC (`Z` or `+00:00`), to the second or the minute, no fraction of a second | `"2026-10-04T09:30:00Z"` |
@@ -45,14 +45,16 @@ Dates and times stay within 0001-01-01 to 9999-12-31T23:59:59Z. An effect that w
 
 ## Requests
 
+In each table, the keys before a `;` are required and those after it optional; a request missing a required key is answered `400`.
+
 | Operation | Keys | Answers |
 |---|---|---|
 | `request` | `actor`, `transition`; `type` to create, or `object_id`, with `type` beside it to require the object be of that type (else `not_found`); `inputs`, `expected_version`, `target_version`, `idempotency_key`, `occurred_at`, `propose`, `expires_at`, `principal`, `context` | a verdict |
-| `check` | the same | `{"verdict": …, "unevaluated": […]}`: the verdict the request would get, nothing written; `unevaluated` names the evaluators it did not ask, whose guards may still refuse the request |
+| `check` | the same | `{"verdict": …, "unevaluated": […]}`: the verdict the request would get, nothing written; `unevaluated` names the conditions whose evaluators it did not ask, whose guards may still refuse the request. A satisfied verdict's `object_id` and `events` are what the request would be given now, and another request may be given them first: never keep them |
 
 ```json
 POST /v1/request
-{"actor": {"id": "u-10442"}, "type": "Claim", "transition": "draft",
+{"actor": {"id": "u10442"}, "type": "Claim", "transition": "draft",
  "inputs": {"claimant": "employee-1", "title": "Taxis"}, "idempotency_key": "draft-1"}
 
 {"kind": "satisfied", "object_id": "claim-4", "version": 1, "events": [5], "replayed": false, "flags": []}
@@ -77,7 +79,7 @@ A verdict is `{"kind": …, "remedy": …}` with the fields of its kind; a satis
  "reasons": {"amount": "wrong_currency", "expense_date": "malformed"}}
 ```
 
-**`not_computed`.** A field the design names but the engine does not compute yet is listed in the answer's `not_computed` instead of being given a misleading value: today an offer's `consulted` (an offer asks no evaluator) and an event's `object_seq`, `source`, `taint_version`, `txn` and `flags`. Read a field only where it is not listed.
+**`not_computed`.** A field the design names but the engine does not compute yet is listed in the answer's `not_computed` instead of being given a misleading value: today an offer's `consulted` (an offer asks no evaluator) and an event's `taint_version`, `txn` and `flags`. The reference runner a sandbox runs on lists more of an event's fields. Read a field only where it is not listed.
 
 ## Reads
 
@@ -86,16 +88,16 @@ A verdict is `{"kind": …, "remedy": …}` with the fields of its kind; a satis
 | `get` | `id`; `actor`, `follow` | the object, or `null`. With `"follow": true`, the object its supersession chain ends at. |
 | `history` | `id`; `actor`, `follow`, `limit`, `cursor` | `{"events": […], "cursor": …, "not_computed": […]}`, a page of the object's events in order, its imported legacy entries first on the first page; or `null`. With `"follow": true`, the events of every object whose chain ends where this one's does. |
 | `events` | `positions`; `actor` | `{"events": […]}`: each position's event, or `null`, in the order asked. At most a page's worth of positions, none twice, and at most 8 MiB of events, past which it is a `400` saying how many fit. |
-| `availability` | `id`; `actor` | an offer per transition, or `null` |
-| `query` | `type`; `actor`, `filter`, `order`, `fields`, `cursor`, `limit` | `{"items": [{"id", "type", "fields"}…], "cursor": …, "refused": …}`; `order` names at most 8 keys and `fields` at most 256, each once |
-| `available` | `type`, `transition`; `actor`, `cursor`, `limit` | a page of the objects the transition is available to, with `actor_dependent` |
-| `exceptions` | `type`; `actor`, `cursor` | a page of the objects holding an admitted violation of an invariant |
+| `availability` | `actor`, `id` | an offer per transition, or `null` |
+| `query` | `actor`, `type`; `filter`, `order`, `fields`, `cursor`, `limit` | `{"items": [{"id", "type", "fields"}…], "cursor": …, "refused": …}`; `order` names at most 8 keys and `fields` at most 256, each once |
+| `available` | `actor`, `type`, `transition`; `cursor`, `limit` | a page of the objects the transition is available to, with `actor_dependent` |
+| `exceptions` | `actor`, `type`; `cursor` | a page of the objects holding an admitted violation of an invariant |
 | `declaration` | `type`; `actor`, `version` | the type as declared, with its enumerations, `version`, `source_ref`, `source_digest` and `person_dimensions` |
-| `tools` | `actor_kind`; `actor` | `{"tools": [{"name", "description", "input_schema"}…]}`: the tools an actor of that kind is handed, sorted by name ([Agents](agents.md)) |
-| `metric` | `name`; `actor`, `bind`, `keep`, `over`, `filter`, `cursor` | `{"rows": [{"dimensions", "value"}…], "flags": […], "history_complete": …, "refused": …}` |
+| `tools` | `actor_kind`; `actor` | `{"tools": [{"name", "description", "request", "input_schema"}…]}`: the tools an actor of that kind is handed, sorted by name ([Agents](agents.md)) |
+| `metric` | `actor`, `name`; `bind`, `keep`, `over`, `filter`, `cursor` | `{"rows": [{"dimensions", "value"}…], "flags": […], "history_complete": …, "refused": …}` |
 | `lookup` | `source`, `value`; `actor` | the object an external identifier names, or `null`. `source` is an external system, or `legacy` with `"<Type>:<key>"`. |
-| `export` | `source`; `actor`, `cursor`, `limit` | `{"lines": […], "cursor": …, "more": …}`: JSON lines of `log` (the event log), an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, with personal values left out. An `.intervals` row is keyed by `object_id`, `dimension`, `entered_position` and `entered_at`, and a line `{"retracted": true, …}` with that key removes a row a later commit deleted or moved, a correction merging it or a version renaming or retyping its member, before the rows that commit wrote: fold the lines by their key in order, and you hold what the store holds (ADR-0205 decision 9) |
-| `diagnostics` | `type`; `actor`, `window` | `{"diagnostics": […]}`: where the flow and its record disagree |
+| `export` | `actor`, `source`; `cursor`, `limit` | `{"lines": […], "cursor": …, "more": …}`: JSON lines of `log` (the event log), an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, with personal values left out. An `.intervals` row is keyed by `object_id`, `dimension`, `entered_position` and `entered_at`, and a line `{"retracted": true, …}` with that key removes a row a later commit deleted or moved, a correction merging it or a version renaming or retyping its member, before the rows that commit wrote: fold the lines by their key in order, and you hold what the store holds (ADR-0205 decision 9) |
+| `diagnostics` | `actor`, `type`, `window` | `{"diagnostics": […]}`: where the flow and its record disagree |
 
 A metric's `over` and diagnostics' `window` are positive durations, and a metric's `keep` names each dimension once; anything else is a `400`. The built-in attributes that hold JSON, a `DeclarationChange`'s `source`, `report` and `evidence` and a `Proposal`'s `inputs`, are answered as JSON.
 
@@ -160,7 +162,7 @@ A `filter` is a boolean expression of the flow's language over the type's member
 - a time against `now`, since there is no timestamp literal: `submitted_at <= now - 30 days`;
 - a set of literals for a list of alternatives, up to 1,000: `number in {"C-1", "C-2"}`.
 
-A filter is refused `malformed_filter`, with a `reason` naming what it did but never a value an object holds, when it: does not parse; compares a member with a literal its type cannot hold (a time with text, a reference with a string, the state with text); is not a boolean or adds text to a number; gives `and`, `or`, `implies` or `not` an operand that is not a boolean, such as `title == "x" and title`; holds a literal past what its type holds; calls an evaluator or a metric; reads the request (`actor`, `inputs`, `this_event`); divides by a zero; nests deeper than 64 levels or has a tree deeper than 128; nests aggregates more than two deep; writes a set of more than 1,000 members; or holds more than 256 terms, a set of literals counting as one.
+A filter is refused `malformed_filter`, with a `reason` naming what it did but never a value an object holds, when it: does not parse; compares a member with a literal its type cannot hold (a time with text, a reference with a string, the state with text); is not a boolean or adds text to a number; gives `and`, `or`, `implies` or `not` an operand that is not a boolean, such as `title == "x" and title`; holds a literal past what its type holds; calls an evaluator or a metric; reads the request (`actor`, `inputs`, `this_event`); divides by a zero; nests deeper than 64 levels or has a tree deeper than 128; nests aggregates more than two deep; writes a set of more than 1,000 members; or holds more than 256 terms, a set of literals counting as one and a comparison of a member with a value three, so about 64 such comparisons chained by `or`.
 
 `order` is a key or a list of keys, each ascending unless followed by ` desc`: `created_at`, `entered_at(<tracked member>)`, or an attribute holding one value. The object id breaks ties, and an absent value sorts last. Any other key is refused `unknown_order_key`.
 
@@ -174,8 +176,8 @@ A subscription is an object: `{"actor": …, "type": "Subscription", "transition
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `pull` | `subscription`; `actor`, `cursor`, `limit` | `{"events": […], "settled": "<cursor>", "more": …, "refused": …}` |
-| `acknowledge` | `subscription`, `cursor`; `actor` | `{"refused": …}`: everything up to the cursor is handled. `0` replays the log from its start. |
+| `pull` | `actor`, `subscription`; `cursor`, `limit` | `{"events": […], "settled": "<cursor>", "more": …, "refused": …}` |
+| `acknowledge` | `actor`, `subscription`, `cursor` | `{"refused": …}`: everything up to the cursor is handled. `"0"` replays the log from its start; a cursor is a string, as the store hands it out. |
 
 There is no push: a consumer polls `pull` and acknowledges what it has handled.
 
@@ -183,9 +185,9 @@ There is no push: a consumer polls `pull` and acknowledges what it has handled.
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `publish` | `change`; `actor`, `dry_run`, `expected_version` | `{"verdict": …, "report": {…}}`: a `DeclarationChange`'s dry run and impact report (`"dry_run": true`), or its approval at the version read, which installs the new version. An approver of a kind the installed version's `publishing.taken_by` does not name, the operator excepted, is refused `invariant_violated`, `publish_taken_by`, `delegable`. |
-| `import_batch` | `batch`; `actor`, `disposition`, `dry_run` | `{"written": …, "findings": […], "refused_types": […], "refusal": …}` |
-| `maintain` | `task`; `actor` | `{"moved": …, "refused": …}`. `task` is `{"name": "prune_attempts" \| "prune_idempotency" \| "archive_events", "before": "<timestamp>"}`. |
+| `publish` | `actor`, `change`; `dry_run`, `expected_version` | `{"verdict": …, "report": {…}}`: a `DeclarationChange`'s dry run and impact report (`"dry_run": true`), or its approval at the version read, which installs the new version. An approver of a kind the installed version's `publishing.taken_by` does not name, the operator excepted, is refused `invariant_violated`, `publish_taken_by`, `delegable`. |
+| `import_batch` | `actor`, `batch`; `disposition`, `dry_run` | `{"written": …, "findings": […], "refused_types": […], "refusal": …}` |
+| `maintain` | `actor`, `task` | `{"moved": …, "refused": …}`. `task` is `{"name": "prune_attempts" \| "prune_idempotency" \| "archive_events", "before": "<timestamp>"}`. |
 
 A **change** is an object: `{"type": "DeclarationChange", "transition": "draft", "inputs": {"source": {"<module>": "<its YAML>", "<module>.examples": "<its examples>"}, "source_ref": "git:…"}}`, then `submit`, which runs the dry run, then `publish` with `expected_version` to approve it. [`publish-and-import.md`](../design/publish-and-import.md) is the whole procedure.
 
@@ -196,7 +198,7 @@ A **batch** writes objects of `mirror` types, each referencing others by their l
    {"type": "PurchaseOrder", "legacy_key": "4300", "state": "OPEN",
     "attributes": {"number": "PO-04300", "supplier": "S-12", "legacy_key": "4300"},
     "created_at": "2025-11-02T08:00:00Z", "created_by_kind": "human",
-    "entered": {"state": {"at": "2025-11-03T10:00:00Z", "by": "jo@corp", "by_kind": "human"}},
+    "entered": {"state": {"at": "2025-11-03T10:00:00Z", "by": "u20117", "by_kind": "human"}},
     "legacy_intervals": [{"dimension": "state", "value": "DRAFT", "entered_at": "2025-11-02T08:00:00Z",
                           "left_at": "2025-11-03T10:00:00Z", "entered_by": "jo@corp", "entered_by_kind": "human"}],
     "legacy_entries": [{"kind": "note", "occurred_at": "2025-11-02T09:00:00Z", "payload": {"text": "…"},
@@ -212,7 +214,7 @@ A **batch** writes objects of `mirror` types, each referencing others by their l
 
 | Operation | Keys | Answers |
 |---|---|---|
-| `upgrade` | `actor`, `dry_run` | the steps from the store's engine release to this one, run, or with `"dry_run": true` run and rolled back |
+| `upgrade` | `actor`; `dry_run` | the steps from the store's engine release to this one, run, or with `"dry_run": true` run and rolled back |
 
 A service started on a store an earlier release made answers every operation but `upgrade` with `503 engine_mismatch`. The store's operator runs it:
 
@@ -220,11 +222,12 @@ A service started on a store an earlier release made answers every operation but
 POST /v1/upgrade
 {"actor": {"id": "operator"}, "dry_run": true}
 
-{"from": "objectflow-core 0.1.0", "to": "objectflow-core 0.2.0", "dry_run": true, "upgraded": false,
- "steps": [{"release": "objectflow-core 0.2.0", "changes": "the store records its engine release in of_engine_release, …"}]}
+{"from": "objectflow-core 0.2.0", "to": "objectflow-core 1.0.0", "dry_run": true, "upgraded": false,
+ "steps": [{"release": "objectflow-core 1.0.0", "changes": "the store records each restore of a copy in of_restore, …"}],
+ "restored": null}
 ```
 
-Another actor is answered `409`. A store already at this release answers `"upgraded": false` with no steps. A store of a release this one does not upgrade from, a later one included, does not start. [Operate](operate.md#upgrading-the-engine) gives the procedure.
+`restored` is the restore the upgrade did, where the store was a backup's marked copy: its margin and each counter's gap, as the start says one (ADR-0207). Another actor is answered `409`. A store already at this release answers `"upgraded": false` with no steps. A store of a release this one does not upgrade from, a later one included, does not start. [Operate](operate.md#upgrading-the-engine) gives the procedure.
 
 ## The evaluator endpoint
 

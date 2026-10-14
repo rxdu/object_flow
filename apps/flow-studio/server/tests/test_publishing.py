@@ -993,6 +993,43 @@ def test_a_metric_names_an_actor_by_its_object_alike(tee):
     alike(tee)
 
 
+def test_a_change_missing_an_input_is_told_it_is_missing_alike(tee):
+    """A change drafted without its `source_ref` or its `source` is refused naming each `missing`, and one given a
+    malformed one `malformed`, alike through both backends, where a missing one was told it was malformed (the
+    guides' audit G-44)."""
+    load(tee, "shop", SHOP_V1)
+    tee.found.clear()
+    v = change(tee, "draft", source={"shop": SHOP_V1})
+    assert (v["kind"], v["inputs"], v["reasons"]) == ("invalid_input", ["source_ref"], {"source_ref": "missing"}), v
+    v = change(tee, "draft", source_ref="git:shop@2")
+    assert (v["inputs"], v["reasons"]) == (["source"], {"source": "missing"}), v
+    v = change(tee, "draft", source={"shop": SHOP_V1}, source_ref="")
+    assert v["reasons"] == {"source_ref": "malformed"}, v
+    alike(tee)
+
+
+def test_a_sandbox_refuses_a_clock_moved_twice_and_an_unknown_answer_alike(tee):
+    """A sandbox's clock moved by `advance` and `set` at once, and an evaluator stubbed with an answer other than
+    the three, are refused `400` alike through both backends, where each was taken (the guides' audit G-46)."""
+    load(tee, "shop", SHOP_V1)
+    tee.found.clear()
+    for path, body in [("/sandbox/clock", {"advance": "1 h", "set": "2030-01-01T00:00:00Z"}),
+                       ("/sandbox/evaluators", {"answers": {"bank.known": "maybe"}})]:
+        with pytest.raises(Failed, match="400"):
+            tee.post(path, body)
+    alike(tee)
+
+
+def test_a_declaration_without_its_type_is_refused_alike(tee):
+    """A declaration read naming no type is refused `400` alike through both backends, where the core read it as a
+    type of no name and answered `404` (the guides' audit G-93)."""
+    load(tee, "shop", SHOP_V1)
+    tee.found.clear()
+    with pytest.raises(Failed, match="400"):
+        tee.post("/v1/declaration", {"actor": {"id": "operator"}})
+    alike(tee)
+
+
 def tiers(tee) -> list:
     page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.tiers",
                                    "keep": ["tier"]})

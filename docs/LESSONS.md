@@ -762,3 +762,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A probe was turned into the real test by string replacements on its text. One, its final `eprintln!` into an assertion, matched nothing, since the formatter had reflowed the line, and the replace raised nothing. The test asserted nothing and passed; only a mutant disabling the behaviour it was for showed it.
 - **Correction:** Every scripted edit checks that its target occurs exactly once, inside helper loops as well as at the top; a new test is trusted once a mutant of what it holds has made it fail.
 - **Context:** Python edit scripts over rustfmt-formatted Rust; `objectflow-service`'s unit tests; 2026-10-14.
+
+### A scripted edit of several files makes every assertion before its first write
+- **Pattern:** Moving two examples out of `service.examples.yaml` into a file of their own, a script wrote the trimmed file, then asserted the slice it would copy into the new one; the assertion failed, so the examples were gone from the first file and never written to the second. Git had the original, so nothing was lost, but only because the file was otherwise unmodified.
+- **Correction:** Compute every new text and make every assertion first, then write all the files at the end, in one block with nothing that can fail between the writes. Where a file already has uncommitted changes, copy it to the scratchpad before the script runs.
+- **Context:** Scripted edits that move text between files, in any repository; found 2026-10-14.

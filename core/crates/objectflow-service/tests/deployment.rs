@@ -5766,3 +5766,160 @@ fn a_marked_copy_due_an_upgrade_is_restored_at_it() {
         "{act} {done}"
     );
 }
+
+/// A sandbox refuses what is a deployment's or what it would take in an
+/// order of its own: `--busy-timeout`, the clock moved by both keys at
+/// once, and an evaluator's answer other than the three, where each was
+/// taken (the guides' audit G-46).
+#[test]
+fn a_sandbox_refuses_what_it_cannot_honour() {
+    let (code, said) = refused(&["--port", "0", "--busy-timeout", "1 s"]);
+    assert_eq!(code, Some(2), "{said}");
+    assert!(said.contains("a deployment's"), "{said}");
+    let s = start(&["--port", "0"]);
+    let loaded = post(
+        &s,
+        "/sandbox/load",
+        &json!({"files": [{"name": "people.yaml", "text": example("people.yaml")}]}),
+    );
+    assert_eq!(loaded["loaded"], json!(true), "{loaded}");
+    let (status, both) = call(
+        &s,
+        "POST",
+        "/sandbox/clock",
+        Some(&json!({"advance": "1 h", "set": "2030-01-01T00:00:00Z"})),
+    );
+    assert_eq!(status, 400, "{both}");
+    for (answer, status) in [("maybe", 400), ("satisfied", 200)] {
+        let (got, said) = call(
+            &s,
+            "POST",
+            "/sandbox/evaluators",
+            Some(&json!({"answers": {"bank.known": answer}})),
+        );
+        assert_eq!(got, status, "{answer}: {said}");
+    }
+}
+
+/// Each key `wire-v1.json` records as an operation's required one is
+/// required: a body holding every other required key and not that one is
+/// answered `400`, as `wire.md`'s tables say, where they marked `actor`
+/// optional on operations that refused a request without it (the guides'
+/// audit G-93).
+#[test]
+fn every_required_key_is_required() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/guides/wire-v1.json");
+    let baseline: Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("wire-v1.json")).expect("JSON");
+    let required = baseline["required"].as_object().expect("the required keys");
+    let file = fresh_store("required");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    let sample = |key: &str| match key {
+        "actor" => json!({"id": "operator"}),
+        "positions" => json!([1]),
+        "batch" => json!({"objects": []}),
+        "task" => json!({"name": "prune_attempts", "before": "2020-01-01T00:00:00Z"}),
+        "window" => json!("30 days"),
+        "cursor" => json!("1"),
+        _ => json!("x"),
+    };
+    let mut wrong = Vec::new();
+    for (op, keys) in required {
+        let keys: Vec<&str> = keys
+            .as_array()
+            .expect("its keys")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        for left in &keys {
+            let body: serde_json::Map<String, Value> = keys
+                .iter()
+                .filter(|k| *k != left)
+                .map(|k| (k.to_string(), sample(k)))
+                .collect();
+            let (status, said) = call(&s, "POST", op, Some(&Value::Object(body)));
+            if status != 400 {
+                wrong.push(format!("{op} without {left} answered {status}: {said}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// Each shipped sample set publishes with its examples beside it, as
+/// `integrate.md` drafts a change: drafted, submitted, which runs every
+/// example in the dry run, and approved, a set's later version over its
+/// first. The service's examples carried two whose `publish` step reads a
+/// file no change has, refused `example_not_run`, while the checker passed
+/// them (the guides' audit G-18).
+#[test]
+fn every_sample_publishes_with_its_examples() {
+    // each file keyed by the name it declares, as a change's source is
+    let declared = |file: &str| -> (String, Value) {
+        let text = example(file);
+        let key = if file.ends_with(".examples.yaml") {
+            "examples_for: "
+        } else {
+            "module: "
+        };
+        let name = text
+            .lines()
+            .find_map(|l| l.strip_prefix(key))
+            .unwrap_or_else(|| panic!("{file} declares no name"))
+            .trim()
+            .to_string();
+        let name = if key == "module: " {
+            name
+        } else {
+            format!("{name}.examples")
+        };
+        (name, Value::String(text))
+    };
+    let sets: &[&[&[&str]]] = &[
+        &[&["people.yaml"]],
+        &[&["approvals.yaml", "approvals.examples.yaml"]],
+        &[&["reimbursement.yaml", "reimbursement.examples.yaml"]],
+        &[
+            &["inventory.yaml", "inventory.examples.yaml"],
+            &["inventory-v2.yaml", "inventory-v2.examples.yaml"],
+        ],
+        &[&[
+            "people.yaml",
+            "inventory.yaml",
+            "delivery.yaml",
+            "delivery.examples.yaml",
+        ]],
+        &[
+            &["people.yaml", "service.yaml", "service.examples.yaml"],
+            &["people.yaml", "service-v2.yaml", "service-v2.examples.yaml"],
+        ],
+        &[&["people.yaml", "customers.yaml", "customers.examples.yaml"]],
+        &[&[
+            "people.yaml",
+            "servicedesk.yaml",
+            "servicedesk.examples.yaml",
+        ]],
+        &[&["people.yaml", "issues.yaml", "issues.examples.yaml"]],
+    ];
+    for (n, versions) in sets.iter().enumerate() {
+        let file = fresh_store(&format!("sample-{n}"));
+        let s = start(&[
+            "--store",
+            file.to_str().expect("a path"),
+            "--create",
+            "--port",
+            "0",
+        ]);
+        for files in *versions {
+            let source: serde_json::Map<String, Value> =
+                files.iter().map(|f| declared(f)).collect();
+            publish(&s, &Value::Object(source));
+        }
+    }
+}

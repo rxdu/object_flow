@@ -74,6 +74,15 @@ def test_the_backends_differ_only_where_known(tee):
             # every example's publishes run through both (ADR-0166)
             replay(tee, m["file"], bundle=design.bundle(m["file"]),
                    after=read_metrics, read=flows.beside(flows.EXAMPLES))
+    # the service's migration examples, an examples file of their own that
+    # no change carries, its publishes run through both (ADR-0166)
+    tee.module = "service-migration.examples.yaml"
+    bundle = design.bundle("service.yaml")
+    migration = flows.EXAMPLES / "service-migration.examples.yaml"
+    bundle["examples"] = {"name": migration.name, "text": migration.read_text()}
+    ran = replay(tee, "service.yaml", bundle=bundle, after=read_metrics,
+                 read=flows.beside(flows.EXAMPLES))
+    assert [o for o, _ in ran.values()] == ["passed", "passed"], ran
     found = tee.kinds()
     known = {line.strip() for line in KNOWN.read_text().splitlines()
              if line.strip() and not line.startswith("#")}

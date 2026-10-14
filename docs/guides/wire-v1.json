@@ -157,5 +157,88 @@
       "actor",
       "dry_run"
     ]
+  },
+  "required": {
+    "/v1/request": [
+      "actor",
+      "transition"
+    ],
+    "/v1/check": [
+      "actor",
+      "transition"
+    ],
+    "/v1/get": [
+      "id"
+    ],
+    "/v1/history": [
+      "id"
+    ],
+    "/v1/events": [
+      "positions"
+    ],
+    "/v1/availability": [
+      "actor",
+      "id"
+    ],
+    "/v1/query": [
+      "actor",
+      "type"
+    ],
+    "/v1/available": [
+      "actor",
+      "type",
+      "transition"
+    ],
+    "/v1/exceptions": [
+      "actor",
+      "type"
+    ],
+    "/v1/declaration": [
+      "type"
+    ],
+    "/v1/tools": [
+      "actor_kind"
+    ],
+    "/v1/metric": [
+      "actor",
+      "name"
+    ],
+    "/v1/lookup": [
+      "source",
+      "value"
+    ],
+    "/v1/export": [
+      "actor",
+      "source"
+    ],
+    "/v1/diagnostics": [
+      "actor",
+      "type",
+      "window"
+    ],
+    "/v1/pull": [
+      "actor",
+      "subscription"
+    ],
+    "/v1/acknowledge": [
+      "actor",
+      "subscription",
+      "cursor"
+    ],
+    "/v1/publish": [
+      "actor",
+      "change"
+    ],
+    "/v1/import_batch": [
+      "actor",
+      "batch"
+    ],
+    "/v1/maintain": [
+      "actor",
+      "task"
+    ],
+    "/v1/upgrade": [
+      "actor"
+    ]
   }
 }

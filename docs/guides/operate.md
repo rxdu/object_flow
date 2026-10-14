@@ -152,10 +152,10 @@ An evaluator served over HTTPS under your own certificate authority is trusted t
 `GET /health` answers `200` while the store serves, opening the store's file to answer:
 
 ```json
-{"release": "objectflow-core 0.2.0", "shape": "deployment", "version": 3, "now": "2026-10-13T01:03:28Z", "store_release": "objectflow-core 0.2.0", "upgrade_due": false, "clock_lead_seconds": 0, "writer_held_seconds": 0, "requests_in_flight": 1, "connections_open": 1, "disk_free_bytes": 52428800000}
+{"release": "objectflow-core 1.0.0", "shape": "deployment", "version": 3, "now": "2026-10-13T01:03:28Z", "store_release": "objectflow-core 1.0.0", "upgrade_due": false, "clock_lead_seconds": 0, "writer_held_seconds": 0.0, "requests_in_flight": 1, "connections_open": 1, "disk_free_bytes": 52428800000}
 ```
 
-`release` is the engine's, `store_release` the store's; `version` is the installed flow version and `now` the store's clock; `writer_held_seconds` is `0` while no write runs; while writes wait for another process's lock, it counts from the first retry, through every write refused since. A health check that answers `200` is not logged.
+`release` is the engine's, `store_release` the store's; `version` is the installed flow version and `now` the store's clock; `writer_held_seconds` is seconds with a fraction, `0.0` while no write runs, in a sandbox too; while writes wait for another process's lock, it counts from the first retry, through every write refused since. A health check that answers `200` is not logged.
 
 It answers `503` with a `code` when an operator must act:
 
@@ -229,7 +229,7 @@ Read the standard error to its end, as journald does. The service writes the log
 
 ## Capacity
 
-**Writes** run one at a time, each a durable commit of about 10 ms. A write that meets another process's lock on the store waits `--busy-timeout`, up to four times, then is refused `stale` with cause `retries_exhausted`; `/health` says `writes_stalled` from its first retry. Under load that took about 40 s in a measurement: give clients a write timeout above 45 s.
+**Writes** run one at a time, each a durable commit of about 10 ms. A write that meets another process's lock on the store waits `--busy-timeout` up to four times, then is refused `stale` with cause `retries_exhausted`, after up to four more waits to record its refusal: up to eight times `--busy-timeout` in all; `/health` says `writes_stalled` from its first retry. Under load that took about 40 s in a measurement: give clients a write timeout above 45 s.
 
 **Reads** run beside writes, each with its own deadline (`--read-timeout`). Reads whose cost grows with the store take a turn in one of five pools, so no kind of read waits behind another:
 

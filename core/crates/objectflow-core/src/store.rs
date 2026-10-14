@@ -1258,8 +1258,13 @@ pub(crate) fn read_log_after(
     conn: &Connection,
     after: i64,
     types: Option<&[String]>,
+    entering: Option<&[String]>,
     limit: usize,
 ) -> rusqlite::Result<Vec<Event>> {
+    // no state entered, no event
+    if entering.is_some_and(<[String]>::is_empty) {
+        return Ok(Vec::new());
+    }
     let mut binds: Vec<Sql> = vec![Sql::Integer(after)];
     let mut sql = EVENT_SELECT.to_string();
     match types {
@@ -1277,6 +1282,18 @@ pub(crate) fn read_log_after(
             ));
         }
         None => sql.push_str(" WHERE of_event.position > ?1"),
+    }
+    // only the events entering one of the states given, which a metric over
+    // the transitions that complete their objects reads (ADR-0205 decision 13)
+    if let Some(states) = entering {
+        let marks: Vec<String> = states
+            .iter()
+            .map(|s| {
+                binds.push(Sql::Text(s.clone()));
+                format!("?{}", binds.len())
+            })
+            .collect();
+        sql.push_str(&format!(" AND of_event.to_state IN ({})", marks.join(", ")));
     }
     binds.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
     sql.push_str(&format!(

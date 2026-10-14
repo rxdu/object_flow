@@ -117,6 +117,38 @@ pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Result<Vec<V
         .collect())
 }
 
+/// How many rows a metric reads before it reads them as a scan, the types
+/// they reach read whole once each (ADR-0205 decision 13).
+const BATCHED_ROWS: usize = 256;
+
+/// Whether a filter holds only of a transition that completes its object:
+/// a conjunct of it, at its top, is `<item>.completes`.
+fn completing(e: &Expr, item: &str) -> bool {
+    match e {
+        Expr::Path(b, member) => {
+            member == "completes" && matches!(b.as_ref(), Expr::Name(n) if n == item)
+        }
+        Expr::Bin(BinOp::And, a, b) => completing(a, item) || completing(b, item),
+        _ => false,
+    }
+}
+
+/// The states a type's family finishes in, each once: those a transition
+/// that completes its object enters.
+fn finished_states(world: &World<'_>, owner: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for tn in world.family(owner).iter() {
+        if let Some(t) = world.lib.type_(tn) {
+            for (s, _) in &t.states {
+                if t.finished(s) && !out.contains(s) {
+                    out.push(s.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
 /// The standard metrics every type has (`declaration-syntax.md` §6.11), as
 /// `flow-format.md` §4.9 writes a formula, over a type `<T>`.
 fn standard(name: &str) -> Option<Json> {
@@ -538,6 +570,9 @@ struct Selected<'w> {
     /// time, and an object's own flow data (§6.9).
     reads_created: bool,
     reads_flow: bool,
+    /// The scan its rows are read under, where they are many, held as long
+    /// as the rows are read (ADR-0205 decision 13).
+    _scan: Option<crate::world::Scan<'w>>,
 }
 
 /// A derived attribute's value as its expression's type has it: a sum over
@@ -792,6 +827,9 @@ impl<'w> Reader<'w> {
             narrow.as_ref().map(|e| (item.as_str(), e)),
             &columns,
         )?;
+        // many rows read as a scan: the types they reach read whole once
+        // each, as they reach them (the audit's cost B2, ADR-0205 decision 13)
+        let scan = (rows.len() > BATCHED_ROWS).then(|| self.world.scan());
         let split = text("split_by");
         if let Some(unit) = &split {
             if !matches!(rowkind, Kind::Interval(_)) {
@@ -917,6 +955,7 @@ impl<'w> Reader<'w> {
             reads_flow: ["entered_at(", "time_in(", "intervals"]
                 .iter()
                 .any(|w| read.contains(w)),
+            _scan: scan,
         })
     }
 
@@ -993,8 +1032,14 @@ impl<'w> Reader<'w> {
         if source == "transitions" {
             let by_id: BTreeMap<&str, &Object> =
                 family.iter().map(|o| (o.id.as_str(), *o)).collect();
-            // what each transition held, which its row reads from the flow data
-            world.with_parts(&family)?;
+            // where the filter holds only of a transition that completes its
+            // object, the events entering a finished state alone, since one
+            // entering an open state completes nothing: throughput read every
+            // event of the type to keep the few that close (the audit's cost
+            // B3, ADR-0205 decision 13)
+            let entering: Option<Vec<String>> = narrow
+                .filter(|(item, e)| completing(e, item))
+                .map(|_| finished_states(world, owner));
             // the family's events, a page at a time by their types' index and
             // the read's deadline between pages, where it read the whole log
             // (the audit's cost B3, ADR-0205 decision 13)
@@ -1004,7 +1049,20 @@ impl<'w> Reader<'w> {
             let mut after = 0;
             loop {
                 world.due()?;
-                let page = world.log_after(after, Some(&types), PAGE)?;
+                let page = world.log_after(after, Some(&types), entering.as_deref(), PAGE)?;
+                // what each transition held, which its row reads from the
+                // flow data, read together for the page's objects alone,
+                // where every object's was read before any event
+                let mut theirs: Vec<&Object> = Vec::new();
+                let mut seen: BTreeSet<&str> = BTreeSet::new();
+                for e in &page {
+                    if let Some(o) = by_id.get(e.object_id.as_str())
+                        && seen.insert(o.id.as_str())
+                    {
+                        theirs.push(o);
+                    }
+                }
+                world.with_parts(&theirs)?;
                 for e in &page {
                     if let Some(o) = by_id.get(e.object_id.as_str()) {
                         let p = world.parts(o)?;
@@ -3279,6 +3337,124 @@ metrics:
             "{:?}",
             vast.map(|p| p.rows.len())
         );
+    }
+
+    /// A metric over many rows reads as a scan: a type its rows reach, an
+    /// order's lines summed for its total, read whole once, a type they never
+    /// reach never, where every type a row's type refers to was read and made
+    /// a metric reading none three times slower; the scan ends with the
+    /// metric, so a later read of a few objects reads them alone. Throughput
+    /// reads only the events entering a finished state, where it read every
+    /// event of the type (the audit's cost B2 and B3, ADR-0205 decision 13).
+    #[test]
+    fn a_metric_over_many_rows_reads_what_they_reach_and_no_more() {
+        let text = "\nmodule: shop\ncategories: [live, closed]\ntypes:\n  Note:\n    attributes:\n      text: { type: string }\n    states:\n      ON: { category: live }\n    transitions:\n      write: { kind: initial, to: ON, required_inputs: [text] }\n  Order:\n    attributes:\n      note: { reference: Note, optional: true }\n      lines: { reference: \"Line[]\", opposite: order }\n    derived_attributes:\n      total:\n        expression: \"sum(l in lines: l.amount)\"\n    states:\n      OPEN: { category: live }\n      DONE: { category: closed, final: true }\n    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [note] }\n      close: { kind: external, from: OPEN, to: DONE }\n    metrics:\n      totals:\n        source: objects\n        item: o\n        expression: sum(o.total)\n      counted:\n        source: objects\n        item: o\n        expression: count()\n  Line:\n    attributes:\n      order: { reference: Order, opposite: lines }\n      amount: { type: int }\n    states:\n      ON: { category: live }\n    transitions:\n      add: { kind: initial, to: ON, required_inputs: [order, amount] }\n    metrics:\n      noted:\n        source: objects\n        item: l\n        filter: l.order.note is not null\n        expression: count()\n";
+        let lib = Library::load(&[("shop.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask = |s: &mut Store, object: Option<&str>, t: Option<&str>, xn: &str, inputs: Json| {
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: object.map(str::to_string),
+                type_: t.map(str::to_string),
+                inputs: serde_json::from_value(inputs).unwrap(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            match request(s, &r).unwrap().unwrap() {
+                Verdict::Satisfied { object_id, .. } => object_id,
+                other => panic!("{other:?}"),
+            }
+        };
+        let mut notes = Vec::new();
+        for i in 0..300 {
+            let note = ask(&mut s, None, Some("Note"), "write", json!({"text": "n"}));
+            let order = ask(&mut s, None, Some("Order"), "open", json!({"note": note}));
+            notes.push(note);
+            for amount in [i, 1] {
+                ask(
+                    &mut s,
+                    None,
+                    Some("Line"),
+                    "add",
+                    json!({"order": order, "amount": amount}),
+                );
+            }
+            if i < 20 {
+                ask(&mut s, Some(&order), None, "close", json!({}));
+            }
+        }
+        let w = s.snapshot().unwrap();
+        let (lines, of_notes) = (
+            crate::world::whole_type_reads("Line"),
+            crate::world::whole_type_reads("Note"),
+        );
+        let p = page(
+            &w,
+            None,
+            "Order.totals",
+            &BTreeMap::new(),
+            Some(&[]),
+            None,
+            None,
+        )
+        .unwrap();
+        // 0 + 1 + ... + 299, and one each
+        assert_eq!(p.rows[0].value, Value::Int(44_850 + 300));
+        assert_eq!(crate::world::whole_type_reads("Line"), lines + 1);
+        let p = page(
+            &w,
+            None,
+            "Order.counted",
+            &BTreeMap::new(),
+            Some(&[]),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(p.rows[0].value, Value::Int(300));
+        assert_eq!(crate::world::whole_type_reads("Note"), of_notes);
+        // a line's order reached by its reference, by id, read whole once
+        let orders = crate::world::whole_type_reads("Order");
+        let w = s.snapshot().unwrap();
+        let p = page(
+            &w,
+            None,
+            "Line.noted",
+            &BTreeMap::new(),
+            Some(&[]),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(p.rows[0].value, Value::Int(600));
+        assert_eq!(crate::world::whole_type_reads("Order"), orders + 1);
+        // the scan over, a few notes are read alone
+        for n in &notes[..20] {
+            assert!(w.get(n).unwrap().is_some());
+        }
+        assert_eq!(crate::world::whole_type_reads("Note"), of_notes);
+        // throughput: the twenty closings, read alone of the type's 320 events
+        let w = s.snapshot().unwrap();
+        let events = crate::world::events_read();
+        let p = page(
+            &w,
+            None,
+            "Order.throughput",
+            &BTreeMap::new(),
+            Some(&[]),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(p.rows[0].value, Value::Int(20));
+        assert_eq!(crate::world::events_read() - events, 20);
     }
 
     /// A metric over objects bound to one of the item's own stored

@@ -113,13 +113,15 @@ def main():
 
     # a finding is (path, code, message): the code is the lower-case literal just before the message
     # a code before its message, or after the severity where the message is a name (`"notice", "coverage", m`)
-    reported = set(re.findall(r'"([a-z]+)",\s*f"', source)) | {"yaml", "schema"}
-    reported |= set(re.findall(r'"(?:fatal|notice)",\s*"([a-z]+)"', source))
+    # a code holds underscores too, which `[a-z]+` missed, the card then omitting seven unseen (the guides' audit G-21)
+    reported = set(re.findall(r'"([a-z_]+)",\s*f"', source)) | {"yaml", "schema"}
+    reported |= set(re.findall(r'"(?:fatal|notice)",\s*"([a-z_]+)"', source))
     section7 = doc[doc.index("## 7. Validity"):doc.index("## 8.")]
-    stated = {c for c in re.findall(r"^\|[^|]*\| `([a-z]+)`", section7, re.M) if c != "check"}
-    # the sentence ends at a full stop, not one inside a section number such as §11.5
-    notice = re.search(r"reports \w+ notices(?:[^.]|\.\d)*\.", section7)
-    stated |= set(re.findall(r"`([a-z]+)`", notice.group(0))) if notice else set()
+    stated = {c for c in re.findall(r"^\|[^|]*\| `([a-z_]+)`", section7, re.M) if c != "check"}
+    # the notices' paragraph, to its end, each code written `code`, then what it is for: the paragraph's first full
+    # stop fell inside a file's name, and every word in backticks counted as a code (the guides' audit G-21)
+    notice = re.search(r"reports \w+ notices[^\n]*", section7)
+    stated |= set(re.findall(r"`([a-z_]+)`, (?:for|once|against)", notice.group(0))) if notice else set()
     for c in sorted(reported - stated):
         findings.append(f"§7 does not state the finding code `{c}`, which the checker reports")
     for c in sorted(stated - reported):

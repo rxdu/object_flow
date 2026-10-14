@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=../examples.schema.json
+# What version 2 of the service flow does to jobs version 1 left, as examples whose `publish` step installs
+# service-v2.yaml over version 1 (flow-format.md §11.3, ADR-0166 decision 3). A publish step reads its files beside the
+# examples file, which a change's source has no directory for, so these run where the files are, in the checker and
+# the Flow Studio, and the file is never carried into a change: a publish would refuse each `example_not_run`.
+examples_for: service
+
+setups:
+  two_engineers:
+    description: Two active engineers, Ana and Ben, and one entry of the inspection checklist.
+    steps:
+      - request: { type: User, transition: add, as: ana, inputs: { login: ana, name: Ana } }
+      - request: { type: User, transition: add, as: ben, inputs: { login: ben, name: Ben } }
+      - request: { type: InspectionCheck, transition: add, as: battery, inputs: { title: Battery voltage } }
+  job_in_progress:
+    description: A job Ana opened for herself and started an hour later.
+    given: two_engineers
+    steps:
+      - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
+      - request: { object: job, transition: start, actor: ana, after: 1 h }
+
+examples:
+  a_job_from_before_version_2_needs_its_completion_photo:
+    description: >-
+      Version 2, published while a job was in progress, makes the completion photo a condition of finishing it, so the
+      job started under version 1 cannot finish without one, and the engineer can attach it (ADR-0166).
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+      - publish: { source: [people.yaml, service-v2.yaml], after: 1 h }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana } }
+    expect: { verdict: unsatisfied, clause: photo_attached, remedy: self_serviceable }
+
+  a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given:
+    description: >-
+      With the photo attached, the job started under version 1 finishes under version 2, holding the site the
+      migration gave every job from before it.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+      - publish: { source: [people.yaml, service-v2.yaml], after: 1 h }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana, completion_photo: done.jpg } }
+    expect: { verdict: applied, state: DONE, values: { site: HQ } }

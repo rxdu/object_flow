@@ -89,22 +89,29 @@ def change_source(inputs):
     unknown = sorted(k for k in inputs if k not in INPUTS)
     if unknown:
         raise Refused("invalid_input", remedy="self_serviceable", inputs=unknown, reasons=["unknown_input"] * len(unknown))
-    wrong = []
+    # each input wrong, missing where it was not sent, as the core says (the guides' audit G-44)
+    wrong, reasons = [], []
+
+    def why(k):
+        return "missing" if inputs.get(k) is None else "malformed"
     files = inputs.get("source")
     # each file under the name it declares, which the digest is computed over; a file that does not parse is the
     # dry run's to report
     if not (isinstance(files, dict) and files and all(
             isinstance(t, str) and declared_name(t) in (None, n) for n, t in files.items())):
         wrong.append("source")
+        reasons.append(why("source"))
     reference = inputs.get("source_ref")
     if not (isinstance(reference, str) and 1 <= len(reference) <= 512
             and not any(ord(c) < 32 or 127 <= ord(c) < 160 for c in reference)):
         wrong.append("source_ref")
+        reasons.append(why("source_ref"))
     evidence = inputs.get("evidence")
     if evidence is not None and not (isinstance(evidence, list) and all(evidence_formed(r) for r in evidence)):
         wrong.append("evidence")
+        reasons.append("malformed")
     if wrong:
-        raise Refused("invalid_input", remedy="self_serviceable", inputs=wrong, reasons=["malformed"] * len(wrong))
+        raise Refused("invalid_input", remedy="self_serviceable", inputs=wrong, reasons=reasons)
     return files, reference, source_digest(files), evidence
 
 

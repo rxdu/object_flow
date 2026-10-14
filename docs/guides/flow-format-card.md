@@ -295,4 +295,4 @@ A refusal names its clause and one of five remedies, the one a caller acts on: `
 | 5. logic | `contradiction` |
 | 6. examples | `example` |
 
-Notices, which refuse nothing: `audit`, `warn`, `self_serviceable`, `imports`, `metric`, `coverage`, `neverpasses`, `before`, `unknown`, `undecided`, `notrun`, `migration`, `veto`.
+Notices, which refuse nothing: `audit`, `warn`, `self_serviceable`, `reason_kept`, `imports`, `metric`, `coverage`, `neverpasses`, `before`, `unknown`, `undecided`, `notrun`, `migration`, `veto`, `agent_open`, `taken_by_dropped`, `unbounded_reach`, `publishing_open`, `personal_dropped`, `rule_changed`.

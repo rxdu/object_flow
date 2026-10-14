@@ -253,454 +253,6 @@
   }
  },
  {
-  "label": "simulate",
-  "files": [
-   [
-    "people",
-    "b11fb2a62f4cf338"
-   ],
-   [
-    "service",
-    "518220b4397faa50"
-   ]
-  ],
-  "previous": {
-   "people": "b11fb2a62f4cf338",
-   "service": "9bd716ed3bc7b728",
-   "service.examples": "b5b6bd173d23b779"
-  },
-  "findings": [
-   [
-    "service",
-    5,
-    "notice",
-    "agent_open",
-    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
-   ],
-   [
-    "service",
-    36,
-    "notice",
-    "rule_changed",
-    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
-   ],
-   [
-    "service",
-    137,
-    "notice",
-    "warn",
-    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
-   ],
-   [
-    "service",
-    184,
-    "notice",
-    "migration",
-    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
-   ]
-  ],
-  "analysed": {
-   "Agent": [
-    0,
-    0
-   ],
-   "InspectionCheck": [
-    0,
-    0
-   ],
-   "Service": [
-    0,
-    0
-   ],
-   "ServiceJob": [
-    3,
-    5
-   ],
-   "User": [
-    0,
-    0
-   ]
-  },
-  "forms": {
-   "Agent.issue_taken_by": "local",
-   "Agent.revoke_taken_by": "local",
-   "Service.register_taken_by": "local",
-   "Service.retire_taken_by": "local",
-   "ServiceJob.photo_when_done": "local",
-   "User.add_taken_by": "local",
-   "User.leave_taken_by": "local",
-   "User.rename_taken_by": "local"
-  },
-  "could_violate": {
-   "Agent.issue_taken_by": [
-    "Agent.issue"
-   ],
-   "Agent.revoke_taken_by": [
-    "Agent.issue",
-    "Agent.revoke"
-   ],
-   "Service.register_taken_by": [
-    "Service.register"
-   ],
-   "Service.retire_taken_by": [
-    "Service.register",
-    "Service.retire"
-   ],
-   "ServiceJob.photo_when_done": [
-    "ServiceJob.finish",
-    "ServiceJob.open",
-    "ServiceJob.start"
-   ],
-   "User.add_taken_by": [
-    "User.add"
-   ],
-   "User.leave_taken_by": [
-    "User.add",
-    "User.leave"
-   ],
-   "User.rename_taken_by": [
-    "User.add",
-    "User.rename"
-   ]
-  }
- },
- {
-  "label": "simulate",
-  "files": [
-   [
-    "people",
-    "b11fb2a62f4cf338"
-   ],
-   [
-    "service",
-    "518220b4397faa50"
-   ]
-  ],
-  "previous": {
-   "people": "b11fb2a62f4cf338",
-   "service": "9bd716ed3bc7b728",
-   "service.examples": "b5b6bd173d23b779"
-  },
-  "findings": [
-   [
-    "service",
-    5,
-    "notice",
-    "agent_open",
-    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
-   ],
-   [
-    "service",
-    36,
-    "notice",
-    "rule_changed",
-    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
-   ],
-   [
-    "service",
-    137,
-    "notice",
-    "warn",
-    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
-   ],
-   [
-    "service",
-    184,
-    "notice",
-    "migration",
-    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
-   ]
-  ],
-  "analysed": {
-   "Agent": [
-    0,
-    0
-   ],
-   "InspectionCheck": [
-    0,
-    0
-   ],
-   "Service": [
-    0,
-    0
-   ],
-   "ServiceJob": [
-    3,
-    5
-   ],
-   "User": [
-    0,
-    0
-   ]
-  },
-  "forms": {
-   "Agent.issue_taken_by": "local",
-   "Agent.revoke_taken_by": "local",
-   "Service.register_taken_by": "local",
-   "Service.retire_taken_by": "local",
-   "ServiceJob.photo_when_done": "local",
-   "User.add_taken_by": "local",
-   "User.leave_taken_by": "local",
-   "User.rename_taken_by": "local"
-  },
-  "could_violate": {
-   "Agent.issue_taken_by": [
-    "Agent.issue"
-   ],
-   "Agent.revoke_taken_by": [
-    "Agent.issue",
-    "Agent.revoke"
-   ],
-   "Service.register_taken_by": [
-    "Service.register"
-   ],
-   "Service.retire_taken_by": [
-    "Service.register",
-    "Service.retire"
-   ],
-   "ServiceJob.photo_when_done": [
-    "ServiceJob.finish",
-    "ServiceJob.open",
-    "ServiceJob.start"
-   ],
-   "User.add_taken_by": [
-    "User.add"
-   ],
-   "User.leave_taken_by": [
-    "User.add",
-    "User.leave"
-   ],
-   "User.rename_taken_by": [
-    "User.add",
-    "User.rename"
-   ]
-  }
- },
- {
-  "label": "simulate",
-  "files": [
-   [
-    "people",
-    "b11fb2a62f4cf338"
-   ],
-   [
-    "service",
-    "518220b4397faa50"
-   ]
-  ],
-  "previous": {
-   "people": "b11fb2a62f4cf338",
-   "service": "9bd716ed3bc7b728",
-   "service.examples": "b5b6bd173d23b779"
-  },
-  "findings": [
-   [
-    "service",
-    5,
-    "notice",
-    "agent_open",
-    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
-   ],
-   [
-    "service",
-    36,
-    "notice",
-    "rule_changed",
-    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
-   ],
-   [
-    "service",
-    137,
-    "notice",
-    "warn",
-    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
-   ],
-   [
-    "service",
-    184,
-    "notice",
-    "migration",
-    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
-   ]
-  ],
-  "analysed": {
-   "Agent": [
-    0,
-    0
-   ],
-   "InspectionCheck": [
-    0,
-    0
-   ],
-   "Service": [
-    0,
-    0
-   ],
-   "ServiceJob": [
-    3,
-    5
-   ],
-   "User": [
-    0,
-    0
-   ]
-  },
-  "forms": {
-   "Agent.issue_taken_by": "local",
-   "Agent.revoke_taken_by": "local",
-   "Service.register_taken_by": "local",
-   "Service.retire_taken_by": "local",
-   "ServiceJob.photo_when_done": "local",
-   "User.add_taken_by": "local",
-   "User.leave_taken_by": "local",
-   "User.rename_taken_by": "local"
-  },
-  "could_violate": {
-   "Agent.issue_taken_by": [
-    "Agent.issue"
-   ],
-   "Agent.revoke_taken_by": [
-    "Agent.issue",
-    "Agent.revoke"
-   ],
-   "Service.register_taken_by": [
-    "Service.register"
-   ],
-   "Service.retire_taken_by": [
-    "Service.register",
-    "Service.retire"
-   ],
-   "ServiceJob.photo_when_done": [
-    "ServiceJob.finish",
-    "ServiceJob.open",
-    "ServiceJob.start"
-   ],
-   "User.add_taken_by": [
-    "User.add"
-   ],
-   "User.leave_taken_by": [
-    "User.add",
-    "User.leave"
-   ],
-   "User.rename_taken_by": [
-    "User.add",
-    "User.rename"
-   ]
-  }
- },
- {
-  "label": "simulate",
-  "files": [
-   [
-    "people",
-    "b11fb2a62f4cf338"
-   ],
-   [
-    "service",
-    "518220b4397faa50"
-   ]
-  ],
-  "previous": {
-   "people": "b11fb2a62f4cf338",
-   "service": "9bd716ed3bc7b728",
-   "service.examples": "b5b6bd173d23b779"
-  },
-  "findings": [
-   [
-    "service",
-    5,
-    "notice",
-    "agent_open",
-    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
-   ],
-   [
-    "service",
-    36,
-    "notice",
-    "rule_changed",
-    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
-   ],
-   [
-    "service",
-    137,
-    "notice",
-    "warn",
-    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
-   ],
-   [
-    "service",
-    184,
-    "notice",
-    "migration",
-    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
-   ]
-  ],
-  "analysed": {
-   "Agent": [
-    0,
-    0
-   ],
-   "InspectionCheck": [
-    0,
-    0
-   ],
-   "Service": [
-    0,
-    0
-   ],
-   "ServiceJob": [
-    3,
-    5
-   ],
-   "User": [
-    0,
-    0
-   ]
-  },
-  "forms": {
-   "Agent.issue_taken_by": "local",
-   "Agent.revoke_taken_by": "local",
-   "Service.register_taken_by": "local",
-   "Service.retire_taken_by": "local",
-   "ServiceJob.photo_when_done": "local",
-   "User.add_taken_by": "local",
-   "User.leave_taken_by": "local",
-   "User.rename_taken_by": "local"
-  },
-  "could_violate": {
-   "Agent.issue_taken_by": [
-    "Agent.issue"
-   ],
-   "Agent.revoke_taken_by": [
-    "Agent.issue",
-    "Agent.revoke"
-   ],
-   "Service.register_taken_by": [
-    "Service.register"
-   ],
-   "Service.retire_taken_by": [
-    "Service.register",
-    "Service.retire"
-   ],
-   "ServiceJob.photo_when_done": [
-    "ServiceJob.finish",
-    "ServiceJob.open",
-    "ServiceJob.start"
-   ],
-   "User.add_taken_by": [
-    "User.add"
-   ],
-   "User.leave_taken_by": [
-    "User.add",
-    "User.leave"
-   ],
-   "User.rename_taken_by": [
-    "User.add",
-    "User.rename"
-   ]
-  }
- },
- {
   "label": "main",
   "files": [
    [
@@ -713,7 +265,7 @@
    ],
    [
     "service.examples.yaml",
-    "b5b6bd173d23b779"
+    "81b14832e4c38354"
    ]
   ],
   "previous": {},
@@ -804,10 +356,6 @@
     "User.add",
     "User.rename"
    ]
-  },
-  "reads": {
-   "people.yaml": "b11fb2a62f4cf338",
-   "service-v2.yaml": "518220b4397faa50"
   }
  },
  {
@@ -1827,6 +1375,564 @@
     "User.add",
     "User.rename"
    ]
+  }
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "b11fb2a62f4cf338",
+   "service": "9bd716ed3bc7b728",
+   "service.examples": "1c015a411065c2ec"
+  },
+  "findings": [
+   [
+    "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "b11fb2a62f4cf338",
+   "service": "9bd716ed3bc7b728",
+   "service.examples": "1c015a411065c2ec"
+  },
+  "findings": [
+   [
+    "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "b11fb2a62f4cf338",
+   "service": "9bd716ed3bc7b728",
+   "service.examples": "1c015a411065c2ec"
+  },
+  "findings": [
+   [
+    "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "b11fb2a62f4cf338",
+   "service": "9bd716ed3bc7b728",
+   "service.examples": "1c015a411065c2ec"
+  },
+  "findings": [
+   [
+    "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "main",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service-migration.examples.yaml",
+    "1c015a411065c2ec"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service-migration.examples.yaml",
+    22,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.open, ServiceJob.start"
+   ],
+   [
+    "service-migration.examples.yaml",
+    22,
+    "notice",
+    "coverage",
+    "no example takes 4 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.finish, ServiceJob.forget, ServiceJob.reassign"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    2,
+    4
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  },
+  "reads": {
+   "people.yaml": "b11fb2a62f4cf338",
+   "service-v2.yaml": "518220b4397faa50"
   }
  },
  {
@@ -12394,7 +12500,7 @@
    ],
    [
     "service.examples.yaml",
-    "e13fd08787527933"
+    "016734b9c25d2477"
    ]
   ],
   "previous": {},
@@ -12419,20 +12525,6 @@
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: expected the request to apply, and it is refused as unsatisfied no_unresolved_failure dependent"
-   ],
-   [
-    "service.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
-   ],
-   [
-    "service.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "service.yaml",
@@ -12521,7 +12613,7 @@
    ],
    [
     "service.examples.yaml",
-    "e849b159c8e2fb05"
+    "8791f5f30a49500d"
    ]
   ],
   "previous": {},
@@ -12546,20 +12638,6 @@
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: expected signed_off_by_user to hold ben, and it holds ana"
-   ],
-   [
-    "service.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
-   ],
-   [
-    "service.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "service.yaml",
@@ -12648,7 +12726,7 @@
    ],
    [
     "service.examples.yaml",
-    "4f98051a17639fce"
+    "8cf1c9616c368234"
    ]
   ],
   "previous": {},
@@ -12766,20 +12844,6 @@
     "a_correction_takes_the_time_of_what_it_corrects: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
    ],
    [
-    "service.examples.yaml",
-    195,
-    "fatal",
-    "example",
-    "a_job_from_before_version_2_needs_its_completion_photo: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
-   ],
-   [
-    "service.examples.yaml",
-    210,
-    "fatal",
-    "example",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given: setup two_engineers's step 2 does not apply: it is refused as invariant_violated login_unique self_serviceable and login_unique"
-   ],
-   [
     "service.yaml",
     3,
     "notice",
@@ -12866,7 +12930,7 @@
    ],
    [
     "service.examples.yaml",
-    "b5b6bd173d23b779"
+    "81b14832e4c38354"
    ]
   ],
   "previous": {},
@@ -12891,20 +12955,6 @@
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: expected the request to apply, and it is refused as unsatisfied pass_rate dependent"
-   ],
-   [
-    "service.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
-   ],
-   [
-    "service.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "service.yaml",
@@ -12993,7 +13043,7 @@
    ],
    [
     "service.examples.yaml",
-    "b5b6bd173d23b779"
+    "81b14832e4c38354"
    ]
   ],
   "previous": {},
@@ -13090,20 +13140,6 @@
     "a_correction_takes_the_time_of_what_it_corrects: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
    ],
    [
-    "service.examples.yaml",
-    195,
-    "fatal",
-    "example",
-    "a_job_from_before_version_2_needs_its_completion_photo: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
-   ],
-   [
-    "service.examples.yaml",
-    210,
-    "fatal",
-    "example",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given: setup job_in_progress's step 2 does not apply: it is refused as unsatisfied quick dependent"
-   ],
-   [
     "service.yaml",
     3,
     "notice",
@@ -13190,7 +13226,7 @@
    ],
    [
     "service.examples.yaml",
-    "b5b6bd173d23b779"
+    "81b14832e4c38354"
    ]
   ],
   "previous": {},
@@ -13287,20 +13323,6 @@
     "a_correction_takes_the_time_of_what_it_corrects is not run: it reaches an amount in PHP with more places than its minor unit, which the runner does not yet execute"
    ],
    [
-    "service.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches an amount in PHP with more places than its minor unit, which the runner does not yet execute"
-   ],
-   [
-    "service.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches an amount in PHP with more places than its minor unit, which the runner does not yet execute"
-   ],
-   [
     "service.yaml",
     3,
     "notice",
@@ -13387,7 +13409,7 @@
    ],
    [
     "service.examples.yaml",
-    "944833b95f22d7c5"
+    "d25a6d575abbc8b6"
    ]
   ],
   "previous": {},
@@ -13465,7 +13487,7 @@
    ],
    [
     "service.examples.yaml",
-    "00ff7cb29c31d36f"
+    "33649f19aa4ae3e5"
    ]
   ],
   "previous": {},
@@ -13543,7 +13565,7 @@
    ],
    [
     "service.examples.yaml",
-    "e9b4fdde0fd6db58"
+    "ce679d36b1d78bc0"
    ]
   ],
   "previous": {},
@@ -13628,7 +13650,7 @@
    ],
    [
     "service.examples.yaml",
-    "2348363eb4ca0c72"
+    "a93af76a83333bb9"
    ]
   ],
   "previous": {},
@@ -13706,7 +13728,7 @@
    ],
    [
     "service.examples.yaml",
-    "0f3c8e40d597012b"
+    "e3e685238d6ada40"
    ]
   ],
   "previous": {},
@@ -13784,7 +13806,7 @@
    ],
    [
     "service.examples.yaml",
-    "7ca1aa7437e39902"
+    "3123425566a74927"
    ]
   ],
   "previous": {},
@@ -13862,7 +13884,7 @@
    ],
    [
     "service.examples.yaml",
-    "37a4f9954e3a667d"
+    "5bfcbcef95b975ae"
    ]
   ],
   "previous": {},
@@ -13954,7 +13976,7 @@
    ],
    [
     "service.examples.yaml",
-    "c9fbb53fce6fcd1f"
+    "adc5060a04fda848"
    ]
   ],
   "previous": {},
@@ -14032,7 +14054,7 @@
    ],
    [
     "service.examples.yaml",
-    "d0e3f0670fea1186"
+    "b8f37944a01986dc"
    ]
   ],
   "previous": {},
@@ -14110,7 +14132,7 @@
    ],
    [
     "service.examples.yaml",
-    "15728c5ff2fb6ecf"
+    "1e916c0cdf9a931d"
    ]
   ],
   "previous": {},
@@ -14188,7 +14210,7 @@
    ],
    [
     "service.examples.yaml",
-    "552f1c06b915cf86"
+    "e828fd93026ce2a0"
    ]
   ],
   "previous": {},
@@ -15276,7 +15298,7 @@
    ],
    [
     "module.examples.yaml",
-    "9087171c1c579bab"
+    "7205d47c4281fd9c"
    ]
   ],
   "previous": {},
@@ -15301,20 +15323,6 @@
     "fatal",
     "example",
     "a_job_is_not_given_to_an_engineer_who_left: expected unavailable, and it is refused as unsatisfied engineer_active self_serviceable"
-   ],
-   [
-    "module.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
-   ],
-   [
-    "module.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -15795,7 +15803,7 @@
    ],
    [
     "module.examples.yaml",
-    "45fffa78a571b6fe"
+    "eb17f00173f73f52"
    ]
   ],
   "previous": {},
@@ -15820,20 +15828,6 @@
     "fatal",
     "example",
     "a_late_start_is_dated_when_it_happened: expected the request to record the occurred time now - 2 days, and it records 1767229200"
-   ],
-   [
-    "module.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
-   ],
-   [
-    "module.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -15922,7 +15916,7 @@
    ],
    [
     "module.examples.yaml",
-    "e5e3a5216b1ba268"
+    "5dd3f1042bc2689d"
    ]
   ],
   "previous": {},
@@ -15947,20 +15941,6 @@
     "fatal",
     "example",
     "an_inspection_is_dated_when_it_was_done: expected occurred_at to hold now - 3 days, and it holds 1767315600"
-   ],
-   [
-    "module.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
-   ],
-   [
-    "module.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -16049,7 +16029,7 @@
    ],
    [
     "module.examples.yaml",
-    "b0739b932e642e4a"
+    "118fa835241c8501"
    ]
   ],
   "previous": {},
@@ -16074,20 +16054,6 @@
     "fatal",
     "example",
     "a_repeated_check_lets_the_job_finish: expected signed_off to hold False, and it holds True"
-   ],
-   [
-    "module.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
-   ],
-   [
-    "module.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -16176,7 +16142,7 @@
    ],
    [
     "module.examples.yaml",
-    "f38a70e03fefe8c4"
+    "f585275dfe3b986e"
    ]
   ],
   "previous": {},
@@ -16201,20 +16167,6 @@
     "fatal",
     "example",
     "a_job_opens_for_an_active_engineer: expected handoffs to hold 1, and it holds 0"
-   ],
-   [
-    "module.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
-   ],
-   [
-    "module.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -16303,7 +16255,7 @@
    ],
    [
     "module.examples.yaml",
-    "98c918a44e77f262"
+    "fc63bbee9e4407c5"
    ]
   ],
   "previous": {},
@@ -16328,20 +16280,6 @@
     "fatal",
     "example",
     "a_reassignment_is_measured_as_a_handoff: expected the metric ServiceJob.handoffs_per_job to read a row {'month': '2026-01', 'value': 2}, and it reads [{'month': '2026-01', 'value': '1'}]"
-   ],
-   [
-    "module.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
-   ],
-   [
-    "module.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -16430,7 +16368,7 @@
    ],
    [
     "module.examples.yaml",
-    "263a21c0ed4c98c7"
+    "b78930d09698b824"
    ]
   ],
   "previous": {},
@@ -16455,20 +16393,6 @@
     "fatal",
     "example",
     "a_reassignment_is_measured_as_a_handoff: expected the metric ServiceJob.work_in_progress to read a row {'state': 'OPEN', 'value': 0}, and it reads [{'state': 'WORKING', 'value': 1}]"
-   ],
-   [
-    "module.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
-   ],
-   [
-    "module.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -16557,7 +16481,7 @@
    ],
    [
     "module.examples.yaml",
-    "a0a3f7d4b660930a"
+    "640cb6487580ff59"
    ]
   ],
   "previous": {},
@@ -16582,20 +16506,6 @@
     "fatal",
     "example",
     "a_reassignment_is_measured_as_a_handoff: expected the metric ServiceJob.transition_count to read 3, and the read is refused as unknown_metric"
-   ],
-   [
-    "module.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
-   ],
-   [
-    "module.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "module.yaml",
@@ -17217,7 +17127,7 @@
    ],
    [
     "service.examples.yaml",
-    "dd01980df470d843"
+    "346fc7c097f10cab"
    ]
   ],
   "previous": {},
@@ -17295,7 +17205,7 @@
    ],
    [
     "service.examples.yaml",
-    "753bcd6072ec9bea"
+    "53447dfdfb32358d"
    ]
   ],
   "previous": {},
@@ -17373,7 +17283,7 @@
    ],
    [
     "service.examples.yaml",
-    "eaa88d368a98c06f"
+    "72246afe23df6963"
    ]
   ],
   "previous": {},
@@ -17451,7 +17361,7 @@
    ],
    [
     "service.examples.yaml",
-    "f1ea87fd25859fcf"
+    "ef17a5d379508023"
    ]
   ],
   "previous": {},
@@ -17536,7 +17446,7 @@
    ],
    [
     "service.examples.yaml",
-    "75ead558ebfa0484"
+    "3b44521739570fce"
    ]
   ],
   "previous": {},
@@ -17721,7 +17631,7 @@
    ],
    [
     "service.examples.yaml",
-    "ddfcad6ba1cb07c6"
+    "ca8eeede714a0118"
    ]
   ],
   "previous": {},
@@ -17849,7 +17759,7 @@
    ],
    [
     "service.examples.yaml",
-    "aa96bee3638eae7b"
+    "5ed3da8feeb43a59"
    ]
   ],
   "previous": {},
@@ -17927,7 +17837,7 @@
    ],
    [
     "service.examples.yaml",
-    "2df6ac84b809fa6f"
+    "ca2bf3422fb20cb3"
    ]
   ],
   "previous": {},
@@ -18091,7 +18001,7 @@
    ],
    [
     "service.examples.yaml",
-    "9b1d934db7a1115a"
+    "a7dafe9302a5390f"
    ]
   ],
   "previous": {},
@@ -18190,7 +18100,7 @@
    ],
    [
     "service.examples.yaml",
-    "94d41a2f897b5561"
+    "993953a393f18fee"
    ]
   ],
   "previous": {},
@@ -18268,7 +18178,7 @@
    ],
    [
     "service.examples.yaml",
-    "18e40d3ebc49044a"
+    "2c7334ab99a4151c"
    ]
   ],
   "previous": {},
@@ -18680,7 +18590,7 @@
    ],
    [
     "service.examples.yaml",
-    "fa5270c87cafbd8b"
+    "f77a547fae0a019b"
    ]
   ],
   "previous": {},
@@ -18758,7 +18668,7 @@
    ],
    [
     "service.examples.yaml",
-    "237f5efc6ac527ae"
+    "26f0978946af5e29"
    ]
   ],
   "previous": {},
@@ -18836,7 +18746,7 @@
    ],
    [
     "service.examples.yaml",
-    "6e849d3ceaabb88e"
+    "060b4f97a3cb1ce7"
    ]
   ],
   "previous": {},
@@ -18914,7 +18824,7 @@
    ],
    [
     "service.examples.yaml",
-    "f1fb1052f15767b3"
+    "3e319c1c4fd1c19f"
    ]
   ],
   "previous": {},
@@ -18992,7 +18902,7 @@
    ],
    [
     "service.examples.yaml",
-    "0669a7215f24120b"
+    "46242d36be527e2c"
    ]
   ],
   "previous": {},
@@ -19070,7 +18980,7 @@
    ],
    [
     "service.examples.yaml",
-    "34c7982e8d8941fc"
+    "6d2571a4706f5930"
    ]
   ],
   "previous": {},
@@ -19148,7 +19058,7 @@
    ],
    [
     "service.examples.yaml",
-    "128bb0a44f709fea"
+    "e1206217a57d7f75"
    ]
   ],
   "previous": {},
@@ -19226,7 +19136,7 @@
    ],
    [
     "service.examples.yaml",
-    "651ff891665afc0d"
+    "fdf3d72a71448155"
    ]
   ],
   "previous": {},
@@ -19304,7 +19214,7 @@
    ],
    [
     "service.examples.yaml",
-    "f9e46e11c71be749"
+    "51a4567bec401719"
    ]
   ],
   "previous": {},
@@ -19382,7 +19292,7 @@
    ],
    [
     "service.examples.yaml",
-    "4278ff5531e68843"
+    "f5e4b560d71eeb83"
    ]
   ],
   "previous": {},
@@ -19460,7 +19370,7 @@
    ],
    [
     "service.examples.yaml",
-    "2c34e2c0608ec5e6"
+    "73110cb9d35fd847"
    ]
   ],
   "previous": {},
@@ -19538,7 +19448,7 @@
    ],
    [
     "service.examples.yaml",
-    "5db6ab9a52a91de9"
+    "9b000aad5cd53093"
    ]
   ],
   "previous": {},
@@ -19616,7 +19526,7 @@
    ],
    [
     "service.examples.yaml",
-    "0825c3f92088f4e9"
+    "b3b987fb0b85de92"
    ]
   ],
   "previous": {},
@@ -19694,7 +19604,7 @@
    ],
    [
     "service.examples.yaml",
-    "2ce633481fb719c8"
+    "3f30685483ed7ab1"
    ]
   ],
   "previous": {},
@@ -19774,7 +19684,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "b5b6bd173d23b779"
+   "service.examples": "1c015a411065c2ec"
   },
   "findings": [
    [
@@ -19879,7 +19789,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "b5b6bd173d23b779"
+   "service.examples": "1c015a411065c2ec"
   },
   "findings": [
    [
@@ -19981,36 +19891,36 @@
     "9bd716ed3bc7b728"
    ],
    [
-    "service.examples.yaml",
-    "b5b6bd173d23b779"
+    "service-migration.examples.yaml",
+    "1c015a411065c2ec"
    ]
   ],
   "previous": {},
   "findings": [
    [
-    "service.examples.yaml",
-    19,
+    "service-migration.examples.yaml",
+    22,
     "notice",
     "coverage",
-    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+    "no example requests 3 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.open, ServiceJob.start"
    ],
    [
-    "service.examples.yaml",
-    19,
+    "service-migration.examples.yaml",
+    22,
     "notice",
     "coverage",
-    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
+    "no example takes 4 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.finish, ServiceJob.forget, ServiceJob.reassign"
    ],
    [
-    "service.examples.yaml",
-    195,
+    "service-migration.examples.yaml",
+    23,
     "fatal",
     "example",
     "a_job_from_before_version_2_needs_its_completion_photo: the publish is refused at submission as unsatisfied dry_run_clean unreachable_from_here"
    ],
    [
-    "service.examples.yaml",
-    210,
+    "service-migration.examples.yaml",
+    38,
     "fatal",
     "example",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given: the publish is refused at submission as unsatisfied dry_run_clean unreachable_from_here"
@@ -26506,7 +26416,7 @@
    ],
    [
     "service.examples.yaml",
-    "ceb42737dde36172"
+    "7bb4b87839d32472"
    ]
   ],
   "previous": {},
@@ -26524,20 +26434,6 @@
     "notice",
     "coverage",
     "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
-   ],
-   [
-    "service.examples.yaml",
-    195,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_needs_its_completion_photo is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
-   ],
-   [
-    "service.examples.yaml",
-    210,
-    "notice",
-    "notrun",
-    "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given is not run: it reaches the publish step's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
    ],
    [
     "service.yaml",
@@ -26626,14 +26522,14 @@
    ],
    [
     "service.examples.yaml",
-    "f5596af835c7b36d"
+    "f42e97b925dd8073"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service.examples.yaml",
-    231,
+    201,
     "fatal",
     "names",
     "the request leaves out signed_off_by, which is refused as invalid_input, and the example expects unsatisfied"

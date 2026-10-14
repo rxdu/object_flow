@@ -2281,6 +2281,17 @@ types:
             ),
             Verdict::invalid_input([("source_ref".to_string(), InputReason::Malformed)])
         );
+        // and one not sent is missing, as any input not sent is (the guides'
+        // audit G-44)
+        assert_eq!(
+            req(
+                &mut s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"fleet": V1}})
+            ),
+            Verdict::invalid_input([("source_ref".to_string(), InputReason::Missing)])
+        );
         // a file under a name it does not declare
         assert_eq!(
             req(

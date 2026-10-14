@@ -87,6 +87,19 @@ def test_no_example_fails_in_the_core(core):
             elif outcome != want[name]:
                 failures.append(f"{module_file} {name}: the core gives "
                                 f"{outcome}, the runner {want[name]}: {why}")
+    # the service's migration examples, a file of their own that no change
+    # carries, whose publishes read their files beside them (ADR-0166)
+    bundle = DESIGN.bundle("service.yaml")
+    migration = flows.EXAMPLES / "service-migration.examples.yaml"
+    bundle["examples"] = {"name": migration.name, "text": migration.read_text()}
+    for name, (outcome, why) in replay(core, "service.yaml", bundle=bundle,
+                                       read=flows.beside(flows.EXAMPLES)).items():
+        tally[outcome] += 1
+        if outcome == "passed":
+            passed.add(f"{migration.name} {name}")
+        else:
+            failures.append(f"{migration.name} {name}: the core gives "
+                            f"{outcome}: {why}")
     print(f"\nthe core's first slice: {dict(tally)}")
     for what, n in reached.most_common(12):
         print(f"  {n:3d} not run: {what}")
