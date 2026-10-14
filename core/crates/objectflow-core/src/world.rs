@@ -1427,6 +1427,31 @@ impl<'l> World<'l> {
         Ok(self.held_in_order(|o| self.lib.is_a(&o.type_, type_)))
     }
 
+    /// Whether the world reads no store, holding only what it was given.
+    pub(crate) fn reads_no_store(&self) -> bool {
+        self.conn.is_none()
+    }
+
+    /// The spans of the dimensions named of every object of a concrete type
+    /// the store holds, by object, read by the type and never each object's
+    /// record whole; none for a world without a store (the audit's cost B3).
+    pub fn type_spans(
+        &self,
+        type_: &str,
+        dimensions: &[&str],
+    ) -> Result<Option<BTreeMap<String, crate::eval::Spans>>, crate::eval::NotRun> {
+        let Some(conn) = self.conn else {
+            return Ok(None);
+        };
+        crate::store::read_type_spans(conn, self.lib, type_, dimensions)
+            .map(Some)
+            .map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the spans of {type_}, which could not be read: {e}"
+                ))
+            })
+    }
+
     /// The ids of the observations of a kind, or of its subtypes, that one
     /// of them corrects: read by the store's index on the stored end, and
     /// those the operation holds, never the kind whole.

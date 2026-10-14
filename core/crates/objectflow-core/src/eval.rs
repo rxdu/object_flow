@@ -1900,16 +1900,32 @@ pub(crate) fn interval_rows(
     t: &Type,
     member: &str,
 ) -> Result<Vec<Value>, NotRun> {
+    interval_rows_from(world, o, t, member, &world.parts(o)?.spans, true)
+}
+
+/// An object's spans as rows, given its spans by dimension: every
+/// dimension where `held` is asked for, each row then holding what each
+/// tracked member held as it began, and the state's and the member's
+/// alone otherwise, which a metric over intervals that never reads `held`
+/// reads by type rather than each object's record whole (the audit's cost
+/// B3, ADR-0205 decision 13).
+pub(crate) fn interval_rows_from(
+    world: &World<'_>,
+    o: &Object,
+    t: &Type,
+    member: &str,
+    by_dimension: &Spans,
+    with_held: bool,
+) -> Result<Vec<Value>, NotRun> {
     {
-        let p = world.parts(o)?;
-        let Some(spans) = p.spans.get(member) else {
+        let Some(spans) = by_dimension.get(member) else {
             return not_run(format!(
                 "the intervals of {}.{member}, which is not tracked",
                 o.type_
             ));
         };
         let now = world.now;
-        let closed = closed_periods(p, t, now);
+        let closed = closed_periods_of(by_dimension, t, now);
         let imported = world.imported()?;
         let rows = spans
             .iter()
@@ -1943,7 +1959,7 @@ pub(crate) fn interval_rows(
                 );
                 row.insert(
                     "duration".to_string(),
-                    span_duration(t, o, p, member, sp, &closed, now),
+                    span_duration(t, o, by_dimension, member, sp, &closed, now),
                 );
                 // the values held when it began, after the writes of the
                 // transition that began it; on a span whose entry precedes
@@ -1951,14 +1967,16 @@ pub(crate) fn interval_rows(
                 // holds at its entry, legacy intervals included (§6.9,
                 // ADR-0146, ADR-0147)
                 let by_time = sp.legacy || imported.contains(&sp.entered_position);
-                row.insert(
-                    "held".to_string(),
-                    if by_time {
-                        held_at(world.lib, t, p, sp.entered_at)
-                    } else {
-                        held(world.lib, t, p, sp.entered_position, true)
-                    },
-                );
+                if with_held {
+                    row.insert(
+                        "held".to_string(),
+                        if by_time {
+                            held_at(world.lib, t, by_dimension, sp.entered_at)
+                        } else {
+                            held(world.lib, t, by_dimension, sp.entered_position, true)
+                        },
+                    );
+                }
                 Value::row(row)
             })
             .collect();
@@ -2231,7 +2249,15 @@ fn zero(v: &Value) -> bool {
 /// The stretches, by occurred time, an object spent in a closed or terminal
 /// state.
 pub(crate) fn closed_periods(p: &crate::world::Parts, t: &Type, now: i64) -> Vec<(i64, i64)> {
-    p.spans
+    closed_periods_of(&p.spans, t, now)
+}
+
+/// The spans by dimension an object's flow data holds.
+pub(crate) type Spans = BTreeMap<String, Vec<crate::world::Span>>;
+
+/// [`closed_periods`] over spans by dimension.
+pub(crate) fn closed_periods_of(spans: &Spans, t: &Type, now: i64) -> Vec<(i64, i64)> {
+    spans
         .get("state")
         .into_iter()
         .flatten()
@@ -2247,13 +2273,13 @@ pub(crate) fn closed_periods(p: &crate::world::Parts, t: &Type, now: i64) -> Vec
 pub(crate) fn held(
     lib: &crate::model::Library,
     t: &Type,
-    p: &crate::world::Parts,
+    spans: &Spans,
     position: i64,
     after: bool,
 ) -> Value {
     let mut out = BTreeMap::new();
     for m in lib.tracked(t) {
-        let covering = p.spans.get(&m).into_iter().flatten().find(|sp| {
+        let covering = spans.get(&m).into_iter().flatten().find(|sp| {
             if after {
                 sp.entered_position <= position && sp.left_position.is_none_or(|l| l > position)
             } else {
@@ -2270,16 +2296,10 @@ pub(crate) fn held(
 /// The value each tracked member held at a time, by the interval index,
 /// legacy intervals included: absent where no span covers it (§6.9,
 /// ADR-0147).
-pub(crate) fn held_at(
-    lib: &crate::model::Library,
-    t: &Type,
-    p: &crate::world::Parts,
-    at: i64,
-) -> Value {
+pub(crate) fn held_at(lib: &crate::model::Library, t: &Type, spans: &Spans, at: i64) -> Value {
     let mut out = BTreeMap::new();
     for m in lib.tracked(t) {
-        let covering = p
-            .spans
+        let covering = spans
             .get(&m)
             .into_iter()
             .flatten()
@@ -2390,7 +2410,10 @@ pub(crate) fn transition_row(
         "declaration_version".to_string(),
         Value::Int(e.declaration_version),
     );
-    row.insert("held".to_string(), held(world.lib, t, p, e.position, false));
+    row.insert(
+        "held".to_string(),
+        held(world.lib, t, &p.spans, e.position, false),
+    );
     Ok(Value::row(row))
 }
 
@@ -2460,7 +2483,7 @@ pub(crate) fn bucket(unit: &str, seconds: i64) -> String {
 fn span_duration(
     t: &Type,
     o: &Object,
-    p: &crate::world::Parts,
+    by_dimension: &Spans,
     member: &str,
     sp: &crate::world::Span,
     closed: &[(i64, i64)],
@@ -2485,7 +2508,7 @@ fn span_duration(
     // the stretch begins where it entered its current state, which is now
     // while the transition into it is being taken and its span not yet
     // recorded, and runs back over the closed spans before
-    let spans = p.spans.get("state").map_or(&[][..], Vec::as_slice);
+    let spans = by_dimension.get("state").map_or(&[][..], Vec::as_slice);
     let name = |sp: &crate::world::Span| match &sp.value {
         Value::State { name, .. } => name.clone(),
         _ => String::new(),

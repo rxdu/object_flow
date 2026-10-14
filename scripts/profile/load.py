@@ -152,6 +152,10 @@ def main():
     ap.add_argument("--sessions", type=int, help="people's sessions, 16 at scale 1")
     ap.add_argument("--reporters", type=int, help="report readers, 4 at scale 1")
     ap.add_argument("--agents", type=int, help="agents, 2 at scale 1")
+    # the audit's variant with pauses (`audit/cost.md`, `--think 1 --report-think 10`): Gate P itself has none
+    ap.add_argument("--think", type=float, default=0.0, help="seconds a session waits between requests")
+    ap.add_argument("--report-think", type=float, default=0.0,
+                    help="seconds a report reader or an agent waits between reads")
     a = ap.parse_args()
     sessions = 16 * a.scale if a.sessions is None else a.sessions
     reporters = 4 * a.scale if a.reporters is None else a.reporters
@@ -208,6 +212,8 @@ def main():
                     status, out, took = wire.post("/v1/query", {
                         "actor": me, "type": "Claim", "filter": "state == Claim.SUBMITTED", "limit": 50})
                     record.add("worklist", status, took, out)
+                if a.think:
+                    time.sleep(rng.expovariate(1 / a.think))
 
         def reports(k, actor, kind):
             rng = random.Random(a.seed * 1000 + k)
@@ -220,6 +226,8 @@ def main():
                     status, out, took = wire.post("/v1/query", {
                         "actor": actor, "type": "ClaimLine", "filter": "state == ClaimLine.LISTED", "limit": 20})
                     record.add("agent query", status, took, out)
+                if a.report_think:
+                    time.sleep(rng.expovariate(1 / a.report_think))
 
         def rss():
             while time.monotonic() < stop:
@@ -243,8 +251,8 @@ def main():
             t.join()
         failed = []
         print(f"Gate P: {pathlib.Path(a.store).name}, {len(claims)} claims, {len(staff)} employees, scale {a.scale}, "
-              f"{a.seconds} s, {sessions} sessions, {reporters} report readers, {agents} agents; load average at the "
-              f"start {load[0]:.1f}, {os.cpu_count()} threads")
+              f"{a.seconds} s, {sessions} sessions, {reporters} report readers, {agents} agents, pauses "
+              f"{a.think} s and {a.report_think} s; load average at the start {load[0]:.1f}, {os.cpu_count()} threads")
         print("| class | answers | p50 ms | p95 ms | max ms |")
         print("|---|---|---|---|---|")
         for kind in sorted(record.times):

@@ -2695,9 +2695,9 @@ fn correct_span(
         for (d, spans) in &o.spans {
             for sp in spans {
                 let row = if sp.legacy || imported.contains(&sp.entered_position) {
-                    crate::eval::held_at(lib, t, o, sp.entered_at)
+                    crate::eval::held_at(lib, t, &o.spans, sp.entered_at)
                 } else {
-                    crate::eval::held(lib, t, o, sp.entered_position, true)
+                    crate::eval::held(lib, t, &o.spans, sp.entered_position, true)
                 };
                 let v = match row {
                     Value::Row(f) => f.get(m).cloned().unwrap_or(Value::Absent),

@@ -121,6 +121,12 @@ pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Result<Vec<V
 /// they reach read whole once each (ADR-0205 decision 13).
 const BATCHED_ROWS: usize = 256;
 
+/// Whether an expression reads a member of the name given, at any depth.
+fn reads_member(e: &Expr, name: &str) -> bool {
+    matches!(e, Expr::Path(_, m) if m == name)
+        || e.children().into_iter().any(|c| reads_member(c, name))
+}
+
 /// Whether a filter holds only of a transition that completes its object:
 /// a conjunct of it, at its top, is `<item>.completes`.
 fn completing(e: &Expr, item: &str) -> bool {
@@ -816,6 +822,20 @@ impl<'w> Reader<'w> {
                 columns.push((attr, v));
             }
         }
+        // whether a row's `held` is read, by the formula or the reader's
+        // filter, which a read over intervals otherwise does not build
+        let reads_held = ["filter", "time_dimension", "expression", "split_by"]
+            .iter()
+            .filter_map(|k| text(k))
+            .chain(
+                f.get("dimensions")
+                    .and_then(Json::as_object)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(_, e)| e.as_str().map(str::to_string)),
+            )
+            .any(|t| t.contains("held"))
+            || theirs.is_some_and(|e| reads_member(e, "held"));
         let Rows {
             mut rows,
             kind: rowkind,
@@ -826,6 +846,7 @@ impl<'w> Reader<'w> {
             &source,
             narrow.as_ref().map(|e| (item.as_str(), e)),
             &columns,
+            reads_held,
         )?;
         // many rows read as a scan: the types they reach read whole once
         // each, as they reach them (the audit's cost B2, ADR-0205 decision 13)
@@ -970,6 +991,7 @@ impl<'w> Reader<'w> {
         source: &str,
         narrow: Option<(&str, &Expr)>,
         columns: &[(String, Value)],
+        reads_held: bool,
     ) -> Result<Rows, NotRun> {
         let world = self.world;
         if source == "objects" {
@@ -1019,9 +1041,41 @@ impl<'w> Reader<'w> {
                 .and_then(|m| m.strip_suffix(')'))
                 .map_or("state", str::trim);
             let mut rows = Vec::new();
+            // a read that never reads `held` reads the state's spans and the
+            // member's by type, where it read each object's record whole,
+            // its attribute writes among them, and each row's `held` (the
+            // audit's cost B3, ADR-0205 decision 13); an object whose record
+            // the read holds, as an operation may have changed it, from it
+            let by_type: BTreeMap<String, crate::eval::Spans> = if reads_held {
+                BTreeMap::new()
+            } else {
+                let mut read = BTreeMap::new();
+                for tn in world.family(owner).iter() {
+                    if let Some(spans) = world.type_spans(tn, &["state", member])? {
+                        read.extend(spans);
+                    }
+                }
+                read
+            };
+            let none = crate::eval::Spans::new();
             for o in &family {
                 let ot = self.type_of(&o.type_)?;
-                rows.extend(interval_rows(world, o, ot, member)?);
+                match o.parts.get() {
+                    _ if reads_held || world.reads_no_store() => {
+                        rows.extend(interval_rows(world, o, ot, member)?);
+                    }
+                    Some(p) => rows.extend(crate::eval::interval_rows_from(
+                        world, o, ot, member, &p.spans, false,
+                    )?),
+                    None => rows.extend(crate::eval::interval_rows_from(
+                        world,
+                        o,
+                        ot,
+                        member,
+                        by_type.get(&o.id).unwrap_or(&none),
+                        false,
+                    )?),
+                }
             }
             return Ok(Rows {
                 rows,
@@ -4107,6 +4161,94 @@ metrics:
                 );
             }
         }
+    }
+
+    /// A metric over intervals that never reads `held` reads the state's
+    /// spans by type and no object's record, and answers as a read of every
+    /// record does; a reader's filter reading `held` reads the records, as
+    /// before (the audit's cost B3, ADR-0205 decision 13).
+    #[test]
+    fn a_read_over_intervals_reads_the_spans_it_needs() {
+        let mut s = world();
+        let ana = user(&mut s, "ana");
+        for hours in 1..=3 {
+            let j = job(&mut s, json!({ "engineer": ana }));
+            take(&mut s, "start", &j);
+            s.now += hours * 3600;
+            take(&mut s, "back", &j);
+        }
+        let before = crate::world::records_read();
+        let narrow = page_of(&s, "Job.time_in_state", &[], Some(&["state"]), None, None);
+        assert_eq!(crate::world::records_read(), before, "a record read");
+        assert!(!narrow.rows.is_empty());
+        // the same as a read of every record, held first
+        let w = s.snapshot().unwrap();
+        w.with_parts(&w.of_type("Job").unwrap()).unwrap();
+        let whole = page(
+            &w,
+            None,
+            "Job.time_in_state",
+            &BTreeMap::new(),
+            Some(&["state".to_string()]),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(narrow.rows, whole.rows);
+        // an object whose record the read holds, as an operation may have
+        // changed it, read from what it holds: two spans ten hours long
+        // added, WORKING's median from 2 h to 3 h
+        let mut w = s.snapshot().unwrap();
+        let first = w.of_type("Job").unwrap()[0].id.clone();
+        {
+            let o = w.get_mut(&first).unwrap().unwrap();
+            let spans = o.parts_mut().unwrap().spans.get_mut("state").unwrap();
+            let mut longer = spans
+                .iter()
+                .find(|sp| matches!(&sp.value, Value::State { name, .. } if name == "WORKING"))
+                .cloned()
+                .unwrap();
+            longer.left_at = Some(longer.entered_at + 10 * 3600);
+            spans.push(longer.clone());
+            spans.push(longer);
+        }
+        let changed = page(
+            &w,
+            None,
+            "Job.time_in_state",
+            &BTreeMap::new(),
+            Some(&["state".to_string()]),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(changed.rows[1].value, Value::Duration(3 * 3600));
+        // a filter reading `held` reads the records
+        let before = crate::world::records_read();
+        let held = page_of(
+            &s,
+            "Job.time_in_state",
+            &[],
+            Some(&["state"]),
+            None,
+            Some("i.held.engineer is not null"),
+        );
+        assert_eq!(held.refused, None, "{:?}", held.reason);
+        assert!(crate::world::records_read() > before);
+        // over a tracked member, the time in a closed state taken out, read
+        // from the state's spans beside the member's: two hours working,
+        // then five shelved
+        let mut s = world();
+        let ana = user(&mut s, "ana");
+        let j = job(&mut s, json!({ "engineer": ana }));
+        take(&mut s, "start", &j);
+        s.now += 2 * 3600;
+        take(&mut s, "shelve", &j);
+        s.now += 5 * 3600;
+        let before = crate::world::records_read();
+        let held = page_of(&s, "Job.time_held", &[], Some(&[]), None, None);
+        assert_eq!(crate::world::records_read(), before, "a record read");
+        assert_eq!(held.rows[0].value, Value::Duration(2 * 3600));
     }
 
     #[test]

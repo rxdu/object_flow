@@ -5091,6 +5091,45 @@ fn read_parts(
     Ok(parts)
 }
 
+/// The spans of the dimensions named, of every object of a concrete type,
+/// from the interval index by the type's table, in each dimension's order
+/// as [`spans`] reads them: what a metric over intervals that never reads
+/// `held` reads, where it read each object's record whole, its attribute
+/// writes, erasure and admissions among them (the audit's cost B3,
+/// ADR-0205 decision 13).
+pub(crate) fn read_type_spans(
+    conn: &Connection,
+    lib: &Library,
+    type_: &str,
+    dimensions: &[&str],
+) -> Stored<BTreeMap<String, crate::eval::Spans>> {
+    let mut out: BTreeMap<String, crate::eval::Spans> = BTreeMap::new();
+    if dimensions.is_empty() {
+        return Ok(out);
+    }
+    let marks: Vec<String> = (1..=dimensions.len()).map(|i| format!("?{i}")).collect();
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {SPAN_COLUMNS} FROM of_interval i JOIN {} o ON o.id = i.object_id \
+         WHERE i.dimension IN ({}) \
+         ORDER BY i.object_id, i.dimension, i.entered_position, i.entered_at",
+        table(type_),
+        marks.join(", ")
+    ))?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(dimensions), |r| raw_span(r, 0))?;
+    for row in rows {
+        let raw = row?;
+        let id = raw.id.clone();
+        if let Some((dimension, span)) = decoded_span(lib, type_, raw)? {
+            out.entry(id)
+                .or_default()
+                .entry(dimension)
+                .or_default()
+                .push(span);
+        }
+    }
+    Ok(out)
+}
+
 /// The flow data of the objects given, from the interval index, in each
 /// dimension's order.
 fn spans(
