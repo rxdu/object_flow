@@ -12,7 +12,8 @@ Run it with the release's own service, built at that release's commit:
 
     python3 make-release-store.py <objectflow-service> <module.yaml> <out-dir>
 
-The stores under release-0.1.0/ were made at commit f6ee6d6, the last of release 0.1.0.
+The stores under release-0.1.0/ were made at commit f6ee6d6, the last of release 0.1.0, and those under release-0.2.0/
+at commit 37e8825, the last of release 0.2.0.
 """
 import json
 import pathlib
@@ -130,9 +131,19 @@ def main():
     store = out_dir / f"{name}.sqlite"
     for p in out_dir.glob(f"{name}.sqlite*"):
         p.unlink()
-    proc = subprocess.Popen([str(service), "--store", str(store), "--port", "0"], stderr=subprocess.PIPE, text=True)
+    # a new store is made only when asked (since 0.2.0), and the start says where it listens among its other lines
+    made = ["--create"] if "0.1.0" not in subprocess.run([str(service), "--version"], capture_output=True,
+                                                         text=True).stdout else []
+    proc = subprocess.Popen([str(service), "--store", str(store), "--port", "0", *made], stderr=subprocess.PIPE,
+                            text=True)
     try:
-        url = re.search(r"(http://127\.0\.0\.1:\d+)", proc.stderr.readline()).group(1)
+        said = []
+        while not (listening := re.search(r"(http://127\.0\.0\.1:\d+)", said[-1] if said else "")):
+            line = proc.stderr.readline()
+            if not line:
+                raise SystemExit(f"the service stopped before it listened: {''.join(said)}")
+            said.append(line)
+        url = listening.group(1)
         wire = Wire(url)
         release = wire.get("/health")["release"]
         text = module_file.read_text()
@@ -150,7 +161,7 @@ def main():
         db.execute("PRAGMA journal_mode = DELETE")
         db.execute("VACUUM")
     db.close()
-    for extra in (out_dir / f"{name}.sqlite-wal", out_dir / f"{name}.sqlite-shm"):
+    for extra in (out_dir / f"{name}.sqlite-wal", out_dir / f"{name}.sqlite-shm", out_dir / f"{name}.sqlite.lock"):
         if extra.exists():
             extra.unlink()
     (out_dir / f"{name}.reads.json").write_text(json.dumps(
