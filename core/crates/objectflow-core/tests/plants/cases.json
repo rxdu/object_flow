@@ -11482,6 +11482,91 @@
   "could_violate": {}
  },
  {
+  "label": "<listcomp>: ffff",
+  "files": [
+   [
+    "ffff.yaml",
+    "5a0a70fc8eccec53"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ffff.yaml",
+    5,
+    "fatal",
+    "yaml",
+    "unacceptable character #xffff: special characters are not allowed"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<listcomp>: del",
+  "files": [
+   [
+    "del.yaml",
+    "256ddfafaf8dfcfb"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "del.yaml",
+    5,
+    "fatal",
+    "yaml",
+    "unacceptable character #x007f: special characters are not allowed"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<listcomp>: pair",
+  "files": [
+   [
+    "pair.yaml",
+    "cf32421ffb4b6515"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "pair.yaml",
+    5,
+    "fatal",
+    "yaml",
+    "while parsing a quoted scalar, found invalid Unicode character escape code"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<listcomp>: astral",
+  "files": [
+   [
+    "astral.yaml",
+    "10d4764686029046"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "<listcomp>: agent",
   "files": [
    [

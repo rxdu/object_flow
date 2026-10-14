@@ -97,6 +97,14 @@ pub fn check(files: &[(String, String)], previous: &BTreeMap<String, String>) ->
     checked(files, previous).findings
 }
 
+/// Whether a character is in YAML's printable set, which PyYAML's reader
+/// admits (YAML 1.2 §5.1, `c-printable`).
+fn printable(c: char) -> bool {
+    matches!(c,
+        '\t' | '\n' | '\r' | '\u{20}'..='\u{7E}' | '\u{85}' | '\u{A0}'..='\u{D7FF}'
+        | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..)
+}
+
 /// The findings, with the figures beside them, over the files `check` takes,
 /// given with no directory, so an example's `publish` step is not run.
 /// A character that shows nothing or reorders what follows: a
@@ -259,6 +267,21 @@ pub fn checked_reading(
                 "yaml",
                 format!(
                     "a bidirectional control or invisible formatting character, U+{:04X}, which can make a source read otherwise than it shows (ADR-0190)",
+                    u32::from(c)
+                ),
+            );
+            continue;
+        }
+        // a character outside YAML's printable set is refused, as PyYAML's
+        // reader refuses it, where U+FFFF, U+FFFE, DEL and the C1 controls
+        // were read (the values audit's C2)
+        if let Some((i, c)) = text.char_indices().find(|(_, c)| !printable(*c)) {
+            fatal(
+                found,
+                text[..i].matches('\n').count() + 1,
+                "yaml",
+                format!(
+                    "unacceptable character #x{:04x}: special characters are not allowed",
                     u32::from(c)
                 ),
             );

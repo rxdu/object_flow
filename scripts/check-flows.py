@@ -137,11 +137,26 @@ def load(text):
 NESTING = 64
 
 
+# YAML's printable set, which PyYAML's reader admits (YAML 1.2 §5.1, c-printable)
+NON_PRINTABLE = re.compile("[^\x09\x0A\x0D\x20-\x7E\x85\xA0-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]")
+SURROGATE = re.compile("[\uD800-\uDFFF]")
+SURROGATE_ESCAPE = re.compile(r"\\u[dD][89a-fA-F][0-9a-fA-F]{2}|\\U0000[dD][89a-fA-F][0-9a-fA-F]{2}")
+
+
 def shallow(text):
     """A description nesting its collections deeper than NESTING refused, read from the parser's events, which recurse on
-    nothing, before anything composes it, as the core's loader refuses it."""
+    nothing, before anything composes it, as the core's loader refuses it; and a scalar an escape made hold a surrogate,
+    which is no character, refused at the escape, as the core's loader refuses it, where it crashed a later step (the
+    values audit's C2)."""
     depth = 0
     for event in yaml.parse(text, Loader=StrictLoader):
+        if isinstance(event, yaml.ScalarEvent) and SURROGATE.search(event.value):
+            start = event.start_mark.index
+            escape = SURROGATE_ESCAPE.search(text, start, event.end_mark.index)
+            at = escape.start() if escape else start
+            line = text.count("\n", 0, at)
+            raise yaml.MarkedYAMLError(problem="while parsing a quoted scalar, found invalid Unicode character escape code",
+                                       problem_mark=yaml.Mark("<text>", at, line, 0, None, None))
         if isinstance(event, (yaml.SequenceStartEvent, yaml.MappingStartEvent)):
             depth += 1
             if depth > NESTING:
@@ -5201,6 +5216,13 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
                           f"a bidirectional control or invisible formatting character, U+{ord(c):04X}, which can make a "
                           f"source read otherwise than it shows (ADR-0190)"))
             continue
+        # a character outside YAML's printable set is refused before the reader refuses it at no line, as the core's
+        # (the values audit's C2)
+        unprintable = NON_PRINTABLE.search(text)
+        if unprintable:
+            found.append((f, text.count("\n", 0, unprintable.start()) + 1, "fatal", "yaml",
+                          f"unacceptable character #x{ord(unprintable.group()):04x}: special characters are not allowed"))
+            continue
         try:
             shallow(text)
             idx = line_index(text)
@@ -5821,6 +5843,16 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     hit = seen == [[(5, "yaml")], []]
     ok &= hit
     print(f"  planted a bidirectional control in a source: {'refused at its line, a byte-order mark not' if hit else 'MISSED ' + str(seen)}")
+    # a character outside YAML's printable set is refused at its line, and so is a scalar an escape made hold a
+    # surrogate, alike in both checkers, where the core read the first and this one crashed on the second (values C2)
+    edges = [("ffff", shown.replace("A record.", "A record\uffff.")), ("del", shown.replace("A record.", "A record\x7f.")),
+             ("pair", shown.replace("description: A record.", 'description: "A record \\ud83d\\udc4d."')),
+             ("astral", shown.replace("description: A record.", 'description: "A record \\U0001F44D."'))]
+    assert all(text != shown for _n, text in edges)
+    seen = [[(x[1], x[3]) for x in check([(f"{name}.yaml", text)])[0] if x[3] == "yaml"] for name, text in edges]
+    hit = seen == [[(5, "yaml")], [(5, "yaml")], [(5, "yaml")], []]
+    ok &= hit
+    print(f"  planted characters YAML does not print and an escaped surrogate: {'refused at their line, an astral escape not' if hit else 'MISSED ' + str(seen)}")
     agent = shown.replace("types:\n", "types:\n  Bot:\n    description: An agent.\n    tracking: record\n    taken_by: [human]\n"
                           "    attributes:\n      key: { type: identity, actor_kind: agent }\n"
                           "    states: { ON: { category: live, description: On. }, OFF: { category: live, final: true, description: Off. } }\n"
