@@ -36268,10 +36268,39 @@
   "findings": [
    [
     "plant.yaml",
+    14,
+    "fatal",
+    "check 13",
+    "Order.add_line reaches Line.start, whose only via names Order.finish and not it"
+   ],
+   [
+    "plant.yaml",
     25,
     "fatal",
     "check 13",
     "Line.start names parent Order.finish, which never reaches it"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: a creation from a transition an only via does not name",
+  "files": [
+   [
+    "plant.yaml",
+    "7f987ab28ac802f8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    15,
+    "fatal",
+    "check 13",
+    "Order.sneak reaches Line.start, whose only via names Order.add_line and not it"
    ]
   ],
   "analysed": {},

@@ -547,6 +547,32 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                         rf"\b(?:call|create)\s+(?:\w+\s*=\s*)?(?:[\w.$]+\.)?{tn}\s*\(", pt[3]))
                     if not reaches:
                         add(13, f"{d.name}.{tn} names parent {ty}.{tr}, which never reaches it", ln)
+        # 13's converse — a create or a call into an `only via` transition from one it does not name: the caller's type
+        # or a base of it, or for a machine each type binding it (§4.2; the audit's write path R-05, refused at run time)
+        if d.kind in ("type", "machine"):
+            def lineage(x):
+                seen = []
+                while x is not None and x.name not in seen:
+                    seen.append(x.name); x = by_name.get(x.base)
+                return set(seen)
+            callers = [d] if d.kind == "type" else [b for b in by_name.values() if b.kind == "type" and b.machine == d.name]
+            for kind, tn, head, body, ln in d.trans:
+                for tgt, tn2 in re.findall(r"\b(?:call|create)\s+(?:\w+\s*=\s*)?([\w.$]+)\.(\w+)\s*\(", body):
+                    callee = by_name.get(tgt) or by_name.get(tgt.split(".")[-1])
+                    if callee is None:
+                        continue
+                    ct = next((x for x in callee.trans if x[1] == tn2), None)
+                    if ct is None and callee.machine and by_name.get(callee.machine):
+                        ct = next((x for x in by_name[callee.machine].trans if x[1] == tn2), None)
+                    if ct is None:
+                        continue
+                    parents = [f"{ty}.{tr}" for via in re.findall(r"only via ([\w.,\s]+?)(?:\{|$)", ct[2])
+                               for ty, tr in re.findall(r"(\w+)\.(\w+)", via)]
+                    for caller in callers if parents else ():
+                        mine = lineage(caller)
+                        if not any(p.split(".")[1] == tn and p.split(".")[0] in mine for p in parents):
+                            add(13, f"{caller.name}.{tn} reaches {callee.name}.{tn2}, whose only via names "
+                                    f"{', '.join(parents)} and not it", ln)
 
         # 35 — machine requires completeness
         if d.kind == "machine":

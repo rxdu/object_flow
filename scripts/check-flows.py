@@ -6664,6 +6664,11 @@ def syntax_plants():
          p(PARTS, START, "      start: { kind: initial, to: ACTIVE, required_inputs: [order] }\n")),
         ("an only via whose parent never reaches it", "check 13",
          p(PARTS, START, "      start: { kind: initial, to: ACTIVE, required_inputs: [order], only_via: [Order.finish] }\n")),
+        # its converse: a creation from a transition the only via does not name (the audit's write path R-05)
+        ("a creation from a transition an only via does not name", "check 13",
+         p(PARTS, "      add_line: { kind: internal, from: [OPEN], effect: [ { create: { type: Line, transition: start, inputs: { order: this } } } ] }\n",
+           "      add_line: { kind: internal, from: [OPEN], effect: [ { create: { type: Line, transition: start, inputs: { order: this } } } ] }\n"
+           "      sneak: { kind: internal, from: [OPEN], effect: [ { create: { type: Line, transition: start, inputs: { order: this } } } ] }\n")),
         ("a part created without its owner", "check 18",
          p(p(PARTS, START, "      start: { kind: initial, to: ACTIVE, only_via: [Order.add_line] }\n"), "inputs: { order: this }", "inputs: {}")),
         ("two singular ends, neither stored", "check 41", p(PAIR, "opposite: desk, stored: true }", "opposite: desk }")),

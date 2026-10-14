@@ -1157,23 +1157,36 @@ def test_a_retyped_attribute_names_each_object_holding_a_value_alike(tee):
 
 
 def test_an_only_via_transition_taken_by_a_transition_it_does_not_name_is_refused_alike(tee):
-    """A creation into an `only_via` transition from a transition it does not name is refused `not_requestable`,
-    through a call as for a request, alike through both backends, where the runner took it (the audit's write path
-    R-05); one it names is taken."""
+    """A creation into an `only_via` transition from a transition it does not name is refused at publish (check 13's
+    converse); a call the checker cannot resolve, through a loop's item, is refused `not_requestable` at run time,
+    alike through both backends, where the runner took it (the audit's write path R-05); one it names is taken."""
     sneaky = CASCADE_SHOP.replace(
         "      close_all: { kind: external, from: [OPEN], to: DONE }\n",
         "      close_all: { kind: external, from: [OPEN], to: DONE }\n"
         "      sneak: { kind: internal, from: [OPEN], effect: [ { create: { type: Line, transition: add, "
         "inputs: { order: this } } } ] }\n", 1)
     assert sneaky != CASCADE_SHOP
-    load(tee, "shop", sneaky)
+    refused = tee.post("/sandbox/load", {"files": [{"name": "shop.yaml", "text": sneaky}]})
+    assert not refused["loaded"] and [f["message"] for f in refused["findings"]] == [
+        "Order.sneak reaches Line.add, whose only via names Order.add_line and not it"], refused
+    calling = CASCADE_SHOP.replace(
+        "      close_all: { kind: external, from: [OPEN], to: DONE }\n",
+        "      close_all: { kind: external, from: [OPEN], to: DONE }\n"
+        "      sneak: { kind: internal, from: [OPEN], effect: [ { foreach: { item: n, array: lines, limit: 10, "
+        "steps: [ { call: { target: n, transition: close } } ] } } ] }\n", 1).replace(
+        "      close: { kind: external, from: [OPEN], to: SHUT, taken_by: [human] }\n",
+        "      close: { kind: external, from: [OPEN], to: SHUT, only_via: [Order.close_all] }\n", 1)
+    assert calling.count("sneak:") == 1 and calling.count("only_via: [Order.close_all]") == 1
+    load(tee, "shop", calling)
     tee.found.clear()
     order = made(tee, "Order", "open")
-    v = tee.post("/v1/request", {"actor": OP, "object_id": order, "transition": "sneak"})
-    assert (v["kind"], v["verdict"]["kind"], v["verdict"]["parents"]) == (
-        "call_refused", "not_requestable", ["Order.add_line"]), v
     assert tee.post("/v1/request", {"actor": OP, "object_id": order,
                                     "transition": "add_line"})["kind"] == "satisfied"
+    v = tee.post("/v1/request", {"actor": OP, "object_id": order, "transition": "sneak"})
+    assert (v["kind"], v["verdict"]["kind"], v["verdict"]["parents"]) == (
+        "call_refused", "not_requestable", ["Order.close_all"]), v
+    assert tee.post("/v1/request", {"actor": OP, "object_id": order,
+                                    "transition": "close_all"})["kind"] == "satisfied"
     alike(tee)
 
 

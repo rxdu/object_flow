@@ -273,6 +273,7 @@ pub fn checks(docs: &[Value]) -> Vec<Found4> {
         state_checks(d, &world, &mut out);
         body_checks(d, &world, &all, &mut out);
         only_via_checks(d, &world, &mut out);
+        only_via_reached(d, &world, &mut out);
         reference_checks(d, &world, &mut out);
         mirror_checks(d, &world, &mut out);
     }
@@ -1287,6 +1288,85 @@ fn only_via_checks(d: &Decl, world: &BTreeMap<&str, &Decl>, out: &mut Vec<Found4
                     t.module,
                     &t.path,
                 );
+            }
+        }
+    }
+}
+
+/// Check 13's converse: a create or a call into an `only via` transition
+/// from one it does not name, the caller's type or a base of it, or for a
+/// machine each type binding it (§4.2; the audit's write path R-05, refused
+/// at run time since). A cascade is the run time's alone.
+fn only_via_reached(d: &Decl, world: &BTreeMap<&str, &Decl>, out: &mut Vec<Found4>) {
+    let callers: Vec<&Decl> = match d.kind {
+        DeclKind::Type => vec![d],
+        DeclKind::Machine => world
+            .values()
+            .copied()
+            .filter(|b| b.kind == DeclKind::Type && b.machine.as_deref() == Some(d.name.as_str()))
+            .collect(),
+    };
+    let lineage = |x: &Decl| -> BTreeSet<String> {
+        let mut seen = BTreeSet::new();
+        let mut at = Some(x);
+        while let Some(c) = at {
+            if !seen.insert(c.name.clone()) {
+                break;
+            }
+            at = c.base.as_deref().and_then(|b| world.get(b)).copied();
+        }
+        seen
+    };
+    for t in &d.trans {
+        for s in walk(t.x.get("effect")) {
+            let body = s.body();
+            let target = match s.kind {
+                "call" => squash(&str_or(body, "target", "")),
+                "create" => str_or(body, "type", ""),
+                _ => continue,
+            };
+            if !simple_path(&target) {
+                continue;
+            }
+            let tn2 = str_or(body, "transition", "");
+            let last = target.rsplit('.').next().unwrap_or(&target);
+            let Some(callee) = world.get(target.as_str()).or_else(|| world.get(last)) else {
+                continue;
+            };
+            let Some(ct) = callee.trans.iter().find(|c| c.name == tn2).or_else(|| {
+                callee
+                    .machine
+                    .as_deref()
+                    .and_then(|m| world.get(m))
+                    .and_then(|pm| pm.trans.iter().find(|c| c.name == tn2))
+            }) else {
+                continue;
+            };
+            let parents = strings(&ct.x, "only_via");
+            if parents.is_empty() {
+                continue;
+            }
+            for caller in &callers {
+                let mine = lineage(caller);
+                let named = parents.iter().any(|p| {
+                    p.split_once('.')
+                        .is_some_and(|(ty, tr)| tr == t.name && mine.contains(ty))
+                });
+                if !named {
+                    add(
+                        out,
+                        13,
+                        format!(
+                            "{}.{} reaches {}.{tn2}, whose only via names {} and not it",
+                            caller.name,
+                            t.name,
+                            callee.name,
+                            parents.join(", ")
+                        ),
+                        t.module,
+                        &t.path,
+                    );
+                }
             }
         }
     }
