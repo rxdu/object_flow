@@ -6630,6 +6630,13 @@ def syntax_plants():
         ("a guard binding what is no dimension of a metric", "check 56", p(METRIC, COND, "expression: \"metric(finished, colour := 1) > 0\"")),
         ("metric() outside a guard", "check 56", p(METRIC, "expression: count()", "expression: metric(finished)")),
         ("a metric-only function in a condition", "check 56", p(MINI, COND, "expression: median(title) > 0")),
+        # on every line but a metric's own, where these were accepted (the values audit's G8)
+        ("a time bucket in an attribute's default", "check 56",
+         p(MINI, NOTE, "      note:  { type: string, optional: true, default: 'month(now)' }\n")),
+        ("a time bucket in a creation's inputs", "check 56", p(CREW, "inputs: { n: inputs.n }", "inputs: { n: month(now) }")),
+        ("a time bucket in a loop's filter", "check 56",
+         p(MINI, FINISH, FINISH + "      tidy: { kind: internal, from: [OPEN], effect: [ { foreach: { item: k, range: 2, "
+                         "where: 'year(now) == \"2026\"', limit: 2, steps: [ { assign: { location: note, expr: '\"x\"' } } ] } } ] }\n")),
         ("an assignee that does not store its value", "check 59",
          p(p(ASSIGN, AGENT, "      agent: { reference: Agent, optional: true, assignee: true, opposite: ticket }\n"), LOGIN,
            LOGIN + "      ticket: { reference: Ticket, optional: true, opposite: agent, stored: true }\n")),

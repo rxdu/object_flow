@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- The checker refuses `avg`, `median`, `percentile` and the time buckets `day` … `year` in an attribute's or an input's default, a `create`'s or a `call`'s inputs, a loop's `where` and a migration's backfill, as check 56 says ("outside a metric"), where it refused them only in a derived attribute, an invariant, a condition and an effect's `set`, `add` and `remove` (the values audit's G8). A flow that wrote one there no longer publishes.
 - An input a create or a call passes into another object's personal attribute is personal on the caller's request too: `export` omits it from the caller's event, a refused attempt withholds it, and a request's digest masks it, where it was exported and kept in clear (caller taint, found probing the write path audit's last minor). What an erasure reaches through such an input is unchanged.
 - A publish changing an attribute's type names, in its `type_changed` notice, each object holding a value it sets aside, and gives each a `migrate` event naming the change, where the notice said nothing was affected and the objects' histories said nothing (the audit's write path A-06).
 - `declaration`'s and a publish report's `person_dimensions` mark a metric dimension reading an `identity` copied into an observation, as one on the type's own objects is, where it was left unmarked for the gateway (the audit's personal data R8).

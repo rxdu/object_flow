@@ -895,8 +895,10 @@ def line_checks(text, base, capdecl, reserved, machine_caps):
         rule = re.match(r"^(require|invariant|derive|visible|set|add|remove|value|flag|by|from|window)\b", st)
         if rule and "metric(" in st and rule.group(1) != "require":
             out.append((56, f"metric(…) outside a guard: {st[:48]}", ln))
-        if rule and rule.group(1) in ("require", "invariant", "derive", "visible", "set", "add", "remove") and \
-           re.search(r"\b(avg|median|percentile|day|week|month|quarter|year)\(", st):
+        # on every line but a metric's own, where a default, a create's or a call's inputs, a loop's filter and a
+        # backfill were not read (the values audit's G8)
+        if re.search(r"\b(avg|median|percentile|day|week|month|quarter|year)\(", st) and \
+           not re.match(r"^(value|flag|by|from|window|combine)\b", st):
             out.append((56, f"a metric-only function outside a metric: {st[:48]}", ln))
     return out + actor_reads(text, base)
 

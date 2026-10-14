@@ -35637,6 +35637,72 @@
   "could_violate": {}
  },
  {
+  "label": "syntax_plants: a time bucket in an attribute's default",
+  "files": [
+   [
+    "plant.yaml",
+    "a1d7145a80121618"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    11,
+    "fatal",
+    "check 56",
+    "a metric-only function outside a metric: attr note string? default month(now)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: a time bucket in a creation's inputs",
+  "files": [
+   [
+    "plant.yaml",
+    "9b661acabb700630"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    19,
+    "fatal",
+    "check 56",
+    "a metric-only function outside a metric: create Crew.start(n := month(now))"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: a time bucket in a loop's filter",
+  "files": [
+   [
+    "plant.yaml",
+    "cc4af6b23b94f8ab"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    20,
+    "fatal",
+    "check 56",
+    "a metric-only function outside a metric: for k in 1..2 where year(now) == \"2026\" limit 2 "
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "syntax_plants: an assignee that does not store its value",
   "files": [
    [

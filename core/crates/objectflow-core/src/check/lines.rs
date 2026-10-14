@@ -598,6 +598,10 @@ fn unbound_aggregate(text: &str) -> bool {
 }
 static METRIC_ONLY: LazyLock<Regex> =
     LazyLock::new(|| re(r"\b(avg|median|percentile|day|week|month|quarter|year)\("));
+/// A line of a metric's own declaration, the only place a metric-only
+/// function is read (check 56).
+static METRIC_LINE: LazyLock<Regex> =
+    LazyLock::new(|| re(r"^(value|flag|by|from|window|combine)\b"));
 static RULE: LazyLock<Regex> = LazyLock::new(|| {
     re(r"^(require|invariant|derive|visible|set|add|remove|value|flag|by|from|window)\b")
 });
@@ -729,36 +733,29 @@ pub fn checks(docs: &[Value], all: &[Decl], world: &BTreeMap<&str, &Decl>, out: 
                 &l.path,
             );
         }
-        if let Some(rule) = RULE.captures(st).map(|c| c[1].to_string()) {
-            if st.contains("metric(") && rule != "require" {
-                add(
-                    out,
-                    56,
-                    format!("metric(…) outside a guard: {cut48}"),
-                    l.module,
-                    &l.path,
-                );
-            }
-            if [
-                "require",
-                "invariant",
-                "derive",
-                "visible",
-                "set",
-                "add",
-                "remove",
-            ]
-            .contains(&rule.as_str())
-                && METRIC_ONLY.is_match(st)
-            {
-                add(
-                    out,
-                    56,
-                    format!("a metric-only function outside a metric: {cut48}"),
-                    l.module,
-                    &l.path,
-                );
-            }
+        if let Some(rule) = RULE.captures(st).map(|c| c[1].to_string())
+            && st.contains("metric(")
+            && rule != "require"
+        {
+            add(
+                out,
+                56,
+                format!("metric(…) outside a guard: {cut48}"),
+                l.module,
+                &l.path,
+            );
+        }
+        // on every line but a metric's own, where a default, a create's or a
+        // call's inputs, a loop's filter and a backfill were not read (the
+        // values audit's G8)
+        if METRIC_ONLY.is_match(st) && !METRIC_LINE.is_match(st) {
+            add(
+                out,
+                56,
+                format!("a metric-only function outside a metric: {cut48}"),
+                l.module,
+                &l.path,
+            );
         }
         if ACTOR.is_match(st) {
             let gov = l.continues.as_deref().unwrap_or(st);

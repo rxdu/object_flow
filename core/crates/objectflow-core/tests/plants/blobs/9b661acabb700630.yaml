@@ -1,0 +1,31 @@
+module: crew
+categories: [live, closed]
+evaluators:
+  risk:
+    description: A risk service.
+    functions:
+      ok: { description: Whether the crew may start., arguments: { n: { type: string } } }
+types:
+  Job:
+    description: A job.
+    tracking: record
+    attributes:
+      note: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      open:   { kind: initial, to: OPEN }
+      prep:   { kind: internal, from: [OPEN], effect: [ { assign: { location: note, expr: '"x"' } }, { create: { type: Crew, transition: start, inputs: { n: month(now) } } } ], inputs: { n: { type: string } } }
+      finish: { kind: external, from: [OPEN], to: DONE }
+  Crew:
+    description: A crew.
+    tracking: record
+    states:
+      UP:   { category: live }
+      DOWN: { category: closed, final: true }
+    conditions:
+      safe: { description: The service says it is safe., expression: risk.ok(inputs.n), remedy: dependent }
+    transitions:
+      start: { kind: initial, to: UP, inputs: { n: { type: string } }, guards: { safe: deny } }
+      stop:  { kind: external, from: [UP], to: DOWN }
