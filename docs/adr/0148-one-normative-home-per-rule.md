@@ -2,7 +2,7 @@
 
 - **Status:** Accepted, 2026-10-04, by the author ("go ahead with 1 and 2, and do 3 too"): fix the contradictions and regressions the third cold reading found (decision 2), record the rest as open questions answered when a builder reaches them (decision 3), and give every rule one normative home (decision 1). The individual fixes were decided at the author's earlier direction ("continue with your recommends"). Decision 4 by the author the same day ("yes, stop it at the close"), given the case.
 - **Date:** 2026-10-04
-- **Refined by:** ADR-0154 — thirteen of decision 3's open questions answered by the core's import, C14's third case, C22 to C24, C28, C29 and C31 to C37.
+- **Refined by:** ADR-0154 — thirteen of decision 3's open questions answered by the core's import, C14's third case, C22 to C24, C28, C29 and C31 to C37. ADR-0203 — no metric reads a personal value through a reference or a derived attribute either.
 - **Refines:** ADR-0147 (its triage items 17, 54, 94 and 123 are corrected by decision 2), ADR-0105 (decision 2's upgrade over version 0), ADR-0116 (what the flow format and the model are each the home of)
 - **Relates to:** `cold-reading-3-review.md`; every document named in decision 1; D514 to D516
 

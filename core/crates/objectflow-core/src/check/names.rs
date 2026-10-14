@@ -1947,6 +1947,103 @@ fn personal_errors(doc: &Value, library: &Obj) -> Found {
             }
         }
     }
+    // a metric over objects reads no personal value through a reference or
+    // a derived attribute either, where check 56, reading its item's own
+    // members, passed `d.owner.name`, `max(d.owner.salary)` and
+    // `d.owner_name`, and an agent's metric read answered each person's name
+    // and salary (sixteenth production review N6, ADR-0203 decision 2)
+    fn chains(e: &Expr, item: &str, out: &mut Vec<Vec<String>>) {
+        if let Expr::Path(..) = e {
+            let mut members = Vec::new();
+            let mut base = e;
+            while let Expr::Path(b, m) = base {
+                members.insert(0, m.clone());
+                base = b;
+            }
+            if matches!(base, Expr::Name(n) if n == item) {
+                out.push(members);
+            }
+        }
+        for c in super::children_of(e) {
+            chains(c, item, out);
+        }
+    }
+    let reaches = |tn: &str, members: &[String]| -> Option<String> {
+        let mut u = tn.to_string();
+        for (i, m) in members.iter().enumerate() {
+            let k = check.kinds.get(&u).cloned().unwrap_or(Value::Null);
+            if let Some(spec) = obj(&k, "attributes").get(m).filter(|s| s.is_object()) {
+                if flag(spec, "personal") {
+                    return (i > 0).then(|| format!("the personal {u}.{m}"));
+                }
+                if let Some(r) = spec
+                    .get("reference")
+                    .filter(|r| super::doc::truthy(Some(r)))
+                {
+                    u = py_str(r).trim_end_matches(['[', ']']).to_string();
+                    continue;
+                }
+                return None;
+            }
+            if let Some(d) = obj(&k, "derived_attributes").get(m) {
+                let text = d.get("expression").map(py_str).unwrap_or_default();
+                return check
+                    .why(&u, None, &text, &Env::new(), &BTreeSet::new(), &none)
+                    .map(|w| format!("the derived {u}.{m}, which reads {w}"));
+            }
+            return None;
+        }
+        None
+    };
+    for (tn, t) in types(doc) {
+        for (mn, m) in obj(t, "metrics") {
+            let item = m.get("item").map(py_str).unwrap_or_default();
+            let source = m
+                .get("source")
+                .map_or_else(|| "objects".to_string(), py_str);
+            if !m.is_object() || source != "objects" || item.is_empty() {
+                continue;
+            }
+            let mut parts: Vec<(Vec<String>, Option<&Value>)> = vec![
+                (vec!["expression".to_string()], m.get("expression")),
+                (vec!["filter".to_string()], m.get("filter")),
+            ];
+            for (d, e) in obj(m, "dimensions") {
+                parts.push((vec!["dimensions".to_string(), d.clone()], Some(e)));
+            }
+            for (key, text) in parts {
+                let Some(text) = text.filter(|t| !t.is_null()) else {
+                    continue;
+                };
+                let squashed = py_str(text)
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                // step 2 refuses what does not parse
+                let Ok(tree) = parse(&squashed) else {
+                    continue;
+                };
+                let mut found = Vec::new();
+                chains(&tree, &item, &mut found);
+                let said: BTreeSet<String> = found
+                    .iter()
+                    .filter_map(|members| {
+                        reaches(&tn, members).map(|reached| {
+                            format!(
+                                "metric {mn} reads {item}.{}, which reaches {reached}; a metric reads no personal value, through a reference or a derived attribute either (ADR-0203)",
+                                members.join(".")
+                            )
+                        })
+                    })
+                    .collect();
+                for w in said {
+                    let mut at = segs!["types", tn.as_str(), "metrics", mn.as_str()];
+                    at.extend(key.iter().map(|k| Seg::Key(k.clone())));
+                    out.push(finding(at, "names", w));
+                }
+            }
+        }
+    }
     out
 }
 

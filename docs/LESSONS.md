@@ -406,6 +406,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** After any Rust change, run `cargo clippy --all-targets --all-features -- -D warnings` before starting the gates; the gates confirm, they are not where a lint is first seen.
 - **Context:** ObjectFlow's core, whose `scripts/check` denies warnings; 2026-10-07.
 
+- **Recurred 2026-10-14**, the lesson in hand: a function returning two vectors of pairs failed the gate on `type_complexity`, the change's own test suites having passed without clippy. Run it as part of the suites, not after them.
 ### Write a mutation's pattern from the formatted file
 - **Pattern:** Twice in one session a mutation's search text was written from code as first typed, before `cargo fmt` reflowed it; the substitution matched nothing, the build and test ran on unchanged code, and the run's "ok" read for a moment as a result.
 - **Correction:** Read the lines to mutate from the file as it stands after formatting, and treat a pattern that does not match as a failed mutation run, not as a pass; the helper should stop on it rather than go on to build.
@@ -690,4 +691,14 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** ADR-0201's SQLite flag sat in `core/.cargo/config.toml`, which cargo reads only for a build run from `core/`; a build from the repository's root brought the collapse back, and only a start-log line said so.
 - **Correction:** Put build configuration where every build in the repository reads it, and make a build without a setting the program needs stop, rather than test for it after the fact.
 - **Context:** The core's build; 2026-10-14.
+
+### A value found by how it was written, where its type said where it was
+- **Pattern:** ADR-0202 replaced an erased identity in the attributes an effect wrote from `actor.id`, the path the review had shown. The next review copied it once more, `requester: requested_by`, and it survived; the checkers already required every runnable copy to be of type `identity`.
+- **Correction:** When a value must be found again, find it by what it is, its type, not by the one way it was seen to travel; and test with a copy made another way.
+- **Context:** Erasure and any rewrite by value; 2026-10-14.
+
+### A protection applied one level deep
+- **Pattern:** Check 56 refused a metric reading a personal member of its item, not one reached through a reference or a derived attribute, so `d.owner.salary` and `d.owner_name` passed, while check 10 already followed both to find a personal value.
+- **Correction:** Where a rule protects a class of value, apply it through every way the language reaches that value, reusing the reading that already follows them; and plant a case for each way.
+- **Context:** The checkers' personal-data rules; 2026-10-14.
 

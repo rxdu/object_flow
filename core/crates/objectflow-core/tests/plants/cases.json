@@ -11570,6 +11570,65 @@
   "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [
+    "desks.yaml",
+    "fd99514d4878cf9a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desks.yaml",
+    38,
+    "fatal",
+    "names",
+    "metric by_owner reads d.owner.name, which reaches the personal Person.name; a metric reads no personal value, through a reference or a derived attribute either (ADR-0203)"
+   ],
+   [
+    "desks.yaml",
+    39,
+    "fatal",
+    "names",
+    "metric by_owner reads d.owner.salary, which reaches the personal Person.salary; a metric reads no personal value, through a reference or a derived attribute either (ADR-0203)"
+   ],
+   [
+    "desks.yaml",
+    44,
+    "fatal",
+    "names",
+    "metric by_derived reads d.owner_name, which reaches the derived Desk.owner_name, which reads the personal Person.name; a metric reads no personal value, through a reference or a derived attribute either (ADR-0203)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "plain.yaml",
+    "d90323f0642d9a7e"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Desk": [
+    0,
+    0
+   ],
+   "Person": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
     "held.yaml",
     "ea6f811774968688"
    ]

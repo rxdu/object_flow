@@ -57,7 +57,13 @@ pub fn pull_page(
     if s.state == "REVOKED" {
         return Ok(refuse("revoked"));
     }
+    // a cursor past what the store has handed out is none of its own, as
+    // `acknowledge` and `export` refuse it, where one a subscriber kept from
+    // before a restore answered an empty page and a settled cursor behind
+    // it, and the events written since never came (sixteenth production
+    // review)
     let from = match cursor {
+        Some(c) if c < 0 || c > settled => return Ok(refuse("invalid_cursor")),
         Some(c) => c,
         None => acknowledged(world, s)?,
     };
@@ -227,6 +233,13 @@ mod tests {
         assert_eq!(page.refused, None);
         drop(w);
         let invalid = Some("invalid_cursor".to_string());
+        // and a pull's, as a subscriber kept it from before a restore
+        // (sixteenth production review)
+        let w = s.snapshot().unwrap();
+        assert_eq!(pull(&w, &sub, Some(last + 1)).unwrap().refused, invalid);
+        assert_eq!(pull(&w, &sub, Some(-1)).unwrap().refused, invalid);
+        assert_eq!(pull(&w, &sub, Some(last)).unwrap().refused, None);
+        drop(w);
         assert_eq!(s.acknowledge(&sub, last + 1).unwrap(), invalid);
         assert_eq!(s.acknowledge(&sub, -1).unwrap(), invalid);
         assert_eq!(s.acknowledge(&sub, last).unwrap(), None);

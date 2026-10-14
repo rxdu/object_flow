@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-14 on the author's standing instruction, "keep the bar and continue the loop", each decision the recommendation stated here; built the same day
 - **Date:** 2026-10-14
+- **Refined by:** ADR-0203 — an erased identity replaced by value in every attribute and input of type identity, which contains decision 1's set.
 - **Refines:** ADR-0192 decision 4 (where an erased actor's identity is replaced); ADR-0201 decisions 3 and 4 (the build's SQLite, an agent's personal query); ADR-0192 decision 6 (an identity's shape)
 - **Relates to:** `design/production-review.md` §19; `guides/operate.md`; `guides/agents.md`; `guides/wire.md`; `guides/errors.md`
 

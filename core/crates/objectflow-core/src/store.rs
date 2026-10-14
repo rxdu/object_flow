@@ -4852,38 +4852,37 @@ fn write(
     // principal, the attempts', the intervals' entries, the idempotency
     // records and a proposal's or a change's recorded actors, this request's
     // own among them, each by its index (ADR-0192 decision 4)
-    // and where an effect wrote it: the attributes an effect sets to the
-    // actor's identity, and the inputs it passes it, which the actor's own
-    // events took (fifteenth production review, ADR-0202 decision 1)
+    // and wherever a copy of it is held: every attribute of type identity,
+    // and every input of that type an event recorded, however the value got
+    // there (fifteenth and sixteenth production reviews, ADR-0203
+    // decision 1)
     let (identity_attrs, identity_inputs) = if change.renamed_actors.is_empty() {
         Default::default()
     } else {
-        lib.identity_writes()
+        lib.identity_held()
     };
     for (identity, id) in &change.renamed_actors {
-        for name in &identity_inputs {
+        for (tn, name) in &identity_inputs {
             let path = format!("$.inputs.\"{}\"", name.replace('"', ""));
             tx.execute(
-                "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
-                 WHERE (actor_id = ?1 OR actor_principal = ?1) AND json_extract(payload, ?3) = ?1",
+                &format!(
+                    "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
+                     WHERE object_id IN (SELECT id FROM {}) AND json_extract(payload, ?3) = ?1",
+                    table(tn)
+                ),
                 params![identity, id, path],
             )?;
         }
-        for name in identity_attrs.iter().chain(&identity_inputs) {
-            for t in lib.types.values() {
-                if t.abstract_ || !t.attribute(name).is_some_and(|a| !a.many) {
-                    continue;
-                }
-                tx.execute(
-                    &format!(
-                        "UPDATE {} SET {} = ?2 WHERE {} = ?1",
-                        table(&t.name),
-                        quote(name),
-                        quote(name)
-                    ),
-                    params![identity, id],
-                )?;
-            }
+        for (tn, name) in &identity_attrs {
+            tx.execute(
+                &format!(
+                    "UPDATE {} SET {} = ?2 WHERE {} = ?1",
+                    table(tn),
+                    quote(name),
+                    quote(name)
+                ),
+                params![identity, id],
+            )?;
         }
         for sql in [
             "UPDATE of_event SET actor_id = ?2 WHERE actor_id = ?1",

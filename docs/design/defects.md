@@ -6,7 +6,7 @@ Findings from every review of this design. It began as the implementation-readin
 
 **Two kinds of closure.** *Resolved by* means the design now does the thing. *Refused by* means the design decided not to, and the case is recorded in `edge-cases.md` instead. D15 and D17 are refusals.
 
-**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. Three are open — D516, the third cold reading's open questions, deferred to the Rust core by ADR-0148; D656, a read running on after its client has gone, its stop deferred by ADR-0201; and D669, a type added later making an identity name an object, deferred by ADR-0202; of the procurement review of 2026-10-10 (`procurement-cold-draft.md`), still open: none, its second round's (`procurement-second-review.md`) none; D529, two modules checked together declaring the same type, found 2026-10-07, was resolved the same day by ADR-0163; its fixes and the conversion to one normative home per rule, D514 and D515, are resolved. D505 to D513, the areas of the cold reading of 2026-10-04 (`cold-reading-2-review.md`), were each decided by ADR-0147 and resolved the same day as their documents and tools came to say so. D495 to D504, the areas of the cold reading of 2026-09-30 (`cold-reading-review.md`), were each decided by ADR-0146 and resolved on 2026-10-01. D395 to D442, found on 2026-09-27 reviewing whether a builder can recover the robot inventory and the Jira flows from the specification and the YAML (`flow-recoverability-review.md`), were resolved the same day by ADR-0122 and in place, D410 to D416 after a second review, D417 to D420 after a third, D421 and D422 after a fourth, D423 to D427 after a fifth, D428 to D433 after a sixth, D434 and D435 after a seventh, D436 to D438 after an eighth, D439 and D440 after a ninth and D441 and D442 after a tenth; D443 and D444, found writing the metric scenarios the same day, were resolved by ADR-0123, D445 to D448 in place, D449 by ADR-0124, D450 by ADR-0125, D451 in place, D452 by ADR-0126, D453 and D454 in place, D455, D456 and D461 by ADR-0133, and D457 to D460 in place; D383, found extending the walkthrough's inventory item on 2026-09-25, was resolved in place the same day at the author's direction; an operations review of the worked example on 2026-09-24 found D289, corrected in place; an audit of the first consumer's production code the same day found D275 to D281, of which D280 and D281 were corrected in place, reviewing the design against the PRD with the unit's journey found D282 and D283, and verifying ADR-0103's first draft found D284 to D288; ADR-0103 resolved D275 to D279, D282 and D284 to D288, and D283 was corrected in place; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
+**How to read this.** `D37`–`D41` were found on 2026-09-08 by re-expressing the case studies against the repaired grammar, which is the test the repair called for. `D01`–`D10` break the model or a running system and must be resolved before a runtime is built. `D11`–`D26` are things the design cannot express or has no algorithm for. `D27`–`D36` are contradictions and scope errors. `C01`–`C05` are cosmetic. A closure is `Resolved`, `Refused by decision` with the case recorded in `edge-cases.md`, or `Recorded as open question N` for a finding the author later ruled on. Six are open — D516, the third cold reading's open questions, deferred to the Rust core by ADR-0148; D656, a read running on after its client has gone, its stop deferred by ADR-0201; D669, a type added later making an identity name an object, deferred by ADR-0202; and D687 to D689, the sixteenth review's checker gaps, writes after an unreadable store and an empty subscription, deferred by ADR-0203; of the procurement review of 2026-10-10 (`procurement-cold-draft.md`), still open: none, its second round's (`procurement-second-review.md`) none; D529, two modules checked together declaring the same type, found 2026-10-07, was resolved the same day by ADR-0163; its fixes and the conversion to one normative home per rule, D514 and D515, are resolved. D505 to D513, the areas of the cold reading of 2026-10-04 (`cold-reading-2-review.md`), were each decided by ADR-0147 and resolved the same day as their documents and tools came to say so. D495 to D504, the areas of the cold reading of 2026-09-30 (`cold-reading-review.md`), were each decided by ADR-0146 and resolved on 2026-10-01. D395 to D442, found on 2026-09-27 reviewing whether a builder can recover the robot inventory and the Jira flows from the specification and the YAML (`flow-recoverability-review.md`), were resolved the same day by ADR-0122 and in place, D410 to D416 after a second review, D417 to D420 after a third, D421 and D422 after a fourth, D423 to D427 after a fifth, D428 to D433 after a sixth, D434 and D435 after a seventh, D436 to D438 after an eighth, D439 and D440 after a ninth and D441 and D442 after a tenth; D443 and D444, found writing the metric scenarios the same day, were resolved by ADR-0123, D445 to D448 in place, D449 by ADR-0124, D450 by ADR-0125, D451 in place, D452 by ADR-0126, D453 and D454 in place, D455, D456 and D461 by ADR-0133, and D457 to D460 in place; D383, found extending the walkthrough's inventory item on 2026-09-25, was resolved in place the same day at the author's direction; an operations review of the worked example on 2026-09-24 found D289, corrected in place; an audit of the first consumer's production code the same day found D275 to D281, of which D280 and D281 were corrected in place, reviewing the design against the PRD with the unit's journey found D282 and D283, and verifying ADR-0103's first draft found D284 to D288; ADR-0103 resolved D275 to D279, D282 and D284 to D288, and D283 was corrected in place; the design review and design evaluation of 2026-09-23 found D202 to D215, and ADR-0082, ADR-0083, ADR-0085 and ADR-0087 to ADR-0093 resolved them the same day; mapping the design against the PRD found D216 and D217, and ADR-0095 resolved them; an independent review of that mapping found D218 to D229, a second pass over the repairs found D230 to D234, and a third found D235, all resolved by ADR-0096; five reviewers, one per slice of the PRD, the decision record and the documents' agreement, then found D236 to D260, which ADR-0097 to ADR-0100 and in-place corrections resolved; their verification found D261 to D268, and further passes D269 to D274, which ADR-0101 resolved, while the design was iterated until every PRD requirement was covered; the three before them, D190, D193 and D194, were ruled on 2026-09-09 at the author's direction as ADR-0078 to ADR-0080. The index above is generated from the entries, so it cannot fall behind them again.
 
 **Provenance.** ADR-0019 to ADR-0037 and the five case studies were produced in the autonomous design iterations of 2026-09-07/08. Defect density is highest there, and the case-study notation problem (`D11`–`D18`) originates entirely in that work.
 
@@ -688,6 +688,19 @@ Findings from every review of this design. It began as the implementation-readin
 | [D674](#d674) | `operate.md` lacked a prune unit, the socket's order and other steps | Resolved |
 | [D675](#d675) | `agents.md` named the wrong refusal code | Resolved |
 | [D676](#d676) | A busy `--metrics-bind` port was refused without the flag's name | Resolved |
+| [D677](#d677) | An erased identity survived where the flow copied it | Resolved |
+| [D678](#d678) | A metric read a personal value through a reference or a derived attribute | Resolved |
+| [D679](#d679) | A `pull` past the log answered an empty page | Resolved |
+| [D680](#d680) | The guide's socket calls needed the service's user, unsaid | Resolved |
+| [D681](#d681) | A build from the root took rustup's default toolchain, unsaid | Resolved |
+| [D682](#d682) | An erased value stayed in an index page's free space | Resolved |
+| [D683](#d683) | A page's memory followed what it read, unsaid | Resolved |
+| [D684](#d684) | `export` names a personal identity as `actor_id`, unsaid | Resolved |
+| [D685](#d685) | `errors.md` gave the wrong code for a decimal's places | Resolved |
+| [D686](#d686) | Any actor may run `import_batch`, unsaid | Resolved |
+| [D687](#d687) | Both checkers accept three constructs the core refuses at run time | Open |
+| [D688](#d688) | Writes answered while `/health` found the store unreadable | Open |
+| [D689](#d689) | A subscription to nothing is taken and delivers nothing | Open |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4355,3 +4368,68 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 **A busy `--metrics-bind` port was refused without the flag's name**. Found 2026-10-14 by the fifteenth production review's operator, beside a quick-check refusal printed twice, which was not reproduced.
 
 **Resolved** 2026-10-14: the refusal names the flag (ADR-0202 decision 7). Read, not tested.
+
+### D677
+**An erased identity survived where the flow copied it**: ADR-0202 decision 1 replaced an erased actor's identity where an effect wrote it from `actor.id`, not where the flow then copied it: an order's `requester`, created from a request's `requested_by`, kept the address in its column and its creation event's inputs, and so did a memo's `copied_by`, answered by `get`, queries and the export, and held in the store's file. Found 2026-10-14 by the sixteenth production review's adversary, N1.
+
+**Resolved** 2026-10-14: the erasure replaces it by value in every attribute and recorded input of type `identity`, in both backends (ADR-0203 decision 1). `an_erased_actors_identity_leaves_the_store` holds an author, a copy another actor made, a receipt's input passed from it and a client's input of type `identity`, and fails with each of the three sets, or either rewrite, removed; the Studio's `test_an_erased_actors_identity_leaves_what_an_effect_wrote_alike` fails without the reference runner's.
+
+### D678
+**A metric read a personal value through a reference or a derived attribute**: check 56 read only a metric item's own members, so `d.owner.name`, `max(d.owner.salary)` and `d.owner_name` were accepted by both checkers, and an agent's metric read answered each person's name and salary; a read's filter on `d.owner_rich` or `d.owner_name >= "B"` was answered. Found 2026-10-14 by the sixteenth production review's adversary, N6.
+
+**Resolved** 2026-10-14: both checkers refuse a metric over objects reaching a personal value past its first hop, a derived attribute judged as check 10 judges what carries one; a read's filter on a derived attribute reading one is refused `personal` (ADR-0203 decision 2). The reference checker's plant fails its self-test without either route, the oracle fails the core without either, and `a_filter_reaching_a_personal_value_through_a_derived_one_is_refused` fails with the derived route removed.
+
+### D679
+**A `pull` past the log answered an empty page**: a subscriber's cursor from before a restore was answered with no events and a settled cursor behind it, so the events written since never came, where `export` and `acknowledge` refuse it and errors.md said `pull` did. Found 2026-10-14 by the sixteenth production review's operator.
+
+**Resolved** 2026-10-14: refused `invalid_cursor` (ADR-0203 decision 3). `a_cursor_the_store_never_handed_out_is_refused` fails with the check removed.
+
+### D680
+**The guide's socket calls needed the service's user, unsaid**: `/run/objectflow` is `0750` and the socket `0660`, so an administrator's shell following `operate.md` was denied. Found 2026-10-14 by the sixteenth production review's operator.
+
+**Resolved** 2026-10-14: said (ADR-0203 decision 4).
+
+### D681
+**A build from the root took rustup's default toolchain, unsaid**: `rust-toolchain.toml` is in `core/`. Read 2026-10-14 by the sixteenth production review's operator.
+
+**Resolved** 2026-10-14: the guide builds from `core/` and says why (ADR-0203 decision 4); moving the pin would change workflows that have not yet run on GitHub.
+
+### D682
+**An erased value stayed in an index page's free space**: after 4,000 rows holding an erased address were rewritten, 14 copies stayed in one index page's free gap despite `secure_delete`; nothing reads them through the service. Found 2026-10-14 by the sixteenth production review's adversary.
+
+**Resolved** 2026-10-14: `operate.md` says a `VACUUM` with the service stopped leaves none, measured on a copy where 929 such copies became none (ADR-0203 decision 4).
+
+### D683
+**A page's memory followed what it read, unsaid**: a 9.8 MB page of text-heavy objects took 145 MB, twelve at once 1.1 GB. Found 2026-10-14 by the sixteenth production review's adversary.
+
+**Resolved** 2026-10-14: the memory guide says so (ADR-0203 decision 4).
+
+### D684
+**`export` names a personal identity as `actor_id`, unsaid**. Found 2026-10-14 by the sixteenth production review's adversary.
+
+**Resolved** 2026-10-14: `operate.md` says to filter `actor_id` where identities are personal, or give actors opaque ones (ADR-0203 decision 4).
+
+### D685
+**`errors.md` gave the wrong code for a decimal's places**: `out_of_range`, where more places than the scale is `malformed`. Found 2026-10-14 by the sixteenth production review's adversary.
+
+**Resolved** 2026-10-14: corrected from the code (ADR-0203 decision 4).
+
+### D686
+**Any actor may run `import_batch`, unsaid**: an import may admit invariant violations and records the `decided_by` it is given. Found 2026-10-14 by the sixteenth production review's adversary.
+
+**Resolved** 2026-10-14: `operate.md` keeps `maintain`, `upgrade` and `import_batch` to the operators' tools (ADR-0203 decision 4).
+
+### D687
+**Both checkers accept three constructs the core refuses at run time**: `"by " + actor.id` and `count(d)` in a metric answer `501 not_run`, and `actor.principal` assigned where a request sends none refuses it. Found 2026-10-14 by the sixteenth production review's adversary.
+
+**Open**: the checkers to refuse what the core cannot run (ADR-0203 decision 5, `TODO.md`).
+
+### D688
+**Writes answered while `/health` found the store unreadable**: after the store's file was overwritten in place, `/health` said `store_unreadable` while writes were answered `200`. Found 2026-10-14 by the sixteenth production review's adversary.
+
+**Open**: writes to be refused once the store is found unreadable (ADR-0203 decision 5, `TODO.md`).
+
+### D689
+**A subscription to nothing is taken and delivers nothing**: a subscription to a type that does not exist, to unknown transitions, or with a negative `dead_after` is taken, silently. Found 2026-10-14 by the sixteenth production review's adversary.
+
+**Open**: a subscription's filter to be checked as it is made (ADR-0203 decision 5, `TODO.md`).

@@ -2,7 +2,7 @@
 
 - **Status:** **Decided** 2026-10-14 on the author's standing instruction, "keep the bar and continue the loop", each decision the recommendation stated here; built the same day
 - **Date:** 2026-10-14
-- **Refined by:** ADR-0202 — the build's configuration at the repository's root, its flag required by a build script, and the personal guard on every actor the store does not know as a person or a service.
+- **Refined by:** ADR-0202 — the build's configuration at the repository's root, its flag required by a build script, and the personal guard on every actor the store does not know as a person or a service. ADR-0203 — a metric read's filter on a derived attribute reading a personal value refused too.
 - **Refines:** ADR-0200 decision 4 (where object reads that grow wait); ADR-0198 decision 1 (the bound on derived attributes, now on their depth too); ADR-0190 decision 7 (a reach a limit may stop); ADR-0197 (a derived value past its bound of hops)
 - **Relates to:** `design/production-review.md` §18; `guides/operate.md`; `guides/agents.md`; `guides/wire.md`; `guides/errors.md`; `design/flow-format.md`
 

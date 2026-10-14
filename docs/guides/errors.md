@@ -65,10 +65,10 @@ Every refusal carries a `remedy`: what the caller can do about it.
 | `unknown_input` | is not one the transition takes. |
 | `missing` | is required and was not sent, or was `null`. |
 | `wrong_type` | is a different JSON type than its declared type takes. |
-| `malformed` | has the right JSON type but the wrong form: a bad date, an identity with invisible characters. |
+| `malformed` | has the right JSON type but the wrong form: a bad date, an identity with invisible characters, a decimal with more places than its scale, which is never rounded. |
 | `wrong_currency` | is money in another currency than the declared one. |
 | `no_such_object` | names an object that does not exist, or one of another type. |
-| `out_of_range` | is past what its type holds: too many digits or decimal places, a string over 64 KiB. |
+| `out_of_range` | is past what its type holds: more digits than a decimal or an amount holds, an integer past 64 bits, a string over 64 KiB. |
 | `not_allowed` | is a value the transition does not accept here, such as a repeated element of a set. |
 
 A required input whose attribute is optional elsewhere is refused another way: `unsatisfied` with the clause `<attribute>_provided`. Map both shapes to the same form field.

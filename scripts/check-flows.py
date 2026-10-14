@@ -1249,6 +1249,69 @@ def personal_errors(doc, library):
                     out.append((("migration", "backfill", tn, a), "names",
                                 f"the backfill of {tn}.{a} reads {carried}, and {a} is not personal; a backfill is a "
                                 "write; a personal value reaches only a personal attribute (the model's check 10)"))
+
+    # a metric over objects reads no personal value through a reference or a derived attribute either, where check 56,
+    # reading its item's own members, passed `d.owner.name`, `max(d.owner.salary)` and `d.owner_name`, and an agent's
+    # metric read answered each person's name and salary (sixteenth production review N6, ADR-0203 decision 2)
+    def chains(tree, item):
+        """Each path read from the item, as its members, every path of the tree, outermost first."""
+        found = []
+
+        def visit(n):
+            if isinstance(n, tuple) and n[:1] == ("path",):
+                members, base = [], n
+                while isinstance(base, tuple) and base[:1] == ("path",):
+                    members.insert(0, base[2])
+                    base = base[1]
+                if base == ("name", item):
+                    found.append(members)
+            if isinstance(n, (tuple, list)):
+                for c in n:
+                    visit(c)
+        visit(tree)
+        return found
+
+    def reaches(tn, members):
+        """What personal value a path from an object of the type reaches past its first member, or None."""
+        u = tn
+        for i, mbr in enumerate(members):
+            k = kinds.get(u) or {}
+            spec = (k.get("attributes") or {}).get(mbr)
+            if isinstance(spec, dict):
+                if spec.get("personal"):
+                    return f"the personal {u}.{mbr}" if i > 0 else None
+                if spec.get("reference"):
+                    u = str(spec["reference"]).rstrip("[]")
+                    continue
+                return None
+            d = (k.get("derived_attributes") or {}).get(mbr)
+            if d is not None:
+                carried = why(u, None, (d or {}).get("expression", ""), {}, set())
+                return f"the derived {u}.{mbr}, which reads {carried}" if carried else None
+            return None
+        return None
+
+    for tn, t in types(doc):
+        for mn, m in (t.get("metrics") or {}).items():
+            if not isinstance(m, dict) or m.get("source", "objects") != "objects" or not m.get("item"):
+                continue
+            parts = [(("expression",), m.get("expression")), (("filter",), m.get("filter"))]
+            parts += [(("dimensions", d), e) for d, e in (m.get("dimensions") or {}).items()]
+            for key, text in parts:
+                if text is None:
+                    continue
+                try:
+                    tree = flowexpr.parse(" ".join(str(text).split()))
+                except flowexpr.ParseError:
+                    continue                    # step 2 refuses what does not parse
+                said = set()
+                for members in chains(tree, m["item"]):
+                    reached = reaches(tn, members)
+                    if reached:
+                        said.add(f"metric {mn} reads {m['item']}.{'.'.join(members)}, which reaches {reached}; a "
+                                 "metric reads no personal value, through a reference or a derived attribute either "
+                                 "(ADR-0203)")
+                out += [(("types", tn, "metrics", mn) + key, "names", w) for w in sorted(said)]
     return out
 
 
@@ -5681,6 +5744,65 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     ok &= hit
     print(f"  planted a cascade and an erasure's foreach over a set no invariant bounds: "
           f"{'noticed, and not once bounded' if hit else 'MISSED ' + str(reached)}")
+    # a metric reads no personal value through a reference or a derived attribute either, where check 56 passed a
+    # dimension `d.owner.name`, `max(d.owner.salary)` and `d.owner_name`; with nothing marked personal, none is found
+    # (sixteenth production review N6, ADR-0203 decision 2)
+    desks = (
+        'module: pay\n'
+        'categories: [live, closed]\n'
+        'types:\n'
+        '  Person:\n'
+        '    description: A person.\n'
+        '    tracking: record\n'
+        '    attributes:\n'
+        '      name: { type: string, personal: true, optional: true }\n'
+        '      salary: { type: int, personal: true, optional: true }\n'
+        '    states:\n'
+        '      ON: { category: live, description: On. }\n'
+        '      OFF: { category: closed, final: true, description: Off. }\n'
+        '    derived_attributes:\n'
+        '      rich: { description: Paid well., expression: salary > 100000 }\n'
+        '    transitions:\n'
+        '      join: { kind: initial, to: ON, optional_inputs: [name, salary] }\n'
+        '      leave: { kind: external, from: ON, to: OFF }\n'
+        '      forget: { kind: erasure, inputs: { reason: { type: string } } }\n'
+        '  Desk:\n'
+        '    description: A desk.\n'
+        '    tracking: record\n'
+        '    attributes:\n'
+        '      owner: { reference: Person, optional: true }\n'
+        '    states:\n'
+        '      ON: { category: live, description: On. }\n'
+        '      OFF: { category: closed, final: true, description: Off. }\n'
+        '    derived_attributes:\n'
+        "      owner_name: { description: Its owner's name., expression: owner.name }\n"
+        '      owner_rich: { description: Its owner is paid well., expression: owner.rich }\n'
+        '    transitions:\n'
+        '      place: { kind: initial, to: ON, optional_inputs: [owner] }\n'
+        '      clear: { kind: external, from: ON, to: OFF }\n'
+        '    metrics:\n'
+        '      by_owner:\n'
+        '        description: Desks by owner.\n'
+        '        source: objects\n'
+        '        item: d\n'
+        '        dimensions: { who: d.owner.name }\n'
+        '        expression: max(d.owner.salary)\n'
+        '      by_derived:\n'
+        "        description: Desks by owner's name.\n"
+        '        source: objects\n'
+        '        item: d\n'
+        '        dimensions: { who: d.owner_name }\n'
+        '        expression: count()\n'
+    )
+    reach_found = [x[4] for x in check([("desks.yaml", desks)])[0] if x[3] == "names" and "which reaches" in x[4]]
+    reach_clean = [x[4] for x in check([("plain.yaml", desks.replace("personal: true, ", ""))])[0]
+                   if x[3] == "names" and "which reaches" in x[4]]
+    hit = (len(reach_found) == 3 and reach_clean == []
+           and any("d.owner_name, which reaches the derived Desk.owner_name" in w for w in reach_found)
+           and any("d.owner.salary, which reaches the personal Person.salary" in w for w in reach_found))
+    ok &= hit
+    print(f"  planted metrics reading a person's name and salary through a reference and a derived attribute: "
+          f"{'refused, and not once nothing is personal' if hit else 'MISSED ' + str((reach_found, reach_clean))}")
     # a correction taking taken_by, its own or its type's, is no correction writing more than it corrects (ADR-0190
     # decision 5)
     held = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A record a person corrects.\n"

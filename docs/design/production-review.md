@@ -539,3 +539,56 @@ The minors not given an entry:
 ### What the fifteenth review asks
 
 The author's standing instruction decides what the findings ask (ADR-0202); the major and the minors that cost little are fixed, then a sixteenth review, or the author's acceptance of what remains.
+
+## 20. The sixteenth review, after the fifteenth's fixes
+
+At commit `9173b00`, 2026-10-14, not yet pushed, every gate of `scripts/check-all` passed on it. The same two roles each worked in a checkout of their own with the release binary built from it; the operator's own build from the repository's root was byte for byte the same. The environment's privacy check refused both reviewers' use of the provided stores this time, and neither worked around it: the operator ran on the synthetic stores of the provided sizes an earlier operator built, two years of 36.6k objects and six of 108.6k, and the adversary on a store of its own, 28.7k objects. Their logs and reports stayed in the session's scratch directory, which is not kept. The adversary wrote one stray process id's file into the main repository and removed it, and stopped the process it named.
+
+**Verdicts: the operator GO, with no blocker and no major; the adversary NO-GO, with two majors and no blocker.**
+
+Neither met a corrupted store or a lost acknowledged write:
+- `kill -9` and `SIGTERM` during writes, an import and an approval lost no acknowledged write, and an interrupted import resumed without duplicates.
+- Hostile input, from 10,000-deep nesting to 3,000 fuzzed filters, was answered `400` or a typed refusal within 0.2 s.
+- Races left one winner each.
+- Erasures left the store's files and the `-wal` within about 4 s, a heavy actor's in 0.17 s.
+
+### The fifteenth review's findings, re-checked
+
+- **Fixed, each measured by one of them or both:**
+  - an erased identity written from `actor.id` or `actor.principal` (D663), gone from columns, history, five export sources and the file;
+  - the build's SQLite flag from the root (D664), the binary identical, a build outside the repository stopped;
+  - an unknown actor's personal query (D665);
+  - a metric read bound to one claimant (D666), 5.8 ms on six years;
+  - a date moved by part of a day (D667);
+  - an id-shaped identity in another case (D668);
+  - the guides (D670 to D676): the `-wal` message, erasures after a restore, the prune script and timer working as written, the refusal code, the flag's name.
+- **Partly fixed, documented:** `check` and `consulted` revealing personal values, `occurred_at` in the tools, each the gateway's to close.
+
+### What they found
+
+| | Finding | Checked | Severity |
+|---|---|---|---|
+| D677 | An erased identity survived where the flow copied it: an order's `requester` taken from a request's `requested_by`, a memo's `copied_by`, in columns, the creation event's inputs, exports and the file | measured by the adversary | major |
+| D678 | A metric read a personal value through a reference or a derived attribute, `d.owner.name`, `max(d.owner.salary)`, `d.owner_name`, accepted by both checkers; a read's filter on `d.owner_name >= "B"` answered | measured by the adversary | major |
+| D679 | `pull` with a cursor from before a restore answered an empty page, the later events never coming | measured by the operator | minor |
+| D680 | The guide's socket calls needed the service's user or group, unsaid | measured by the operator | minor |
+| D681 | A build from the root takes rustup's default toolchain | read by the operator | minor |
+| D682 | 14 copies of an erased address stayed in an index page's free space | measured by the adversary | minor |
+| D683 | A 9.8 MB page took 145 MB, twelve at once 1.1 GB | measured by the adversary | minor |
+| D684 | `export` names a personal identity as `actor_id` | measured by the adversary | minor |
+| D685 | errors.md gave `out_of_range` for a decimal's places, which are `malformed` | measured by the adversary | minor |
+| D686 | Any actor may run `import_batch`, its `decided_by` free text | measured by the adversary | minor |
+| D687 | Both checkers accept `"by " + actor.id`, `count(d)` in a metric and `actor.principal` assigned where none is sent, which the core refuses at run time | measured by the adversary | minor |
+| D688 | `/health` said `store_unreadable` while writes were answered, after the file was overwritten in place | measured by the adversary | minor |
+| D689 | A subscription to no type, to unknown transitions or with a negative `dead_after` is taken and delivers nothing | measured by the adversary | minor |
+
+The minors not given an entry:
+- **The sandbox:** its clock moved past 9999 makes a type's reads `500`; its load is quadratic in types, 30 s for 8,000.
+- **Filters:** arithmetic past its bound in a filter matches nothing, unsaid.
+- **Messages:** "listening on" is said before a busy `--metrics-bind` refuses.
+- **The repository:** 33 commits never run in CI, `release.yml` never run, no tag, no required check, Dependabot off.
+- **Outside the engine:** the gateway as the trust boundary; recovery is the last backup, which hands ids out again; publishing holds writes for its approval, 9 to 13 s on six years; the 1.0.0 release entry and a 0.2.0 upgrade fixture not yet made.
+
+### What the sixteenth review asks
+
+The author's standing instruction decides what the findings ask (ADR-0203); the majors and the minors that cost little are fixed, then a seventeenth review, or the author's acceptance of what remains.

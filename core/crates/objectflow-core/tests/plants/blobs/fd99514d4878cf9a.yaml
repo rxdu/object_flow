@@ -1,0 +1,45 @@
+module: pay
+categories: [live, closed]
+types:
+  Person:
+    description: A person.
+    tracking: record
+    attributes:
+      name: { type: string, personal: true, optional: true }
+      salary: { type: int, personal: true, optional: true }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    derived_attributes:
+      rich: { description: Paid well., expression: salary > 100000 }
+    transitions:
+      join: { kind: initial, to: ON, optional_inputs: [name, salary] }
+      leave: { kind: external, from: ON, to: OFF }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Desk:
+    description: A desk.
+    tracking: record
+    attributes:
+      owner: { reference: Person, optional: true }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    derived_attributes:
+      owner_name: { description: Its owner's name., expression: owner.name }
+      owner_rich: { description: Its owner is paid well., expression: owner.rich }
+    transitions:
+      place: { kind: initial, to: ON, optional_inputs: [owner] }
+      clear: { kind: external, from: ON, to: OFF }
+    metrics:
+      by_owner:
+        description: Desks by owner.
+        source: objects
+        item: d
+        dimensions: { who: d.owner.name }
+        expression: max(d.owner.salary)
+      by_derived:
+        description: Desks by owner's name.
+        source: objects
+        item: d
+        dimensions: { who: d.owner_name }
+        expression: count()

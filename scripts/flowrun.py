@@ -2750,33 +2750,28 @@ class Runner:
         spec = ((kinds.get(tn) or {}).get("attributes") or {}).get(a)
         return bool((spec or {}).get("personal"))
 
-    def identity_writes(self):
-        """The names an effect may give the acting actor's identity, or its principal's: the attributes an `assign`
-        sets to `actor.id` or `actor.principal`, and the inputs a `create` or a `call` passes either, as the core's
-        `Library::identity_writes` (ADR-0202 decision 1). A value computed from either is not one of them."""
-        names, given = set(), ("actor.id", "actor.principal")
-        for t in self.kinds.values():
-            for x in (t.get("transitions") or {}).values():
-                if not isinstance(x, dict):
-                    continue
-                for st, k in effect_steps(x.get("effect")):
-                    spec = st[k] if isinstance(st[k], dict) else {}
-                    if k == "assign" and "".join(str(spec.get("expr", "")).split()) in given:
-                        names.add(spec.get("location"))
-                    elif k in ("create", "call"):
-                        names.update(n for n, e in (spec.get("inputs") or {}).items() if "".join(str(e).split()) in given)
-        return names
+    def identity_attrs(self, tn):
+        """The attributes of type identity a type's objects hold, its bases' among them, where an erased actor's
+        identity may be copied, however it got there, as the core's `Library::identity_held` (ADR-0203 decision 1)."""
+        out, seen = set(), set()
+        while tn and tn not in seen:
+            seen.add(tn)
+            k = self.kinds.get(tn) or {}
+            out.update(a for a, spec in (k.get("attributes") or {}).items()
+                       if isinstance(spec, dict) and spec.get("type") == "identity")
+            tn = k.get("extends")
+        return out
 
     def rename_erased_actors(self, ctx):
         """Each erased actor's identity, wherever the store keeps it, replaced by its object's id, which names no
         person: the events' actor, the attempts', and a proposal's or a change's recorded actors, this request's own
-        among them, as the core's (ADR-0192 decision 4); and the attributes an effect wrote it into, where a memo's
-        author kept the erased person's address (fifteenth production review, ADR-0202 decision 1)."""
+        among them, as the core's (ADR-0192 decision 4); and every attribute of type identity holding it, however it got
+        there, where a memo's author set to actor.id kept the erased person's address (fifteenth production review)
+        and an order's requester copied from it did (sixteenth, ADR-0203 decision 1)."""
         work = ctx.work
-        names = self.identity_writes() if getattr(ctx, "renamed", ()) else set()
         for identity, oid in getattr(ctx, "renamed", ()):
             for o in work.objects.values():
-                for a in names:
+                for a in self.identity_attrs(o.type):
                     if o.attrs.get(a) == identity:
                         o.attrs[a] = oid
             for e in work.events:

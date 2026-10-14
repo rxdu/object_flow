@@ -2222,25 +2222,33 @@ impl<'w> Reader<'w> {
             Kind::Other
         };
         let env = BTreeMap::from([(item, rowkind)]);
-        fn walk(r: &Reader<'_>, e: &Expr, env: &BTreeMap<String, Kind>) -> Result<bool, NotRun> {
+        // a member of the path's type marked personal, or a derived one
+        // reading what is, as a consulted reference is masked, where a filter
+        // on `d.owner_name >= "B"` was answered (sixteenth production review
+        // N6, ADR-0203 decision 2)
+        let personal = crate::eval::personal_names(lib);
+        fn walk(
+            r: &Reader<'_>,
+            e: &Expr,
+            env: &BTreeMap<String, Kind>,
+            personal: &BTreeSet<String>,
+        ) -> Result<bool, NotRun> {
             if let Expr::Path(base, m) = e
                 && let Kind::Object(tn) = r.kind(base, env, None)?
-                && r.world
-                    .lib
-                    .type_(&tn)
-                    .and_then(|t| t.attribute(m))
-                    .is_some_and(|a| a.personal)
+                && let Some(t) = r.world.lib.type_(&tn)
+                && (t.attribute(m).is_some_and(|a| a.personal)
+                    || (t.derived.iter().any(|(d, _)| d == m) && personal.contains(m)))
             {
                 return Ok(true);
             }
             for c in crate::check::children_of(e) {
-                if walk(r, c, env)? {
+                if walk(r, c, env, personal)? {
                     return Ok(true);
                 }
             }
             Ok(false)
         }
-        walk(self, filter, &env)
+        walk(self, filter, &env, &personal)
     }
 
     /// A page's order between two keys: by each kept dimension ascending, an
@@ -2935,6 +2943,35 @@ metrics:
 
     fn rat(n: i128, d: i128) -> Option<Rat> {
         Rat::new(n, d)
+    }
+
+    /// A reader's filter on a metric reading a personal value through a
+    /// derived attribute is refused `personal`, as one through a reference
+    /// is, where `d.owner_name >= "B"` ranged over people's names; one on a
+    /// derived attribute reading nothing personal is answered (sixteenth
+    /// production review N6, ADR-0203 decision 2).
+    #[test]
+    fn a_filter_reaching_a_personal_value_through_a_derived_one_is_refused() {
+        let text = "\nmodule: desks\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      name: { type: string, personal: true, optional: true }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON, optional_inputs: [name] }\n  Desk:\n    attributes:\n      owner: { reference: Person, optional: true }\n    derived_attributes:\n      owner_name: { expression: owner.name }\n      placed: { expression: owner is not null }\n    states:\n      ON: { category: live }\n    transitions:\n      place: { kind: initial, to: ON, optional_inputs: [owner] }\n    metrics:\n      desks:\n        source: objects\n        item: d\n        expression: count()\n";
+        let lib = Library::load(&[("desks.yaml".into(), text.into())]).unwrap();
+        let s = Store::sandbox(lib, 0).unwrap();
+        let w = s.snapshot().unwrap();
+        let read = |filter: &str| {
+            page(
+                &w,
+                None,
+                "Desk.desks",
+                &BTreeMap::new(),
+                None,
+                None,
+                Some(filter),
+            )
+            .unwrap()
+            .refused
+        };
+        assert_eq!(read(r#"d.owner_name >= "B""#), Some("personal"));
+        assert_eq!(read(r#"d.owner.name == "Ann""#), Some("personal"));
+        assert_eq!(read("d.placed"), None);
     }
 
     /// A metric over objects bound to one of the item's own stored

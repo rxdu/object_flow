@@ -2324,6 +2324,7 @@ types:
     tracking: record
     attributes:
       author: { type: identity, optional: true }
+      kept_by: { type: identity, optional: true }
     states:
       OPEN: { category: live, description: Open. }
       DONE: { category: closed, final: true, description: Done. }
@@ -2333,6 +2334,11 @@ types:
         to: OPEN
         effect:
           - assign: { location: author, expr: actor.id }
+      keep:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - assign: { location: kept_by, expr: author }
       close: { kind: external, from: OPEN, to: DONE }
 """
 
@@ -2340,7 +2346,8 @@ types:
 def test_an_erased_actors_identity_leaves_what_an_effect_wrote_alike(tee):
     """An erasure of an actor whose identity is personal rewrites it to the actor's object id in an attribute an
     effect set to actor.id, alike through both backends, where a note's author kept the erased person's address
-    (fifteenth production review, ADR-0202 decision 1)."""
+    (fifteenth production review, ADR-0202 decision 1), and in one another actor copied it into (sixteenth,
+    ADR-0203 decision 1)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "signed.yaml", "text": SIGNED}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -2349,9 +2356,11 @@ def test_an_erased_actors_identity_leaves_what_an_effect_wrote_alike(tee):
                                    "inputs": {"login": email}})["object_id"]
     note = tee.post("/v1/request", {"transition": "write", "actor": {"id": email}, "type": "Note"})["object_id"]
     assert tee.post("/v1/get", {"id": note})["attributes"]["author"] == email
+    assert tee.post("/v1/request", {"transition": "keep", "actor": OP, "object_id": note})["kind"] == "satisfied"
     v = tee.post("/v1/request", {"transition": "forget", "actor": OP, "object_id": ann, "inputs": {"reason": "asked"}})
     assert v["kind"] == "satisfied", v
-    assert tee.post("/v1/get", {"id": note})["attributes"]["author"] == ann
+    held = tee.post("/v1/get", {"id": note})["attributes"]
+    assert (held["author"], held["kept_by"]) == (ann, ann), held
     alike(tee)
 
 

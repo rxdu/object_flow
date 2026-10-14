@@ -4249,6 +4249,7 @@ types:
     tracking: record
     attributes:
       author: { type: identity, optional: true }
+      kept_by: { type: identity, optional: true }
     states:
       OPEN: { category: live, description: Open. }
       DONE: { category: closed, final: true, description: Done. }
@@ -4259,6 +4260,13 @@ types:
         effect:
           - assign: { location: author, expr: actor.id }
           - create: { type: Receipt, transition: issue, inputs: { by: actor.id } }
+      keep:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - assign: { location: kept_by, expr: author }
+          - create: { type: Receipt, transition: issue, inputs: { by: author } }
+      sign: { kind: internal, from: [OPEN], inputs: { witness: { type: identity } } }
       close: { kind: external, from: OPEN, to: DONE, proposable: true }
   Receipt:
     description: A receipt of a note, naming who wrote it.
@@ -4269,7 +4277,7 @@ types:
       KEPT: { category: live, description: Kept. }
       GONE: { category: closed, final: true, description: Gone. }
     transitions:
-      issue: { kind: initial, to: KEPT, required_inputs: [by], only_via: [Note.write] }
+      issue: { kind: initial, to: KEPT, required_inputs: [by], only_via: [Note.write, Note.keep] }
       drop: { kind: external, from: KEPT, to: GONE }
 ";
 
@@ -4280,7 +4288,9 @@ types:
 /// production review ERASED-IDENTITY, ADR-0192 decision 4); nor in an
 /// attribute an effect set to `actor.id`, nor in the input a creation was
 /// passed it as, where a note's author kept the address (fifteenth
-/// production review, ADR-0202 decision 1).
+/// production review, ADR-0202 decision 1); nor where another actor copied
+/// it, a note's `kept_by` and a receipt's `by` taken from its author
+/// (sixteenth production review, ADR-0203 decision 1).
 #[test]
 fn an_erased_actors_identity_leaves_the_store() {
     let file = fresh_store("forgotten");
@@ -4332,6 +4342,21 @@ fn an_erased_actors_identity_leaves_the_store() {
         &json!({"actor": me, "object_id": done, "transition": "close"}),
     );
     assert_eq!(refused["kind"], "unavailable", "{refused}");
+    // the operator copies her identity, from the note's author, into the
+    // note and into a receipt's input
+    let kept = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": note, "transition": "keep"}),
+    );
+    assert_eq!(kept["kind"], "satisfied", "{kept}");
+    // and a client sends it as an input of type identity
+    let signed = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": note, "transition": "sign", "inputs": {"witness": email}}),
+    );
+    assert_eq!(signed["kind"], "satisfied", "{signed}");
     let erased = post(
         &s,
         "/v1/request",
@@ -4351,8 +4376,10 @@ fn an_erased_actors_identity_leaves_the_store() {
     }
     for sql in [
         "SELECT count(*) FROM t_note WHERE author = ?1",
+        "SELECT count(*) FROM t_note WHERE kept_by = ?1",
         "SELECT count(*) FROM t_receipt WHERE by = ?1",
         "SELECT count(*) FROM of_event WHERE json_extract(payload, '$.inputs.by') = ?1",
+        "SELECT count(*) FROM of_event WHERE json_extract(payload, '$.inputs.witness') = ?1",
     ] {
         assert_eq!(count(sql, email), 0, "{sql}");
         assert!(count(sql, &ann) >= 1, "{sql}");
