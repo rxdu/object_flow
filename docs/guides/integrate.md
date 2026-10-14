@@ -113,7 +113,7 @@ POST /v1/query
 
 **`available`** lists the objects of a type a given transition is available to now.
 
-**Reads come in pages.** `query`, `available`, `history`, `pull` and `export` answer at most `limit` items (100 by default, up to 1000) and a `cursor`. Send the cursor back with the same read until it is `null`. A page continues after the last item it gave, so an object created meanwhile is met once.
+**Reads come in pages.** `query`, `available`, `history`, `pull` and `export` answer at most `limit` items (100 by default, up to 1000) and a cursor. Send the cursor back with the same read: `query`, `available` and `history` until it is `null`; `pull`, whose cursor is `settled`, and `export`, whose log grows, until `more` is `false`, keeping the cursor to read what is added later (`wire.md`, Pages). A page continues after the last item it gave, so an object created meanwhile is met once.
 
 There is no full-text search: index what `export` or `pull` gives you.
 

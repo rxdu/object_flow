@@ -72,12 +72,13 @@ pub fn export_page(
     // a cursor past what the store has handed out is none of its own, where
     // a forged one answered an empty page and was kept, so a consumer waited
     // for ever unsaid (fourth production review A-12)
-    let last = if source.ends_with(".attempts") {
-        world.last_txn()?
+    // and one in a gap a restore skipped (ADR-0207 decision 5)
+    let (last, skipped) = if source.ends_with(".attempts") {
+        (world.last_txn()?, world.skipped_txn(after)?)
     } else {
-        world.last_position()?
+        (world.last_position()?, world.skipped_position(after)?)
     };
-    if after > last {
+    if after > last || skipped {
         return refuse("invalid_cursor");
     }
     let mut rows: Vec<(i64, Json)> = if source == "log" {
@@ -207,11 +208,22 @@ fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> Result<E
     let day_of = |text: &str| {
         crate::value::parse_timestamp(&format!("{text}T00:00:00Z")).map(|t| t.div_euclid(86_400))
     };
+    let today = world.now.div_euclid(86_400);
+    // a day not over yet, which no page has given, where one ahead of the
+    // store's today answered nothing until then and passed over every day
+    // before it (the audit's durability V5); and a day a restore recounts,
+    // from the copy's last to the restore's (ADR-0207 decision 5)
+    let restores = world.restores()?;
+    let recounted = |d: i64| {
+        restores.iter().any(|r| {
+            (r.copy_last_at.div_euclid(86_400)..=r.restored_at.div_euclid(86_400)).contains(&d)
+        })
+    };
     let after = match cursor {
         None | Some("") => None,
         Some(c) => match day_of(c) {
-            Some(d) => Some(d),
-            None => {
+            Some(d) if d < today && !recounted(d) => Some(d),
+            _ => {
                 return Ok(ExportPage {
                     lines: Vec::new(),
                     cursor: c.to_string(),
@@ -221,7 +233,6 @@ fn counts_page(world: &World<'_>, type_: &str, cursor: Option<&str>) -> Result<E
             }
         },
     };
-    let today = world.now.div_euclid(86_400);
     let mut rows: Vec<(i64, String)> = crate::metric::attempt_count_rows(world, type_)?
         .into_iter()
         .filter_map(|r| {
@@ -407,11 +418,33 @@ fn interval_rows(
         world.due()?;
         let upto = at.saturating_add(window).min(last);
         let spans = world.intervals_between(&family, at, upto)?;
-        window = if spans.is_empty() {
+        // each row a later commit deleted or moved, retracted at that
+        // commit's cursor and before the rows it wrote there, so a consumer
+        // folding the rows by their key holds what the store holds, where it
+        // kept a merged span open and a renamed member's rows under the old
+        // name (the audit's durability V7, ADR-0205 decision 9)
+        let retracted = world.retractions_between(&family, at, upto)?;
+        window = if spans.is_empty() && retracted.is_empty() {
             window.saturating_mul(2).min(WIDEST)
         } else {
             FIRST
         };
+        let mut at_cursor: Vec<(i64, bool, Json)> = retracted
+            .iter()
+            .map(|r| {
+                (
+                    r.position,
+                    false,
+                    json!({
+                        "retracted": true,
+                        "object_id": r.object_id,
+                        "dimension": r.dimension,
+                        "entered_position": r.entered_position,
+                        "entered_at": timestamp_text(r.entered_at),
+                    }),
+                )
+            })
+            .collect();
         for s in &spans {
             let personal = s.dimension != "state"
                 && world
@@ -419,9 +452,13 @@ fn interval_rows(
                     .type_(&s.type_)
                     .and_then(|t| t.attribute(&s.dimension))
                     .is_some_and(|a| a.personal);
-            let row = span_row(s, personal);
+            at_cursor.push((s.cursor, true, span_row(s, personal)));
+        }
+        // stable: each cursor's retractions first, then its rows as read
+        at_cursor.sort_by_key(|(cursor, written, _)| (*cursor, *written));
+        for (cursor, _, row) in at_cursor {
             bytes += row.to_string().len() + 1;
-            rows.push((s.cursor, row));
+            rows.push((cursor, row));
         }
         at = upto;
     }
@@ -546,6 +583,9 @@ fn span_row(s: &CursoredSpan, personal: bool) -> Json {
     let mut row = json!({
         "object_id": s.object_id,
         "dimension": s.dimension,
+        // with `entered_at`, the row's key, which a retraction names
+        // (the audit's durability V8)
+        "entered_position": sp.entered_position,
         "entered_at": timestamp_text(sp.entered_at),
         "left_at": sp.left_at.map(timestamp_text),
         "entered_by": sp.entered_by,
@@ -1062,6 +1102,20 @@ types:
                 .as_deref(),
             Some("invalid_cursor")
         );
+        // a day not over, today's or one ahead, is no cursor a page gave,
+        // where one ahead answered nothing until then and passed over every
+        // day before it (the audit's durability V5)
+        let today = crate::value::timestamp_text(w.now)[..10].to_string();
+        for ahead in [today.as_str(), "2999-01-01"] {
+            assert_eq!(
+                export(&w, "Job.attempt_counts", Some(ahead))
+                    .unwrap()
+                    .refused
+                    .as_deref(),
+                Some("invalid_cursor"),
+                "{ahead}"
+            );
+        }
         drop(w);
         // a type's transitions: its family's log, and no other type's
         let (rows, _) = page(&s, "Job.transitions", None);

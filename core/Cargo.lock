@@ -523,7 +523,7 @@ dependencies = [
 
 [[package]]
 name = "objectflow-core"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "regex",
  "rusqlite",
@@ -535,7 +535,7 @@ dependencies = [
 
 [[package]]
 name = "objectflow-harness"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "objectflow-core",
  "serde_json",
@@ -543,7 +543,7 @@ dependencies = [
 
 [[package]]
 name = "objectflow-service"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "axum",
  "hyper",

@@ -281,14 +281,14 @@ Size `MemoryMax` at twice a publish's peak, since one change's dry run may run b
 
 ```sh
 umask 077
-python3 -c "import sqlite3; sqlite3.connect('/var/lib/objectflow/store.sqlite').backup(sqlite3.connect('/backup/store.sqlite'))"
+python3 -c "import sqlite3; c = sqlite3.connect('/backup/store.sqlite'); sqlite3.connect('file:/var/lib/objectflow/store.sqlite?mode=ro', uri=True).backup(c); c.execute('INSERT OR REPLACE INTO of_counter (name, value) VALUES (?, 1)', ('copied',)); c.commit(); c.close()"
 ```
 
-`VACUUM INTO '/backup/store.sqlite'`, run on a connection of your own, works too, and writes a compacted copy.
+The command marks its copy as one, a row of the store's own `of_counter`, so a store started from it knows it is a restore and skips what the live store may have handed out after the copy (below); the service never marks a store it serves. It opens the store read-only, so a mistyped path is refused rather than made into an empty store and an empty copy. `VACUUM INTO '/backup/store.sqlite'`, run on a connection of your own, works too, and writes a compacted copy: mark it as the command does.
 
 Copying the file alone is safe only with the service stopped: a clean stop folds the `-wal` into the file. A backup holds personal data, and an erasure cannot reach it: keep backups `0600`, and expire or encrypt them within the period your privacy rules allow.
 
-**Schedule them.** There is no replica: what you can recover is the last backup. Run the backup from a timer as often as the data you can afford to lose allows (every 15 minutes is a common choice), copy each off the machine, encrypted, and check each copy before trusting it, opened as immutable so the check leaves no `-wal` or `-shm` beside it and needs no `sqlite3` program: `python3 -c "import sqlite3; print(sqlite3.connect('file:/backup/store.sqlite?immutable=1', uri=True).execute('PRAGMA quick_check').fetchone()[0])"` prints `ok`. Expire copies on the schedule your privacy rules set, so a value erased in the store does not outlive it in a backup.
+**Schedule them.** There is no replica: what you can recover is the last backup. Run the backup from a timer as often as the data you can afford to lose allows (every 15 minutes is a common choice), copy each off the machine, encrypted, and check each copy before trusting it, opened as immutable so the check leaves no `-wal` or `-shm` beside it and needs no `sqlite3` program: `python3 -c "import sqlite3; c = sqlite3.connect('file:/backup/store.sqlite?immutable=1', uri=True); print(c.execute('PRAGMA quick_check').fetchone()[0], c.execute('SELECT release FROM of_engine_release ORDER BY seq DESC LIMIT 1').fetchone()[0])"` prints `ok` and the store's release, and refuses a copy that holds no store, which a quick check alone passes. Expire copies on the schedule your privacy rules set, so a value erased in the store does not outlive it in a backup.
 
 A pair of units that takes one every 15 minutes, into a directory the service's user owns, and deletes the local copies older than a day; copying each off the machine and checking it are a command of your own, run after the backup and before the expiry:
 
@@ -301,7 +301,7 @@ Description=ObjectFlow backup
 Type=oneshot
 User=objectflow
 UMask=0077
-ExecStart=/usr/bin/python3 -c "import sqlite3, time; sqlite3.connect('file:/var/lib/objectflow/store.sqlite?mode=ro', uri=True).backup(sqlite3.connect(time.strftime('/var/backups/objectflow/store-%%Y%%m%%dT%%H%%M.sqlite')))"
+ExecStart=/usr/bin/python3 -c "import sqlite3, time; c = sqlite3.connect(time.strftime('/var/backups/objectflow/store-%%Y%%m%%dT%%H%%M.sqlite')); sqlite3.connect('file:/var/lib/objectflow/store.sqlite?mode=ro', uri=True).backup(c); c.execute('INSERT OR REPLACE INTO of_counter (name, value) VALUES (?, 1)', ('copied',)); c.commit(); c.close()"
 # your off-machine copy and its check, for example:
 # ExecStartPost=/usr/local/bin/ship-objectflow-backup /var/backups/objectflow
 ExecStartPost=/usr/bin/find /var/backups/objectflow -name store-*.sqlite -mmin +1440 -delete
@@ -318,18 +318,21 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-Make the directory first, `sudo install -d -o objectflow -g objectflow -m 0700 /var/backups/objectflow`, then enable it with `sudo systemctl enable --now objectflow-backup.timer`. The copy is consistent and one file, made from a read-only connection while the service writes. Each copy is the whole store, so four an hour of a 130 MB store are about 12 GB a day, and of a 390 MB store about 38 GB: the expiry keeps a day of them, so size the volume for a day's copies and shorten `-mmin` if it is smaller, never lengthen it past what your copies off the machine keep. A replicator that ships the `-wal` as it grows, such as Litestream, is not tested beside the service, which checkpoints and truncates the `-wal` itself: check one against that before relying on it.
+Make the directory first, `sudo install -d -o objectflow -g objectflow -m 0700 /var/backups/objectflow`, then enable it with `sudo systemctl enable --now objectflow-backup.timer`. The copy is consistent and one file, made from a read-only connection while the service writes, and marked as the one-off command marks its copy. Each copy is the whole store, so four an hour of a 130 MB store are about 12 GB a day, and of a 390 MB store about 38 GB: the expiry keeps a day of them, so size the volume for a day's copies and shorten `-mmin` if it is smaller, never lengthen it past what your copies off the machine keep. A replicator that ships the `-wal` as it grows, such as Litestream, is not tested beside the service, which checkpoints and truncates the `-wal` itself: check one against that before relying on it.
 
 **Restore:**
 
 1. Stop the service.
 2. Remove the store's `-wal` and `-shm` files.
 3. Put the backup in the store's place, with the same owner and mode `0600`.
-4. Start the service.
+4. Mark it as a copy, as the service's user, unless one of the commands above made it, which marked it already; a copy of the file taken with the service stopped is one to mark: `python3 -c "import sqlite3; c = sqlite3.connect('/var/lib/objectflow/store.sqlite'); c.execute('INSERT OR REPLACE INTO of_counter (name, value) VALUES (?, 1)', ('copied',)); c.commit(); c.close()"`. Marking a marked copy changes nothing.
+5. Start the service.
 
-Step 2 matters: a `-wal` left beside a restored copy would be replayed onto it, and where it is the copy's own later log, the restore is silently undone; the start then says the log held frames its file did not. Never copy a backup over the store's file while the service runs: its writes go on into a log that no longer matches the file, and are lost at the next stop, which the service cannot tell from its own checkpoints.
+Step 2 matters: a `-wal` left beside a restored copy would be replayed onto it, and where it is the copy's own later log, the restore is silently undone; the start then says the log held frames its file did not. By then it has taken them in, so removing the log afterwards does not help: stop the service, remove the `-wal` and `-shm`, put the backup in the store's place again, and start. Never copy a backup over the store's file while the service runs: its writes go on into a log that no longer matches the file, and are lost at the next stop, which the service cannot tell from its own checkpoints.
 
-A restored store hands out again the object ids and event positions it had handed out after the backup was taken: an id an application kept from that time may name a different object once new ones are made, and a consumer holding a cursor from that time would pass over the events written at those positions again. `export` refuses a cursor past the store's last position `invalid_cursor`, but `pull` answers it with no events. Before serving the restored store, reconcile the ids your applications hold from after the backup, and restart each subscriber with a `pull` sent without a cursor, which reads from the position the backup holds as acknowledged. The service runs SQLite's quick check at each start, before anything opens the store for writing; if it fails, the service does not start, says why, and leaves every file as it was. The check reads the whole file: about 0.3 s for 126 MB, 0.8 s for 387 MB.
+Step 4 matters too. A restored store holds nothing the live store did after the copy, though applications kept its ids and numbers: started from a marked copy, it advances every object number, event position, transaction and flow sequence past what the live store may have handed out since, so it hands none of them out twice (ADR-0207). The margin is the most the store recorded in any period as long as the copy's age, doubled, and at least 1,000, each counter going on from the next multiple of 1,000; the start says so in one line, naming the copy's last record and position and where each counter goes on from, and `of_restore` records the gap. Check that line against the highest ids and numbers your applications hold from after the backup: a period busier than twice any in the store's history is the one the margin does not cover. Unmarked, the copy hands those ids and numbers out again, as a release before 1.0.0 did.
+
+What the restore lost is then the applications' to reconcile, and the store says where. An id kept from after the backup names nothing, `not_found`. A request retried under a key the store applied after the backup applies again, under a new id. A cursor a consumer kept from after the backup is refused `invalid_cursor` by `pull`, `export` and `acknowledge`: restart each subscriber with a `pull` sent without a cursor, which reads from the position the backup holds as acknowledged, and each `export` consumer from the copy's last position, which the start names. The service runs SQLite's quick check at each start, before anything opens the store for writing; if it fails, the service does not start, says why, and leaves every file as it was. The check reads the whole file: about 0.3 s for 126 MB, 0.8 s for 387 MB.
 
 ## Upgrading the engine
 

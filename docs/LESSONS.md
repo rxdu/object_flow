@@ -747,3 +747,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** ADR-0205 decision 3 changed what a key answers after an erasure: refused, where it replayed. The core, its tests and the guides changed with it; the adversarial harness's key oracle did not, and failed the first full run, the core being right.
 - **Correction:** When a decision changes a promise, search every oracle that states it, the harness's checks and the reference runner included, and change them in the same commit as the code.
 - **Context:** `objectflow-harness`, ADR-0204 §3's promises; 2026-10-14.
+
+### A start reordered, its announcement with it
+- **Pattern:** Binding the service's addresses before the store was opened, to keep a refused start from touching the store's files, moved the "listening on" line ahead of the store's opening. The deployment tests, like an operator's script, read that line as "it serves", and six of them raced the store's creation.
+- **Correction:** When reordering a start, keep what each line it says means. Here the bind moved and the line stayed where the service begins to serve.
+- **Context:** `objectflow-service`'s start; 2026-10-14.
+
+### Two tests on one store
+- **Pattern:** A new deployment test named its store `restored`, as an older test already did. Tests run at once in one process and share the store's path, so the two collided and one failed now and then. It passed alone, which looked like a flaky test rather than a fault of the new one.
+- **Correction:** Give each test's store a name of its own, and check for a repeated name when adding a test: `grep 'fresh_store("' … | sort | uniq -d`.
+- **Context:** `objectflow-service/tests/deployment.rs`; 2026-10-14.

@@ -459,6 +459,14 @@ struct Watch {
     /// The epoch each read begins in, moved to stop the reads running when
     /// a cut is urgent (ADR-0194 decision 4).
     cut_epoch: Arc<std::sync::atomic::AtomicU64>,
+    /// Why the service serves its store no more, once it found the store
+    /// lost: its file replaced or written over, its log removed or
+    /// replaced, or the store unreadable; kept until a restart (ADR-0205
+    /// decision 8).
+    latched: std::sync::OnceLock<String>,
+    /// The store's write-ahead log as the writer opened it, its device and
+    /// inode, compared at each read and write as the store's file is.
+    wal_identity: Mutex<Option<(u64, u64)>>,
 }
 
 /// The upper bounds, in seconds, of `/metrics`' duration histogram.
@@ -567,6 +575,111 @@ fn store_replaced(shared: &Service) -> Option<String> {
         )
     })
 }
+
+/// Why the service serves its store no more, where it has found it lost:
+/// its file moved or replaced, its write-ahead log removed or replaced, its
+/// file written over in place, or a read finding it unreadable. Latched
+/// until a restart, so no write is acknowledged into a store the service
+/// already found bad, where after `/health` answered unreadable the next
+/// writes answered 200 and were lost at the next start (the audit's
+/// durability S3 to S5, D688, ADR-0205 decision 8). None while it holds.
+fn store_lost(shared: &Service) -> Option<String> {
+    if let Some(why) = shared.watch.latched.get() {
+        return Some(why.clone());
+    }
+    let why = store_replaced(shared)
+        .or_else(|| log_replaced(shared))
+        .or_else(|| store_overwritten(shared))?;
+    Some(latch(shared, why))
+}
+
+/// The store latched lost, said once (ADR-0205 decision 8); what it is
+/// latched for, the first cause found.
+fn latch(shared: &Service, why: String) -> String {
+    if shared.watch.latched.set(why.clone()).is_ok() {
+        say!(
+            "the store is served no more until a restart, every read and write refused and the stop's checkpoint skipped: {why}"
+        );
+    }
+    shared.watch.latched.get().cloned().unwrap_or(why)
+}
+
+/// A store's write-ahead log's path.
+fn wal_path(path: &std::path::Path) -> std::path::PathBuf {
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    std::path::PathBuf::from(wal)
+}
+
+/// The write-ahead log the writer now opens, noted, where the service
+/// itself has opened the store again, which may make the log anew.
+fn note_log(shared: &Service) {
+    if let (Some(path), Ok(mut held)) = (&shared.store_path, shared.watch.wal_identity.lock()) {
+        *held = file_identity(&wal_path(path));
+    }
+}
+
+/// Whether the store's write-ahead log is still the one its writer opened,
+/// where one removed under the service took every write acknowledged into
+/// it with it at the next start (the audit's durability S4). A log not yet
+/// made when the service opened the store is taken as the one it makes.
+fn log_replaced(shared: &Service) -> Option<String> {
+    let path = shared.store_path.as_ref()?;
+    let wal = wal_path(path);
+    let now = file_identity(&wal);
+    let mut held = shared.watch.wal_identity.lock().ok()?;
+    match (*held, now) {
+        (Some(was), Some(is)) if was == is => None,
+        (None, Some(is)) => {
+            *held = Some(is);
+            None
+        }
+        (None, None) => None,
+        _ => Some(format!(
+            "store_replaced: {}, the store's write-ahead log, is no longer the one the service opened, removed or replaced under it, so a write would go into a log no start reads; stop the service, keep its files, and restore the store (operate.md, Backups and restore)",
+            wal.display()
+        )),
+    }
+}
+
+/// Whether the store's file still begins as a SQLite database does, where
+/// one written over in place, its device and inode unchanged, took the
+/// writes answered after it into a log no start could read (the audit's
+/// durability S3).
+fn store_overwritten(shared: &Service) -> Option<String> {
+    let path = shared.store_path.as_ref()?;
+    let mut head = [0u8; 16];
+    let whole = std::fs::File::open(path)
+        .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut head))
+        .is_ok();
+    (!whole || &head != b"SQLite format 3\0").then(|| {
+        format!(
+            "store_unreadable: {} no longer begins as a SQLite database, written over in place; stop the service, keep its files, and restore the store (operate.md, Backups and restore)",
+            path.display()
+        )
+    })
+}
+
+/// Whether a fault's words are SQLite's for a store it cannot read,
+/// `SQLITE_CORRUPT`'s or `SQLITE_NOTADB`'s, as any connection, a read's
+/// among them, meets them (the audit's durability S5).
+fn names_unreadable(text: &str) -> bool {
+    text.contains("database disk image is malformed") || text.contains("file is not a database")
+}
+
+/// A store a read or a write found unreadable, as it is answered: 503
+/// `store_unreadable`, which latches the service (ADR-0205 decision 8).
+fn unreadable(text: &str) -> Fault {
+    Fault::Unavailable(format!(
+        "store_unreadable: the store answered \"{}\"; stop the service, keep its files, and restore the store (operate.md, Backups and restore)",
+        said(text)
+    ))
+}
+
+/// A mark on an answer that found its store lost, which the logging layer
+/// latches the service on (ADR-0205 decision 8).
+#[derive(Clone, Debug)]
+struct Lost(String);
 
 #[derive(Debug, Default)]
 struct Connections {
@@ -959,7 +1072,7 @@ fn reading_until(shared: &Shared, until: std::time::Instant) -> Result<Reading<'
     }
     // a store moved, gone or replaced under the service answers a read as it
     // answers a write, where a read answered 500 (ADR-0192 decision 7)
-    if let Some(replaced) = store_replaced(shared) {
+    if let Some(replaced) = store_lost(shared) {
         return Err(Fault::Unavailable(replaced));
     }
     let Some((lib, earlier)) = seen.lib else {
@@ -1120,7 +1233,13 @@ impl IntoResponse for Fault {
                 None => {}
             }
         }
-        (status, Json(json!({ "fault": message, "code": code }))).into_response()
+        let lost =
+            (code == "store_unreadable" || code == "store_replaced").then(|| message.clone());
+        let mut answer = (status, Json(json!({ "fault": message, "code": code }))).into_response();
+        if let Some(why) = lost {
+            answer.extensions_mut().insert(Lost(why));
+        }
+        answer
     }
 }
 
@@ -1132,6 +1251,7 @@ impl From<NotRun> for Fault {
         match e {
             NotRun::Unsupported(w) => Fault::NotRun(w),
             NotRun::Unanswered(c) => Fault::NotRun(c.said),
+            NotRun::Unreadable(w) if names_unreadable(&w) => unreadable(&w),
             NotRun::Unreadable(w) => Fault::Internal(format!("storage unavailable: {w}")),
             NotRun::TimedOut(w) => Fault::TimedOut(w),
             // a value a read derives or filters by past what its type
@@ -1206,6 +1326,9 @@ impl From<objectflow_core::store::StoreError> for Fault {
         if e.is_disk_full() {
             DISK_FULL_AT.store(wall_millis(), Ordering::SeqCst);
             return Fault::Unavailable(e.0);
+        }
+        if names_unreadable(&e.0) {
+            return unreadable(&e.0);
         }
         Fault::Internal(e.to_string())
     }
@@ -1470,10 +1593,11 @@ fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
                 "a request panicked holding the writer; {}",
                 reopened(&mut guard)
             );
+            note_log(shared);
             guard
         }
     };
-    if let Some(replaced) = store_replaced(shared) {
+    if let Some(replaced) = store_lost(shared) {
         return Err(Fault::Unavailable(replaced));
     }
     shared.writer_since.store(wall_millis(), Ordering::SeqCst);
@@ -3371,7 +3495,7 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
             // before the path is read, which reads the file that replaced
             // it, and answered 503 as a write is, where one gone answered
             // 500 (fourth and fifth production reviews, ADR-0191 decision 4)
-            if let Some(replaced) = store_replaced(&shared) {
+            if let Some(replaced) = store_lost(&shared) {
                 let body = json!({"release": BUILTINS, "shape": "deployment",
                                   "code": fault_code(503, &replaced), "fault": replaced});
                 return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response());
@@ -3386,17 +3510,25 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                 // a code an operator acts on, as every one of /health's is,
                 // where it answered 500 internal (ninth production review,
                 // ADR-0196 decision 9)
+                // and latched, as a write's finding is, since `/health` is
+                // asked on a listener of its own too (ADR-0205 decision 8)
                 Ok(at) => {
-                    return Err(Fault::Unavailable(format!(
-                        "store_unreadable: {} holds {}; restore the store with the service stopped (operate.md, Backups and restore)",
-                        reads.path.display(),
-                        at.map_or("no store".to_string(), |r| format!("a store at {r}"))
+                    return Err(Fault::Unavailable(latch(
+                        &shared,
+                        format!(
+                            "store_unreadable: {} holds {}; restore the store with the service stopped (operate.md, Backups and restore)",
+                            reads.path.display(),
+                            at.map_or("no store".to_string(), |r| format!("a store at {r}"))
+                        ),
                     )));
                 }
                 Err(e) => {
-                    return Err(Fault::Unavailable(format!(
-                        "store_unreadable: {}: {e}; restore the store with the service stopped (operate.md, Backups and restore)",
-                        reads.path.display()
+                    return Err(Fault::Unavailable(latch(
+                        &shared,
+                        format!(
+                            "store_unreadable: {}: {e}; restore the store with the service stopped (operate.md, Backups and restore)",
+                            reads.path.display()
+                        ),
                     )));
                 }
             }
@@ -3559,17 +3691,47 @@ async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
             s.set_busy_timeout(sandbox.busy_timeout)?;
             sandbox.store = Some(s);
             sandbox.due = None;
+            note_log(&shared);
         }
         let steps: Vec<J> = report
             .steps
             .iter()
             .map(|(release, changes)| json!({"release": release, "changes": changes}))
             .collect();
+        if let (Some(r), false) = (&report.restored, report.dry_run) {
+            say!("{}", restore_said(&path, r));
+        }
         Ok(Json(
             json!({"from": report.from, "to": report.to, "steps": steps,
-                   "dry_run": report.dry_run, "upgraded": report.upgraded}),
+                   "dry_run": report.dry_run, "upgraded": report.upgraded,
+                   "restored": report.restored.as_ref().map(restore_json)}),
         ))
     })
+}
+
+/// A restore as the upgrade answers it: each counter's gap, from the value
+/// the copy held to the one it was advanced to (ADR-0207 decision 4).
+fn restore_json(r: &objectflow_core::store::Restore) -> J {
+    json!({"restored_at": timestamp_text(r.restored_at),
+           "copy_last_at": timestamp_text(r.copy_last_at), "margin": r.margin,
+           "positions": [r.positions.0, r.positions.1], "txns": [r.txns.0, r.txns.1],
+           "objects": [r.objects.0, r.objects.1]})
+}
+
+/// A restore said as the start and the upgrade say it, with what an
+/// operator checks it against: the highest ids and numbers integrations
+/// hold from after the copy (ADR-0207, `operate.md`).
+fn restore_said(path: &std::path::Path, r: &objectflow_core::store::Restore) -> String {
+    format!(
+        "the store {} is a restored copy, its last record at {} and its last position {}: every number it hands out was advanced by {}, past what the live store may have handed out since, so positions go on from {}, transactions from {} and object numbers from {}; the gap is recorded in of_restore, and a cursor in it is refused (ADR-0207)",
+        path.display(),
+        timestamp_text(r.copy_last_at),
+        r.positions.0,
+        r.margin,
+        r.positions.1 + 1,
+        r.txns.1 + 1,
+        r.objects.1 + 1
+    )
 }
 
 fn app(shared: Shared, deployment: bool) -> Router {
@@ -3659,6 +3821,9 @@ async fn logged(
         .get::<axum::extract::MatchedPath>()
         .map_or("unrouted".to_string(), |m| m.as_str().to_string());
     let answer = next.run(req).await;
+    if let Some(Lost(why)) = answer.extensions().get::<Lost>() {
+        latch(&shared, why.clone());
+    }
     let took = started.elapsed().as_secs_f64();
     let status = answer.status().as_u16();
     if let Ok(mut served) = shared.served.lock() {
@@ -4304,14 +4469,14 @@ const LOG_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 /// backup, where the copy was whole (seventh production review
 /// MSG-RESTORE, ADR-0194 decision 6).
 fn refused_start(path: &std::path::Path, fault: &dyn std::fmt::Display) -> std::io::Error {
-    let beside = ["-wal", "-shm"].iter().any(|end| {
-        let mut name = path.as_os_str().to_owned();
-        name.push(end);
-        std::path::Path::new(&name).exists()
-    });
+    // where a log beside it holds frames, as the start's note judges one,
+    // and said as what a restore may have done, where every refused start
+    // after any earlier run told an operator they had restored (the audit's
+    // durability C5)
+    let beside = std::fs::metadata(wal_path(path)).is_ok_and(|m| m.len() > 0);
     std::io::Error::other(if beside {
         format!(
-            "{}: {fault}; a copy restored beside the -wal or -shm of another state does this: nothing was written, so restore the copy alone, with neither beside it (operate.md, Backups and restore)",
+            "{}: {fault}; if you restored a copy, a -wal of another state beside it does this: nothing was written, so restore the copy alone, with neither -wal nor -shm beside it (operate.md, Backups and restore)",
             path.display()
         )
     } else {
@@ -4465,6 +4630,14 @@ fn cut_back(shared: &Service, limit: u64) -> bool {
     let Some(path) = &shared.store_path else {
         return false;
     };
+    // a lost store's log is carried nowhere (ADR-0205 decision 8); the
+    // latch honoured and never set here, since this tick runs beside an
+    // upgrade, whose connection may remove the log a moment before the
+    // writer opens it again, and requests find a store lost once they hold
+    // it
+    if shared.watch.latched.get().is_some() {
+        return false;
+    }
     let mut wal = path.clone().into_os_string();
     wal.push("-wal");
     let bytes = std::fs::metadata(&wal).map_or(0, |m| m.len());
@@ -5105,7 +5278,7 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
         && m.len() > 0
     {
         notes.push(format!(
-            "the store's log, {}, holds {} byte(s) its file does not: the last stop was not clean, or another process has the store open; the store takes them in as it opens, which after a crash keeps every acknowledged write, so leave it: only where you have just put a backup in the store's place, stop and remove it and the -shm first (operate.md, Backups and restore)",
+            "the store's log, {}, holds {} byte(s) its file does not: the last stop was not clean, or another process has the store open; the store takes them in as it opens, which after a crash keeps every acknowledged write, so leave it; but where you had just put a backup in the store's place, this start has taken the later log into it: stop the service, remove the -wal and -shm, put the backup in the store's place again, and start (operate.md, Backups and restore)",
             std::path::Path::new(&wal).display(),
             m.len()
         ));
@@ -5322,6 +5495,45 @@ async fn serve() -> std::io::Result<()> {
             })
         })
         .collect();
+    // a stop asked for once it listens is a graceful one
+    let stop = stopping()?;
+    // both addresses bound before the store is touched, so a start refused
+    // for a busy one changes no file, where it had already turned a restored
+    // copy to WAL, made its indexes and folded its log (the audit's
+    // durability C3); where it listens said once the store is open, so the
+    // line still means it serves
+    let mut listening_said = Vec::new();
+    let listening = match &a.socket {
+        Some(path) => {
+            let l = bind_socket(path)?;
+            listening_said.push(format!("listening on unix:{}", path.display()));
+            Listening::Unix(l)
+        }
+        None => {
+            let l = tokio::net::TcpListener::bind(&a.bind)
+                .await
+                .map_err(|e| std::io::Error::other(format!("{}: {e}", a.bind)))?;
+            let at = l.local_addr()?;
+            listening_said.push(format!("listening on http://{at}"));
+            // the service authenticates nobody, so an address beyond
+            // loopback is said, where it started without a word (fourth
+            // production review)
+            if !at.ip().is_loopback() {
+                listening_said.push(format!(
+                    "listening beyond loopback, on {at}: the service authenticates nobody, so whoever reaches this address may act as any actor; bind 127.0.0.1 or give --socket, behind the application that authenticates (core/README.md)"
+                ));
+            }
+            Listening::Tcp(l)
+        }
+    };
+    let metrics_listener = match &a.metrics_bind {
+        Some(bind) => Some(
+            tokio::net::TcpListener::bind(bind)
+                .await
+                .map_err(|e| std::io::Error::other(format!("--metrics-bind {bind}: {e}")))?,
+        ),
+        None => None,
+    };
     let mut sandbox = Sandbox::default();
     let mut noted = Vec::new();
     if let Some(path) = &a.store {
@@ -5342,6 +5554,20 @@ async fn serve() -> std::io::Result<()> {
         sandbox.deployment = true;
         sandbox.path = Some(path.clone());
         sandbox.retentions = a.retentions;
+        // the file and its log checked before anything opens them to write,
+        // so a refused start leaves both as they were, where it wrote another
+        // state's log into a restored copy (fourth production review A-16);
+        // a store due an upgrade too, which was upgraded, and so written,
+        // unchecked (the audit's durability C4)
+        if at.is_some() {
+            let checked = Store::checked_file(path).map_err(|e| refused_start(path, &e))?;
+            if let Some(fault) = checked {
+                return Err(refused_start(
+                    path,
+                    &format!("it fails SQLite's quick check ({fault})"),
+                ));
+            }
+        }
         match at {
             Some(r) if r != BUILTINS => {
                 if objectflow_core::release::steps_from(&r, objectflow_core::release::RELEASES)
@@ -5355,21 +5581,14 @@ async fn serve() -> std::io::Result<()> {
                 sandbox.due = Some(r);
             }
             _ => {
-                // the file and its log checked before anything opens them to
-                // write, so a refused start leaves both as they were, where it
-                // wrote another state's log into a restored copy (fourth
-                // production review A-16)
-                let checked = Store::checked_file(path).map_err(|e| refused_start(path, &e))?;
-                if let Some(fault) = checked {
-                    return Err(refused_start(
-                        path,
-                        &format!("it fails SQLite's quick check ({fault})"),
-                    ));
-                }
                 // its opening's fault said as a restore beside another
                 // state's log needs, where it gave SQLite's words alone
                 // (eighth production review, ADR-0195 decision 7)
                 let mut s = Store::open(path, wall_clock()).map_err(|e| refused_start(path, &e))?;
+                // a copy restored at its opening, said (ADR-0207)
+                if let Some(r) = &s.restored {
+                    noted.push(restore_said(path, r));
+                }
                 (s.attempt_retention, s.idempotency_retention) = a.retentions;
                 s.lock_wait = Some(sandbox.lock_wait.clone());
                 s.set_busy_timeout(busy)
@@ -5409,31 +5628,9 @@ async fn serve() -> std::io::Result<()> {
             .unwrap_or(std::time::Duration::from_secs(5));
     }
     let deployment = sandbox.deployment;
-    // a stop asked for once it listens is a graceful one
-    let stop = stopping()?;
-    let listening = match &a.socket {
-        Some(path) => {
-            let l = bind_socket(path)?;
-            say!("listening on unix:{}", path.display());
-            Listening::Unix(l)
-        }
-        None => {
-            let l = tokio::net::TcpListener::bind(&a.bind)
-                .await
-                .map_err(|e| std::io::Error::other(format!("{}: {e}", a.bind)))?;
-            let at = l.local_addr()?;
-            say!("listening on http://{at}");
-            // the service authenticates nobody, so an address beyond
-            // loopback is said, where it started without a word (fourth
-            // production review)
-            if !at.ip().is_loopback() {
-                say!(
-                    "listening beyond loopback, on {at}: the service authenticates nobody, so whoever reaches this address may act as any actor; bind 127.0.0.1 or give --socket, behind the application that authenticates (core/README.md)"
-                );
-            }
-            Listening::Tcp(l)
-        }
-    };
+    for line in listening_said {
+        say!("{line}");
+    }
     for note in noted.into_iter().chain(told) {
         say!("{note}");
     }
@@ -5523,6 +5720,7 @@ async fn serve() -> std::io::Result<()> {
         trimming: std::sync::atomic::AtomicBool::new(false),
         watch: Watch {
             lock_wait,
+            wal_identity: Mutex::new(a.store.as_deref().and_then(|p| file_identity(&wal_path(p)))),
             ..Watch::default()
         },
     };
@@ -5531,10 +5729,7 @@ async fn serve() -> std::io::Result<()> {
     let _ = BODY_READ.set(a.idle_timeout);
     // `/metrics` and `/health` alone on an address of their own, where a
     // service on a socket could not be scraped (fourth production review)
-    if let Some(bind) = &a.metrics_bind {
-        let l = tokio::net::TcpListener::bind(bind)
-            .await
-            .map_err(|e| std::io::Error::other(format!("--metrics-bind {bind}: {e}")))?;
+    if let Some(l) = metrics_listener {
         say!("metrics and health on http://{}", l.local_addr()?);
         let router = Router::new()
             .route("/health", axum::routing::get(health))
@@ -5581,12 +5776,24 @@ async fn serve() -> std::io::Result<()> {
     .await;
     // the socket goes with the service; a start replaces one left by a
     // service that was killed
-    if let Some(path) = &a.socket {
-        std::fs::remove_file(path)?;
+    // and one already gone said, the stop going on to its checkpoint, where
+    // the stop ended in an error and the checkpoint was skipped (the audit's
+    // durability C7)
+    if let Some(path) = &a.socket
+        && let Err(e) = std::fs::remove_file(path)
+    {
+        say!("the socket {} was not removed: {e}", path.display());
     }
     // the write-ahead log carried into the store's file, so a clean stop
     // leaves the store whole in one file (second production review, minor)
-    if let Ok(writer) = shared.writer.lock()
+    // skipped where the store was found lost, since a checkpoint would carry
+    // its log into a file that is not the store's, or out of one that is
+    // gone (ADR-0205 decision 8)
+    if let Some(why) = shared.watch.latched.get() {
+        say!(
+            "the write-ahead log was not carried into the store's file, the store being lost: {why}"
+        );
+    } else if let Ok(writer) = shared.writer.lock()
         && let Some(s) = &writer.store
     {
         match s.checkpoint() {
@@ -5941,9 +6148,10 @@ mod tests {
         assert_eq!(reader.await.ok(), Some(sent));
     }
 
-    /// A store refused at its start beside a `-wal` or `-shm` says to
-    /// restore the copy alone, once, whatever SQLite said; one with neither
-    /// beside it says SQLite's fault alone (ADR-0194 decision 6).
+    /// A store refused at its start beside a `-wal` holding frames says,
+    /// once, that if a copy was restored it is to be restored alone,
+    /// whatever SQLite said; one beside an empty log or none says SQLite's
+    /// fault alone (ADR-0194 decision 6, the audit's durability C5).
     #[test]
     #[allow(clippy::panic)]
     fn a_store_refused_beside_a_log_says_to_restore_the_copy_alone() {
@@ -5955,8 +6163,15 @@ mod tests {
         let fault = "malformed database schema (Employee:E0) - orphan index";
         let alone = refused_start(&path, &fault).to_string();
         assert!(!alone.contains("restore the copy alone"), "{alone}");
+        // an empty log, as any earlier clean run leaves it, is no restore's
+        // (the audit's durability C5)
         std::fs::write(dir.join("store.sqlite-wal"), b"").unwrap_or_else(|e| panic!("{e}"));
+        std::fs::write(dir.join("store.sqlite-shm"), b"\0").unwrap_or_else(|e| panic!("{e}"));
+        let empty = refused_start(&path, &fault).to_string();
+        assert!(!empty.contains("restore the copy alone"), "{empty}");
+        std::fs::write(dir.join("store.sqlite-wal"), b"frames").unwrap_or_else(|e| panic!("{e}"));
         let beside = refused_start(&path, &fault).to_string();
+        assert!(beside.contains("if you restored a copy"), "{beside}");
         assert_eq!(
             beside.matches("restore the copy alone").count(),
             1,
@@ -6791,6 +7006,144 @@ mod tests {
     /// next write takes it back, and a deployment's store is opened again
     /// from its file, where every write after was refused 500 until a
     /// restart (POISON).
+    /// A store a read or a write finds unreadable, by SQLite's words for a
+    /// corrupt file or one that is no database, answers 503
+    /// `store_unreadable` and marks its answer, which the logging layer
+    /// latches the service on; and a service latched answers every write
+    /// with why until a restart (the audit's durability S5, ADR-0205
+    /// decision 8).
+    #[test]
+    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    fn a_store_found_unreadable_latches_the_service() {
+        for fault in [
+            Fault::from(objectflow_core::store::StoreError(
+                "database disk image is malformed".into(),
+            )),
+            Fault::from(NotRun::Unreadable(
+                "the store's last position, which could not be read: file is not a database".into(),
+            )),
+        ] {
+            let answer = fault.into_response();
+            assert_eq!(answer.status(), StatusCode::SERVICE_UNAVAILABLE);
+            let Some(Lost(why)) = answer.extensions().get::<Lost>() else {
+                panic!("the answer is not marked lost")
+            };
+            assert!(why.starts_with("store_unreadable: "), "{why}");
+        }
+        // another store fault is the service's own, and latches nothing
+        let other = Fault::from(objectflow_core::store::StoreError(
+            "no such table: t_x".into(),
+        ))
+        .into_response();
+        assert_eq!(other.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(other.extensions().get::<Lost>().is_none());
+        let shared: Shared = Arc::new(Service {
+            writer: Mutex::new(Sandbox::default()),
+            reads: None,
+            endpoints: std::collections::BTreeMap::new(),
+            tokens: std::collections::BTreeMap::new(),
+            evaluator_timeout: std::time::Duration::from_secs(5),
+            deployment: true,
+            read_timeout: std::time::Duration::from_secs(30),
+            dry_run_timeout: std::time::Duration::from_secs(30),
+            admission: Admission::new(MAX_READS),
+            worklists: Admission::new(MAX_READS),
+            objects: Admission::new(MAX_READS),
+            dry_runs: Admission::for_dry_runs(),
+            agents: Admission::new(MAX_READS),
+            served: Mutex::new(std::collections::BTreeMap::new()),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
+            writer_since: AtomicI64::new(0),
+            connections: Connections::default(),
+            store_path: None,
+            trims: std::sync::atomic::AtomicU64::new(0),
+            trimming: std::sync::atomic::AtomicBool::new(false),
+            store_identity: None,
+            watch: Watch::default(),
+        });
+        assert_eq!(store_lost(&shared), None);
+        assert!(locked(&shared).is_ok());
+        let why = "store_unreadable: the store answered \"database disk image is malformed\"";
+        assert_eq!(latch(&shared, why.into()), why);
+        // the first cause kept
+        assert_eq!(latch(&shared, "store_replaced: later".into()), why);
+        assert_eq!(store_lost(&shared).as_deref(), Some(why));
+        let Err(Fault::Unavailable(refused)) = locked(&shared).map(|_| ()) else {
+            panic!("a write taken by a latched service")
+        };
+        assert_eq!(refused, why);
+    }
+
+    /// An answer that found its store unreadable latches the service as
+    /// the logging layer passes it on, whatever route met it, a read's
+    /// among them (the audit's durability S5, ADR-0205 decision 8).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    async fn an_unreadable_answer_latches_the_service_as_it_is_passed_on() {
+        let shared: Shared = Arc::new(Service {
+            writer: Mutex::new(Sandbox::default()),
+            reads: None,
+            endpoints: std::collections::BTreeMap::new(),
+            tokens: std::collections::BTreeMap::new(),
+            evaluator_timeout: std::time::Duration::from_secs(5),
+            deployment: true,
+            read_timeout: std::time::Duration::from_secs(30),
+            dry_run_timeout: std::time::Duration::from_secs(30),
+            admission: Admission::new(MAX_READS),
+            worklists: Admission::new(MAX_READS),
+            objects: Admission::new(MAX_READS),
+            dry_runs: Admission::for_dry_runs(),
+            agents: Admission::new(MAX_READS),
+            served: Mutex::new(std::collections::BTreeMap::new()),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
+            writer_since: AtomicI64::new(0),
+            connections: Connections::default(),
+            store_path: None,
+            trims: std::sync::atomic::AtomicU64::new(0),
+            trimming: std::sync::atomic::AtomicBool::new(false),
+            store_identity: None,
+            watch: Watch::default(),
+        });
+        let router = Router::new()
+            .route(
+                "/v1/get",
+                post(|| async {
+                    Fault::from(objectflow_core::store::StoreError(
+                        "database disk image is malformed".into(),
+                    ))
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(shared.clone(), logged))
+            .with_state(shared.clone());
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let at = l.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(l, router).await;
+        });
+        let answer = tokio::task::spawn_blocking(move || {
+            use std::io::{Read, Write};
+            let mut c = std::net::TcpStream::connect(at).unwrap();
+            c.write_all(
+                b"POST /v1/get HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .unwrap();
+            let mut out = String::new();
+            c.read_to_string(&mut out).unwrap();
+            out
+        })
+        .await
+        .unwrap();
+        assert!(answer.starts_with("HTTP/1.1 503"), "{answer}");
+        assert!(
+            shared
+                .watch
+                .latched
+                .get()
+                .is_some_and(|why| why.starts_with("store_unreadable: ")),
+            "{answer}"
+        );
+    }
+
     #[test]
     #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     fn a_writer_a_panic_poisoned_is_taken_back() {

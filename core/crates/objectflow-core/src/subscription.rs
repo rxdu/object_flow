@@ -62,8 +62,14 @@ pub fn pull_page(
     // before a restore answered an empty page and a settled cursor behind
     // it, and the events written since never came (sixteenth production
     // review)
+    // and one in a gap a restore skipped, which the copy never saw, where it
+    // was honoured once the log passed it and the events at the positions
+    // it reached past were never delivered (the audit's durability B5,
+    // ADR-0207 decision 5)
     let from = match cursor {
-        Some(c) if c < 0 || c > settled => return Ok(refuse("invalid_cursor")),
+        Some(c) if c < 0 || c > settled || world.skipped_position(c)? => {
+            return Ok(refuse("invalid_cursor"));
+        }
         Some(c) => c,
         None => acknowledged(world, s)?,
     };
@@ -354,6 +360,74 @@ types:
     /// its acknowledged cursor, or one given; acknowledging moves it either
     /// way and records nothing in the log; revoked or unknown, it is refused
     /// as a value; and its lag is derived.
+    /// A subscription is refused where its filter would select nothing of
+    /// the installed version or its durations make no sense, each input
+    /// named, where it was taken and delivered nothing for good (D689,
+    /// ADR-0205 decision 10); a family's subscription may name a transition
+    /// only a kind of it declares.
+    #[test]
+    fn a_subscription_selecting_nothing_is_refused() {
+        let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask = |s: &mut Store, inputs: Json| {
+            let r = Request {
+                transition: "subscribe".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some(SUBSCRIPTION.into()),
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            request(s, &r).unwrap().unwrap()
+        };
+        let refused = |field: &str| {
+            Verdict::invalid_input([(field.to_string(), crate::verdict::InputReason::NotAllowed)])
+        };
+        for (inputs, field) in [
+            (json!({"target_type": "Jbo"}), "target_type"),
+            (json!({"target_type": "job"}), "target_type"),
+            (
+                json!({"target_type": "Job", "transitions": ["strat"]}),
+                "transitions",
+            ),
+            (
+                json!({"target_type": "Job", "lagging_after": "0 s"}),
+                "lagging_after",
+            ),
+            (
+                json!({"target_type": "Job", "dead_after": "0 s"}),
+                "dead_after",
+            ),
+            (
+                json!({"target_type": "Job", "lagging_after": "3 h", "dead_after": "1 h"}),
+                "dead_after",
+            ),
+        ] {
+            assert_eq!(ask(&mut s, inputs.clone()), refused(field), "{inputs}");
+        }
+        // a transition every kind of Job declares, and a duration in order
+        assert!(matches!(
+            ask(
+                &mut s,
+                json!({"target_type": "Job", "target_family": true, "transitions": ["start"],
+                       "lagging_after": "1 h", "dead_after": "1 h"})
+            ),
+            Verdict::Satisfied { .. }
+        ));
+    }
+
     #[test]
     fn a_subscription_is_pulled_acknowledged_and_lags() {
         let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();

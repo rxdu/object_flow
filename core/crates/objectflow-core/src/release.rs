@@ -54,7 +54,25 @@ pub const RELEASES: &[Release] = &[
         builtins_changed: false,
         migrate: release_table,
     },
+    Release {
+        name: "objectflow-core 1.0.0",
+        from: &["objectflow-core 0.2.0"],
+        fingerprint: "sha256:a0f20066820ae8de12b2e533df6a18e17807663602902e9610bfd06610c43b3a",
+        changes: "the store records each restore of a copy in of_restore, so a restored store hands out no id, position or number its copy never saw, and refuses a cursor from the gap (ADR-0207); and each interval a later commit deleted or moved in of_interval_retraction, which the intervals export retracts (ADR-0205 decision 9)",
+        builtins_changed: false,
+        migrate: restore_table,
+    },
 ];
+
+/// 0.2.0 to 1.0.0: the restore table, empty, since no store of 0.2.0 was
+/// restored by this release (ADR-0207); and the interval retractions,
+/// empty, with the moved rows' cursor, since 0.2.0 retracted nothing it
+/// recorded (ADR-0205 decision 9).
+fn restore_table(tx: &Transaction<'_>, _now: i64) -> Result<(), StoreError> {
+    tx.execute_batch(crate::store::RESTORE_TABLE)?;
+    tx.execute_batch(crate::store::RETRACTION_TABLE)?;
+    Ok(())
+}
 
 /// 0.1.0 to 0.2.0: the release table, recording the release that created
 /// the store, as version 0 names it, when its operator was installed.
@@ -167,6 +185,9 @@ pub struct UpgradeReport {
     /// Whether the store was changed: never on a dry run, nor where it was
     /// at this release already.
     pub upgraded: bool,
+    /// The restore it did, where the store was a copy (ADR-0207 decision
+    /// 7).
+    pub restored: Option<crate::store::Restore>,
 }
 
 /// `upgrade` (§12, ADR-0177): the store carried from its release to this
@@ -227,7 +248,7 @@ pub fn upgrade_through(
             r.name
         )));
     }
-    let report = UpgradeReport {
+    let mut report = UpgradeReport {
         from: from.clone(),
         to,
         steps: steps
@@ -236,26 +257,46 @@ pub fn upgrade_through(
             .collect(),
         dry_run,
         upgraded: !dry_run && !steps.is_empty(),
+        restored: None,
     };
     if dry_run {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         for r in &steps {
-            step(&tx, r, now, &operator)?;
+            report.restored = step(&tx, r, now, &operator)?.or(report.restored);
         }
         tx.rollback()?;
     } else {
         for r in &steps {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            step(&tx, r, now, &operator)?;
+            report.restored = step(&tx, r, now, &operator)?.or(report.restored);
             tx.commit()?;
         }
     }
     Ok(Ok(report))
 }
 
-/// One release's step: its migration, its row, and the operator's act.
-fn step(tx: &Transaction<'_>, r: &Release, now: i64, operator: &str) -> Result<(), StoreError> {
+/// One release's step: its migration, its row, and the operator's act; and,
+/// where the store is a copy and holds the restore table, the restore, before
+/// the act takes a position (ADR-0207 decision 7). A copy at 0.1.0 is
+/// restored at the step that adds the table, after the step before it
+/// recorded its act, whose position the gap then starts past.
+fn step(
+    tx: &Transaction<'_>,
+    r: &Release,
+    now: i64,
+    operator: &str,
+) -> Result<Option<crate::store::Restore>, StoreError> {
     (r.migrate)(tx, now)?;
+    let has_restores: i64 = tx.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'of_restore'",
+        [],
+        |row| row.get(0),
+    )?;
+    let restored = if has_restores > 0 {
+        crate::store::restore_copy(tx, now)?
+    } else {
+        None
+    };
     let at = timestamp_text(now);
     tx.execute(
         "INSERT INTO of_engine_release (seq, release, installed_at, installed_by) \
@@ -294,7 +335,7 @@ fn step(tx: &Transaction<'_>, r: &Release, now: i64, operator: &str) -> Result<(
         "UPDATE t_operator SET version = version + 1, last_event = ?2 WHERE id = ?1",
         params![operator, position],
     )?;
-    Ok(())
+    Ok(restored)
 }
 
 /// The fingerprint this core's store has, which its release records.

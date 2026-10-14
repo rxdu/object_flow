@@ -2,7 +2,7 @@
 
 - **Status:** **Decided** 2026-10-14 by the author ("go with your recommendations on the decisions"), each the recommendation stated here
 - **Date:** 2026-10-14
-- **Refined by:** ADR-0206 — decision 11's guard designed.
+- **Refined by:** ADR-0206 — decision 11's guard designed. ADR-0207 — decision 7's restore designed.
 - **Refines:** ADR-0204 decisions 9.3 and 9.4; ADR-0201 decision 6 (the idempotency digest); ADR-0202 decision 8 and ADR-0203 decision 1 (identities); ADR-0191 decision 3 and ADR-0192 decision 7 (a derived time past the calendar, refused where it was answered null); `declaration-syntax.md` §8.1 to §8.3
 - **Relates to:** ADR-0204 §6 (the audit); its six inventories, `design/audit/personal-data.md`, `write-path.md`, `values.md`, `cost.md`, `durability.md` and `guides.md`, summarised in `design/production-review.md` §21; `TODO.md`
 

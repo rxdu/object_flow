@@ -828,6 +828,24 @@ impl<'l> World<'l> {
         })
     }
 
+    /// The interval rows of the types given a commit past `after` and at
+    /// most `upto` retracted (ADR-0205 decision 9).
+    pub fn retractions_between(
+        &self,
+        types: &[String],
+        after: i64,
+        upto: i64,
+    ) -> Result<Vec<crate::store::Retraction>, crate::eval::NotRun> {
+        let Some(conn) = self.conn else {
+            return Ok(Vec::new());
+        };
+        crate::store::read_interval_retractions(conn, types, after, upto).map_err(|e| {
+            crate::eval::NotRun::Unreadable(format!(
+                "the intervals retracted after {after}, which could not be read: {e}"
+            ))
+        })
+    }
+
     /// Whether the operation has read the whole log, which a test holds a
     /// page of the feed from doing (FEED).
     pub fn log_read_whole(&self) -> bool {
@@ -849,6 +867,30 @@ impl<'l> World<'l> {
             .appended
             .last()
             .map_or(stored, |e| e.position.max(stored)))
+    }
+
+    /// The restores the store has had, oldest first; none in a sandbox's,
+    /// which is never restored (ADR-0207).
+    pub fn restores(&self) -> Result<Vec<crate::store::Restore>, crate::eval::NotRun> {
+        match self.conn {
+            Some(conn) => crate::store::read_restores(conn).map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the store's restores, which could not be read: {e}"
+                ))
+            }),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Whether a position falls in a gap a restore skipped, which the copy
+    /// never saw, so no cursor there is the store's (ADR-0207 decision 5).
+    pub fn skipped_position(&self, p: i64) -> Result<bool, crate::eval::NotRun> {
+        Ok(self.restores()?.iter().any(|r| r.skipped_position(p)))
+    }
+
+    /// Whether a transaction falls in a gap a restore skipped.
+    pub fn skipped_txn(&self, t: i64) -> Result<bool, crate::eval::NotRun> {
+        Ok(self.restores()?.iter().any(|r| r.skipped_txn(t)))
     }
 
     /// The last transaction number the store has handed out, an attempt's

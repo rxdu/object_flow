@@ -106,7 +106,7 @@ CREATE INDEX of_event_by_principal ON of_event (actor_principal) WHERE actor_pri
 -- SQLite only: positions and transaction numbers, allocated by the
 -- transaction that holds the write lock from its first statement (§7).
 CREATE TABLE of_counter (
-  name   TEXT    PRIMARY KEY,                         -- 'position', 'txn'
+  name   TEXT    PRIMARY KEY,                         -- 'position', 'txn', 'object'; 'copied' in a backup's copy
   value  INTEGER NOT NULL
 );
 
@@ -439,6 +439,42 @@ CREATE TABLE of_engine_release (
   installed_by  TEXT    NOT NULL      -- the operator who created the store or asked for the upgrade (§12)
 );
 
+-- Each interval row a later commit deleted or moved, which the `.intervals`
+-- export retracts at that commit's position (ADR-0205 decision 9): a
+-- correction merging a span into the one before it, a version renaming a
+-- member, whose rows it moves to the new name, setting of_interval's
+-- moved_position to the publish's, or retyping one, whose rows it sets aside.
+CREATE TABLE of_interval_retraction (
+  position          INTEGER NOT NULL,
+  object_id         TEXT    NOT NULL,
+  dimension         TEXT    NOT NULL,   -- the name the export gave the row
+  entered_position  INTEGER NOT NULL,
+  entered_at        TEXT    NOT NULL,
+  PRIMARY KEY (position, object_id, dimension, entered_position, entered_at)
+);
+
+-- Each restore of a copy (ADR-0207): a backup's copy carries a 'copied' row in
+-- of_counter, which the service never writes into a store it serves, and a store
+-- opened with it advances every counter and sequence past the most it recorded in
+-- any period as long as the copy's age, doubled, to a multiple of 1,000, in the
+-- transaction that records the restore here and removes the mark. Each gap runs
+-- from the value the copy held, exclusive, to the one it was advanced to; a cursor
+-- in one is refused, and a sequence's scope the copy never held starts past
+-- sequence_floor.
+CREATE TABLE of_restore (
+  seq             INTEGER PRIMARY KEY,
+  restored_at     TEXT    NOT NULL,
+  copy_last_at    TEXT    NOT NULL,   -- the copy's last recorded event or attempt
+  margin          INTEGER NOT NULL,
+  position_from   INTEGER NOT NULL,
+  position_to     INTEGER NOT NULL,
+  txn_from        INTEGER NOT NULL,
+  txn_to          INTEGER NOT NULL,
+  object_from     INTEGER NOT NULL,
+  object_to       INTEGER NOT NULL,
+  sequence_floor  INTEGER NOT NULL
+);
+
 -- Every actor, by the identity a request names (ADR-0110): the object that holds
 -- it and the kind its type declares. Written in the same transaction as the actor
 -- attribute, so resolving a request's actor is one lookup, and an identity names
@@ -614,6 +650,8 @@ CREATE TABLE of_interval (
   migrated         INTEGER NOT NULL DEFAULT 0,   -- opened by a publish's migration (ADR-0146)
   corrected_by     INTEGER REFERENCES of_event(position),  -- the latest correction that changed
                                             -- its value or its .held (ADR-0147, D522)
+  moved_position   INTEGER,                 -- the publish that renamed its member, which the
+                                            -- export gives it again at (ADR-0205 decision 9)
   PRIMARY KEY (object_id, dimension, entered_position, entered_at)
 );
 CREATE INDEX of_interval_current ON of_interval (dimension, value) WHERE left_position IS NULL;
@@ -822,7 +860,7 @@ A removed attribute leaving its column in place is deliberate: the column is how
 1. It reads the last row of `of_engine_release`. At the new release already, it does nothing and says so, so a repeated upgrade is harmless. At a release the new one does not name as one it upgrades from, it refuses, naming both, and changes nothing: each release names the releases it upgrades from, and a store further behind is upgraded through the releases between, one step each.
 2. It runs the new release's migration of the store's own tables, the `of_` tables of §6 and the tables §3 makes of each type, which is that release's own work and all this step writes besides its record. Both backends take a schema change inside a transaction, so a migration that fails leaves the store whole, at the old release.
 3. Where the new release's built-in module, its built-in types and standard metrics, differs from the one the installed version was published with (`of_declaration.builtins`), it checks the installed flows against the new one. Where they pass, it records them as the next version, with the installed version's source, reference and digest and the new built-ins, naming the release as its cause in `release` — over a store still at version 0, version 1 with no source, reference or digest, which only an upgrade's version may lack beside version 0 (ADR-0148) — and supersedes every open `DeclarationChange`, as a publish does; where they do not, it refuses, naming the findings, and the deployment changes its flows under the old release first. **`upgrade --dry-run`** runs these checks and writes nothing, producing an impact report of what the new built-ins change, a standard metric's definition or a built-in type's, of which installed flows fail, and of the open changes it would supersede; running the step is the operator's recorded act on that report, so the built-ins change only through a reported, recorded act (ADR-0105, ADR-0147).
-4. It appends a row to `of_engine_release`: the new release, when, and `installed_by`, the operator who asked, recorded as that operator's act naming the release, as creating the store is (ADR-0126).
+4. It appends a row to `of_engine_release`: the new release, when, and `installed_by`, the operator who asked, recorded as that operator's act naming the release, as creating the store is (ADR-0126). Before that act takes a position, a store marked as a backup's copy that holds `of_restore` is restored, as a start restores one (§6, ADR-0207 decision 7).
 
 **Draining the old release.** Every request reads the release row in its transaction (§7), and the step writes it, so under serialisable isolation no request of the old release commits after the upgrade: one that read the row before the upgrade committed fails its serialisation, on either backend, and, retried, reads the new release and refuses with `EngineMismatch` (`library-api.md` §7). A deployment therefore upgrades in three moves:
 1. it starts copies of the new release, which refuse with `EngineMismatch` while the store is at the old one, and so take no traffic;

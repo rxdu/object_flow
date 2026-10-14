@@ -129,9 +129,10 @@ A read that cannot be answered says why in `refused`, with no items. Some carry 
 | `no_window` | `metric` | `over` on a metric that has no time window. |
 | `personal` | `query`, `lookup`, `available`, `availability`, `check`, `metric` | The read selects by a personal value, and its body does not set `"reads_personal": true`: a query's filter or order, a lookup by a personal identifier, a transition decided by a personal member, a metric's filter or its binding of a dimension that names a person. A personal value is one a flow marks `personal`, and, where an actor type marks its identity personal, any value of type `identity`. The gateway sets the opt-in where the caller may read by such a value (`wire.md`). |
 | `unknown_source` | `export` | No such source. Sources are `log`, an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`. |
-| `invalid_cursor` | `export`, `pull`, `acknowledge` | A cursor below 0 or past the end of the log. |
+| `invalid_cursor` | `export`, `pull`, `acknowledge` | A cursor below 0, past the end of the log, or in the gap a restore skipped, which the restored copy never saw (ADR-0207); for `<Type>.attempt_counts`, a day not over yet or one a restore recounts. A consumer holding a cursor from before a restore reconciles what it read after the copy's last record, which the service's start names, then reads again: `pull` without a cursor, and `export` from the position the restore's record names (`operate.md`, Backups and restore). |
 | `unknown` | `pull`, `acknowledge` | No such subscription. |
 | `revoked` | `pull`, `acknowledge` | The subscription was revoked. |
+| `stale` | `acknowledge` | Another process held the store's write lock past the busy timeout and its retries, as a request is refused `stale` with cause `retries_exhausted`; nothing was written. Send it again. |
 | `unknown_task` | `maintain` | No such task. Tasks are `prune_attempts`, `prune_idempotency` and `archive_events`. |
 | `inside_retention` | `maintain` | The `before` time is inside the retention the service was started with. |
 | `no_retention` | `maintain` | The service was started without a retention for this task, so it prunes nothing. |
@@ -156,8 +157,8 @@ A fault's body is always `{"fault": "<reason>", "code": "<code>"}`.
 | `read_timeout` | `503` | A read passed its deadline (30 s by default), waited that long for a turn, or was stopped so the store's log could be cut after an erasure. Nothing was changed. | Narrow the read with an indexed filter or a smaller page, or send it again. |
 | `busy` | `503` | Every connection is busy, or this idle one was closed to make room. Nothing was done. | Send it again on a new connection. |
 | `disk_full` | `503` | The store's disk is full, so the write was not made. | The operator frees space; then send it again. |
-| `store_replaced` | `503` | The store's file was moved, removed or replaced under the running service. | The operator restarts the service on the right file. |
-| `store_unreadable` | `503` | `/health` could not read the store's file as a store, as after one written over in place under the running service. | The operator stops the service and restores the store (see [Operate](operate.md#backups-and-restore)). |
+| `store_replaced` | `503` | The store's file, or its `-wal`, was moved, removed or replaced under the running service. Every later read and write is refused, and the stop skips its checkpoint, until a restart (ADR-0205 decision 8). | The operator stops the service, keeps its files, and restarts it on the right file, or restores the store (see [Operate](operate.md#backups-and-restore)). |
+| `store_unreadable` | `503` | `/health` could not read the store's file as a store, the file no longer begins as a SQLite database, or a read or a write met SQLite's words for a corrupt file, as after one written over in place under the running service. Every later read and write is refused, and the stop skips its checkpoint, until a restart (ADR-0205 decision 8). | The operator stops the service and restores the store (see [Operate](operate.md#backups-and-restore)). |
 | `unavailable` | `503` | The service cannot answer for another reason. | Retry later. |
 | `internal` | `500` | The service's own fault. | Report it, with the log line. |
 

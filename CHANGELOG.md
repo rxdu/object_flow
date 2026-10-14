@@ -8,6 +8,10 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- A store the service finds lost, its file or `-wal` replaced or removed, its file written over, or a read or a write meeting SQLite's words for a corrupt file, is served no more until a restart: every later read and write answers `503` `store_unreadable` or `store_replaced`, and the stop skips its checkpoint, where writes went on answering `200` into a log no start would read (ADR-0205 decision 8, D688).
+- The `.intervals` export retracts a row a later commit deleted or moved, a correction merging it into the span before it or a version renaming or retyping its member, with a line `{"retracted": true, …}` at that commit's cursor, and gives each row its `entered_position`, so a consumer folding rows by their key holds what the store holds (ADR-0205 decision 9).
+- A start binds its addresses before it touches the store, so one refused for a busy address changes no file; checks a store due an upgrade before the upgrade writes it; cuts back at its first look a log a killed process left, so an erasure's truncation due at the kill happens; says the restore's advice only beside a log holding frames; and a stop whose socket is gone stops all the same. `acknowledge` waits out another process's lock as a request does, and is refused `stale` past its retries, where it answered `500`. The start's note on a log beside a restored copy says how to restore again, where following it left the restore undone.
+- A store started from a backup's copy, marked as `operate.md`'s backup commands now mark each copy, hands out no object number, event position, transaction or flow number the live store may have handed out after the copy: it advances each past the most it recorded in any period as long as the copy's age, doubled, says so at its start, and records the gap in `of_restore` (ADR-0207, the audit's durability B4). The store's release is 1.0.0; the upgrade from 0.2.0 adds `of_restore`, and restores a marked copy before it records its act. The backup commands open the store read-only, so a mistyped path is refused rather than copied empty.
 - An erasure of an actor whose identity is personal replaces it in every copy, in any case of its letters (ADR-0205 decision 6): sets, a proposal's inputs and events, a refused request's attempt, a guard's consulted key, a correction's record and the approver of a version. A consulted argument of type `identity` is written `(personal)` there.
 - An erasure records a `redact` event on each label whose note it removes, and on an object erased before whose history it redacts. A refused `publish` writes an attempt.
 - Where an actor type marks its identity personal, a metric's rows name each actor by its object, never its identity.
@@ -19,6 +23,8 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes that may refuse what 0.2.0 accepted
 
+- `subscribe` is refused `invalid_input` where its filter selects nothing of the installed version or its durations make no sense: a `target_type` no type has by its exact name, a transition no selected type declares, a duration not positive, or a `dead_after` before its `lagging_after` (ADR-0205 decision 10, D689). A store due an upgrade that fails SQLite's quick check is refused at the start, where 0.2.0 upgraded it.
+- A cursor in the gap a restore skipped is refused `invalid_cursor` by `pull`, `export` and `acknowledge`, where 0.2.0 honoured it once the log passed it and passed over the events written since (ADR-0207, the audit's durability B5); and an `.attempt_counts` cursor naming a day not over, or one a restore recounts, where 0.2.0 answered nothing until then (V5).
 - A read that selects by a personal value is refused `personal` unless its body sets `"reads_personal": true`, whoever asks (ADR-0206). That covers:
   - a query's filter or order;
   - a `lookup` by a personal identifier;

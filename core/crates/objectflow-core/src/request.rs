@@ -148,6 +148,63 @@ fn request_digest(
     }
 }
 
+/// The inputs a subscription is refused for (D689, ADR-0205 decision 10):
+/// `target_type` naming no type of the installed version, by its exact name;
+/// `transitions` naming one no type it selects declares; a `lagging_after`
+/// or `dead_after` that is not positive; and a `dead_after` before its
+/// `lagging_after`.
+fn subscription_inputs(
+    lib: &Library,
+    inputs: &BTreeMap<String, Value>,
+) -> Vec<(String, InputReason)> {
+    let mut wrong = Vec::new();
+    let target = match inputs.get("target_type") {
+        Some(Value::Text(t)) if lib.types.contains_key(t) => Some(t.clone()),
+        _ => {
+            wrong.push(("target_type".to_string(), InputReason::NotAllowed));
+            None
+        }
+    };
+    if let (Some(target), Some(Value::Set(names))) = (&target, inputs.get("transitions")) {
+        let family = inputs.get("target_family") == Some(&Value::Bool(true));
+        let declared: BTreeSet<&String> = lib
+            .types
+            .iter()
+            .filter(|(n, _)| {
+                if family {
+                    lib.is_a(n, target)
+                } else {
+                    *n == target
+                }
+            })
+            .flat_map(|(_, t)| t.transitions.iter().map(|(xn, _)| xn))
+            .collect();
+        if names
+            .iter()
+            .any(|n| !matches!(n, Value::Text(xn) if declared.contains(xn)))
+        {
+            wrong.push(("transitions".to_string(), InputReason::NotAllowed));
+        }
+    }
+    let duration = |k: &str| match inputs.get(k) {
+        Some(Value::Duration(d)) => Some(*d),
+        _ => None,
+    };
+    for k in ["lagging_after", "dead_after"] {
+        if duration(k).is_some_and(|d| d <= 0) {
+            wrong.push((k.to_string(), InputReason::NotAllowed));
+        }
+    }
+    if let (Some(lagging), Some(dead)) = (duration("lagging_after"), duration("dead_after"))
+        && lagging > 0
+        && dead > 0
+        && dead < lagging
+    {
+        wrong.push(("dead_after".to_string(), InputReason::NotAllowed));
+    }
+    wrong
+}
+
 /// Whether a key's recorded digest replays a request of this digest: the
 /// same digest, both halves alike (ADR-0205 decision 3). A digest an erasure
 /// marked, whole as 0.2.0 did or its personal half as this release does,
@@ -744,8 +801,9 @@ struct Ctx<'w> {
     /// which `only_via` reads its caller from.
     taking: Vec<(String, String)>,
     /// The spans a correction merged into the one before them: an object,
-    /// a dimension, and the span's entered position and time.
-    merged: Vec<(String, String, i64, i64)>,
+    /// a dimension, the span's entered position and time, and the
+    /// correcting event's position.
+    merged: Vec<(String, String, i64, i64, i64)>,
     /// For each object, what its current transition wrote by an input or an
     /// effect, whatever the value.
     wrote: BTreeMap<String, BTreeSet<String>>,
@@ -1396,6 +1454,18 @@ fn take_unwound(
         let _ = to;
         ctx.asserted = oid.clone();
         ctx.admits = admits;
+    }
+    // a subscription selects what the installed version declares, and its
+    // durations are positive, where one naming no type, a type in another
+    // case or transitions no type has was taken and delivered nothing for
+    // good, and a negative `dead_after` was dead at once (D689, ADR-0205
+    // decision 10); checked here, not as a condition of the built-in type,
+    // so the built-ins, and the fingerprint a store upgrades by, stay
+    if tn == crate::model::SUBSCRIPTION && x.kind == Kind::Initial {
+        let wrong = subscription_inputs(lib, &inputs);
+        if !wrong.is_empty() {
+            return refused(Verdict::invalid_input(wrong));
+        }
     }
     // 5. the generated guards, in the order flow-format.md §4.8 states,
     // then the transition's own. occurred_within: the requested transition's
@@ -2107,7 +2177,7 @@ fn take_unwound(
         {
             span = json!(since);
             if let Some((p, at)) = gone {
-                ctx.merged.push((id.clone(), m.clone(), p, at));
+                ctx.merged.push((id.clone(), m.clone(), p, at, position));
             }
             if let Some(b) = before.as_mut() {
                 for (_, v) in b.iter_mut().filter(|(n, _)| n == m) {
@@ -7040,6 +7110,134 @@ types:
     transitions:
       add: { kind: initial, to: LIVE, required_inputs: [order] }
 "#;
+
+    /// A copy restored advances every counter past the most the store
+    /// recorded in any period as long as the copy's age, doubled, to a
+    /// round number; a sequence's scope it held goes on past the margin,
+    /// and one it never held starts past every restore's; and the mark is
+    /// gone, so the next opening restores nothing (ADR-0207).
+    #[test]
+    fn a_restored_copy_advances_every_counter_past_its_history() {
+        const RESTORED: i64 = 1_000 + 3 * 86_400;
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_000).unwrap();
+        // the store's busiest period: 600 orders in one second
+        let mut last = String::new();
+        for _ in 0..600 {
+            last = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        }
+        created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"order": last}),
+        ));
+        let held = |s: &Store, n: &str| crate::store::read_counter(s.connection(), n).unwrap();
+        let (position, txn, object) = (held(&s, "position"), held(&s, "txn"), held(&s, "object"));
+        let recorded: i64 = s
+            .connection()
+            .query_row(
+                "SELECT (SELECT count(*) FROM of_event) + (SELECT count(*) FROM of_attempt)",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        // unmarked, nothing is restored
+        let tx = s.connection().unchecked_transaction().unwrap();
+        assert_eq!(crate::store::restore_copy(&tx, RESTORED).unwrap(), None);
+        drop(tx);
+        // marked, restored three days after its last record, every record
+        // within that
+        s.connection()
+            .execute(
+                "INSERT INTO of_counter (name, value) VALUES (?1, 1)",
+                [crate::store::COPIED],
+            )
+            .unwrap();
+        let tx = s.connection().unchecked_transaction().unwrap();
+        let r = crate::store::restore_copy(&tx, RESTORED).unwrap().unwrap();
+        tx.commit().unwrap();
+        assert_eq!((r.copy_last_at, r.margin), (1_000, 2 * recorded));
+        let past = |v: i64| (v + r.margin + 999) / 1_000 * 1_000;
+        assert_eq!(
+            (r.positions, r.txns, r.objects),
+            (
+                (position, past(position)),
+                (txn, past(txn)),
+                (object, past(object))
+            )
+        );
+        assert_eq!(r.sequence_floor, past(0));
+        assert_eq!(held(&s, "position"), past(position));
+        let marked: i64 = s
+            .connection()
+            .query_row(
+                "SELECT count(*) FROM of_counter WHERE name = ?1",
+                [crate::store::COPIED],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(marked, 0);
+        // the next order past the gap, its number past the margin, and its
+        // first line, in a scope the copy never held, past the floor
+        s.now = RESTORED;
+        let next = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        assert_eq!(next, format!("order-{}", past(object) + 1));
+        let line = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"order": &next}),
+        ));
+        let w = s.snapshot().unwrap();
+        let number = format!("ORD-{}", past(600) + 1);
+        assert_eq!(
+            w.whole(&next).unwrap().unwrap().attr("number"),
+            Value::Text(number.clone())
+        );
+        assert_eq!(
+            w.whole(&line).unwrap().unwrap().attr("position"),
+            Value::Text(format!("{number}-{}", r.sequence_floor + 1))
+        );
+        assert_eq!(w.restores().unwrap(), vec![r.clone()]);
+        assert!(
+            w.skipped_position(position + 1).unwrap() && !w.skipped_position(position).unwrap()
+        );
+        assert!(w.skipped_position(past(position)).unwrap());
+        assert!(!w.skipped_position(past(position) + 1).unwrap());
+        // the days from the copy's last to the restore's are recounted, so a
+        // cursor naming one is no cursor of the restored store's
+        let refused = |day: &str| {
+            crate::export::export(&w, "Order.attempt_counts", Some(day))
+                .unwrap()
+                .refused
+        };
+        assert_eq!(refused("1970-01-02").as_deref(), Some("invalid_cursor"));
+        assert_eq!(refused("1969-12-31"), None);
+        drop(w);
+        // a store whose history is short skips the least margin
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut young = Store::sandbox(lib, 1_000).unwrap();
+        created(&req(
+            &mut young,
+            "open",
+            OPERATOR,
+            ("Order", true),
+            json!({}),
+        ));
+        young
+            .connection()
+            .execute(
+                "INSERT INTO of_counter (name, value) VALUES (?1, 1)",
+                [crate::store::COPIED],
+            )
+            .unwrap();
+        let tx = young.connection().unchecked_transaction().unwrap();
+        let r = crate::store::restore_copy(&tx, 1_060).unwrap().unwrap();
+        assert_eq!(r.margin, crate::store::RESTORE_LEAST);
+    }
 
     #[test]
     fn an_identifier_is_minted_as_its_format_writes_it() {

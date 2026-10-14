@@ -14,7 +14,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use rusqlite::types::Value as Sql;
-use rusqlite::{Connection, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
 use crate::eval::NotRun;
 use crate::model::{Attribute, DECLARATION_CHANGE, Declared, Library, OPERATOR, Remedy, Type};
@@ -302,9 +302,10 @@ pub struct Change {
     /// position and the input's name (§9 step 8).
     pub redacted_inputs: Vec<(i64, String)>,
     /// The spans a correction merged into the one before them, which leave
-    /// the index: an object, a dimension, and the span's entered position
-    /// and time (`declaration-syntax.md` §6.4).
-    pub merged: Vec<(String, String, i64, i64)>,
+    /// the index: an object, a dimension, the span's entered position and
+    /// time, and the correcting event's position, which retracts it
+    /// (`declaration-syntax.md` §6.4, ADR-0205 decision 9).
+    pub merged: Vec<(String, String, i64, i64, i64)>,
     /// Spans written beside any event: an object, a dimension and the span,
     /// such as a publish opens on a member it newly tracks (ADR-0155).
     pub spans: Vec<(String, String, Span)>,
@@ -1798,6 +1799,7 @@ CREATE TABLE of_interval (
   legacy              INTEGER NOT NULL DEFAULT 0,
   migrated            INTEGER NOT NULL DEFAULT 0,
   corrected_by        INTEGER REFERENCES of_event(position),
+  moved_position      INTEGER,
   PRIMARY KEY (object_id, dimension, entered_position, entered_at)
 );
 CREATE INDEX of_interval_current ON of_interval (dimension, value) WHERE left_position IS NULL;
@@ -1817,7 +1819,257 @@ CREATE TABLE of_engine_release (
   installed_at  TEXT    NOT NULL,
   installed_by  TEXT    NOT NULL
 );
+-- Each restore of a copy: when it started, the copy's last recorded time,
+-- the margin, each counter's gap from the value the copy held to the one
+-- it was advanced to, and past what a sequence's scope the copy never held
+-- starts (storage-schema.md §6, ADR-0207).
+CREATE TABLE of_restore (
+  seq             INTEGER PRIMARY KEY,
+  restored_at     TEXT    NOT NULL,
+  copy_last_at    TEXT    NOT NULL,
+  margin          INTEGER NOT NULL,
+  position_from   INTEGER NOT NULL,
+  position_to     INTEGER NOT NULL,
+  txn_from        INTEGER NOT NULL,
+  txn_to          INTEGER NOT NULL,
+  object_from     INTEGER NOT NULL,
+  object_to       INTEGER NOT NULL,
+  sequence_floor  INTEGER NOT NULL
+);
+-- Each interval row a later commit deleted or moved, as the `.intervals`
+-- export retracts it at the commit's position: a correction merging a span
+-- into the one before it, and a publish renaming a member or setting its
+-- intervals aside (storage-schema.md §6, ADR-0205 decision 9).
+CREATE TABLE of_interval_retraction (
+  position          INTEGER NOT NULL,
+  object_id         TEXT    NOT NULL,
+  dimension         TEXT    NOT NULL,
+  entered_position  INTEGER NOT NULL,
+  entered_at        TEXT    NOT NULL,
+  PRIMARY KEY (position, object_id, dimension, entered_position, entered_at)
+);
 ";
+
+/// The interval retractions and the moved rows' cursor (ADR-0205 decision
+/// 9), as [`SCHEMA`] makes them, for the migration that adds them to a
+/// store an earlier release made; the cursor's index made again at the
+/// open, over the moved position too.
+pub(crate) const RETRACTION_TABLE: &str = "
+CREATE TABLE of_interval_retraction (
+  position          INTEGER NOT NULL,
+  object_id         TEXT    NOT NULL,
+  dimension         TEXT    NOT NULL,
+  entered_position  INTEGER NOT NULL,
+  entered_at        TEXT    NOT NULL,
+  PRIMARY KEY (position, object_id, dimension, entered_position, entered_at)
+);
+ALTER TABLE of_interval ADD COLUMN moved_position INTEGER;
+DROP INDEX IF EXISTS of_interval_by_cursor;
+";
+
+/// The restore table (ADR-0207), as [`SCHEMA`] creates it, for the
+/// migration that adds it to a store an earlier release made.
+pub(crate) const RESTORE_TABLE: &str = "
+CREATE TABLE of_restore (
+  seq             INTEGER PRIMARY KEY,
+  restored_at     TEXT    NOT NULL,
+  copy_last_at    TEXT    NOT NULL,
+  margin          INTEGER NOT NULL,
+  position_from   INTEGER NOT NULL,
+  position_to     INTEGER NOT NULL,
+  txn_from        INTEGER NOT NULL,
+  txn_to          INTEGER NOT NULL,
+  object_from     INTEGER NOT NULL,
+  object_to       INTEGER NOT NULL,
+  sequence_floor  INTEGER NOT NULL
+);
+";
+
+/// The mark a copy carries, a row of `of_counter`, which the backups
+/// `operate.md` gives write into each copy and the service never writes
+/// into a store it serves: a store opened with it is a restore (ADR-0207
+/// decision 1).
+pub const COPIED: &str = "copied";
+
+/// The least a restore advances a counter by, for a store whose history is
+/// shorter than its copy's age (ADR-0207 decision 2).
+pub const RESTORE_LEAST: i64 = 1_000;
+
+/// What a restore advances each counter to a multiple of, so its restart
+/// shows in the ids (ADR-0207 decision 3).
+pub const RESTORE_ROUND: i64 = 1_000;
+
+/// A restore the store has had (ADR-0207 decision 4): each gap is from the
+/// value the copy held, exclusive, to the value it was advanced to,
+/// inclusive, so the next one handed out is past it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Restore {
+    pub restored_at: i64,
+    pub copy_last_at: i64,
+    pub margin: i64,
+    pub positions: (i64, i64),
+    pub txns: (i64, i64),
+    pub objects: (i64, i64),
+    /// The last number a sequence's scope the copy never held is taken to
+    /// have drawn, so its first is past every restore's margin.
+    pub sequence_floor: i64,
+}
+
+impl Restore {
+    /// Whether a position falls in its gap, where the copy never saw it.
+    pub fn skipped_position(&self, p: i64) -> bool {
+        p > self.positions.0 && p <= self.positions.1
+    }
+
+    /// Whether a transaction falls in its gap.
+    pub fn skipped_txn(&self, t: i64) -> bool {
+        t > self.txns.0 && t <= self.txns.1
+    }
+}
+
+/// The restores a store has had, oldest first (ADR-0207).
+pub(crate) fn read_restores(conn: &Connection) -> rusqlite::Result<Vec<Restore>> {
+    let mut q = conn.prepare(
+        "SELECT restored_at, copy_last_at, margin, position_from, position_to, txn_from, txn_to, \
+         object_from, object_to, sequence_floor FROM of_restore ORDER BY seq",
+    )?;
+    let rows = q.query_map([], |r| {
+        let at = |i: usize| -> rusqlite::Result<i64> {
+            let text: String = r.get(i)?;
+            Ok(parse_timestamp(&text).unwrap_or(0))
+        };
+        Ok(Restore {
+            restored_at: at(0)?,
+            copy_last_at: at(1)?,
+            margin: r.get(2)?,
+            positions: (r.get(3)?, r.get(4)?),
+            txns: (r.get(5)?, r.get(6)?),
+            objects: (r.get(7)?, r.get(8)?),
+            sequence_floor: r.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// A copy restored, where the store holds the mark a copy carries: every
+/// counter it hands out from advanced past what the live store may have
+/// handed out after the copy, the restore recorded and the mark removed,
+/// in the transaction given; none where it holds no mark (ADR-0207).
+///
+/// What the live store handed out is recorded nowhere the copy holds, so it
+/// is estimated: every number is drawn by an event or by a refused request
+/// recorded as an attempt, and the live store went on for no longer than
+/// the copy's age, from its last recorded event or attempt to `now`. The
+/// margin is the most events and attempts the store recorded in any period
+/// that long, doubled, and at least [`RESTORE_LEAST`]; each counter goes to
+/// the next multiple of [`RESTORE_ROUND`] at or past its value and the
+/// margin.
+pub(crate) fn restore_copy(tx: &Connection, now: i64) -> Stored<Option<Restore>> {
+    let marked: Option<i64> = tx
+        .query_row(
+            "SELECT value FROM of_counter WHERE name = ?1",
+            params![COPIED],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if marked.is_none() {
+        return Ok(None);
+    }
+    let mut times: Vec<i64> = Vec::new();
+    for sql in [
+        "SELECT recorded_at FROM of_event",
+        "SELECT at FROM of_attempt",
+    ] {
+        let mut q = tx.prepare(sql)?;
+        for t in q.query_map([], |r| r.get::<_, String>(0))? {
+            if let Some(at) = parse_timestamp(&t?) {
+                times.push(at);
+            }
+        }
+    }
+    times.sort_unstable();
+    let copy_last_at = times.last().copied().unwrap_or(now).min(now);
+    let age = now.saturating_sub(copy_last_at);
+    // the most recorded in any period as long as the copy's age
+    let (mut busiest, mut from) = (0usize, 0usize);
+    for (to, at) in times.iter().enumerate() {
+        while at.saturating_sub(times[from]) > age {
+            from += 1;
+        }
+        busiest = busiest.max(to + 1 - from);
+    }
+    let margin = i64::try_from(busiest)
+        .unwrap_or(i64::MAX)
+        .saturating_mul(2)
+        .max(RESTORE_LEAST);
+    let past = |v: i64| -> Stored<i64> {
+        v.checked_add(margin)
+            .and_then(|v| v.checked_add(RESTORE_ROUND - 1))
+            .map(|v| v / RESTORE_ROUND * RESTORE_ROUND)
+            .ok_or_else(|| StoreError(format!("a counter at {v} cannot be advanced by {margin}")))
+    };
+    let mut gaps = Vec::new();
+    for name in ["position", "txn", "object"] {
+        let held = read_counter(tx, name)?;
+        let to = past(held)?;
+        tx.execute(
+            "UPDATE of_counter SET value = ?2 WHERE name = ?1",
+            params![name, to],
+        )?;
+        gaps.push((held, to));
+    }
+    // each scope of each sequence, its next number past the margin, one
+    // near its end exhausted rather than drawing again
+    let held: Vec<(String, String, Option<i64>)> = {
+        let mut q = tx.prepare("SELECT name, scope_key, next_value FROM of_sequence")?;
+        q.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2).ok())))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    for (name, scope, next) in held {
+        let Some(next) = next else { continue };
+        let last =
+            past(next.saturating_sub(1).max(0)).map_or(SEQUENCE_MOST, |l| l.min(SEQUENCE_MOST));
+        tx.execute(
+            "UPDATE of_sequence SET next_value = ?3 WHERE name = ?1 AND scope_key = ?2",
+            params![name, scope, last + 1],
+        )?;
+    }
+    let floor: i64 = tx
+        .query_row(
+            "SELECT sequence_floor FROM of_restore ORDER BY seq DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or(0);
+    let restore = Restore {
+        restored_at: now,
+        copy_last_at,
+        margin,
+        positions: gaps[0],
+        txns: gaps[1],
+        objects: gaps[2],
+        sequence_floor: past(floor)?.min(SEQUENCE_MOST),
+    };
+    tx.execute(
+        "INSERT INTO of_restore (restored_at, copy_last_at, margin, position_from, position_to, txn_from, txn_to, \
+         object_from, object_to, sequence_floor) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            timestamp_text(restore.restored_at),
+            timestamp_text(restore.copy_last_at),
+            restore.margin,
+            restore.positions.0,
+            restore.positions.1,
+            restore.txns.0,
+            restore.txns.1,
+            restore.objects.0,
+            restore.objects.1,
+            restore.sequence_floor
+        ],
+    )?;
+    tx.execute("DELETE FROM of_counter WHERE name = ?1", params![COPIED])?;
+    Ok(Some(restore))
+}
 
 /// A store and the library its rules come from.
 #[derive(Debug)]
@@ -1865,6 +2117,9 @@ pub struct Store {
     /// How long its connection waits out another's lock, restored after
     /// the truncation an erasure is due, which waits for nothing.
     busy: std::cell::Cell<std::time::Duration>,
+    /// The restore its opening did, where the store was a copy, for the
+    /// service to say (ADR-0207).
+    pub restored: Option<Restore>,
 }
 
 /// The largest number a sequence draws, so the next value the store keeps
@@ -1995,6 +2250,7 @@ impl Store {
             lock_wait: None,
             prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
+            restored: None,
             idempotency_retention: None,
             earlier: Arc::new(BTreeMap::new()),
         };
@@ -2065,6 +2321,12 @@ impl Store {
     /// it recorded. A store another engine release created is refused
     /// (decision 3), since only an upgrade moves a store between releases.
     pub fn open(path: &std::path::Path, now: i64) -> Stored<Store> {
+        // a log holding frames, as a process killed leaves it, cut back at
+        // the first look, so an erasure's truncation due at the kill is not
+        // forgotten (the audit's durability W6b)
+        let mut wal = path.as_os_str().to_owned();
+        wal.push("-wal");
+        let frames = std::fs::metadata(&wal).is_ok_and(|m| m.len() > 0);
         let conn = Connection::open(path)?;
         // a write answered for survives a crash of the process or the machine
         conn.execute_batch(
@@ -2099,6 +2361,7 @@ impl Store {
             lock_wait: None,
             prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
+            restored: None,
             idempotency_retention: None,
             earlier: Arc::new(BTreeMap::new()),
         };
@@ -2172,6 +2435,12 @@ impl Store {
         if let Some(at) = last.as_deref().and_then(parse_timestamp) {
             store.now = store.now.max(at);
         }
+        // a copy restored, before anything is handed out (ADR-0207)
+        let tx = Transaction::new_unchecked(&store.conn, TransactionBehavior::Immediate)?;
+        let restored = restore_copy(&tx, store.now)?;
+        tx.commit()?;
+        store.restored = restored;
+        store.checkpoint_due = frames;
         Ok(store)
     }
 
@@ -2214,6 +2483,7 @@ impl Store {
             lock_wait: None,
             prepared: None,
             busy: std::cell::Cell::new(BUSY_TIMEOUT),
+            restored: None,
             idempotency_retention: None,
             earlier,
         };
@@ -2527,8 +2797,11 @@ impl Store {
                 // start, to its last position, where any integer was taken
                 // and one past the log skipped every later event (fourth
                 // production review A-12)
+                // and none in a gap a restore skipped, which the copy never
+                // saw (ADR-0207 decision 5)
                 Some(s) if s.type_ == crate::model::SUBSCRIPTION => (cursor < 0
-                    || cursor > world.last_position()?)
+                    || cursor > world.last_position()?
+                    || world.skipped_position(cursor)?)
                 .then(|| "invalid_cursor".to_string()),
                 _ => Some("unknown".to_string()),
             }
@@ -2536,13 +2809,27 @@ impl Store {
         if refusal.is_some() {
             return Ok(refusal);
         }
-        self.conn.execute(
-            "INSERT INTO of_subscription_position (subscription_id, acknowledged, acknowledged_at) \
-             VALUES (?1, ?2, ?3) ON CONFLICT (subscription_id) DO UPDATE SET \
-             acknowledged = excluded.acknowledged, acknowledged_at = excluded.acknowledged_at",
-            params![subscription, cursor.to_string(), timestamp_text(self.now)],
-        )?;
-        Ok(None)
+        // written as a request is, its retries waiting out another process's
+        // lock, and refused `stale` past them, where it was written outside
+        // and answered 500 after one busy timeout (the audit's durability
+        // W8b)
+        let now = timestamp_text(self.now);
+        let written = (|| -> Stored<()> {
+            let (tx, _) = begin_write!(self);
+            tx.execute(
+                "INSERT INTO of_subscription_position (subscription_id, acknowledged, acknowledged_at) \
+                 VALUES (?1, ?2, ?3) ON CONFLICT (subscription_id) DO UPDATE SET \
+                 acknowledged = excluded.acknowledged, acknowledged_at = excluded.acknowledged_at",
+                params![subscription, cursor.to_string(), now],
+            )?;
+            tx.commit()?;
+            Ok(())
+        })();
+        match written {
+            Ok(()) => Ok(None),
+            Err(e) if e.is_busy() => Ok(Some("stale".to_string())),
+            Err(e) => Err(e),
+        }
     }
 
     pub fn transact<T, E>(
@@ -2852,13 +3139,26 @@ impl Store {
                             quote(&column(from, a)),
                             quote(&to_col)
                         ))?;
-                        // its intervals carried under its new name (§3)
+                        // its intervals carried under its new name (§3),
+                        // retracted under the old and moved to the publish,
+                        // so an export's consumer reads them under the new,
+                        // where it kept them under the old (the audit's
+                        // durability V7c, ADR-0205 decision 9)
                         tx.execute(
                             &format!(
-                                "UPDATE of_interval SET dimension = ?2 WHERE dimension = ?1 \
+                                "INSERT OR IGNORE INTO of_interval_retraction \
+                                 (position, object_id, dimension, entered_position, entered_at) \
+                                 SELECT ?2, object_id, dimension, entered_position, entered_at FROM of_interval \
+                                 WHERE dimension = ?1 AND object_id IN (SELECT id FROM {name})"
+                            ),
+                            params![from, publish_position],
+                        )?;
+                        tx.execute(
+                            &format!(
+                                "UPDATE of_interval SET dimension = ?2, moved_position = ?3 WHERE dimension = ?1 \
                                  AND object_id IN (SELECT id FROM {name})"
                             ),
-                            params![from, to],
+                            params![from, to, publish_position],
                         )?;
                         // and its write index, so `changed_since` and an
                         // erasure read who last wrote it under its new name
@@ -2879,7 +3179,19 @@ impl Store {
                     continue;
                 }
                 // its intervals set aside under the name its column takes,
-                // the open one closed at the publish event
+                // the open one closed at the publish event, and retracted
+                // there, since no export reads a set-aside row, where an
+                // export's consumer kept them open (the audit's durability
+                // V7b, ADR-0205 decision 9)
+                tx.execute(
+                    &format!(
+                        "INSERT OR IGNORE INTO of_interval_retraction \
+                         (position, object_id, dimension, entered_position, entered_at) \
+                         SELECT ?2, object_id, dimension, entered_position, entered_at FROM of_interval \
+                         WHERE dimension = ?1 AND object_id IN (SELECT id FROM {name})"
+                    ),
+                    params![n, publish_position],
+                )?;
                 tx.execute(
                     &format!(
                         "UPDATE of_interval SET dimension = ?2, \
@@ -3468,6 +3780,11 @@ pub struct Allocator {
     /// which stay drawn though it is refused (`flow-format.md` §4.12).
     sequences: BTreeMap<(String, String), i64>,
     drawn: std::collections::BTreeSet<(String, String)>,
+    /// The last number a scope the store holds no row for is taken to have
+    /// drawn: past every restore's margin, since the period a restore lost
+    /// may have started it, and 0 in a store never restored (ADR-0207
+    /// decision 3).
+    floor: i64,
 }
 
 impl Allocator {
@@ -3495,6 +3812,14 @@ impl Allocator {
                 .unwrap_or(SEQUENCE_MOST);
             sequences.insert(key, last);
         }
+        let floor = tx
+            .query_row(
+                "SELECT sequence_floor FROM of_restore ORDER BY seq DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
         Ok(Allocator {
             position: get("position")?,
             txn: get("txn")?,
@@ -3502,6 +3827,7 @@ impl Allocator {
             txn_taken: false,
             sequences,
             drawn: std::collections::BTreeSet::new(),
+            floor,
         })
     }
 
@@ -3513,7 +3839,7 @@ impl Allocator {
             .sequences
             .get(&key)
             .copied()
-            .unwrap_or(0)
+            .unwrap_or(self.floor)
             .checked_add(1)
             .filter(|n| *n <= SEQUENCE_MOST)?;
         self.sequences.insert(key.clone(), n);
@@ -4616,8 +4942,8 @@ pub struct CursoredSpan {
 
 /// The event that last wrote an interval: the one that opened it, closed it
 /// or relabelled it in a correction, as `of_interval_by_cursor` indexes it.
-const SPAN_CURSOR: &str =
-    "max(i.entered_position, coalesce(i.left_position, 0), coalesce(i.corrected_by, 0))";
+const SPAN_CURSOR: &str = "max(i.entered_position, coalesce(i.left_position, 0), \
+     coalesce(i.corrected_by, 0), coalesce(i.moved_position, 0))";
 
 /// The intervals of the types given whose cursor is past `after` and at
 /// most `upto`, each with its object's type and the transition that opened
@@ -4627,6 +4953,49 @@ const SPAN_CURSOR: &str =
 /// of a type's intervals read every event into memory and walked it once
 /// for each of the type's objects, 15 s and a gigabyte a page at six years
 /// (eleventh production review N1).
+/// An interval row a later commit deleted or moved, as the `.intervals`
+/// export retracts it at that commit's position (ADR-0205 decision 9).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Retraction {
+    pub position: i64,
+    pub object_id: String,
+    pub dimension: String,
+    pub entered_position: i64,
+    pub entered_at: i64,
+}
+
+/// The retractions of the types given whose position is past `after` and
+/// at most `upto`, in position order.
+pub(crate) fn read_interval_retractions(
+    conn: &Connection,
+    types: &[String],
+    after: i64,
+    upto: i64,
+) -> Stored<Vec<Retraction>> {
+    let marks: Vec<String> = (0..types.len()).map(|n| format!("?{}", n + 3)).collect();
+    let mut binds: Vec<Sql> = vec![Sql::Integer(after), Sql::Integer(upto)];
+    binds.extend(types.iter().map(|t| Sql::Text(t.clone())));
+    let sql = format!(
+        "SELECT r.position, r.object_id, r.dimension, r.entered_position, r.entered_at \
+         FROM of_interval_retraction r JOIN of_object o ON o.id = r.object_id \
+         WHERE r.position > ?1 AND r.position <= ?2 AND o.type IN ({}) \
+         ORDER BY r.position, o.rowid, r.dimension, r.entered_position, r.entered_at",
+        marks.join(", ")
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(&binds), |r| {
+        let at: String = r.get(4)?;
+        Ok(Retraction {
+            position: r.get(0)?,
+            object_id: r.get(1)?,
+            dimension: r.get(2)?,
+            entered_position: r.get(3)?,
+            entered_at: parse_timestamp(&at).unwrap_or(0),
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 pub(crate) fn read_interval_page(
     conn: &Connection,
     lib: &Library,
@@ -4710,7 +5079,7 @@ pub(crate) fn read_interval_page(
 /// cursor, and each attempt's transaction (eleventh production review N1).
 /// Beside the schema, as the actor's are.
 const EXPORT_INDEXES: &str = "\
-CREATE INDEX IF NOT EXISTS of_interval_by_cursor ON of_interval (max(entered_position, coalesce(left_position, 0), coalesce(corrected_by, 0)));
+CREATE INDEX IF NOT EXISTS of_interval_by_cursor ON of_interval (max(entered_position, coalesce(left_position, 0), coalesce(corrected_by, 0), coalesce(moved_position, 0)));
 CREATE INDEX IF NOT EXISTS of_event_imported ON of_event (position) WHERE imported = 1;
 CREATE INDEX IF NOT EXISTS of_attempt_by_txn ON of_attempt (txn);
 ";
@@ -4881,11 +5250,19 @@ fn write(
             }
         }
     }
-    for (id, dimension, position, at) in &change.merged {
+    for (id, dimension, position, at, by) in &change.merged {
         tx.execute(
             "DELETE FROM of_interval WHERE object_id = ?1 AND dimension = ?2 \
              AND entered_position = ?3 AND entered_at = ?4",
             params![id, dimension, position, timestamp_text(*at)],
+        )?;
+        // retracted at the correction, so an export's consumer drops it,
+        // where it kept it open beside the span it was merged into (the
+        // audit's durability V7a, ADR-0205 decision 9)
+        tx.execute(
+            "INSERT OR IGNORE INTO of_interval_retraction (position, object_id, dimension, entered_position, entered_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![by, id, dimension, position, timestamp_text(*at)],
         )?;
     }
     // the write index, once every event it names is in the log
@@ -5264,6 +5641,28 @@ mod tests {
             std::fs::read(&path).unwrap() != file || !wal.exists(),
             "a plain close carried nothing, so the test shows nothing"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A store opened beside a log holding frames, as a process killed
+    /// leaves it, is due a cut at the first look, so an erasure's
+    /// truncation due at the kill is not forgotten; one opened beside none
+    /// is not (the audit's durability W6b).
+    #[test]
+    fn a_store_opened_beside_frames_is_due_a_cut() {
+        let dir = std::env::temp_dir().join(format!("objectflow-frames-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("store.sqlite");
+        let wal = dir.join("store.sqlite-wal");
+        let s = Store::open(&path, 0).unwrap();
+        let frames = std::fs::read(&wal).unwrap();
+        assert!(!frames.is_empty() && !s.checkpoint_due());
+        drop(s);
+        assert!(!Store::open(&path, 0).unwrap().checkpoint_due());
+        // the log a kill left beside it
+        std::fs::write(&wal, &frames).unwrap();
+        assert!(Store::open(&path, 0).unwrap().checkpoint_due());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

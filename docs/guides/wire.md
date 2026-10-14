@@ -94,7 +94,7 @@ A verdict is `{"kind": …, "remedy": …}` with the fields of its kind; a satis
 | `tools` | `actor_kind`; `actor` | `{"tools": [{"name", "description", "input_schema"}…]}`: the tools an actor of that kind is handed, sorted by name ([Agents](agents.md)) |
 | `metric` | `name`; `actor`, `bind`, `keep`, `over`, `filter`, `cursor` | `{"rows": [{"dimensions", "value"}…], "flags": […], "history_complete": …, "refused": …}` |
 | `lookup` | `source`, `value`; `actor` | the object an external identifier names, or `null`. `source` is an external system, or `legacy` with `"<Type>:<key>"`. |
-| `export` | `source`; `actor`, `cursor`, `limit` | `{"lines": […], "cursor": …, "more": …}`: JSON lines of `log` (the event log), an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, with personal values left out |
+| `export` | `source`; `actor`, `cursor`, `limit` | `{"lines": […], "cursor": …, "more": …}`: JSON lines of `log` (the event log), an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, with personal values left out. An `.intervals` row is keyed by `object_id`, `dimension`, `entered_position` and `entered_at`, and a line `{"retracted": true, …}` with that key removes a row a later commit deleted or moved, a correction merging it or a version renaming or retyping its member, before the rows that commit wrote: fold the lines by their key in order, and you hold what the store holds (ADR-0205 decision 9) |
 | `diagnostics` | `type`; `actor`, `window` | `{"diagnostics": […]}`: where the flow and its record disagree |
 
 A metric's `over` and diagnostics' `window` are positive durations, and a metric's `keep` names each dimension once; anything else is a `400`. The built-in attributes that hold JSON, a `DeclarationChange`'s `source`, `report` and `evidence` and a `Proposal`'s `inputs`, are answered as JSON.
@@ -170,7 +170,7 @@ A **metric's filter** reads its rows through the metric's item, such as `i.state
 
 ## Subscriptions
 
-A subscription is an object: `{"actor": …, "type": "Subscription", "transition": "subscribe", "inputs": {"target_type": "Claim"}}`, optionally with `target_family`, `transitions`, `changes_state_only`, `lagging_after` and `dead_after`. `revoke` ends it.
+A subscription is an object: `{"actor": …, "type": "Subscription", "transition": "subscribe", "inputs": {"target_type": "Claim"}}`, optionally with `target_family`, `transitions`, `changes_state_only`, `lagging_after` and `dead_after`. `revoke` ends it. It is refused `invalid_input`, the input `not_allowed`, where it would select nothing or its durations make no sense: a `target_type` no type of the installed version has, by its exact name; a transition in `transitions` no type it selects declares; a `lagging_after` or `dead_after` that is not positive; or a `dead_after` before its `lagging_after` (ADR-0205 decision 10).
 
 | Operation | Keys | Answers |
 |---|---|---|

@@ -2340,16 +2340,21 @@ fn an_endpoint_is_a_deployments() {
     assert_eq!(code, Some(2), "{said}");
 }
 
-/// The stores release 0.1.0's own service made, kept with what it answered
-/// of them (`fixtures/make-release-store.py`, at commit f6ee6d6).
-/// Each test copies into a store of its own, `tag` naming it, since tests
-/// run at once in one process and share its id.
-fn release_fixture(name: &str, tag: &str) -> (PathBuf, Value) {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/release-0.1.0");
-    let path = fresh_store(&format!("upgrade-{name}-{tag}"));
+/// The releases whose own service made stores kept as fixtures, each with
+/// what it answered of them (`fixtures/make-release-store.py`: 0.1.0's at
+/// commit f6ee6d6, 0.2.0's at 37e8825).
+const FIXTURE_RELEASES: &[&str] = &["0.1.0", "0.2.0"];
+
+/// A store a release's own service made, and what it answered of it. Each
+/// test copies into a store of its own, `tag` naming it, since tests run at
+/// once in one process and share its id.
+fn release_fixture(release: &str, name: &str, tag: &str) -> (PathBuf, Value) {
+    let dir =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fixtures/release-{release}"));
+    let path = fresh_store(&format!("upgrade-{release}-{name}-{tag}"));
     std::fs::copy(dir.join(format!("{name}.sqlite")), &path).expect("the fixture copied");
     let reads = std::fs::read_to_string(dir.join(format!("{name}.reads.json")))
-        .expect("what release 0.1.0 answered");
+        .expect("what the release answered");
     (path, serde_json::from_str(&reads).expect("its reads"))
 }
 
@@ -2370,17 +2375,45 @@ fn exported_log(s: &Service) -> Vec<Value> {
     }
 }
 
-/// A store release 0.1.0 made is served only the upgrade until it runs; a
-/// dry run changes nothing; and once upgraded every object reads as 0.1.0
-/// read it, its history whole, the log the same with the operator's
-/// `upgrade` after it, and a restart opens the store at this release
-/// (ADR-0177).
+/// A store each earlier release made is served only the upgrade until it
+/// runs; a dry run changes nothing; and once upgraded, through each release
+/// between, every object reads as that release read it, its history whole,
+/// the log the same with the operator's `upgrade` for each step after it,
+/// and a restart opens the store at this release (ADR-0177; the audit's
+/// durability U8, every fixture where 0.1.0's alone was read).
 #[test]
 fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
     let op = json!({"id": "operator"});
-    for name in ["reimbursement", "servicedesk"] {
-        let (path, recorded) = release_fixture(name, "alike");
-        assert_eq!(recorded["release"], "objectflow-core 0.1.0");
+    // a store this release creates, to compare the upgraded ones with
+    let created = fresh_store("upgrade-created");
+    drop(start(&[
+        "--store",
+        created.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]));
+    let schema = own_schema(&created);
+    for table in ["of_restore", "of_interval_retraction", "of_event"] {
+        assert!(schema.contains(&format!("table {table}")), "{schema:?}");
+    }
+    assert!(
+        schema.iter().any(|l| l.contains("moved_position")),
+        "{schema:?}"
+    );
+    for (release, name) in FIXTURE_RELEASES
+        .iter()
+        .flat_map(|r| ["reimbursement", "servicedesk"].map(|n| (*r, n)))
+    {
+        let (path, recorded) = release_fixture(release, name, "alike");
+        assert_eq!(recorded["release"], format!("objectflow-core {release}"));
+        let steps = objectflow_core::release::steps_from(
+            recorded["release"].as_str().expect("its release"),
+            objectflow_core::release::RELEASES,
+        )
+        .expect("a chain to this release")
+        .len();
+        let name = format!("{release} {name}");
         let args = ["--store", path.to_str().expect("a path"), "--port", "0"];
         let s = start(&args);
         let (status, health) = call(&s, "GET", "/health", None);
@@ -2421,7 +2454,7 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
                 &recorded["release"],
                 &json!(BUILTINS_RELEASE),
                 &json!(false),
-                Some(1)
+                Some(steps)
             )
         );
         assert_eq!(
@@ -2430,7 +2463,7 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
         );
         let done = post(&s, "/v1/upgrade", &json!({"actor": op}));
         assert_eq!(done["upgraded"], json!(true), "{done}");
-        // what 0.1.0 answered, object by object
+        // what the release answered, object by object
         let objects = recorded["objects"].as_object().expect("its objects");
         assert!(objects.len() > 10, "{name}: {}", objects.len());
         for (id, was) in objects {
@@ -2451,15 +2484,21 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
             let before = was["history"]["events"].as_array().expect("its events");
             let now = history["events"].as_array().expect("its events");
             if id == "operator" {
-                // the operator's act naming the release, after what it did
+                // the operator's act naming each release, after what it did
                 for (was, is) in before.iter().zip(now) {
                     assert_answers_alike(was, is, &format!("{name} {id}"));
                 }
-                assert_eq!(now.len(), before.len() + 1);
-                assert_eq!(now[before.len()]["transition"], "upgrade");
+                assert_eq!(now.len(), before.len() + steps);
+                assert!(
+                    now[before.len()..]
+                        .iter()
+                        .all(|e| e["transition"] == "upgrade")
+                );
                 assert_eq!(
-                    got["version"],
-                    json!(was["version"].as_i64().unwrap_or(0) + 1)
+                    got["version"].as_i64(),
+                    was["version"]
+                        .as_i64()
+                        .map(|v| v + i64::try_from(steps).expect("a few steps"))
                 );
             } else {
                 assert_eq!(now.len(), before.len(), "{name} {id}");
@@ -2474,7 +2513,7 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
         for (was, is) in was.iter().zip(&log) {
             assert_answers_alike(was, is, &format!("{name} log"));
         }
-        assert_eq!(log.len(), was.len() + 1, "{name}");
+        assert_eq!(log.len(), was.len() + steps, "{name}");
         // a second upgrade has nothing to do
         let again = post(&s, "/v1/upgrade", &json!({"actor": op}));
         assert_eq!(again["upgraded"], json!(false));
@@ -2488,13 +2527,54 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
         );
         let got = post(&s, "/v1/get", &json!({"actor": op, "id": "operator"}));
         assert_eq!(got["state"], "ACTIVE");
+        // and holds the store's own tables, columns and indexes as a store
+        // this release creates holds them
+        drop(s);
+        assert_eq!(own_schema(&path), own_schema(&created), "{name}");
     }
+}
+
+/// A store's own tables, `of_*`, each with its columns as `table_info`
+/// gives them, and its own indexes by name, to compare an upgraded store
+/// with one created.
+fn own_schema(path: &Path) -> Vec<String> {
+    let conn = rusqlite::Connection::open(path).expect("the store");
+    let named: Vec<(String, String)> = conn
+        .prepare("SELECT type, name FROM sqlite_master WHERE name LIKE 'of\\_%' ESCAPE '\\' ORDER BY type, name")
+        .and_then(|mut q| {
+            q.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .and_then(|r| r.collect())
+        })
+        .expect("its schema");
+    let mut out = Vec::new();
+    for (kind, name) in named {
+        out.push(format!("{kind} {name}"));
+        if kind == "table" {
+            let columns: Vec<String> = conn
+                .prepare(&format!("PRAGMA table_info({name})"))
+                .and_then(|mut q| {
+                    q.query_map([], |r| {
+                        Ok(format!(
+                            "  {} {} notnull={} pk={}",
+                            r.get::<_, String>(1)?,
+                            r.get::<_, String>(2)?,
+                            r.get::<_, i64>(3)?,
+                            r.get::<_, i64>(5)?
+                        ))
+                    })
+                    .and_then(|r| r.collect())
+                })
+                .expect("its columns");
+            out.extend(columns);
+        }
+    }
+    out
 }
 
 /// An upgrade is the operator's, and refused to anyone else.
 #[test]
 fn only_an_operator_upgrades() {
-    let (path, _) = release_fixture("reimbursement", "operator");
+    let (path, _) = release_fixture("0.1.0", "reimbursement", "operator");
     let s = start(&["--store", path.to_str().expect("a path"), "--port", "0"]);
     let (status, said) = call(
         &s,
@@ -2723,6 +2803,43 @@ fn a_write_meeting_a_lock_past_its_timeout_is_retried_then_refused_stale() {
             &json!({"actor": {"id": "operator"}, "id": tally})
         )["attributes"]["count"],
         1
+    );
+    // an acknowledgement waits and is refused as a request is, where it
+    // answered 500 after one timeout (the audit's durability W8b)
+    let op = json!({"id": "operator"});
+    let kind = post(&s, "/v1/get", &json!({"actor": op, "id": tally}))["type"].clone();
+    let subscription = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Subscription", "transition": "subscribe",
+                "inputs": {"target_type": kind}}),
+    )["object_id"]
+        .as_str()
+        .expect("the subscription")
+        .to_string();
+    let lock = held_lock(&file);
+    let (status, acknowledged) = call(
+        &s,
+        "POST",
+        "/v1/acknowledge",
+        Some(&json!({"actor": op, "subscription": subscription, "cursor": "0"})),
+    );
+    drop(lock);
+    assert_eq!(
+        (status, &acknowledged["refused"]),
+        (200, &json!("stale")),
+        "{acknowledged}"
+    );
+    let (status, acknowledged) = call(
+        &s,
+        "POST",
+        "/v1/acknowledge",
+        Some(&json!({"actor": op, "subscription": subscription, "cursor": "0"})),
+    );
+    assert_eq!(
+        (status, &acknowledged["refused"]),
+        (200, &Value::Null),
+        "{acknowledged}"
     );
 }
 
@@ -5046,4 +5163,606 @@ fn a_read_by_a_personal_value_is_opted_into() {
     assert!(named.to_string().contains(&ana), "{named}");
     drop(s);
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+/// A flow numbering its claims for an accounts system, as the audit's
+/// durability B4 found a restore drawing them again.
+const NUMBERED: &str = "
+module: numbered
+categories: [live, closed]
+sequences:
+  claim_number: { description: The numbers the accounts system keeps claims by. }
+types:
+  Claim:
+    description: A claim, numbered for the accounts system.
+    tracking: record
+    attributes:
+      number: { type: string, identifier: { sequence: claim_number, format: \"EXP-{n}\" }, unique: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      PAID: { category: closed, final: true, description: Paid. }
+    transitions:
+      file: { kind: initial, to: OPEN }
+      pay: { kind: external, from: OPEN, to: PAID }
+";
+
+/// A backup taken while the service writes, marked as `operate.md`'s
+/// commands mark it, and restored after the live store went on: the
+/// restored store hands out no object number, claim number or position the
+/// live store handed out after the copy, refuses a subscriber's cursor from
+/// that period by `pull`, `export` and `acknowledge` once its log has passed
+/// it, says the restore at its start, and restores it once (the audit's
+/// durability B4 and B5, ADR-0207).
+#[test]
+fn a_restored_copy_hands_out_nothing_its_copy_never_saw() {
+    let file = fresh_store("copy-restored");
+    let path = file.to_str().expect("a path");
+    let s = start(&["--store", path, "--create", "--port", "0"]);
+    publish(&s, &json!({"numbered": NUMBERED}));
+    let op = json!({"id": "operator"});
+    let filed = |s: &Service| {
+        let v = post(
+            s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Claim", "transition": "file"}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        let id = v["object_id"].as_str().expect("its id").to_string();
+        let got = post(s, "/v1/get", &json!({"actor": op, "id": id}));
+        let number = got["attributes"]["number"]
+            .as_str()
+            .expect("its number")
+            .to_string();
+        (id, number)
+    };
+    let tail = |text: &str| -> i64 {
+        text.rsplit('-')
+            .next()
+            .and_then(|n| n.parse().ok())
+            .expect("a number")
+    };
+    for _ in 0..3 {
+        filed(&s);
+    }
+    let subscription = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Subscription", "transition": "subscribe",
+                "inputs": {"target_type": "Claim"}}),
+    )["object_id"]
+        .as_str()
+        .expect("the subscription")
+        .to_string();
+    // the backup, taken while the service runs, and marked
+    let copy = file.with_file_name("copy.sqlite");
+    rusqlite::Connection::open(&file)
+        .expect("the store")
+        .execute("VACUUM INTO ?1", [copy.to_str().expect("a path")])
+        .expect("the backup");
+    rusqlite::Connection::open(&copy)
+        .expect("the copy")
+        .execute(
+            "INSERT INTO of_counter (name, value) VALUES ('copied', 1)",
+            [],
+        )
+        .expect("the mark");
+    // the period the restore loses: claims an integration kept, and the
+    // cursor a subscriber kept
+    let lost: Vec<(String, String)> = (0..4).map(|_| filed(&s)).collect();
+    let page = post(
+        &s,
+        "/v1/pull",
+        &json!({"actor": op, "subscription": subscription}),
+    );
+    let cursor = |page: &Value| -> i64 {
+        page["settled"]
+            .as_str()
+            .and_then(|c| c.parse().ok())
+            .expect("a cursor")
+    };
+    let kept = cursor(&page);
+    drop(s);
+    // restored as operate.md says: the copy in the store's place, with
+    // neither -wal nor -shm beside it
+    for end in ["-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{path}{end}"));
+    }
+    std::fs::rename(&copy, &file).expect("the copy restored");
+    let s = start(&["--store", path, "--port", "0"]);
+    assert!(
+        s.said_within("is a restored copy")
+            .contains("is a restored copy"),
+        "{}",
+        s.said()
+    );
+    let (id, number) = filed(&s);
+    for (was, numbered) in &lost {
+        assert!(tail(&id) > tail(was), "{id} after {was}");
+        assert!(tail(&number) > tail(numbered), "{number} after {numbered}");
+    }
+    // its log now past the kept cursor, which is still none of its own
+    let pulled = post(
+        &s,
+        "/v1/pull",
+        &json!({"actor": op, "subscription": subscription}),
+    );
+    assert!(cursor(&pulled) > kept, "{pulled}");
+    for (route, body) in [
+        (
+            "/v1/pull",
+            json!({"actor": op, "subscription": subscription, "cursor": kept.to_string()}),
+        ),
+        (
+            "/v1/export",
+            json!({"actor": op, "source": "log", "cursor": kept.to_string()}),
+        ),
+        (
+            "/v1/export",
+            json!({"actor": op, "source": "Claim.transitions", "cursor": kept.to_string()}),
+        ),
+        (
+            "/v1/acknowledge",
+            json!({"actor": op, "subscription": subscription, "cursor": kept.to_string()}),
+        ),
+    ] {
+        let answer = post(&s, route, &body);
+        assert_eq!(answer["refused"], "invalid_cursor", "{route}: {answer}");
+    }
+    // and an `.attempts` cursor in the transactions' gap, the one below
+    // where the start said they go on from
+    let said = s.said();
+    let txn_from: i64 = said
+        .split("transactions from ")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|n| n.parse().ok())
+        .expect("where transactions go on from");
+    let attempts = post(
+        &s,
+        "/v1/export",
+        &json!({"actor": op, "source": "Claim.attempts", "cursor": (txn_from - 1).to_string()}),
+    );
+    assert_eq!(attempts["refused"], "invalid_cursor", "{attempts}");
+    // a cursor the copy held is its own
+    let from_copy = post(
+        &s,
+        "/v1/pull",
+        &json!({"actor": op, "subscription": subscription, "cursor": "1"}),
+    );
+    assert!(from_copy["refused"].is_null(), "{from_copy}");
+    drop(s);
+    // restored once: started again, it says nothing of a restore
+    let s = start(&["--store", path, "--port", "0"]);
+    let (again, _) = filed(&s);
+    assert_eq!(tail(&again), tail(&id) + 1);
+    assert!(!s.said().contains("is a restored copy"), "{}", s.said());
+}
+
+/// A store the service finds lost is served no more until a restart, every
+/// later read and write answered 503 and the stop's checkpoint skipped:
+/// the file replaced and then put back, the write-ahead log removed, and
+/// the file written over in place, where writes went on answering 200 into
+/// a log no start would read (the audit's durability S3 and S4, D688,
+/// ADR-0205 decision 8).
+#[test]
+fn a_store_found_lost_is_served_no_more_until_a_restart() {
+    let op = json!({"id": "operator"});
+    let add = |login: &str| {
+        json!({"actor": op, "type": "User", "transition": "add",
+               "inputs": {"login": login, "name": "A person"}})
+    };
+    let refused_as = |s: &Service, code: &str| {
+        let (status, fault) = call(s, "POST", "/v1/request", Some(&add("late")));
+        assert_eq!(
+            (status, fault["code"].as_str()),
+            (503, Some(code)),
+            "{fault}\n{}",
+            s.said()
+        );
+        let (status, read) = call(
+            s,
+            "POST",
+            "/v1/get",
+            Some(&json!({"actor": op, "id": "operator"})),
+        );
+        assert_eq!((status, read["code"].as_str()), (503, Some(code)), "{read}");
+        let (status, health) = call(s, "GET", "/health", None);
+        assert_eq!(
+            (status, health["code"].as_str()),
+            (503, Some(code)),
+            "{health}"
+        );
+    };
+    for (case, code) in [
+        ("put-back", "store_replaced"),
+        ("log-removed", "store_replaced"),
+        ("written-over", "store_unreadable"),
+    ] {
+        let file = fresh_store(&format!("lost-{case}"));
+        let path = file.to_str().expect("a path");
+        let s = start(&["--store", path, "--create", "--port", "0"]);
+        publish_service(&s);
+        assert_eq!(post(&s, "/v1/request", &add("ana"))["kind"], "satisfied");
+        match case {
+            "put-back" => {
+                let moved = file.with_file_name("moved.sqlite");
+                std::fs::rename(&file, &moved).expect("moved");
+                std::fs::copy(&moved, &file).expect("a copy in its place");
+                refused_as(&s, code);
+                // its own file put back, it is served no more all the same
+                std::fs::rename(&moved, &file).expect("put back");
+            }
+            "log-removed" => {
+                std::fs::remove_file(format!("{path}-wal")).expect("the log removed");
+            }
+            _ => {
+                use std::io::{Seek, Write};
+                let mut f = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&file)
+                    .expect("the file");
+                f.seek(std::io::SeekFrom::Start(0)).expect("its start");
+                f.write_all(&[0u8; 100]).expect("written over");
+            }
+        }
+        refused_as(&s, code);
+        refused_as(&s, code);
+        // asked to stop, it carries no log into a lost store's file
+        let pid = s.child.as_ref().expect("its process").id();
+        let sent = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()
+            .expect("kill runs");
+        assert!(sent.success());
+        let said = s.said_within("stopped");
+        assert!(
+            said.contains("the store is served no more until a restart")
+                && said.contains("was not carried into the store's file, the store being lost"),
+            "{case}: {said}"
+        );
+    }
+}
+
+/// A start refused for a busy address changes neither the store's file nor
+/// its log, where it had turned a restored copy to WAL, made its indexes
+/// and folded its log before binding (the audit's durability C3); a store
+/// due an upgrade that fails SQLite's quick check is refused, its files as
+/// they were, where it was upgraded and served unchecked (C4); and a stop
+/// whose socket is already gone says so and still stops, carrying the log
+/// into the file, where it ended in an error (C7).
+#[test]
+fn a_refused_start_and_a_stop_leave_the_store_whole() {
+    // a port another holds
+    let file = fresh_store("held-port");
+    let path = file.to_str().expect("a path");
+    {
+        let s = start(&["--store", path, "--create", "--port", "0"]);
+        publish_service(&s);
+    }
+    let taken = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+    let port = taken.local_addr().expect("its address").port().to_string();
+    let wal = format!("{path}-wal");
+    let before = (
+        std::fs::read(&file).expect("the file"),
+        std::fs::read(&wal).unwrap_or_default(),
+    );
+    let (code, said) = refused(&["--store", path, "--port", &port]);
+    assert_eq!(code, Some(1), "{said}");
+    assert_eq!(
+        (
+            std::fs::read(&file).expect("the file"),
+            std::fs::read(&wal).unwrap_or_default()
+        ),
+        before,
+        "the refused start changed the store: {said}"
+    );
+    // a store of 0.2.0 due an upgrade, a page of it written over
+    let (damaged, _) = release_fixture("0.2.0", "servicedesk", "damaged");
+    {
+        use std::io::{Seek, Write};
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&damaged)
+            .expect("the copy");
+        f.seek(std::io::SeekFrom::Start(4096 * 3)).expect("a page");
+        f.write_all(&[0x5a; 4096]).expect("written over");
+    }
+    let before = std::fs::read(&damaged).expect("the copy");
+    let (code, said) = refused(&["--store", damaged.to_str().expect("a path"), "--port", "0"]);
+    assert_eq!(code, Some(1), "{said}");
+    assert!(said.contains("quick check"), "{said}");
+    assert_eq!(std::fs::read(&damaged).expect("the copy"), before);
+    // a stop whose socket is gone
+    let socket = file.with_file_name("service.sock");
+    let s = start_on_socket(&[
+        "--store",
+        path,
+        "--socket",
+        socket.to_str().expect("a path"),
+    ]);
+    std::fs::remove_file(&socket).expect("the socket removed");
+    let pid = s.child.as_ref().expect("its process").id();
+    let sent = Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .status()
+        .expect("kill runs");
+    assert!(sent.success());
+    let said = s.said_within("stopped");
+    assert!(
+        said.contains("was not removed") && said.contains("stopped"),
+        "{said}"
+    );
+    assert!(
+        std::fs::read(&wal).map_or(true, |l| l.is_empty()),
+        "the log not carried in"
+    );
+}
+
+/// A service started on a Unix socket, once it says where it listens.
+fn start_on_socket(args: &[&str]) -> Service {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
+        .args(args)
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the service starts");
+    let mut stderr = BufReader::new(child.stderr.take().expect("its stderr"));
+    let mut line = String::new();
+    stderr.read_line(&mut line).expect("its first line");
+    assert!(line.contains(" listening on unix:"), "{line}");
+    Service {
+        child: Some(child),
+        addr: String::new(),
+        said: drained(stderr),
+    }
+}
+
+/// A flow tracking a ticket's priority and size, its priority corrected.
+const TICKETS: &str = "
+module: tickets
+categories: [live, closed]
+enumerations:
+  Priority: [LOW, HIGH]
+  Size: [S, L]
+types:
+  Ticket:
+    description: A ticket.
+    tracking: record
+    attributes:
+      priority: { type: Priority }
+      size: { type: Size, optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      raise: { kind: initial, to: OPEN, required_inputs: [priority], optional_inputs: [size] }
+      escalate: { kind: internal, from: [OPEN], required_inputs: [priority] }
+      fix_priority: { kind: internal, from: [OPEN], corrects: [priority], required_inputs: [priority], inputs: { reason: { type: string } } }
+      close: { kind: external, from: [OPEN], to: DONE }
+";
+
+/// The `.intervals` export, folded by each row's key as a consumer folds
+/// it, holds what the store holds after every commit: a correction merging
+/// a span into the one before it retracts the merged span, a version
+/// renaming a tracked member retracts its rows under the old name and gives
+/// them again under the new, and one retyping a member retracts the rows it
+/// sets aside, where a consumer kept each (the audit's durability V7a to V8,
+/// ADR-0205 decision 9).
+#[test]
+fn the_intervals_export_retracts_what_a_later_commit_deleted_or_moved() {
+    let file = fresh_store("retracted");
+    let path = file.to_str().expect("a path");
+    let s = start(&["--store", path, "--create", "--port", "0"]);
+    publish(&s, &json!({"tickets": TICKETS}));
+    let op = json!({"id": "operator"});
+    let took = |body: Value| {
+        let v = post(&s, "/v1/request", &body);
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        v["object_id"].as_str().map(str::to_string)
+    };
+    let ticket = took(json!({"actor": op, "type": "Ticket", "transition": "raise",
+                             "inputs": {"priority": "LOW", "size": "S"}}))
+    .expect("a ticket");
+    took(
+        json!({"actor": op, "object_id": ticket, "transition": "escalate",
+                "inputs": {"priority": "HIGH"}}),
+    );
+    type Key = (String, String, i64, String);
+    let mut held: std::collections::BTreeMap<Key, Value> = std::collections::BTreeMap::new();
+    let mut cursor = Value::Null;
+    let mut fold = |held: &mut std::collections::BTreeMap<Key, Value>| loop {
+        let page = post(
+            &s,
+            "/v1/export",
+            &json!({"actor": op, "source": "Ticket.intervals", "cursor": cursor}),
+        );
+        for line in page["lines"].as_array().expect("its lines") {
+            let row: Value = serde_json::from_str(line.as_str().expect("a line")).expect("JSON");
+            let key = (
+                row["object_id"].as_str().expect("its object").to_string(),
+                row["dimension"]
+                    .as_str()
+                    .expect("its dimension")
+                    .to_string(),
+                row["entered_position"]
+                    .as_i64()
+                    .expect("its entered position"),
+                row["entered_at"]
+                    .as_str()
+                    .expect("its entered time")
+                    .to_string(),
+            );
+            if row["retracted"] == json!(true) {
+                held.remove(&key);
+            } else {
+                held.insert(key, row["left_at"].clone());
+            }
+        }
+        cursor = page["cursor"].clone();
+        if page["more"] != json!(true) {
+            break;
+        }
+    };
+    let stored = || -> std::collections::BTreeMap<Key, Value> {
+        let conn = rusqlite::Connection::open(&file).expect("the store");
+        let mut q = conn
+            .prepare(
+                "SELECT object_id, dimension, entered_position, entered_at, left_at FROM of_interval \
+                 WHERE legacy = 0 AND instr(dimension, '__v') = 0 AND object_id IN (SELECT id FROM of_object WHERE type = 'Ticket')",
+            )
+            .expect("its intervals");
+        q.query_map([], |r| {
+            Ok((
+                (r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?),
+                r.get::<_, Option<String>>(4)?
+                    .map_or(Value::Null, Value::String),
+            ))
+        })
+        .expect("read")
+        .collect::<Result<_, _>>()
+        .expect("rows")
+    };
+    fold(&mut held);
+    assert_eq!(held, stored());
+    // corrected back, the high span merged into the low one before it
+    took(
+        json!({"actor": op, "object_id": ticket, "transition": "fix_priority",
+                "inputs": {"priority": "LOW", "reason": "mistyped"}}),
+    );
+    fold(&mut held);
+    assert_eq!(held, stored());
+    // a version renaming priority and retyping size
+    let v2 = TICKETS
+        .replace(
+            "      priority: { type: Priority }",
+            "      urgency: { type: Priority }",
+        )
+        .replace("[priority]", "[urgency]")
+        .replace(
+            "      size: { type: Size, optional: true }",
+            "      size: { type: string, optional: true }",
+        )
+        + "migration:\n  description: Priority is urgency, and a size is text.\n  renamed_attributes:\n    Ticket: { priority: urgency }\n";
+    publish(&s, &json!({"tickets": v2}));
+    fold(&mut held);
+    assert_eq!(held, stored());
+    assert!(
+        held.keys().any(|k| k.1 == "urgency") && !held.keys().any(|k| k.1 == "priority"),
+        "{held:?}"
+    );
+}
+
+/// A backup restored beside the store's own later log, the restore's second
+/// step left out: the start takes the log in and says so, and following
+/// its note word for word serves the backup's state, where its advice, to
+/// remove the log the start had already taken in, left the restore undone
+/// (the guides' audit G-83).
+#[test]
+fn a_restore_undone_by_a_later_log_is_done_again_as_the_start_says() {
+    let file = fresh_store("undone");
+    let path = file.to_str().expect("a path");
+    let op = json!({"id": "operator"});
+    let add = |s: &Service, login: &str| {
+        let v = post(
+            s,
+            "/v1/request",
+            &json!({"actor": op, "type": "User", "transition": "add",
+                    "inputs": {"login": login, "name": "A person"}}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        v["object_id"].as_str().expect("its id").to_string()
+    };
+    // stopped as a supervisor stops it, waiting for its process to end, as
+    // `systemctl stop` does, since its connections close after it says it
+    // stopped
+    let stopped = |mut s: Service| {
+        let pid = s.child.as_ref().expect("its process").id();
+        let sent = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()
+            .expect("kill runs");
+        assert!(sent.success());
+        let said = s.said_within("stopped");
+        let _ = s.child.as_mut().expect("its process").wait();
+        said
+    };
+    let backup = file.with_file_name("backup.sqlite");
+    let kept = {
+        let s = start(&["--store", path, "--create", "--port", "0"]);
+        publish_service(&s);
+        let kept = add(&s, "kept");
+        stopped(s);
+        std::fs::copy(&file, &backup).expect("the backup");
+        kept
+    };
+    let later = {
+        let s = start(&["--store", path, "--port", "0"]);
+        let later = add(&s, "later");
+        // killed, its log holding the later write
+        drop(s);
+        later
+    };
+    // restored, the log left beside it
+    std::fs::copy(&backup, &file).expect("restored");
+    let s = start(&["--store", path, "--port", "0"]);
+    let note = s.said_within("this start has taken the later log into it");
+    assert!(
+        note.contains("this start has taken the later log into it"),
+        "{note}"
+    );
+    // as the note says: stop, remove the -wal and -shm, the backup again, start
+    stopped(s);
+    for end in ["-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{path}{end}"));
+    }
+    std::fs::copy(&backup, &file).expect("restored again");
+    let s = start(&["--store", path, "--port", "0"]);
+    let get = |id: &str| post(&s, "/v1/get", &json!({"actor": op, "id": id}));
+    // the backup's state: what it held, and nothing written after it
+    assert_eq!(get(&kept)["id"], json!(kept));
+    assert_eq!(get(&later), Value::Null, "the restore undone");
+}
+
+/// A backup's copy of an earlier release, marked as a 1.0.0 guide marks
+/// one, is restored by its upgrade, before the upgrade records its act, and
+/// the upgrade says so (ADR-0207 decision 7).
+#[test]
+fn a_marked_copy_due_an_upgrade_is_restored_at_it() {
+    let (path, _) = release_fixture("0.2.0", "reimbursement", "marked");
+    let held: i64 = {
+        let conn = rusqlite::Connection::open(&path).expect("the copy");
+        conn.execute(
+            "INSERT INTO of_counter (name, value) VALUES ('copied', 1)",
+            [],
+        )
+        .expect("the mark");
+        conn.query_row(
+            "SELECT value FROM of_counter WHERE name = 'position'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("its position")
+    };
+    let s = start(&["--store", path.to_str().expect("a path"), "--port", "0"]);
+    let op = json!({"id": "operator"});
+    let done = post(&s, "/v1/upgrade", &json!({"actor": op}));
+    assert_eq!(done["upgraded"], json!(true), "{done}");
+    let restored = &done["restored"];
+    assert_eq!(restored["positions"][0], json!(held), "{done}");
+    assert!(
+        restored["margin"].as_i64().expect("its margin") >= 1_000,
+        "{done}"
+    );
+    // the upgrade's own act past the gap
+    let history = post(&s, "/v1/history", &json!({"actor": op, "id": "operator"}));
+    let act = history["events"]
+        .as_array()
+        .and_then(|e| e.last())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(act["transition"], "upgrade");
+    assert!(
+        act["position"].as_i64().expect("its position")
+            > restored["positions"][1].as_i64().expect("the gap's end"),
+        "{act} {done}"
+    );
 }
