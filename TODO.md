@@ -506,7 +506,44 @@ Found 2026-10-14 at `9173b00` (`production-review.md` §20); decided by ADR-0203
 - [ ] The checkers refuse `"by " + actor.id`, `count(d)` in a metric, and `actor.principal` assigned where a request may send none (ADR-0203 decision 5). D687.
 - [ ] Writes refused once the store is found unreadable (ADR-0203 decision 5). D688.
 - [ ] A subscription's filter checked as it is made: its type, its transitions, a positive `dead_after` (ADR-0203 decision 5). D689.
-- [ ] A seventeenth production review.
+- [x] ~~A seventeenth production review.~~ *Replaced 2026-10-14 by ADR-0204's plan below.*
+
+## Production readiness by ADR-0204
+
+Decided by the author 2026-10-14 ("go with your recommendations on all six"), after an independent critique. Each finding of the audit is delivered as a check kept in the repository; the release is the author's decision on what remains, with ADR-0204 §8's floor.
+
+**A. The records.**
+- [x] ADR-0204 decided; ADR-0183 decision 1 superseded; PRD revision 25 revises N1. *Done 2026-10-14.*
+- [ ] `README.md` and `SECURITY.md` state ADR-0204 §10's limits.
+
+**B. The adversarial harness** (ADR-0204 §6, decision 9.2; `design/adversarial-harness.md`).
+- [ ] A crate driving the core in process from a seed: the fixtures of §3, a transcript, and a failing run reduced to its shortest failing prefix.
+- [ ] The failure conditions of §1, extended by ADR-0204 §3's A, V and E, each checked from the read surface.
+- [ ] The guesser, the retrier, the skipper and the route-tester; the racer on SQLite, whose serial writer leaves it little to find (§5).
+- [ ] Run in `scripts/check-all` with a fixed budget of seeds.
+
+**C. The audit** (ADR-0204 §6), six areas at once, each returning its whole inventory graded by §4 and delivered as checks.
+- [ ] Personal data end to end. Carries D671 and D682.
+- [ ] Rules and the record on the write path. Carries D669.
+- [ ] Values and agreement. Carries D687 and F5-REST.
+- [ ] Cost, pools and robustness, against C5. Carries D656 and D688.
+- [ ] Durability, recovery, upgrade, events and release. Carries D689.
+- [ ] The guides and the gateway contract.
+
+**D. The author's decisions** (ADR-0204 §9).
+- [ ] The personal-read opt-in, a guard that reads no actor, replacing ADR-0201 decision 4 and ADR-0202 decision 3, before 1.0.0: its ADR, then its build.
+- [ ] A restore advances every counter past a margin: its ADR, then its build.
+- [ ] A `maintain` task rebuilding the indexes an erasure touched, measured, and its timer in `operate.md`.
+- [ ] C5 on the six-year store at the profile: one-object reads within 100 ms and metric reads within 1 s at p95, or each miss accepted by name.
+
+**E. The fixes,** area by area, each class closed whole, mutation-tested, the gates run after each area; every fix that refuses what 0.2.0 accepted listed (ADR-0204 §11).
+
+**F. The release gate** (ADR-0204 §7, §8).
+- [ ] The version raised to 1.0.0 with its release entry and a 0.2.0-to-1.0.0 upgrade fixture.
+- [ ] **Author:** push, and tag the candidate; `check.yml` and `release.yml` pass on it.
+- [ ] A soak of at least 24 hours at ADR-0204 §1's profile.
+- [ ] The confirming review, one operator and one adversary, graded by ADR-0204 §3 to §5.
+- [ ] **Author:** decide 1.0.0 on what remains.
 
 ## The guides
 

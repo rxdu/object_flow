@@ -2,6 +2,7 @@
 
 - **Status:** Decisions 1 to 4 **decided by the author**, 2026-10-11 ("go with your recommendations on the four questions", `design/production-review.md` §5). Decisions 5 to 10 built the same day under that direction, each fixing a finding of the review within the design; decision 7 rejects the review's recommendation, which the PRD forbids; decision 9's dependency approved by the author the same day ("approve the signal feature, go ahead").
 - **Date:** 2026-10-11
+- **Superseded by:** ADR-0204 — decision 1, the bar of a review that finds no blocker and no major, replaced by written criteria, an audit by class through the adversarial harness, one confirming review on a release candidate, and the author's decision with a floor.
 - **Refines:** ADR-0174 decision 1 (a store is made only when asked), ADR-0114 (where the service's boundary is drawn)
 - **Refined by:** ADR-0184 — the operator's retirement requested by nothing (decision 7's store acts); idle and half-sent connections closed, built (decision 10); ADR-0187 — a store's flow may declare who approves its versions (decision 7's store acts).; ADR-0188 — the store's volume in `/health` and `/metrics` (decision 8). ADR-0191 — `--create` over a store that exists said at start (decision 3).
 - **Builds:** `design/production-review.md` §4 and §5
