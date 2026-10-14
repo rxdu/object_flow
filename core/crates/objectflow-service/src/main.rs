@@ -5647,9 +5647,15 @@ fn is_store(path: &std::path::Path) -> std::io::Result<bool> {
 /// line says where.
 fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<String>> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let held = std::fs::metadata(path)
+    let sized = std::fs::metadata(path)
         .map(|m| m.len() > 0)
         .unwrap_or(false);
+    // a database holding not a table is no store: what a crash while
+    // --create made one leaves, which a start with --create makes, where
+    // every start refused it as no ObjectFlow store (the audit's durability
+    // W11)
+    let empty = sized && objectflow_core::release::holds_nothing(path).unwrap_or(false);
+    let held = sized && !empty;
     let mut notes = Vec::new();
     // a log holding what the file does not, before anything opens it: the
     // last stop was not clean, which a clean one never leaves (fifth
@@ -5680,10 +5686,17 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
     }
     if !held {
         if !create {
-            return Err(std::io::Error::other(format!(
-                "{} holds no store; to make one there, start once with --create",
-                path.display()
-            )));
+            return Err(std::io::Error::other(if empty {
+                format!(
+                    "{} holds an empty database and no store, as a start with --create stopped before it made one leaves; to make one there, start once with --create",
+                    path.display()
+                )
+            } else {
+                format!(
+                    "{} holds no store; to make one there, start once with --create",
+                    path.display()
+                )
+            }));
         }
         // a directory that does not exist, among the faults, names the path
         // it was asked for (third production review)

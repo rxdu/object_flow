@@ -210,8 +210,104 @@ pub fn release_fingerprint() -> String {
     for m in crate::metric::STANDARD_NAMES {
         h.update(format!("metric {m}\n").as_bytes());
     }
+    // a declared type's table, for an attribute of every type a store
+    // holds, and a value of each as its column holds it, where only the
+    // built-ins' were, so a release that changes either changes the
+    // fingerprint (the audit's durability U6)
+    if let Ok(lib) = Library::load(&[("fingerprint.yaml".into(), FINGERPRINT_FLOW.into())]) {
+        for (name, t) in lib.types.iter().filter(|(_, t)| t.module == "fingerprint") {
+            h.update(format!("\ndeclared {name}\n").as_bytes());
+            h.update(
+                table_parts(&lib, t, false)
+                    .create(&table(name), &[])
+                    .as_bytes(),
+            );
+        }
+    }
+    for v in fingerprint_values() {
+        h.update(format!("{:?} {:?}\n", v, to_sql(&v).ok()).as_bytes());
+    }
     let hex: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
     format!("sha256:{hex}")
+}
+
+/// A flow declaring an attribute of every type a store holds, whose tables
+/// [`release_fingerprint`] covers (the audit's durability U6). It is never
+/// edited: a change to it is a change to every release's fingerprint.
+const FINGERPRINT_FLOW: &str = r#"
+module: fingerprint
+categories: [live]
+enumerations: { Grade: [LOW, HIGH] }
+types:
+  Holder:
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [login] }
+  Every:
+    attributes:
+      count: { type: int, optional: true }
+      share: { type: "decimal(12,4)", optional: true }
+      price: { type: money(USD), optional: true }
+      name: { type: string, optional: true, personal: true }
+      done: { type: bool, optional: true }
+      due: { type: date, optional: true }
+      seen: { type: timestamp, optional: true }
+      took: { type: duration, optional: true }
+      grade: { type: Grade, optional: true }
+      scan: { type: file, optional: true }
+      tags: { type: "string[]", optional: true }
+      holder: { reference: Holder, optional: true }
+      parts: { reference: "Part[]", aggregation: composite, opposite: whole }
+    states:
+      ON: { category: live }
+    transitions:
+      make: { kind: initial, to: ON }
+  Part:
+    attributes:
+      whole: { reference: Every, opposite: parts }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [whole] }
+"#;
+
+/// A value of every kind a column holds, which [`release_fingerprint`]
+/// hashes as its column holds it (the audit's durability U6).
+fn fingerprint_values() -> Vec<Value> {
+    let mut out = vec![
+        Value::Absent,
+        Value::Bool(true),
+        Value::Int(42),
+        Value::Duration(90),
+        Value::Timestamp(1_767_225_600),
+        Value::Date(20_454),
+        Value::Text("text".into()),
+        Value::Object("every-1".into()),
+        Value::State {
+            type_: "Every".into(),
+            name: "ON".into(),
+        },
+        Value::Member {
+            enumeration: "Grade".into(),
+            member: "HIGH".into(),
+        },
+        Value::File {
+            hash: format!("sha256:{}", "ab".repeat(32)),
+            size: 1,
+            media_type: "text/plain".into(),
+        },
+    ];
+    if let Some(amount) = crate::value::Decimal::new(1234, 2) {
+        out.push(Value::Decimal(amount));
+        out.push(Value::Money {
+            currency: "USD".into(),
+            amount,
+        });
+    }
+    out
 }
 
 impl From<rusqlite::Error> for StoreError {
@@ -1926,7 +2022,8 @@ CREATE TABLE of_engine_release (
   seq           INTEGER PRIMARY KEY,
   release       TEXT    NOT NULL,
   installed_at  TEXT    NOT NULL,
-  installed_by  TEXT    NOT NULL
+  installed_by  TEXT    NOT NULL,
+  commit_id     TEXT
 );
 -- Each restore of a copy: when it started, the copy's last recorded time,
 -- the margin, each counter's gap from the value the copy held to the one
@@ -2351,6 +2448,15 @@ pub struct MaintenanceTask {
 /// The built-in module a version was published with: this engine release.
 pub const BUILTINS: &str = concat!("objectflow-core ", env!("CARGO_PKG_VERSION"));
 
+/// The commit this core was built from, where its build was told, as a
+/// release's build is; recorded beside the release a store is made or
+/// upgraded at, so one release's name tells its builds apart (the audit's
+/// durability U7).
+pub const BUILD_COMMIT: Option<&str> = match option_env!("OBJECTFLOW_COMMIT") {
+    Some(c) if !c.is_empty() => Some(c),
+    _ => None,
+};
+
 impl Store {
     /// An in-memory store for a sandbox, holding the library's types and its
     /// operator, created at `now`.
@@ -2492,19 +2598,30 @@ impl Store {
             earlier: Arc::new(BTreeMap::new()),
         };
         if created == 0 {
-            store.conn.execute_batch(SCHEMA)?;
-            store.conn.execute_batch(ACTOR_INDEXES)?;
-            store.conn.execute_batch(EXPORT_INDEXES)?;
-            for t in store.lib.types.values() {
-                store.conn.execute_batch(&store.type_ddl(t))?;
+            // made in one transaction, so a crash while it is made leaves no
+            // half-made store every later start refuses, but none, which a
+            // start with --create makes (the audit's durability W11)
+            store.conn.execute_batch("BEGIN IMMEDIATE")?;
+            let made = (|| -> Stored<()> {
+                store.conn.execute_batch(SCHEMA)?;
+                store.conn.execute_batch(ACTOR_INDEXES)?;
+                store.conn.execute_batch(EXPORT_INDEXES)?;
+                for t in store.lib.types.values() {
+                    store.conn.execute_batch(&store.type_ddl(t))?;
+                }
+                store.create_operator()?;
+                store.record_release()?;
+                store.conn.execute(
+                    "INSERT INTO of_declaration (version, module, source, builtins, published_at, published_by, report) \
+                     VALUES (0, '', '{}', ?1, ?2, ?1, '{}')",
+                    params![BUILTINS, timestamp_text(now)],
+                )?;
+                Ok(store.conn.execute_batch("COMMIT")?)
+            })();
+            if let Err(e) = made {
+                let _ = store.conn.execute_batch("ROLLBACK");
+                return Err(e);
             }
-            store.create_operator()?;
-            store.record_release()?;
-            store.conn.execute(
-                "INSERT INTO of_declaration (version, module, source, builtins, published_at, published_by, report) \
-                 VALUES (0, '', '{}', ?1, ?2, ?1, '{}')",
-                params![BUILTINS, timestamp_text(now)],
-            )?;
             Arc::make_mut(&mut store.lib).version = 0;
             return Ok(store);
         }
@@ -2740,22 +2857,23 @@ impl Store {
     /// table, installed by its operator (`storage-schema.md` §6).
     fn record_release(&self) -> Stored<()> {
         self.conn.execute(
-            "INSERT INTO of_engine_release (seq, release, installed_at, installed_by) VALUES (1, ?1, ?2, ?3)",
-            params![BUILTINS, timestamp_text(self.now), OPERATOR],
+            "INSERT INTO of_engine_release (seq, release, installed_at, installed_by, commit_id) VALUES (1, ?1, ?2, ?3, ?4)",
+            params![BUILTINS, timestamp_text(self.now), OPERATOR, BUILD_COMMIT],
         )?;
         Ok(())
     }
 
-    /// The store's first actor, the operator (ADR-0126).
+    /// The store's first actor, the operator (ADR-0126), in the transaction
+    /// that creates the store.
     fn create_operator(&self) -> Stored<()> {
         let at = timestamp_text(self.now);
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = &self.conn;
         tx.execute(
             "INSERT INTO of_object (id, type, created_at, created_by_kind, recorded_from) VALUES (?1, 'Operator', ?2, 'human', ?2)",
             params![OPERATOR, at],
         )?;
-        let position = next(&tx, "position")?;
-        let txn = next(&tx, "txn")?;
+        let position = next(tx, "position")?;
+        let txn = next(tx, "txn")?;
         tx.execute(
             "INSERT INTO of_event (position, txn, object_id, object_seq, transition, from_state, to_state, changes_state, \
              source, actor_id, actor_kind, declaration_version, taint_version, recorded_at, occurred_at, payload, reads, \
@@ -2770,7 +2888,6 @@ impl Store {
             "INSERT INTO t_operator (id, state, version, declaration_version, last_event, identity) VALUES (?1, 'ACTIVE', 1, 0, ?2, ?1)",
             params![OPERATOR, position],
         )?;
-        tx.commit()?;
         Ok(())
     }
 
@@ -3908,31 +4025,7 @@ impl Store {
     }
 
     pub fn library_at(&self, version: i64) -> Stored<Option<Library>> {
-        let source: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT source FROM of_declaration WHERE version = ?1",
-                params![version],
-                |r| r.get(0),
-            )
-            .map(Some)
-            .or_else(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                other => Err(other),
-            })?;
-        let Some(source) = source else {
-            return Ok(None);
-        };
-        let files: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&source)
-            .map_err(|e| StoreError(format!("version {version}'s source: {e}")))?;
-        let files: Vec<(String, String)> = files
-            .into_iter()
-            .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
-            .collect();
-        let mut lib = Library::load(&files)
-            .map_err(|e| StoreError(format!("version {version}'s source no longer loads: {e}")))?;
-        lib.version = version;
-        Ok(Some(lib))
+        library_of(&self.conn, version)
     }
 
     /// The store's connection, for a test to read its schema.
@@ -3940,7 +4033,39 @@ impl Store {
     pub(crate) fn conn(&self) -> &Connection {
         &self.conn
     }
+}
 
+/// A recorded version's library, loaded from its source by this release's
+/// loader; none where the store records no such version, and an error
+/// naming the version where its source no longer loads.
+pub(crate) fn library_of(conn: &Connection, version: i64) -> Stored<Option<Library>> {
+    let source: Option<String> = conn
+        .query_row(
+            "SELECT source FROM of_declaration WHERE version = ?1",
+            params![version],
+            |r| r.get(0),
+        )
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })?;
+    let Some(source) = source else {
+        return Ok(None);
+    };
+    let files: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&source)
+        .map_err(|e| StoreError(format!("version {version}'s source: {e}")))?;
+    let files: Vec<(String, String)> = files
+        .into_iter()
+        .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
+        .collect();
+    let mut lib = Library::load(&files)
+        .map_err(|e| StoreError(format!("version {version}'s source no longer loads: {e}")))?;
+    lib.version = version;
+    Ok(Some(lib))
+}
+
+impl Store {
     /// An object's events, in its order.
     /// An object's legacy entries, by ordinal, which `history` returns
     /// before its events (`library-api.md` §6, ADR-0015).
@@ -5981,6 +6106,58 @@ mod tests {
     /// leaves it, is due a cut at the first look, so an erasure's
     /// truncation due at the kill is not forgotten; one opened beside none
     /// is not (the audit's durability W6b).
+    /// The flow the release fingerprint covers loads, every type it
+    /// declares hashed, where one that no longer loaded would leave the
+    /// fingerprint blind to declared tables without a word (the audit's
+    /// durability U6).
+    #[test]
+    fn the_fingerprints_flow_loads_whole() {
+        let lib = Library::load(&[("fingerprint.yaml".into(), FINGERPRINT_FLOW.into())])
+            .expect("the fingerprint's flow loads");
+        let mut declared: Vec<&String> = lib
+            .types
+            .iter()
+            .filter(|(_, t)| t.module == "fingerprint")
+            .map(|(n, _)| n)
+            .collect();
+        declared.sort();
+        assert_eq!(declared, ["Every", "Holder", "Part"]);
+        assert_eq!(fingerprint_values().len(), 13);
+    }
+
+    /// A store is made in one transaction: a creation that fails part-way,
+    /// here at the schema's last table, which the file already holds,
+    /// leaves the file as it was, where every table before it stayed and
+    /// every later start refused the half-made store (the audit's durability
+    /// W11).
+    #[test]
+    fn a_store_is_made_whole_or_not_at_all() {
+        let dir = std::env::temp_dir().join(format!("objectflow-whole-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("store.sqlite");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch("CREATE TABLE of_interval_retraction (x);")
+            .unwrap();
+        assert!(Store::open(&path, 0).is_err());
+        let tables: Vec<String> = Connection::open(&path)
+            .unwrap()
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(tables, ["of_interval_retraction"]);
+        // and made whole where nothing stands in its way
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = Store::open(&path, 0).unwrap();
+        assert!(s.history(crate::model::OPERATOR).unwrap().len() == 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn a_store_opened_beside_frames_is_due_a_cut() {
         let dir = std::env::temp_dir().join(format!("objectflow-frames-{}", std::process::id()));

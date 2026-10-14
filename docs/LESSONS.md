@@ -767,3 +767,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Moving two examples out of `service.examples.yaml` into a file of their own, a script wrote the trimmed file, then asserted the slice it would copy into the new one; the assertion failed, so the examples were gone from the first file and never written to the second. Git had the original, so nothing was lost, but only because the file was otherwise unmodified.
 - **Correction:** Compute every new text and make every assertion first, then write all the files at the end, in one block with nothing that can fail between the writes. Where a file already has uncommitted changes, copy it to the scratchpad before the script runs.
 - **Context:** Scripted edits that move text between files, in any repository; found 2026-10-14.
+
+### Clippy runs as CI runs it, and is read before the gate starts
+- **Pattern:** Clippy and `scripts/check-all` were started in one background command, clippy without `-D warnings`. Only the gate's verdict was read, so two `needless_borrow` warnings went unseen until the gate failed on them 20 minutes later.
+- **Correction:** Run clippy on its own, with `-- -D warnings` as CI does, and read its output before starting the gate. A warning is an error the gate will find.
+- **Context:** Rust work in this repository, `scripts/check-all`; found 2026-10-14.

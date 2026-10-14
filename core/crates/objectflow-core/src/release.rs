@@ -57,7 +57,7 @@ pub const RELEASES: &[Release] = &[
     Release {
         name: "objectflow-core 1.0.0",
         from: &["objectflow-core 0.2.0"],
-        fingerprint: "sha256:6fc6ebf3e7d952a38b1fd9572ce77bbd23b8a110c16a35bfc084835a738146de",
+        fingerprint: "sha256:ba3c80104182d4a142aaa7d42c75df3a6335785bc6cbcc62d90890600a43c47e",
         changes: "the store records each restore of a copy in of_restore, so a restored store hands out no id, position or number its copy never saw, and refuses a cursor from the gap (ADR-0207); and each interval a later commit deleted or moved in of_interval_retraction, which the intervals export retracts (ADR-0205 decision 9)",
         builtins_changed: false,
         migrate: restore_table,
@@ -65,12 +65,16 @@ pub const RELEASES: &[Release] = &[
 ];
 
 /// 0.2.0 to 1.0.0: the restore table, empty, since no store of 0.2.0 was
-/// restored by this release (ADR-0207); and the interval retractions,
-/// empty, with the moved rows' cursor, since 0.2.0 retracted nothing it
-/// recorded (ADR-0205 decision 9).
+/// restored by this release (ADR-0207); the interval retractions, empty,
+/// with the moved rows' cursor, since 0.2.0 retracted nothing it recorded
+/// (ADR-0205 decision 9); and the release table's commit, unknown for the
+/// releases before.
 fn restore_table(tx: &Transaction<'_>, _now: i64) -> Result<(), StoreError> {
     tx.execute_batch(crate::store::RESTORE_TABLE)?;
     tx.execute_batch(crate::store::RETRACTION_TABLE)?;
+    // the commit each release's build was made from, beside it (the audit's
+    // durability U7)
+    tx.execute_batch("ALTER TABLE of_engine_release ADD COLUMN commit_id TEXT;")?;
     Ok(())
 }
 
@@ -108,6 +112,26 @@ pub fn holds_store(path: &Path) -> Result<bool, StoreError> {
         |r| r.get::<_, i64>(0),
     ) {
         Ok(n) => Ok(n > 0),
+        Err(rusqlite::Error::SqliteFailure(e, _))
+            if e.code == rusqlite::ErrorCode::NotADatabase =>
+        {
+            Ok(false)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Whether a database file holds nothing at all, not a table: what a crash
+/// while a store is made leaves, its header written and nothing committed,
+/// which a start with `--create` makes a store of as it would an empty file
+/// (the audit's durability W11). A file that is no database holds
+/// something, and is said so elsewhere.
+pub fn holds_nothing(path: &Path) -> Result<bool, StoreError> {
+    let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    match conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+        r.get::<_, i64>(0)
+    }) {
+        Ok(n) => Ok(n == 0),
         Err(rusqlite::Error::SqliteFailure(e, _))
             if e.code == rusqlite::ErrorCode::NotADatabase =>
         {
@@ -242,6 +266,24 @@ pub fn upgrade_through(
             "the store is at {from}, which {to} does not upgrade from"
         )));
     };
+    // every version the store records loads with this release's loader, or
+    // the upgrade, its dry run too, is refused naming each that does not,
+    // where the store was carried to a release whose every request then
+    // touching that version answered 500 (the audit's durability U4)
+    let versions: Vec<i64> = conn
+        .prepare("SELECT version FROM of_declaration ORDER BY version")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    let unloadable: Vec<String> = versions
+        .iter()
+        .filter_map(|v| crate::store::library_of(&conn, *v).err().map(|e| e.0))
+        .collect();
+    if !unloadable.is_empty() {
+        return Ok(Err(format!(
+            "{to} does not read every flow version the store records, so the store stays at {from}, which does: {}",
+            unloadable.join("; ")
+        )));
+    }
     if let Some(r) = steps.iter().find(|r| r.builtins_changed) {
         return Ok(Err(format!(
             "{} changes the built-ins, and re-recording the installed flows under them is not built (ADR-0177 decision 6)",
@@ -303,6 +345,19 @@ fn step(
          VALUES ((SELECT COALESCE(max(seq), 0) + 1 FROM of_engine_release), ?1, ?2, ?3)",
         params![r.name, at, operator],
     )?;
+    // the commit of the build that carried it, where the table holds the
+    // column, which the step to 1.0.0 adds (the audit's durability U7)
+    let has_commit: i64 = tx.query_row(
+        "SELECT count(*) FROM pragma_table_info('of_engine_release') WHERE name = 'commit_id'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_commit > 0 {
+        tx.execute(
+            "UPDATE of_engine_release SET commit_id = ?1 WHERE seq = (SELECT max(seq) FROM of_engine_release)",
+            params![crate::store::BUILD_COMMIT],
+        )?;
+    }
     // the operator's act, naming the release, as creating the store is
     // (ADR-0126): an event on the operator that changes nothing of it
     let position = next_counter(tx, "position")?;

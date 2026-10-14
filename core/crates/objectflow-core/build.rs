@@ -6,6 +6,9 @@
 
 fn main() {
     println!("cargo:rerun-if-env-changed=LIBSQLITE3_FLAGS");
+    // the commit a release's build records beside its release (the audit's
+    // durability U7)
+    println!("cargo:rerun-if-env-changed=OBJECTFLOW_COMMIT");
     let flags = std::env::var("LIBSQLITE3_FLAGS").unwrap_or_default();
     if !flags
         .split_whitespace()

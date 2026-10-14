@@ -1025,6 +1025,35 @@ fn a_path_holding_no_store_is_refused_unless_made() {
     assert_ne!(code, Some(0));
     assert!(said.contains("holds no store"), "{said}");
     std::fs::remove_file(&file).expect("the empty file removed");
+    // a database holding not a table, as a crash while --create made a store
+    // leaves, its header written and nothing committed, is no store: refused
+    // with the advice to create, and made one by --create, where every start
+    // refused it as no ObjectFlow store (the audit's durability W11)
+    {
+        let crashed = rusqlite::Connection::open(&file).expect("a database");
+        crashed
+            .execute_batch("PRAGMA journal_mode = WAL;")
+            .expect("its header");
+    }
+    assert!(std::fs::metadata(&file).expect("the file").len() > 0);
+    let (code, said) = refused(&["--store", path, "--port", "0"]);
+    assert_ne!(code, Some(0));
+    assert!(
+        said.contains("an empty database") && said.contains("--create"),
+        "{said}"
+    );
+    {
+        let s = start(&["--store", path, "--create", "--port", "0"]);
+        let (status, health) = call(&s, "GET", "/health", None);
+        assert_eq!(
+            (status, health["shape"].as_str()),
+            (200, Some("deployment")),
+            "{health}"
+        );
+    }
+    for end in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{path}{end}"));
+    }
     // another application's database, or a file that is none, is never made
     // a store, asked or not, and the refusal is a sentence
     let other = rusqlite::Connection::open(&file).expect("a database");
@@ -5987,5 +6016,48 @@ fn requests_sent_at_once_commit_together() {
     assert!(
         groups < held,
         "{groups} commits for {held} requests: none was shared"
+    );
+}
+
+/// An upgrade, its dry run too, is refused while a flow version the store
+/// records does not load with this release's loader, naming the version,
+/// and the store stays at its release, which reads it, where it was carried
+/// on and every request touching that version answered 500 (the audit's
+/// durability U4).
+#[test]
+fn an_upgrade_is_refused_over_a_version_this_release_cannot_read() {
+    let op = json!({"id": "operator"});
+    let (path, recorded) = release_fixture("0.2.0", "reimbursement", "unreadable");
+    {
+        let conn = rusqlite::Connection::open(&path).expect("the store");
+        let changed = conn
+            .execute(
+                "UPDATE of_declaration SET source = json_set(source, '$.reimbursement', 'types: [') WHERE version = 1",
+                [],
+            )
+            .expect("the source changed");
+        assert_eq!(changed, 1);
+    }
+    let s = start(&["--store", path.to_str().expect("a path"), "--port", "0"]);
+    for dry_run in [true, false] {
+        let (status, said) = call(
+            &s,
+            "POST",
+            "/v1/upgrade",
+            Some(&json!({"actor": op, "dry_run": dry_run})),
+        );
+        assert_eq!(status, 409, "{said}");
+        assert!(
+            said["fault"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("version 1's source no longer loads"),
+            "{said}"
+        );
+    }
+    let (_, health) = call(&s, "GET", "/health", None);
+    assert_eq!(
+        (&health["upgrade_due"], &health["store_release"]),
+        (&json!(true), &recorded["release"])
     );
 }
