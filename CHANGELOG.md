@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- The checker refuses a member function called on what does not have it (`held` on an object, `entered_at` on a text), the intervals of a member its type does not track, and `entered_at` or `time_in` given a literal, each of which the engine answered `not_run` (the values audit's K-8).
 - The checker types a metric's value: an aggregate over a text, a boolean, an enumeration's member, an identity or a state, a sum of times, and a sum or difference of a decimal and an integer or of two scales are refused at publish, where the engine answered `not_run` (the values audit's M2). A flow that published such a metric is refused; write `sum(o.w) + 1.00` for `sum(o.w) + 1`.
 - The Flow Studio's sandbox writes a year below 1000 with four digits, reads a derived `this.intervals` or `this.transitions` as the engine's rows, writes a category by its name, and types an `if` by the branch it takes, where each failed or differed from the engine (the values audit's R7 to R9).
 - The checker refuses `min` or `max` over an enumeration's members, which has no order and which the engine answered `not_run` (the values audit's R4); the Flow Studio's sandbox refuses a duration, a time, a decimal or an amount past what the engine holds, as the engine does (R5).

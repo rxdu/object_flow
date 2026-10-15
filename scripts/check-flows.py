@@ -2571,6 +2571,28 @@ class Typing:
                 name = f[2]
                 self.fail(f"{name} is no member function the language has: it has intervals, entered_at, time_in and a row's held")
                 return None
+            # a member function on what has it, `held` on a row of intervals or transitions, the others on an object,
+            # `intervals(m)` of a member its type tracks; and a flow function names a state or a member, never a
+            # literal; where each published and the core did not run it (the values audit's K-8)
+            bt = self.of(f[1], tn, x, env, seen) if f[0] == "path" else None
+            if bt is not None:
+                if f[2] == "held":
+                    self.fail(f"held is a row's, of intervals or transitions, and it is called on {type_text(bt)}")
+                    return None
+                if bt[0] != "reference":
+                    self.fail(f"{f[2]} is an object's, and it is called on {type_text(bt)}")
+                    return None
+                if f[2] == "intervals" and len(e[2]) == 1 and e[2][0][0] == "name" and e[2][0][1] != "state":
+                    ot = self.kinds.get(bt[1])
+                    if ot is not None and e[2][0][1] not in tracked_attributes(ot, self.kinds):
+                        self.fail(f"intervals({e[2][0][1]}) names neither the state nor a member {bt[1]} tracks")
+                        return None
+            called = f[1] if f[0] == "name" else f[2] if f[0] == "path" else None
+            if called in ("time_in", "entered_at") and len(e[2]) == 1 and e[2][0][0] in ("str", "num", "bool", "money", "dur"):
+                at = self.of(e[2][0], tn, x, env, seen)
+                if at is not None:
+                    self.fail(f"{called} names a state or a tracked member, and is given {type_text(at)}")
+                    return None
             # a flow function names what its object's type has: `time_in` a state, `entered_at` a state or a tracked
             # member, wherever an expression is typed, as the model's check 58 has it for a transition's body (the
             # audit's values G2, where `time_in` of a member answered 0 s)
@@ -8559,6 +8581,16 @@ def expression_type_plants(people):
         ("an aggregate called on values", ledger("max(count, count) > 0"), [wrong("derived attribute probe", "max is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")]),
         ("a function given two arguments", ledger("length(label, label) > 0"),
          [wrong("derived attribute probe", "length takes one argument, and is given 2")]),
+        # a member function on what has it, and a flow function naming a state or a member (values K-8)
+        ("held of an object", ledger("this.held(count) > 0"),
+         [wrong("derived attribute probe", "held is a row's, of intervals or transitions, and it is called on an object of Account")]),
+        ("entered_at of a text", ledger("label.entered_at(OPEN) < now"),
+         [wrong("derived attribute probe", "entered_at is an object's, and it is called on a string")]),
+        ("the intervals of a member not tracked", ledger("count(i in this.intervals(label): true) > 0"),
+         [wrong("derived attribute probe", "intervals(label) names neither the state nor a member Account tracks")]),
+        ("time_in of a literal", ledger('time_in(\\"OPEN\\") > 1 h'),
+         [wrong("derived attribute probe", "time_in names a state or a tracked member, and is given a string")]),
+        ("the flow functions on what has them", ledger("this.time_in(OPEN) > 1 h and count(i in this.intervals(tier): true) > 0"), []),
         ("a member function the language has not", ledger("this.foo(count) > 0"),
          [wrong("derived attribute probe", "foo is no member function the language has: it has intervals, entered_at, time_in and a row's held")]),
         ("the functions the language has", ledger("length(label) > 0 and date(since) < date(now) and this.time_in(OPEN) > 1 h"), []),

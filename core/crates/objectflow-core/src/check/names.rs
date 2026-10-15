@@ -3528,6 +3528,61 @@ impl Typing<'_> {
                     }
                     _ => {}
                 }
+                // a member function on what has it, `held` on a row of
+                // intervals or transitions, the others on an object,
+                // `intervals(m)` of a member its type tracks; and a flow
+                // function names a state or a member, never a literal; where
+                // each published and was not run (the values audit's K-8)
+                if let Expr::Path(base, name) = &**f
+                    && let Some(bt) = self.of(base, tn, x, env, seen)
+                {
+                    if name == "held" {
+                        self.fail(format!(
+                            "held is a row's, of intervals or transitions, and it is called on {}",
+                            bt.text()
+                        ));
+                        return None;
+                    }
+                    let Ty::Reference(on) = &bt else {
+                        self.fail(format!(
+                            "{name} is an object's, and it is called on {}",
+                            bt.text()
+                        ));
+                        return None;
+                    };
+                    if name == "intervals"
+                        && let [Expr::Name(m)] = args.as_slice()
+                        && m != "state"
+                        && let Some(ot) = self.kinds.get(on)
+                        && !tracked_attribute(ot, m, self.kinds)
+                    {
+                        self.fail(format!(
+                            "intervals({m}) names neither the state nor a member {on} tracks"
+                        ));
+                        return None;
+                    }
+                }
+                let called = match &**f {
+                    Expr::Name(n) | Expr::Path(_, n) => Some(n.as_str()),
+                    _ => None,
+                };
+                if matches!(called, Some("time_in" | "entered_at"))
+                    && let [
+                        arg @ (Expr::Str(_)
+                        | Expr::Num(_)
+                        | Expr::Bool(_)
+                        | Expr::Money(..)
+                        | Expr::Dur(..)),
+                    ] = args.as_slice()
+                    && let Some(at) = self.of(arg, tn, x, env, seen)
+                {
+                    self.fail(format!(
+                        "{} names a state or a tracked member, and is given {}",
+                        called.unwrap_or_default(),
+                        at.text()
+                    ));
+                    return None;
+                }
                 self.flow_function_names(f, args, tn, x, env, seen);
                 let Expr::Name(name) = &**f else {
                     return None;
