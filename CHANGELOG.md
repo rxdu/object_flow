@@ -146,6 +146,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Added
 
+- `/metrics` exports `objectflow_read_wait_seconds`, how long reads waited for their turn, by pool, where only how many were waiting was said.
 - `maintain`'s `rebuild_indexes`: once an erasure has been recorded since the last rebuild, every index is rebuilt, one at a time, so an erased value an index page's free space kept is gone; `operate.md`'s daily housekeeping runs it (ADR-0204 decision 9.5, the audit's personal data F3).
 - The adversarial harness the PRD names as its acceptance test (N4, ADR-0204): a fallible actor driven from a seed against the core over the shipped example flows, checking after each request for a state the declaration or ADR-0204's promises say cannot happen, and reducing a failing run to its shortest transcript; it runs in `scripts/check-all`.
 - An approval may name `target_version`, the version of the proposed object its approver read, and is refused `stale` where the object moved since, in both backends, where an approval ran on what its approver never saw (tenth production review PROPOSAL-RACE, ADR-0197 decision 3).

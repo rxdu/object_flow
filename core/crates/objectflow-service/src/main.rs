@@ -915,6 +915,19 @@ struct Admission {
     /// of 0.1 s as readily as a 30 s report (the audit's cost E4, ADR-0205
     /// decision 14).
     readers: Mutex<Vec<Arc<std::sync::atomic::AtomicU64>>>,
+    /// How long its reads waited for their turn, where only how many were
+    /// waiting was said (ADR-0201 decision 11).
+    waits: Mutex<Waited>,
+}
+
+/// How long reads waited for their turn: how many waited at most each of
+/// `BUCKETS`' bounds, as Prometheus reads a histogram's buckets, and their
+/// number and sum in seconds.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Waited {
+    buckets: [u64; BUCKETS.len()],
+    count: u64,
+    sum: f64,
 }
 
 thread_local! {
@@ -983,7 +996,13 @@ impl Admission {
             barred: std::sync::atomic::AtomicBool::new(false),
             dry_runs: false,
             readers: Mutex::new(Vec::new()),
+            waits: Mutex::new(Waited::default()),
         }
+    }
+
+    /// How long its reads have waited for their turn.
+    fn waited(&self) -> Waited {
+        self.waits.lock().map(|w| w.clone()).unwrap_or_default()
     }
 
     /// A change's dry runs' slot, one at a time.
@@ -1032,6 +1051,7 @@ impl Admission {
         timeout: std::time::Duration,
     ) -> Result<Slot<'_>, Fault> {
         let panicked = || Fault::Internal("a previous request panicked".to_string());
+        let began = std::time::Instant::now();
         self.waiting.fetch_add(1, Ordering::SeqCst);
         let taken = (|| {
             let mut running = self.running.lock().map_err(|_| panicked())?;
@@ -1060,6 +1080,17 @@ impl Admission {
             Ok(())
         })();
         self.waiting.fetch_sub(1, Ordering::SeqCst);
+        // each wait measured, one ended by its deadline among them
+        let waited = began.elapsed().as_secs_f64();
+        if let Ok(mut w) = self.waits.lock() {
+            for (i, bound) in BUCKETS.iter().enumerate() {
+                if waited <= *bound {
+                    w.buckets[i] += 1;
+                }
+            }
+            w.count += 1;
+            w.sum += waited;
+        }
         taken.map(|()| {
             let (stop, made) = read_stop();
             if let Ok(mut readers) = self.readers.lock() {
@@ -4459,7 +4490,9 @@ async fn metrics(State(shared): State<Shared>) -> Response {
          # HELP objectflow_reads_waiting Reads that grow with the store waiting for their turn, by pool.\n\
          # TYPE objectflow_reads_waiting gauge\n\
          # HELP objectflow_reads_most How many reads of a pool run at once.\n\
-         # TYPE objectflow_reads_most gauge\n",
+         # TYPE objectflow_reads_most gauge\n\
+         # HELP objectflow_read_wait_seconds How long reads that grow with the store waited for their turn, by pool.\n\
+         # TYPE objectflow_read_wait_seconds histogram\n",
     );
     for (pool, a) in [
         ("worklists", &shared.worklists),
@@ -4475,6 +4508,18 @@ async fn metrics(State(shared): State<Shared>) -> Response {
             a.running(),
             a.waiting.load(Ordering::SeqCst),
             a.most
+        ));
+        let w = a.waited();
+        for (bound, n) in BUCKETS.iter().zip(w.buckets) {
+            out.push_str(&format!(
+                "objectflow_read_wait_seconds_bucket{{pool=\"{pool}\",le=\"{bound}\"}} {n}\n"
+            ));
+        }
+        out.push_str(&format!(
+            "objectflow_read_wait_seconds_bucket{{pool=\"{pool}\",le=\"+Inf\"}} {}\n\
+             objectflow_read_wait_seconds_sum{{pool=\"{pool}\"}} {:.6}\n\
+             objectflow_read_wait_seconds_count{{pool=\"{pool}\"}} {}\n",
+            w.count, w.sum, w.count
         ));
     }
     let c = &shared.connections;
@@ -6454,6 +6499,12 @@ mod tests {
         assert_eq!((a.running(), a.waiting.load(Ordering::SeqCst)), (1, 0));
         drop(held);
         assert_eq!(a.running(), 0);
+        // each wait measured, the two turns taken at once, the one waited
+        // for and the one its deadline ended (ADR-0201 decision 11)
+        let waited = a.waited();
+        assert_eq!(waited.count, 4, "{waited:?}");
+        assert_eq!(waited.buckets[0], 2, "{waited:?}");
+        assert!(waited.sum >= 0.3, "{waited:?}");
         // held for a cut of the write-ahead log, a new read waits though a
         // slot is free, the cut waits for the one running, and once
         // released the new read is let in (fourth production review A-14)

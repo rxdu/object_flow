@@ -476,9 +476,9 @@ Found 2026-10-14 at `24e7ff6` (`production-review.md` §18); decided by ADR-0201
 - [x] A query computing a growing field among the analytics (decision 8). D657. *Done 2026-10-14: asked for and in the summary, each held by a mutant.*
 - [x] `unbounded_reach` on every transition, in both checkers (decision 9). D658. *Done 2026-10-14: cascades and loops held over the core by the oracle.*
 - [x] The minors and the guides (decision 10). D659 to D662. *Done 2026-10-14: an untracked entry time refused on a new object and a refresh, the socket checked with the arguments, each held by a mutant; the backup unit verified with `systemd-analyze verify` and its expiry run on a directory.*
-- [ ] A read stops when its client goes: reads moved off their connection's task, so it can notice (ADR-0201 decision 11). D656.
+- [x] A read stops when its client goes: reads moved off their connection's task, so it can notice (ADR-0201 decision 11). D656. *Done 2026-10-14 (ADR-0205 decision 16, `a_read_whose_client_goes_is_stopped`), recorded below; this line was left open, found 2026-10-15.*
 - [ ] A notice for an assignment whose arithmetic reads an optional attribute no guard checks (ADR-0201, Alternatives).
-- [ ] A histogram of how long reads wait for each pool (ADR-0201 decision 11).
+- [x] A histogram of how long reads wait for each pool (ADR-0201 decision 11). *Done 2026-10-15: each pool measures each read's wait for its turn, one its deadline ended included, and `/metrics` exports `objectflow_read_wait_seconds` by pool over the request histogram's bounds (`main.rs` `Admission::take`, `Waited`); held by `a_heavy_read_waits_its_turn_within_its_deadline`, a mutant killed; `operate.md` lists it.*
 - [x] A fifteenth production review. *Done 2026-10-14 at `5d48a69`: the operator GO with no major, the adversary NO-GO with one (`production-review.md` §19).*
 
 ### The fifteenth production review

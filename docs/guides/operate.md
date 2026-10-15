@@ -186,6 +186,7 @@ It answers `503` with a `code` when an operator must act:
 | `objectflow_connections_refused_total` | Newcomers refused `503 busy` at the cap. |
 | `objectflow_reads_running` | Reads running, by pool. |
 | `objectflow_reads_waiting` | Reads waiting for a turn, by pool. |
+| `objectflow_read_wait_seconds` | How long reads waited for their turn, by pool, a histogram: a read refused `read_timeout` counted at its deadline. |
 | `objectflow_reads_most` | Each pool's limit. |
 | `objectflow_writer_held_seconds` | How long the current write has held the writer. |
 | `objectflow_request_groups_total` | Commits of requests: the requests that wait for the writer while it commits are committed together, with one flush, and a request alone is a group of one (ADR-0208). |
