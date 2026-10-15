@@ -38387,6 +38387,94 @@
   "could_violate": {}
  },
  {
+  "label": "syntax_plants: a metric's value that is a comparison",
+  "files": [
+   [
+    "plant.yaml",
+    "c4f9d506ea7a3f46"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "names",
+    "metric finished's value holds a comparison, which a metric does not compute: it combines aggregates over its rows, literals and now by + - * / and a negative"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: a metric's value reading a row outside an aggregate",
+  "files": [
+   [
+    "plant.yaml",
+    "afb862a948a9ca2d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "names",
+    "metric finished's value holds a row's member outside an aggregate, which a metric does not compute: it combines aggregates over its rows, literals and now by + - * / and a negative"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: a metric's value nesting an aggregate over its rows",
+  "files": [
+   [
+    "plant.yaml",
+    "732331b339e258a0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "names",
+    "metric finished's value holds an aggregate over its rows within another, which a metric does not compute: it combines aggregates over its rows, literals and now by + - * / and a negative"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: a metric's value that is a choice",
+  "files": [
+   [
+    "plant.yaml",
+    "590de517de5735ae"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "names",
+    "metric finished's value holds a choice, which a metric does not compute: it combines aggregates over its rows, literals and now by + - * / and a negative"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "syntax_plants: a metric-only function in a condition",
   "files": [
    [

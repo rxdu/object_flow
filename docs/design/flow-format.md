@@ -248,7 +248,7 @@ A fixed measure groups and windows as service's `time_working` does in the model
 | `filter` | no | an expression over the row; only the rows it holds for are counted |
 | `dimensions` | no | a mapping from a dimension's name to an expression over the row; the figure is computed for each combination of their values |
 | `time_dimension` | no | a timestamp over the row, by which a guard's `over last <duration>` selects rows; a metric that splits declares none, since a window clips its pieces (ADR-0142) |
-| `expression` | yes | the value, combining aggregates over the rows of one group: `count()`, `count(where …)`, `count(distinct …)`, `sum`, `min`, `max`, `avg`, `median` and `percentile(<p>, …)`; `count` of an expression, `count(r)`, answers nothing over the rows and MUST NOT be written (step 3, `names`; D687) |
+| `expression` | yes | the value, combining aggregates over the rows of one group: `count()`, `count(where …)`, `count(distinct …)`, `sum`, `min`, `max`, `avg`, `median` and `percentile(<p>, …)`; `count` of an expression, `count(r)`, answers nothing over the rows and MUST NOT be written (step 3, `names`; D687). The value combines those aggregates, literals and `now` by `+`, `-`, `*`, `/` and a negative, and MUST NOT hold another form: a comparison, a connective, `not`, `if`, `in`, a row's member outside an aggregate, a call of what is no aggregate, or an aggregate over the rows within another, none of which the engine computes (step 3, `names`; the values audit's M2) |
 | `flag_when` | no | a mapping from a flag's name to an expression over `value` and the dimensions |
 
 ```yaml

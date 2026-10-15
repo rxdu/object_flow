@@ -5637,6 +5637,20 @@ fn formula_errors(tn: &str, t: &Value, mn: &str, m: &Value) -> Found {
             format!("metric {mn} counts an expression over its rows, which none answers: count() counts the rows, count(where …) those a condition selects, count(distinct …) the values they hold"),
         ));
     }
+    // a metric's value combines aggregates over its rows, literals and now
+    // by + - * / and a negative, which is all the core computes over them
+    // (declaration-syntax.md §6.9); any other form published and was not
+    // run (the values audit's M2)
+    if let Some(held) = crate::expr::parse(&expression)
+        .ok()
+        .and_then(|e| metric_value_form(&e))
+    {
+        out.push(finding(
+            ext(&base, segs!["expression"]),
+            "names",
+            format!("metric {mn}'s value holds {held}, which a metric does not compute: it combines aggregates over its rows, literals and now by + - * / and a negative"),
+        ));
+    }
     for (key, text) in &parts {
         let Some(text) = text else { continue };
         // .held(<member>) names a member of the type whose spans or
@@ -6465,6 +6479,69 @@ const METRIC_ONLY_FUNCTIONS: [&str; 8] = [
     "year",
 ];
 const MEMBER_FUNCTIONS: [&str; 4] = ["intervals", "entered_at", "time_in", "held"];
+
+/// The aggregates over a metric's rows (`metric.rs`'s `ROW_AGGREGATES`).
+const ROW_AGGREGATES: [&str; 7] = ["count", "sum", "min", "max", "avg", "median", "percentile"];
+
+/// Whether an expression is an aggregate over a metric's rows: a count of
+/// them, or one called on its body (`check-flows.py`'s `row_aggregate`).
+fn row_aggregate(e: &Expr) -> bool {
+    match e {
+        Expr::Agg { var: None, .. } => true,
+        Expr::Call(f, _) => matches!(&**f, Expr::Name(n) if ROW_AGGREGATES.contains(&n.as_str())),
+        _ => false,
+    }
+}
+
+/// Whether an expression holds an aggregate over a metric's rows anywhere.
+fn holds_row_aggregate(e: &Expr) -> bool {
+    row_aggregate(e) || e.children().into_iter().any(holds_row_aggregate)
+}
+
+/// The first form a metric's value holds that the core does not compute
+/// over its rows, or none (the values audit's M2).
+fn metric_value_form(e: &Expr) -> Option<&'static str> {
+    if row_aggregate(e) {
+        let parts: Vec<&Expr> = match e {
+            Expr::Agg {
+                collection,
+                filter,
+                body,
+                ..
+            } => [collection, filter, body]
+                .into_iter()
+                .flatten()
+                .map(AsRef::as_ref)
+                .collect(),
+            Expr::Call(_, args) => args.iter().collect(),
+            _ => Vec::new(),
+        };
+        return parts
+            .into_iter()
+            .any(holds_row_aggregate)
+            .then_some("an aggregate over its rows within another");
+    }
+    match e {
+        Expr::Agg { .. } | Expr::Num(_) | Expr::Dur(..) | Expr::Money(..) | Expr::Metric { .. } => {
+            None
+        }
+        Expr::Name(n) if n == "now" => None,
+        Expr::Bin(BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div, l, r) => {
+            metric_value_form(l).or_else(|| metric_value_form(r))
+        }
+        Expr::Bin(BinOp::And | BinOp::Or | BinOp::Implies, ..) => Some("a connective"),
+        Expr::Bin(..) => Some("a comparison"),
+        Expr::Neg(x) => metric_value_form(x),
+        Expr::Not(_) => Some("a negated condition"),
+        Expr::If(..) => Some("a choice"),
+        Expr::In(..) => Some("a membership"),
+        Expr::IsNull(..) => Some("a presence test"),
+        Expr::Changed(..) => Some("a change test"),
+        Expr::Name(_) | Expr::Path(..) => Some("a row's member outside an aggregate"),
+        Expr::Call(..) => Some("a call of what is no aggregate"),
+        _ => Some("a literal that is no number"),
+    }
+}
 
 /// A metric's `count(`, and what it may begin with besides `)`: a condition,
 /// distinct values, or a binder over a row's collection (D687).

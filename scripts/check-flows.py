@@ -3507,6 +3507,43 @@ def transition_literals(e, item):
     return found
 
 
+ROW_AGGREGATES = ("count", "sum", "min", "max", "avg", "median", "percentile")
+
+
+def row_aggregate(e):
+    """Whether an expression is an aggregate over a metric's rows: a count of them, or one called on its body."""
+    return e[0] == "agg" and e[3] is None or e[0] == "call" and e[1][0] == "name" and e[1][1] in ROW_AGGREGATES
+
+
+def holds_row_aggregate(e):
+    """Whether an expression holds an aggregate over a metric's rows anywhere."""
+    if isinstance(e, list):
+        return any(holds_row_aggregate(c) for c in e)
+    if not (isinstance(e, tuple) and e and isinstance(e[0], str)):
+        return False
+    return row_aggregate(e) or any(holds_row_aggregate(c) for c in e[1:])
+
+
+def metric_value_form(e):
+    """The first form a metric's value holds that the core does not compute over its rows, or None (the values M2)."""
+    k = e[0]
+    if row_aggregate(e):
+        parts = [e[4], e[5], e[6]] if k == "agg" else e[2]
+        return "an aggregate over its rows within another" if holds_row_aggregate(parts) else None
+    if k in ("agg", "num", "dur", "money", "metric") or k == "name" and e[1] == "now":
+        return None
+    if k == "bin":
+        if e[1] in ("+", "-", "*", "/"):
+            return metric_value_form(e[2]) or metric_value_form(e[3])
+        return "a connective" if e[1] in ("and", "or", "implies") else "a comparison"
+    if k == "neg":
+        return metric_value_form(e[1])
+    return {"not": "a negated condition", "if": "a choice", "in": "a membership", "isnull": "a presence test",
+            "changed": "a change test", "name": "a row's member outside an aggregate",
+            "path": "a row's member outside an aggregate", "call": "a call of what is no aggregate"}.get(
+        k, "a literal that is no number")
+
+
 def formula_errors(tn, t, mn, m):
     """A metric in the metric language reads its rows through its item, and its
     flags read its value and its dimensions."""
@@ -3547,6 +3584,14 @@ def formula_errors(tn, t, mn, m):
         if not (rest.startswith(")") or COUNTED.match(rest)):
             out.append((base + ("expression",), "names", f"metric {mn} counts an expression over its rows, which none answers: count() counts the rows, count(where …) those a condition selects, count(distinct …) the values they hold"))
             break
+    # a metric's value combines aggregates over its rows, literals and now by + - * / and a negative, which is all the
+    # core computes over them (declaration-syntax.md §6.9); any other form published and was not run (values M2)
+    try:
+        held = metric_value_form(flowexpr.parse(squashed))
+    except flowexpr.ParseError:
+        held = None                             # step 2 refuses what does not parse
+    if held is not None:
+        out.append((base + ("expression",), "names", f"metric {mn}'s value holds {held}, which a metric does not compute: it combines aggregates over its rows, literals and now by + - * / and a negative"))
     for key, text in parts:
         if text is None:
             continue
@@ -6799,6 +6844,12 @@ def syntax_plants():
         ("a guard binding what is no dimension of a metric", "check 56", p(METRIC, COND, "expression: \"metric(finished, colour := 1) > 0\"")),
         ("metric() outside a guard", "check 56", p(METRIC, "expression: count()", "expression: metric(finished)")),
         ("a metric counting an expression over its rows", "names", p(METRIC, "expression: count()", "expression: count(t)")),
+        # a metric's value in a form the core computes over its rows (the audit's values M2)
+        ("a metric's value that is a comparison", "names", p(METRIC, "expression: count()", "expression: count() > 1")),
+        ("a metric's value reading a row outside an aggregate", "names", p(METRIC, "expression: count()", "expression: t.occurred_at")),
+        ("a metric's value nesting an aggregate over its rows", "names",
+         p(METRIC, "expression: count()", "expression: \"count(where count() > 1)\"")),
+        ("a metric's value that is a choice", "names", p(METRIC, "expression: count()", "expression: if true then count() else 0")),
         ("a metric-only function in a condition", "check 56", p(MINI, COND, "expression: median(title) > 0")),
         # on every line but a metric's own, where these were accepted (the values audit's G8)
         ("a time bucket in an attribute's default", "check 56",
