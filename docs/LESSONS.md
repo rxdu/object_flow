@@ -787,3 +787,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Closing `reimbursement.yaml`'s claim types to the agent (`taken_by: [human, service]`) passed the sample's own 26 examples and the oracle, then failed a Studio test that asserted a line's `amend` offer depended on no one: the type's `taken_by` now records the taker's kind for every transition of it. The samples are fixtures for tests across the repository, not only for their examples files.
 - **Correction:** Before gating a change to a sample under `docs/design/flow-format/examples/` or `apps/flow-studio/flows/`, grep every test suite for the sample's file name and the types changed, and read what each asserts about them.
 - **Context:** The flow format's samples, the Studio's tee tests; found 2026-10-15.
+
+### Tightening what a request body takes means finding every client that sends it
+- **Pattern:** Refusing an unknown key in a sandbox load's `files` entries, added beside an import's own fix without being asked for, failed 39 Studio tests: its catalogue sends each file with `source`, which the service had always ignored. The route's own tests passed; its clients' did not.
+- **Correction:** Before refusing a key a wire body did not refuse, grep every client that builds that body (the Studio's `flowstudio/`, the scripts, the harness, the guides' examples) for the keys it sends, and widen a fix only where the defect reaches.
+- **Context:** `objectflow-service`'s request decoding, the Flow Studio server; found 2026-10-15.

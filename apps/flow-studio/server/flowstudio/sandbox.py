@@ -173,7 +173,8 @@ def out_of_range(e: "flowrun.OutOfRange") -> dict:
             "object_id": e.objects[0] if e.objects else None}
 
 
-# the keys an imported object takes, as the core's `imported_object` reads them
+# the keys a batch takes, and those an imported object takes, as the core reads them
+BATCH_KEYS = frozenset(("objects", "legacy_kinds", "sequences", "admitted"))
 IMPORTED_KEYS = frozenset(("type", "legacy_key", "state", "recorded_from", "attributes", "entered", "legacy_entries",
                            "legacy_intervals", "silent_spans", "created_at", "created_by_kind", "occurred_at"))
 
@@ -552,8 +553,15 @@ class Sandbox:
                         ("disposition", "a disposition file")):
             if body.get(k):
                 raise not_run(what)
+        # a key a batch or a raise does not take refused, as the core's
+        unknown = next((k for k in batch if k not in BATCH_KEYS), None)
+        if unknown is not None:
+            raise Fault(400, f"a batch takes no key {unknown}")
         raises = []
         for rs in batch.get("sequences") or []:
+            unknown = next((k for k in rs if k not in ("sequence", "last", "scope")), None)
+            if unknown is not None:
+                raise Fault(400, f"a sequence's raise takes no key {unknown}")
             seq, last = rs.get("sequence"), rs.get("last")
             if not isinstance(seq, str) or isinstance(last, bool) \
                     or not isinstance(last, int):

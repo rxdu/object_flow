@@ -125,7 +125,7 @@ def test_a_key_an_imported_object_does_not_take_is_refused_alike(tee):
     """An imported object holding a key it does not take, a misspelt
     `atributes`, is refused naming it through both backends, where each read
     it as absent and imported the object without its attributes (the second
-    production review's minor)."""
+    production review's minor); so is a batch's or a raise's."""
     assert tee.post("/sandbox/load", {"files": [
         {"name": "numbered.yaml", "text": NUMBERED}]})["loaded"]
     tee.post("/sandbox/reset", {})
@@ -134,6 +134,14 @@ def test_a_key_an_imported_object_does_not_take_is_refused_alike(tee):
         tee.post("/v1/import_batch", {"actor": OP, "batch": {"objects": [
             {"type": "Part", "legacy_key": "P-1", "state": "READY",
              "atributes": {"code": "x"}}]}})
+    # and a batch's or a raise's, where a misspelt `sequence` raised none,
+    # so a go-live's numbers could take a legacy record's
+    with pytest.raises(Failed, match="a batch takes no key sequence"):
+        tee.post("/v1/import_batch", {"actor": OP, "batch": {
+            "objects": [], "sequence": [{"sequence": "serial_no", "last": 7}]}})
+    with pytest.raises(Failed, match="a sequence's raise takes no key scop"):
+        tee.post("/v1/import_batch", {"actor": OP, "batch": {
+            "objects": [], "sequences": [{"sequence": "serial_no", "last": 7, "scop": ""}]}})
     report = tee.post("/v1/import_batch", {"actor": OP, "batch": {"objects": [
         {"type": "Part", "legacy_key": "P-1", "state": "READY",
          "attributes": {"code": "x"}}]}})

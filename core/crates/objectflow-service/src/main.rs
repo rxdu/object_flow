@@ -3215,6 +3215,13 @@ async fn import_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "a batch admits through its disposition file, not admitted (ADR-0154)".to_string(),
             ));
         }
+        // a misspelt key read as absent raised no sequence, so a go-live's
+        // numbers could take a legacy record's (found 2026-10-15)
+        takes_only(
+            b,
+            "a batch",
+            &["objects", "legacy_kinds", "sequences", "admitted"],
+        )?;
         let mut batch = ImportBatch::default();
         for o in array(b, "objects")?.into_iter().flatten() {
             batch.objects.push(imported_object(o)?);
@@ -3236,6 +3243,7 @@ async fn import_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
             batch.legacy_kinds.insert(kind.clone(), fields);
         }
         for r in array(b, "sequences")?.into_iter().flatten() {
+            takes_only(r, "a sequence's raise", &["sequence", "last", "scope"])?;
             let (Some(sequence), Some(last)) = (text(r, "sequence")?, int(r, "last")?) else {
                 return Err(Fault::Bad(
                     "a sequence names its sequence and the last value minted".to_string(),
