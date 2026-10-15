@@ -459,7 +459,7 @@ Found 2026-10-14 at `1e5633f` (`production-review.md` §17); decided by ADR-0200
 - [x] **D** the checks linear in the types they refuse (decision 5). D646. *Done 2026-10-14: 60,000 types in 5.9 s; both quadratics held by tests.*
 - [x] The minors and the guides (decision 6). D647, D648. *Done 2026-10-14: the connection cap, the import's dry run, the preview's `expected_version`, each held by a test.*
 - [x] Measure the CPU of concurrent heavy reads (eight queries 83 CPU-s against one's 3) and find its cause before changing anything (ADR-0200 decision 7). *Done 2026-10-14: reproduced on a probe, 2.2 s alone and 11.0 s each with four; SQLite's memory statistics and glibc's allocator measured and cleared; the cause SQLite's shared page cache (ADR-0201 decision 3, D651).*
-- [ ] The log says when free space falls below what a checkpoint needs, as `/health` does (ADR-0200 decision 7).
+- [x] The log says when free space falls below what a checkpoint needs, as `/health` does (ADR-0200 decision 7). *Done 2026-10-15: the one-second watcher that says a lock stall reads the volume's free space too, and the log says `disk_low` once as it falls below 64 MiB and once as it recovers (`main.rs` `tell_low_disk`), held by `low_disk_is_said_once_as_it_falls_and_once_as_it_recovers`, two mutants killed; `operate.md`'s `disk_low` row says so.*
 - [x] A fourteenth production review. *Done 2026-10-14 at `24e7ff6`: NO-GO, the operator two majors, the adversary two (`production-review.md` §18).*
 
 ### The fourteenth production review

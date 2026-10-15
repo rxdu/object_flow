@@ -464,6 +464,10 @@ struct Watch {
     /// once (ADR-0195 decision 6).
     lock_wait: Arc<AtomicI64>,
     lock_wait_told: AtomicI64,
+    /// Whether the log last said the store's volume too full for a
+    /// checkpoint, so its fall and its recovery are each said once (ADR-0200
+    /// decision 7).
+    disk_low_told: std::sync::atomic::AtomicBool,
     /// The writes answered 500 since one was answered otherwise, and when
     /// the last was (ADR-0195 decision 6).
     fails: std::sync::atomic::AtomicU64,
@@ -5003,7 +5007,35 @@ async fn watch_for_stalls(shared: Shared) {
     loop {
         every.tick().await;
         tell_a_stall(&shared);
+        tell_low_disk(
+            &shared.watch,
+            shared.store_path.as_deref().and_then(disk_free),
+        );
     }
+}
+
+/// Free space on the store's volume below what a checkpoint needs, said in
+/// the log once as it falls below and once as it recovers, where only
+/// `/health` and `/metrics` said it (ADR-0200 decision 7). Whether a line
+/// was said.
+fn tell_low_disk(watch: &Watch, free: Option<u64>) -> bool {
+    let Some(free) = free else {
+        return false;
+    };
+    let low = disk_low(free);
+    if watch.disk_low_told.swap(low, Ordering::SeqCst) == low {
+        return false;
+    }
+    if low {
+        say!(
+            "disk_low: {free} byte(s) free on the store's volume, below the {DISK_FLOOR} a checkpoint needs; /health answers 503 until space is freed (operate.md)"
+        );
+    } else {
+        say!(
+            "disk space recovered: {free} byte(s) free on the store's volume, at least the {DISK_FLOOR} a checkpoint needs"
+        );
+    }
+    true
 }
 
 /// A write waiting for another process's lock on the store, said once in
@@ -6250,6 +6282,21 @@ mod tests {
 
     /// A volume holding less than a checkpoint needs is low; one holding
     /// that much is not (ADR-0188 decision 3).
+    /// The log says a volume too full for a checkpoint once as it falls
+    /// below and once as it recovers, and nothing while it stays either way
+    /// or cannot be read (ADR-0200 decision 7).
+    #[test]
+    fn low_disk_is_said_once_as_it_falls_and_once_as_it_recovers() {
+        let watch = Watch::default();
+        let plenty = Some(DISK_FLOOR * 16);
+        let little = Some(DISK_FLOOR - 1);
+        let said: Vec<bool> = [plenty, little, little, None, plenty, plenty, little]
+            .into_iter()
+            .map(|free| tell_low_disk(&watch, free))
+            .collect();
+        assert_eq!(said, [false, true, false, false, true, false, true]);
+    }
+
     #[test]
     fn a_volume_is_low_below_what_a_checkpoint_needs() {
         assert!(disk_low(DISK_FLOOR - 1));

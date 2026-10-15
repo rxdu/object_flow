@@ -162,7 +162,7 @@ It answers `503` with a `code` when an operator must act:
 | `code` | Means | Do |
 |---|---|---|
 | `upgrade_due` | The store was made by an earlier engine release. | Run the upgrade. |
-| `disk_low` | Under 64 MiB free on the store's volume, the space a checkpoint needs. | Free space. |
+| `disk_low` | Under 64 MiB free on the store's volume, the space a checkpoint needs. The log says it once as free space falls below, and once as it recovers. | Free space. |
 | `store_replaced` | The store's file was moved, removed or replaced under the running service. Writes are refused too. | Restart the service on the right file. |
 | `store_unreadable` | The store's file cannot be read as a store, as after one written over in place while the service ran. | Stop the service and restore the store. |
 | `disk_full` | The last write failed for a full volume, though its free space may not show it (a quota or a reserve), and none has committed since. | Free space; it clears with the next write that commits. |
