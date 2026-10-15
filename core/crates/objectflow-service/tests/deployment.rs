@@ -4400,6 +4400,24 @@ fn what_the_service_was_given_is_said() {
         first.as_bytes().get(4) == Some(&b'-') && first.contains("no argument --nonsense"),
         "{first}"
     );
+    // an option where a value belongs, a path forgotten, refused naming
+    // both, where `--store --create --create` made a store named `--create`
+    // and served it (run 2026-10-16); here ended by a port no parser takes,
+    // so the old one exits too, on that, and the sentence tells them apart
+    let dir = fresh_store("option-as-value");
+    let dir = dir.parent().expect("its directory");
+    let out = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
+        .args(["--store", "--create", "--create", "--port", "nope"])
+        .current_dir(dir)
+        .output()
+        .expect("it runs");
+    assert_eq!(out.status.code(), Some(2));
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        said.contains("--store takes a value, and is given the option --create"),
+        "{said}"
+    );
+    assert!(!dir.join("--create").exists(), "a store named --create");
 }
 
 /// The metrics listener answers whatever the main one holds: twenty idle

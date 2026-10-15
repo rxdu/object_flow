@@ -4765,7 +4765,15 @@ fn args() -> Result<Args, String> {
     let mut addressed = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
-        let mut value = || args.next().ok_or_else(|| format!("{a} takes a value"));
+        // an option where a value belongs, `--store --create` for a path
+        // forgotten, refused naming both, where it was taken as the value
+        let mut value = || match args.next() {
+            Some(v) if v.starts_with("--") => {
+                Err(format!("{a} takes a value, and is given the option {v}"))
+            }
+            Some(v) => Ok(v),
+            None => Err(format!("{a} takes a value")),
+        };
         match a.as_str() {
             "--port" => {
                 let port: u16 = value()?

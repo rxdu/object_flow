@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- The service refuses an option given where a value belongs, naming both (`--store takes a value, and is given the option --create`), where `--store --create --create` made a store file named `--create` and served it.
 - A set input with a `null` element is refused `wrong_type`, where it reached the store and the service answered `500` naming the store's constraint; an import with one reports it as a class, `is not of its type` (the differential battery).
 - A metric's `min`, `max` or `median` over dates is answered as a date, where it was the day's seconds as an integer, and a date less a date in a metric is a duration; the checker refuses a time or a date multiplied or divided in a metric's value, which the engine did not run or answered as seconds (the differential battery).
 - The checker refuses a scalar written to a set attribute or a set to another, a state or a category written to an attribute, a division by a literal zero, a date moved by a literal part of a day, and an integer and a decimal literal written where the literal's places do not fit, each of which the engine refused when run (the differential battery). The Flow Studio's sandbox refuses such writes as the engine does, where it held them.
