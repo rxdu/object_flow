@@ -1,19 +1,20 @@
 """The differential battery (ADR-0204 §4's gate over expressions): every
 expression a grammar makes over typed attributes, literals and the
-language's functions is checked by both checkers, which must agree, and each
-one both accept is read on the core and the reference runner over four
-objects, an ordinary one, one of negatives, ties and a year below 1000, one
-of zeros and one with nothing set, which must answer alike. Its first run,
-2026-10-15, found a set of values untyped, an order over states, an integer
-0 read as the zero of a duration it multiplied, a date moved by part of a
-day read as null, a date's difference written as a number and an `if`'s
-literal 0 written as an integer, each fixed (`docs/LESSONS.md`). The same
-expressions as conditions, each guarding a transition, are judged alike and
-give each object's offer alike, unknown with its remedy; the sandbox serves
-no `query`, so a filter's reading is the core's own tests'. Each accepted
-expression assigned to each attribute is judged alike and writes alike; a
-wider run, on request, takes each write on a fresh object and fails on one
-refused on every object, a rule the checkers could have applied.
+language's functions is judged by both checkers, which must agree, the flow
+checker through the runner's load and the core's checker through a change's
+publish preview, and each one both accept is read on the core and the
+reference runner over four objects, an ordinary one, one of negatives, ties
+and a year below 1000, one of zeros and a leap day, and one with nothing
+set, which must answer alike. The same expressions are judged and run as
+conditions guarding transitions, as writes to each attribute, and as
+metrics' values; a wider run, on request, takes each write on a fresh
+object and fails on one refused on every object, a rule the checkers could
+have applied. What each found is in `TODO.md` and `docs/LESSONS.md`.
+
+(Its first form, 2026-10-15, judged both sides by the flow checker alone:
+a core-backed Studio checks a load with the flow checker before forwarding
+it, and the core's sandbox load runs none, so "both checkers agree" held
+the flow checker to itself. Corrected the same day.)
 
 It builds the core's service with the pinned toolchain, and fails, not
 skips, without it.
@@ -22,6 +23,7 @@ skips, without it.
 import itertools
 import json
 import os
+import re
 
 import pytest
 
@@ -91,20 +93,75 @@ def flow(exprs: list[str]) -> str:
         for n, e in enumerate(exprs)) + TAIL
 
 
-def refused(w, exprs: list[str]) -> set[int]:
-    """The expressions a backend's checker refuses, by the line each is
-    declared on; a finding on any other line fails the battery itself."""
-    first = HEAD.count("\n") + 1
-    r = raw(w, "POST", "/sandbox/load",
-            {"files": [{"name": "bt.yaml", "text": flow(exprs)}]})[1]
+def numbered(text: str, prefixes: str) -> dict[int, int]:
+    """The line each item of a battery's module is declared on, as `e12`,
+    `c12`, `g12`, `w12` or `m12`: its index, by the line's number."""
+    out = {}
+    for no, line in enumerate(text.split("\n"), start=1):
+        name = line.strip().split(":", 1)[0]
+        if name[:1] in prefixes and name[1:].isdigit():
+            out[no] = int(name[1:])
+    return out
+
+
+def by_flow_checker(tee, text: str) -> set[int]:
+    """The lines the flow checker refuses, through the runner's load."""
+    r = raw(tee.runner, "POST", "/sandbox/load",
+            {"files": [{"name": "bt.yaml", "text": text}]})[1]
     if r.get("loaded"):
         return set()
-    findings = r.get("findings", [])
-    stray = [f for f in findings
-             if not first <= f.get("line", 0) < first + len(exprs)]
-    assert not stray, f"a finding on no expression's line: {stray[:3]}"
-    lines = {f.get("line") for f in findings}
-    return {n for n in range(len(exprs)) if first + n in lines}
+    return {f.get("line") for f in r.get("findings", [])}
+
+
+def by_core_checker(tee, text: str) -> set[int]:
+    """The lines the core's checker refuses, through the publish preview of
+    a change whose source is the module: the path a version takes."""
+    d = raw(tee.core, "POST", "/v1/request",
+            {"actor": OP, "type": "DeclarationChange", "transition": "draft",
+             "inputs": {"source": {"bt": text}, "source_ref": "battery"}})
+    assert d[0] == 200 and d[1].get("object_id"), d
+    p = raw(tee.core, "POST", "/v1/publish",
+            {"actor": OP, "change": d[1]["object_id"], "dry_run": True})
+    assert p[0] == 200, p
+    lines = set()
+    for f in (p[1].get("report") or {}).get("findings") or []:
+        if f.get("severity") != "fatal" or not str(
+                f.get("code", "")).startswith("check:"):
+            continue
+        m = re.match(r"bt:(\d+): ", f.get("message", ""))
+        assert m, f"a fatal finding naming no line: {f}"
+        lines.add(int(m.group(1)))
+    return lines
+
+
+def judge(tee, items: list, render, prefixes: str) -> tuple[list, list]:
+    """The items both checkers accept, and those one alone refuses, judged
+    to a fixed point, since a check that runs once the earlier pass (a
+    guard that can never hold) finds more once others are gone."""
+    raw(tee.core, "POST", "/sandbox/load",
+        {"files": [{"name": "bt.yaml", "text": flow(["i"])}]})
+    raw(tee.core, "POST", "/sandbox/reset", {})
+    accepted, disagree, changed = list(items), [], True
+    while changed:
+        changed, kept = False, []
+        for k in range(0, len(accepted), 300):
+            batch = accepted[k:k + 300]
+            text = render(batch)
+            lines = numbered(text, prefixes)
+            flow_lines = by_flow_checker(tee, text)
+            core_lines = by_core_checker(tee, text)
+            stray = (flow_lines | core_lines) - set(lines)
+            assert not stray, f"a finding on no item's line: {sorted(stray)}"
+            by_flow = {lines[n] for n in flow_lines}
+            by_core = {lines[n] for n in core_lines}
+            disagree += [(batch[n], "the core" if n in by_core
+                          else "the flow checker")
+                         for n in sorted(by_flow ^ by_core)]
+            changed |= bool(by_flow | by_core)
+            kept += [batch[n] for n in range(len(batch))
+                     if n not in by_flow | by_core]
+        accepted = kept
+    return accepted, disagree
 
 
 def reads(w, exprs: list[str]) -> list:
@@ -141,18 +198,9 @@ def differing(tee, exprs: list[str], found: list) -> None:
 
 @pytest.fixture(scope="module")
 def judged(tee):
-    """The expressions both checkers accept, and those one alone refuses."""
-    exprs = expressions()
-    accepted, disagree = [], []
-    for k in range(0, len(exprs), 300):
-        batch = exprs[k:k + 300]
-        by_core, by_runner = refused(tee.core, batch), refused(tee.runner,
-                                                               batch)
-        disagree += [(batch[n], "the core" if n in by_core else "the runner")
-                     for n in sorted(by_core ^ by_runner)]
-        accepted += [batch[n] for n in range(len(batch))
-                     if n not in by_core | by_runner]
-    return accepted, disagree
+    """The expressions both checkers accept as derived attributes, and those
+    one alone refuses."""
+    return judge(tee, expressions(), flow, "e")
 
 
 def test_both_checkers_agree_and_every_accepted_expression_reads_alike(
@@ -193,26 +241,6 @@ def guarded(exprs: list[str]) -> str:
     return base + "    conditions:\n" + conditions + TAIL + guards
 
 
-def guard_refused(w, exprs: list[str]) -> set[int]:
-    """The expressions a backend's checker refuses as conditions, by the
-    line of the condition or of the transition it guards, which a guard
-    that can never hold is found on."""
-    text = guarded(exprs)
-    by_line = {}
-    for no, line in enumerate(text.split("\n"), start=1):
-        name = line.strip().split(":", 1)[0]
-        if name[:1] in ("c", "g") and name[1:].isdigit():
-            by_line[no] = int(name[1:])
-    r = raw(w, "POST", "/sandbox/load",
-            {"files": [{"name": "bt.yaml", "text": text}]})[1]
-    if r.get("loaded"):
-        return set()
-    findings = r.get("findings", [])
-    stray = [f for f in findings if f.get("line") not in by_line]
-    assert not stray, f"a finding on no condition's line: {stray[:3]}"
-    return {by_line[f["line"]] for f in findings}
-
-
 def offers(w, exprs: list[str]) -> list:
     raw(w, "POST", "/sandbox/load",
         {"files": [{"name": "bt.yaml", "text": guarded(exprs)}]})
@@ -232,22 +260,7 @@ def test_every_accepted_condition_guards_alike(tee):
     """Each expression as a condition guarding a transition: both checkers
     judge it alike, and each one both accept gives each object's offer of
     its transition alike on both backends, unknown with its remedy (§8.2)."""
-    # judged to a fixed point: a check that runs once the earlier pass, a
-    # guard that can never hold, finds more in a batch the earlier refused
-    accepted, disagree, changed = expressions(), [], True
-    while changed:
-        changed, kept = False, []
-        for k in range(0, len(accepted), 300):
-            batch = accepted[k:k + 300]
-            by_core = guard_refused(tee.core, batch)
-            by_runner = guard_refused(tee.runner, batch)
-            disagree += [(batch[n], "the core" if n in by_core
-                          else "the runner")
-                         for n in sorted(by_core ^ by_runner)]
-            changed |= bool(by_core | by_runner)
-            kept += [batch[n] for n in range(len(batch))
-                     if n not in by_core | by_runner]
-        accepted = kept
+    accepted, disagree = judge(tee, expressions(), guarded, "cg")
     assert not disagree, f"refused by one checker alone: {disagree[:20]}"
     assert len(accepted) > 500, len(accepted)
     found = []
@@ -299,22 +312,6 @@ def writing(writes: list[tuple[str, str]]) -> str:
     return base + TAIL + steps
 
 
-def write_refused(w, writes: list[tuple[str, str]]) -> set[int]:
-    text = writing(writes)
-    by_line = {no: int(line.strip().split(":", 1)[0][1:])
-               for no, line in enumerate(text.split("\n"), start=1)
-               if line.strip().split(":", 1)[0][:1] == "w"
-               and line.strip().split(":", 1)[0][1:].isdigit()}
-    r = raw(w, "POST", "/sandbox/load",
-            {"files": [{"name": "bt.yaml", "text": text}]})[1]
-    if r.get("loaded"):
-        return set()
-    findings = r.get("findings", [])
-    stray = [f for f in findings if f.get("line") not in by_line]
-    assert not stray, f"a finding on no write's line: {stray[:3]}"
-    return {by_line[f["line"]] for f in findings}
-
-
 def written(w, writes: list[tuple[str, str]]) -> list:
     """For each object, each write's verdict in turn, then the object."""
     raw(w, "POST", "/sandbox/load",
@@ -360,22 +357,8 @@ def writes(tee, judged):
     checkers to a fixed point: those both accept, and those one alone
     refuses."""
     accepted_exprs, _ = judged
-    accepted = [(loc, e) for e in accepted_exprs for loc in TARGETS]
-    disagree, changed = [], True
-    while changed:
-        changed, kept = False, []
-        for k in range(0, len(accepted), 300):
-            batch = accepted[k:k + 300]
-            by_core = write_refused(tee.core, batch)
-            by_runner = write_refused(tee.runner, batch)
-            disagree += [(batch[n], "the core" if n in by_core
-                          else "the runner")
-                         for n in sorted(by_core ^ by_runner)]
-            changed |= bool(by_core | by_runner)
-            kept += [batch[n] for n in range(len(batch))
-                     if n not in by_core | by_runner]
-        accepted = kept
-    return accepted, disagree
+    return judge(tee, [(loc, e) for e in accepted_exprs for loc in TARGETS],
+                 writing, "w")
 
 
 def test_every_accepted_write_writes_alike(tee, writes):
@@ -437,3 +420,68 @@ def test_no_accepted_write_is_refused_on_every_object(tee, writes):
         found[:20])
     assert not everywhere, (f"{len(everywhere)} refused on every object: "
                             f"{everywhere[:20]}")
+
+
+def metric_values() -> list[str]:
+    """A metric's values over the objects' rows: each aggregate of each
+    attribute and the counts, each with a literal, and each pair of the
+    numeric attributes' aggregates."""
+    attrs = ["i", "d2", "d4", "m", "du", "t", "dd", "s", "b", "lv", "tags"]
+    aggregates = [f"{fn}(o.{a})" for fn in ("sum", "avg", "min", "max",
+                                            "median") for a in attrs]
+    aggregates += ["count()", "count(where o.b)", "count(distinct o.s)",
+                   "percentile(0.5, o.d2)"]
+    numeric = [f"{fn}(o.{a})" for fn in ("sum", "avg", "min", "max",
+                                         "median")
+               for a in ("i", "d2", "d4", "m", "du")] + ["count()"]
+    out = list(aggregates)
+    for a, lit, op in itertools.product(aggregates, ["2", "1.5", "1.000"],
+                                        ["+", "-", "*", "/"]):
+        out.append(f"{a} {op} {lit}")
+    for a, b, op in itertools.product(numeric, numeric, ["+", "-", "*", "/"]):
+        out.append(f"{a} {op} {b}")
+    # a date's and a time's difference, and each moved by a duration
+    out += ["max(o.dd) - min(o.dd)", "min(o.dd) + 1 day",
+            "max(o.t) - min(o.t)", "min(o.t) + 1 h"]
+    return out
+
+
+def measuring(values: list[str]) -> str:
+    """Each value a metric of its own over the type's objects."""
+    base = HEAD[:HEAD.index("    derived_attributes:\n")]
+    metrics = "".join(
+        f"      m{n}: {{ description: Probe., source: objects, item: o, "
+        f"expression: {json.dumps(v)} }}\n" for n, v in enumerate(values))
+    return base + TAIL + "    metrics:\n" + metrics
+
+
+def test_every_accepted_metric_reads_alike(tee):
+    """Each metric value both checkers accept (its form, its aggregates'
+    bodies and its arithmetic, M2), read over the four objects on both
+    backends: alike, rounded to its type's scale (ADR-0128)."""
+    accepted, disagree = judge(tee, metric_values(), measuring, "m")
+    assert not disagree, f"refused by one checker alone: {disagree[:20]}"
+    assert len(accepted) > 300, len(accepted)
+    found = []
+    for k in range(0, len(accepted), 40):
+        batch = accepted[k:k + 40]
+        pages = {}
+        for side, w in (("core", tee.core), ("runner", tee.runner)):
+            raw(w, "POST", "/sandbox/load",
+                {"files": [{"name": "bt.yaml", "text": measuring(batch)}]})
+            raw(w, "POST", "/sandbox/reset", {})
+            for inputs in OBJECTS:
+                raw(w, "POST", "/v1/request", {"actor": OP, "type": "B",
+                                               "transition": "open",
+                                               "inputs": inputs})
+            pages[side] = [raw(w, "POST", "/v1/metric",
+                               {"actor": OP, "name": f"B.m{n}"})
+                           for n in range(len(batch))]
+        for n, v in enumerate(batch):
+            c, r = pages["core"][n], pages["runner"][n]
+            if c[0] != r[0] or c[1].get("rows") != r[1].get("rows") or \
+                    c[1].get("refused") != r[1].get("refused"):
+                found.append(f"{v}: core {c[0]} {str(c[1])[:160]} | "
+                             f"runner {r[0]} {str(r[1])[:160]}")
+    assert not found, f"{len(found)} metrics differ:\n" + "\n".join(
+        found[:20])

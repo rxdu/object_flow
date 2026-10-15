@@ -3076,9 +3076,17 @@ def metric_arith(op, a, b):
         a = b
     elif b[0] == "number" and a[0] == "decimal":
         b = a
+    if op in ("*", "/") and any(k[0] in ("timestamp", "date") for k in (a, b)):
+        # neither is multiplied nor divided, as K-1 refuses elsewhere, where a metric's was not run or answered a date's
+        # seconds (the differential battery)
+        t = a if a[0] in ("timestamp", "date") else b
+        verb = "multiplies" if op == "*" else "divides"
+        return f"it {verb} {type_text(t)}, and a time or a date is neither multiplied nor divided"
     if op in ("+", "-"):
-        if op == "-" and a[0] == b[0] == "timestamp":
+        if op == "-" and (a[0] == b[0] == "timestamp" or a[0] == b[0] == "date"):
             return ("duration",)
+        if (a[0], b[0]) == ("date", "duration"):
+            return ("date",)
         if (a[0], b[0]) == ("timestamp", "duration") or op == "+" and (a[0], b[0]) == ("duration", "timestamp"):
             return ("timestamp",)
         if a[0] == b[0] == "number":
@@ -7103,6 +7111,7 @@ def syntax_plants():
         ("a metric's least flag", "names", p(METRIC, "expression: count()", "expression: min(t.completes)")),
         ("a metric's percentile of a text", "names", p(METRIC, "expression: count()", "expression: percentile(0.5, t.held(title))")),
         ("a metric subtracting an int from a decimal", "names", p(METRIC, "expression: count()", "expression: count() * 1.5 - count()")),
+        ("a metric multiplying a time", "names", p(METRIC, "expression: count()", "expression: max(t.occurred_at) * 2")),
         ("a metric averaging a text over objects", "names",
          p(METRIC, "        source: transitions\n        item: t\n        filter: t.to_state == Job.DONE\n        dimensions:\n"
                    "          month: month(t.occurred_at)\n        time_dimension: t.occurred_at\n        expression: count()\n",

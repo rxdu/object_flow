@@ -456,6 +456,8 @@ enum Kind {
     Money(String),
     Duration,
     Timestamp,
+    /// A date, computed as the seconds of its day's start (ADR-0145).
+    Date,
     Bool,
     Object(String),
     Objects(String),
@@ -1638,6 +1640,7 @@ fn spec_kind(spec: &Json) -> Kind {
         "int" | "counter" => Kind::Int,
         "duration" => Kind::Duration,
         "timestamp" => Kind::Timestamp,
+        "date" => Kind::Date,
         "bool" => Kind::Bool,
         _ => Kind::Other,
     }
@@ -1659,8 +1662,17 @@ fn arith_kind(op: BinOp, a: Kind, b: Kind) -> Kind {
     };
     match op {
         BinOp::Add | BinOp::Sub => {
-            if op == BinOp::Sub && a == Kind::Timestamp && b == Kind::Timestamp {
+            if op == BinOp::Sub
+                && matches!(
+                    (&a, &b),
+                    (Kind::Timestamp, Kind::Timestamp) | (Kind::Date, Kind::Date)
+                )
+            {
                 return Kind::Duration;
+            }
+            // a date moved by a duration is a date (§8.3, ADR-0145)
+            if a == Kind::Date && b == Kind::Duration {
+                return Kind::Date;
             }
             if (a == Kind::Timestamp && b == Kind::Duration)
                 || (op == BinOp::Add && a == Kind::Duration && b == Kind::Timestamp)
@@ -1734,6 +1746,14 @@ fn rounded(v: Num, kind: &Kind) -> Result<Value, NotRun> {
         // a duration is held in whole seconds (storage-schema.md §3.1)
         Kind::Duration => Value::Duration(int64(whole(0)?)?),
         Kind::Timestamp if r.is_integer() => Value::Timestamp(int64(r.trunc())?),
+        // a date by its day, where its seconds were answered as an integer
+        // (the differential battery, 2026-10-15)
+        Kind::Date if r.is_integer() && r.trunc().rem_euclid(86_400) == 0 => {
+            Value::Date(int64(r.trunc().div_euclid(86_400))?)
+        }
+        // part of a day has no date, which is out of range, never unknown
+        // (ADR-0205 decision 2)
+        Kind::Date => return Err(past()),
         _ if r.is_integer() => Value::Int(int64(r.trunc())?),
         _ => return not_run("a metric's fractional value, whose type the core cannot tell"),
     })

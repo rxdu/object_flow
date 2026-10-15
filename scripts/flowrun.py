@@ -282,6 +282,10 @@ def spec_kind(spec):
 
 def arith_kind(op, a, b):
     """The type of `a op b` as declaration-syntax.md §8.3 gives it, for the scale of a metric's value."""
+    if op == "-" and a[0] == b[0] == "date":
+        return ("duration",)                        # a date less a date, and a date moved by a duration (ADR-0145)
+    if op in ("+", "-") and a[0] == "date" and b[0] == "duration":
+        return ("date",)
     scalar = ("int", "decimal", "literal")
     if a[0] == "literal" and b[0] == "decimal":     # a decimal literal takes the scale of what it is combined with (§8.1)
         a = b

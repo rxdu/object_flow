@@ -40379,6 +40379,28 @@
   "could_violate": {}
  },
  {
+  "label": "syntax_plants: a metric multiplying a time",
+  "files": [
+   [
+    "plant.yaml",
+    "52fcf420076e8c5c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "names",
+    "metric finished's value does not type: it multiplies a timestamp, and a time or a date is neither multiplied nor divided (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "syntax_plants: a metric averaging a text over objects",
   "files": [
    [

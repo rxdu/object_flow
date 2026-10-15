@@ -4277,10 +4277,36 @@ fn metric_arith(op: BinOp, a: Ty, b: Ty) -> Result<Option<Ty>, String> {
         (Ty::Decimal(_), Ty::Number(_)) => (a.clone(), a),
         _ => (a, b),
     };
+    if matches!(op, BinOp::Mul | BinOp::Div)
+        && let Some(t) = [&a, &b]
+            .into_iter()
+            .find(|k| matches!(k, Ty::Timestamp | Ty::Date))
+    {
+        // neither is multiplied nor divided, as K-1 refuses elsewhere, where
+        // a metric's was not run or answered a date's seconds (the
+        // differential battery)
+        let verb = if op == BinOp::Mul {
+            "multiplies"
+        } else {
+            "divides"
+        };
+        return Err(format!(
+            "it {verb} {}, and a time or a date is neither multiplied nor divided",
+            t.text()
+        ));
+    }
     match op {
         BinOp::Add | BinOp::Sub => {
-            if op == BinOp::Sub && a == Ty::Timestamp && b == Ty::Timestamp {
+            if op == BinOp::Sub
+                && matches!(
+                    (&a, &b),
+                    (Ty::Timestamp, Ty::Timestamp) | (Ty::Date, Ty::Date)
+                )
+            {
                 return Ok(Some(Ty::Duration));
+            }
+            if a == Ty::Date && b == Ty::Duration {
+                return Ok(Some(Ty::Date));
             }
             if (a == Ty::Timestamp && b == Ty::Duration)
                 || (op == BinOp::Add && a == Ty::Duration && b == Ty::Timestamp)
