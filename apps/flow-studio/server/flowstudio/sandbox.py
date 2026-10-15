@@ -173,6 +173,11 @@ def out_of_range(e: "flowrun.OutOfRange") -> dict:
             "object_id": e.objects[0] if e.objects else None}
 
 
+# the keys an imported object takes, as the core's `imported_object` reads them
+IMPORTED_KEYS = frozenset(("type", "legacy_key", "state", "recorded_from", "attributes", "entered", "legacy_entries",
+                           "legacy_intervals", "silent_spans", "created_at", "created_by_kind", "occurred_at"))
+
+
 class Sandbox:
     """One store, its clock and its evaluators' answers, held by the caller."""
 
@@ -598,6 +603,12 @@ class Sandbox:
                 return refused(nobody, f"sequences: {seq} numbers in no "
                                        f"scope, not {scope}")
 
+        for o in objects:
+            # a key an object does not take refused, as the core's, where a
+            # misspelt `atributes` was read as none
+            unknown = next((k for k in o if k not in IMPORTED_KEYS), None)
+            if unknown is not None:
+                raise Fault(400, f"an imported object takes no key {unknown}")
         for o in objects:
             tn, key = o.get("type"), o.get("legacy_key")
             for k in ("entered", "created_at", "created_by_kind",

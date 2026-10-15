@@ -10,6 +10,7 @@ without it.
 import pytest
 
 from compare import Tee
+from replay import Failed
 from flowstudio.core import Core
 from test_backends_agree import started
 
@@ -117,4 +118,24 @@ def test_a_raise_naming_no_sequence_or_past_its_last_is_refused_alike(tee):
         report = raised(sequence, last, scope)
         assert why in ((report.get("refusal") or {}).get("reason") or ""), report
     assert raised("serial_no", 512).get("refusal") is None
+    alike(tee)
+
+
+def test_a_key_an_imported_object_does_not_take_is_refused_alike(tee):
+    """An imported object holding a key it does not take, a misspelt
+    `atributes`, is refused naming it through both backends, where each read
+    it as absent and imported the object without its attributes (the second
+    production review's minor)."""
+    assert tee.post("/sandbox/load", {"files": [
+        {"name": "numbered.yaml", "text": NUMBERED}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    with pytest.raises(Failed, match="an imported object takes no key atributes"):
+        tee.post("/v1/import_batch", {"actor": OP, "batch": {"objects": [
+            {"type": "Part", "legacy_key": "P-1", "state": "READY",
+             "atributes": {"code": "x"}}]}})
+    report = tee.post("/v1/import_batch", {"actor": OP, "batch": {"objects": [
+        {"type": "Part", "legacy_key": "P-1", "state": "READY",
+         "attributes": {"code": "x"}}]}})
+    assert report.get("refusal") is None and report["written"] == 1, report
     alike(tee)
