@@ -2755,6 +2755,15 @@ class Typing:
                     v = l if l is not None and l[0] in ("state", "values") else r
                     self.fail(f"it orders {type_text(v)}, and {'a state' if v[0] == 'state' else 'a set'} has no order")
                 return ("bool",)
+            # a literal zero divisor, which no value has, and a date moved by a literal part of a day, which no date is,
+            # each refused at run time on every object (the differential battery)
+            if op == "/" and e[3][0] == "num" and Fraction(str(e[3][1])) == 0:
+                self.fail("it divides by zero, which has no value")
+                return None
+            if op in ("+", "-") and l is not None and l[0] == "date" and e[3][0] == "dur" and e[3][2] in flowrun.SECONDS \
+                    and Fraction(str(e[3][1])) * flowrun.SECONDS[e[3][2]] % 86400:
+                self.fail(f"it moves a date by {e[3][1]} {e[3][2]}, which is no whole number of days")
+                return None
             if l is None or r is None:
                 return None
             return self.arithmetic(op, l, r)
@@ -2799,6 +2808,13 @@ class Typing:
                         self.fail(f"it {'adds' if op == '+' else 'subtracts'} a number of {a[1]} places and a decimal of "
                                   f"scale {b[1]}, which holds fewer")
                         return None
+                # two literals keep the more places, and a literal beside an int its own, as the core aligns them, where
+                # `i + 1.5` was an int and written to one (the differential battery)
+                if l[0] == r[0] == "number":
+                    return ("number", max(l[1], r[1]))
+                for a, b in ((l, r), (r, l)):
+                    if a[0] == "number" and b[0] == "int":
+                        return ("int",) if a[1] == 0 else ("decimal", a[1])
                 if l[0] == "number":
                     return r
                 if r[0] == "number":
@@ -2876,6 +2892,8 @@ def typed_kind(ty):
         return (ty[0],)
     if ty[0] in ("money", "reference", "enumeration"):
         return ty
+    if ty[0] in ("state", "category"):
+        return (ty[0],)                 # held by no attribute, so written to none (the differential battery)
     return (ty[0],) if ty[0] in SIMPLE_TYPES else None
 
 
@@ -2894,6 +2912,10 @@ def typed_write_error(typing, t, step, tn, x, env, kinds, enums):
     got = typing.of(tree, tn, x, dict(env or {}))
     if target is None or got is None:
         return None
+    if (target[0] == "values") != (got[0] == "values"):
+        # a set holds a set and nothing else does, where either was written and the core refused it at run time (the
+        # differential battery)
+        return f"{type_text(got)}, to {loc}, which holds {type_text(target)}: a write's value must fit its target"
     product = tree[0] == "bin" and tree[1] in ("*", "/")
     if target[0] == "decimal" and target[1] is not None and got[0] in ("decimal", "number") and got[1] is not None \
             and got[1] > target[1] and not product:
@@ -8644,6 +8666,13 @@ def expression_type_plants(people):
         ("a set of two types", ledger("sum(x in {count, label}: x) > 0"),
          [wrong("derived attribute probe", "sum ranges over a set of an int and a string, which share no type")]),
         # an element fits its set, and a loop ranges over a collection (the audit's values K-10)
+        ("a state written to an int", stepping("{ assign: { location: count, expr: state } }"),
+         ["Account.shut writes state, a state of Account, to count, which holds int: a write's value must fit its target (the model's check 17)"]),
+        # a set holds a set and nothing else does (the differential battery)
+        ("an int written to a set", stepping("{ assign: { location: tags, expr: count } }"),
+         ["Account.shut writes count, an int, to tags, which holds a set of string: a write's value must fit its target (the model's check 17)"]),
+        ("a set written to a string", stepping("{ assign: { location: label, expr: tags } }"),
+         ["Account.shut writes tags, a set of string, to label, which holds a string: a write's value must fit its target (the model's check 17)"]),
         ("an int added to a set of strings", stepping("{ add: { location: tags, expr: count } }"),
          ["Account.shut adds count, an int, to tags, whose elements are string: an element must fit its set (the model's check 17)"]),
         ("a loop over a string", stepping("{ foreach: { item: x, array: label, limit: 3, steps: [ { assign: { location: count, expr: 1 } } ] } }"),
@@ -8698,6 +8727,17 @@ def expression_type_plants(people):
          [misfit("fine", "a decimal of scale 3, to rate, which holds a decimal of scale 2: only a product or a quotient is rounded to its target")]),
         ("a literal of more places than its partner", writing("rate", "rate + 0.005"),
          [wrong("Account.shut's effect", "it adds a number of 3 places and a decimal of scale 2, which holds fewer")]),
+        # a literal's places kept beside an int or a literal, a zero divisor and a date moved by part of a day, each
+        # refused on every object at run time (the differential battery)
+        ("an int and a literal of places written to an int", writing("count", "count + 1.5"),
+         [misfit("count + 1.5", "a decimal of scale 1, to count, which holds int: a write's value must fit its target")]),
+        ("two literals written to a narrower decimal", writing("rate", "2.255 + 1.5"),
+         [misfit("2.255 + 1.5", "a decimal of scale 3, to rate, which holds a decimal of scale 2: only a product or a quotient is rounded to its target")]),
+        ("a division by zero written", writing("count", "count / 0"),
+         [wrong("Account.shut's effect", "it divides by zero, which has no value")]),
+        ("a date moved by an hour", dated("due + 1 h == due"),
+         [wrong("derived attribute probe", "it moves a date by 1 h, which is no whole number of days")]),
+        ("a date moved by days", dated("due + 2 days == due"), []),
         ("a decimal written to an int", writing("count", "rate * 2"),
          [misfit("rate * 2", "a decimal of scale 2, to count, which holds int: a write's value must fit its target")]),
         ("a literal with places written to an int", writing("count", "2.5"),

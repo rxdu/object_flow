@@ -3863,9 +3863,9 @@ impl Typing<'_> {
                     _ => b,
                 }
             }
-            Expr::Bin(op, l, r) => {
-                let l = self.of(l, tn, x, env, seen);
-                let r = self.of(r, tn, x, env, seen);
+            Expr::Bin(op, le, re) => {
+                let l = self.of(le, tn, x, env, seen);
+                let r = self.of(re, tn, x, env, seen);
                 match op {
                     BinOp::And | BinOp::Or | BinOp::Implies => {
                         // a verdict inside a larger expression is check 24's
@@ -3917,10 +3917,30 @@ impl Typing<'_> {
                         }
                         Some(Ty::Bool)
                     }
-                    _ => match (l, r) {
-                        (Some(l), Some(r)) => self.arithmetic(*op, l, r),
-                        _ => None,
-                    },
+                    _ => {
+                        // a literal zero divisor, which no value has, and a
+                        // date moved by a literal part of a day, which no
+                        // date is, each refused at run time on every object
+                        // (the differential battery)
+                        if *op == BinOp::Div && literal_zero(re) {
+                            self.fail("it divides by zero, which has no value".to_string());
+                            return None;
+                        }
+                        if matches!(op, BinOp::Add | BinOp::Sub)
+                            && matches!(l, Some(Ty::Date))
+                            && let Expr::Dur(n, unit) = &**re
+                            && let Some(t) = part_of_a_day(n, unit)
+                        {
+                            self.fail(format!(
+                                "it moves a date by {t} {unit}, which is no whole number of days"
+                            ));
+                            return None;
+                        }
+                        match (l, r) {
+                            (Some(l), Some(r)) => self.arithmetic(*op, l, r),
+                            _ => None,
+                        }
+                    }
                 }
             }
             Expr::Set(items) => {
@@ -3973,6 +3993,21 @@ impl Typing<'_> {
                             "it {verb} a number of {p} places and a decimal of scale {s}, which holds fewer"
                         ));
                         return None;
+                    }
+                }
+                // two literals keep the more places, and a literal beside an
+                // int its own, as the core aligns them, where `i + 1.5` was
+                // an int and written to one (the differential battery)
+                if let (Ty::Number(a), Ty::Number(b)) = (&l, &r) {
+                    return Some(Ty::Number(*a.max(b)));
+                }
+                for (a, b) in [(&l, &r), (&r, &l)] {
+                    if let (Ty::Number(p), Ty::Int) = (a, b) {
+                        return Some(if *p == 0 {
+                            Ty::Int
+                        } else {
+                            Ty::Decimal(Some(*p))
+                        });
                     }
                 }
                 if matches!(l, Ty::Number(_)) {
@@ -4134,6 +4169,8 @@ fn typed_kind(ty: &Ty) -> Option<Vec<String>> {
         Ty::Money(c) => Some(vec!["money".into(), c.clone()]),
         Ty::Reference(t) => Some(vec!["reference".into(), t.clone()]),
         Ty::Enumeration(e) => Some(vec!["enumeration".into(), e.clone()]),
+        // held by no attribute, so written to none (the differential battery)
+        Ty::State(_) | Ty::Category => one(ty.tag()),
         Ty::Int
         | Ty::Str
         | Ty::Bool
@@ -4145,6 +4182,29 @@ fn typed_kind(ty: &Ty) -> Option<Vec<String>> {
         | Ty::ActorKind => one(ty.tag()),
         _ => None,
     }
+}
+
+/// Whether an expression is a literal zero, `0` or `0.00`.
+fn literal_zero(e: &Expr) -> bool {
+    match e {
+        Expr::Num(Number::Int(n)) => *n == 0,
+        Expr::Num(Number::Decimal(d)) => d.contains('.') && d.chars().all(|c| c == '0' || c == '.'),
+        _ => false,
+    }
+}
+
+/// A duration literal's text where it is a whole number of seconds and no
+/// whole number of days.
+fn part_of_a_day(n: &Number, unit: &str) -> Option<String> {
+    let size = crate::value::unit_seconds(unit)?;
+    let t = match n {
+        Number::Int(i) => i.to_string(),
+        Number::Decimal(t) => t.clone(),
+    };
+    let seconds =
+        crate::value::Decimal::parse(&t)?.checked_mul(&crate::value::Decimal::from_int(size))?;
+    let whole = seconds.rescale(0).filter(|w| *w == seconds)?.to_int()?;
+    (whole % 86_400 != 0).then_some(t)
 }
 
 /// The type a member of a row of a source other than objects holds, for a
@@ -4519,6 +4579,15 @@ fn typed_write_error(
     let (Some(target), Some(got)) = (target, got) else {
         return None;
     };
+    // a set holds a set and nothing else does, where either was written and
+    // refused at run time (the differential battery)
+    if matches!(target, Ty::Values(_)) != matches!(got, Ty::Values(_)) {
+        return Some(format!(
+            "{}, to {loc}, which holds {}: a write's value must fit its target",
+            got.text(),
+            target.text()
+        ));
+    }
     let product = matches!(tree, Expr::Bin(BinOp::Mul | BinOp::Div, ..));
     let scale = match got {
         Ty::Decimal(Some(s)) | Ty::Number(s) => Some(s),

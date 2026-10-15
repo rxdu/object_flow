@@ -193,8 +193,16 @@ def at_declared_scale(spec, v, oid=None):
     integer only where it is whole; text, a boolean or an enumeration's member only to its own type. A value it cannot
     hold refuses the request value_in_range, naming the object (the audit's values W1 to W3, ADR-0205 decision 1)."""
     typ = str((spec or {}).get("type") or "")
-    if v is ABSENT or not typ or (spec or {}).get("reference") or typ.endswith("[]"):
+    if v is ABSENT or not typ or (spec or {}).get("reference"):
         return v
+    if typ.endswith("[]"):
+        # a set holds a set, each element at its element's type, and nothing else, as the core's fit_value writes it,
+        # where a value of another kind was written whole and the object could not be read (the differential battery)
+        if not is_set(v):
+            raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[oid] if oid else [])
+        return tuple(at_declared_scale({"type": typ[:-2]}, x, oid) for x in v)
+    if is_set(v):
+        raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[oid] if oid else [])
     number = isinstance(v, (int, Fraction)) and not isinstance(v, bool)
     fits = True
     if typ.startswith("decimal("):
@@ -208,6 +216,14 @@ def at_declared_scale(spec, v, oid=None):
         fits = isinstance(v, str)
     elif typ == "bool":
         fits = isinstance(v, bool)
+    # an amount, a duration or a time takes a number, a date a date and an enumeration's attribute its own member, as
+    # the core's fit_value, where a state written to any of them was held (the differential battery)
+    elif typ.startswith("money(") or typ in ("duration", "timestamp"):
+        fits = number
+    elif typ == "date":
+        fits = is_date(v)
+    elif typ[:1].isupper():
+        fits = isinstance(v, tuple) and v[:1] == ("enum",) and v[1] == typ
     elif isinstance(v, tuple) and v[:1] == ("enum",):
         fits = v[1] == typ
     if not fits:

@@ -444,3 +444,35 @@ def test_a_date_moved_by_part_of_a_day_is_refused_alike(tee):
     assert (got.get("refused"), got.get("object_id")) == \
         ("value_in_range", item), got
     alike(tee)
+
+
+def test_a_write_the_checker_cannot_type_is_fitted_as_the_core_fits_it():
+    """The reference runner fits a written value to its target as the core's
+    `fit_value` does, for a write whose value no checker can type: a set
+    holds only a set, each element at its type, and nothing else holds one;
+    an amount, a duration or a time takes a number, a date a date and an
+    enumeration's attribute its own member (the differential battery)."""
+    from fractions import Fraction
+
+    import flowrun
+    refused = flowrun.Refused
+    fit = flowrun.at_declared_scale
+    state = ("state", "B", "OPEN")
+    for spec, value in [({"type": "string[]"}, 2),
+                        ({"type": "string"}, ("a", "b")),
+                        ({"type": "duration"}, state),
+                        ({"type": "money(USD)"}, state),
+                        ({"type": "timestamp"}, "2026"),
+                        ({"type": "date"}, Fraction(5)),
+                        ({"type": "Level"}, state),
+                        ({"type": "int[]"}, ("a",))]:
+        try:
+            fit(spec, value, "b-1")
+        except refused as r:
+            assert r.clause == "value_in_range", (spec, value, r)
+        else:
+            raise AssertionError(f"{value!r} written to {spec} was held")
+    assert fit({"type": "string[]"}, ("a", "b"), "b-1") == ("a", "b")
+    assert fit({"type": "duration"}, Fraction(60), "b-1") == 60
+    assert fit({"type": "Level"}, ("enum", "Level", "HIGH"), "b-1") == \
+        ("enum", "Level", "HIGH")
