@@ -1284,6 +1284,53 @@ def test_a_part_a_base_declares_goes_with_its_subtype_alike(tee):
     alike(tee)
 
 
+SHIPPING = """module: shop
+categories: [live, closed]
+types:
+  Order:
+    description: An order.
+    tracking: record
+    attributes:
+      lines: { reference: "Line[]", aggregation: composite, opposite: order, cascade: [ { on: [close], transition: drop, limit: 50 } ] }
+    states: { OPEN: { category: live }, DONE: { category: closed, final: true } }
+    transitions:
+      open: { kind: initial, to: OPEN }
+      add_line: { kind: internal, from: [OPEN], effect: [ { create: { type: Line, transition: add, inputs: { order: this } } } ] }
+      add_and_ship: { kind: internal, from: [OPEN], effect: [ { create: { type: Line, transition: add, inputs: { order: this }, result: made } }, { call: { target: made, transition: ship } } ] }
+      ship_all: { kind: internal, from: [OPEN], effect: [ { foreach: { item: l, array: lines, limit: 50, steps: [ { call: { target: l, transition: ship } } ] } } ] }
+      close: { kind: external, from: [OPEN], to: DONE }
+  Line:
+    description: A line.
+    tracking: record
+    attributes:
+      order: { reference: Order, opposite: lines }
+      qty: { type: int, optional: true }
+    states: { ACTIVE: { category: live }, SHIPPED: { category: live }, GONE: { category: closed, final: true } }
+    conditions:
+      counted: { description: A quantity is set., expression: qty is not null, remedy: self_serviceable }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [order], only_via: [Order.add_line, Order.add_and_ship] }
+      ship: { kind: external, from: [ACTIVE], to: SHIPPED, guards: { counted: deny }, only_via: [Order.add_and_ship, Order.ship_all] }
+      drop: { kind: external, from: [ACTIVE, SHIPPED], to: GONE, only_via: [Order.close] }
+"""
+
+
+def test_a_refused_call_names_no_object_its_request_was_creating_alike(tee):
+    """A call refused on the object its own request created a step before names none, that object never being
+    made and its id one a later object takes, as a refusal's other ids name none (D581's residue, reproduced on both
+    backends); one refused on an object the store holds names it."""
+    load(tee, "shop", SHIPPING)
+    tee.found.clear()
+    order = made(tee, "Order", "open")
+    v = tee.post("/v1/request", {"actor": OP, "object_id": order, "transition": "add_and_ship"})
+    assert (v["kind"], v["step"], v["object_id"]) == ("call_refused", "call made.ship", None), v
+    assert tee.post("/v1/request", {"actor": OP, "object_id": order, "transition": "add_line"})["kind"] == "satisfied"
+    line = tee.post("/v1/get", {"id": order})["attributes"]["lines"][0]
+    v = tee.post("/v1/request", {"actor": OP, "object_id": order, "transition": "ship_all"})
+    assert (v["kind"], v["object_id"]) == ("call_refused", line), v
+    alike(tee)
+
+
 def tiers(tee) -> list:
     page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.tiers",
                                    "keep": ["tier"]})

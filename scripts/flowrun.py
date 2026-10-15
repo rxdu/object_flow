@@ -2140,6 +2140,9 @@ class Runner:
             refused = r
             while refused is not None:
                 refused.objects = [i for i in refused.objects if i in store.objects]
+                # and a refused call names no object the request was creating (D581's residue)
+                if refused.verdict == "call_refused" and refused.object_id not in store.objects:
+                    refused.object_id = None
                 if refused.failures:
                     refused.failures = [(o if o in store.objects else None, t, n, rem)
                                         for o, t, n, rem in refused.failures]

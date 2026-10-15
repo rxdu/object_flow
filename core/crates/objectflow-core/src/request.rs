@@ -6212,11 +6212,35 @@ pub fn request_told(
     }
     // an erasure's values leave the write-ahead log too (D584)
     store.after_erasure(erasing)?;
-    let told = {
+    let (verdict, told) = {
         let world = store.snapshot()?;
-        told(world.lib, &world, req, &verdict, &refusal)
+        // a call refused on an object the refused request was creating
+        // names none, as a refusal's other ids name none (D581's residue)
+        let verdict = unmade(verdict, &world);
+        let told = told(world.lib, &world, req, &verdict, &refusal);
+        (verdict, told)
     };
     Ok(Ok((verdict, told)))
+}
+
+/// A refused call's object, at any depth, none where the store does not
+/// hold it: an object the refused request was creating, whose id a later
+/// object may take (D581).
+fn unmade(v: Verdict, world: &World<'_>) -> Verdict {
+    match v {
+        Verdict::CallRefused {
+            step,
+            object_id,
+            verdict,
+            clause,
+        } => Verdict::CallRefused {
+            step,
+            object_id: object_id.filter(|id| world.get(id).ok().flatten().is_some()),
+            verdict: Box::new(unmade(*verdict, world)),
+            clause,
+        },
+        other => other,
+    }
 }
 
 /// What `check` answers (`library-api.md` §4): the verdict the request

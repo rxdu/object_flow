@@ -3894,7 +3894,7 @@ Two agents new to ObjectFlow built the procurement brief again at commit `c494d5
 ### D581
 **A refusal named the would-be id of an object its own request was creating**, which the next object created then took: a duplicate's refusal named `staff-21`, a creation never made, and a later refusal's `interview-31` was another interview by then. Found 2026-10-11 by the third cold review (integrator, E5 and E8); reproduced on both backends.
 
-**Resolved** 2026-10-11 (ADR-0181 decision 2): such a failure's `object_id` is `null` and a refusal's `objects` holds only objects the store holds, on both backends alike (`test_a_refusal_tells_what_it_names_alike`); each backend's fix mutation-checked.
+**Resolved** 2026-10-11 (ADR-0181 decision 2): such a failure's `object_id` is `null` and a refusal's `objects` holds only objects the store holds, on both backends alike (`test_a_refusal_tells_what_it_names_alike`); each backend's fix mutation-checked. Its residue, a refused call's own `object_id` naming the object its request created a step before, resolved 2026-10-15 alike (`test_a_refused_call_names_no_object_its_request_was_creating_alike`).
 
 ### D582
 **A `taken_by` refusal did not tell `proposable`**, which ADR-0179 told only on an unsatisfied verdict, while `integrate.md` told an agent to propose where a refusal says so. Found 2026-10-11 by the third cold review (integrator, E9).

@@ -179,6 +179,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Fixed
 
+- A refused call's `object_id` is `null` where the call targeted an object its own refused request was creating, which never exists, as the refusal's other ids already were (D581's residue).
 - A subtype's `inherited_parts` run: a part an abstract base declares goes with the subtype's final transitions as its entry says, where the engine answered every request of such a subtype `not_run` (`flow-format.md` §4.14's own sample among them; the values audit's K-11).
 - The log says once when the store's volume falls below the 64 MiB a checkpoint needs, and once when it recovers, where only `/health` and `/metrics` said it.
 - An erasure reads the pending proposals on the erased object through an index on their target, where it scanned every proposal under the writer; a store gets the index at its next start.
