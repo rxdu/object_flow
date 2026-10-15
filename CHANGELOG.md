@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- The checker refuses a call of a function the language does not have, such as `abs`, `round`, `coalesce` or `max(a, b)`, a function given other than one argument, and an unknown member function, each of which published and was answered `not_run` (the values audit's K-7, K-8).
 - A step or argument that is exactly `actor.principal` skips its write where the request names no principal, as one that is exactly an unsupplied optional input does, where the request was refused `value_in_range` (D687).
 - The checker types `actor.id`, `actor.kind` and `actor.principal`, so `"by " + actor.id` is refused at publish, where the engine answered `not_run` and the reference runner joined the strings; and it refuses a metric's `count` of an expression, which the engine answered `not_run` (D687).
 - The checker refuses a `create`, or a `call` whose target names its type, into an `only via` transition from a transition the list does not name, which published and was refused when it ran (check 13's converse, the write path audit's R-05).

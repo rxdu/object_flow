@@ -3426,6 +3426,28 @@ impl Typing<'_> {
                 {
                     return Some(Ty::Verdict);
                 }
+                // a function the language has, given one argument, where any
+                // other call typed as nothing and the core did not run it
+                // (the values audit's K-7, K-8)
+                match &**f {
+                    Expr::Name(name)
+                        if !FUNCTIONS.contains(&name.as_str())
+                            && !METRIC_ONLY_FUNCTIONS.contains(&name.as_str()) =>
+                    {
+                        self.fail(format!("{name} is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year"));
+                        return None;
+                    }
+                    Expr::Name(name) if FUNCTIONS.contains(&name.as_str()) && args.len() != 1 => {
+                        let n = args.len();
+                        self.fail(format!("{name} takes one argument, and is given {n}"));
+                        return None;
+                    }
+                    Expr::Path(_, name) if !MEMBER_FUNCTIONS.contains(&name.as_str()) => {
+                        self.fail(format!("{name} is no member function the language has: it has intervals, entered_at, time_in and a row's held"));
+                        return None;
+                    }
+                    _ => {}
+                }
                 self.flow_function_names(f, args, tn, x, env, seen);
                 let Expr::Name(name) = &**f else {
                     return None;
@@ -6252,6 +6274,22 @@ fn evaluator_errors(doc: &Value, tn: &str, t: &Value) -> Found {
     }
     out
 }
+
+/// The functions an expression may call, and the member functions
+/// (`declaration-syntax.md` §8.3).
+const FUNCTIONS: [&str; 4] = ["length", "date", "entered_at", "time_in"];
+/// The functions a metric alone calls, which check 56 refuses elsewhere.
+const METRIC_ONLY_FUNCTIONS: [&str; 8] = [
+    "avg",
+    "median",
+    "percentile",
+    "day",
+    "week",
+    "month",
+    "quarter",
+    "year",
+];
+const MEMBER_FUNCTIONS: [&str; 4] = ["intervals", "entered_at", "time_in", "held"];
 
 /// A metric's `count(`, and what it may begin with besides `)`: a condition,
 /// distinct values, or a binder over a row's collection (D687).

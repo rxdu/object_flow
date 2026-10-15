@@ -2534,6 +2534,20 @@ class Typing:
             f = e[1]
             if f[0] == "path" and f[1][0] == "name" and f[1][1] in self.evaluators:
                 return ("verdict",)
+            # a function the language has, given one argument, where any other call typed as nothing and the core
+            # did not run it (the values audit's K-7, K-8)
+            if f[0] == "name" and f[1] not in FUNCTIONS and f[1] not in METRIC_ONLY_FUNCTIONS:
+                name = f[1]
+                self.fail(f"{name} is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")
+                return None
+            if f[0] == "name" and f[1] in FUNCTIONS and len(e[2]) != 1:
+                name, n = f[1], len(e[2])
+                self.fail(f"{name} takes one argument, and is given {n}")
+                return None
+            if f[0] == "path" and f[2] not in MEMBER_FUNCTIONS:
+                name = f[2]
+                self.fail(f"{name} is no member function the language has: it has intervals, entered_at, time_in and a row's held")
+                return None
             # a flow function names what its object's type has: `time_in` a state, `entered_at` a state or a tracked
             # member, wherever an expression is typed, as the model's check 58 has it for a transition's body (the
             # audit's values G2, where `time_in` of a member answered 0 s)
@@ -3789,6 +3803,11 @@ def evaluator_argument_errors(where, cn, text, ev, fn, f, tn, t, doc):
 
 
 AGGREGATE_CALL = re.compile(r"\b(count|sum|min|max|avg|median|percentile)\s*\(")
+# the functions an expression may call, and the member functions (declaration-syntax.md §8.3)
+FUNCTIONS = {"length", "date", "entered_at", "time_in"}
+# the functions a metric alone calls, which check 56 refuses elsewhere
+METRIC_ONLY_FUNCTIONS = {"avg", "median", "percentile", "day", "week", "month", "quarter", "year"}
+MEMBER_FUNCTIONS = {"intervals", "entered_at", "time_in", "held"}
 # what a metric's count( may begin with besides `)`: a condition, distinct values, or a binder over a row's collection
 COUNTED = re.compile(r"(where\b|distinct\b|[a-z_][a-z0-9_]*\s+in\b)")
 
@@ -8185,6 +8204,14 @@ def expression_type_plants(people):
         ("entered_at of an untracked member", ledger("entered_at(label) < now"),
          [wrong("derived attribute probe", "entered_at(label) names neither a state of Account nor a member it tracks")]),
         ("time_in of a state and entered_at of a tracked member", ledger("time_in(OPEN) > 1 h and entered_at(tier) < now"), []),
+        # a call of what the language has, where any other typed as nothing and the core did not run it (values K-7, K-8)
+        ("a function the language has not", ledger("abs(count) > 0"), [wrong("derived attribute probe", "abs is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")]),
+        ("an aggregate called on values", ledger("max(count, count) > 0"), [wrong("derived attribute probe", "max is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")]),
+        ("a function given two arguments", ledger("length(label, label) > 0"),
+         [wrong("derived attribute probe", "length takes one argument, and is given 2")]),
+        ("a member function the language has not", ledger("this.foo(count) > 0"),
+         [wrong("derived attribute probe", "foo is no member function the language has: it has intervals, entered_at, time_in and a row's held")]),
+        ("the functions the language has", ledger("length(label) > 0 and date(since) < date(now) and this.time_in(OPEN) > 1 h"), []),
         ("an amount past its minor unit", ledger("usd + USD 1.005 > usd"),
          [wrong("derived attribute probe", "USD 1.005 has more places than USD's minor unit")]),
         ("an amount in an unknown currency", ledger("XYZ 1 == XYZ 1"),
