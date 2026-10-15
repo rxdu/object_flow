@@ -2868,6 +2868,39 @@ def typed_write_error(typing, t, step, tn, x, env, kinds, enums):
     return None
 
 
+def typed_element_error(typing, t, step, tn, x, env, kinds, enums):
+    """What check 17 refuses of an add or a remove: a value of another kind than its set's elements (values K-10)."""
+    loc = step.get("location")
+    spec = (t.get("attributes") or {}).get(loc) or {}
+    typ, ref = str(spec.get("type", "")), str(spec.get("reference", ""))
+    element = {"type": typ[:-2]} if typ.endswith("[]") else {"reference": ref[:-2]} if ref.endswith("[]") else None
+    if element is None:
+        return None
+    try:
+        tree = flowexpr.parse(" ".join(str(step.get("expr", "")).split()))
+    except flowexpr.ParseError:
+        return None
+    typing.broken = []
+    got = typing.of(tree, tn, x, dict(env or {}))
+    want, kind = written_kind(element, enums), typed_kind(got) if got is not None else None
+    if want is not None and kind is not None and not fits(want, kind, kinds):
+        return f"{type_text(got)}, to {loc}, whose elements are {' '.join(want)}: an element must fit its set"
+    return None
+
+
+def typed_loop_error(typing, step, tn, x, env):
+    """A loop's array of a type the typing tells that is no collection, a set of objects or of values (values K-10)."""
+    try:
+        tree = flowexpr.parse(" ".join(str(step.get("array", "")).split()))
+    except flowexpr.ParseError:
+        return None
+    typing.broken = []
+    got = typing.of(tree, tn, x, dict(env or {}))
+    if got is None or got[0] == "objects" or typing.value_set_element(tn, tree, dict(env or {})) is not None:
+        return None
+    return f"{type_text(got)}, which is no collection"
+
+
 def expression_type_errors(doc, library):
     """Each expression of a module that does not type by declaration-syntax.md §8.3, where the types it combines can
     be told: a condition, an invariant, a derived attribute, a uniqueness condition, an effect's value, argument, loop
@@ -2917,6 +2950,17 @@ def expression_type_errors(doc, library):
                     misfit = typed_write_error(typing, t, st["assign"], tn, x, env, kinds, enums)
                     if misfit:
                         out.append((where, "names", f"{tn}.{xn} writes {st['assign']['expr']}, {misfit} (the model's check 17)"))
+                # an element added or removed fits its set, and a loop ranges over a collection, where each published
+                # and the core refused or did not run it (the values audit's K-10)
+                if kind in ("add", "remove"):
+                    misfit = typed_element_error(typing, t, st[kind], tn, x, env, kinds, enums)
+                    if misfit:
+                        verb = "adds" if kind == "add" else "removes"
+                        out.append((where, "names", f"{tn}.{xn} {verb} {st[kind]['expr']}, {misfit} (the model's check 17)"))
+                if kind == "foreach" and st["foreach"].get("array") is not None:
+                    loose = typed_loop_error(typing, st["foreach"], tn, x, env)
+                    if loose:
+                        out.append((where, "names", f"{tn}.{xn} loops over {st['foreach']['array']}, {loose} (the model's check 24)"))
     for tn, given in ((doc.get("migration") or {}).get("backfill") or {}).items():
         for a, e in (given or {}).items():
             check(("migration", "backfill", tn, a), f"the backfill of {tn}.{a}", e, tn, None)
@@ -8300,6 +8344,13 @@ def expression_type_plants(people):
         assert text.count("      label: { type: string }\n") == 1
         return text.replace("      label: { type: string }\n", "      label: { type: string }\n      tags:  { type: \"string[]\", optional: true }\n")
 
+    def stepping(steps):
+        # the ledger with its set of strings, shut taking the steps given
+        text = tagged(probe)
+        assert text.count("shut: { kind: external, from: [OPEN], to: SHUT }") == 1
+        return text.replace("shut: { kind: external, from: [OPEN], to: SHUT }",
+                            "shut: { kind: external, from: [OPEN], to: SHUT, effect: [ " + steps + " ] }")
+
     def dated(expr):
         # the ledger with a date of its own
         text = ledger(expr)
@@ -8389,6 +8440,13 @@ def expression_type_plants(people):
         ("a sum of strings", tagged("sum(t in tags: t) == label"), [wrong("derived attribute probe", "sum adds a string, which does not add")]),
         ("a set of two types", ledger("sum(x in {count, label}: x) > 0"),
          [wrong("derived attribute probe", "sum ranges over a set of an int and a string, which share no type")]),
+        # an element fits its set, and a loop ranges over a collection (the audit's values K-10)
+        ("an int added to a set of strings", stepping("{ add: { location: tags, expr: count } }"),
+         ["Account.shut adds count, an int, to tags, whose elements are string: an element must fit its set (the model's check 17)"]),
+        ("a loop over a string", stepping("{ foreach: { item: x, array: label, limit: 3, steps: [ { assign: { location: count, expr: 1 } } ] } }"),
+         ["Account.shut loops over label, a string, which is no collection (the model's check 24)"]),
+        ("an element that fits and a loop over a set", stepping(
+            "{ add: { location: tags, expr: label } }, { foreach: { item: x, array: tags, limit: 3, steps: [ { assign: { location: count, expr: 1 } } ] } }"), []),
         ("aggregates over collections", tagged('max(t in tags: t) == label and count(t in tags: t == \\"a\\") > 0 and sum(x in {1, 2}: x) > 0'), []),
         ("an amount past its minor unit", ledger("usd + USD 1.005 > usd"),
          [wrong("derived attribute probe", "USD 1.005 has more places than USD's minor unit")]),

@@ -4050,6 +4050,59 @@ fn typed_kind(ty: &Ty) -> Option<Vec<String>> {
     }
 }
 
+/// What check 17 refuses of an add or a remove: a value of another kind
+/// than its set's elements (the values audit's K-10).
+#[allow(clippy::too_many_arguments)]
+fn typed_element_error(
+    typing: &mut Typing<'_>,
+    t: &Value,
+    body: &Value,
+    tn: &str,
+    x: &Value,
+    env: &TyEnv,
+    kinds: &Obj,
+    enums: &BTreeSet<String>,
+) -> Option<String> {
+    let loc = body_text(body, "location");
+    let spec = obj(t, "attributes").get(&loc)?;
+    let typ = spec.get("type").map(py_str).unwrap_or_default();
+    let reference = spec.get("reference").map(py_str).unwrap_or_default();
+    let element = match typ.strip_suffix("[]") {
+        Some(b) => serde_json::json!({ "type": b }),
+        None => serde_json::json!({ "reference": reference.strip_suffix("[]")? }),
+    };
+    let tree = parse(&squash(&body_text(body, "expr"))).ok()?;
+    typing.broken.clear();
+    let got = typing.of(&tree, tn, Some(x), env, &BTreeSet::new())?;
+    let want = written_kind(Some(&element), enums)?;
+    let kind = typed_kind(&got)?;
+    (!fits(&want, &kind, kinds)).then(|| {
+        format!(
+            "{}, to {loc}, whose elements are {}: an element must fit its set",
+            got.text(),
+            want.join(" ")
+        )
+    })
+}
+
+/// A loop's array of a type the typing tells that is no collection, a set
+/// of objects or of values (the values audit's K-10).
+fn typed_loop_error(
+    typing: &mut Typing<'_>,
+    body: &Value,
+    tn: &str,
+    x: &Value,
+    env: &TyEnv,
+) -> Option<String> {
+    let tree = parse(&squash(&body_text(body, "array"))).ok()?;
+    typing.broken.clear();
+    let got = typing.of(&tree, tn, Some(x), env, &BTreeSet::new())?;
+    if matches!(got, Ty::Objects(_)) || typing.value_set_element(tn, &tree, env).is_some() {
+        return None;
+    }
+    Some(format!("{}, which is no collection", got.text()))
+}
+
 /// What check 17 refuses of an assign by the type the typing infers, where
 /// `value_kind` tells none: a value of another kind than its target's, as a
 /// decimal computed into an int (the audit's values W2 and W3); and a
@@ -4276,6 +4329,48 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
                         format!(
                             "{tn}.{xn} writes {}, {misfit} (the model's check 17)",
                             body_text(step.body(), "expr")
+                        ),
+                    ));
+                }
+                // an element added or removed fits its set, and a loop ranges
+                // over a collection, where each published and the core
+                // refused or did not run it (the values audit's K-10)
+                if matches!(step.kind, "add" | "remove")
+                    && let Some(misfit) = typed_element_error(
+                        &mut typing,
+                        t,
+                        step.body(),
+                        &tn,
+                        x,
+                        &env,
+                        &kinds,
+                        &enums,
+                    )
+                {
+                    let verb = if step.kind == "add" {
+                        "adds"
+                    } else {
+                        "removes"
+                    };
+                    out.push(finding(
+                        where_.clone(),
+                        "names",
+                        format!(
+                            "{tn}.{xn} {verb} {}, {misfit} (the model's check 17)",
+                            body_text(step.body(), "expr")
+                        ),
+                    ));
+                }
+                if step.kind == "foreach"
+                    && step.body().get("array").is_some_and(|a| !a.is_null())
+                    && let Some(loose) = typed_loop_error(&mut typing, step.body(), &tn, x, &env)
+                {
+                    out.push(finding(
+                        where_.clone(),
+                        "names",
+                        format!(
+                            "{tn}.{xn} loops over {}, {loose} (the model's check 24)",
+                            body_text(step.body(), "array")
                         ),
                     ));
                 }

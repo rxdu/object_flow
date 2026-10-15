@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- The checker refuses a loop over what is no collection, and an element added to or removed from a set that does not fit its elements' type, which the engine answered `not_run` or refused when run (the values audit's K-10).
 - An import refuses a key a batch, an object, an `entered` time, a legacy entry or interval, a sequence's raise, or a disposition's class does not take, `400` naming it, a misspelt `sequence` having raised no sequence, where a misspelt key was read as absent and its value dropped without a word.
 - The checker refuses a metric's value holding a comparison, a connective, `not`, `if`, `in`, a row's member outside an aggregate, a call of what is no aggregate, or an aggregate over the rows within another, which the engine answered `not_run` (the values audit's M2).
 - The checker refuses an aggregate over what is no collection and over a literal whose elements share no type, and gives an element of a set of values its set's type, so `sum` over strings is refused; each was answered `not_run` (the values audit's K-10).
