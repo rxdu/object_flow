@@ -187,3 +187,54 @@ def test_no_nested_value_faults_the_core(core):
                 found.append(f"/sandbox/load {json.dumps(files)[:100]}: "
                              f"{status} {str(answer)[:160]}")
     assert not found, f"{len(found)} faults:\n" + "\n".join(found[:40])
+
+
+MIRROR = """module: mirrored
+categories: [live]
+enumerations:
+  Level: [HIGH, LOW]
+types:
+  Kit:
+    description: A kit, the legacy system's.
+    mirror: true
+    tracking: record
+    attributes:
+      code: { type: string, external: erp }
+      i: { type: int, optional: true }
+      d2: { type: "decimal(10,2)", optional: true }
+      m: { type: money(USD), optional: true }
+      du: { type: duration, optional: true }
+      t: { type: timestamp, optional: true }
+      dd: { type: date, optional: true }
+      b: { type: bool, optional: true }
+      lv: { type: Level, optional: true }
+      tags: { type: "string[]", optional: true }
+      parent: { reference: Kit, optional: true }
+    states:
+      ACTIVE: { category: live }
+"""
+
+
+def test_no_imported_value_faults_the_core(core):
+    """Each value imported into each attribute of a mirror, an input of
+    every type and a reference, is written, reported as a class or
+    refused, never `500`: the import's decoder is the request's, and a null
+    element once reached the store's constraint through both."""
+    assert call(core.url, "/sandbox/load", {"files": [
+        {"name": "mirrored.yaml", "text": MIRROR}]})[1]["loaded"]
+    call(core.url, "/sandbox/reset", {})
+    found = []
+    attrs = ["i", "d2", "m", "du", "t", "dd", "b", "lv", "tags", "parent",
+             "code"]
+    for n, (attr, v) in enumerate(
+            (a, v) for a in attrs for v in ODD):
+        obj = {"type": "Kit", "legacy_key": f"k{n}", "state": "ACTIVE",
+               "attributes": {"code": f"C{n}", attr: v}}
+        for dry in (True, False):
+            status, answer = call(core.url, "/v1/import_batch",
+                                  {"actor": OP, "batch": {"objects": [obj]},
+                                   "dry_run": dry})
+            if status >= 500 and status not in (501, 503):
+                found.append(f"{attr}={str(v)[:40]!r} dry_run={dry}: "
+                             f"{status} {str(answer)[:160]}")
+    assert not found, f"{len(found)} faults:\n" + "\n".join(found[:40])
