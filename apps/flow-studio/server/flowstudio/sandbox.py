@@ -39,10 +39,46 @@ BUILT_IN = {
     "recorded_from": ("timestamp",),
     "declaration_version": ("int",),
 }
+# the members of a row of flow data a read answers, as the core's
+# `this.intervals` and `this.transitions` give them, a span's own value
+# under `state` or `value` besides (`eval.rs`, §6.9), and the types of those
+# that are not text, a boolean or a state
+SPAN_MEMBERS = ("object", "entered_at", "left_at", "entered_by_kind",
+                "declaration_version", "legacy", "migrated", "corrected_by",
+                "duration", "held")
+EVENT_MEMBERS = ("object", "transition", "from_state", "to_state",
+                 "completes", "returns", "occurred_at", "recorded_at",
+                 "actor_id", "actor_kind", "asserted", "overrides",
+                 "imported", "migrated", "redacted", "reason",
+                 "declaration_version", "held")
+ROW_MEMBER_TYPES = {
+    "entered_at": ("timestamp",), "left_at": ("timestamp",),
+    "occurred_at": ("timestamp",), "recorded_at": ("timestamp",),
+    "duration": ("duration",), "declaration_version": ("int",),
+    "corrected_by": ("int",),
+}
 EVENT_NOT_COMPUTED = [
     "object_seq", "source", "principal", "context", "cause", "taint_version",
     "txn", "payload", "reads", "consulted", "as_of", "flags",
 ]
+
+
+def row_read(row: dict) -> dict:
+    """A row of an object's flow data as a read answers it: the core's
+    members, each at its type. What a span holds and the values `held`
+    names are tracked members, the state, an enumeration or a single stored
+    reference, each written by name or id whatever its type (flow-format.md
+    §4.9)."""
+    span = "entered_at" in row
+    out = {m: values.encode(row.get(m, flowrun.ABSENT),
+                            ROW_MEMBER_TYPES.get(m, ("unknown",)))
+           for m in (SPAN_MEMBERS if span else EVENT_MEMBERS) if m != "held"}
+    out["held"] = {n: values.encode(x, ("unknown",))
+                   for n, x in (row.get("held") or {}).items()}
+    if span:
+        own = "state" if "state" in row else "value"
+        out[own] = values.encode(row.get(own, flowrun.ABSENT), ("unknown",))
+    return out
 
 
 class Fault(Exception):
@@ -749,10 +785,18 @@ class Sandbox:
             for k, spec in (t.get("derived_attributes") or {}).items():
                 expr = flowexpr.parse(spec["expression"])
                 # typed as the core's evaluator holds it, a bare name read on
-                # `this`, where `d2 + 3` was no decimal (the audit's R7)
-                typ = values.type_of_kind(
-                    ev.held_kind(expr, {"this": ("object", o.type)}))
+                # `this`, an `if` by the branch it takes, where `d2 + 3` was
+                # no decimal and an `if` took its first branch's scale (the
+                # audit's R7)
+                held = ev.held_kind(expr, {"this": ("object", o.type)}, {})
                 v = ev.member(o.id, k)
+                if held[0] in ("intervals", "transitions") and \
+                        isinstance(v, tuple):
+                    # rows of flow data, as the core answers them, where
+                    # none could be written (the audit's R9)
+                    attrs[k] = [row_read(r) for r in v]
+                    continue
+                typ = values.type_of_kind(held)
                 # a derived time past the calendar refuses the read, as the
                 # core refuses it (ADR-0191 decision 3, ADR-0205 decision 2)
                 if typ == ("timestamp",) and isinstance(v, (int, Fraction)) \

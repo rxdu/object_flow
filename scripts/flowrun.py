@@ -341,11 +341,12 @@ def bucket(unit, ts):
     """A timestamp's UTC calendar bucket, the week being the ISO 8601 week that begins on Monday (ADR-0106); a date's
     own, since the start of its day, UTC, is in it (ADR-0145)."""
     t = EPOCH + datetime.timedelta(seconds=math.floor(instant(ts)))
+    # a year of four digits, below 1000 as above it, as the core writes it, where `%Y` wrote `999` (the audit's values R8)
     if unit == "week":
         year, week, _ = t.isocalendar()
-        return f"{year}-W{week:02d}"
-    return {"day": t.strftime("%Y-%m-%d"), "month": t.strftime("%Y-%m"), "quarter": f"{t.year}-Q{(t.month - 1) // 3 + 1}",
-            "year": str(t.year)}[unit]
+        return f"{year:04d}-W{week:02d}"
+    return {"day": f"{t.year:04d}-{t.month:02d}-{t.day:02d}", "month": f"{t.year:04d}-{t.month:02d}",
+            "quarter": f"{t.year:04d}-Q{(t.month - 1) // 3 + 1}", "year": f"{t.year:04d}"}[unit]
 
 
 def next_boundary(unit, ts):
@@ -1110,7 +1111,7 @@ class Evaluator:
         past 128 bits of units or 38 places, where the runner answered it (R5, ADR-0205 decision 2)."""
         try:
             kinds = self.kinds_here(env)
-            k = held_arith_kind(e[1], self.held_kind(e[2], kinds), self.held_kind(e[3], kinds))
+            k = held_arith_kind(e[1], self.held_kind(e[2], kinds, env), self.held_kind(e[3], kinds, env))
         except NotRunnable:
             return r
         places = None
@@ -1147,15 +1148,17 @@ class Evaluator:
                 kinds[n] = ("other",)
         return kinds
 
-    def held_kind(self, e, kinds):
+    def held_kind(self, e, kinds, values=None):
         """The type the core's evaluator holds an expression's value at: `kind`, except that arithmetic aligns as it is
-        evaluated (`held_arith_kind`)."""
+        evaluated (`held_arith_kind`); given the values of its names, an `if` at the branch it takes, as the core holds
+        it, where its first branch's scale was taken for either (the audit's values R7)."""
         if e[0] == "bin" and e[1] in ("+", "-", "*", "/"):
-            return held_arith_kind(e[1], self.held_kind(e[2], kinds), self.held_kind(e[3], kinds))
+            return held_arith_kind(e[1], self.held_kind(e[2], kinds, values), self.held_kind(e[3], kinds, values))
         if e[0] == "neg":
-            return self.held_kind(e[1], kinds)
+            return self.held_kind(e[1], kinds, values)
         if e[0] == "if":
-            return self.held_kind(e[2], kinds)
+            taken = truth(self.value(e[1], values)) if values is not None else True
+            return self.held_kind(e[3] if taken is False else e[2], kinds, values)
         return self.kind(e, kinds)
 
     def combine(self, op, a, b):

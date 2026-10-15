@@ -792,3 +792,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Refusing an unknown key in a sandbox load's `files` entries, added beside an import's own fix without being asked for, failed 39 Studio tests: its catalogue sends each file with `source`, which the service had always ignored. The route's own tests passed; its clients' did not.
 - **Correction:** Before refusing a key a wire body did not refuse, grep every client that builds that body (the Studio's `flowstudio/`, the scripts, the harness, the guides' examples) for the keys it sends, and widen a fix only where the defect reaches.
 - **Context:** `objectflow-service`'s request decoding, the Flow Studio server; found 2026-10-15.
+
+### "No longer reachable" is a probe's result, not an inference
+- **Pattern:** Closing an audit's runner item, a TODO line said its last case (a derived category read as a pair) was no longer reachable because a later checker fix typed category reads. Nothing had been run; a probe written to check the claim before committing showed the case published and differed on the two backends.
+- **Correction:** Before recording that a defect is unreachable, settled by another fix or moot, run the case: load it, make the request, compare the answers. Write the claim only with the probe's result, and if an unprobed claim was drafted, say so where it is corrected.
+- **Context:** The values audit's R items, the Flow Studio's sandbox and the reference runner; found 2026-10-15.

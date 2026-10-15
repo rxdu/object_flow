@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- The Flow Studio's sandbox writes a year below 1000 with four digits, reads a derived `this.intervals` or `this.transitions` as the engine's rows, writes a category by its name, and types an `if` by the branch it takes, where each failed or differed from the engine (the values audit's R7 to R9).
 - The checker refuses `min` or `max` over an enumeration's members, which has no order and which the engine answered `not_run` (the values audit's R4); the Flow Studio's sandbox refuses a duration, a time, a decimal or an amount past what the engine holds, as the engine does (R5).
 - The Flow Studio's sandbox rounds a quotient where the engine does, so a derived quotient that does not terminate is read, where it failed `500`, and a sum of a decimal and an integer reads as a decimal (the values audit's R1, R7).
 - The checker refuses a loop over what is no collection, and an element added to or removed from a set that does not fit its elements' type, which the engine answered `not_run` or refused when run (the values audit's K-10).

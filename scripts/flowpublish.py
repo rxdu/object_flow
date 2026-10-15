@@ -639,7 +639,7 @@ def timestamp_text(seconds):
     """An instant as the wire writes it, in UTC to the second (ADR-0150 decision 2)."""
     import datetime
     t = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(seconds=int(seconds))
-    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return f"{t.year:04d}-" + t.strftime("%m-%dT%H:%M:%SZ")      # four digits below 1000 too, which `%Y` does not write
 
 
 def reachable(t, state):

@@ -260,3 +260,131 @@ def test_a_value_past_what_its_type_holds_is_refused_alike(tee, expr):
     assert (got.get("refused"), got.get("object_id")) == \
         ("value_in_range", span), got
     alike(tee)
+
+
+EARLY = """module: early
+categories: [live, closed]
+types:
+  Visit:
+    description: A visit before the year 1000.
+    tracking: record
+    attributes:
+      at: { type: timestamp }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      open: { kind: initial, to: OPEN, inputs: { at: { type: timestamp } }, effect: [ { assign: { location: at, expr: inputs.at } } ] }
+      close: { kind: external, from: [OPEN], to: DONE }
+    metrics:
+      by_time:
+        description: Visits by every calendar unit.
+        source: objects
+        item: v
+        dimensions:
+          day: day(v.at)
+          week: week(v.at)
+          month: month(v.at)
+          quarter: quarter(v.at)
+          year: year(v.at)
+        time_dimension: v.at
+        expression: count()
+"""
+
+
+def test_a_year_before_1000_is_written_with_four_digits_alike(tee):
+    """A time and each calendar bucket of a year below 1000 written with four
+    digits, `0999-W24`, as the core writes them, where the reference runner
+    wrote `999-W24` (the audit's values R8)."""
+    tee.found.clear()
+    load(tee, "early", EARLY)
+    visit = made(tee, "Visit", "open", at="0999-06-15T08:30:00Z")
+    assert tee.post("/v1/get", {"id": visit})["attributes"]["at"] == \
+        "0999-06-15T08:30:00Z"
+    page = tee.post("/v1/metric", {"actor": OP, "name": "Visit.by_time"})
+    assert [r["dimensions"] for r in page["rows"]] == [
+        {"day": "0999-06-15", "week": "0999-W24", "month": "0999-06",
+         "quarter": "0999-Q2", "year": "0999"}], page
+    alike(tee)
+
+
+def test_a_publish_reports_a_clock_before_1000_with_four_digits():
+    """The publish report's `now`, a sandbox clock set before the year 1000,
+    written with four digits as the wire writes every time (R8)."""
+    import datetime
+
+    from flowstudio.scripts import flowpublish
+    utc = datetime.timezone.utc
+    at = datetime.datetime(999, 6, 15, 8, 30, tzinfo=utc)
+    seconds = int((at - datetime.datetime(1970, 1, 1, tzinfo=utc))
+                  .total_seconds())
+    assert flowpublish.timestamp_text(seconds) == "0999-06-15T08:30:00Z"
+
+
+HISTORY = """module: history
+categories: [live, closed]
+types:
+  Person:
+    description: Someone a ticket is given to.
+    tracking: record
+    attributes:
+      who: { type: identity, actor_kind: human }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      join: { kind: initial, to: ON, required_inputs: [who] }
+      leave: { kind: external, from: [ON], to: OFF }
+  Ticket:
+    description: A ticket whose own history it derives.
+    tracking: record
+    attributes:
+      n: { type: int, optional: true }
+      d: { type: "decimal(10,2)", optional: true }
+      owner: { reference: Person, assignee: true, optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    derived_attributes:
+      spans: { description: Its spans., expression: this.intervals }
+      events: { description: Its events., expression: this.transitions }
+      owners: { description: Its owners' spans., expression: this.intervals(owner) }
+      pick: { description: A choice., expression: 'if n > 1 then 1.5 else 2.25' }
+      half: { description: A choice halved., expression: '(if n > 1 then d else 2.255) / 2' }
+      kind_of: { description: Its state's category., expression: state.category }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [n, d] }
+      give:
+        kind: internal
+        from: [OPEN]
+        inputs: { to: { reference: Person } }
+        effect: [ { assign: { location: owner, expr: inputs.to } } ]
+      close: { kind: external, from: [OPEN], to: DONE }
+"""
+
+
+@pytest.mark.parametrize("n, pick, half", [(0, "2.25", "1.128"), (5, "1.5", "0.75")])
+def test_a_derived_history_and_choice_are_read_alike(tee, n, pick, half):
+    """An object's own spans and events read as the core's rows, a member's
+    spans with its values, an `if` at the scale of the branch it takes and a
+    category by its name; where the reference runner could write no row,
+    took an `if`'s first branch's scale for either and wrote a category as a
+    pair, and one value it could not write failed the whole read `500` (the
+    audit's values R7 and R9)."""
+    tee.found.clear()
+    load(tee, "history", HISTORY)
+    person = made(tee, "Person", "join", who="ann")
+    ticket = made(tee, "Ticket", "open", n=n, d="1.50")
+    took(tee, ticket, "give", to=person)
+    took(tee, ticket, "close")
+    got = tee.post("/v1/get", {"id": ticket})["attributes"]
+    assert [(s["state"], s["left_at"] is None) for s in got["spans"]] == \
+        [("OPEN", False), ("DONE", True)], got["spans"]
+    assert [(e["transition"], e["from_state"], e["to_state"])
+            for e in got["events"]] == [("open", None, "OPEN"),
+                                        ("give", "OPEN", "OPEN"),
+                                        ("close", "OPEN", "DONE")], got["events"]
+    assert [s["value"] for s in got["owners"]] == [None, person], got["owners"]
+    assert (got["pick"], got["half"]) == (pick, half), got
+    assert got["kind_of"] == "closed", got
+    alike(tee)
