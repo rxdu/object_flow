@@ -2586,7 +2586,13 @@ class Typing:
                 self.fail(f"not takes a bool, and is given {type_text(v)}")
             return ("bool",)
         if k == "neg":
-            return self.of(e[1], tn, x, env, seen)
+            # a negative of a number, an amount or a duration, where any other typed as its operand and the core did
+            # not run it (the values audit's K-5)
+            v = self.of(e[1], tn, x, env, seen)
+            if v is not None and v[0] not in SCALARS + ("money", "duration"):
+                self.fail(f"it negates {type_text(v)}, which has no negative")
+                return None
+            return v
         if k == "agg":
             _, fn, _distinct, var, coll, where, body = e
             inner = dict(env)
@@ -2629,6 +2635,11 @@ class Typing:
                     if left is not None and it is not None and not self.alike(left, it):
                         self.fail(f"it asks whether {type_text(left)} is among {type_text(it)}")
                         break
+            else:
+                # membership in a collection, where one in a single value was not run (the values audit's K-6)
+                rt = self.of(right, tn, x, env, seen)
+                if rt is not None and rt[0] != "objects":
+                    self.fail(f"it asks for membership in {type_text(rt)}, which is no collection")
             return ("bool",)
         if k == "if":
             c = self.of(e[1], tn, x, env, seen)
@@ -2651,6 +2662,10 @@ class Typing:
             if op in ("==", "!=", "<", "<=", ">", ">="):
                 if l is not None and r is not None and not self.alike(l, r):
                     self.fail(f"it compares {type_text(l)} with {type_text(r)}")
+                elif op not in ("==", "!=") and any(v is not None and v[0] == "enumeration" for v in (l, r)):
+                    # an enumeration has no order, which the core did not run (the values audit's K-4)
+                    self.fail(f"it orders {type_text(l if l is not None and l[0] == 'enumeration' else r)}, and an "
+                              "enumeration has no order")
                 return ("bool",)
             if l is None or r is None:
                 return None
@@ -8212,6 +8227,13 @@ def expression_type_plants(people):
         ("a member function the language has not", ledger("this.foo(count) > 0"),
          [wrong("derived attribute probe", "foo is no member function the language has: it has intervals, entered_at, time_in and a row's held")]),
         ("the functions the language has", ledger("length(label) > 0 and date(since) < date(now) and this.time_in(OPEN) > 1 h"), []),
+        # an order, a negative and a membership only where the language has them (the audit's values K-4 to K-6)
+        ("an enumeration ordered", ledger("tier > Tier.SILVER"),
+         [wrong("derived attribute probe", "it orders a member of Tier, and an enumeration has no order")]),
+        ("a string negated", ledger("-label == label"), [wrong("derived attribute probe", "it negates a string, which has no negative")]),
+        ("membership in a string", ledger("label in label"),
+         [wrong("derived attribute probe", "it asks for membership in a string, which is no collection")]),
+        ("what orders, negates and holds", ledger("-span < span and -usd < usd and count > -3 and tier == Tier.GOLD and tier in Tier"), []),
         ("an amount past its minor unit", ledger("usd + USD 1.005 > usd"),
          [wrong("derived attribute probe", "USD 1.005 has more places than USD's minor unit")]),
         ("an amount in an unknown currency", ledger("XYZ 1 == XYZ 1"),

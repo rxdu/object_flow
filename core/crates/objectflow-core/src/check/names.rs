@@ -3500,7 +3500,18 @@ impl Typing<'_> {
                 }
                 Some(Ty::Bool)
             }
-            Expr::Neg(inner) => self.of(inner, tn, x, env, seen),
+            // a negative of a number, an amount or a duration, where any other
+            // typed as its operand and was not run (the values audit's K-5)
+            Expr::Neg(inner) => {
+                let v = self.of(inner, tn, x, env, seen);
+                if let Some(t) = &v
+                    && !(t.scalar() || matches!(t, Ty::Money(_) | Ty::Duration))
+                {
+                    self.fail(format!("it negates {}, which has no negative", t.text()));
+                    return None;
+                }
+                v
+            }
             Expr::Agg {
                 kind,
                 distinct,
@@ -3607,7 +3618,18 @@ impl Typing<'_> {
                             }
                         }
                     }
-                    _ => {}
+                    // membership in a collection, where one in a single value
+                    // was not run (the values audit's K-6)
+                    _ => {
+                        if let Some(rt) = self.of(r, tn, x, env, seen)
+                            && !matches!(rt, Ty::Objects(_))
+                        {
+                            self.fail(format!(
+                                "it asks for membership in {}, which is no collection",
+                                rt.text()
+                            ));
+                        }
+                    }
                 }
                 Some(Ty::Bool)
             }
@@ -3659,6 +3681,18 @@ impl Typing<'_> {
                             && !self.alike(lv, rv)
                         {
                             self.fail(format!("it compares {} with {}", lv.text(), rv.text()));
+                        } else if !matches!(op, BinOp::Eq | BinOp::Ne)
+                            && let Some(e) = [&l, &r]
+                                .into_iter()
+                                .flatten()
+                                .find(|v| matches!(v, Ty::Enumeration(_)))
+                        {
+                            // an enumeration has no order, which was not run
+                            // (the values audit's K-4)
+                            self.fail(format!(
+                                "it orders {}, and an enumeration has no order",
+                                e.text()
+                            ));
                         }
                         Some(Ty::Bool)
                     }
