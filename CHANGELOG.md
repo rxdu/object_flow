@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- The checker refuses a name or member that resolves to no value: an enumeration's name where a value goes, a name naming nothing, a type's member that is none of its states, a member of a plain value or of a state besides `category`, and a metric's own `count(where …)` outside a metric, each of which the engine answered `not_run` (the values audit's K-9).
 - The checker types date and time arithmetic as §8.3 says, refusing a duration plus a date, a date mixed with a timestamp, and any product or quotient of a time or a date, which the engine answered `not_run` (the values audit's K-1, K-2).
 - The checker refuses an enumeration ordered with `<`, `<=`, `>` or `>=`, a negative of what is no number, amount or duration, and membership in a single value, which the engine answered `not_run` (the values audit's K-4 to K-6).
 - The checker refuses a call of a function the language does not have, such as `abs`, `round`, `coalesce` or `max(a, b)`, a function given other than one argument, and an unknown member function, each of which published and was answered `not_run` (the values audit's K-7, K-8).

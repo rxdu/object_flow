@@ -2502,9 +2502,17 @@ class Typing:
                 return ("category",)
             if n in ((self.kinds.get(tn) or {}).get("states") or {}):
                 return ("state", tn)
+            # an enumeration's name is no value, and a name naming nothing is none, where each typed as nothing and
+            # the core did not run it (the values audit's K-9); an all-capital name is a state's, the rule below's
+            if n in self.enums:
+                self.fail(f"{n} is an enumeration, which is no value: name one of its members, as {n}.<MEMBER>")
+                return None
             got = self.member(tn, n, seen)
             if got is None and n in ACTOR_KINDS:
                 return ("actor_kind",)
+            if got is None and n[:1].isupper() and not n.isupper() and n not in self.kinds:
+                self.fail(f"{n} names nothing: no type, enumeration or state of {tn} is called {n}")
+                return None
             return got
         if k == "path":
             base, m = e[1], e[2]
@@ -2521,11 +2529,26 @@ class Typing:
                 return ("enumeration", base[1])
             if base[0] == "name" and base[1] not in env and base[1] in self.kinds and m.isupper():
                 return ("state", base[1])
+            # a type's member is one of its states, and a value with no members has none read, where each typed as
+            # nothing and the core did not run it (the values audit's K-9)
+            if base[0] == "name" and base[1] not in env and base[1][:1].isupper() and base[1] not in self.kinds:
+                return None                     # an owner nothing declares, the qualified names' rule's
+            if base[0] == "name" and base[1] not in env and base[1] in self.kinds:
+                b = base[1]
+                self.fail(f"{b}.{m} names no state of {b}")
+                return None
             bt = self.of(base, tn, x, env, seen)
             if bt is not None and bt[0] == "reference":
                 return self.member(bt[1], m, seen)
             if bt is not None and bt[0] == "state" and m == "category":
                 return ("category",)
+            if bt is not None and bt[0] == "state":
+                self.fail(f"it reads {m} of a state, which has only category")
+                return None
+            if bt is not None and bt[0] in NO_MEMBERS:
+                t = type_text(bt)
+                self.fail(f"it reads {m} of {t}, which has no members")
+                return None
             return None
         if k == "call":
             for a in e[2]:
@@ -2595,6 +2618,10 @@ class Typing:
             return v
         if k == "agg":
             _, fn, _distinct, var, coll, where, body = e
+            if var is None:
+                # a metric's own count, over its rows, where it typed as an int and the core did not run it (K-9)
+                self.fail("count(where …) and count(distinct …) count a metric's rows, which no expression outside a metric has")
+                return None
             inner = dict(env)
             if var is not None:
                 ct = self.of(coll, tn, x, env, seen) if coll[0] != "name" or coll[1] in env or coll[1] not in self.kinds else ("objects", coll[1])
@@ -3825,6 +3852,9 @@ def evaluator_argument_errors(where, cn, text, ev, fn, f, tn, t, doc):
 
 
 AGGREGATE_CALL = re.compile(r"\b(count|sum|min|max|avg|median|percentile)\s*\(")
+# the types whose values have no members (declaration-syntax.md §8.1)
+NO_MEMBERS = {"number", "int", "decimal", "money", "duration", "timestamp", "date", "bool", "string", "identity",
+              "actor_kind", "category", "enumeration"}
 # the functions an expression may call, and the member functions (declaration-syntax.md §8.3)
 FUNCTIONS = {"length", "date", "entered_at", "time_in"}
 # the functions a metric alone calls, which check 56 refuses elsewhere
@@ -8253,6 +8283,18 @@ def expression_type_plants(people):
         ("a timestamp multiplied", ledger("since * 2 > since"),
          [wrong("derived attribute probe", "it multiplies a timestamp by a number, and a time or a date is neither multiplied nor divided")]),
         ("what dates do", dated("due - due >= span and due + 2 days > due and due - 1 week < due"), []),
+        # a name or a member that resolves to a value (the audit's values K-9)
+        ("an enumeration's name as a value", ledger("Tier == tier"),
+         [wrong("derived attribute probe", "Tier is an enumeration, which is no value: name one of its members, as Tier.<MEMBER>")]),
+        ("a name naming nothing", ledger("Foo == label"),
+         [wrong("derived attribute probe", "Foo names nothing: no type, enumeration or state of Account is called Foo")]),
+        ("a type's member that is no state", ledger("Account.foo == label"), [wrong("derived attribute probe", "Account.foo names no state of Account")]),
+        ("a member of a string", ledger("label.foo == label"), [wrong("derived attribute probe", "it reads foo of a string, which has no members")]),
+        ("a member of a state besides its category", ledger("state.foo == label"),
+         [wrong("derived attribute probe", "it reads foo of a state, which has only category")]),
+        ("a metric's count outside a metric", ledger("count(where vip) > 0"),
+         [wrong("derived attribute probe", "count(where …) and count(distinct …) count a metric's rows, which no expression outside a metric has")]),
+        ("names that resolve", ledger("tier == Tier.GOLD and state.category == live and state == Account.OPEN and state == OPEN"), []),
         ("an amount past its minor unit", ledger("usd + USD 1.005 > usd"),
          [wrong("derived attribute probe", "USD 1.005 has more places than USD's minor unit")]),
         ("an amount in an unknown currency", ledger("XYZ 1 == XYZ 1"),

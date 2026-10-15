@@ -3363,9 +3363,28 @@ impl Typing<'_> {
                 if states {
                     return Some(Ty::State(tn.to_string()));
                 }
+                // an enumeration's name is no value, and a name naming
+                // nothing is none, where each typed as nothing and was not
+                // run (the values audit's K-9); an all-capital name is a
+                // state's, another rule's
+                if self.enums.contains(n) {
+                    self.fail(format!("{n} is an enumeration, which is no value: name one of its members, as {n}.<MEMBER>"));
+                    return None;
+                }
                 let got = self.member(tn, n, seen);
                 if got.is_none() && ACTOR_KINDS.contains(&n.as_str()) {
                     return Some(Ty::ActorKind);
+                }
+                let capital = n.chars().next().is_some_and(char::is_uppercase);
+                if got.is_none()
+                    && capital
+                    && n.chars().any(char::is_lowercase)
+                    && !self.kinds.contains_key(n)
+                {
+                    self.fail(format!(
+                        "{n} names nothing: no type, enumeration or state of {tn} is called {n}"
+                    ));
+                    return None;
                 }
                 got
             }
@@ -3408,10 +3427,49 @@ impl Typing<'_> {
                     if self.kinds.contains_key(b) && upper {
                         return Some(Ty::State(b.clone()));
                     }
+                    // an owner nothing declares, the qualified names' rule's
+                    if b.chars().next().is_some_and(char::is_uppercase)
+                        && !self.kinds.contains_key(b)
+                    {
+                        return None;
+                    }
+                    // a type's member is one of its states, where it typed as
+                    // nothing and was not run (the values audit's K-9)
+                    if self.kinds.contains_key(b) {
+                        self.fail(format!("{b}.{m} names no state of {b}"));
+                        return None;
+                    }
                 }
+                // a value with no members has none read (K-9)
                 match self.of(base, tn, x, env, seen) {
                     Some(Ty::Reference(t)) => self.member(&t, m, seen),
                     Some(Ty::State(_)) if m == "category" => Some(Ty::Category),
+                    Some(Ty::State(_)) => {
+                        self.fail(format!("it reads {m} of a state, which has only category"));
+                        None
+                    }
+                    Some(t)
+                        if matches!(
+                            t,
+                            Ty::Number(_)
+                                | Ty::Int
+                                | Ty::Decimal(_)
+                                | Ty::Money(_)
+                                | Ty::Duration
+                                | Ty::Timestamp
+                                | Ty::Date
+                                | Ty::Bool
+                                | Ty::Str
+                                | Ty::Identity
+                                | Ty::ActorKind
+                                | Ty::Category
+                                | Ty::Enumeration(_)
+                        ) =>
+                    {
+                        let t = t.text();
+                        self.fail(format!("it reads {m} of {t}, which has no members"));
+                        None
+                    }
                     _ => None,
                 }
             }
@@ -3521,6 +3579,12 @@ impl Typing<'_> {
                 body,
                 ..
             } => {
+                // a metric's own count, over its rows, where it typed as an
+                // int and was not run (the values audit's K-9)
+                if var.is_none() {
+                    self.fail("count(where …) and count(distinct …) count a metric's rows, which no expression outside a metric has".to_string());
+                    return None;
+                }
                 let mut inner = env.clone();
                 if let (Some(var), Some(coll)) = (var, collection) {
                     let scan = matches!(&**coll, Expr::Name(n)
