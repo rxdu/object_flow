@@ -293,6 +293,35 @@ def arith_kind(op, a, b):
     return ("other",)
 
 
+def held_arith_kind(op, a, b):
+    """The type the core's evaluator holds `a op b` at (`eval.rs` `combine`), which places a quotient's rounding: numbers
+    aligned to the larger scale by a sum, to the sum of the scales by a product and to the dividend's by a quotient, a
+    decimal literal widened to a decimal it is combined with that has more places (§8.1, the audit's values A1); an
+    amount or a duration by a number keeps its kind, and a quotient of two like ones is a decimal of six places. Where
+    `arith_kind` gives a metric's type (ADR-0128), which aligns no sum of two scales."""
+    number = ("int", "decimal", "literal")
+
+    def places(k, other):
+        if k[0] == "literal":
+            return max(k[1], other[1]) if other[0] == "decimal" else k[1]
+        return k[1] if k[0] == "decimal" else 0
+    if a[0] in number and b[0] in number:
+        if a[0] == b[0] == "int":
+            return ("int",)
+        if op in ("+", "-"):
+            return ("decimal", max(places(a, b), places(b, a)))
+        if op == "*":
+            return ("decimal", places(a, b) + places(b, a))
+        return ("decimal", places(a, b)) if a[0] != "int" else ("other",)   # an int by a decimal is not run
+    if op == "/" and a == b and a[0] in ("money", "duration"):
+        return ("decimal", 6)
+    if op in ("*", "/") and a[0] in ("money", "duration") and b[0] in number:
+        return a
+    if op == "*" and b[0] in ("money", "duration") and a[0] in number:
+        return b
+    return arith_kind(op, a, b)
+
+
 def is_date(v):
     return isinstance(v, datetime.date) and not isinstance(v, datetime.datetime)
 
@@ -1067,7 +1096,58 @@ class Evaluator:
             if op == "and":
                 return False if b is False else (ABSENT if ABSENT in (a, b) else True)
             return True if b is True else (ABSENT if ABSENT in (a, b) else False)
-        return self.combine(op, self.value(e[2], env), self.value(e[3], env))
+        r = self.combine(op, self.value(e[2], env), self.value(e[3], env))
+        if op in ("*", "/") and isinstance(r, Fraction) and r.denominator != 1:
+            r = self.as_held(e, env, r)
+        return r
+
+    def as_held(self, e, env, r):
+        """A quotient, or a product of an amount or a duration, rounded half to even where the core's evaluator rounds
+        it (declaration-syntax.md §8.3): a decimal quotient at its dividend's scale, an amount at its currency's minor
+        unit, a duration at whole seconds; a product of numbers is exact. Where it rounded only a value written to an
+        attribute, and a derived quotient that did not terminate failed its read (the audit's values R1)."""
+        try:
+            kinds = self.kinds_here(env)
+            k = held_arith_kind(e[1], self.held_kind(e[2], kinds), self.held_kind(e[3], kinds))
+        except NotRunnable:
+            return r
+        if k[0] == "money" and k[1] in MINOR_UNITS:
+            return half_even(r, MINOR_UNITS[k[1]])
+        if k[0] == "duration":
+            return half_even(r, 0)
+        if k[0] == "decimal" and e[1] == "/":
+            return half_even(r, k[1])
+        return r
+
+    def written(self, e, env):
+        """A value written to a decimal attribute: a quotient divided once, exactly, for the write to round at its
+        target's scale, as the core's `quotient_at` (§8.3, ADR-0205 decision 1); any other value as `value` gives it."""
+        if e[0] == "bin" and e[1] == "/":
+            return self.combine("/", self.value(e[2], env), self.value(e[3], env))
+        return self.value(e, env)
+
+    def kinds_here(self, env):
+        """The types `kind` reads the names of an evaluation at: `this`, an object a name holds, a row of flow data."""
+        kinds = {"this": ("object", self.tn)} if self.tn else {}
+        for n, v in env.items():
+            if isinstance(v, str) and v in self.s.objects:
+                kinds[n] = ("object", self.s.objects[v].type)
+            elif isinstance(v, Row):
+                kinds[n] = ("interval" if "entered_at" in v else "transition", None)
+            else:
+                kinds[n] = ("other",)
+        return kinds
+
+    def held_kind(self, e, kinds):
+        """The type the core's evaluator holds an expression's value at: `kind`, except that arithmetic aligns as it is
+        evaluated (`held_arith_kind`)."""
+        if e[0] == "bin" and e[1] in ("+", "-", "*", "/"):
+            return held_arith_kind(e[1], self.held_kind(e[2], kinds), self.held_kind(e[3], kinds))
+        if e[0] == "neg":
+            return self.held_kind(e[1], kinds)
+        if e[0] == "if":
+            return self.held_kind(e[2], kinds)
+        return self.kind(e, kinds)
 
     def combine(self, op, a, b):
         """A comparison or an arithmetic operator over two values (§8.2, §8.3)."""
@@ -2651,10 +2731,10 @@ class Runner:
         work, reached = ctx.work, False
         attrs = (self.kinds.get(tn) or {}).get("attributes") or {}
 
-        def ev(tree, filtering=False):
+        def ev(tree, filtering=False, written=False):
             asking = Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs, filter_mode=filtering,
                                event=ctx.position_of.get(o.id))
-            v = asking.value(tree, env)
+            v = asking.written(tree, env) if written else asking.value(tree, env)
             # an effect's value an arithmetic left with none, past 64 bits or a division by zero, refuses the request,
             # naming its object, as the core does (production review F5, ADR-0185)
             if v is ABSENT and asking.failed_arithmetic and not filtering:
@@ -2685,7 +2765,7 @@ class Runner:
                 tree = flowexpr.parse(spec["expr"])
                 if unsupplied(tree):
                     continue
-                v = ev(tree)
+                v = ev(tree, written=str((attrs.get(spec["location"]) or {}).get("type") or "").startswith("decimal("))
                 if v is ABSENT:
                     # arithmetic on an absent operand has no value, which refuses the request as one past its bound
                     # does, where it answered not run (fourteenth production review N5)

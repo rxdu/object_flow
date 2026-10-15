@@ -141,3 +141,71 @@ def test_values_are_written_and_refused_alike(tee):
         ("value_in_range", item), got
     took(tee, item, "poke")
     alike(tee)
+
+
+QUOTIENTS = """module: quotients
+categories: [live, closed]
+types:
+  Share:
+    description: Quotients held as the evaluator holds them.
+    tracking: record
+    attributes:
+      d2: { type: "decimal(10,2)", optional: true }
+      d4: { type: "decimal(12,4)", optional: true }
+      m: { type: money(USD), optional: true }
+      du: { type: duration, optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    derived_attributes:
+      third: { description: A third., expression: d2 / 3 }
+      half: { description: A half., expression: d2 / 2 }
+      twice: { description: A third twice., expression: d2 / 3 * 2 }
+      sum_third: { description: A sum's third., expression: (d2 + 1) / 3 }
+      plus: { description: A sum., expression: d2 + 3 }
+      wide: { description: A literal of more places., expression: 1.555 / d2 }
+      m_third: { description: An amount's third., expression: m / 3 }
+      m_times: { description: An amount scaled., expression: m * 1.005 }
+      m_ratio: { description: Two amounts' ratio., expression: m / m }
+      du_seventh: { description: A duration's seventh., expression: du / 7 }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [d2, m, du] }
+      close: { kind: external, from: [OPEN], to: DONE }
+      share:
+        kind: internal
+        from: OPEN
+        effect:
+          - assign: { location: d4, expr: d2 / 3 }
+          - assign: { location: d2, expr: d2 / 3 + 1 }
+"""
+
+
+@pytest.mark.parametrize("d2, read, written", [
+    ("10.00",
+     {"third": "3.33", "half": "5.00", "twice": "6.66", "sum_third": "3.67",
+      "plus": "13.00", "wide": "0.156"},
+     {"d4": "3.3333", "d2": "4.33"}),
+    # a tie rounds to the even neighbour, below zero as above it
+    ("0.05", {"half": "0.02", "third": "0.02"}, {"d4": "0.0167", "d2": "1.02"}),
+    ("-0.05", {"half": "-0.02", "third": "-0.02"},
+     {"d4": "-0.0167", "d2": "0.98"}),
+])
+def test_a_quotient_is_rounded_where_the_evaluator_rounds_it_alike(
+        tee, d2, read, written):
+    """A quotient at its dividend's scale, an amount at its currency's minor
+    unit and a duration at whole seconds, each half to even, a product of
+    numbers exact and a sum at the larger scale, and a quotient written to a
+    decimal divided once at its target's; where the reference runner held
+    every quotient exact, so a derived one that did not terminate failed its
+    read `500` and `d2 / 3 + 1` was refused as a write that rounds (the
+    audit's values R1 and R7, declaration-syntax.md §8.3)."""
+    load(tee, "quotients", QUOTIENTS)
+    share = made(tee, "Share", "open", d2=d2, m="USD 10.00", du="90 min")
+    got = tee.post("/v1/get", {"id": share})["attributes"]
+    assert {k: got[k] for k in read} == read, got
+    assert (got["m_third"], got["m_times"], got["m_ratio"], got["du_seventh"]) \
+        == ("USD 3.33", "USD 10.05", "1.000000", "771 s"), got
+    took(tee, share, "share")
+    got = tee.post("/v1/get", {"id": share})["attributes"]
+    assert {k: got[k] for k in written} == written, got
+    alike(tee)

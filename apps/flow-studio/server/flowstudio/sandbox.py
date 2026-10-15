@@ -748,9 +748,10 @@ class Sandbox:
                         pass
             for k, spec in (t.get("derived_attributes") or {}).items():
                 expr = flowexpr.parse(spec["expression"])
-                # typed as the runner types it, a bare name read on `this`
+                # typed as the core's evaluator holds it, a bare name read on
+                # `this`, where `d2 + 3` was no decimal (the audit's R7)
                 typ = values.type_of_kind(
-                    ev.kind(expr, {"this": ("object", o.type)}))
+                    ev.held_kind(expr, {"this": ("object", o.type)}))
                 v = ev.member(o.id, k)
                 # a derived time past the calendar refuses the read, as the
                 # core refuses it (ADR-0191 decision 3, ADR-0205 decision 2)
