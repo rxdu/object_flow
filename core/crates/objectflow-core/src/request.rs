@@ -4230,8 +4230,18 @@ pub(crate) fn invariant_reads(t: &Type, n: &str) -> BTreeSet<String> {
 
 /// A write whose right-hand side is an unsupplied optional input is skipped
 /// (`DESIGN.md` §5.4).
-fn unsupplied(e: &Expr, inputs: &BTreeMap<String, Value>) -> bool {
-    matches!(e, Expr::Path(base, k) if matches!(&**base, Expr::Name(n) if n == "inputs") && !inputs.contains_key(k))
+fn unsupplied(e: &Expr, inputs: &BTreeMap<String, Value>, principal: Option<&str>) -> bool {
+    // and the principal where the request names none, which refused the
+    // request `value_in_range` wherever a flow recorded it, though no
+    // request need name one (D687)
+    match e {
+        Expr::Path(base, k) => match &**base {
+            Expr::Name(n) if n == "inputs" => !inputs.contains_key(k),
+            Expr::Name(n) if n == "actor" => k == "principal" && principal.is_none(),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// An expression as a step writes it, for naming a call.
@@ -4363,7 +4373,7 @@ fn effects(
     for step in steps {
         match step {
             Step::Assign { location, expr } => {
-                if unsupplied(expr, inputs) {
+                if unsupplied(expr, inputs, ctx.who.principal.as_deref()) {
                     continue;
                 }
                 let how = t
@@ -4456,7 +4466,7 @@ fn effects(
                     .extend(names.iter().cloned());
             }
             Step::Add { location, expr } | Step::Remove { location, expr } => {
-                if unsupplied(expr, inputs) {
+                if unsupplied(expr, inputs, ctx.who.principal.as_deref()) {
                     continue;
                 }
                 let v = effect_value(ctx, t, id, inputs, &env, position, expr, Evaluated::Plain)?;
@@ -4647,7 +4657,7 @@ fn arguments(
 ) -> Result<BTreeMap<String, Value>, Stop> {
     let mut out = BTreeMap::new();
     for (k, e) in binds {
-        if unsupplied(e, inputs) {
+        if unsupplied(e, inputs, ctx.who.principal.as_deref()) {
             continue;
         }
         let v = effect_value(ctx, t, id, inputs, env, position, e, Evaluated::Plain)?;
@@ -6829,7 +6839,8 @@ types:
     /// A request's principal (`DESIGN.md` §5.8, §6 step 1): resolved as
     /// the actor is, refused as `actor_known` where it names no actor,
     /// recorded on the event and the attempt row, and readable in an outcome
-    /// as `actor.principal`, which no rule reads.
+    /// as `actor.principal`, which no rule reads, its write skipped where the
+    /// request names none.
     #[test]
     fn a_principal_is_resolved_recorded_and_written_by_an_outcome() {
         let text = JOBS
@@ -6888,8 +6899,17 @@ types:
             let last = s.history(&job).unwrap().last().cloned().unwrap();
             assert_eq!(last.principal.as_deref(), Some("ana"));
         }
-        // none named, none recorded; an outcome assigning `actor.principal`
-        // then would assign an absent value, which neither runner runs
+        // none named, an outcome's write of `actor.principal` is skipped, as
+        // an unsupplied input's is, the value before it kept, where it
+        // refused the request `value_in_range` (D687)
+        created(&sign(&mut s, None));
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.whole(&job).unwrap().unwrap().attr("for_whom"),
+            Value::Text("ana".into())
+        );
+        drop(w);
+        // and none recorded
         created(&req(
             &mut s,
             "estimate",

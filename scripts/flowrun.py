@@ -2659,8 +2659,10 @@ class Runner:
             return v
 
         def unsupplied(tree):
-            # a write whose right-hand side is an unsupplied optional input is skipped (DESIGN.md §5.4)
-            return tree[0] == "path" and tree[1] == ("name", "inputs") and tree[2] not in inputs
+            # a write whose right-hand side is an unsupplied optional input is skipped (DESIGN.md §5.4), and so is one of
+            # the principal, which this runner never has, as the core skips it where a request names none (D687)
+            return tree[0] == "path" and (tree[1] == ("name", "inputs") and tree[2] not in inputs
+                                          or tree[1] == ("name", "actor") and tree[2] == "principal")
 
         def arguments(spec):
             out = {}

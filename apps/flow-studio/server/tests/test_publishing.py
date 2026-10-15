@@ -1245,6 +1245,25 @@ def test_a_collection_is_a_set_and_an_unknown_element_is_unknown_alike(tee, expr
     alike(tee)
 
 
+def test_a_principal_no_request_names_skips_its_write_alike(tee):
+    """An outcome writing `actor.principal` where the request names no principal skips its write, as an unsupplied
+    input's is skipped, alike through both backends, where both refused the request `value_in_range` though no request
+    need name one (D687)."""
+    text = CASCADE_SHOP.replace(
+        "    attributes:\n      lines:\n", "    attributes:\n      for_whom: { type: string, optional: true }\n      lines:\n", 1).replace(
+        "      close_all: { kind: external, from: [OPEN], to: DONE }\n",
+        "      close_all: { kind: external, from: [OPEN], to: DONE }\n"
+        "      sign: { kind: internal, from: [OPEN], effect: [ { assign: { location: for_whom, expr: actor.principal } } ] }\n", 1)
+    assert text.count("for_whom") == 2 and text.count("      sign: {") == 1
+    load(tee, "shop", text)
+    tee.found.clear()
+    order = made(tee, "Order", "open")
+    v = tee.post("/v1/request", {"actor": OP, "object_id": order, "transition": "sign"})
+    assert v["kind"] == "satisfied", v
+    assert tee.post("/v1/get", {"id": order})["attributes"].get("for_whom") is None
+    alike(tee)
+
+
 def tiers(tee) -> list:
     page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.tiers",
                                    "keep": ["tier"]})

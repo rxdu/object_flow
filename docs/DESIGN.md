@@ -1,6 +1,6 @@
 # ObjectFlow — Design
 
-**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 691 entries and five cosmetics; 689 are closed and 2 are open. The PRD is at revision 24, with no revision awaiting the author.
+**Status: under review.** Every finding of every review is recorded in [`design/defects.md`](design/defects.md), 691 entries and five cosmetics; 690 are closed and 1 is open. The PRD is at revision 24, with no revision awaiting the author.
 
 **Every ADR is accepted or superseded.** In the order the author accepted them:
 - ADR-0001 to ADR-0018, on 2026-09-07, from the design discussion the project began with.
@@ -213,7 +213,7 @@ Rules that make an outcome readable and safe:
 
 - **Straight-line.** No *step* chooses between alternatives, and no step is conditional. Where the **behaviour** differs by a value — a different set of writes, a different object created — declare one transition per case, each guarded on that value, so the applicable one appears in the availability listing and a value matching none is visibly stuck. Where only a **value** differs, a conditional expression is allowed on the right of a write (`docs/design/declaration-syntax.md` §8.3), since it changes what is written and not what happens.
 - **Sets change element-wise.** `add` and `remove` are read-modify-write like any outcome write, so two adds in one request accumulate and two concurrent adds serialise. The expression language gains no set algebra; `set` on a set-valued attribute still replaces it wholly (ADR-0055).
-- **Absence skips, in two places only.** A write whose right-hand side is an unsupplied optional input is skipped, not applied, and a `call` whose path runs through an absent optional end is skipped because there is no object to reach. Everywhere else absence in a path is an error. Clearing a value deliberately is the `clear` step, which writes absence and is a write like any other (ADR-0073).
+- **Absence skips, in two places only.** A write whose right-hand side is an unsupplied optional input, or `actor.principal` where the request names no principal, is skipped, not applied, and a `call` whose path runs through an absent optional end is skipped because there is no object to reach. Everywhere else absence in a path is an error. Clearing a value deliberately is the `clear` step, which writes absence and is a write like any other (ADR-0073).
 - **`this` and `this_event` are available**, including inside a creation outcome: the new object's id and its event's identity are allocated before the outcome runs (ADR-0046, ADR-0052).
 - **Bounded.** Every loop and every cascade clause must declare a bound; exceeding one is refused with `over-limit` naming that loop (ADR-0071). The graph of transitions that reference each other in outcomes must be acyclic (ADR-0019).
 - **Shown where it lands.** A cascade is declared on the transition that causes it, and the printed rules of every type it reaches name it too: under each transition, every transition whose outcome can cause it, `only via` parents and other callers alike (ADR-0108, `docs/design/renderers.md` §2). That is what lets a cascade be supported without surprising anyone, which the author made the condition for it (PRD F8).
