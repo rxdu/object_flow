@@ -183,6 +183,14 @@ pub fn decode(
         };
         let mut out: Vec<Value> = Vec::new();
         for item in items {
+            // a null is no element, where it reached the store and failed
+            // its constraint `500` (the differential battery, 2026-10-15)
+            if item.is_null() {
+                return Err(NotOfType(
+                    "null is no element of a set".to_string(),
+                    InputReason::WrongType,
+                ));
+            }
             let v = decode(item, declared, false, lib)?;
             // a set never repeats an element (`DESIGN.md` §5.5)
             if out.contains(&v) {
@@ -489,6 +497,14 @@ mod tests {
             .map(|v| encode(&v)),
             Ok(json!(["a-1", "a-2"]))
         );
+        // a null is no element of a set, refused as its type is, where it
+        // reached the store's constraint
+        for v in [json!([null]), json!(["a", null])] {
+            assert_eq!(
+                decode(&v, &s("string"), true, &l).map_err(|e| e.1),
+                Err(InputReason::WrongType)
+            );
+        }
     }
 
     /// Each value refused says why (ADR-0173 decision 9), and a value past

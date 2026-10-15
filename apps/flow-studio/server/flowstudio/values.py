@@ -164,6 +164,10 @@ def decode_input(v: Any, spec: dict | None, enums: dict) -> Any:
     if typ[0] == "set":
         if not isinstance(v, list):
             return flowrun.WrongKind(v)
+        if any(x is None for x in v):
+            # a null is no element, as the core refuses it, where the set
+            # held it (the differential battery)
+            return flowrun.WrongKind(v)
         inner = dict(spec or {})
         if "type" in inner:
             inner["type"] = inner["type"][:-2]

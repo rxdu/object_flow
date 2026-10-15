@@ -485,3 +485,44 @@ def test_every_accepted_metric_reads_alike(tee):
                              f"runner {r[0]} {str(r[1])[:160]}")
     assert not found, f"{len(found)} metrics differ:\n" + "\n".join(
         found[:20])
+
+
+INPUT_VALUES = [
+    None, True, False, 0, 1, -1, 2**53, 2**63 - 1, 2**63, -2**63 - 1, 1.5,
+    1e300, "", " ", "a", "10", "10.00", "-0.05", "1.555", "10.0000000000",
+    "1e3", "USD 10.00", "USD 10.001", "EUR 1.00", "USD10.00", "90 min",
+    "1.5 s", "1 h", "0 s", "2026-01-01", "0999-06-15", "2026-02-30",
+    "2026-01-01T00:00:00Z", "2026-01-01T00:00:00.5Z", "10000-01-01T00:00:00Z",
+    "2026-01-01T00:00:00+08:00", "LOW", "low", "HIGH", "NOPE", [], ["a"],
+    ["a", "a"], [1], [None], ["a", None], [1, None], {}, {"a": 1},
+    "x" * 300,
+]
+
+
+def test_every_input_value_is_taken_or_refused_alike(tee):
+    """Each JSON value given as each attribute's input on a creation, on
+    both backends: taken or refused alike, the object it makes read alike,
+    a malformed value refused rather than held (the wire's boundary,
+    `wire.md`'s inputs)."""
+    base = HEAD[:HEAD.index("    derived_attributes:\n")]
+    for w in (tee.core, tee.runner):
+        raw(w, "POST", "/sandbox/load",
+            {"files": [{"name": "bt.yaml", "text": base + TAIL}]})
+        raw(w, "POST", "/sandbox/reset", {})
+    found = []
+    for attr, value in itertools.product(TARGETS, INPUT_VALUES):
+        answers = []
+        for w in (tee.core, tee.runner):
+            v = raw(w, "POST", "/v1/request",
+                    {"actor": OP, "type": "B", "transition": "open",
+                     "inputs": {attr: value}})
+            oid = v[1].get("object_id") if isinstance(v[1], dict) else None
+            held = raw(w, "POST", "/v1/get", {"id": oid})[1].get(
+                "attributes", {}).get(attr) if oid else None
+            verdict = v[1].get("kind") if isinstance(v[1], dict) else None
+            clause = v[1].get("clause") if isinstance(v[1], dict) else None
+            answers.append((v[0], verdict, clause, held))
+        if answers[0] != answers[1]:
+            found.append(f"{attr} := {value!r}: core {answers[0]} | runner "
+                         f"{answers[1]}")
+    assert not found, f"{len(found)} inputs differ:\n" + "\n".join(found[:30])

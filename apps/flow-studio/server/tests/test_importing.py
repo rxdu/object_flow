@@ -9,7 +9,7 @@ without it.
 
 import pytest
 
-from compare import Tee
+from compare import Tee, raw
 from replay import Failed
 from flowstudio.core import Core
 from test_backends_agree import started
@@ -147,3 +147,49 @@ def test_a_key_an_imported_object_does_not_take_is_refused_alike(tee):
          "attributes": {"code": "x"}}]}})
     assert report.get("refusal") is None and report["written"] == 1, report
     alike(tee)
+
+
+KITS = """module: kits
+categories: [live]
+types:
+  Kit:
+    description: A kit, the legacy system's.
+    mirror: true
+    tracking: record
+    attributes:
+      code: { type: string, external: erp }
+      tags: { type: "string[]", optional: true }
+    states:
+      ACTIVE: { category: live }
+"""
+
+
+@pytest.mark.parametrize("tags", [[None], ["a", None], [1], 5])
+def test_an_imported_value_not_of_its_type_is_never_held(tee, tags):
+    """A value not of its attribute's type, a null among a set's elements
+    too, is a class the core's import reports and writes nothing for until
+    it is decided, where a null element faulted `500` at the store's
+    constraint; the reference runner, which leaves classes to the core
+    (ADR-0154 decision 8), answers `not_run` where it held the value (the
+    differential battery)."""
+    for w in (tee.core, tee.runner):
+        assert raw(w, "POST", "/sandbox/load", {"files": [
+            {"name": "kits.yaml", "text": KITS}]})[1]["loaded"]
+        raw(w, "POST", "/sandbox/reset", {})
+    batch = {"objects": [{"type": "Kit", "legacy_key": "k1",
+                          "state": "ACTIVE",
+                          "attributes": {"code": "C1", "tags": tags}}]}
+    status, got = raw(tee.core, "POST", "/v1/import_batch",
+                      {"actor": OP, "batch": batch})
+    assert status == 200 and got["written"] == 0, got
+    assert [(f["rule"], f["shape"]) for f in got["findings"]] == \
+        [("tags", "is not of its type")], got
+    status, got = raw(tee.runner, "POST", "/v1/import_batch",
+                      {"actor": OP, "batch": batch})
+    assert status == 501, got
+    # a set that fits is imported by both
+    batch["objects"][0]["attributes"]["tags"] = ["a", "b"]
+    batch["objects"][0]["legacy_key"] = "k2"
+    for w in (tee.core, tee.runner):
+        assert raw(w, "POST", "/v1/import_batch",
+                   {"actor": OP, "batch": batch})[1]["written"] == 1

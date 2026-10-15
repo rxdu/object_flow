@@ -38,7 +38,7 @@ A value is JSON's own where JSON keeps it exactly, and otherwise a string in the
 | `duration` | a count and a unit: `s`, `min`, `h`, `day(s)`, `week(s)` | `"30 min"`, `"2 days"` |
 | enumeration member, state | its name | `"NEW"` |
 | reference | the object's id | `"employee-1"` |
-| set | an array, no element repeated | `["a-1", "a-2"]` |
+| set | an array, no element repeated and none `null`, each of its element's type; an element that is not, `null` among them, is `wrong_type` | `["a-1", "a-2"]` |
 | `file` | an object: the content's SHA-256, its size in bytes and its media type; a name is refused `wrong_type` | `{"hash": "sha256:9f86…", "size": 48213, "media_type": "application/pdf"}` |
 
 Dates and times stay within 0001-01-01 to 9999-12-31T23:59:59Z. An effect that would write one past that is refused `value_in_range`, and so is any arithmetic past its type's bound, wherever it is evaluated: a date or a time computed past the calendar, a date moved by part of a day, an integer past 64 bits. A read that meets one, a `get`, a `query` or a `metric`, answers `{"refused": "value_in_range", "reason": …, "object_id": …}`, naming the object and no value; it was answered `null` before 1.0.0 (ADR-0205 decision 2). `availability` and `check` say it as the transition's verdict. A division by zero is unknown, and reads as `null`. A duration you are given back is written in whichever unit reads best (`"15 days"`, `"1431 h"`): parse the count and the unit. An object's id is `<type in lower case>-<number>`.

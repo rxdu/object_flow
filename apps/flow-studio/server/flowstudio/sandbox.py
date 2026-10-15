@@ -683,6 +683,14 @@ class Sandbox:
                 else:
                     given[k] = values.decode_input(v, spec, self.runner.enums) \
                         if spec else v
+                    held_as = given[k] if isinstance(given[k], list) \
+                        else [given[k]]
+                    if any(isinstance(x, flowrun.WrongKind) for x in held_as):
+                        # a value not of its type is a class the core's
+                        # import decides (ADR-0154 decision 8), where the
+                        # sandbox held it (the differential battery)
+                        raise not_run(f"an imported {tn}.{k} not of its "
+                                      "type, whose class the core decides")
             held = self.legacy.get(qualified)
             position = self.store.position
             try:
