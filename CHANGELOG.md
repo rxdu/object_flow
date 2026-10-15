@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- The checker types date and time arithmetic as §8.3 says, refusing a duration plus a date, a date mixed with a timestamp, and any product or quotient of a time or a date, which the engine answered `not_run` (the values audit's K-1, K-2).
 - The checker refuses an enumeration ordered with `<`, `<=`, `>` or `>=`, a negative of what is no number, amount or duration, and membership in a single value, which the engine answered `not_run` (the values audit's K-4 to K-6).
 - The checker refuses a call of a function the language does not have, such as `abs`, `round`, `coalesce` or `max(a, b)`, a function given other than one argument, and an unknown member function, each of which published and was answered `not_run` (the values audit's K-7, K-8).
 - A step or argument that is exactly `actor.principal` skips its write where the request names no principal, as one that is exactly an unsupplied optional input does, where the request was refused `value_in_range` (D687).

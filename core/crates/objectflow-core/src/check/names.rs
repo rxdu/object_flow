@@ -3794,9 +3794,15 @@ impl Typing<'_> {
             if op == BinOp::Sub && l == Ty::Timestamp && r == Ty::Timestamp {
                 return Some(Ty::Duration);
             }
-            if l == Ty::Date || r == Ty::Date {
-                // date arithmetic §8.3 leaves unsaid
-                return None;
+            // a date less a date is a duration, and a date plus or minus a
+            // duration a date, as §8.3's Dates says and the core runs; every
+            // other with a date is an error, where it typed as nothing (the
+            // values audit's K-1)
+            if op == BinOp::Sub && l == Ty::Date && r == Ty::Date {
+                return Some(Ty::Duration);
+            }
+            if l == Ty::Date && r == Ty::Duration {
+                return Some(Ty::Date);
             }
             self.fail(format!("it {verb} {} and {}", l.text(), r.text()));
             return None;
@@ -3863,7 +3869,18 @@ impl Typing<'_> {
             return None;
         }
         if matches!(l, Ty::Timestamp | Ty::Date) || matches!(r, Ty::Timestamp | Ty::Date) {
-            // what §8.3 leaves unsaid is left
+            // neither is multiplied nor divided, where it typed as nothing
+            // and was not run (the values audit's K-1, K-2)
+            let verb = if op == BinOp::Mul {
+                "multiplies"
+            } else {
+                "divides"
+            };
+            self.fail(format!(
+                "it {verb} {} by {}, and a time or a date is neither multiplied nor divided",
+                l.text(),
+                r.text()
+            ));
             return None;
         }
         let verb = if op == BinOp::Mul {

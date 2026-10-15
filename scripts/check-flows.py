@@ -2725,8 +2725,12 @@ class Typing:
                 return ("timestamp",)
             if op == "-" and l[0] == r[0] == "timestamp":
                 return ("duration",)
-            if "date" in (l[0], r[0]):
-                return None                     # date arithmetic §8.3 leaves unsaid
+            # a date less a date is a duration, and a date plus or minus a duration a date, as §8.3's Dates says and
+            # the core runs; every other with a date is an error, where it typed as nothing (the values audit's K-1)
+            if op == "-" and l[0] == r[0] == "date":
+                return ("duration",)
+            if l[0] == "date" and r[0] == "duration":
+                return ("date",)
             self.fail(f"it {'adds' if op == '+' else 'subtracts'} {type_text(l)} and {type_text(r)}")
             return None
         # * and /
@@ -2758,7 +2762,10 @@ class Typing:
             self.fail(f"it divides {type_text(l)} by {type_text(r)}, and / takes its scalar on the right")
             return None
         if "timestamp" in (l[0], r[0]) or "date" in (l[0], r[0]):
-            return None                         # what §8.3 leaves unsaid is left
+            # neither is multiplied nor divided, where it typed as nothing and the core did not run it (K-1, K-2)
+            self.fail(f"it {'multiplies' if op == '*' else 'divides'} {type_text(l)} by {type_text(r)}, and a time or a "
+                      "date is neither multiplied nor divided")
+            return None
         self.fail(f"it {'multiplies' if op == '*' else 'divides'} {type_text(l)} {'by' if op == '*' else 'by'} {type_text(r)}, "
                   "and takes a scalar on at least one side")
         return None
@@ -8177,6 +8184,12 @@ def expression_type_plants(people):
     def wrong(name, why):
         return f"{name} does not type: {why} (the model's check 24)"
 
+    def dated(expr):
+        # the ledger with a date of its own
+        text = ledger(expr)
+        assert text.count("      span:  { type: duration }\n") == 1
+        return text.replace("      span:  { type: duration }\n", "      span:  { type: duration }\n      due:   { type: date, optional: true }\n")
+
     def writing(location, expr):
         # a transition writing the value, on the ledger's shut
         return TYPED_LEDGER.replace(
@@ -8234,6 +8247,12 @@ def expression_type_plants(people):
         ("membership in a string", ledger("label in label"),
          [wrong("derived attribute probe", "it asks for membership in a string, which is no collection")]),
         ("what orders, negates and holds", ledger("-span < span and -usd < usd and count > -3 and tier == Tier.GOLD and tier in Tier"), []),
+        # a date's and a time's arithmetic as §8.3 says and the core runs (the audit's values K-1, K-2)
+        ("a duration plus a date", dated("span + due > due"), [wrong("derived attribute probe", "it adds a duration and a date")]),
+        ("a date less a timestamp", dated("due - since > span"), [wrong("derived attribute probe", "it subtracts a date and a timestamp")]),
+        ("a timestamp multiplied", ledger("since * 2 > since"),
+         [wrong("derived attribute probe", "it multiplies a timestamp by a number, and a time or a date is neither multiplied nor divided")]),
+        ("what dates do", dated("due - due >= span and due + 2 days > due and due - 1 week < due"), []),
         ("an amount past its minor unit", ledger("usd + USD 1.005 > usd"),
          [wrong("derived attribute probe", "USD 1.005 has more places than USD's minor unit")]),
         ("an amount in an unknown currency", ledger("XYZ 1 == XYZ 1"),
