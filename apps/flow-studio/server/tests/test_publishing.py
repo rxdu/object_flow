@@ -1760,7 +1760,10 @@ def test_an_offer_says_it_depends_on_who_takes_it_alike(tee):
     invariants, through both backends alike (ADR-0173 decision 1): a line's
     confirm_nature writes the actor's kind that confirmed_by_a_person
     reads, suggest_nature the kind its taken_by: [agent] records (ADR-0189),
-    and amend writes nothing of the actor."""
+    and amend the kind its type's taken_by: [human, service] records, since
+    the sample closed a claim's and a line's transitions to the agent
+    (2026-10-15); an order's transitions, on a type naming no taken_by and
+    writing nothing of the actor, depend on no one."""
     loaded(tee, "reimbursement.yaml")
     tee.found.clear()
     emp = tee.post("/v1/request", {"type": "Employee", "transition": "onboard",
@@ -1785,7 +1788,13 @@ def test_an_offer_says_it_depends_on_who_takes_it_alike(tee):
         "/v1/availability", {"actor": OP, "id": line}) if not o["creates"]}
     assert offers["confirm_nature"]["actor_dependent"] is True
     assert offers["suggest_nature"]["actor_dependent"] is True
-    assert offers["amend"]["actor_dependent"] is False
+    assert offers["amend"]["actor_dependent"] is True
+    alike(tee)
+    load(tee, "shop", CASCADE_SHOP)
+    order = made(tee, "Order", "open")
+    offers = {o["transition"]: o for o in tee.post(
+        "/v1/availability", {"actor": OP, "id": order}) if not o["creates"]}
+    assert offers["add_line"]["actor_dependent"] is False
     alike(tee)
 
 

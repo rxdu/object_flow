@@ -165,6 +165,8 @@ types:
   Claim:
     description: A staff reimbursement claim, one employee's request to be paid back for business spending, made of line items; it is recorded in Xero as a bill and paid separately.
     tracking: record
+    # people and services take a claim's transitions, never the agent, which commits no financial write
+    taken_by: [human, service]
     attributes:
       number:
         type: string
@@ -479,6 +481,8 @@ types:
   ClaimLine:
     description: One item of a claim, a single amount spent on one date in one category, with its receipt.
     tracking: record
+    # the agent only suggests a line's nature (`suggest`, its own); everything else is a person's or a service's
+    taken_by: [human, service]
     attributes:
       claim: { reference: Claim, opposite: lines }
       amount: { type: money(USD) }

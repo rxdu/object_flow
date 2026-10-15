@@ -782,3 +782,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A Studio test reached a run-time refusal (W5) through `max(x in {d4}: x)`, chosen because neither checker could type it. Typing a literal's element (the values audit's K-10) made check 17 refuse it at publish, so the test's flow no longer loaded and the gate failed, the mutants and the oracle having passed.
 - **Correction:** Before gating a change that makes a checker see more, grep the tests for comments such as "the checkers cannot tell" or "refused at run time", and for flows loaded through the sandbox, and decide each: hold the publish refusal with a checker case, and leave the run-time hold to a test that loads without the checker (the core's own).
 - **Context:** `check-flows.py` and the core's `check/names.rs` typers, the Studio's tee tests; found 2026-10-15.
+
+### Changing a shared sample changes every test that reads it
+- **Pattern:** Closing `reimbursement.yaml`'s claim types to the agent (`taken_by: [human, service]`) passed the sample's own 26 examples and the oracle, then failed a Studio test that asserted a line's `amend` offer depended on no one: the type's `taken_by` now records the taker's kind for every transition of it. The samples are fixtures for tests across the repository, not only for their examples files.
+- **Correction:** Before gating a change to a sample under `docs/design/flow-format/examples/` or `apps/flow-studio/flows/`, grep every test suite for the sample's file name and the types changed, and read what each asserts about them.
+- **Context:** The flow format's samples, the Studio's tee tests; found 2026-10-15.

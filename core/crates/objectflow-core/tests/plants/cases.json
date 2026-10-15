@@ -1143,7 +1143,7 @@
    ],
    [
     "reimbursement.yaml",
-    "3f5be0301e594230"
+    "d013686e036294c7"
    ],
    [
     "reimbursement.examples.yaml",
@@ -1168,28 +1168,21 @@
    ],
    [
     "reimbursement.yaml",
-    15,
-    "notice",
-    "agent_open",
-    "an agent may take on the wire the transitions here that name no taken_by: Claim (9), ClaimLine (3), since the version declares an agent kind of actor (Agent.key_id, AssistantAgent.agent_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
-   ],
-   [
-    "reimbursement.yaml",
-    368,
+    370,
     "notice",
     "warn",
     "lines_within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    585,
+    589,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    597,
+    601,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
@@ -1240,14 +1233,28 @@
    "AssistantAgent.retire_taken_by": "local",
    "BusinessFunction.dissolve_taken_by": "local",
    "BusinessFunction.establish_taken_by": "local",
+   "Claim.add_line_taken_by": "local",
    "Claim.approve_taken_by": "local",
    "Claim.complete_review_taken_by": "local",
+   "Claim.correct_xero_bill_id_taken_by": "local",
+   "Claim.draft_taken_by": "local",
    "Claim.erase_personal_data_taken_by": "local",
    "Claim.has_title": "local",
    "Claim.lines_within_reach": "traversal",
    "Claim.pay_taken_by": "local",
+   "Claim.record_in_xero_taken_by": "local",
    "Claim.reject_taken_by": "local",
+   "Claim.resubmit_taken_by": "local",
+   "Claim.return_for_changes_taken_by": "local",
+   "Claim.submit_taken_by": "local",
+   "Claim.verify_xero_record_taken_by": "local",
+   "Claim.withdraw_taken_by": "local",
+   "ClaimLine.add_taken_by": "local",
+   "ClaimLine.amend_taken_by": "local",
+   "ClaimLine.close_taken_by": "local",
+   "ClaimLine.confirm_nature_taken_by": "local",
    "ClaimLine.confirmed_by_a_person": "local",
+   "ClaimLine.discard_taken_by": "local",
    "ClaimLine.erase_taken_by": "local",
    "ClaimLine.spent_amount_has_its_currency": "local",
    "ClaimLine.suggest_nature_taken_by": "local",
@@ -1286,12 +1293,23 @@
    "BusinessFunction.establish_taken_by": [
     "BusinessFunction.establish"
    ],
+   "Claim.add_line_taken_by": [
+    "Claim.add_line",
+    "Claim.draft"
+   ],
    "Claim.approve_taken_by": [
     "Claim.approve",
     "Claim.draft"
    ],
    "Claim.complete_review_taken_by": [
     "Claim.complete_review",
+    "Claim.draft"
+   ],
+   "Claim.correct_xero_bill_id_taken_by": [
+    "Claim.correct_xero_bill_id",
+    "Claim.draft"
+   ],
+   "Claim.draft_taken_by": [
     "Claim.draft"
    ],
    "Claim.erase_personal_data_taken_by": [
@@ -1310,14 +1328,57 @@
     "Claim.draft",
     "Claim.pay"
    ],
+   "Claim.record_in_xero_taken_by": [
+    "Claim.draft",
+    "Claim.record_in_xero"
+   ],
    "Claim.reject_taken_by": [
     "Claim.draft",
     "Claim.reject"
+   ],
+   "Claim.resubmit_taken_by": [
+    "Claim.draft",
+    "Claim.resubmit"
+   ],
+   "Claim.return_for_changes_taken_by": [
+    "Claim.draft",
+    "Claim.return_for_changes"
+   ],
+   "Claim.submit_taken_by": [
+    "Claim.draft",
+    "Claim.submit"
+   ],
+   "Claim.verify_xero_record_taken_by": [
+    "Claim.draft",
+    "Claim.verify_xero_record"
+   ],
+   "Claim.withdraw_taken_by": [
+    "Claim.draft",
+    "Claim.withdraw"
+   ],
+   "ClaimLine.add_taken_by": [
+    "ClaimLine.add"
+   ],
+   "ClaimLine.amend_taken_by": [
+    "ClaimLine.add",
+    "ClaimLine.amend"
+   ],
+   "ClaimLine.close_taken_by": [
+    "ClaimLine.add",
+    "ClaimLine.close"
+   ],
+   "ClaimLine.confirm_nature_taken_by": [
+    "ClaimLine.add",
+    "ClaimLine.confirm_nature"
    ],
    "ClaimLine.confirmed_by_a_person": [
     "ClaimLine.add",
     "ClaimLine.amend",
     "ClaimLine.confirm_nature"
+   ],
+   "ClaimLine.discard_taken_by": [
+    "ClaimLine.add",
+    "ClaimLine.discard"
    ],
    "ClaimLine.erase_taken_by": [
     "ClaimLine.add",
@@ -23553,7 +23614,7 @@
    ],
    [
     "reimbursement.yaml",
-    "3f5be0301e594230"
+    "d013686e036294c7"
    ],
    [
     "reimbursement.examples.yaml",
@@ -23571,28 +23632,21 @@
    ],
    [
     "reimbursement.yaml",
-    15,
-    "notice",
-    "agent_open",
-    "an agent may take on the wire the transitions here that name no taken_by: Claim (9), ClaimLine (3), since the version declares an agent kind of actor (Agent.key_id, AssistantAgent.agent_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
-   ],
-   [
-    "reimbursement.yaml",
-    368,
+    370,
     "notice",
     "warn",
     "lines_within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    585,
+    589,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
    ],
    [
     "reimbursement.yaml",
-    597,
+    601,
     "notice",
     "warn",
     "within_policy warns: a failure is reported with the result and refuses nothing"
@@ -23606,14 +23660,28 @@
    "AssistantAgent.retire_taken_by": "local",
    "BusinessFunction.dissolve_taken_by": "local",
    "BusinessFunction.establish_taken_by": "local",
+   "Claim.add_line_taken_by": "local",
    "Claim.approve_taken_by": "local",
    "Claim.complete_review_taken_by": "local",
+   "Claim.correct_xero_bill_id_taken_by": "local",
+   "Claim.draft_taken_by": "local",
    "Claim.erase_personal_data_taken_by": "local",
    "Claim.has_title": "local",
    "Claim.lines_within_reach": "traversal",
    "Claim.pay_taken_by": "local",
+   "Claim.record_in_xero_taken_by": "local",
    "Claim.reject_taken_by": "local",
+   "Claim.resubmit_taken_by": "local",
+   "Claim.return_for_changes_taken_by": "local",
+   "Claim.submit_taken_by": "local",
+   "Claim.verify_xero_record_taken_by": "local",
+   "Claim.withdraw_taken_by": "local",
+   "ClaimLine.add_taken_by": "local",
+   "ClaimLine.amend_taken_by": "local",
+   "ClaimLine.close_taken_by": "local",
+   "ClaimLine.confirm_nature_taken_by": "local",
    "ClaimLine.confirmed_by_a_person": "local",
+   "ClaimLine.discard_taken_by": "local",
    "ClaimLine.erase_taken_by": "local",
    "ClaimLine.spent_amount_has_its_currency": "local",
    "ClaimLine.suggest_nature_taken_by": "local",
@@ -23652,12 +23720,23 @@
    "BusinessFunction.establish_taken_by": [
     "BusinessFunction.establish"
    ],
+   "Claim.add_line_taken_by": [
+    "Claim.add_line",
+    "Claim.draft"
+   ],
    "Claim.approve_taken_by": [
     "Claim.approve",
     "Claim.draft"
    ],
    "Claim.complete_review_taken_by": [
     "Claim.complete_review",
+    "Claim.draft"
+   ],
+   "Claim.correct_xero_bill_id_taken_by": [
+    "Claim.correct_xero_bill_id",
+    "Claim.draft"
+   ],
+   "Claim.draft_taken_by": [
     "Claim.draft"
    ],
    "Claim.erase_personal_data_taken_by": [
@@ -23676,14 +23755,57 @@
     "Claim.draft",
     "Claim.pay"
    ],
+   "Claim.record_in_xero_taken_by": [
+    "Claim.draft",
+    "Claim.record_in_xero"
+   ],
    "Claim.reject_taken_by": [
     "Claim.draft",
     "Claim.reject"
+   ],
+   "Claim.resubmit_taken_by": [
+    "Claim.draft",
+    "Claim.resubmit"
+   ],
+   "Claim.return_for_changes_taken_by": [
+    "Claim.draft",
+    "Claim.return_for_changes"
+   ],
+   "Claim.submit_taken_by": [
+    "Claim.draft",
+    "Claim.submit"
+   ],
+   "Claim.verify_xero_record_taken_by": [
+    "Claim.draft",
+    "Claim.verify_xero_record"
+   ],
+   "Claim.withdraw_taken_by": [
+    "Claim.draft",
+    "Claim.withdraw"
+   ],
+   "ClaimLine.add_taken_by": [
+    "ClaimLine.add"
+   ],
+   "ClaimLine.amend_taken_by": [
+    "ClaimLine.add",
+    "ClaimLine.amend"
+   ],
+   "ClaimLine.close_taken_by": [
+    "ClaimLine.add",
+    "ClaimLine.close"
+   ],
+   "ClaimLine.confirm_nature_taken_by": [
+    "ClaimLine.add",
+    "ClaimLine.confirm_nature"
    ],
    "ClaimLine.confirmed_by_a_person": [
     "ClaimLine.add",
     "ClaimLine.amend",
     "ClaimLine.confirm_nature"
+   ],
+   "ClaimLine.discard_taken_by": [
+    "ClaimLine.add",
+    "ClaimLine.discard"
    ],
    "ClaimLine.erase_taken_by": [
     "ClaimLine.add",
