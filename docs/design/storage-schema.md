@@ -185,7 +185,7 @@ A numeric field's declared unit is metadata in `of_declaration`, not a column, s
 | `actor_kind` | `TEXT` + `CHECK` | `TEXT` + `CHECK` | `human`, `agent` or `service`, the kind of actor that acted (ADR-0145) |
 | an enum | `TEXT` + `CHECK` | `TEXT` + `CHECK` | a native enum type would need a migration to add a member; a check constraint is replaced with the declaration |
 | `event` | `BIGINT` → `of_event.position` | `INTEGER` | which is what makes `changed_since([…], a.at_event)` a comparison of two integers |
-| `file` | `TEXT` → `of_file.hash` | `TEXT` | content-addressed; the store holds the reference (ADR-0017), and every write of one is a row of `of_file_ref` (§6) |
+| `file` | `TEXT` | `TEXT`, the hash, size and media type as JSON | content-addressed; the store holds the reference, never the content (ADR-0017), and keeps no file table (§6) *(corrected 2026-10-15: it named `of_file` and `of_file_ref`, which the core never made)* |
 | `<T>[]` | a side table | a side table | §3.3 |
 | `ref`/`owner`, singular and stored | column + foreign key, deferred to commit + index | same | the index is not optional; §5 |
 | `ref`/`part`, the derived end | **nothing** | **nothing** | it is a query against the other end's index |
@@ -239,15 +239,16 @@ Four things to read off it:
 CREATE TABLE t_robot__photos (
   object_id  TEXT    NOT NULL REFERENCES t_robot(id),
   ordinal    INTEGER NOT NULL,
-  value      TEXT    NOT NULL REFERENCES of_file(hash),
+  value      TEXT    NOT NULL,          -- a file, as its column holds one (§3.1)
   PRIMARY KEY (object_id, ordinal)
 );
 ```
 
-An array column would hold the same data. A table is chosen for three reasons:
+An array column would hold the same data. A table is chosen for two reasons:
 - `count(p in photos)` is then an ordinary indexed count rather than a function over an array;
 - `add` and `remove` are read-modify-write against rows the transaction already locks;
-- a set of `file` values keeps a real foreign key into the content table, which erasure walks.
+
+*(Corrected 2026-10-15: a third reason was a foreign key into a file table, which the core never made; see §6.)*
 
 ### 3.4 An indexed derivation is a generated column
 
@@ -292,7 +293,7 @@ Most indexes are performance. These are not: a stated guarantee is false without
 | every attribute a type-scan invariant reads | the invariant's affected set is a full scan on every write |
 | every uniqueness's key, its columns together, a plain index and not a constraint: `t_<type>_<attribute>_key_ix`, a reference's key excepted, its column indexed as a stored end | a uniqueness is a scan of its type on every write of a key, and of every other object holding the key; as an index and not a `UNIQUE` constraint, it refuses nothing an admission lets stand (§8, ADR-0165) |
 | `of_interval` on the current interval of each dimension, and on its entry time | work in progress, current age and every ageing condition become scans of the whole index (ADR-0083, ADR-0084) |
-| `of_file_ref (hash)` | erasure cannot tell whether another object still holds a file, and either deletes it too (D207) or never deletes anything (ADR-0087) |
+| `of_file_ref (hash)` | erasure cannot tell whether another object still holds a file, and either deletes it too (D207) or never deletes anything (ADR-0087). *Never made: the core keeps no file table (§6), so this guarantee is not the engine's today (TODO.md).* |
 | `of_event (txn, position)` | the settled cursor becomes a sort of the whole log on every `pull` and `export` (ADR-0089) |
 | `superseded_by` on a type with a superseding state | a supersession group's erasure reads each superseding type whole for each member, under the writer, 1.43 s for a group of 41 (ADR-0191 decision 5) |
 
@@ -379,29 +380,13 @@ CREATE TABLE of_admission (
 );
 CREATE INDEX of_admission_by_object ON of_admission (object_id);
 
--- Content-addressed files. The store holds the reference; erasure deletes
--- the content only once no unerased reference to the hash remains, and keeps
--- the row, so a reference resolves to something that says so (ADR-0087).
-CREATE TABLE of_file (
-  hash           TEXT PRIMARY KEY,
-  size_bytes     INTEGER NOT NULL,
-  media_type     TEXT    NOT NULL,
-  erased_at      TEXT,                       -- the content has been deleted
-  erase_pending  INTEGER NOT NULL DEFAULT 0  -- every reference erased, deletion not yet done
-);
-
--- The reference index per hash: one row per place a hash is written, an
--- attribute, a set's side table or an event payload. An index the log
--- rebuilds, not a second source of truth (ADR-0087).
-CREATE TABLE of_file_ref (
-  hash       TEXT    NOT NULL REFERENCES of_file(hash),
-  object_id  TEXT    NOT NULL REFERENCES of_object(id),
-  member     TEXT    NOT NULL,                -- the attribute, or the event payload's field
-  position   INTEGER NOT NULL REFERENCES of_event(position),
-  erased     INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (hash, object_id, member, position)
-);
-CREATE INDEX of_file_ref_live ON of_file_ref (hash, erased);
+-- Files. The core holds a file value as its hash, size and media type, in
+-- its attribute's column and the events that carried it (§3.1), and keeps no
+-- file table and no content: the bytes are the application's. The design gave
+-- the engine the deletion of an erased file's bytes through of_file and
+-- of_file_ref (ADR-0087); the core never made either, and who deletes the
+-- bytes, and how an application learns which, is the author's open question
+-- (TODO.md). (Corrected 2026-10-15: the two tables were sketched here as built.)
 
 -- The published declaration, one row per version. Never deleted: a recorded
 -- event names the version whose rules applied, and history must stay readable.
@@ -413,7 +398,6 @@ CREATE TABLE of_declaration (
                                     -- to its examples file (ADR-0135, ADR-0136)
   source_ref    TEXT,               -- where the source came from, as the change named it, and
   source_digest TEXT,               -- its digest; neither for version 0 (ADR-0135)
-  parsed        TEXT    NOT NULL,   -- the checked form the runtime reads
   builtins      TEXT    NOT NULL,   -- the built-in module it was published with: the engine
                                     -- release whose built-in types and standard metrics apply
   published_at  TEXT    NOT NULL,
@@ -421,12 +405,13 @@ CREATE TABLE of_declaration (
   change_id     TEXT,               -- the DeclarationChange it installed (ADR-0085); none for 0
   release       TEXT,               -- the engine release an upgrade's version names as its
                                     -- cause; none for a publish's (ADR-0147, ADR-0148)
-  report        TEXT    NOT NULL,   -- what publishing reported, kept for audit; for version 0,
+  report        TEXT    NOT NULL    -- what publishing reported, kept for audit; for version 0,
                                     -- the built-in module's own check report
-  CONSTRAINT of_declaration_source CHECK
-    ((source_ref IS NULL) = (source_digest IS NULL)
-     AND (version = 0 OR source_ref IS NOT NULL OR release IS NOT NULL))
 );
+-- (Corrected 2026-10-15: the sketch had a `parsed` column, the checked form,
+-- and a CHECK tying source_ref to source_digest, neither of which the core
+-- made: it parses `source` as it loads a version, and its publish writes the
+-- two together.)
 
 -- The engine releases this store has been at: the one that created it, then one
 -- row per explicit upgrade (ADR-0110). Every request reads the last row in its
@@ -476,34 +461,13 @@ CREATE TABLE of_restore (
   sequence_floor  INTEGER NOT NULL
 );
 
--- Every actor, by the identity a request names (ADR-0110): the object that holds
--- it and the kind its type declares. Written in the same transaction as the actor
--- attribute, so resolving a request's actor is one lookup, and an identity names
--- one actor across every type that holds actors and is never reused. A request
--- naming an identity with no row is refused as `actor_known` (ADR-0114).
-CREATE TABLE of_actor (
-  actor_id    TEXT PRIMARY KEY,
-  object_id   TEXT NOT NULL,
-  type_name   TEXT NOT NULL,
-  kind        TEXT NOT NULL CHECK (kind IN ('human', 'agent', 'service'))
-);
-
--- Migration mappings carried by a publish: what it does to live objects, and
--- the invariants it admits on them (ADR-0099, ADR-0105).
-CREATE TABLE of_migration (
-  version     INTEGER NOT NULL REFERENCES of_declaration(version),
-  type_name   TEXT    NOT NULL,     -- the type, or the enum for a removed member
-  kind        TEXT    NOT NULL,
-  from_name   TEXT    NOT NULL,     -- the state, member, attribute or admitted invariant
-  to_name     TEXT,                 -- the target; none for a backfill or an admit
-  expression  TEXT,                 -- a backfill's expression; none otherwise
-  reason      TEXT,                 -- an admit's reason, which each admission records
-  ordinal     INTEGER NOT NULL,     -- its place in the order written, which backfills apply in (ADR-0147)
-  PRIMARY KEY (version, type_name, kind, from_name),
-  CONSTRAINT of_migration_kind CHECK (kind IN
-    ('removed state', 'removed member', 'renamed attr', 'backfill', 'admit')),
-  CONSTRAINT of_migration_admit_reason CHECK (kind <> 'admit' OR reason IS NOT NULL)
-);
+-- Actors and migrations have no tables of their own. An actor is an object of
+-- a type marking an actor identity (ADR-0110), and a request's actor is found
+-- by that identity through its type's folded index, `t_<type>_<attr>_fold_ix`
+-- (ADR-0194 decision 1). A publish's migration is part of its source, in
+-- of_declaration.source, its effects the `migrate` events it records and the
+-- of_admission rows its admits write. (Corrected 2026-10-15: of_actor and
+-- of_migration were sketched here, and the core never made them.)
 
 -- Subscription is a built-in object. Its progress is not (ADR-0043). It is read
 -- by pull alone; posting to an endpoint is an upper-layer relay (ADR-0105).
@@ -513,14 +477,24 @@ CREATE TABLE t_subscription (
   version        INTEGER NOT NULL,
   declaration_version INTEGER NOT NULL,
   last_event     INTEGER NOT NULL REFERENCES of_event(position),
+  state_source   TEXT    NOT NULL DEFAULT 'observed',   -- as every type's (§3)
   target_type    TEXT    NOT NULL,
-  target_family  INTEGER NOT NULL DEFAULT 0,
-  transitions    TEXT,                       -- null means every transition
-  changes_state_only INTEGER NOT NULL DEFAULT 0,
+  target_family  INTEGER,
+  changes_state_only INTEGER,
   lagging_after  INTEGER,                    -- seconds: lag is the age of the oldest
   dead_after     INTEGER,                    -- unacknowledged event the filter selects (ADR-0100)
   CONSTRAINT t_subscription_state CHECK (state IN ('ACTIVE','REVOKED'))
 );
+-- the transitions it selects, a set of values in a table of its own (§3.3);
+-- none means every transition
+CREATE TABLE t_subscription__transitions (
+  object_id  TEXT    NOT NULL REFERENCES t_subscription(id),
+  ordinal    INTEGER NOT NULL,
+  value      TEXT    NOT NULL,
+  PRIMARY KEY (object_id, ordinal)
+);
+-- (Corrected 2026-10-15: `transitions` was a column, and `state_source`
+-- missing.)
 -- (Corrected 2026-10-06: the thresholds were lag_warn and lag_fail and the
 -- states lower case, where DESIGN.md §7, the rule's home, names them
 -- lagging_after and dead_after and the states ACTIVE and REVOKED; building
@@ -540,14 +514,16 @@ CREATE TABLE t_proposal (
   version        INTEGER NOT NULL,
   declaration_version INTEGER NOT NULL,
   last_event     INTEGER NOT NULL REFERENCES of_event(position),
-  target_id      TEXT    REFERENCES of_object(id),   -- none for a proposed creation
+  state_source   TEXT    NOT NULL DEFAULT 'observed',   -- as every type's (§3)
+  target         TEXT,                      -- the object's id; none for a proposed creation
   target_type    TEXT    NOT NULL,
   transition     TEXT    NOT NULL,
   inputs         TEXT    NOT NULL,
   proposer       TEXT    NOT NULL,
   context        TEXT,                      -- the proposer's reason, which its execution's events
                                             -- record (DESIGN.md §9 lists it; added 2026-10-06)
-  submitted_under INTEGER NOT NULL REFERENCES of_declaration(version),
+  occurred       TEXT,                      -- the occurred time the proposed request gave
+  filed_at       TEXT    NOT NULL,
   -- the verdict that left it pending is not stored: a read derives it from
   -- the refused approval's of_attempt row, which names it in its proposal
   -- column, the proposal getting no event (ADR-0044, ADR-0157)
@@ -555,38 +531,43 @@ CREATE TABLE t_proposal (
   CONSTRAINT t_proposal_state CHECK (state IN
     ('PENDING','EXECUTED','REJECTED','WITHDRAWN','INVALIDATED'))
 );
-CREATE INDEX t_proposal_target_ix ON t_proposal (target_id, state);
--- the core names the column `target`, and made this index only on
--- 2026-10-15, an erasure scanning every proposal until then; this table's
--- sketch differs from the core's in more columns (TODO.md)
+-- an erasure reads the pending proposals on the erased object by it
+CREATE INDEX t_proposal_target_ix ON t_proposal (target, state);
+-- (Corrected 2026-10-15: the sketch had `target_id`, a reference, and
+-- `submitted_under`, and lacked `occurred`, `filed_at` and `state_source`;
+-- and the core made the index only that day, an erasure scanning every
+-- proposal until then.)
 
 -- DeclarationChange is a built-in object type: how a flow changes (ADR-0085).
 -- The publish event belongs to it (D212).
-CREATE TABLE t_declaration_change (
+CREATE TABLE t_declarationchange (
   id             TEXT    PRIMARY KEY REFERENCES of_object(id),
   state          TEXT    NOT NULL,
   version        INTEGER NOT NULL,
   declaration_version INTEGER NOT NULL,
   last_event     INTEGER NOT NULL REFERENCES of_event(position),
-  base_version   INTEGER NOT NULL REFERENCES of_declaration(version),
+  state_source   TEXT    NOT NULL DEFAULT 'observed',   -- as every type's (§3)
   source         TEXT    NOT NULL,          -- the modules proposed, as of_declaration.source
   source_ref     TEXT    NOT NULL,          -- where they came from, such as a commit, opaque to the
-                                            -- engine, which checks only its form (ADR-0135)
+                                            -- engine, which checks its form, 1 to 512 characters (ADR-0135)
   source_digest  TEXT    NOT NULL,          -- sha256 over the modules, which the repository's side
                                             -- recomputes at the reference (ADR-0135)
+  base_version   INTEGER NOT NULL,          -- the version it was drafted against
   report         TEXT,                      -- the dry run: the impact report, with its ids
   evidence       TEXT,                      -- the references the draft cites, each a read's arguments,
                                             -- and each read's page or refusal as it answered at
                                             -- submission or refresh, with its as-of time (ADR-0097, ADR-0159)
   drafted_by     TEXT    NOT NULL,
   drafted_by_kind TEXT   NOT NULL,
-  drafted_principal TEXT,                   -- the drafter's principal, if any
   approved_by    TEXT,                      -- recorded; who may approve is the upper layer's
   approved_by_kind TEXT,                    -- (ADR-0114)
-  CONSTRAINT t_declaration_change_state CHECK (state IN
-    ('DRAFTED','SUBMITTED','PUBLISHED','REJECTED','WITHDRAWN','SUPERSEDED')),
-  CONSTRAINT t_declaration_change_source_ref CHECK (length(source_ref) BETWEEN 1 AND 512)
+  CONSTRAINT t_declarationchange_state CHECK (state IN
+    ('DRAFTED','SUBMITTED','PUBLISHED','REJECTED','WITHDRAWN','SUPERSEDED'))
 );
+-- (Corrected 2026-10-15: the table is named for the type, DeclarationChange,
+-- as every type's is; the sketch had `drafted_principal` and two CHECKs the
+-- core does not declare, the source reference's length being the engine's
+-- input check.)
 
 -- Operator is a built-in object type: the people answerable for a store
 -- (ADR-0126). Creating the store writes its first object, whose install event
@@ -597,10 +578,17 @@ CREATE TABLE t_operator (
   version        INTEGER NOT NULL,
   declaration_version INTEGER NOT NULL,
   last_event     INTEGER NOT NULL REFERENCES of_event(position),
-  identity       TEXT    NOT NULL UNIQUE,   -- marked actor human; an identity names
+  state_source   TEXT    NOT NULL DEFAULT 'observed',   -- as every type's (§3)
+  identity       TEXT    NOT NULL,          -- marked actor human; an identity names
                                             -- one actor across every type (DESIGN.md §5.8)
   CONSTRAINT t_operator_state CHECK (state IN ('ACTIVE','RETIRED'))
 );
+-- the identity held unique by the engine's uniqueness, through its key's
+-- index, and found by any case through its folded index (ADR-0165, ADR-0194)
+CREATE INDEX t_operator_identity_key_ix  ON t_operator (identity);
+CREATE INDEX t_operator_identity_fold_ix ON t_operator (lower(identity));
+-- (Corrected 2026-10-15: the sketch had a UNIQUE constraint, and lacked
+-- `state_source`.)
 
 -- Imported history that predates the store (ADR-0015): read-only, not events.
 -- Erasure of the object redacts every payload field the import mapping did
@@ -620,20 +608,27 @@ CREATE TABLE of_legacy_entry (
 -- A label is an object, recorded by a creation request, like any observation.
 CREATE TABLE t_label (
   id             TEXT    PRIMARY KEY REFERENCES of_object(id),
-  state          TEXT    NOT NULL DEFAULT 'RECORDED',
+  state          TEXT    NOT NULL,
   version        INTEGER NOT NULL,
   declaration_version INTEGER NOT NULL,
   last_event     INTEGER NOT NULL REFERENCES of_event(position),
-  subject_id     TEXT    NOT NULL REFERENCES of_object(id) DEFERRABLE INITIALLY DEFERRED,
+  state_source   TEXT    NOT NULL DEFAULT 'observed',   -- as every type's (§3)
   name           TEXT    NOT NULL,          -- normalised: lowercase, trimmed
   note           TEXT,                      -- treated as personal: erasure redacts it
   subject_state  TEXT    NOT NULL,          -- the subject's state when it was applied
-  occurred_at    TEXT,
-  corrects_id    TEXT    REFERENCES t_label(id),
-  CONSTRAINT t_label_state CHECK (state = 'RECORDED')
+  subject_id     TEXT    NOT NULL REFERENCES of_object(id) DEFERRABLE INITIALLY DEFERRED,
+  corrects_id    TEXT    REFERENCES t_label(id) DEFERRABLE INITIALLY DEFERRED,
+  recorded_at    TEXT    NOT NULL,
+  occurred_at    TEXT    NOT NULL,
+  CONSTRAINT t_label_state CHECK (state IN ('RECORDED'))
 );
-CREATE INDEX t_label_by_subject ON t_label (subject_id);
-CREATE INDEX t_label_by_name    ON t_label (name, subject_state);
+CREATE INDEX t_label_subject_id_ix  ON t_label (subject_id);
+CREATE INDEX t_label_corrects_id_ix ON t_label (corrects_id);
+CREATE INDEX t_label_by_name        ON t_label (name, subject_state);
+CREATE INDEX t_label_last_event_ix  ON t_label (last_event);   -- an export pages by it
+-- (Corrected 2026-10-15: the sketch lacked `state_source` and `recorded_at`,
+-- gave `occurred_at` as optional and `state` a default, and named the
+-- subject's index t_label_by_subject.)
 
 -- The interval index: how long each object held each state and each value
 -- of each tracked attribute and reference (ADR-0083, ADR-0086). Maintained
@@ -722,7 +717,7 @@ CREATE TABLE of_attempt_rollup (
 
 `of_subscription_position` is the one place the model deliberately keeps runtime state outside an object: no version, no events, no history. An acknowledged cursor moving thousands of times a minute is not something anyone wants a permanent record of, and its lag and death are derived rather than states (ADR-0043). `t_subscription` next to it is an ordinary object, because its filter is configuration someone changes and should answer for; who may pull it is the upper layer's (ADR-0114). It holds no endpoint and its position no delivery error: the core posts nothing, and a relay that posts records its own failures (ADR-0105).
 
-**Version 0 is written when the store is created** (ADR-0105), the one write that precedes every operation, attributed to the engine release rather than to an actor, since no one wrote its rules. The same step writes the store's operator, an `Operator` object with its `of_actor` row, so the first request has an actor to name (ADR-0126). Its creation event, `install`, names the operator's own identity as its actor, of kind `human`, with provenance `observed` and the context `store-creation:<release>`, since an event's actor is required and a release is not one (ADR-0134). Its `of_declaration` row holds the built-in types, the `label` kind, the `closed` category and the standard metric definitions of the engine release, with `builtins` naming that release. The first `DeclarationChange`'s `base_version` references it, so the first flow is drafted and published by the same path as every later one.
+**Version 0 is written when the store is created** (ADR-0105), the one write that precedes every operation, attributed to the engine release rather than to an actor, since no one wrote its rules. The same step writes the store's operator, an `Operator` object whose identity is the actor a request names, so the first request has an actor to name (ADR-0126) *(corrected 2026-10-15: it said "with its `of_actor` row", a table the core never made, §6)*. Its creation event, `install`, names the operator's own identity as its actor, of kind `human`, with provenance `observed` and the context `store-creation:<release>`, since an event's actor is required and a release is not one (ADR-0134). Its `of_declaration` row holds the built-in types, the `label` kind, the `closed` category and the standard metric definitions of the engine release, with `builtins` naming that release. The first `DeclarationChange`'s `base_version` references it, so the first flow is drafted and published by the same path as every later one.
 
 `of_declaration` is never deleted. Every event names the version whose rules applied, so deleting one makes that stretch of history unreadable.
 
@@ -784,8 +779,8 @@ Erasure (§8 of the model, ADR-0087) does these things to storage:
 1. Sets each declared `personal` column to `NULL` on the object row, and on every member of its **supersession chain**, predecessors and successors, each through its own type's `erase`. So does every value personal under the version that wrote it, under any version the object's history was written under (ADR-0146 decision 2): a current value a later version no longer marks personal, judged by the event that last wrote it, its name taken back through later renames; and every column a version kept for history, a dropped attribute's under its own name and a type change's `<name>__v<n>`, with its side table, where the attribute was personal under that version.
 2. Rewrites the same values inside every past event's `payload`, in place, keeping the event, its position and its shape. `reads` needs nothing, since it holds no value.
 3. Walks each of those events up its `cause_position` chain, and redacts in each **caller's event** the inputs that flowed into the erased objects' personal attributes. Check 10's taint analysis identifies which, per declaration version.
-4. Marks every `of_file_ref` row it reaches as erased. After commit it deletes the content of any hash whose references are now **all** erased, setting `of_file.erased_at`. A deletion that fails sets `erase_pending`. Every later erasure request retries the pending deletions before its own, and `diagnostics` lists them under the type of each object whose `of_file_ref` rows the erasure reached, so a deployment that sees one re-requests an erasure, which is idempotent: it records an `erased` event naming what it retried, and writes nothing else (ADR-0146); no background process is needed (ADR-0096, PRD N2). A file another object still holds survives, because its reference is not erased (D207). **The blob store's own lifecycle expiry must be off** (ADR-0017): the log is permanent and a reference outlives any expiry policy, so a bucket rule that deletes after ninety days silently breaks history.
-5. Records an event with source `erased`, carrying the names of the attributes erased and the files deleted and **never their values**, and an admission for every invariant that read what it erased (ADR-0060).
+4. *Not built: the core keeps no file table and deletes no file's content, the bytes being the application's; who deletes an erased file's bytes, and how an application learns which, is the author's open question (TODO.md, found 2026-10-15). As designed:* Marks every `of_file_ref` row it reaches as erased. After commit it deletes the content of any hash whose references are now **all** erased, setting `of_file.erased_at`. A deletion that fails sets `erase_pending`. Every later erasure request retries the pending deletions before its own, and `diagnostics` lists them under the type of each object whose `of_file_ref` rows the erasure reached, so a deployment that sees one re-requests an erasure, which is idempotent: it records an `erased` event naming what it retried, and writes nothing else (ADR-0146); no background process is needed (ADR-0096, PRD N2). A file another object still holds survives, because its reference is not erased (D207). **The blob store's own lifecycle expiry must be off** (ADR-0017): the log is permanent and a reference outlives any expiry policy, so a bucket rule that deletes after ninety days silently breaks history.
+5. Records an event with source `erased`, carrying the names of the attributes erased, and as designed the files deleted (step 4), and **never their values**, and an admission for every invariant that read what it erased (ADR-0060).
 6. Redacts every legacy entry attached to the object. Each payload field the import mapping did not list as **kept** for that entry kind, as the entry's `kept` records it, is replaced by absence, and a kind with no list loses its whole payload. The event of step 5 records how many (ADR-0078, ADR-0163).
 7. Redacts `t_proposal.inputs` on every proposal targeting an erased object, or whose inputs flow into an erased object's personal attributes, and invalidates the pending ones (ADR-0044, ADR-0078, ADR-0087).
 8. Redacts personal **inputs** as well as personal attribute values in step 2 — an input marked `personal`, or one that flows into a personal attribute — so a value passed only to an evaluator does not survive in a payload (ADR-0078).
