@@ -38889,6 +38889,138 @@
   "could_violate": {}
  },
  {
+  "label": "syntax_plants: a metric averaging a text",
+  "files": [
+   [
+    "plant.yaml",
+    "a774d03ed01a6713"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "names",
+    "metric finished's value does not type: avg reads a string, and avg over a metric's rows reads a number, an amount or a duration (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: a metric summing times",
+  "files": [
+   [
+    "plant.yaml",
+    "a95de642d0e2a9bf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "names",
+    "metric finished's value does not type: sum reads a timestamp, and sum over a metric's rows reads a number, an amount or a duration (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: a metric's least flag",
+  "files": [
+   [
+    "plant.yaml",
+    "936f252d8cd03cec"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "names",
+    "metric finished's value does not type: min reads a bool, and min over a metric's rows reads a number, an amount or a duration, a time or a date (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: a metric's percentile of a text",
+  "files": [
+   [
+    "plant.yaml",
+    "5e48139c79e244c8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "names",
+    "metric finished's value does not type: percentile reads a string, and percentile over a metric's rows reads a number, an amount or a duration, a time or a date (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: a metric subtracting an int from a decimal",
+  "files": [
+   [
+    "plant.yaml",
+    "ee33942e2695a333"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "names",
+    "metric finished's value does not type: it subtracts an int from a decimal of scale 1, and a metric's value adds values of one type, a decimal of one scale (§8.3) (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: a metric averaging a text over objects",
+  "files": [
+   [
+    "plant.yaml",
+    "c79cac174020b80c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    25,
+    "fatal",
+    "names",
+    "metric finished's value does not type: avg reads a string, and avg over a metric's rows reads a number, an amount or a duration (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "syntax_plants: a metric-only function in a condition",
   "files": [
    [

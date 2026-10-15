@@ -1,0 +1,29 @@
+module: mini
+categories: [live, closed]
+enumerations:
+  Reason: [ASKED]
+types:
+  Job:
+    description: A job.
+    tracking: record
+    attributes:
+      title: { type: string }
+      note:  { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    conditions:
+      titled: { description: The job has a title., expression: title is not null, remedy: dependent }
+    transitions:
+      open:   { kind: initial, to: OPEN, required_inputs: [title], optional_inputs: [note] }
+      finish: { kind: external, from: [OPEN], to: DONE, guards: { titled: deny } }
+    metrics:
+      finished:
+        description: Jobs finished.
+        source: transitions
+        item: t
+        filter: t.to_state == Job.DONE
+        dimensions:
+          month: month(t.occurred_at)
+        time_dimension: t.occurred_at
+        expression: min(t.completes)

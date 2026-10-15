@@ -4059,6 +4059,297 @@ fn typed_kind(ty: &Ty) -> Option<Vec<String>> {
     }
 }
 
+/// The type a member of a row of a source other than objects holds, for a
+/// metric's aggregate over `item.member`: its times, its duration, its
+/// counts, its texts and its flags (`check-flows.py`'s `ROW_MEMBER_TYPES`).
+fn row_member_ty(member: &str) -> Option<Ty> {
+    Some(match member {
+        "entered_at" | "left_at" | "occurred_at" | "recorded_at" | "at" | "piece_start"
+        | "piece_end" => Ty::Timestamp,
+        "duration" => Ty::Duration,
+        "day" => Ty::Date,
+        "count" | "declaration_version" | "corrected_by" => Ty::Int,
+        "actor_id" => Ty::Identity,
+        "actor_kind" | "entered_by_kind" | "recorded_by_kind" => Ty::ActorKind,
+        "transition" | "verdict" | "clause" | "remedy" | "name" => Ty::Str,
+        "legacy" | "migrated" | "completes" | "returns" | "asserted" | "overrides" | "imported"
+        | "redacted" | "unknown" | "enforced" | "flagged" => Ty::Bool,
+        _ => return None,
+    })
+}
+
+/// The type `item.member` holds on a row of a source other than objects:
+/// a row's state and object its type's own, a span's value its member's
+/// (`check-flows.py`'s `row_member_type`).
+fn row_member_type(
+    tn: &str,
+    t: &Value,
+    source: &str,
+    member: &str,
+    enums: &BTreeSet<String>,
+) -> Option<Ty> {
+    if matches!(
+        member,
+        "state" | "from_state" | "to_state" | "subject_state"
+    ) {
+        return Some(Ty::State(tn.to_string()));
+    }
+    if matches!(member, "object" | "subject") {
+        return Some(Ty::Reference(tn.to_string()));
+    }
+    let tracked = source
+        .strip_prefix("intervals(")
+        .and_then(|r| r.strip_suffix(')'))
+        .filter(|m| {
+            m.starts_with(|c: char| c.is_ascii_lowercase())
+                && m.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        });
+    if member == "value"
+        && let Some(m) = tracked
+    {
+        return if m == "state" {
+            Some(Ty::State(tn.to_string()))
+        } else {
+            attribute_type(obj(t, "attributes").get(m), enums)
+        };
+    }
+    row_member_ty(member)
+}
+
+/// The type of `a op b` in a metric's value, as `metric.rs` `arith_kind`
+/// gives it, which places its rounding (ADR-0128); a sum or a difference of
+/// two types is refused, saying so, which the core does not compute where
+/// its value is fractional (`check-flows.py`'s `metric_arith`, values M2).
+fn metric_arith(op: BinOp, a: Ty, b: Ty) -> Result<Option<Ty>, String> {
+    let scalar = |k: &Ty| matches!(k, Ty::Int | Ty::Decimal(_) | Ty::Number(_));
+    // a decimal literal takes the scale of what it is combined with (§8.1)
+    let (a, b) = match (&a, &b) {
+        (Ty::Number(_), Ty::Decimal(_)) => (b.clone(), b),
+        (Ty::Decimal(_), Ty::Number(_)) => (a.clone(), a),
+        _ => (a, b),
+    };
+    match op {
+        BinOp::Add | BinOp::Sub => {
+            if op == BinOp::Sub && a == Ty::Timestamp && b == Ty::Timestamp {
+                return Ok(Some(Ty::Duration));
+            }
+            if (a == Ty::Timestamp && b == Ty::Duration)
+                || (op == BinOp::Add && a == Ty::Duration && b == Ty::Timestamp)
+            {
+                return Ok(Some(Ty::Timestamp));
+            }
+            if let (Ty::Number(x), Ty::Number(y)) = (&a, &b) {
+                return Ok(Some(Ty::Number(*x.max(y))));
+            }
+            if a == b {
+                return Ok(Some(a));
+            }
+            let verb = if op == BinOp::Add {
+                format!("adds {} to", b.text())
+            } else {
+                format!("subtracts {} from", b.text())
+            };
+            Err(format!(
+                "it {verb} {}, and a metric's value adds values of one type, a decimal of one scale (§8.3)",
+                a.text()
+            ))
+        }
+        BinOp::Mul => {
+            if scalar(&a) && scalar(&b) {
+                if a == Ty::Int && b == Ty::Int {
+                    return Ok(Some(Ty::Int));
+                }
+                let places = |k: &Ty| match k {
+                    Ty::Decimal(s) => *s,
+                    Ty::Number(s) => Some(*s),
+                    _ => Some(0),
+                };
+                return Ok(Some(Ty::Decimal(
+                    places(&a).zip(places(&b)).map(|(x, y)| x + y),
+                )));
+            }
+            Ok(if scalar(&a) {
+                Some(b)
+            } else if scalar(&b) {
+                Some(a)
+            } else {
+                None
+            })
+        }
+        _ => {
+            // a quotient of two like quantities
+            if a == b && matches!(a, Ty::Duration | Ty::Money(_)) {
+                return Ok(Some(Ty::Decimal(Some(6))));
+            }
+            if scalar(&b) {
+                return Ok(Some(match a {
+                    Ty::Number(s) => Ty::Decimal(Some(s)),
+                    other => other,
+                }));
+            }
+            Ok(None)
+        }
+    }
+}
+
+/// A metric's rows and where it reads them, for typing its value.
+struct MetricRows<'a> {
+    tn: &'a str,
+    t: &'a Value,
+    enums: &'a BTreeSet<String>,
+    source: String,
+    item: String,
+}
+
+impl MetricRows<'_> {
+    /// The type of an aggregate's body over a row, None where it cannot be
+    /// told: an object's by the typing, another row's `item.member` and
+    /// `item.held(m)` by their members.
+    fn body(&self, typing: &mut Typing<'_>, b: &Expr) -> Option<Ty> {
+        if self.source == "objects" {
+            typing.broken.clear();
+            typing.flow_names = true;
+            let mut env = TyEnv::new();
+            env.insert(self.item.clone(), Some(Ty::Reference(self.tn.to_string())));
+            let got = typing.of(b, self.tn, None, &env, &BTreeSet::new());
+            return if typing.broken.is_empty() { got } else { None };
+        }
+        let is_item = |e: &Expr| matches!(e, Expr::Name(n) if *n == self.item);
+        match b {
+            Expr::Path(base, m) if is_item(base) => {
+                row_member_type(self.tn, self.t, &self.source, m, self.enums)
+            }
+            Expr::Call(f, args)
+                if args.len() == 1
+                    && matches!(&**f, Expr::Path(base, h) if h == "held" && is_item(base)) =>
+            {
+                match &args[0] {
+                    Expr::Name(n) if n == "state" => Some(Ty::State(self.tn.to_string())),
+                    Expr::Name(n) => attribute_type(obj(self.t, "attributes").get(n), self.enums),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// The type the core's metric evaluator gives a metric's value, each
+    /// rule it breaks noted in `problems`, in evaluation order.
+    fn kind(&self, typing: &mut Typing<'_>, e: &Expr, problems: &mut Vec<String>) -> Option<Ty> {
+        let aggregate = match e {
+            Expr::Call(f, args) => match &**f {
+                // the body is the last argument, after a percentile's p
+                Expr::Name(n) if ROW_AGGREGATES.contains(&n.as_str()) => {
+                    Some((n.as_str(), args.last()))
+                }
+                _ => None,
+            },
+            Expr::Agg {
+                kind,
+                var: None,
+                body,
+                ..
+            } => Some((kind.as_str(), body.as_deref())),
+            _ => None,
+        };
+        if let Some((fn_, over)) = aggregate {
+            if fn_ == "count" {
+                return Some(Ty::Int);
+            }
+            let b = self.body(typing, over?)?;
+            let order = !matches!(fn_, "sum" | "avg");
+            let reads = ["int", "decimal", "number", "money", "duration"].contains(&b.tag())
+                || order && matches!(b, Ty::Timestamp | Ty::Date);
+            if !reads {
+                let what = if order {
+                    "a number, an amount or a duration, a time or a date"
+                } else {
+                    "a number, an amount or a duration"
+                };
+                problems.push(format!(
+                    "{fn_} reads {}, and {fn_} over a metric's rows reads {what}",
+                    b.text()
+                ));
+                return None;
+            }
+            return Some(if fn_ == "avg" && b == Ty::Int {
+                Ty::Decimal(Some(6))
+            } else {
+                b
+            });
+        }
+        match e {
+            Expr::Num(Number::Int(_)) => Some(Ty::Int),
+            Expr::Num(Number::Decimal(d)) => Some(match d.split_once('.') {
+                Some((_, f)) => Ty::Number(u32::try_from(f.len()).unwrap_or(u32::MAX)),
+                None => Ty::Int,
+            }),
+            Expr::Dur(..) => Some(Ty::Duration),
+            Expr::Money(c, _) => Some(Ty::Money(c.clone())),
+            Expr::Name(n) if n == "now" => Some(Ty::Timestamp),
+            Expr::Neg(x) => self.kind(typing, x, problems),
+            Expr::Bin(op @ (BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div), l, r) => {
+                let a = self.kind(typing, l, problems);
+                let b = self.kind(typing, r, problems);
+                let (Some(a), Some(b)) = (a, b) else {
+                    return None;
+                };
+                match metric_arith(*op, a, b) {
+                    Ok(got) => got,
+                    Err(p) => {
+                        problems.push(p);
+                        None
+                    }
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+/// What a metric's value breaks that the core's metric evaluator does not
+/// compute, where the types it combines can be told: an aggregate over its
+/// rows of what it does not compute over, a text, a bool, a member, an
+/// identity or a state, and a sum of times; and a sum or a difference of
+/// two types, a decimal and an int or two scales, whose fractional value
+/// the core cannot place (the values audit's M2, the model's check 24;
+/// `check-flows.py`'s `metric_type_errors`).
+fn metric_type_errors(
+    typing: &mut Typing<'_>,
+    tn: &str,
+    t: &Value,
+    enums: &BTreeSet<String>,
+) -> Found {
+    let mut out = Found::new();
+    for (mn, m) in obj(t, "metrics") {
+        if inherited(t, "metrics", mn) {
+            continue;
+        }
+        // step 2 refuses what does not parse
+        let Ok(tree) = parse(&squash(&body_text(m, "expression"))) else {
+            continue;
+        };
+        let rows = MetricRows {
+            tn,
+            t,
+            enums,
+            source: body_text(m, "source"),
+            item: body_text(m, "item"),
+        };
+        let mut problems = Vec::new();
+        rows.kind(typing, &tree, &mut problems);
+        if let Some(p) = problems.first() {
+            out.push(finding(
+                segs!["types", tn, "metrics", mn, "expression"],
+                "names",
+                format!("metric {mn}'s value does not type: {p} (the model's check 24)"),
+            ));
+        }
+    }
+    out
+}
+
 /// What check 17 refuses of an add or a remove: a value of another kind
 /// than its set's elements (the values audit's K-10).
 #[allow(clippy::too_many_arguments)]
@@ -4385,6 +4676,7 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
                 }
             }
         }
+        out.extend(metric_type_errors(&mut typing, &tn, t, &enums));
     }
     let migration = doc.get("migration").cloned().unwrap_or(Value::Null);
     for (tn, given) in obj(&migration, "backfill") {

@@ -2909,7 +2909,7 @@ def expression_type_errors(doc, library):
     """Each expression of a module that does not type by declaration-syntax.md §8.3, where the types it combines can
     be told: a condition, an invariant, a derived attribute, a uniqueness condition, an effect's value, argument, loop
     or range, and a backfill; a condition a bool or an evaluator's verdict and an invariant a bool, besides (the model's
-    check 24). A metric's expressions read rows, which this does not type."""
+    check 24). Of a metric's expressions, which read rows, its value alone, by `metric_type_errors`."""
     kinds = dict(library or {})
     kinds.update(dict(types(doc)))
     enums = set(doc.get("enumerations") or {}) | {n for names in (doc.get("imports") or {}).values() for n in names if n not in kinds}
@@ -2965,9 +2965,150 @@ def expression_type_errors(doc, library):
                     loose = typed_loop_error(typing, st["foreach"], tn, x, env)
                     if loose:
                         out.append((where, "names", f"{tn}.{xn} loops over {st['foreach']['array']}, {loose} (the model's check 24)"))
+        out += metric_type_errors(typing, tn, t, enums)
     for tn, given in ((doc.get("migration") or {}).get("backfill") or {}).items():
         for a, e in (given or {}).items():
             check(("migration", "backfill", tn, a), f"the backfill of {tn}.{a}", e, tn, None)
+    return out
+
+
+# the type a member of a row of a source other than objects holds, for a metric's aggregate over `item.member`
+# (declaration-syntax.md §6.9): its times, its duration, its counts, its texts and its flags; a row's state, object,
+# value and what it held are its type's own (`row_member_type`)
+ROW_MEMBER_TYPES = {
+    **dict.fromkeys(("entered_at", "left_at", "occurred_at", "recorded_at", "at", "piece_start", "piece_end"),
+                    ("timestamp",)),
+    "duration": ("duration",), "day": ("date",),
+    **dict.fromkeys(("count", "declaration_version", "corrected_by"), ("int",)),
+    "actor_id": ("identity",),
+    **dict.fromkeys(("actor_kind", "entered_by_kind", "recorded_by_kind"), ("actor_kind",)),
+    **dict.fromkeys(("transition", "verdict", "clause", "remedy", "name"), ("string",)),
+    **dict.fromkeys(("legacy", "migrated", "completes", "returns", "asserted", "overrides", "imported", "redacted",
+                     "unknown", "enforced", "flagged"), ("bool",)),
+}
+# what each aggregate over a metric's rows computes over: a number, an amount or a duration, and for an order or a
+# middle a time or a date besides (`metric.rs`, measured 2026-10-15)
+METRIC_AGGREGATE_READS = {
+    "sum": ("int", "decimal", "number", "money", "duration"),
+    "avg": ("int", "decimal", "number", "money", "duration"),
+    **dict.fromkeys(("median", "percentile", "min", "max"),
+                    ("int", "decimal", "number", "money", "duration", "timestamp", "date")),
+}
+
+
+def row_member_type(tn, t, source, member, enums):
+    """The type `item.member` holds on a row of a source other than objects, None where it cannot be told."""
+    if member in ("state", "from_state", "to_state", "subject_state"):
+        return ("state", tn)
+    if member in ("object", "subject"):
+        return ("reference", tn)
+    tracked = re.fullmatch(r"intervals\(([a-z][a-z0-9_]*)\)", source)
+    if member == "value" and tracked:
+        return ("state", tn) if tracked.group(1) == "state" else \
+            attribute_type((t.get("attributes") or {}).get(tracked.group(1)), enums)
+    return ROW_MEMBER_TYPES.get(member)
+
+
+def metric_arith(op, a, b):
+    """The type of `a op b` in a metric's value, as `metric.rs` `arith_kind` gives it, which places its rounding
+    (ADR-0128); a sum or a difference of two types is a string saying so, which the core does not compute where its
+    value is fractional (values M2)."""
+    scalar = ("int", "decimal", "number")
+    if a[0] == "number" and b[0] == "decimal":     # a decimal literal takes the scale of what it is combined with (§8.1)
+        a = b
+    elif b[0] == "number" and a[0] == "decimal":
+        b = a
+    if op in ("+", "-"):
+        if op == "-" and a[0] == b[0] == "timestamp":
+            return ("duration",)
+        if (a[0], b[0]) == ("timestamp", "duration") or op == "+" and (a[0], b[0]) == ("duration", "timestamp"):
+            return ("timestamp",)
+        if a[0] == b[0] == "number":
+            return ("number", max(a[1], b[1]))
+        if a == b:
+            return a
+        verb = f"adds {type_text(b)} to" if op == "+" else f"subtracts {type_text(b)} from"
+        return f"it {verb} {type_text(a)}, and a metric's value adds values of one type, a decimal of one scale (§8.3)"
+    if op == "*":
+        if a[0] in scalar and b[0] in scalar:
+            if a[0] == b[0] == "int":
+                return ("int",)
+            pa, pb = (0 if k[0] == "int" else k[1] for k in (a, b))
+            return ("decimal", None if pa is None or pb is None else pa + pb)
+        return b if a[0] in scalar else a if b[0] in scalar else None
+    if a == b and a[0] in ("duration", "money"):
+        return ("decimal", 6)                       # a quotient of two like quantities
+    if b[0] in scalar:
+        return ("decimal", a[1]) if a[0] == "number" else a
+    return None
+
+
+def metric_type_errors(typing, tn, t, enums):
+    """What a metric's value breaks that the core's metric evaluator does not compute, where the types it combines can
+    be told: an aggregate over its rows of what it does not compute over, a text, a bool, a member, an identity or a
+    state, and a sum of times; and a sum or a difference of two types, a decimal and an int or two scales, whose
+    fractional value the core cannot place (the values audit's M2, the model's check 24)."""
+    out = []
+    for mn, m in (t.get("metrics") or {}).items():
+        if inherited(t, "metrics", mn):
+            continue
+        try:
+            tree = flowexpr.parse(" ".join(str(m.get("expression", "")).split()))
+        except flowexpr.ParseError:
+            continue                            # step 2 refuses what does not parse
+        source, item = str(m.get("source", "")), m.get("item")
+        problems = []
+
+        def body(b):
+            if source == "objects":
+                typing.broken, typing.flow_names = [], True
+                got = typing.of(b, tn, None, {item: ("reference", tn)})
+                return None if typing.broken else got
+            if b[0] == "path" and b[1] == ("name", item):
+                return row_member_type(tn, t, source, b[2], enums)
+            if b[0] == "call" and b[1] == ("path", ("name", item), "held") and len(b[2]) == 1 and b[2][0][0] == "name":
+                n = b[2][0][1]
+                return ("state", tn) if n == "state" else attribute_type((t.get("attributes") or {}).get(n), enums)
+            return None
+
+        def kind(e):
+            if e[0] == "call" and e[1][0] == "name" and e[1][1] in ROW_AGGREGATES or e[0] == "agg" and e[3] is None:
+                # the body is the last argument, after a percentile's p
+                fn, over = (e[1][1], e[2][-1] if e[2] else None) if e[0] == "call" else (e[1], e[6])
+                if fn == "count":
+                    return ("int",)
+                b = body(over) if over is not None else None
+                if b is None:
+                    return None
+                if b[0] not in METRIC_AGGREGATE_READS.get(fn, ()):
+                    reads = "a number, an amount or a duration" + ("" if fn in ("sum", "avg") else ", a time or a date")
+                    problems.append(f"{fn} reads {type_text(b)}, and {fn} over a metric's rows reads {reads}")
+                    return None
+                return ("decimal", 6) if fn == "avg" and b[0] == "int" else b
+            if e[0] == "num":
+                return ("int",) if isinstance(e[1], int) else ("number", len(e[1].split(".", 1)[1]))
+            if e[0] == "dur":
+                return ("duration",)
+            if e[0] == "money":
+                return ("money", e[1])
+            if e == ("name", "now"):
+                return ("timestamp",)
+            if e[0] == "neg":
+                return kind(e[1])
+            if e[0] == "bin" and e[1] in ("+", "-", "*", "/"):
+                a, b = kind(e[2]), kind(e[3])
+                if a is None or b is None:
+                    return None
+                got = metric_arith(e[1], a, b)
+                if isinstance(got, str):
+                    problems.append(got)
+                    return None
+                return got
+            return None
+        kind(tree)
+        if problems:
+            out.append((("types", tn, "metrics", mn, "expression"), "names",
+                        f"metric {mn}'s value does not type: {problems[0]} (the model's check 24)"))
     return out
 
 
@@ -6898,6 +7039,16 @@ def syntax_plants():
         ("a metric's value nesting an aggregate over its rows", "names",
          p(METRIC, "expression: count()", "expression: \"count(where count() > 1)\"")),
         ("a metric's value that is a choice", "names", p(METRIC, "expression: count()", "expression: if true then count() else 0")),
+        # an aggregate over the rows of what it computes over, and a sum of one type (the audit's values M2)
+        ("a metric averaging a text", "names", p(METRIC, "expression: count()", "expression: avg(t.held(title))")),
+        ("a metric summing times", "names", p(METRIC, "expression: count()", "expression: sum(t.occurred_at)")),
+        ("a metric's least flag", "names", p(METRIC, "expression: count()", "expression: min(t.completes)")),
+        ("a metric's percentile of a text", "names", p(METRIC, "expression: count()", "expression: percentile(0.5, t.held(title))")),
+        ("a metric subtracting an int from a decimal", "names", p(METRIC, "expression: count()", "expression: count() * 1.5 - count()")),
+        ("a metric averaging a text over objects", "names",
+         p(METRIC, "        source: transitions\n        item: t\n        filter: t.to_state == Job.DONE\n        dimensions:\n"
+                   "          month: month(t.occurred_at)\n        time_dimension: t.occurred_at\n        expression: count()\n",
+           "        source: objects\n        item: j\n        expression: avg(j.title)\n")),
         ("a metric-only function in a condition", "check 56", p(MINI, COND, "expression: median(title) > 0")),
         # on every line but a metric's own, where these were accepted (the values audit's G8)
         ("a time bucket in an attribute's default", "check 56",
