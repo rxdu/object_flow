@@ -276,6 +276,10 @@ pub struct Type {
     /// The base it extends, whose attributes, derived attributes and
     /// invariants it inherits (`declaration-syntax.md` §2).
     pub extends: Option<String>,
+    /// For each part it inherits from an abstract base, the cascade and
+    /// whether the parts survive every final transition, which the library
+    /// gives its copy of that end (`flow-format.md` §4.14).
+    pub inherited_parts: Vec<(String, Vec<CascadeClause>, bool)>,
     /// Another system owns it, and only the import writes it (§4.15).
     pub mirror: bool,
     /// A base with no objects of its own.
@@ -593,25 +597,27 @@ impl Reader<'_> {
                 .map(|o| self.text(o, "an opposite end"))
                 .transpose()?,
             composite: node.get("aggregation").and_then(Node::text) == Some("composite"),
-            cascade: {
-                let mut clauses = Vec::new();
-                for c in node.get("cascade").map(Node::items).unwrap_or_default() {
-                    clauses.push(CascadeClause {
-                        on: self.names(c.get("on"))?,
-                        transition: match c.get("transition").and_then(Node::text) {
-                            Some(t) => t.to_string(),
-                            None => {
-                                return self
-                                    .error(c, "a cascade names the transition its parts take");
-                            }
-                        },
-                        inputs: self.bindings(c.get("inputs"))?,
-                        limit: c.get("limit").and_then(Node::integer),
-                    });
-                }
-                clauses
-            },
+            cascade: self.cascade(node.get("cascade"))?,
         })
+    }
+
+    /// A composite end's cascade, or an inherited part's.
+    fn cascade(&self, node: Option<&Node>) -> Loaded<Vec<CascadeClause>> {
+        let mut clauses = Vec::new();
+        for c in node.map(Node::items).unwrap_or_default() {
+            clauses.push(CascadeClause {
+                on: self.names(c.get("on"))?,
+                transition: match c.get("transition").and_then(Node::text) {
+                    Some(t) => t.to_string(),
+                    None => {
+                        return self.error(c, "a cascade names the transition its parts take");
+                    }
+                },
+                inputs: self.bindings(c.get("inputs"))?,
+                limit: c.get("limit").and_then(Node::integer),
+            });
+        }
+        Ok(clauses)
     }
 
     fn input(&self, node: &Node) -> Loaded<Input> {
@@ -770,13 +776,21 @@ impl Reader<'_> {
     }
 
     fn type_(&self, module: &str, name: &str, node: &Node) -> Loaded<Type> {
-        let mut beyond = Vec::new();
+        let beyond = Vec::new();
         let at_outcome = Vec::new();
-        if node
+        // each part it inherits, with its cascade and survives, where every
+        // request of the type was not run (the values audit's K-11)
+        let mut inherited_parts = Vec::new();
+        for (part, entry) in node
             .get("inherited_parts")
-            .is_some_and(|v| v.boolean() != Some(false))
+            .map(Node::entries)
+            .unwrap_or_default()
         {
-            beyond.push(format!("parts a family inherits ({name}.inherited_parts)"));
+            inherited_parts.push((
+                part.clone(),
+                self.cascade(entry.get("cascade"))?,
+                entry.get("survives").and_then(Node::boolean) == Some(true),
+            ));
         }
         let mut attributes = Vec::new();
         for (n, spec) in node
@@ -881,6 +895,7 @@ impl Reader<'_> {
                 .and_then(Node::text)
                 .map(str::to_string),
             extends: node.get("extends").and_then(Node::text).map(str::to_string),
+            inherited_parts,
             mirror: self.flag(node, "mirror")?,
             abstract_: self.flag(node, "abstract")?,
             retired: false,
@@ -1052,6 +1067,7 @@ impl Reader<'_> {
             observation_on: Some(subject.to_string()),
             state_machine: None,
             extends: None,
+            inherited_parts: Vec::new(),
             mirror: false,
             abstract_: false,
             retired: false,
@@ -1404,6 +1420,14 @@ fn inherit(t: &mut Type, chain: &[String], types: &BTreeMap<String, Type>) {
     }
     let (mine, theirs): (Vec<_>, Vec<_>) =
         invariants.into_iter().partition(|(n, _)| own.contains(n));
+    // a part a base declares goes with the subtype's final transitions as
+    // its `inherited_parts` says (`flow-format.md` §4.14)
+    for (part, cascade, survives) in &t.inherited_parts {
+        if let Some((_, a)) = attributes.iter_mut().find(|(n, _)| n == part) {
+            a.cascade = cascade.clone();
+            a.survives_always = *survives;
+        }
+    }
     t.attributes = attributes;
     t.derived = derived;
     t.invariants = mine.into_iter().chain(theirs).collect();
@@ -1587,6 +1611,7 @@ fn operator_type() -> Type {
         observation_on: None,
         state_machine: None,
         extends: None,
+        inherited_parts: Vec::new(),
         mirror: false,
         abstract_: false,
         retired: false,
@@ -1668,6 +1693,7 @@ fn proposal_type() -> Type {
         observation_on: None,
         state_machine: None,
         extends: None,
+        inherited_parts: Vec::new(),
         mirror: false,
         abstract_: false,
         retired: false,
@@ -1902,6 +1928,7 @@ fn label_type() -> Type {
         observation_on: Some(ANY_TYPE.to_string()),
         state_machine: None,
         extends: None,
+        inherited_parts: Vec::new(),
         mirror: false,
         abstract_: false,
         retired: false,
@@ -2046,6 +2073,7 @@ fn subscription_type() -> Type {
         observation_on: None,
         state_machine: None,
         extends: None,
+        inherited_parts: Vec::new(),
         mirror: false,
         abstract_: false,
         retired: false,
@@ -2335,15 +2363,64 @@ types:
         );
     }
 
+    /// A part an abstract base declares takes, on each subtype, the cascade
+    /// and survives its `inherited_parts` entry gives (`flow-format.md`
+    /// §4.14), where such a subtype was named beyond the slice and every
+    /// request of it not run (the values audit's K-11).
     #[test]
-    fn what_the_slice_does_not_run_is_named_not_dropped() {
-        let text = JOBS.replace(
-            "    description: A job.\n",
-            "    description: A job.\n    inherited_parts: { lines: { survives: true } }\n",
+    fn an_inherited_part_goes_with_each_subtype_as_it_says() {
+        const NOTES: &str = r#"
+module: notes
+categories: [live, closed]
+types:
+  Carrier:
+    abstract: true
+    tracking: record
+    attributes:
+      notes: { reference: "Note[]", aggregation: composite, opposite: subject }
+  Ticket:
+    extends: Carrier
+    inherited_parts:
+      notes: { cascade: [ { on: [close], transition: file, limit: 100 } ] }
+    states: { OPEN: { category: live }, CLOSED: { category: closed, final: true } }
+    transitions:
+      raise: { kind: initial, to: OPEN }
+      close: { kind: external, from: OPEN, to: CLOSED }
+  Folder:
+    extends: Carrier
+    inherited_parts:
+      notes: { survives: true }
+    states: { OPEN: { category: live }, GONE: { category: closed, final: true } }
+    transitions:
+      make: { kind: initial, to: OPEN }
+      drop: { kind: external, from: OPEN, to: GONE }
+  Note:
+    tracking: record
+    attributes:
+      subject: { reference: Carrier, opposite: notes }
+    states: { ACTIVE: { category: live }, FILED: { category: closed, final: true } }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [subject] }
+      file: { kind: external, from: ACTIVE, to: FILED }
+"#;
+        let lib = Library::load(&[("notes.yaml".into(), NOTES.into())]).unwrap();
+        let ticket = lib.type_("Ticket").unwrap();
+        assert!(ticket.beyond.is_empty());
+        let notes = ticket.attribute("notes").unwrap();
+        assert_eq!(notes.cascade.len(), 1);
+        assert_eq!(
+            (
+                notes.cascade[0].on.as_slice(),
+                notes.cascade[0].transition.as_str()
+            ),
+            (["close".to_string()].as_slice(), "file")
         );
-        let m = load_module("jobs.yaml", &text).unwrap();
-        assert_eq!(m.types[0].beyond.len(), 1);
-        assert!(m.types[0].beyond[0].contains("Job.inherited_parts"));
+        assert!(!notes.survives_always);
+        let folder = lib.type_("Folder").unwrap().attribute("notes").unwrap();
+        assert!(folder.survives_always && folder.cascade.is_empty());
+        // the base's own end is as declared
+        let base = lib.type_("Carrier").unwrap().attribute("notes").unwrap();
+        assert!(base.cascade.is_empty() && !base.survives_always);
     }
 
     #[test]

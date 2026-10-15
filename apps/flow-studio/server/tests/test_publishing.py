@@ -1264,6 +1264,26 @@ def test_a_principal_no_request_names_skips_its_write_alike(tee):
     alike(tee)
 
 
+def test_a_part_a_base_declares_goes_with_its_subtype_alike(tee):
+    """`flow-format.md` §4.14's own sample runs: a ticket's notes, a part its abstract base declares, are filed by the
+    cascade the ticket's `inherited_parts` gives, alike through both backends, where the core answered every request
+    of such a subtype `501` (the values audit's K-11)."""
+    import re
+    doc = (pathlib.Path(__file__).resolve().parents[4] / "docs" / "design" / "flow-format.md").read_text()
+    sample = next(b for b in re.findall(r"```yaml\n(.*?)```", doc, re.S)
+                  if "module: notes" in b and "inherited_parts" in b)
+    load(tee, "notes", sample)
+    tee.found.clear()
+    ticket = made(tee, "Ticket", "raise")
+    assert tee.post("/v1/request", {"actor": OP, "object_id": ticket, "transition": "annotate",
+                                    "inputs": {"text": "check the brakes"}})["kind"] == "satisfied"
+    notes = tee.post("/v1/get", {"id": ticket})["attributes"]["notes"]
+    assert len(notes) == 1, notes
+    assert tee.post("/v1/request", {"actor": OP, "object_id": ticket, "transition": "close"})["kind"] == "satisfied"
+    assert tee.post("/v1/get", {"id": notes[0]})["state"] == "FILED"
+    alike(tee)
+
+
 def tiers(tee) -> list:
     page = tee.post("/v1/metric", {"actor": OP, "name": "Customer.tiers",
                                    "keep": ["tier"]})
