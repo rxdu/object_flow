@@ -2973,6 +2973,59 @@ fn concurrent_writes_lose_no_update() {
     );
 }
 
+/// One request sent at once by many callers under one idempotency key, as
+/// a caller retrying while its first send is still in flight, applies once:
+/// a creation makes one object, every answer naming it, and a bump counts
+/// once (ADR-0178 decision 7, ADR-0076's replay).
+#[test]
+fn a_request_sent_at_once_under_one_key_applies_once() {
+    let file = fresh_store("one-key");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    let (tally, _, _, _) = ledger(&s);
+    let at_once = |body: Value| -> Vec<Value> {
+        let callers: Vec<_> = (0..12)
+            .map(|_| {
+                let w = at(&s);
+                let body = body.clone();
+                std::thread::spawn(move || post(&w, "/v1/request", &body))
+            })
+            .collect();
+        callers
+            .into_iter()
+            .map(|c| c.join().expect("a caller"))
+            .collect()
+    };
+    let op = json!({"id": "operator"});
+    let made = at_once(json!({"actor": op, "type": "Tally", "transition": "start",
+                               "inputs": {"count": 0}, "idempotency_key": "one"}));
+    assert!(made.iter().all(|v| v["kind"] == "satisfied"), "{made:?}");
+    let ids: std::collections::BTreeSet<&str> = made
+        .iter()
+        .filter_map(|v| v["object_id"].as_str())
+        .collect();
+    assert_eq!(ids.len(), 1, "{made:?}");
+    let bumped = at_once(
+        json!({"actor": op, "object_id": tally, "transition": "bump",
+                                "idempotency_key": "twice"}),
+    );
+    assert!(
+        bumped.iter().all(|v| v["kind"] == "satisfied"),
+        "{bumped:?}"
+    );
+    let got = post(&s, "/v1/get", &json!({"actor": op, "id": tally}));
+    assert_eq!(
+        (&got["attributes"]["count"], &got["version"]),
+        (&json!(1), &json!(2)),
+        "{got}"
+    );
+}
+
 /// A read sees one committed state while writes commit around it: the
 /// pair's total, read through both its accounts, is the same at every read
 /// while moves between them commit (ADR-0178 decision 1).
