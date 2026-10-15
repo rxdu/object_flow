@@ -23,7 +23,9 @@ Draft, 2026-09-09, amended 2026-09-23. The acceptance test, which PRD N4 names a
   - from §1: an object in a state no transition of its type reaches, a built-in type's excepted; an invariant false with no admission; a required attribute absent; a stored relationship end its far side disagrees with; a satisfied verdict with no event, or naming one the log has not or another actor made; an export of the log that skips an event or orders it otherwise; an erased object's personal value still held in an object, an interval, the log or an attempt;
   - from ADR-0204 §3: a key that does not replay the request first sent under it, or that refuses a request it never saw.
 
-  Left to a later slice: a replay of the log reproducing each row, a read set re-evaluating to its verdict, a refusal replaying, and the interval index against the log.
+  - *added 2026-10-16:* an object's state intervals against its log: a span not supplied by an import or a migration opened by no event of its object, or holding another state than that event entered or the correction that last relabelled it; an event that changed the state opening no span; other than one span open, in the object's state. Held by three planted defects in `record_spans` (a span naming the wrong event, the previous span left open, a change opening none), each caught at the gates' budget.
+
+  Left to a later slice: a replay of the log reproducing each row, a read set re-evaluating to its verdict, a refusal replaying, and a tracked member's intervals against the log, which the log records only as each request's inputs.
 - **Determinism:** a run is a function of its fixture and its seed, held by a test, and a failing run is reduced to the shortest transcript that still fails. The gates run six seeds of 120 steps for each fixture, and `OBJECTFLOW_HARNESS_SEEDS` and `OBJECTFLOW_HARNESS_STEPS` widen a run.
 - **Held by planted defects:** invariants left unenforced, an erasure leaving events' payloads, an event recorded under another actor, and every key refused as reused are each caught at the gates' budget.
 

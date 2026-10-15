@@ -523,7 +523,7 @@ Decided by the author 2026-10-14 ("go with your recommendations on all six"), af
 - [x] A first set of failure conditions from §1 and ADR-0204 §3's A and E, each checked from the read surface. *Done 2026-10-14: four planted engine defects each caught at the gates' budget (`adversarial-harness.md`, Built).*
 - [x] The guesser, the retrier, the skipper, the backdater and an eraser. *Done 2026-10-14.*
 - [x] Run in `scripts/check-all`, six seeds of 120 steps per fixture. *Done 2026-10-14: about 20 s.*
-- [ ] The rest of §1: the log replayed to each row, read sets and refusals re-evaluated, the interval index against the log; ADR-0204 §3's V against the reference runner; the unit's journey as a fixture; the route-tester's other routes.
+- [ ] The rest of §1: the log replayed to each row, read sets and refusals re-evaluated, the interval index against the log; ADR-0204 §3's V against the reference runner; the unit's journey as a fixture; the route-tester's other routes. *The state intervals against the log done 2026-10-16 (`objectflow-harness` `state_spans_against`): passing six seeds of 120 steps per fixture and forty of 300 in release, and catching three planted `record_spans` defects at the gates' budget (`adversarial-harness.md`, Built). A tracked member's intervals are left, the log recording a request's inputs and not what its effects wrote.*
 - [ ] The racer, which needs a store whose writers run at once to find anything (§5).
 
 **C. The audit** (ADR-0204 §6), six areas at once, each returning its whole inventory graded by §4 and delivered as checks.

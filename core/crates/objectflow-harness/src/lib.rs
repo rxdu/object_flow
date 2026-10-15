@@ -428,7 +428,21 @@ impl Run {
         let Ok(objects) = world.in_order() else {
             return fail("store error", "no objects".into());
         };
+        // each object's events, for its intervals against the log
+        let Ok(all) = world.log() else {
+            return fail("store error", "no log".into());
+        };
+        let mut events: BTreeMap<String, Vec<objectflow_core::store::Event>> = BTreeMap::new();
+        for e in all {
+            events
+                .entry(e.object_id.clone())
+                .or_default()
+                .push(e.clone());
+        }
         for o in &objects {
+            if let Some(detail) = state_spans_against(&world, o, events.get(&o.id)) {
+                return fail("intervals", detail);
+            }
             let Some(t) = world.lib.type_(&o.type_) else {
                 continue;
             };
@@ -548,6 +562,75 @@ impl Run {
         }
         None
     }
+}
+
+/// Where an object's state spans disagree with its log (§1, "an interval
+/// the log does not reproduce"): a span not supplied by an import or a
+/// migration opened by no event of its object, or holding another state
+/// than the event that opened it, or the correction that last relabelled
+/// it, entered; an event that changed the state opening no span; and other
+/// than one span open, in the object's state.
+fn state_spans_against(
+    world: &objectflow_core::world::World<'_>,
+    o: &objectflow_core::world::Object,
+    events: Option<&Vec<objectflow_core::store::Event>>,
+) -> Option<String> {
+    let parts = world.parts(o).ok()?;
+    let spans = parts.spans.get("state")?;
+    let none = Vec::new();
+    let events = events.unwrap_or(&none);
+    let at = |p: i64| events.iter().find(|e| e.position == p);
+    let name = |v: &Value| match v {
+        Value::State { name, .. } => Some(name.clone()),
+        _ => None,
+    };
+    for sp in spans {
+        if sp.legacy || sp.migrated {
+            continue;
+        }
+        let Some(e) = at(sp.entered_position) else {
+            return Some(format!(
+                "{}'s span in {:?} was opened by event {}, which is none of its own",
+                o.id,
+                name(&sp.value),
+                sp.entered_position
+            ));
+        };
+        let entered = sp
+            .corrected_by
+            .and_then(at)
+            .map_or_else(|| e.to_state.clone(), |c| c.to_state.clone());
+        if name(&sp.value).as_deref() != Some(entered.as_str()) {
+            return Some(format!(
+                "{}'s span opened by event {} holds {:?}, where the log entered {entered}",
+                o.id,
+                sp.entered_position,
+                name(&sp.value)
+            ));
+        }
+    }
+    let opened: BTreeSet<i64> = spans.iter().map(|s| s.entered_position).collect();
+    for e in events {
+        let changed = e.changes_state || e.from_state.is_none();
+        if changed && !e.imported && !opened.contains(&e.position) {
+            return Some(format!(
+                "{}'s event {} ({}, into {}) opened no span",
+                o.id, e.position, e.transition, e.to_state
+            ));
+        }
+    }
+    let open: Vec<&objectflow_core::world::Span> =
+        spans.iter().filter(|s| s.left_position.is_none()).collect();
+    if open.len() != 1 || name(&open[0].value).as_deref() != Some(o.state.as_str()) {
+        return Some(format!(
+            "{} is in {}, and {} of its state spans are open, in {:?}",
+            o.id,
+            o.state,
+            open.len(),
+            open.iter().map(|s| name(&s.value)).collect::<Vec<_>>()
+        ));
+    }
+    None
 }
 
 /// The states an object of a type may stand in: every one a transition of
