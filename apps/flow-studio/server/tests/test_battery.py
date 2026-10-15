@@ -50,14 +50,15 @@ types:
       b: { type: bool, optional: true }
       lv: { type: Level, optional: true }
       tags: { type: "string[]", optional: true }
+      who: { type: identity, optional: true }
     states: { OPEN: { category: live }, DONE: { category: closed, final: true } }
     derived_attributes:
 """
 TAIL = """    transitions:
-      open: { kind: initial, to: OPEN, optional_inputs: [i, d2, d4, m, du, t, dd, s, b, lv, tags] }
+      open: { kind: initial, to: OPEN, optional_inputs: [i, d2, d4, m, du, t, dd, s, b, lv, tags, who] }
       close: { kind: external, from: [OPEN], to: DONE }
 """
-ATOMS = ["i", "d2", "d4", "m", "du", "t", "dd", "s", "b", "lv", "tags", "0",
+ATOMS = ["i", "d2", "d4", "m", "du", "t", "dd", "s", "b", "lv", "tags", "who", "0",
          "2", "1.5", "2.255", '"a"', "true", "1 h", "USD 1.00", "Level.HIGH",
          "now", "length(s)", "date(t)", "time_in(OPEN)",
          "count(x in tags: true)", "state", "OPEN"]
@@ -66,10 +67,10 @@ BINARY = ["+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "and", "or",
 OBJECTS = [
     {"i": 2, "d2": "10.00", "d4": "0.0050", "m": "USD 10.00", "du": "90 min",
      "t": "2026-01-01T00:00:00Z", "dd": "2026-01-01", "s": "ab", "b": True,
-     "lv": "LOW", "tags": ["a", "b"]},
+     "lv": "LOW", "tags": ["a", "b"], "who": "ann"},
     {"i": -3, "d2": "-0.05", "d4": "1.2345", "m": "USD 0.05", "du": "1 s",
      "t": "1999-12-31T23:59:59Z", "dd": "0999-06-15", "s": "", "b": False,
-     "lv": "HIGH", "tags": []},
+     "lv": "HIGH", "tags": [], "who": "x.y@z"},
     {"i": 0, "d2": "0.00", "d4": "0.0000", "m": "USD 0.00", "du": "0 s",
      "t": "2000-02-29T00:00:00Z", "dd": "2000-02-29"},
     {},
@@ -298,7 +299,8 @@ def comparable(offer):
 
 
 
-TARGETS = ["i", "d2", "d4", "m", "du", "t", "dd", "s", "b", "lv", "tags"]
+TARGETS = ["i", "d2", "d4", "m", "du", "t", "dd", "s", "b", "lv", "tags",
+           "who"]
 
 
 def writing(writes: list[tuple[str, str]]) -> str:
