@@ -2665,6 +2665,10 @@ class Typing:
             if fn in ("sum", "min", "max") and b is not None:
                 if fn == "sum" and b[0] not in SCALARS + ("money", "duration"):
                     self.fail(f"sum adds {type_text(b)}, which does not add")
+                elif b[0] == "enumeration":
+                    # the least or the greatest member, of what has no order, which the core did not run and the
+                    # reference runner answered by name (the values audit's R4, as K-4)
+                    self.fail(f"{fn} orders {type_text(b)}, and an enumeration has no order")
                 return b
             return None
         if k == "metric":
@@ -8410,6 +8414,8 @@ def expression_type_plants(people):
         # an order, a negative and a membership only where the language has them (the audit's values K-4 to K-6)
         ("an enumeration ordered", ledger("tier > Tier.SILVER"),
          [wrong("derived attribute probe", "it orders a member of Tier, and an enumeration has no order")]),
+        ("the greatest member of an enumeration", ledger("max(x in {tier, Tier.SILVER}: x) == Tier.SILVER"),
+         [wrong("derived attribute probe", "max orders a member of Tier, and an enumeration has no order")]),
         ("a string negated", ledger("-label == label"), [wrong("derived attribute probe", "it negates a string, which has no negative")]),
         ("membership in a string", ledger("label in label"),
          [wrong("derived attribute probe", "it asks for membership in a string, which is no collection")]),

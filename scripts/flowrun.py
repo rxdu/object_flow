@@ -1097,7 +1097,7 @@ class Evaluator:
                 return False if b is False else (ABSENT if ABSENT in (a, b) else True)
             return True if b is True else (ABSENT if ABSENT in (a, b) else False)
         r = self.combine(op, self.value(e[2], env), self.value(e[3], env))
-        if op in ("*", "/") and isinstance(r, Fraction) and r.denominator != 1:
+        if isinstance(r, Fraction) and (op in ("*", "/") and r.denominator != 1 or abs(r) > 2 ** 63 - 1):
             r = self.as_held(e, env, r)
         return r
 
@@ -1105,18 +1105,27 @@ class Evaluator:
         """A quotient, or a product of an amount or a duration, rounded half to even where the core's evaluator rounds
         it (declaration-syntax.md §8.3): a decimal quotient at its dividend's scale, an amount at its currency's minor
         unit, a duration at whole seconds; a product of numbers is exact. Where it rounded only a value written to an
-        attribute, and a derived quotient that did not terminate failed its read (the audit's values R1)."""
+        attribute, and a derived quotient that did not terminate failed its read (the audit's values R1). Then a value
+        past what the core holds is out of range: a duration or a time past 64 bits of seconds, a decimal or an amount
+        past 128 bits of units or 38 places, where the runner answered it (R5, ADR-0205 decision 2)."""
         try:
             kinds = self.kinds_here(env)
             k = held_arith_kind(e[1], self.held_kind(e[2], kinds), self.held_kind(e[3], kinds))
         except NotRunnable:
             return r
+        places = None
         if k[0] == "money" and k[1] in MINOR_UNITS:
-            return half_even(r, MINOR_UNITS[k[1]])
-        if k[0] == "duration":
-            return half_even(r, 0)
-        if k[0] == "decimal" and e[1] == "/":
-            return half_even(r, k[1])
+            places = MINOR_UNITS[k[1]]
+            r = half_even(r, places)
+        elif k[0] in ("duration", "timestamp", "int"):
+            r = half_even(r, 0) if k[0] == "duration" else r
+            if abs(r) > 2 ** 63 - 1:
+                raise OutOfRange(self.this)
+        elif k[0] == "decimal":
+            places = k[1]
+            r = half_even(r, places) if e[1] == "/" else r
+        if places is not None and (places > 38 or abs(r) * 10 ** places > 2 ** 127 - 1):
+            raise OutOfRange(self.this)
         return r
 
     def written(self, e, env):

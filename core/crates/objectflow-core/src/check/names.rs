@@ -3705,6 +3705,15 @@ impl Typing<'_> {
                             && !(b.scalar() || matches!(b, Ty::Money(_) | Ty::Duration))
                         {
                             self.fail(format!("sum adds {}, which does not add", b.text()));
+                        } else if matches!(b, Ty::Enumeration(_)) {
+                            // the least or the greatest member, of what has no
+                            // order, which the core did not run and the
+                            // reference runner answered by name (the values
+                            // audit's R4, as K-4)
+                            self.fail(format!(
+                                "{kind} orders {}, and an enumeration has no order",
+                                b.text()
+                            ));
                         }
                         Some(b)
                     }

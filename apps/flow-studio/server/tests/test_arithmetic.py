@@ -209,3 +209,54 @@ def test_a_quotient_is_rounded_where_the_evaluator_rounds_it_alike(
     got = tee.post("/v1/get", {"id": share})["attributes"]
     assert {k: got[k] for k in written} == written, got
     alike(tee)
+
+
+BOUNDED = """module: bounded
+categories: [live, closed]
+types:
+  Span:
+    description: A value past what its type holds.
+    tracking: record
+    attributes:
+      d18: { type: "decimal(18,2)", optional: true }
+      d9: { type: "decimal(18,9)", optional: true }
+      tiny: { type: "decimal(18,9)", optional: true }
+      m: { type: money(USD), optional: true }
+      du: { type: duration, optional: true }
+      t: { type: timestamp, optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    derived_attributes:
+      past: { description: Past its bound., expression: '%s' }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [d18, d9, tiny, m, du, t] }
+      close: { kind: external, from: [OPEN], to: DONE }
+"""
+
+
+@pytest.mark.parametrize("expr", [
+    "du * 9223372036854775807",
+    "du * 4611686018427387904 + du * 4611686018427387904",
+    "t + du * 4611686018427387904",
+    "d18 * d18 * d18",
+    "d9 * d9 * d9 * d9 * d9",
+    # 45 places and a single unit, past the places a decimal holds
+    "tiny * tiny * tiny * tiny * tiny",
+    "m * 9223372036854775807 * 9223372036854775807",
+])
+def test_a_value_past_what_its_type_holds_is_refused_alike(tee, expr):
+    """A duration or a time past 64 bits of seconds, and a decimal or an
+    amount past 128 bits of units or 38 places, refuse the read that derives
+    it `value_in_range`, where the reference runner answered it (the audit's
+    values R5, ADR-0205 decision 2)."""
+    tee.found.clear()
+    load(tee, "bounded", BOUNDED % expr)
+    span = made(tee, "Span", "open", d18="9999999999999999.99",
+                d9="123456789.123456789", tiny="0.000000001",
+                m="USD 10.00", du="90 min",
+                t="2026-01-01T00:00:00Z")
+    got = tee.post("/v1/get", {"id": span})
+    assert (got.get("refused"), got.get("object_id")) == \
+        ("value_in_range", span), got
+    alike(tee)
