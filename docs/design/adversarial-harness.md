@@ -25,7 +25,9 @@ Draft, 2026-09-09, amended 2026-09-23. The acceptance test, which PRD N4 names a
 
   - *added 2026-10-16:* an object's state intervals against its log: a span not supplied by an import or a migration opened by no event of its object, or holding another state than that event entered or the correction that last relabelled it; an event that changed the state opening no span; other than one span open, in the object's state. Held by three planted defects in `record_spans` (a span naming the wrong event, the previous span left open, a change opening none), each caught at the gates' budget.
 
-  Left to a later slice: a replay of the log reproducing each row, a read set re-evaluating to its verdict, a refusal replaying, and a tracked member's intervals against the log, which the log records only as each request's inputs.
+  - *added 2026-10-16:* a refusal missing from the attempt log: after each refused request the log holds one more row, naming its transition and a verdict other than satisfied; the run prunes none. Held by a planted defect leaving an unavailable request's row unwritten, caught at the gates' budget.
+
+  Left to a later slice: a replay of the log reproducing each row, a read set re-evaluating to its verdict, a refusal replaying over its read set, and a tracked member's intervals against the log, which the log records only as each request's inputs.
 - **Determinism:** a run is a function of its fixture and its seed, held by a test, and a failing run is reduced to the shortest transcript that still fails. The gates run six seeds of 120 steps for each fixture, and `OBJECTFLOW_HARNESS_SEEDS` and `OBJECTFLOW_HARNESS_STEPS` widen a run.
 - **Held by planted defects:** invariants left unenforced, an erasure leaving events' payloads, an event recorded under another actor, and every key refused as reused are each caught at the gates' budget.
 

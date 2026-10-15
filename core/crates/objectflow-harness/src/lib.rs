@@ -236,6 +236,7 @@ impl Run {
                 None
             }
             Step::Request(r) => {
+                let logged = self.attempts_held();
                 let answered = catch_unwind(AssertUnwindSafe(|| request(&mut self.store, r)));
                 let verdict = match answered {
                     Err(_) => return Some(fail("panic", format!("{r:?}"))),
@@ -287,11 +288,47 @@ impl Run {
                             }
                         }
                     }
-                    _ => self.counts.refused += 1,
+                    _ => {
+                        self.counts.refused += 1;
+                        if let Some(f) = self.attempt_logged(r, logged) {
+                            return Some(fail("attempts", f));
+                        }
+                    }
                 }
                 self.check(at)
             }
         }
+    }
+
+    /// How many rows the attempt log holds.
+    fn attempts_held(&self) -> Option<usize> {
+        let world = self.store.snapshot().ok()?;
+        world.attempts().ok().map(<[_]>::len)
+    }
+
+    /// A refusal is a row of the attempt log, one, naming its transition
+    /// and its verdict (§1, "a request's refusal missing from the attempt
+    /// log"; ADR-0083); the run prunes none.
+    fn attempt_logged(&self, r: &Request, before: Option<usize>) -> Option<String> {
+        let before = before?;
+        let world = self.store.snapshot().ok()?;
+        let rows = world.attempts().ok()?;
+        if rows.len() != before + 1 {
+            return Some(format!(
+                "a refusal of {} left the attempt log {} rows, where it held {before} and owed one more",
+                r.transition,
+                rows.len()
+            ));
+        }
+        let last = rows.last()?;
+        if last.transition.as_deref() != Some(r.transition.as_str()) || last.verdict == "satisfied"
+        {
+            return Some(format!(
+                "a refusal of {} was logged as {:?}, {}",
+                r.transition, last.transition, last.verdict
+            ));
+        }
+        None
     }
 
     /// A key's promise (ADR-0204 §3 A): sent again with the request it was
