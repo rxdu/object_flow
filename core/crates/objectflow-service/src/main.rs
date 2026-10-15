@@ -2969,7 +2969,38 @@ fn instant(v: Option<&J>, what: &str) -> Result<Option<i64>, Fault> {
     }
 }
 
+/// A key a part of an import does not take, refused: a misspelt one was
+/// read as absent, so an object's `atributes` were dropped without a word
+/// (the second production review's minor, found open 2026-10-15).
+fn takes_only(v: &J, what: &str, takes: &[&str]) -> Result<(), Fault> {
+    match v
+        .as_object()
+        .and_then(|m| m.keys().find(|k| !takes.contains(&k.as_str())))
+    {
+        Some(k) => Err(Fault::Bad(format!("{what} takes no key {k}"))),
+        None => Ok(()),
+    }
+}
+
 fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
+    takes_only(
+        o,
+        "an imported object",
+        &[
+            "type",
+            "legacy_key",
+            "state",
+            "recorded_from",
+            "attributes",
+            "entered",
+            "legacy_entries",
+            "legacy_intervals",
+            "silent_spans",
+            "created_at",
+            "created_by_kind",
+            "occurred_at",
+        ],
+    )?;
     let field = |k: &str| -> Result<Option<String>, Fault> { Ok(text(o, k)?.map(str::to_string)) };
     let (Some(type_), Some(legacy_key), Some(state)) =
         (field("type")?, field("legacy_key")?, field("state")?)
@@ -2986,6 +3017,7 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
     }
     let mut entered = std::collections::BTreeMap::new();
     for (dimension, e) in object(o, "entered")?.into_iter().flatten() {
+        takes_only(e, &format!("entered.{dimension}"), &["at", "by", "by_kind"])?;
         let Some(at) = instant(e.get("at"), "entered.at")? else {
             return Err(Fault::Bad(format!(
                 "entered.{dimension} names its time, at"
@@ -3003,6 +3035,11 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
     // its history from before the store (ADR-0163 decision 2)
     let mut legacy_entries = Vec::new();
     for e in array(o, "legacy_entries")?.into_iter().flatten() {
+        takes_only(
+            e,
+            "a legacy entry",
+            &["kind", "occurred_at", "payload", "about"],
+        )?;
         let (Some(kind), Some(occurred_at)) = (
             text(e, "kind")?.map(str::to_string),
             instant(e.get("occurred_at"), "legacy_entries.occurred_at")?,
@@ -3031,6 +3068,18 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
     // the earlier values the legacy record gives, and where it is silent
     let mut legacy_intervals = Vec::new();
     for l in array(o, "legacy_intervals")?.into_iter().flatten() {
+        takes_only(
+            l,
+            "a legacy interval",
+            &[
+                "dimension",
+                "value",
+                "entered_at",
+                "left_at",
+                "entered_by",
+                "entered_by_kind",
+            ],
+        )?;
         let (Some(dimension), Some(entered_at)) = (
             text(l, "dimension")?,
             instant(l.get("entered_at"), "legacy_intervals.entered_at")?,
@@ -3081,6 +3130,24 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
 }
 
 fn violation_class(c: &J) -> Result<ViolationClass, Fault> {
+    // as the import's report writes a class, which its disposition file
+    // sends back
+    takes_only(
+        c,
+        "a class",
+        &[
+            "id",
+            "type",
+            "kind",
+            "rule",
+            "shape",
+            "count",
+            "sample",
+            "disposition",
+            "decided_by",
+            "reason",
+        ],
+    )?;
     let field = |k: &str| -> Result<Option<String>, Fault> { Ok(text(c, k)?.map(str::to_string)) };
     let kind = field("kind")?.as_deref().and_then(ViolationKind::parse);
     let disposition = field("disposition")?
@@ -6327,6 +6394,39 @@ mod tests {
 
     /// A volume holding less than a checkpoint needs is low; one holding
     /// that much is not (ADR-0188 decision 3).
+    /// A key a part of an import does not take is refused, naming it, where
+    /// a misspelt one was read as absent and an object's attributes were
+    /// dropped without a word (the second production review's minor).
+    #[test]
+    fn an_import_refuses_a_key_it_does_not_take() {
+        let object = |extra: J| {
+            let mut o = json!({"type": "T", "legacy_key": "1", "state": "OPEN"});
+            if let (Some(m), Some(e)) = (o.as_object_mut(), extra.as_object()) {
+                m.extend(e.clone());
+            }
+            imported_object(&o)
+        };
+        let refused = |r: Result<ImportedObject, Fault>| match r {
+            Err(Fault::Bad(m)) => m,
+            Ok(o) => format!("not refused: {}", o.legacy_key),
+            Err(_) => "refused otherwise".to_string(),
+        };
+        assert!(object(json!({"attributes": {"a": 1}})).is_ok());
+        assert_eq!(
+            refused(object(json!({"atributes": {"a": 1}}))),
+            "an imported object takes no key atributes"
+        );
+        let entry = json!({"legacy_entries": [
+            {"kind": "note", "occurred_at": "2020-01-01T00:00:00Z", "paylod": {}}
+        ]});
+        assert_eq!(refused(object(entry)), "a legacy entry takes no key paylod");
+        let class = json!({"type": "T", "kind": "invariant", "rule": "r", "shape": "s",
+                           "disposition": "admit", "reasn": "kept"});
+        assert!(
+            matches!(violation_class(&class), Err(Fault::Bad(m)) if m == "a class takes no key reasn")
+        );
+    }
+
     /// The log says a volume too full for a checkpoint once as it falls
     /// below and once as it recovers, and nothing while it stays either way
     /// or cannot be read (ADR-0200 decision 7).

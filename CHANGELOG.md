@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- An import refuses a key an object, an `entered` time, a legacy entry or interval, or a disposition's class does not take, `400` naming it, where a misspelt key was read as absent and its value dropped without a word.
 - The checker refuses a metric's value holding a comparison, a connective, `not`, `if`, `in`, a row's member outside an aggregate, a call of what is no aggregate, or an aggregate over the rows within another, which the engine answered `not_run` (the values audit's M2).
 - The checker refuses an aggregate over what is no collection and over a literal whose elements share no type, and gives an element of a set of values its set's type, so `sum` over strings is refused; each was answered `not_run` (the values audit's K-10).
 - The checker refuses a name or member that resolves to no value: an enumeration's name where a value goes, a name naming nothing, a type's member that is none of its states, a member of a plain value or of a state besides `category`, and a metric's own `count(where …)` outside a metric, each of which the engine answered `not_run` (the values audit's K-9).
