@@ -3276,6 +3276,28 @@ impl Typing<'_> {
         self.broken.push(detail);
     }
 
+    /// The type of an element of a set of values the type declares, `tags`
+    /// or `this.tags`, or none (`check-flows.py`'s `value_set_element`).
+    fn value_set_element(
+        &self,
+        tn: &str,
+        coll: &Expr,
+        env: &BTreeMap<String, Option<Ty>>,
+    ) -> Option<Ty> {
+        let name = match coll {
+            Expr::Name(n) if !env.contains_key(n) => n.as_str(),
+            Expr::Path(b, m) if matches!(&**b, Expr::Name(t) if t == "this") => m.as_str(),
+            _ => return None,
+        };
+        let spec = self
+            .kinds
+            .get(tn)
+            .and_then(|t| obj(t, "attributes").get(name))?;
+        let typ = spec.get("type").map(py_str).unwrap_or_default();
+        let base = typ.strip_suffix("[]")?;
+        attribute_type(Some(&serde_json::json!({ "type": base })), self.enums)
+    }
+
     fn of(
         &mut self,
         e: &Expr,
@@ -3586,7 +3608,34 @@ impl Typing<'_> {
                     return None;
                 }
                 let mut inner = env.clone();
-                if let (Some(var), Some(coll)) = (var, collection) {
+                if let (Some(var), Some(coll)) = (var, collection)
+                    && let Expr::Set(items) = &**coll
+                {
+                    // a literal's elements share one type, its item's, where a
+                    // mixed one typed as nothing and was not run (the values
+                    // audit's K-10)
+                    let known: Vec<Ty> = items
+                        .iter()
+                        .filter_map(|item| self.of(item, tn, x, env, seen))
+                        .collect();
+                    let clash = known.iter().find_map(|a| {
+                        known
+                            .iter()
+                            .find(|b| !self.alike(a, b))
+                            .map(|b| (a.clone(), b.clone()))
+                    });
+                    if let Some((a, b)) = clash {
+                        let (a, b) = (a.text(), b.text());
+                        self.fail(format!("{fn} ranges over a set of {a} and {b}, which share no type", fn = kind));
+                        return None;
+                    }
+                    let element = known
+                        .iter()
+                        .find(|t| !matches!(t, Ty::Number(_)))
+                        .or(known.first())
+                        .cloned();
+                    inner.insert(var.clone(), element);
+                } else if let (Some(var), Some(coll)) = (var, collection) {
                     let scan = matches!(&**coll, Expr::Name(n)
                         if !env.contains_key(n) && self.kinds.contains_key(n));
                     let ct = if scan {
@@ -3599,7 +3648,18 @@ impl Typing<'_> {
                     };
                     let element = match ct {
                         Some(Ty::Objects(t)) => Some(Ty::Reference(t)),
-                        _ => None,
+                        Some(t) => match self.value_set_element(tn, coll, env) {
+                            // a set of values, its item of their type (K-10)
+                            Some(e) => Some(e),
+                            None => {
+                                // an aggregate ranges over a collection, where
+                                // one over a single value was not run (K-10)
+                                let t = t.text();
+                                self.fail(format!("{fn} ranges over {t}, which is no collection", fn = kind));
+                                return None;
+                            }
+                        },
+                        None => self.value_set_element(tn, coll, env),
                     };
                     inner.insert(var.clone(), element);
                 }

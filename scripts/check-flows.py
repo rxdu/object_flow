@@ -2623,9 +2623,30 @@ class Typing:
                 self.fail("count(where …) and count(distinct …) count a metric's rows, which no expression outside a metric has")
                 return None
             inner = dict(env)
-            if var is not None:
+            if var is not None and coll[0] == "set":
+                # a literal's elements share one type, its item's, where a mixed one typed as nothing and the core did
+                # not run it (the values audit's K-10)
+                known = [t for t in (self.of(item, tn, x, env, seen) for item in coll[1]) if t is not None]
+                clash = next(((a, b) for a in known for b in known if not self.alike(a, b)), None)
+                if clash is not None:
+                    a, b = type_text(clash[0]), type_text(clash[1])
+                    self.fail(f"{fn} ranges over a set of {a} and {b}, which share no type")
+                    return None
+                inner[var] = next((t for t in known if t[0] != "number"), known[0] if known else None)
+            elif var is not None:
                 ct = self.of(coll, tn, x, env, seen) if coll[0] != "name" or coll[1] in env or coll[1] not in self.kinds else ("objects", coll[1])
-                inner[var] = ("reference", ct[1]) if ct is not None and ct[0] == "objects" else None
+                element = self.value_set_element(tn, coll, env)
+                if ct is not None and ct[0] == "objects":
+                    inner[var] = ("reference", ct[1])
+                elif element is not None:
+                    inner[var] = element          # a set of values, its item of their type (K-10)
+                elif ct is not None:
+                    # an aggregate ranges over a collection, where one over a single value was not run (K-10)
+                    t = type_text(ct)
+                    self.fail(f"{fn} ranges over {t}, which is no collection")
+                    return None
+                else:
+                    inner[var] = None
             if where is not None:
                 w = self.of(where, tn, x, inner, seen)
                 if w is not None and w[0] != "bool":
@@ -2702,6 +2723,14 @@ class Typing:
                 self.of(item, tn, x, env, seen)
             return None
         return None
+
+    def value_set_element(self, tn, coll, env):
+        """The type of an element of a set of values the type declares, `tags` or `this.tags`, or None."""
+        name = coll[1] if coll[0] == "name" and coll[1] not in env else \
+            coll[2] if coll[0] == "path" and coll[1] == ("name", "this") else None
+        spec = ((self.kinds.get(tn) or {}).get("attributes") or {}).get(name) if name else None
+        typ = str((spec or {}).get("type", ""))
+        return attribute_type({"type": typ[:-2]}, self.enums) if typ.endswith("[]") else None
 
     def alike(self, a, b):
         """Whether two types are one for a comparison or a conditional's branches: equal, a number literal and any
@@ -8214,6 +8243,12 @@ def expression_type_plants(people):
     def wrong(name, why):
         return f"{name} does not type: {why} (the model's check 24)"
 
+    def tagged(expr):
+        # the ledger with a set of strings of its own
+        text = ledger(expr)
+        assert text.count("      label: { type: string }\n") == 1
+        return text.replace("      label: { type: string }\n", "      label: { type: string }\n      tags:  { type: \"string[]\", optional: true }\n")
+
     def dated(expr):
         # the ledger with a date of its own
         text = ledger(expr)
@@ -8295,6 +8330,15 @@ def expression_type_plants(people):
         ("a metric's count outside a metric", ledger("count(where vip) > 0"),
          [wrong("derived attribute probe", "count(where …) and count(distinct …) count a metric's rows, which no expression outside a metric has")]),
         ("names that resolve", ledger("tier == Tier.GOLD and state.category == live and state == Account.OPEN and state == OPEN"), []),
+        # an aggregate over a collection of one type (the audit's values K-10)
+        ("an aggregate over a text", ledger("count(x in label: true) > 0"),
+         [wrong("derived attribute probe", "count ranges over a string, which is no collection")]),
+        ("an aggregate over the object itself", ledger("count(x in this: true) > 0"),
+         [wrong("derived attribute probe", "count ranges over an object of Account, which is no collection")]),
+        ("a sum of strings", tagged("sum(t in tags: t) == label"), [wrong("derived attribute probe", "sum adds a string, which does not add")]),
+        ("a set of two types", ledger("sum(x in {count, label}: x) > 0"),
+         [wrong("derived attribute probe", "sum ranges over a set of an int and a string, which share no type")]),
+        ("aggregates over collections", tagged('max(t in tags: t) == label and count(t in tags: t == \\"a\\") > 0 and sum(x in {1, 2}: x) > 0'), []),
         ("an amount past its minor unit", ledger("usd + USD 1.005 > usd"),
          [wrong("derived attribute probe", "USD 1.005 has more places than USD's minor unit")]),
         ("an amount in an unknown currency", ledger("XYZ 1 == XYZ 1"),
@@ -8324,6 +8368,9 @@ def expression_type_plants(people):
         ("changed_since given a literal", ledger("changed_since([label], 3)"),
          [wrong("derived attribute probe", "changed_since reads an event, and is given a number")]),
         ("changed_since given an event", ledger("changed_since([label], signed)").replace("      label: { type: string }\n", "      label: { type: string }\n      signed: { type: event, optional: true }\n", 1), []),
+        # a literal's element typed (K-10), so the write the runner could not tell is refused at publish (W5)
+        ("a narrower decimal through a literal", writing("rate", "max(x in {fine}: x)"),
+         [misfit("max(x in {fine}: x)", "a decimal of scale 3, to rate, which holds a decimal of scale 2: only a product or a quotient is rounded to its target")]),
         ("a narrower decimal written", writing("rate", "fine"),
          [misfit("fine", "a decimal of scale 3, to rate, which holds a decimal of scale 2: only a product or a quotient is rounded to its target")]),
         ("a literal of more places than its partner", writing("rate", "rate + 0.005"),

@@ -57,11 +57,6 @@ types:
         from: OPEN
         effect:
           - add: { location: tags, expr: label }
-      narrow:
-        kind: internal
-        from: OPEN
-        effect:
-          - assign: { location: d2, expr: "max(x in {d4}: x)" }
       tag_as:
         kind: internal
         from: OPEN
@@ -127,9 +122,11 @@ def test_values_are_written_and_refused_alike(tee):
     assert tee.post("/v1/get", {"id": item})["attributes"]["d4"] == "1.6667"
     took(tee, item, "count", k=7)
     assert tee.post("/v1/get", {"id": item})["attributes"]["d2"] == "7.00"
-    # a write that would round its decimal, of a type the checkers cannot
-    # tell, is refused at run time (W5)
-    refused(tee, item, "narrow")
+    # a write that would round its decimal is refused at publish now that
+    # the checkers type a literal's element (K-10), where `max(x in {d4}: x)`
+    # into a decimal(10,2) passed them and was refused only at run time
+    # (W5); the core's own test holds that refusal
+    # (`request.rs`, a plain write that would round its decimal)
     refused(tee, item, "tag")
     took(tee, item, "tag_as", t="a")
     assert tee.post("/v1/get", {"id": item})["attributes"]["has_z"] is False
