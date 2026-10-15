@@ -97,7 +97,55 @@ pub fn fixtures(examples: &std::path::Path) -> std::io::Result<Vec<Fixture>> {
             modules,
         });
     }
+    // the unit's journey, the first consumer's lifecycle written from its
+    // production code, which the design names as the fixture (§3)
+    let doc = std::fs::read_to_string(examples.join("../../unit-journey.md"))?;
+    out.push(Fixture {
+        name: "unit journey".to_string(),
+        modules: journey(&doc),
+    });
     Ok(out)
+}
+
+/// The modules a design document holds, assembled as `check-flow-docs.py`
+/// assembles them: a ```yaml block beginning `module: <name>` begins one,
+/// a block beginning `# <name>, continued` continues it, a first line
+/// naming the block's file is no part of it, and a module begun again is
+/// its next version, which replaces the earlier.
+fn journey(doc: &str) -> Vec<(String, String)> {
+    let mut modules: Vec<(String, String)> = Vec::new();
+    let mut lines = doc.lines();
+    while let Some(line) = lines.next() {
+        if line.trim_end() != "```yaml" {
+            continue;
+        }
+        let mut body: Vec<&str> = lines.by_ref().take_while(|l| l.trim() != "```").collect();
+        let names_file = |l: &str| {
+            l.strip_prefix("# ")
+                .is_some_and(|f| f.trim_end().ends_with(".yaml") && !f.contains(' '))
+        };
+        if body.first().is_some_and(|l| names_file(l)) {
+            body.remove(0);
+        }
+        let Some(first) = body.first() else {
+            continue;
+        };
+        let text = body.join("\n") + "\n";
+        if let Some(name) = first.strip_prefix("module:").map(str::trim) {
+            modules.retain(|(n, _)| n != name);
+            modules.push((name.to_string(), text));
+        } else if let Some(name) = first
+            .strip_prefix("# ")
+            .and_then(|r| r.trim_end().strip_suffix(", continued"))
+            && let Some((_, held)) = modules.iter_mut().find(|(n, _)| n == name)
+        {
+            held.push_str(&text);
+        }
+    }
+    modules
+        .into_iter()
+        .map(|(n, t)| (format!("{n}.yaml"), t))
+        .collect()
 }
 
 /// One step of a run, as concrete as a caller's: a request, or the clock
