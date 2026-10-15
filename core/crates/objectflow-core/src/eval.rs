@@ -2115,9 +2115,12 @@ impl Evaluator<'_> {
 
 /// A comparison or an arithmetic operator over two values (§8.2, §8.3).
 /// The integer 0 a sum over no elements yields, read as the zero of the
-/// value it meets. Such a sum is 0 of its element type (§8.3), which an empty
-/// set cannot tell, and a module the flow checker passed sets an int against a
-/// duration or an amount nowhere else (ADR-0153 decision 5).
+/// value it meets in a sum, a difference or a comparison. Such a sum is 0 of
+/// its element type (§8.3), which an empty set cannot tell. (This comment
+/// said a module the checker passed set an int against a duration or an
+/// amount nowhere else, citing ADR-0153 decision 5, which says no such
+/// thing; `i * du` is one, and `combine` keeps 0 a scalar in a product or a
+/// quotient, the differential battery, 2026-10-15.)
 fn zero_as(v: &Value, other: &Value) -> Value {
     match (v, other) {
         (Value::Int(0), Value::Duration(_)) => Value::Duration(0),
@@ -2132,7 +2135,15 @@ fn zero_as(v: &Value, other: &Value) -> Value {
 
 pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
     use Value as V;
-    let (za, zb) = (zero_as(a, b), zero_as(b, a));
+    // the zero of a sum over no elements meets a duration or an amount in a
+    // sum, a difference or a comparison; a product or a quotient takes 0 as
+    // the scalar it is, where `0 * du` was a duration times a duration and
+    // not run (the differential battery, 2026-10-15)
+    let (za, zb) = if matches!(op, BinOp::Mul | BinOp::Div) {
+        (a.clone(), b.clone())
+    } else {
+        (zero_as(a, b), zero_as(b, a))
+    };
     let (a, b) = (&za, &zb);
     if a.is_absent() || b.is_absent() {
         return Ok(V::Absent);
@@ -2865,6 +2876,16 @@ types:
             Ok(usd("1.00"))
         );
         assert!(combine(BinOp::Lt, &Value::Int(1), &Value::Duration(60)).is_err());
+        // a product takes 0 as a scalar, where it was read as the zero of
+        // the duration or the amount it multiplied and not run
+        assert_eq!(
+            combine(BinOp::Mul, &Value::Int(0), &Value::Duration(60)),
+            Ok(Value::Duration(0))
+        );
+        assert_eq!(
+            combine(BinOp::Mul, &usd("1.00"), &Value::Int(0)),
+            Ok(usd("0.00"))
+        );
         assert!(combine(BinOp::Lt, &usd("1.00"), &Value::Text("x".into())).is_err());
     }
 

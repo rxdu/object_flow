@@ -3025,6 +3025,8 @@ enum Ty {
     Objects(String),
     Enumeration(String),
     State(String),
+    /// A set of values, of its element's type (the differential battery).
+    Values(Box<Ty>),
 }
 
 impl Ty {
@@ -3049,6 +3051,7 @@ impl Ty {
             Ty::Objects(_) => "objects",
             Ty::Enumeration(_) => "enumeration",
             Ty::State(_) => "state",
+            Ty::Values(_) => "values",
         }
     }
 
@@ -3064,6 +3067,10 @@ impl Ty {
             Ty::Money(c) => format!("money({c})"),
             Ty::Reference(t) => format!("an object of {t}"),
             Ty::Objects(t) => format!("a set of {t}"),
+            Ty::Values(e) => match &**e {
+                Ty::Enumeration(n) | Ty::Reference(n) => format!("a set of {n}"),
+                other => format!("a set of {}", other.tag()),
+            },
             Ty::Enumeration(e) => format!("a member of {e}"),
             Ty::State(t) => format!("a state of {t}"),
             Ty::Int => "an int".into(),
@@ -3095,6 +3102,13 @@ fn attribute_type(spec: Option<&Value>, enums: &BTreeSet<String>) -> Option<Ty> 
         });
     }
     let typ = spec.get("type").map(py_str).unwrap_or_default();
+    // a set of values, of its element's type, where it typed as nothing, so
+    // a set added, multiplied, ordered or negated published and was not run
+    // (the differential battery, 2026-10-15)
+    if let Some(base) = typ.strip_suffix("[]") {
+        let element = serde_json::json!({ "type": base });
+        return attribute_type(Some(&element), enums).map(|e| Ty::Values(Box::new(e)));
+    }
     if let Some(m) = DECIMAL_SCALE.captures(&typ) {
         return Some(Ty::Decimal(m[1].parse().ok()));
     }
@@ -3595,10 +3609,10 @@ impl Typing<'_> {
                             None
                         };
                         if let Some(arg) = arg
-                            && arg != Ty::Str
+                            && !matches!(arg, Ty::Str | Ty::Values(_))
                         {
                             self.fail(format!(
-                                "length takes a string, and is given {}",
+                                "length takes a string or a set of values, and is given {}",
                                 arg.text()
                             ));
                         }
@@ -3703,6 +3717,10 @@ impl Typing<'_> {
                     };
                     let element = match ct {
                         Some(Ty::Objects(t)) => Some(Ty::Reference(t)),
+                        // a set of values a path or an input names
+                        Some(Ty::Values(e)) => {
+                            Some(self.value_set_element(tn, coll, env).unwrap_or(*e))
+                        }
                         Some(t) => match self.value_set_element(tn, coll, env) {
                             // a set of values, its item of their type (K-10)
                             Some(e) => Some(e),
@@ -3810,7 +3828,7 @@ impl Typing<'_> {
                     // was not run (the values audit's K-6)
                     _ => {
                         if let Some(rt) = self.of(r, tn, x, env, seen)
-                            && !matches!(rt, Ty::Objects(_))
+                            && !matches!(rt, Ty::Objects(_) | Ty::Values(_))
                         {
                             self.fail(format!(
                                 "it asks for membership in {}, which is no collection",
@@ -3881,6 +3899,21 @@ impl Typing<'_> {
                                 "it orders {}, and an enumeration has no order",
                                 e.text()
                             ));
+                        } else if !matches!(op, BinOp::Eq | BinOp::Ne)
+                            && let Some(v) = [&l, &r]
+                                .into_iter()
+                                .flatten()
+                                .find(|v| matches!(v, Ty::State(_) | Ty::Values(_)))
+                        {
+                            // nor has a state or a set, which was not run and
+                            // the runner ordered by name or crashed on (the
+                            // differential battery, 2026-10-15)
+                            let what = if matches!(v, Ty::State(_)) {
+                                "a state"
+                            } else {
+                                "a set"
+                            };
+                            self.fail(format!("it orders {}, and {what} has no order", v.text()));
                         }
                         Some(Ty::Bool)
                     }
@@ -4452,7 +4485,9 @@ fn typed_loop_error(
     let tree = parse(&squash(&body_text(body, "array"))).ok()?;
     typing.broken.clear();
     let got = typing.of(&tree, tn, Some(x), env, &BTreeSet::new())?;
-    if matches!(got, Ty::Objects(_)) || typing.value_set_element(tn, &tree, env).is_some() {
+    if matches!(got, Ty::Objects(_) | Ty::Values(_))
+        || typing.value_set_element(tn, &tree, env).is_some()
+    {
         return None;
     }
     Some(format!("{}, which is no collection", got.text()))

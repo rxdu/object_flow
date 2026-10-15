@@ -261,7 +261,7 @@ def spec_kind(spec):
         return ("money", m.group(1))
     if typ in ("int", "counter"):
         return ("int",)
-    return (typ,) if typ in ("duration", "timestamp", "bool") else ("other",)
+    return (typ,) if typ in ("duration", "timestamp", "date", "bool") else ("other",)
 
 
 def arith_kind(op, a, b):
@@ -315,6 +315,12 @@ def held_arith_kind(op, a, b):
         return ("decimal", places(a, b)) if a[0] != "int" else ("other",)   # an int by a decimal is not run
     if op == "/" and a == b and a[0] in ("money", "duration"):
         return ("decimal", 6)
+    # a date less a date is a duration of whole days, and a date moved by one a date (ADR-0145), where the read wrote
+    # the duration as a number (the differential battery)
+    if op == "-" and a[0] == b[0] == "date":
+        return ("duration",)
+    if op in ("+", "-") and a[0] == "date" and b[0] == "duration":
+        return ("date",)
     if op in ("*", "/") and a[0] in ("money", "duration") and b[0] in number:
         return a
     if op == "*" and b[0] in ("money", "duration") and a[0] in number:
@@ -1210,9 +1216,9 @@ class Evaluator:
                 return {"==": a == b, "!=": a != b, "<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
         if is_date(a) and op in ("+", "-") and isinstance(b, Fraction):
             if b % 86400:
-                # a date moved by part of a day has no value, as one moved past the calendar has none, where it was not
-                # run (fifteenth production review)
-                return ABSENT
+                # a date moved by part of a day is out of range, as one moved past the calendar is, which a read refuses
+                # as the core does (ADR-0205 decision 2), where it read as null (the differential battery)
+                raise OverflowError("a date moved by part of a day")
             return a + datetime.timedelta(days=int(b / 86400) * (1 if op == "+" else -1))
         raise NotRunnable(f"a date {op} a value that is not a date or a duration of days")
 
@@ -1819,7 +1825,7 @@ class Evaluator:
                     return ("int",)
                 if fn[1] in ROW_AGGREGATES:
                     return self.aggregate_kind(fn[1], args[-1], env)
-                return {"entered_at": ("timestamp",), "time_in": ("duration",)}.get(fn[1], ("other",))
+                return {"entered_at": ("timestamp",), "time_in": ("duration",), "date": ("date",)}.get(fn[1], ("other",))
             base = self.kind(fn[1], env)
             if fn[2] in ("entered_at", "time_in"):
                 return ("timestamp",) if fn[2] == "entered_at" else ("duration",)

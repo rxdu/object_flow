@@ -797,3 +797,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Closing an audit's runner item, a TODO line said its last case (a derived category read as a pair) was no longer reachable because a later checker fix typed category reads. Nothing had been run; a probe written to check the claim before committing showed the case published and differed on the two backends.
 - **Correction:** Before recording that a defect is unreachable, settled by another fix or moot, run the case: load it, make the request, compare the answers. Write the claim only with the probe's result, and if an unprobed claim was drafted, say so where it is corrected.
 - **Context:** The values audit's R items, the Flow Studio's sandbox and the reference runner; found 2026-10-15.
+
+### A mutant whose edit did not apply proves nothing, and looks like one that survived
+- **Pattern:** A mutation script's anchor no longer matched after rustfmt reflowed the line; its assertion failed, the file was unchanged, and the test run that followed reported `ok`, which read as a surviving mutant. In the same script an unbalanced parenthesis stopped bash before the last six mutants and before the final restore.
+- **Correction:** Chain each mutant's run on its edit (`mut … && run …`), so an edit that does not apply runs nothing; check the script with `bash -n` first; read the current text of the line to mutate after formatting, not the text as written; and confirm every file matches its backup afterwards.
+- **Context:** Mutation checks over both checkers, the core and the runner; found 2026-10-15.

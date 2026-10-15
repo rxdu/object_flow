@@ -2385,6 +2385,11 @@ def attribute_type(spec, enums):
     if ref:
         return ("objects", ref[:-2]) if ref.endswith("[]") else ("reference", ref)
     typ = str(spec.get("type", ""))
+    if typ.endswith("[]"):
+        # a set of values, of its element's type, where it typed as nothing, so a set added, multiplied, ordered or
+        # negated published and the core did not run it (the differential battery, 2026-10-15)
+        element = attribute_type({"type": typ[:-2]}, enums)
+        return None if element is None else ("values", element)
     m = re.fullmatch(r"decimal\(\s*\d+\s*,\s*(\d+)\s*\)", typ)
     if m:
         return ("decimal", int(m.group(1)))
@@ -2401,6 +2406,8 @@ def type_text(k):
         return f"an object of {k[1]}"
     if k[0] == "objects":
         return f"a set of {k[1]}"
+    if k[0] == "values":
+        return f"a set of {k[1][1] if k[1][0] in ('enumeration', 'reference') else k[1][0]}"
     if k[0] == "enumeration":
         return f"a member of {k[1]}"
     if k[0] == "state":
@@ -2611,8 +2618,8 @@ class Typing:
                         self.fail(f"entered_at({arg}) names neither a state of {on} nor a member it tracks")
             if f == ("name", "length"):
                 arg = self.of(e[2][0], tn, x, env, seen) if len(e[2]) == 1 else None
-                if arg is not None and arg[0] != "string":
-                    self.fail(f"length takes a string, and is given {type_text(arg)}")
+                if arg is not None and arg[0] not in ("string", "values"):
+                    self.fail(f"length takes a string or a set of values, and is given {type_text(arg)}")
                 return ("int",)
             return {"entered_at": ("timestamp",), "time_in": ("duration",), "date": ("date",)}.get(f[1] if f[0] == "name" else None)
         if k == "changed":
@@ -2658,6 +2665,8 @@ class Typing:
             elif var is not None:
                 ct = self.of(coll, tn, x, env, seen) if coll[0] != "name" or coll[1] in env or coll[1] not in self.kinds else ("objects", coll[1])
                 element = self.value_set_element(tn, coll, env)
+                if element is None and ct is not None and ct[0] == "values":
+                    element = ct[1]                 # a set of values a path or an input names
                 if ct is not None and ct[0] == "objects":
                     inner[var] = ("reference", ct[1])
                 elif element is not None:
@@ -2712,7 +2721,7 @@ class Typing:
             else:
                 # membership in a collection, where one in a single value was not run (the values audit's K-6)
                 rt = self.of(right, tn, x, env, seen)
-                if rt is not None and rt[0] != "objects":
+                if rt is not None and rt[0] not in ("objects", "values"):
                     self.fail(f"it asks for membership in {type_text(rt)}, which is no collection")
             return ("bool",)
         if k == "if":
@@ -2740,6 +2749,11 @@ class Typing:
                     # an enumeration has no order, which the core did not run (the values audit's K-4)
                     self.fail(f"it orders {type_text(l if l is not None and l[0] == 'enumeration' else r)}, and an "
                               "enumeration has no order")
+                elif op not in ("==", "!=") and any(v is not None and v[0] in ("state", "values") for v in (l, r)):
+                    # nor has a state or a set, which the core did not run and the runner ordered by name or crashed
+                    # on (the differential battery, 2026-10-15)
+                    v = l if l is not None and l[0] in ("state", "values") else r
+                    self.fail(f"it orders {type_text(v)}, and {'a state' if v[0] == 'state' else 'a set'} has no order")
                 return ("bool",)
             if l is None or r is None:
                 return None
@@ -2922,7 +2936,7 @@ def typed_loop_error(typing, step, tn, x, env):
         return None
     typing.broken = []
     got = typing.of(tree, tn, x, dict(env or {}))
-    if got is None or got[0] == "objects" or typing.value_set_element(tn, tree, dict(env or {})) is not None:
+    if got is None or got[0] in ("objects", "values") or typing.value_set_element(tn, tree, dict(env or {})) is not None:
         return None
     return f"{type_text(got)}, which is no collection"
 
@@ -8561,7 +8575,7 @@ def expression_type_plants(people):
         ("not on an int", ledger("not count"), [wrong("derived attribute probe", "not takes a bool, and is given an int")]),
         ("a conditional of two types", ledger("if vip then usd else sgd"),
          [wrong("derived attribute probe", "if yields money(USD) or money(SGD), which share no type")]),
-        ("length of an int", ledger("length(count) > 0"), [wrong("derived attribute probe", "length takes a string, and is given an int")]),
+        ("length of an int", ledger("length(count) > 0"), [wrong("derived attribute probe", "length takes a string or a set of values, and is given an int")]),
         ("an invariant that is no bool", ledger(probe, invariant="count + 1"), [wrong("invariant check", "it is an int, not a bool")]),
         ("a condition that is no bool", ledger(probe, condition="label"), [wrong("condition ready", "it is a string, not a bool")]),
         ("a product's scale", ledger("rate * rate - rate"), [wrong("derived attribute probe", "it subtracts decimals of two scales, 4 and 2")]),
@@ -8636,6 +8650,17 @@ def expression_type_plants(people):
          ["Account.shut loops over label, a string, which is no collection (the model's check 24)"]),
         ("an element that fits and a loop over a set", stepping(
             "{ add: { location: tags, expr: label } }, { foreach: { item: x, array: tags, limit: 3, steps: [ { assign: { location: count, expr: 1 } } ] } }"), []),
+        # a set of values and a state each typed, so neither is added, ordered or negated (the differential battery)
+        ("a number added to a set", tagged("count + tags > 0"),
+         [wrong("derived attribute probe", "it adds an int and a set of string")]),
+        ("a set compared with a number", tagged("tags == count"),
+         [wrong("derived attribute probe", "it compares a set of string with an int")]),
+        ("a set ordered", tagged("tags < tags"), [wrong("derived attribute probe", "it orders a set of string, and a set has no order")]),
+        ("a set as a condition", tagged("not tags"), [wrong("derived attribute probe", "not takes a bool, and is given a set of string")]),
+        ("an aggregate over an input's set", stepping('{ assign: { location: count, expr: "count(x in inputs.picked: x == label)" } }').replace(
+            "to: SHUT, effect: [", 'to: SHUT, inputs: { picked: { type: "string[]" } }, effect: ['), []),
+        ("a state ordered", ledger("state < OPEN"), [wrong("derived attribute probe", "it orders a state of Account, and a state has no order")]),
+        ("a set's length, members and equality", tagged('length(tags) > 0 and \\"a\\" in tags and tags == tags and count(t in this.tags: true) > 0'), []),
         ("aggregates over collections", tagged('max(t in tags: t) == label and count(t in tags: t == \\"a\\") > 0 and sum(x in {1, 2}: x) > 0'), []),
         ("an amount past its minor unit", ledger("usd + USD 1.005 > usd"),
          [wrong("derived attribute probe", "USD 1.005 has more places than USD's minor unit")]),

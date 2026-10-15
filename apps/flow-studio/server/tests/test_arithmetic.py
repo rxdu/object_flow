@@ -388,3 +388,59 @@ def test_a_derived_history_and_choice_are_read_alike(tee, n, pick, half):
     assert (got["pick"], got["half"]) == (pick, half), got
     assert got["kind_of"] == "closed", got
     alike(tee)
+
+
+FOUND = """module: found
+categories: [live, closed]
+types:
+  Found:
+    description: What the differential battery found.
+    tracking: record
+    attributes:
+      i: { type: int, optional: true }
+      du: { type: duration, optional: true }
+      m: { type: money(USD), optional: true }
+      dd: { type: date, optional: true }
+      d2: { type: "decimal(10,2)", optional: true }
+      b: { type: bool, optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    derived_attributes:
+      zero_du: { description: A duration times 0., expression: i * du }
+      zero_m: { description: An amount times 0., expression: m * 0 }
+      days: { description: A date less a date., expression: dd - dd }
+      zero_if: { description: A choice of a literal 0., expression: if b then d2 else 0 }
+%s    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [i, du, m, dd, d2, b] }
+      close: { kind: external, from: [OPEN], to: DONE }
+"""
+
+
+def test_what_the_battery_found_is_read_alike(tee):
+    """A duration or an amount times an integer 0 is its zero, where the
+    core read the 0 as a duration or an amount and did not run the product;
+    a date less a date is a duration, and an `if` taking its branch of a
+    literal 0 reads as the zero of its expression's type, where the runner
+    wrote both as an integer (the differential battery, 2026-10-15)."""
+    tee.found.clear()
+    load(tee, "found", FOUND % "")
+    item = made(tee, "Found", "open", i=0, du="90 min", m="USD 10.00",
+                dd="2026-01-01", d2="1.50", b=False)
+    got = tee.post("/v1/get", {"id": item})["attributes"]
+    assert (got["zero_du"], got["zero_m"], got["days"], got["zero_if"]) == \
+        ("0 s", "USD 0.00", "0 s", "0.00"), got
+    alike(tee)
+
+
+def test_a_date_moved_by_part_of_a_day_is_refused_alike(tee):
+    """A date moved by part of a day is past what a date holds, which a read
+    refuses `value_in_range` as it refuses a date past the calendar, where
+    the runner read it as null (ADR-0205 decision 2, the battery)."""
+    tee.found.clear()
+    load(tee, "found", FOUND % "      later: { description: A date moved by hours., expression: dd + du }\n")
+    item = made(tee, "Found", "open", du="90 min", dd="2026-01-01")
+    got = tee.post("/v1/get", {"id": item})
+    assert (got.get("refused"), got.get("object_id")) == \
+        ("value_in_range", item), got
+    alike(tee)

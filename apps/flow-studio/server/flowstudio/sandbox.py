@@ -790,6 +790,15 @@ class Sandbox:
                 # audit's R7)
                 held = ev.held_kind(expr, {"this": ("object", o.type)}, {})
                 v = ev.member(o.id, k)
+                if type(v) is int and v == 0:
+                    # an integer 0 read as the zero of the expression's type
+                    # where that is a decimal, an amount or a duration, as the
+                    # core's `typed_derived` reads a sum over no elements, and
+                    # so an `if` taking its branch of a literal 0 (the
+                    # differential battery)
+                    static = ev.kind(expr, {"this": ("object", o.type)})
+                    held = static if static[0] in ("decimal", "money",
+                                                   "duration") else ("int",)
                 if held[0] in ("intervals", "transitions") and \
                         isinstance(v, tuple):
                     # rows of flow data, as the core answers them, where
