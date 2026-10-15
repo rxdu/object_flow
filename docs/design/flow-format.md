@@ -248,7 +248,7 @@ A fixed measure groups and windows as service's `time_working` does in the model
 | `filter` | no | an expression over the row; only the rows it holds for are counted |
 | `dimensions` | no | a mapping from a dimension's name to an expression over the row; the figure is computed for each combination of their values |
 | `time_dimension` | no | a timestamp over the row, by which a guard's `over last <duration>` selects rows; a metric that splits declares none, since a window clips its pieces (ADR-0142) |
-| `expression` | yes | the value, combining aggregates over the rows of one group: `count()`, `count(where …)`, `count(distinct …)`, `sum`, `min`, `max`, `avg`, `median` and `percentile(<p>, …)` |
+| `expression` | yes | the value, combining aggregates over the rows of one group: `count()`, `count(where …)`, `count(distinct …)`, `sum`, `min`, `max`, `avg`, `median` and `percentile(<p>, …)`; `count` of an expression, `count(r)`, answers nothing over the rows and MUST NOT be written (step 3, `names`; D687) |
 | `flag_when` | no | a mapping from a flag's name to an expression over `value` and the dimensions |
 
 ```yaml

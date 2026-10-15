@@ -35328,6 +35328,73 @@
   }
  },
  {
+  "label": "expression_type_plants: a string joined to who acted",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "ledger.yaml",
+    "a36348b5604686eb"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "ledger.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    27,
+    "fatal",
+    "names",
+    "Account.shut's effect does not type: it adds a string and an identity (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
   "label": "expression_type_plants: a quotient and a wider decimal written",
   "files": [
    [
@@ -36499,6 +36566,28 @@
     "fatal",
     "check 56",
     "metric(…) outside a guard: value     metric(finished)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "syntax_plants: a metric counting an expression over its rows",
+  "files": [
+   [
+    "plant.yaml",
+    "2ed167336b04896b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    29,
+    "fatal",
+    "names",
+    "metric finished counts an expression over its rows, which none answers: count() counts the rows, count(where …) those a condition selects, count(distinct …) the values they hold"
    ]
   ],
   "analysed": {},

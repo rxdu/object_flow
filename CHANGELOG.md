@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- The checker types `actor.id`, `actor.kind` and `actor.principal`, so `"by " + actor.id` is refused at publish, where the engine answered `not_run` and the reference runner joined the strings; and it refuses a metric's `count` of an expression, which the engine answered `not_run` (D687).
 - The checker refuses a `create`, or a `call` whose target names its type, into an `only via` transition from a transition the list does not name, which published and was refused when it ran (check 13's converse, the write path audit's R-05).
 - The checker refuses a duration literal past 64 bits of seconds and an `int` divided by a `decimal`, which the engine answered `not_run`; a reader's filter holding such a duration is refused `malformed_filter` (ADR-0202 decision 8).
 - A flow description holding a character outside YAML's printable set, such as U+FFFF or DEL, is refused at its line, where the engine's checker read it; and one whose escape makes a surrogate is refused by both checkers, where the reference checker crashed (the values audit's C2).

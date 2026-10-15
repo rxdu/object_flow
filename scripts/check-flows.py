@@ -2513,6 +2513,10 @@ class Typing:
                 if spec is None and m in set((x or {}).get("required_inputs") or []) | set((x or {}).get("optional_inputs") or []):
                     spec = ((self.kinds.get(tn) or {}).get("attributes") or {}).get(m)
                 return attribute_type(spec, self.enums)
+            if base == ("name", "actor") and "actor" not in env:
+                # who acted, as an outcome value reads it (§8.1): `.id` an identity, `.kind` an actor kind, `.principal`
+                # a string, where they typed as nothing, so `"by " + actor.id` passed and the core did not run it (D687)
+                return {"id": ("identity",), "kind": ("actor_kind",), "principal": ("string",)}.get(m)
             if base[0] == "name" and base[1] not in env and base[1] in self.enums:
                 return ("enumeration", base[1])
             if base[0] == "name" and base[1] not in env and base[1] in self.kinds and m.isupper():
@@ -3444,6 +3448,13 @@ def formula_errors(tn, t, mn, m):
     for p in re.findall(r"\bpercentile\(\s*([-+]?[0-9.]+)\s*,", " ".join(str(m["expression"]).split())):
         if not 0 < Fraction(p) <= 1:
             out.append((base + ("expression",), "names", f"metric {mn} takes the percentile {p}, and a percentile's p is in (0, 1] (ADR-0146)"))
+    # count(<expression>) over the rows answers nothing, which the core did not run (D687)
+    squashed = " ".join(str(m["expression"]).split())
+    for at in re.finditer(r"\bcount\(", squashed):
+        rest = squashed[at.end():].lstrip()
+        if not (rest.startswith(")") or COUNTED.match(rest)):
+            out.append((base + ("expression",), "names", f"metric {mn} counts an expression over its rows, which none answers: count() counts the rows, count(where …) those a condition selects, count(distinct …) the values they hold"))
+            break
     for key, text in parts:
         if text is None:
             continue
@@ -3778,6 +3789,8 @@ def evaluator_argument_errors(where, cn, text, ev, fn, f, tn, t, doc):
 
 
 AGGREGATE_CALL = re.compile(r"\b(count|sum|min|max|avg|median|percentile)\s*\(")
+# what a metric's count( may begin with besides `)`: a condition, distinct values, or a binder over a row's collection
+COUNTED = re.compile(r"(where\b|distinct\b|[a-z_][a-z0-9_]*\s+in\b)")
 
 
 def dimensions_of(m):
@@ -6685,6 +6698,7 @@ def syntax_plants():
          p(p(METRIC, "        time_dimension: t.occurred_at\n", ""), COND, "expression: \"metric(finished, over last 30 days) > 0\"")),
         ("a guard binding what is no dimension of a metric", "check 56", p(METRIC, COND, "expression: \"metric(finished, colour := 1) > 0\"")),
         ("metric() outside a guard", "check 56", p(METRIC, "expression: count()", "expression: metric(finished)")),
+        ("a metric counting an expression over its rows", "names", p(METRIC, "expression: count()", "expression: count(t)")),
         ("a metric-only function in a condition", "check 56", p(MINI, COND, "expression: median(title) > 0")),
         # on every line but a metric's own, where these were accepted (the values audit's G8)
         ("a time bucket in an attribute's default", "check 56",
@@ -8211,6 +8225,9 @@ def expression_type_plants(people):
         ("an int written to a string", writing("label", "if vip then count else count"),
          [misfit("if vip then count else count", "an int, to label, which holds string: a write's value must fit its target")]),
         ("writes that fit", writing("rate", "fine * rate"), []),
+        # who acted typed, so a string joined to it is refused where the core did not run it (D687)
+        ("a string joined to who acted", writing("label", '\\"by \\" + actor.id'),
+         [wrong("Account.shut's effect", "it adds a string and an identity")]),
         ("a quotient and a wider decimal written", writing("fine", "rate / 3"), []),
         ("products and quotients that type", ledger("rate * fine - fine * rate > fine / rate and rate * 2 + rate > rate"), []),
         ("what types", ledger("if vip then usd / count + usd * 2 else usd - usd"), []),

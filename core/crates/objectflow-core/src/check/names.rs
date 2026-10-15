@@ -3386,6 +3386,17 @@ impl Typing<'_> {
                     }
                     return attribute_type(spec.as_ref(), self.enums);
                 }
+                // who acted, as an outcome value reads it (§8.1), where its
+                // members typed as nothing, so `"by " + actor.id` passed and
+                // was not run (D687)
+                if matches!(&**base, Expr::Name(b) if b == "actor") && !env.contains_key("actor") {
+                    return match m.as_str() {
+                        "id" => Some(Ty::Identity),
+                        "kind" => Some(Ty::ActorKind),
+                        "principal" => Some(Ty::Str),
+                        _ => None,
+                    };
+                }
                 if let Expr::Name(b) = &**base
                     && !env.contains_key(b)
                 {
@@ -5417,6 +5428,18 @@ fn formula_errors(tn: &str, t: &Value, mn: &str, m: &Value) -> Found {
             ));
         }
     }
+    // count(<expression>) over the rows answers nothing, which the core did
+    // not run (D687)
+    if COUNT_CALL.find_iter(&expression).any(|at| {
+        let rest = expression[at.end()..].trim_start();
+        !(rest.starts_with(')') || COUNTED.is_match(rest))
+    }) {
+        out.push(finding(
+            ext(&base, segs!["expression"]),
+            "names",
+            format!("metric {mn} counts an expression over its rows, which none answers: count() counts the rows, count(where …) those a condition selects, count(distinct …) the values they hold"),
+        ));
+    }
     for (key, text) in &parts {
         let Some(text) = text else { continue };
         // .held(<member>) names a member of the type whose spans or
@@ -6230,6 +6253,11 @@ fn evaluator_errors(doc: &Value, tn: &str, t: &Value) -> Found {
     out
 }
 
+/// A metric's `count(`, and what it may begin with besides `)`: a condition,
+/// distinct values, or a binder over a row's collection (D687).
+static COUNT_CALL: LazyLock<Regex> = LazyLock::new(|| re(r"\bcount\("));
+static COUNTED: LazyLock<Regex> =
+    LazyLock::new(|| re(r"^(where\b|distinct\b|[a-z_][a-z0-9_]*\s+in\b)"));
 static AGGREGATE_CALL: LazyLock<Regex> =
     LazyLock::new(|| re(r"\b(count|sum|min|max|avg|median|percentile)\s*\("));
 
