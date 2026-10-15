@@ -8,6 +8,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 ### Changes to what 0.2.0 answered
 
+- The checker types a computed argument of a `call` or a `create`, refusing one of another kind than its input, an int passed to a time or an amount to an int, which the engine refused when run (the differential battery).
 - The service refuses an option given where a value belongs, naming both (`--store takes a value, and is given the option --create`), where `--store --create --create` made a store file named `--create` and served it.
 - A set input with a `null` element is refused `wrong_type`, where it reached the store and the service answered `500` naming the store's constraint; an import with one reports it as a class, `is not of its type` (the differential battery).
 - A metric's `min`, `max` or `median` over dates is answered as a date, where it was the day's seconds as an integer, and a date less a date in a metric is a duration; the checker refuses a time or a date multiplied or divided in a metric's value, which the engine did not run or answered as seconds (the differential battery).

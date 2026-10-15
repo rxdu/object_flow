@@ -3185,6 +3185,11 @@ def argument_type_errors(doc, library):
     kinds = dict(library or {})
     kinds.update(dict(types(doc)))
     enums = set(doc.get("enumerations") or {})
+    # a value no literal or name tells is typed as an expression is, where an
+    # int passed to a time or an amount to an int was taken and the core
+    # refused the call (the differential battery, 2026-10-16)
+    typing = Typing(kinds, enums | {n for names in (doc.get("imports") or {}).values() for n in names if n not in kinds},
+                    set(doc.get("categories") or []) | BUILT_IN_CATEGORIES, evaluator_names(doc))
     out = []
     for tn, t in types(doc):
         for xn, x in (t.get("transitions") or {}).items():
@@ -3203,9 +3208,15 @@ def argument_type_errors(doc, library):
                         spec = (callee.get("attributes") or {}).get(j)
                     target = written_kind(spec, enums)
                     try:
-                        value = value_kind(flowexpr.parse(" ".join(str(e).split())), tn, t, x, enums)
+                        tree = flowexpr.parse(" ".join(str(e).split()))
                     except flowexpr.ParseError:
                         continue                # step 2 refuses what does not parse
+                    value = value_kind(tree, tn, t, x, enums)
+                    if value is None:
+                        typing.broken, typing.flow_names = [], False
+                        env = {n: (("reference", c) if c else None) for n, c in binders(kinds, tn, x, path).items()}
+                        got = typing.of(tree, tn, x, env)
+                        value = typed_kind(got) if got is not None and not typing.broken else None
                     if target and value and not fits(target, value, kinds):
                         out.append((("types", tn, "transitions", xn, "effect") + path, "names",
                                     f"{tn}.{xn} passes {e}, {' '.join(value)}, to {k}.{body['transition']}'s input '{j}', "
@@ -8905,6 +8916,11 @@ def argument_type_plants(people):
          [refused("condition known passes number to crmcheck.known's argument 'n', which takes string")]),
         ("a negated evaluator's argument of the wrong type", asking("not crmcheck.known(now)"),
          [refused("condition known passes timestamp to crmcheck.known's argument 'n', which takes string")]),
+        ("a computed argument of another type",
+         step(PERSONAL_CRM, CLOSE, ['{ call: { target: customer, transition: tag, inputs: { text: "now - now" } } }']),
+         [refused("Visit.close passes now - now, duration, to Customer.tag's input 'text', which takes string")]),
+        ("a computed argument that fits",
+         step(PERSONAL_CRM, LEAVE, ['{ create: { type: Visit, transition: book, inputs: { customer: "if open then this else this" } } }']), []),
         ("an evaluator's argument that fits", asking("crmcheck.known(label)"), []),
         ("arguments that fit", step(step(PERSONAL_CRM, CLOSE, ["{ call: { target: customer, transition: tag, inputs: { text: '\"vip\"' } } }"]),
                                     LEAVE, ["{ create: { type: Visit, transition: book, inputs: { customer: this } } }"]), []),

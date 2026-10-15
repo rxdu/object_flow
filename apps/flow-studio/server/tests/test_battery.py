@@ -526,3 +526,77 @@ def test_every_input_value_is_taken_or_refused_alike(tee):
             found.append(f"{attr} := {value!r}: core {answers[0]} | runner "
                          f"{answers[1]}")
     assert not found, f"{len(found)} inputs differ:\n" + "\n".join(found[:30])
+
+
+CREATED = """  U:
+    description: A thing a creation makes.
+    tracking: record
+    attributes:
+      i: { type: int, optional: true }
+      d2: { type: "decimal(10,2)", optional: true }
+      d4: { type: "decimal(12,4)", optional: true }
+      m: { type: money(USD), optional: true }
+      du: { type: duration, optional: true }
+      t: { type: timestamp, optional: true }
+      dd: { type: date, optional: true }
+      s: { type: string, optional: true }
+      b: { type: bool, optional: true }
+      lv: { type: Level, optional: true }
+      tags: { type: "string[]", optional: true }
+    states: { NEW: { category: live }, DONE: { category: closed, final: true } }
+    transitions:
+      make: { kind: initial, to: NEW, optional_inputs: [i, d2, d4, m, du, t, dd, s, b, lv, tags] }
+      close: { kind: external, from: [NEW], to: DONE }
+"""
+
+
+def creating(items: list[tuple[str, str]]) -> str:
+    """Each argument a creation of its own, passing its expression to the
+    created type's input of the attribute's name."""
+    base = HEAD[:HEAD.index("    derived_attributes:\n")]
+    steps = "".join(
+        f"      w{n}: {{ kind: internal, from: [OPEN], effect: [ {{ create: "
+        f"{{ type: U, transition: make, inputs: {{ {loc}: {json.dumps(e)} }} "
+        f"}} }} ] }}\n" for n, (loc, e) in enumerate(items))
+    return base + TAIL + steps + CREATED
+
+
+@pytest.mark.skipif(not os.environ.get("OBJECTFLOW_BATTERY_WIDE"),
+                    reason="about eleven minutes; set OBJECTFLOW_BATTERY_WIDE=1")
+def test_every_accepted_argument_creates_alike(tee, judged):
+    """Each accepted expression passed as each input of a creation: both
+    checkers judge the argument alike (check 2's fit), and each one both
+    accept, taken on a fresh object of each kind, is answered alike on both
+    backends. Its first run found an int passed to a time, an amount or a
+    duration input, and an amount to a decimal or an int, which the checkers
+    took, the core refused `call_refused` and the runner, holding them all
+    as numbers, satisfied; the checkers now type an argument as they type an
+    expression (the differential battery, 2026-10-16)."""
+    exprs, _ = judged
+    accepted, disagree = judge(
+        tee, [(loc, e) for e in exprs for loc in TARGETS], creating, "w")
+    assert not disagree, f"refused by one checker alone: {disagree[:20]}"
+    assert len(accepted) > 500, len(accepted)
+    found = []
+    for k in range(0, len(accepted), 40):
+        batch = accepted[k:k + 40]
+        for w in (tee.core, tee.runner):
+            raw(w, "POST", "/sandbox/load",
+                {"files": [{"name": "bt.yaml", "text": creating(batch)}]})
+            raw(w, "POST", "/sandbox/reset", {})
+        for n, (loc, e) in enumerate(batch):
+            for j, inputs in enumerate(OBJECTS):
+                got = []
+                for w in (tee.core, tee.runner):
+                    oid = raw(w, "POST", "/v1/request", {
+                        "actor": OP, "type": "B", "transition": "open",
+                        "inputs": inputs})[1].get("object_id")
+                    v = raw(w, "POST", "/v1/request", {
+                        "actor": OP, "object_id": oid, "transition": f"w{n}"})
+                    got.append((v[0], {x: y for x, y in v[1].items() if x in (
+                        "kind", "clause", "remedy", "fault")}))
+                if got[0] != got[1]:
+                    found.append(f"{loc} <- {e}: object {j}: core {got[0]} | "
+                                 f"runner {got[1]}")
+    assert not found, f"{len(found)} creations differ:\n" + "\n".join(
+        found[:20])

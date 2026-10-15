@@ -1486,7 +1486,7 @@ Four things are needed beyond that text, and nothing else is. Checks 22 and 23 n
 | # | Check |
 |---|---|
 | 1 | A guard or outcome names an undeclared input |
-| 2 | A `call`, `create` or evaluator call with an unknown argument, a missing required one, or one of the wrong type, where the argument's kind and the input's can both be told, as check 17 tells a write's value and its target |
+| 2 | A `call`, `create` or evaluator call with an unknown argument, a missing required one, or one of the wrong type, where the argument's kind and the input's can both be told, as check 17 tells a write's value and its target: a computed argument by the type its expression has, as a write's value is *(added 2026-10-16: `-i` passed to a time input, or an amount to an int, was taken and refused when run, the differential battery)* |
 | 3 | Derived attributes form a cycle |
 | 4 | **Withdrawn** (ADR-0171). It refused a traversal invariant reading through an end whose far end is not declared; a write finds such an invariant through the relationship's stored end |
 | 5 | An invariant fitting none of the three forms of §3.4; the report says which form it decided. In the flow format, an invariant reading a request's `inputs` or `this_event`, which no write after it has: what else fits no form has a check of its own, an evaluator a guard's alone, the actor check 64, the clock check 32, a metric check 56, a label check 55, and `referrers` is a traversal its referrers' stored ends find |

@@ -4893,6 +4893,32 @@ fn argument_type_errors(doc: &Value, library: &Obj) -> Found {
         kinds.insert(tn, t.clone());
     }
     let enums: BTreeSet<String> = keys(doc, "enumerations").into_iter().collect();
+    // a value no literal or name tells is typed as an expression is, where an
+    // int passed to a time or an amount to an int was taken and the core
+    // refused the call (the differential battery, 2026-10-16)
+    let mut typing_enums = enums.clone();
+    for list_ in obj(doc, "imports").values() {
+        if let Value::Array(names) = list_ {
+            for n in names {
+                let n = py_str(n);
+                if !kinds.contains_key(&n) {
+                    typing_enums.insert(n);
+                }
+            }
+        }
+    }
+    let cats = categories(doc);
+    let evaluators = evaluator_names(doc);
+    let known = std::cell::RefCell::new(BTreeMap::new());
+    let mut typing = Typing {
+        kinds: &kinds,
+        enums: &typing_enums,
+        categories: &cats,
+        evaluators: &evaluators,
+        broken: Vec::new(),
+        flow_names: false,
+        known: &known,
+    };
     let mut out = Found::new();
     for (tn, t) in types(doc) {
         for (xn, x) in obj(t, "transitions") {
@@ -4938,7 +4964,20 @@ fn argument_type_errors(doc: &Value, library: &Obj) -> Found {
                     let Ok(tree) = parse(&squash(&text)) else {
                         continue;
                     };
-                    let value = value_kind(&tree, &tn, t, x, &enums);
+                    let value = value_kind(&tree, &tn, t, x, &enums).or_else(|| {
+                        typing.broken.clear();
+                        typing.flow_names = false;
+                        let env: TyEnv = binders(&kinds, &tn, x, &step.path)
+                            .into_iter()
+                            .map(|(n, c)| (n, c.map(Ty::Reference)))
+                            .collect();
+                        let got = typing.of(&tree, &tn, Some(x), &env, &BTreeSet::new())?;
+                        if typing.broken.is_empty() {
+                            typed_kind(&got)
+                        } else {
+                            None
+                        }
+                    });
                     if let (Some(target), Some(value)) = (target, value)
                         && !fits(&target, &value, &kinds)
                     {
