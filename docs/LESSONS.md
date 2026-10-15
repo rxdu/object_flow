@@ -812,3 +812,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A case added inside an existing deployment test was reported passing after `cargo test … a_deployments_edges_are_said`, a filter naming a different test; the case lived in `what_the_service_was_given_is_said` and had not run. Its mutant then "survived" the same wrong filter. The case also guarded a regression that would hang rather than fail: under the old parser the command served forever.
 - **Correction:** After adding a case to an existing test, find the function that holds it (by line) and run that name; see the case fail with its fix undone before calling it held. Shape a regression case so the old behaviour exits too, so the test fails rather than hangs.
 - **Context:** `objectflow-service` deployment tests; found 2026-10-16.
+
+### Read the gate's verdict, then commit, in two steps
+- **Pattern:** A command read the gate's tail and committed in one chain, so a run ending `check-all: 2 failed` was committed (`c28866d`) before its verdict was read; the new check had refused a design document's module the gate holds.
+- **Correction:** Never chain `git commit` after reading a gate's output. Read the verdict first; commit in a separate step, only on `every gate passed`. Where a failing commit lands anyway, fix forward with a commit that says so, never rewrite it unasked.
+- **Context:** Every gated commit in this repository; found 2026-10-16.

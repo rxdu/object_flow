@@ -4972,11 +4972,21 @@ fn argument_type_errors(doc: &Value, library: &Obj) -> Found {
                             .map(|(n, c)| (n, c.map(Ty::Reference)))
                             .collect();
                         let got = typing.of(&tree, &tn, Some(x), &env, &BTreeSet::new())?;
-                        if typing.broken.is_empty() {
-                            typed_kind(&got)
-                        } else {
-                            None
+                        if !typing.broken.is_empty() {
+                            return None;
                         }
+                        // an identity and a string the typing gives the
+                        // benefit of the doubt, as it does in a comparison,
+                        // where `actor.principal` passed to an identity input
+                        // was refused (`alike`)
+                        let kind = typed_kind(&got)?;
+                        let doubt = target.as_ref().is_some_and(|t| {
+                            matches!(
+                                (t[0].as_str(), kind[0].as_str()),
+                                ("identity", "string") | ("string", "identity")
+                            )
+                        });
+                        (!doubt).then_some(kind)
                     });
                     if let (Some(target), Some(value)) = (target, value)
                         && !fits(&target, &value, &kinds)

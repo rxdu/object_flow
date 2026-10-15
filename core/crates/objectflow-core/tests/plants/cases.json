@@ -31633,6 +31633,87 @@
   }
  },
  {
+  "label": "argument_type_plants: a principal passed to an identity input",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "crm.yaml",
+    "eb6d2c324ffd84ab"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "crm.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Customer (7), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Customer": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ],
+   "Visit": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
   "label": "argument_type_plants: an evaluator's argument that fits",
   "files": [
    [

@@ -3217,6 +3217,10 @@ def argument_type_errors(doc, library):
                         env = {n: (("reference", c) if c else None) for n, c in binders(kinds, tn, x, path).items()}
                         got = typing.of(tree, tn, x, env)
                         value = typed_kind(got) if got is not None and not typing.broken else None
+                        # an identity and a string the typing gives the benefit of the doubt, as it does in a
+                        # comparison, where `actor.principal` passed to an identity input was refused (alike)
+                        if value and target and {value[0], target[0]} == {"identity", "string"}:
+                            value = None
                     if target and value and not fits(target, value, kinds):
                         out.append((("types", tn, "transitions", xn, "effect") + path, "names",
                                     f"{tn}.{xn} passes {e}, {' '.join(value)}, to {k}.{body['transition']}'s input '{j}', "
@@ -8921,6 +8925,10 @@ def argument_type_plants(people):
          [refused("Visit.close passes now - now, duration, to Customer.tag's input 'text', which takes string")]),
         ("a computed argument that fits",
          step(PERSONAL_CRM, LEAVE, ['{ create: { type: Visit, transition: book, inputs: { customer: "if open then this else this" } } }']), []),
+        # an identity and a string given the benefit of the doubt, as a comparison gives them
+        ("a principal passed to an identity input",
+         step(p(PERSONAL_CRM, "      tag:    {", "      note_by: { kind: internal, from: [ACTIVE], inputs: { who: { type: identity } } }\n      tag:    {"),
+              CLOSE, ["{ call: { target: customer, transition: note_by, inputs: { who: actor.principal } } }"]), []),
         ("an evaluator's argument that fits", asking("crmcheck.known(label)"), []),
         ("arguments that fit", step(step(PERSONAL_CRM, CLOSE, ["{ call: { target: customer, transition: tag, inputs: { text: '\"vip\"' } } }"]),
                                     LEAVE, ["{ create: { type: Visit, transition: book, inputs: { customer: this } } }"]), []),
