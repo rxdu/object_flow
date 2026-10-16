@@ -263,8 +263,11 @@ Read the standard error to its end, as journald does. The service writes the log
 | … approval of a version that fills a new required attribute on every claim (holds writes) | | about 20 s |
 | peak memory: submit / approval | 0.5 GB / 1.1 GB | 1.5 GB / 3 GB |
 | a go-live import of 36k objects, 3,000 a batch | 36 s, each batch about 1.6 s | |
+| a report, a metric over a type's whole history, p95 (2026-10-16, Gate P paced; 2026-10-14, each alone) | 0.22 to 0.78 s | 1.17 to 1.59 s |
 
 Publishing grows linearly with the store: do it outside the busiest hours, and pause the creation of objects of a type whose migration is being approved: a creation during the approval refuses it `impact_unchanged`, after it has held writes for most of its run. Its approval holds writes for its whole run, longer while the read pools are busy: on six years, 25 s for an added attribute under load against 9 s idle, and 48.7 s for a new required attribute filled on every claim while sixteen metrics and eight `available` polls ran, against 17.9 s idle. Stop heavy readers (metrics, exports, pollers) before approving a version that fills an attribute on a large store, since a held write outlasts a client's 45 s timeout and a stop waits only 30 s: stop the service after a publish, never during one. A dry run has a deadline of its own, `--dry-run-timeout` (2 min unless given); one that passes it is answered `503 read_timeout` and records nothing: give a store whose dry run takes longer a longer one, which leaves every other read's deadline as it is.
+
+**A report over a type's whole history** is a scan, linear in the store: past about two years at the profile's rate it does not answer within C5's 1 s, which is a stated limit and not a promise (ADR-0210 decision 2). Read a team's reports over a window, as a dashboard does; a window narrowed by an index on time, so its cost follows its activity and not the store's age, is the design ADR-0210 decision 2 records.
 
 Some flow constructs cost more than they look:
 

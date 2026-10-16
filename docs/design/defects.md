@@ -706,6 +706,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D692](#d692) | The log does not reproduce a row: an event records its inputs, never its effects' writes | Resolved by ADR-0209 |
 | [D693](#d693) | An actor's identity another actor holds is refused with nothing in its record of what it read | Resolved |
 | [D694](#d694) | A second correction of an observation is refused with nothing in its record of the correction that refused it | Resolved |
+| [D695](#d695) | A member read through a reference that its type does not declare was accepted | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4465,3 +4466,8 @@ Brought to the author the day it was found, with a recommendation (`TODO.md`, un
 **A second correction of an observation is refused with nothing in its record of the correction that refused it.** An observation already corrected is refused a second correction `corrects_current`, the built-in rule of `declaration-syntax.md` §6.8, and the verdict names the correction recorded first; its attempt row's read set held the subject and the observation named, and not the correction, which the rule found by reading each kind that can correct by its `corrects` column, past the reading the guards record into. Replayed over its read set, the request was satisfied. A satisfied correction likewise recorded nothing of its having found none. Found 2026-10-16 by the adversarial harness's refusal condition at forty seeds of 300, the service desk fixture's eighteenth seed, a `RequestApproval` corrected twice.
 
 **Resolved** 2026-10-16: the rule records a scan of each kind that can correct under `corrects_current`, its match the correction found, empty where none, into the request's read set and the event's, as a uniqueness check records its own (`request.rs`); held by `tests/redecided.rs`'s `a_second_correction_is_refused_over_what_it_read`, which fails with the match left unrecorded.
+
+### D695
+**A member read through a reference that its type does not declare was accepted, and refused every request at run time.** Both checkers type a path through a reference by the target type's member and gave a name the type does not declare no type and no finding, so `customer.nonexistent + 1 h >= now` passed check 2 and step 3, where a bare `nonexistent` is refused `names`. A guard reading it is unknown at run time and refuses every request it guards. Found 2026-10-16 withdrawing a mirror's `imported_at` (ADR-0210 decision 3), which a path read as `customer.imported_at` and nothing refused.
+
+**Resolved** 2026-10-16: both checkers refuse such a member, "it reads {m} of {T}, which {T} does not declare", a type's members being its attributes, derived attributes and observation kinds, what every object has, its flow data, its state and its referrers, and the withdrawn `imported_at` named as withdrawn (`check-flows.py` `Typing.undeclared`, `check/names.rs` `undeclared`); held by a plant and the oracle, two mutants of each checker killed. The corpus's only use of a member outside the first list, `intervals` read through a reference, set the flow data's place in it.

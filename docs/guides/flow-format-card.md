@@ -258,7 +258,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 
 ## Expressions (§5, `declaration-syntax.md` §8)
 
-- **Names**: an attribute by its name; an input as `inputs.<name>`; `state`, `now`, `id`, `open`, `created_at`, `created_by_kind`, `recorded_from`, `declaration_version`; a mirror's `imported_at`; `this_event`, `referrers`; a value qualified, `Condition.WORN`, a state of another type `Item.AVAILABLE`, a category bare, `closed`.
+- **Names**: an attribute by its name; an input as `inputs.<name>`; `state`, `now`, `id`, `open`, `created_at`, `created_by_kind`, `recorded_from`, `declaration_version`; `this_event`, `referrers`; a value qualified, `Condition.WORN`, a state of another type `Item.AVAILABLE`, a category bare, `closed`.
 - **Logic**: `and`, `or`, `not`, `implies`; `is null`, `is not null`. A comparison with an absent value is **unknown**, and an unknown guard fails as a false one does.
 - **Aggregates**: `count`, `sum`, `any`, `all`, `none`, `min`, `max`, `avg`, `median`, `percentile`, written `count(l in loans where l.open)`; over nothing, `count` and `sum` are 0, `all` and `none` true, `any` false, the others absent.
 - **Values**: money `USD 12.50`, a date `date(now) + 30 days`, a duration `2 h`, text quoted inside the YAML string, `'"HQ"'`; `true`, `false` and numbers bare.

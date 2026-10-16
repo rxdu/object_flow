@@ -12,7 +12,7 @@ use super::steps::{kind, sources};
 use crate::expr::{Expr, parse};
 
 /// The members every object or row has, which no declaration makes optional.
-const BUILT_IN: &[&str] = &[
+pub(super) const BUILT_IN: &[&str] = &[
     "id",
     "state",
     "open",

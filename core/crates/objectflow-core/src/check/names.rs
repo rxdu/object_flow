@@ -46,7 +46,10 @@ pub const OBJECT_MEMBERS: &[&str] = &[
     "recorded_from",
     "declaration_version",
 ];
-const MIRROR_MEMBERS: &[&str] = &["imported_at"];
+/// A member withdrawn before 1.0.0, its name kept against shadowing so that
+/// it may return with a use (ADR-0210 decision 3): a mirror's `imported_at`,
+/// which no store kept.
+const WITHDRAWN_MEMBERS: &[&str] = &["imported_at"];
 const ONLY_ON_OBSERVATIONS: &[&str] = &["unit"];
 const ONLY_ON_TYPES: &[&str] = &[
     "actor_kind",
@@ -592,16 +595,17 @@ fn reserved_name_errors(doc: &Value) -> Found {
         for (p, a) in owned {
             if NOT_AN_ATTRIBUTE.contains(&a.as_str()) {
                 out.push(finding(p, "names", format!("'{a}' cannot name an attribute: in an expression it means something else first")));
-            } else if OBJECT_MEMBERS.contains(&a.as_str()) || MIRROR_MEMBERS.contains(&a.as_str()) {
-                let who = if MIRROR_MEMBERS.contains(&a.as_str()) {
-                    " that is a mirror"
-                } else {
-                    ""
-                };
+            } else if WITHDRAWN_MEMBERS.contains(&a.as_str()) {
                 out.push(finding(
                     p,
                     "names",
-                    format!("'{a}' cannot name a member: every object{who} has one of that name, which it would shadow (the model's check 33)"),
+                    format!("'{a}' cannot name a member: it is kept for a member withdrawn before 1.0.0, which may return with a use (ADR-0210 decision 3)"),
+                ));
+            } else if OBJECT_MEMBERS.contains(&a.as_str()) {
+                out.push(finding(
+                    p,
+                    "names",
+                    format!("'{a}' cannot name a member: every object has one of that name, which it would shadow (the model's check 33)"),
                 ));
             }
         }
@@ -3196,6 +3200,34 @@ struct Typing<'a> {
 type TyEnv = BTreeMap<String, Option<Ty>>;
 
 impl Typing<'_> {
+    /// Why a member read through a reference is none its type has: an
+    /// attribute, a derived attribute, an observation kind, what every object
+    /// has, its flow data among it, its state or its referrers; none where it
+    /// is one, or where nothing declares the type (D695, `check-flows.py`'s
+    /// `undeclared`).
+    fn undeclared(&self, tn: &str, m: &str) -> Option<String> {
+        let t = self.kinds.get(tn)?;
+        if m == "state"
+            || m == "referrers"
+            || object_member_type(m).is_some()
+            || super::optional::BUILT_IN.contains(&m)
+        {
+            return None;
+        }
+        if obj(t, "attributes").contains_key(m)
+            || obj(t, "derived_attributes").contains_key(m)
+            || obj(t, "observations").contains_key(m)
+        {
+            return None;
+        }
+        if WITHDRAWN_MEMBERS.contains(&m) {
+            return Some(format!(
+                "it reads {m} of {tn}, which is withdrawn before 1.0.0, no store keeping it, and may return with a use (ADR-0210 decision 3)"
+            ));
+        }
+        Some(format!("it reads {m} of {tn}, which {tn} does not declare"))
+    }
+
     fn member(&self, tn: &str, m: &str, seen: &BTreeSet<(String, String)>) -> Option<Ty> {
         // the type read where it is, where each member cloned it whole
         static NONE: Value = Value::Null;
@@ -3478,7 +3510,13 @@ impl Typing<'_> {
                 }
                 // a value with no members has none read (K-9)
                 match self.of(base, tn, x, env, seen) {
-                    Some(Ty::Reference(t)) => self.member(&t, m, seen),
+                    Some(Ty::Reference(t)) => match self.undeclared(&t, m) {
+                        Some(why) => {
+                            self.fail(why);
+                            None
+                        }
+                        None => self.member(&t, m, seen),
+                    },
                     Some(Ty::State(_)) if m == "category" => Some(Ty::Category),
                     Some(Ty::State(_)) => {
                         self.fail(format!("it reads {m} of a state, which has only category"));
@@ -5278,9 +5316,6 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
     members.extend(NOT_AN_ATTRIBUTE.iter().map(|s| s.to_string()));
     members.extend(OBJECT_MEMBERS.iter().map(|s| s.to_string()));
     members.extend(categories.iter().cloned());
-    if flag(t, "mirror") {
-        members.extend(MIRROR_MEMBERS.iter().map(|s| s.to_string()));
-    }
     let request_only = set(REQUEST_ONLY);
     let without_request: BTreeSet<String> = members.difference(&request_only).cloned().collect();
     // each derived attribute's place, so one reads those after it without a
@@ -5415,6 +5450,10 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
                     _ => String::new(),
                 };
                 format!("{name} reads '{r}', which is not a field of the observation {o}")
+            } else if WITHDRAWN_MEMBERS.contains(&r.as_str()) {
+                format!(
+                    "{name} reads '{r}', which is withdrawn before 1.0.0, no store keeping it, and may return with a use (ADR-0210 decision 3)"
+                )
             } else {
                 format!("{name} reads '{r}', which {tn} does not declare")
             };

@@ -12514,6 +12514,95 @@
   }
  },
  {
+  "label": "reach",
+  "files": [
+   [
+    "m.yaml",
+    "caaeb9c8db487e77"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "m.yaml",
+    18,
+    "fatal",
+    "names",
+    "condition fresh does not type: it reads nonexistent of Customer, which Customer does not declare (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "reach",
+  "files": [
+   [
+    "m.yaml",
+    "bfc1c0e687507be2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "m.yaml",
+    18,
+    "fatal",
+    "names",
+    "condition fresh does not type: it reads imported_at of Customer, which is withdrawn before 1.0.0, no store keeping it, and may return with a use (ADR-0210 decision 3) (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "reach",
+  "files": [
+   [
+    "m.yaml",
+    "15fc99adaa21dd31"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Customer": [
+    0,
+    0
+   ],
+   "Order": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
+    "m.yaml",
+    "f1b03dfc17568452"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "m.yaml",
+    12,
+    "fatal",
+    "names",
+    "derived attribute 'stale' reads 'imported_at', which is withdrawn before 1.0.0, no store keeping it, and may return with a use (ADR-0210 decision 3)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [

@@ -12,6 +12,9 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 - The checker notices an assignment whose value can be absent through an optional it never tests, which refuses its request `value_in_range` (`absent`, ADR-0201 decision 7), other than a plain read moved into an optional attribute.
 - The `undecided` notice says the invariants or conditions it could not decide are still enforced, and how to bring them within the bound.
 - An inline value cut at a comma is named as one where it holds an apostrophe, or where two are cut in one mapping, where the schema's raw message was given.
+- A member read through a reference that its type does not declare is refused by the checkers, where it was accepted and a guard reading it refused every request (D695).
+- A mirror's `imported_at` is withdrawn: the checkers refuse reading it, and keep the name (ADR-0210 decision 3).
+- `scripts/profile/load.py` plays Gate P's readers at the profile's pace, `--stress` back to back (ADR-0210 decision 1).
 - Each event's payload records what it wrote, `wrote`: each attribute of its object it changed, with its value after and `null` where it cleared one, so a fold of an object's events reproduces its row, where only the inputs were recorded (D692, ADR-0209). An erasure redacts a personal value there as in the inputs, and `export` omits it. Events recorded before hold no `wrote`.
 - A plain read of an absent value, a name or a path, assigned to an optional attribute clears it, as `clear` does, where 0.2.0 refused the request `value_in_range`; arithmetic on an absent value, and an absent value assigned to a required attribute, are still refused (ADR-0209 decision 5).
 - The checker types a computed argument of a `call` or a `create`, refusing one of another kind than its input, an int passed to a time or an amount to an int, which the engine refused when run (the differential battery).

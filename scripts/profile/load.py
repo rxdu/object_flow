@@ -9,7 +9,12 @@ it for `--seconds`, at `--scale` 1 or 2, the month-end peak being twice the stea
   session together held to 50 a second;
 - four of them reading reports: per-person and standard metrics, opted into reading by a person as the team's
   application opts in for a manager (ADR-0206);
-- two agents sweeping through their reads.
+- two agents sweeping through their reads;
+
+each at the profile's pace (ADR-0210 decision 1): a session pausing about 1 s between requests, a report reader or an
+agent about 10 s between reads. `--stress` plays them back to back, as the audit's gate first did, and reports what it
+measures without failing: back to back, a read's latency is the readers' count over the free cores times its cost, a
+measure of the machine's saturation more than of a read.
 
 It fails, exiting 1, where any of these holds, as the audit set them:
 
@@ -25,7 +30,7 @@ erasure batch, a backup and a prune, belong to the soak (ADR-0204 §7) and are n
 Usage:
 
     load.py <objectflow-service> <store.sqlite> [--seconds 150] [--scale 1] [--memory-max 8G]
-            [--sessions N] [--reporters N] [--agents N]
+            [--sessions N] [--reporters N] [--agents N] [--think 1] [--report-think 10] [--stress]
 """
 import argparse
 import json
@@ -152,11 +157,17 @@ def main():
     ap.add_argument("--sessions", type=int, help="people's sessions, 16 at scale 1")
     ap.add_argument("--reporters", type=int, help="report readers, 4 at scale 1")
     ap.add_argument("--agents", type=int, help="agents, 2 at scale 1")
-    # the audit's variant with pauses (`audit/cost.md`, `--think 1 --report-think 10`): Gate P itself has none
-    ap.add_argument("--think", type=float, default=0.0, help="seconds a session waits between requests")
-    ap.add_argument("--report-think", type=float, default=0.0,
+    # the profile's pace (ADR-0210 decision 1, the audit's variant in `audit/cost.md`): a session pauses about 1 s, a
+    # report reader or an agent about 10 s; `--stress` plays them back to back, reported beside the gate and never
+    # failing it
+    ap.add_argument("--think", type=float, default=1.0, help="seconds a session waits between requests")
+    ap.add_argument("--report-think", type=float, default=10.0,
                     help="seconds a report reader or an agent waits between reads")
+    ap.add_argument("--stress", action="store_true",
+                    help="every reader back to back, its result reported and not the gate's")
     a = ap.parse_args()
+    if a.stress:
+        a.think = a.report_think = 0.0
     sessions = 16 * a.scale if a.sessions is None else a.sessions
     reporters = 4 * a.scale if a.reporters is None else a.reporters
     agents = 2 * a.scale if a.agents is None else a.agents
@@ -267,7 +278,10 @@ def main():
         if peak[0] > memory_max:
             failed.append(f"resident memory reached {peak[0] / (1 << 20):.0f} MiB")
         for f in failed:
-            print(f"FAILED: {f}")
+            print(f"{'MISSED' if a.stress else 'FAILED'}: {f}")
+        if a.stress:
+            print("stress run, back to back: reported beside Gate P, which it does not decide")
+            return 0
         print("Gate P: " + ("failed" if failed else "passed"))
         return 1 if failed else 0
     finally:

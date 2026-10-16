@@ -165,7 +165,7 @@ A stored end's foreign key names its target's table, or the directory, `of_objec
 - a correction's link to the observation it corrects is a nullable `corrects_id`;
 - its occurred time is `occurred_at`, since metrics filter and bucket on it (ADR-0099).
 
-**A mirror type's table has `imported_at`**, the time its last import wrote the row, which a guard may bound (ADR-0100).
+**A mirror type's table has `imported_at`**, the time its last import wrote the row, which a guard may bound (ADR-0100). *(Withdrawn 2026-10-16 by ADR-0210 decision 3: no store kept it, and "the last import that wrote it" meant the last that changed it, which no freshness guard can use; the checkers refuse reading it and keep the name.)*
 
 A numeric field's declared unit is metadata in `of_declaration`, not a column, since it never varies by row.
 

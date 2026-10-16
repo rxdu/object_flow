@@ -86,8 +86,10 @@ NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "thi
 # what every object has beside its state, read by name as the state is (declaration-syntax.md §8),
 # and what a mirror has besides; a member of one of the reserved names would shadow it (the model's check 33)
 OBJECT_MEMBERS = {"id", "open", "created_at", "created_by_kind", "recorded_from", "declaration_version"}
-MIRROR_MEMBERS = {"imported_at"}
-SHADOWING = OBJECT_MEMBERS | MIRROR_MEMBERS
+# a member withdrawn before 1.0.0, its name kept against shadowing so that it may return with a use (ADR-0210
+# decision 3): a mirror's `imported_at`, which no store kept
+WITHDRAWN_MEMBERS = {"imported_at"}
+SHADOWING = OBJECT_MEMBERS | WITHDRAWN_MEMBERS
 # keys the text language has a form for on one kind of attribute only; elsewhere they would be dropped
 ONLY_ON_OBSERVATIONS = {"unit"}
 ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "external", "default", "opposite", "stored", "aggregation", "cascade",
@@ -1969,9 +1971,11 @@ def reserved_name_errors(doc):
         for path, a in owned:
             if a in NOT_AN_ATTRIBUTE:
                 out.append((path, "names", f"'{a}' cannot name an attribute: in an expression it means something else first"))
+            elif a in WITHDRAWN_MEMBERS:
+                out.append((path, "names", f"'{a}' cannot name a member: it is kept for a member withdrawn before 1.0.0, which may return with a use (ADR-0210 decision 3)"))
             elif a in SHADOWING:
-                out.append((path, "names", f"'{a}' cannot name a member: every object{' that is a mirror' if a in MIRROR_MEMBERS else ''} "
-                                           "has one of that name, which it would shadow (the model's check 33)"))
+                out.append((path, "names", f"'{a}' cannot name a member: every object has one of that name, which it would "
+                                           "shadow (the model's check 33)"))
         for a, spec in attrs.items():
             for k in sorted(ONLY_ON_OBSERVATIONS & set(spec)):
                 out.append((("types", tn, "attributes", a, k), "names", f"'{k}' applies only to an observation's attribute, not to {tn}.{a}"))
@@ -2465,6 +2469,20 @@ class Typing:
             return ty
         return None
 
+    def undeclared(self, tn, m):
+        """Why a member read through a reference is none its type has: an attribute, a derived attribute, an
+        observation kind, what every object has, its flow data among it, its state or its referrers; none where it is
+        one, or where nothing declares the type (D695)."""
+        t = self.kinds.get(tn)
+        if t is None or m in ("state", "referrers") or m in MEMBER_TYPES or m in OptionalReads.BUILT_IN:
+            return None
+        if m in (t.get("attributes") or {}) or m in (t.get("derived_attributes") or {}) or m in (t.get("observations") or {}):
+            return None
+        if m in WITHDRAWN_MEMBERS:
+            return (f"it reads {m} of {tn}, which is withdrawn before 1.0.0, no store keeping it, and may return with a "
+                    "use (ADR-0210 decision 3)")
+        return f"it reads {m} of {tn}, which {tn} does not declare"
+
     def fail(self, detail):
         self.broken.append(detail)
 
@@ -2552,6 +2570,10 @@ class Typing:
                 return None
             bt = self.of(base, tn, x, env, seen)
             if bt is not None and bt[0] == "reference":
+                why = self.undeclared(bt[1], m)
+                if why:
+                    self.fail(why)
+                    return None
                 return self.member(bt[1], m, seen)
             if bt is not None and bt[0] == "state" and m == "category":
                 return ("category",)
@@ -3363,7 +3385,7 @@ def read_errors(tn, t, categories=()):
     foreach and create steps bind."""
     derived = list(t.get("derived_attributes") or {})
     stored = set(t.get("attributes") or {}) | set(t.get("observations") or {})
-    members = stored | set(derived) | NOT_AN_ATTRIBUTE | OBJECT_MEMBERS | set(categories) | (MIRROR_MEMBERS if t.get("mirror") else set())
+    members = stored | set(derived) | NOT_AN_ATTRIBUTE | OBJECT_MEMBERS | set(categories)
     # an invariant is checked after a write, where no request's inputs or event are (the model's check 5)
     exprs = [(("types", tn, sec, n, "expression"), n, c["expression"], members - (REQUEST_ONLY if sec == "invariants" else set()))
              for sec in ("conditions", "invariants") for n, c in (t.get(sec) or {}).items()]
@@ -3390,6 +3412,7 @@ def read_errors(tn, t, categories=()):
     return out + [(path, "names", f"{name} reads '{r}', which only a transition has" if r in REQUEST_ONLY else
                                   f"{name} reads labels, which are read only as a metric's source, source: labels (check 55)" if r == "labels" else
                                   f"{name} reads '{r}', which is not a field of the observation {path[3]}" if "observations" in path else
+                                  f"{name} reads '{r}', which is withdrawn before 1.0.0, no store keeping it, and may return with a use (ADR-0210 decision 3)" if r in WITHDRAWN_MEMBERS else
                                   f"{name} reads '{r}', which {tn} does not declare")
                   for path, name, text, scope in exprs for r in sorted(reads(text) - scope)]
 
@@ -6604,6 +6627,32 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     hit = not wide_found and len(undecided) == 2 and all("still enforced" in u and "within it" in u for u in undecided)
     ok &= hit
     print(f"  planted invariants past the bound: {'noticed undecided, saying what to do' if hit else 'MISSED ' + str((wide_found, undecided))}")
+    # a member read through a reference that its type does not declare is refused, where it typed as nothing and a
+    # guard reading it refused every request (D695); a mirror's `imported_at`, withdrawn, is refused naming why, read
+    # through a reference or by the mirror itself (ADR-0210 decision 3)
+    reached = ("module: m\ncategories: [live, closed]\ntypes:\n  Customer:\n    description: A customer another system holds.\n"
+               "    mirror: true\n    tracking: record\n    attributes:\n      code: { type: string, external: crm, indexed: true }\n"
+               "    states: { ON: { category: live }, OFF: { category: closed, final: true } }\n"
+               "  Order:\n    description: An order.\n    tracking: record\n    attributes:\n      customer: { reference: Customer }\n"
+               "    states: { OPEN: { category: live }, DONE: { category: closed, final: true } }\n"
+               "    conditions:\n      fresh: { description: Fresh., expression: 'customer.READ + 1 h >= now', remedy: dependent }\n"
+               "    transitions:\n      place: { kind: initial, to: OPEN, required_inputs: [customer] }\n"
+               "      ship: { kind: external, from: OPEN, to: DONE, guards: { fresh: deny } }\n")
+    def reach(member):
+        return [x[4] for x in check([("m.yaml", reached.replace("READ", member))])[0]]
+    undeclared, withdrawn, declared = reach("nonexistent"), reach("imported_at"), reach("created_at")
+    own = [x[4] for x in check([("m.yaml", reached.replace("customer.READ", "created_at").replace(
+        "    states: { ON: { category: live }, OFF: { category: closed, final: true } }\n",
+        "    states: { ON: { category: live }, OFF: { category: closed, final: true } }\n"
+        "    derived_attributes:\n      stale: { description: Stale., expression: 'imported_at + 1 h < now' }\n"))])[0]]
+    hit = (len(undeclared) == 1 and "nonexistent of Customer, which Customer does not declare" in undeclared[0]
+           and len(withdrawn) == 1 and "imported_at of Customer, which is withdrawn" in withdrawn[0] and not declared)
+    ok &= hit
+    print(f"  planted a member through a reference its type does not declare: "
+          f"{'refused, and a declared one taken' if hit else 'MISSED ' + str((undeclared, withdrawn, declared))}")
+    hit = len(own) == 1 and "reads 'imported_at', which is withdrawn" in own[0]
+    ok &= hit
+    print(f"  planted a mirror reading its withdrawn imported_at: {'refused, naming why' if hit else 'MISSED ' + str(own)}")
     end = "    states:\n      S: { category: live, description: Open. }\n      E: { category: live, final: true, description: Done. }\n"
     ring = [x for x in check([("ring.yaml", "module: m\ncategories: [live]\ntypes:\n"
                                             "  A:\n    description: One end.\n    tracking: record\n"

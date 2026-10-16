@@ -1,0 +1,21 @@
+module: m
+categories: [live, closed]
+types:
+  Customer:
+    description: A customer another system holds.
+    mirror: true
+    tracking: record
+    attributes:
+      code: { type: string, external: crm, indexed: true }
+    states: { ON: { category: live }, OFF: { category: closed, final: true } }
+  Order:
+    description: An order.
+    tracking: record
+    attributes:
+      customer: { reference: Customer }
+    states: { OPEN: { category: live }, DONE: { category: closed, final: true } }
+    conditions:
+      fresh: { description: Fresh., expression: 'customer.created_at + 1 h >= now', remedy: dependent }
+    transitions:
+      place: { kind: initial, to: OPEN, required_inputs: [customer] }
+      ship: { kind: external, from: OPEN, to: DONE, guards: { fresh: deny } }
