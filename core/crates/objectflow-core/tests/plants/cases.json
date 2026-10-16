@@ -12377,6 +12377,102 @@
   "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [
+    "wide.yaml",
+    "5dcad71e21d32b9c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "wide.yaml",
+    8,
+    "notice",
+    "unwritten",
+    "T.a0 is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "wide.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "T.a1 is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "wide.yaml",
+    10,
+    "notice",
+    "unwritten",
+    "T.a2 is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "wide.yaml",
+    11,
+    "notice",
+    "unwritten",
+    "T.a3 is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "wide.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "T.a4 is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "wide.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "T.a5 is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "wide.yaml",
+    14,
+    "notice",
+    "unwritten",
+    "T.a6 is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "wide.yaml",
+    15,
+    "notice",
+    "unwritten",
+    "T.a7 is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "wide.yaml",
+    16,
+    "notice",
+    "undecided",
+    "the invariants of T in E expand to more than 4096 cases, so whether they can hold together is not decided; they are still enforced when a request is taken. Each `and`, `or` and `implies` they join, and each value they read that may be absent, multiplies the cases: an attribute the state requires in place of an optional one, or fewer clauses in one invariant, brings them within it"
+   ],
+   [
+    "wide.yaml",
+    16,
+    "notice",
+    "undecided",
+    "the invariants of T in S expand to more than 4096 cases, so whether they can hold together is not decided; they are still enforced when a request is taken. Each `and`, `or` and `implies` they join, and each value they read that may be absent, multiplies the cases: an attribute the state requires in place of an optional one, or fewer clauses in one invariant, brings them within it"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "T.wide": "local"
+  },
+  "could_violate": {
+   "T.wide": [
+    "T.t"
+   ]
+  }
+ },
+ {
+  "label": "self_test: two modules declaring their version's approvers differently",
+  "files": [
+   [
     "ring.yaml",
     "395ce32f40c0529f"
    ]

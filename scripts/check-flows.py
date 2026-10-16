@@ -6572,6 +6572,20 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     ok &= "contradiction" in found and "undecided" not in found
     print(f"  planted a type of many transitions a person takes, and two invariants that cannot hold together: "
           f"{'contradiction found, decided' if 'contradiction' in found and 'undecided' not in found else 'MISSED ' + str(found)}")
+    # invariants expanding past the bound are noticed `undecided`, the notice saying that they are still enforced and
+    # how to bring them within it (the reimbursement cold draft's sixteenth finding)
+    wide = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A thing.\n    tracking: record\n    attributes:\n"
+            + "".join(f"      a{i}: {{ type: int, optional: true }}\n" for i in range(8))
+            + "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
+            + "    invariants:\n      wide: { description: Wide., expression: '"
+            + " and ".join(f"(a{i} is null or a{i} > {i})" for i in range(8)) + "' }\n"
+            + "    transitions:\n      t: { kind: initial, to: S }\n      e: { kind: external, from: S, to: E }\n")
+    wide_found, wide_notes = check([("wide.yaml", wide)])
+    undecided = [x[4] for x in wide_notes if x[3] == "undecided"]
+    # one for each state the invariants are judged in
+    hit = not wide_found and len(undecided) == 2 and all("still enforced" in u and "within it" in u for u in undecided)
+    ok &= hit
+    print(f"  planted invariants past the bound: {'noticed undecided, saying what to do' if hit else 'MISSED ' + str((wide_found, undecided))}")
     end = "    states:\n      S: { category: live, description: Open. }\n      E: { category: live, final: true, description: Done. }\n"
     ring = [x for x in check([("ring.yaml", "module: m\ncategories: [live]\ntypes:\n"
                                             "  A:\n    description: One end.\n    tracking: record\n"

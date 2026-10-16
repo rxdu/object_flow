@@ -1316,7 +1316,7 @@ pub fn analyse_type(
                 here,
                 false,
                 "undecided",
-                format!("the invariants of {tn} in {s} expand to more than {LIMIT} cases, so whether they can hold together is not decided"),
+                format!("the invariants of {tn} in {s} expand to more than {LIMIT} cases, so whether they can hold together is not decided; they are still enforced when a request is taken. Each `and`, `or` and `implies` they join, and each value they read that may be absent, multiplies the cases: an attribute the state requires in place of an optional one, or fewer clauses in one invariant, brings them within it"),
             ));
         }
     }
@@ -1510,7 +1510,7 @@ pub fn analyse_type(
                 here,
                 false,
                 "undecided",
-                format!("the conditions of {tn}.{xn} expand to more than {LIMIT} cases, so whether they can hold together is not decided"),
+                format!("the conditions of {tn}.{xn} expand to more than {LIMIT} cases, so whether they can hold together is not decided; they are still evaluated when the transition is requested. Each `and`, `or` and `implies` they join, and each value they read that may be absent, multiplies the cases: an attribute its states require in place of an optional one, or fewer clauses in one condition, brings them within it"),
             ));
         }
     }

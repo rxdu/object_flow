@@ -557,7 +557,7 @@ def analyse_type(tn, t, enums):
                                 f"and {', '.join(entering)} enter{'s' if len(entering) == 1 else ''} it"))
         except TooLarge:
             out.append((here, "notice", "undecided", f"the invariants of {tn} in {s} expand to more than {LIMIT} cases, "
-                                                     "so whether they can hold together is not decided"))
+                                                     "so whether they can hold together is not decided; they are still enforced when a request is taken. Each `and`, `or` and `implies` they join, and each value they read that may be absent, multiplies the cases: an attribute the state requires in place of an optional one, or fewer clauses in one invariant, brings them within it"))
 
     for xn, x in transitions.items():
         if x["kind"] in ("assertion", "erasure"):
@@ -626,7 +626,7 @@ def analyse_type(tn, t, enums):
                             + (f", with {' and '.join(others)}" if others else "") + ", whatever the request"))
         except TooLarge:
             out.append((here, "notice", "undecided", f"the conditions of {tn}.{xn} expand to more than {LIMIT} cases, "
-                                                     "so whether they can hold together is not decided"))
+                                                     "so whether they can hold together is not decided; they are still evaluated when the transition is requested. Each `and`, `or` and `implies` they join, and each value they read that may be absent, multiplies the cases: an attribute its states require in place of an optional one, or fewer clauses in one condition, brings them within it"))
     return out, whole, total
 
 

@@ -1,0 +1,21 @@
+module: m
+categories: [live]
+types:
+  T:
+    description: A thing.
+    tracking: record
+    attributes:
+      a0: { type: int, optional: true }
+      a1: { type: int, optional: true }
+      a2: { type: int, optional: true }
+      a3: { type: int, optional: true }
+      a4: { type: int, optional: true }
+      a5: { type: int, optional: true }
+      a6: { type: int, optional: true }
+      a7: { type: int, optional: true }
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
+    invariants:
+      wide: { description: Wide., expression: '(a0 is null or a0 > 0) and (a1 is null or a1 > 1) and (a2 is null or a2 > 2) and (a3 is null or a3 > 3) and (a4 is null or a4 > 4) and (a5 is null or a5 > 5) and (a6 is null or a6 > 6) and (a7 is null or a7 > 7)' }
+    transitions:
+      t: { kind: initial, to: S }
+      e: { kind: external, from: S, to: E }
