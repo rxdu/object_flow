@@ -15,5 +15,11 @@ serde_json.workspace = true
 sha2.workspace = true
 regex.workspace = true
 
+[features]
+# the seams the adversarial harness re-decides a request through: a copy of
+# a store, and a copy keeping only some objects (adversarial-harness.md §1);
+# no route of the service reaches them
+harness = []
+
 [lints]
 workspace = true

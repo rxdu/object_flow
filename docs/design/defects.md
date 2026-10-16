@@ -704,6 +704,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D690](#d690) | A dropped type's objects unreadable after a restart | Resolved |
 | [D691](#d691) | An object an erasure redacted counted as erased itself | Resolved |
 | [D692](#d692) | The log does not reproduce a row: an event records its inputs, never its effects' writes | Resolved by ADR-0209 |
+| [D693](#d693) | An actor's identity another actor holds is refused with nothing in its record of what it read | Resolved |
+| [D694](#d694) | A second correction of an observation is refused with nothing in its record of the correction that refused it | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4454,3 +4456,12 @@ Brought to the author the day it was found, with a recommendation (`TODO.md`, un
 
 **Resolved** 2026-10-16 by ADR-0209: each event's payload holds `wrote`, what it changed on its object, at every site that records an event, and the store's creation; an erasure redacts it as it redacts inputs, an erased identity is replaced in it, and `export` omits a personal attribute's writes. The harness's replay condition folds each object's log after each step (`adversarial-harness.md` §1), and the core's tests fold the log after an import, a migration, an erasure and an invalidation (`store::assert_log_folds`); seventeen mutants killed.
 
+### D693
+**An actor's identity another actor holds is refused with nothing in its record of what it read.** A user added with the identity an agent holds is refused `invariant_violated`, `Agent.identity_taken` (ADR-0190 decision 4), and the verdict names the agent; its attempt row's read set held the new user and `login_unique`'s empty scan of `User`, and neither the agent nor the scan of the actor types that found it. `identity_holders` reads each actor type's folded identity column directly, past the reading an invariant's other checks record into, where an external identifier's check records a scan of every type holding one and each holder (ADR-0088, ADR-0158). So the refusal could not be explained from its record: replayed over its read set, the request was satisfied. Found 2026-10-16 by the adversarial harness's refusal condition at forty seeds of 300, the service fixture's twenty-sixth seed, reduced to two requests: an agent issued with `key_id` `x`, then a user added with `login` `x`.
+
+**Resolved** 2026-10-16: the check records a scan of every actor type under `identity_taken`, empty where none holds the identity, and each other actor holding it at its version, as an external identifier's check does (`request.rs`, `failing_invariants_reading`); held by `tests/redecided.rs`'s `an_identity_another_actor_holds_is_refused_over_what_it_read`, which fails with the holders left unrecorded.
+
+### D694
+**A second correction of an observation is refused with nothing in its record of the correction that refused it.** An observation already corrected is refused a second correction `corrects_current`, the built-in rule of `declaration-syntax.md` §6.8, and the verdict names the correction recorded first; its attempt row's read set held the subject and the observation named, and not the correction, which the rule found by reading each kind that can correct by its `corrects` column, past the reading the guards record into. Replayed over its read set, the request was satisfied. A satisfied correction likewise recorded nothing of its having found none. Found 2026-10-16 by the adversarial harness's refusal condition at forty seeds of 300, the service desk fixture's eighteenth seed, a `RequestApproval` corrected twice.
+
+**Resolved** 2026-10-16: the rule records a scan of each kind that can correct under `corrects_current`, its match the correction found, empty where none, into the request's read set and the event's, as a uniqueness check records its own (`request.rs`); held by `tests/redecided.rs`'s `a_second_correction_is_refused_over_what_it_read`, which fails with the match left unrecorded.

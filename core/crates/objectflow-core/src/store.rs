@@ -2854,6 +2854,87 @@ impl Store {
         Ok(conn)
     }
 
+    /// A copy of the store in a file at `path`, as it stands, holding the
+    /// same library, earlier versions, clock and evaluators' answers: for
+    /// the adversarial harness, which takes a request again on the store as
+    /// it was before the request (`adversarial-harness.md` §1). Written for
+    /// one request and thrown away, it flushes nothing.
+    #[cfg(feature = "harness")]
+    pub fn fork(&self, path: &std::path::Path) -> Stored<Store> {
+        let _ = std::fs::remove_file(path);
+        let at = path
+            .to_str()
+            .ok_or_else(|| StoreError(format!("{}: not a path SQLite takes", path.display())))?;
+        self.conn.execute("VACUUM INTO ?1", params![at])?;
+        let conn = Connection::open(path)?;
+        conn.execute_batch("PRAGMA foreign_keys = OFF; PRAGMA synchronous = OFF;")?;
+        Ok(Store {
+            conn,
+            lib: Arc::clone(&self.lib),
+            now: self.now,
+            answers: self.answers.clone(),
+            attempt_retention: self.attempt_retention,
+            checkpoint_due: false,
+            group: None,
+            deadline: None,
+            stop: None,
+            lock_wait: None,
+            prepared: None,
+            busy: std::cell::Cell::new(BUSY_TIMEOUT),
+            restored: None,
+            idempotency_retention: self.idempotency_retention,
+            earlier: Arc::clone(&self.earlier),
+        })
+    }
+
+    /// Every object but `kept` removed from a copy, as if the store had
+    /// never held it, its rows, sets, intervals, write index, external
+    /// identifiers and admissions with it, the log kept: for the
+    /// adversarial harness, which decides a request again over what its
+    /// record says it read (`adversarial-harness.md` §1).
+    #[cfg(feature = "harness")]
+    pub fn keep_only(&mut self, kept: &BTreeSet<String>) -> Stored<()> {
+        self.conn.execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS kept (id TEXT PRIMARY KEY); DELETE FROM kept;",
+        )?;
+        for id in kept {
+            self.conn
+                .execute("INSERT OR IGNORE INTO kept (id) VALUES (?1)", params![id])?;
+        }
+        let tables: Vec<String> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND (substr(name, 1, 2) = 't_' \
+                 OR name IN ('of_object', 'of_interval', 'of_attribute_write', 'of_external_id', 'of_admission'))",
+            )?;
+            let rows = stmt.query_map([], |r| r.get(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for name in tables {
+            let columns: Vec<String> = {
+                let mut stmt = self
+                    .conn
+                    .prepare(&format!("PRAGMA table_info({})", quote(&name)))?;
+                let rows = stmt.query_map([], |r| r.get(1))?;
+                rows.collect::<Result<_, _>>()?
+            };
+            let column = if columns.iter().any(|c| c == "object_id") {
+                "object_id"
+            } else if columns.iter().any(|c| c == "id") {
+                "id"
+            } else {
+                continue;
+            };
+            self.conn.execute(
+                &format!(
+                    "DELETE FROM {} WHERE {column} NOT IN (SELECT id FROM kept)",
+                    quote(&name)
+                ),
+                [],
+            )?;
+        }
+        Ok(())
+    }
+
     /// A read's connection back, its transaction ended, for the next read.
     pub fn into_connection(self) -> Connection {
         let _ = self.conn.execute_batch("ROLLBACK");

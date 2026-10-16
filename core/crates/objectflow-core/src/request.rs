@@ -1620,6 +1620,9 @@ fn take_unwound(
     // a recording's: a correction names an observation of its subject that
     // nothing has corrected yet; a new fact is not added to a finished
     // subject, read as the request found it (declaration-syntax.md §6.8)
+    // what the checks before the guards read, recorded as the guards'
+    // reads are (D694)
+    let checked = std::cell::RefCell::new(Reading::default());
     if t.observation_on.is_some()
         && xn == "record"
         && let Some(Value::Object(subject)) = inputs.get("subject")
@@ -1635,19 +1638,29 @@ fn take_unwound(
                 )]));
             }
             // the observations that correct another, of the types that can:
-            // the correction already recorded
+            // the correction already recorded, each such kind read as a
+            // scan by its column, its match recorded, so its refusal
+            // replays over its read set (D694)
             let mut current: Option<String> = None;
             for (kn, k) in &lib.types {
-                if current.is_none() && k.attribute("corrects").is_some() {
-                    // by the column, never the kind whole (the audit's cost B10)
-                    current = ctx
-                        .work
-                        .of_type_where(kn, None, &[("corrects".to_string(), named.clone())])?
-                        .iter()
-                        .find(|other| other.attr("corrects") == named)
-                        .map(|other| other.id.clone());
+                if k.attribute("corrects").is_none() {
+                    continue;
+                }
+                // by the column, never the kind whole (the audit's cost B10)
+                let found =
+                    ctx.work
+                        .of_type_where(kn, None, &[("corrects".to_string(), named.clone())])?;
+                let matched: Vec<&Object> = found
+                    .iter()
+                    .copied()
+                    .filter(|other| other.attr("corrects") == named)
+                    .collect();
+                record_scan(Some(&checked), "corrects_current", kn, &matched);
+                if current.is_none() {
+                    current = matched.first().map(|other| other.id.clone());
                 }
             }
+            ctx.read.merge(checked.borrow().clone());
             if let Some(recorded) = current {
                 return refused_naming(
                     Verdict::Unsatisfied {
@@ -1710,8 +1723,9 @@ fn take_unwound(
             )]));
         }
     }
-    // what the transition's guards read, each guard's under its name
-    let mut read = Reading::default();
+    // what the transition's guards read, each guard's under its name, after
+    // what the checks before them read
+    let mut read = checked.into_inner();
     for (g, mode) in &x.guards {
         let Some(c) = t.condition(g) else {
             return stop_not_run(format!("the guard {g}, which {tn} does not declare"));
@@ -5746,9 +5760,25 @@ fn failing_invariants_reading(
     // decision 4)
     if let Some((a, _)) = t.actor_identity()
         && !out.contains(&format!("{a}_unique"))
-        && !identity_holders(world, o)?.is_empty()
     {
-        out.push(IDENTITY_TAKEN.to_string());
+        let holders = identity_holders(world, o)?;
+        // what it read, recorded as an external identifier's check records
+        // it: a scan of every actor type by its identity, empty where none
+        // holds it, and each other actor holding it, so its refusal replays
+        // over its read set (adversarial-harness.md §1, D693)
+        for (tn, ot) in &world.lib.types {
+            if ot.actor_identity().is_some() {
+                record_scan(reading, IDENTITY_TAKEN, tn, &[]);
+            }
+        }
+        for id in &holders {
+            if let Some(h) = world.get(id)? {
+                record_scan(reading, IDENTITY_TAKEN, &h.type_, &[h]);
+            }
+        }
+        if !holders.is_empty() {
+            out.push(IDENTITY_TAKEN.to_string());
+        }
     }
     Ok(out)
 }

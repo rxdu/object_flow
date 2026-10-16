@@ -203,6 +203,52 @@ struct Run {
     /// The objects an erasure has erased.
     erased: BTreeSet<String>,
     counts: Counts,
+    /// Where the store is copied before each request, to decide it again
+    /// over what its record says it read.
+    fork: ForkFile,
+}
+
+/// The file a run copies its store to, a name no other run of the process
+/// uses, removed with the run.
+struct ForkFile(std::path::PathBuf);
+
+impl ForkFile {
+    fn new() -> ForkFile {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // memory's file system where there is one, a copy each request
+        let shm = std::path::Path::new("/dev/shm");
+        let dir = if shm.is_dir() {
+            shm.to_path_buf()
+        } else {
+            std::env::temp_dir()
+        };
+        ForkFile(dir.join(format!("objectflow-harness-{}-{n}.db", std::process::id())))
+    }
+}
+
+impl Drop for ForkFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// The objects a read set names: those read, and each scan's matches.
+fn read_set(reads: &Json, kept: &mut BTreeSet<String>) {
+    if let Some(objects) = reads.get("objects").and_then(Json::as_object) {
+        kept.extend(objects.keys().cloned());
+    }
+    for types in reads
+        .get("scans")
+        .and_then(Json::as_object)
+        .into_iter()
+        .flat_map(|rules| rules.values())
+        .filter_map(Json::as_object)
+    {
+        for ids in types.values().filter_map(Json::as_array) {
+            kept.extend(ids.iter().filter_map(Json::as_str).map(str::to_string));
+        }
+    }
 }
 
 impl Run {
@@ -216,6 +262,7 @@ impl Run {
             keys: BTreeMap::new(),
             erased: BTreeSet::new(),
             counts: Counts::default(),
+            fork: ForkFile::new(),
         })
     }
 
@@ -237,6 +284,9 @@ impl Run {
             }
             Step::Request(r) => {
                 let logged = self.attempts_held();
+                // the store as the request finds it, to decide it again over
+                // its read set alone
+                let before = self.store.fork(&self.fork.0).ok();
                 let answered = catch_unwind(AssertUnwindSafe(|| request(&mut self.store, r)));
                 let verdict = match answered {
                     Err(_) => return Some(fail("panic", format!("{r:?}"))),
@@ -279,6 +329,11 @@ impl Run {
                         if let Some(f) = self.recorded(r, object_id, events, *replayed) {
                             return Some(fail("record", f));
                         }
+                        if !*replayed
+                            && let Some(f) = before.and_then(|b| self.redecided(r, b, Some(events)))
+                        {
+                            return Some(fail("read set", f));
+                        }
                         self.remember(r, object_id);
                         if self.erasure(r, object_id) && !*replayed {
                             self.counts.erasures += 1;
@@ -293,10 +348,110 @@ impl Run {
                         if let Some(f) = self.attempt_logged(r, logged) {
                             return Some(fail("attempts", f));
                         }
+                        if let Some(f) = before.and_then(|b| self.redecided(r, b, None)) {
+                            return Some(fail("refusal", f));
+                        }
                     }
                 }
                 self.check(at)
             }
+        }
+    }
+
+    /// A decision taken again over what its record says it read (§1, "an
+    /// event whose rules, re-evaluated over its read set, give a different
+    /// verdict" and "a refusal that, replayed over its read set and the
+    /// request values it recorded, does not refuse"; ADR-0088, ADR-0105):
+    /// the store as the request found it, keeping only the objects its
+    /// events' read sets name, or its attempt row's, its own objects, and
+    /// the actor's object, whose resolution no rule reads (ADR-0114), and the
+    /// objects the values the request and each of its steps recorded name,
+    /// whose being there is an input's check (ADR-0105), must satisfy the
+    /// request again where it was satisfied, unless an effect stops, which
+    /// reads what no rule read, and refuse it where it was refused. A
+    /// refusal naming a personal input as withheld is the condition's
+    /// exception, its values not all recorded.
+    fn redecided(&self, r: &Request, mut before: Store, events: Option<&[i64]>) -> Option<String> {
+        let world = self.store.snapshot().ok()?;
+        let mut kept: BTreeSet<String> = BTreeSet::new();
+        // the values the request and each step of it recorded, whose
+        // objects' being there is the input's check, no rule's (ADR-0105)
+        let mut values: Vec<Json> = r.inputs.values().cloned().collect();
+        match events {
+            Some(positions) => {
+                for e in world
+                    .log()
+                    .ok()?
+                    .filter(|e| positions.contains(&e.position))
+                {
+                    read_set(&e.reads, &mut kept);
+                    kept.insert(e.object_id.clone());
+                    if let Some(given) = e.payload.get("inputs").and_then(Json::as_object) {
+                        values.extend(given.values().cloned());
+                    }
+                }
+            }
+            None => {
+                let row = world.attempts().ok()?.last()?.clone();
+                if !row.withheld.is_empty() {
+                    return None;
+                }
+                read_set(&row.reads, &mut kept);
+                kept.extend(row.object_id.clone());
+                if let Some(given) = row.request_values.get("inputs").and_then(Json::as_object) {
+                    values.extend(given.values().cloned());
+                }
+            }
+        }
+        kept.extend(r.object_id.clone());
+        // each object those values name
+        fn named(v: &Json, out: &mut Vec<String>) {
+            match v {
+                Json::String(s) => out.push(s.clone()),
+                Json::Array(xs) => xs.iter().for_each(|x| named(x, out)),
+                _ => {}
+            }
+        }
+        let mut ids = Vec::new();
+        values.iter().for_each(|v| named(v, &mut ids));
+        for id in ids {
+            if matches!(world.get(&id), Ok(Some(_))) {
+                kept.insert(id);
+            }
+        }
+        // the actor's object, by its identity, as the engine resolves it
+        for o in world.in_order().ok()? {
+            let Some((attr, _)) = world.lib.type_(&o.type_).and_then(|t| t.actor_identity()) else {
+                continue;
+            };
+            if matches!(o.attr(attr), Value::Text(id) if id.eq_ignore_ascii_case(&r.actor)) {
+                kept.insert(o.id.clone());
+            }
+        }
+        drop(world);
+        before.keep_only(&kept).ok()?;
+        let again = catch_unwind(AssertUnwindSafe(|| request(&mut before, r)))
+            .ok()?
+            .ok()?;
+        let satisfied = matches!(again, Ok(Verdict::Satisfied { .. }));
+        // what an effect stopped at, which reads what no rule read and the
+        // read set does not record (ADR-0088 records the rules' reads): a
+        // step not run, a call or creation refused, or arithmetic past its
+        // bound, which an effect computes as a guard may
+        let by_effect = matches!(
+            &again,
+            Err(NoVerdict::NotRun(_)) | Ok(Verdict::CallRefused { .. })
+        ) || matches!(&again, Ok(Verdict::Unsatisfied { clause, .. }) if clause == "value_in_range");
+        match (events.is_some(), satisfied) {
+            (true, false) if !by_effect => Some(format!(
+                "{} was satisfied, and over its read set alone, {kept:?}, answered {again:?}",
+                r.transition
+            )),
+            (false, true) => Some(format!(
+                "{} was refused, and over its read set alone, {kept:?}, satisfied",
+                r.transition
+            )),
+            _ => None,
         }
     }
 

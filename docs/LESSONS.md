@@ -827,3 +827,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Before adding the `absent` notice, a scan of the examples and of `check-flow-docs.py`'s modules found one hit and was reported as the corpus's only case. `check-scenarios.py` assembles `metric-scenarios.md`'s versions on its own, and its version 15 held a second, live case, which only the full gate's replay found (2026-10-16).
 - **Correction:** A scan for a new check's hits runs over the examples, the design documents' modules and the scenarios' assembled versions, or says which it covered; a count of hits is stated as a count over those sources, never as "the corpus's".
 - **Context:** ObjectFlow's checkers; the module sources are `docs/design/flow-format/examples/`, `check-flow-docs.py` and `check-scenarios.py`.
+
+### A result goes into a record after the run that measures it
+- **Pattern:** The harness's read-set condition was written into `adversarial-harness.md` and `TODO.md` as passing forty seeds of 300 while that run was still going; it failed, finding D693, and both records had to be corrected (2026-10-16).
+- **Correction:** Write a run's outcome into a document only from its output. Where the documentation is drafted while the run goes, leave the outcome as a marked gap and fill it from the result, never from the expected result.
+- **Context:** Any record of a test or harness run in this repository: `TODO.md`, the design documents' Built sections, `CHANGELOG.md`.
