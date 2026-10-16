@@ -138,13 +138,13 @@ As `history`, `events` and `pull` answer it:
 {"position": 3, "object_id": "transfer-2", "transition": "settle", "from_state": "SENT", "to_state": "SETTLED",
  "changes_state": true, "actor_id": "operator", "actor_kind": "human", "principal": null, "declaration_version": 1,
  "recorded_at": "2026-10-10T09:31:02Z", "occurred_at": "2026-10-10T09:31:02Z", "imported": false,
- "payload": {"inputs": {}}, "cause": null, "context": null,
+ "payload": {"inputs": {}, "wrote": {"settled_at": "2026-10-10T09:31:02Z"}}, "cause": null, "context": null,
  "reads": {"objects": {}, "scans": {}, "now": "2026-10-10T09:31:02Z"},
  "consulted": {"cleared": {"bank.cleared(T-1)": "satisfied"}}, "as_of": {"cleared": "2026-10-10T09:31:02Z"},
  "retries": 0}
 ```
 
-`payload.inputs` holds what the request sent, `reads` what its rules read, and `consulted` and `as_of`, by guard, each outside answer or metric value it used and when. `retries` counts the times the request waited out another process's lock on the store.
+`payload.inputs` holds what the request sent, and `payload.wrote` each attribute the event changed, with its value after and `null` where it cleared one, so an object's events folded in order give its attributes (ADR-0209); an event that changed none has no `wrote`, nor has one recorded before 2026-10-16. `reads` holds what its rules read, and `consulted` and `as_of`, by guard, each outside answer or metric value it used and when. `retries` counts the times the request waited out another process's lock on the store.
 
 ### Pages
 

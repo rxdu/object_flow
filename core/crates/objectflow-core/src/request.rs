@@ -827,6 +827,9 @@ struct Ctx<'w> {
     /// the attribute, and the event that carried the erased value in; and
     /// the interval spans so redacted, by object, dimension and entry.
     cleared: Vec<(String, String, i64)>,
+    /// Each past event's write of a copy an erasure clears, by the event's
+    /// position and the attribute (ADR-0209 decision 2).
+    redacted_writes: Vec<(i64, String)>,
     redacted_spans: Vec<(String, String, i64)>,
     /// The external identifiers it writes, and those it no longer holds:
     /// source, value and object, with the attribute of a written one.
@@ -1047,6 +1050,7 @@ fn decide_or_stop(
         external: Vec::new(),
         external_removed: Vec::new(),
         cleared: Vec::new(),
+        redacted_writes: Vec::new(),
         redacted_spans: Vec::new(),
         context: req.context.clone(),
         events: Vec::new(),
@@ -1243,6 +1247,7 @@ fn decide_or_stop(
             index: ctx.index,
             admitted,
             discharged,
+            redacted_writes: ctx.redacted_writes,
             redacted: ctx
                 .erased
                 .iter()
@@ -2259,6 +2264,9 @@ fn take_unwound(
         }
         ctx.index.push((object, attribute, position));
     }
+    // what it wrote, which a fold of the log reproduces the row by (ADR-0209
+    // decision 1)
+    let wrote = ctx.work.wrote(&id)?;
     let Some(o) = ctx.work.get(&id)? else {
         return stop_not_run(format!("the object {id}, which its own effect removed"));
     };
@@ -2315,10 +2323,10 @@ fn take_unwound(
                 if entries > 0 {
                     p["legacy_entries"] = json!(entries);
                 }
-                p
+                crate::world::with_wrote(p, wrote)
             }
         } else {
-            let mut p = json!({ "inputs": written });
+            let mut p = crate::world::with_wrote(json!({ "inputs": written }), wrote);
             if !corrections.is_empty() {
                 p["corrected"] = Json::Object(corrections);
             }
@@ -2570,6 +2578,7 @@ fn redact_others(
         };
         ctx.work.parts(held)?;
         let mut p = held.clone();
+        let was = p.attrs.clone();
         // an object erased before holds nothing personal to clear, and still
         // gets the event naming the inputs redacted in its history, where it
         // got none (the audit's write path A-03)
@@ -2594,6 +2603,9 @@ fn redact_others(
             } else {
                 p.attrs.remove(a);
             }
+            // and the copy the event that wrote it recorded (ADR-0209
+            // decision 2)
+            ctx.redacted_writes.push((*flowed, a.clone()));
             // the parts alone, beside the type the closure above reads
             let Some(parts) = p.parts.get_mut() else {
                 return Err(NotRun::Unsupported(format!(
@@ -2609,7 +2621,13 @@ fn redact_others(
         }
         let position = alloc.position();
         p.version += 1;
-        let event = redact_event(ctx, &p, position, json!({ "redacted": redacted }));
+        let wrote = ctx.work.wrote_apart(&id, &was, &p.attrs);
+        let event = redact_event(
+            ctx,
+            &p,
+            position,
+            crate::world::with_wrote(json!({ "redacted": redacted }), wrote),
+        );
         ctx.work.appended.push(event.clone());
         ctx.events.push(event);
         ctx.work.insert(p)?;
@@ -2913,10 +2931,12 @@ fn invalidate_proposals(
         };
         let position = alloc.position();
         let before = tracked_values(lib, pt, &p);
+        let was = p.attrs.clone();
         p.state = "INVALIDATED".into();
         p.attrs.insert("inputs".into(), Value::Text("{}".into()));
         record_spans(lib, pt, &mut p, Some(&before), position, ctx.at, &ctx.who)?;
         p.version += 1;
+        let wrote = ctx.work.wrote_apart(&id, &was, &p.attrs);
         let invalidated = Event {
             position,
             retries: 0,
@@ -2937,13 +2957,18 @@ fn invalidate_proposals(
             occurred_at: Some(ctx.at),
             context: ctx.context.clone(),
             imported: false,
-            payload: json!({ "redacted": ["inputs"] }),
+            payload: crate::world::with_wrote(json!({ "redacted": ["inputs"] }), wrote),
             reads: json!({}),
         };
         ctx.work.appended.push(invalidated.clone());
         ctx.events.push(invalidated);
-        // the inputs leave the proposal's own creation event too
+        // the inputs leave the proposal's own creation event too, and the
+        // proposal's `inputs` each event before this one wrote
         ctx.erased.entry(id.clone()).or_default().extend(names);
+        ctx.erased
+            .entry(id.clone())
+            .or_default()
+            .insert("inputs".into());
         ctx.work.insert(p)?;
     }
     // and every one decided on it, approved, rejected or withdrawn, keeps its
@@ -2988,12 +3013,14 @@ fn invalidate_proposals(
         inputs.retain(|k, _| !personal.contains(k));
         let position = alloc.position();
         let before = tracked_values(lib, pt, &p);
+        let was = p.attrs.clone();
         p.attrs.insert(
             "inputs".into(),
             Value::Text(Json::Object(inputs).to_string()),
         );
         record_spans(lib, pt, &mut p, Some(&before), position, ctx.at, &ctx.who)?;
         p.version += 1;
+        let wrote = ctx.work.wrote_apart(&id, &was, &p.attrs);
         let redacted = Event {
             position,
             retries: 0,
@@ -3013,12 +3040,19 @@ fn invalidate_proposals(
             occurred_at: Some(ctx.at),
             context: ctx.context.clone(),
             imported: false,
-            payload: json!({ "redacted": personal.iter().collect::<Vec<_>>() }),
+            payload: crate::world::with_wrote(
+                json!({ "redacted": personal.iter().collect::<Vec<_>>() }),
+                wrote,
+            ),
             reads: json!({}),
         };
         ctx.work.appended.push(redacted.clone());
         ctx.events.push(redacted);
         ctx.erased.entry(id.clone()).or_default().extend(personal);
+        ctx.erased
+            .entry(id.clone())
+            .or_default()
+            .insert("inputs".into());
         ctx.work.insert(p)?;
     }
     Ok(())
@@ -3211,7 +3245,12 @@ fn file(
         occurred_at: Some(world.now),
         context: req.context.clone(),
         imported: false,
-        payload: json!({ "inputs": req.inputs }),
+        // what it wrote, its whole record, which it makes (ADR-0209
+        // decision 1)
+        payload: crate::world::with_wrote(
+            json!({ "inputs": req.inputs }),
+            crate::world::wrote_between(&BTreeMap::new(), &o.attrs),
+        ),
         reads: json!({}),
     };
     Ok((
@@ -3241,15 +3280,18 @@ fn store_event(
     t: &Type,
     o: &mut Object,
     before: Option<&Vec<(String, Value)>>,
+    was: &BTreeMap<String, Value>,
     from_state: Option<String>,
     transition: &str,
     position: i64,
     now: i64,
     who: &Who,
-    payload: Json,
+    mut payload: Json,
 ) -> Result<Event, NotRun> {
     record_spans(lib, t, o, before, position, now, who)?;
     o.version += 1;
+    // what it wrote (ADR-0209 decision 1)
+    payload = crate::world::with_wrote(payload, crate::world::wrote_between(was, &o.attrs));
     Ok(Event {
         position,
         retries: 0,
@@ -3511,6 +3553,7 @@ fn decide_change(
     };
     let before = held.map(|h| tracked_values(lib, t, h));
     let from_state = held.map(|h| h.state.clone());
+    let was = held.map(|h| h.attrs.clone()).unwrap_or_default();
     let mut payload = json!({});
     match xn {
         "draft" | "revise" => {
@@ -3632,6 +3675,7 @@ fn decide_change(
         t,
         &mut o,
         before.as_ref(),
+        &was,
         from_state,
         xn,
         position,
@@ -3839,6 +3883,7 @@ fn decide_proposal(
     let mut decided = p.clone();
     let before = tracked_values(lib, pt, &decided);
     decided.state = to.into();
+    let wrote = crate::world::wrote_between(&p.attrs, &decided.attrs);
     record_spans(
         lib,
         pt,
@@ -3868,7 +3913,7 @@ fn decide_proposal(
         occurred_at: Some(world.now),
         context: req.context.clone(),
         imported: false,
-        payload: json!({}),
+        payload: crate::world::with_wrote(json!({}), wrote),
         reads: json!({}),
     };
     if to != "EXECUTED" {
@@ -4041,10 +4086,17 @@ fn forget_observations(
         };
         ctx.work.parts(held)?;
         let mut label = held.clone();
+        let was = label.attrs.clone();
         label.attrs.remove("note");
         label.version += 1;
         let position = alloc.position();
-        let event = redact_event(ctx, &label, position, json!({ "redacted": ["note"] }));
+        let wrote = ctx.work.wrote_apart(&l, &was, &label.attrs);
+        let event = redact_event(
+            ctx,
+            &label,
+            position,
+            crate::world::with_wrote(json!({ "redacted": ["note"] }), wrote),
+        );
         ctx.work.appended.push(event.clone());
         ctx.events.push(event);
         ctx.work.insert(label)?;
@@ -8816,7 +8868,14 @@ types:
         assert_eq!(history[0].payload["inputs"]["note"], Json::Null);
         assert_eq!(history[0].payload["inputs"]["title"], json!("Fix"));
         assert_eq!(history.last().unwrap().source, "erased");
-        assert_eq!(history.last().unwrap().payload, json!({"erased": ["note"]}));
+        assert_eq!(
+            history.last().unwrap().payload,
+            json!({"erased": ["note"], "wrote": {"note": null}})
+        );
+        // what the creation wrote of it, too (ADR-0209 decision 2)
+        assert_eq!(history[0].payload["wrote"]["note"], Json::Null);
+        assert_eq!(history[0].payload["wrote"]["title"], json!("Fix"));
+        crate::store::assert_log_folds(&s, &job);
         // a reason the effect writes into a personal attribute is personal
         // without the marking, and stays off the event (check 10)
         assert!(
@@ -8864,8 +8923,17 @@ types:
                 labelled[1].cause.is_some(),
                 l.version
             ),
-            ("redact", "erased", json!({"redacted": ["note"]}), true, 2)
+            (
+                "redact",
+                "erased",
+                json!({"redacted": ["note"], "wrote": {"note": null}}),
+                true,
+                2
+            )
         );
+        // and what the label's creation wrote of it (ADR-0209 decision 2)
+        assert_eq!(labelled[0].payload["wrote"]["note"], Json::Null);
+        assert_eq!(labelled[0].payload["wrote"]["name"], json!("vip"));
         // and a label's own forget redacts its note
         let own = created(&req(
             &mut s,
@@ -9700,6 +9768,15 @@ types:
             s.history(&late).unwrap()[0].payload["inputs"]["note"],
             Json::Null
         );
+        // its inputs leave what its filing wrote, and the invalidation's
+        // own record of them stays, so its log folds to its row (ADR-0209
+        // decisions 1 and 2)
+        assert_eq!(
+            s.history(&late).unwrap()[0].payload["wrote"]["inputs"],
+            Json::Null
+        );
+        drop(w);
+        crate::store::assert_log_folds(&s, &late);
     }
 
     /// The reference runner's correction cases (`flowrun.py`, `self_test`,
@@ -10765,6 +10842,131 @@ types:
         created(&req(&mut s, "jot", OPERATOR, (&id, false), json!({})));
     }
 
+    /// Each event records what it wrote, each attribute it changed and no
+    /// other, so a fold of an object's events reproduces its row, where an
+    /// effect's writes were in no event (D692, ADR-0209 decision 1); and an
+    /// erasure clearing a copy its value flowed into nulls the copy where
+    /// the event that wrote it recorded it (decision 2).
+    #[test]
+    fn an_event_records_what_it_wrote_and_its_log_folds_to_its_row() {
+        let text = "\nmodule: c\ncategories: [live]\ntypes:\n  Counter:\n    attributes:\n      count: { type: int, default: 0 }\n      stamp: { type: timestamp, optional: true }\n      label: { type: string, optional: true }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, optional_inputs: [label] }\n      bump:\n        kind: internal\n        from: [ON]\n        inputs: { by: { type: int } }\n        effect:\n          - assign: { location: count, expr: count + inputs.by }\n          - assign: { location: stamp, expr: now }\n  Customer:\n    attributes:\n      email: { type: string, optional: true, personal: true }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON, optional_inputs: [email] }\n      refer:\n        kind: internal\n        from: [ON]\n        effect:\n          - create: { type: Contact, transition: make, inputs: { phone: email } }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Contact:\n    attributes:\n      phone: { type: string, optional: true, personal: true }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [phone] }\n";
+        let lib = Library::load(&[("c.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let id = created(&req(
+            &mut s,
+            "make",
+            OPERATOR,
+            ("Counter", true),
+            json!({"label": "a"}),
+        ));
+        // the clock moved between them, so each changes the stamp
+        for _ in 0..2 {
+            s.now += 60;
+            created(&req(
+                &mut s,
+                "bump",
+                OPERATOR,
+                (&id, false),
+                json!({"by": 5}),
+            ));
+        }
+        let history = s.history(&id).unwrap();
+        assert_eq!(
+            history[0].payload["wrote"],
+            json!({"count": 0, "label": "a"})
+        );
+        for e in &history[1..] {
+            let wrote = e.payload["wrote"].as_object().unwrap();
+            assert_eq!(
+                wrote.keys().collect::<Vec<_>>(),
+                ["count", "stamp"],
+                "{wrote:?}"
+            );
+        }
+        assert_eq!(history[2].payload["wrote"]["count"], json!(10));
+        crate::store::assert_log_folds(&s, &id);
+        // a copy an erasure clears, in the event that wrote it
+        let ana = created(&req(
+            &mut s,
+            "join",
+            OPERATOR,
+            ("Customer", true),
+            json!({"email": "ana@example.org"}),
+        ));
+        created(&req(&mut s, "refer", OPERATOR, (&ana, false), json!({})));
+        let contact = s
+            .snapshot()
+            .unwrap()
+            .of_type("Contact")
+            .unwrap()
+            .first()
+            .map(|c| c.id.clone())
+            .unwrap();
+        assert_eq!(
+            s.history(&contact).unwrap()[0].payload["wrote"]["phone"],
+            json!("ana@example.org")
+        );
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&ana, false),
+            json!({"reason": "asked"}),
+        ));
+        let copied = s.history(&contact).unwrap();
+        assert_eq!(copied[0].payload["wrote"]["phone"], Json::Null);
+        assert_eq!(
+            copied.last().unwrap().payload["wrote"],
+            json!({"phone": null})
+        );
+        let held: Vec<String> = s
+            .connection()
+            .prepare("SELECT payload FROM of_event")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(
+            held.iter().all(|p| !p.contains("ana@example.org")),
+            "{held:?}"
+        );
+        crate::store::assert_log_folds(&s, &ana);
+        crate::store::assert_log_folds(&s, &contact);
+    }
+
+    /// What an event wrote is measured from its object as the operation
+    /// first changed it, a first change through `get_mut` as one through
+    /// `insert`; the next from there; and an object the operation never
+    /// changed wrote nothing (ADR-0209 decision 1).
+    #[test]
+    fn a_world_measures_what_was_written_from_the_first_change() {
+        let text = "\nmodule: c\ncategories: [live]\ntypes:\n  Note:\n    attributes:\n      label: { type: string, optional: true }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, optional_inputs: [label] }\n";
+        let lib = Library::load(&[("c.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let made = |s: &mut Store| {
+            created(&req(
+                s,
+                "make",
+                OPERATOR,
+                ("Note", true),
+                json!({"label": "a"}),
+            ))
+        };
+        let (id, other) = (made(&mut s), made(&mut s));
+        let mut w = s.snapshot().unwrap();
+        w.get_mut(&id)
+            .unwrap()
+            .unwrap()
+            .attrs
+            .insert("label".into(), Value::Text("b".into()));
+        assert_eq!(Json::Object(w.wrote(&id).unwrap()), json!({"label": "b"}));
+        w.get_mut(&id).unwrap().unwrap().attrs.remove("label");
+        assert_eq!(Json::Object(w.wrote(&id).unwrap()), json!({"label": null}));
+        assert!(w.wrote(&id).unwrap().is_empty());
+        assert!(w.wrote(&other).unwrap().is_empty());
+    }
+
     /// A plain read of an absent value, a name or a path, clears an
     /// optional attribute as `clear` does, so an optional value can be moved
     /// where there may be none; one present moves, and an absent value
@@ -10801,6 +11003,13 @@ types:
             matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "value_in_range"),
             "{v:?}"
         );
+        // the clearing written, a null in the event (ADR-0209 decision 1)
+        assert_eq!(
+            s.history(&bare).unwrap().last().unwrap().payload["wrote"],
+            json!({"held": null})
+        );
+        crate::store::assert_log_folds(&s, &bare);
+        crate::store::assert_log_folds(&s, &pegged);
     }
 
     /// A date moved by part of a day has no value, so an assignment of it
@@ -12754,25 +12963,27 @@ types:
             .collect();
         assert_eq!(ids, made.iter().collect::<Vec<_>>());
         assert_eq!(rest.cursor, None);
-        // a subscription's pull
-        let page = crate::subscription::pull_page(&w, &sub, None, 1000).unwrap();
-        assert!(
-            page.more && page.events.len() > 50 && page.events.len() < 200,
-            "{}",
-            page.events.len()
-        );
-        let pulled: usize = page.events.iter().map(crate::store::event_bytes).sum();
-        assert!(pulled < bound, "{pulled}");
-        let next = crate::subscription::pull_page(&w, &sub, Some(page.settled), 1000).unwrap();
-        assert!(!next.more);
-        assert_eq!(page.events.len() + next.events.len(), 200);
-        // the log's export, its rows one per event
-        let out = crate::export::export_page(&w, "log", Some("0"), 1000).unwrap();
-        assert!(out.more && out.lines.len() < 200, "{}", out.lines.len());
-        let exported: usize = out.lines.iter().map(String::len).sum();
-        assert!(exported < bound, "{exported}");
-        let after = crate::export::export_page(&w, "log", Some(&out.cursor), 1000).unwrap();
-        assert!(!after.more);
+        // a subscription's pull, page after page, each ending at its bytes,
+        // the first before the 200 events, which each hold the text as an
+        // input and as what it wrote (ADR-0209 decision 1)
+        let mut cursor = None;
+        let mut pulled_all = 0;
+        loop {
+            let page = crate::subscription::pull_page(&w, &sub, cursor, 1000).unwrap();
+            let pulled: usize = page.events.iter().map(crate::store::event_bytes).sum();
+            assert!(pulled < bound, "{pulled}");
+            assert!(!page.events.is_empty());
+            if cursor.is_none() {
+                assert!(page.more && page.events.len() > 20, "{}", page.events.len());
+            }
+            pulled_all += page.events.len();
+            if !page.more {
+                break;
+            }
+            cursor = Some(page.settled);
+        }
+        assert_eq!(pulled_all, 200);
+        // the log's export, its rows one per event, page after page
         let positions = |p: &crate::export::ExportPage| -> Vec<i64> {
             p.lines
                 .iter()
@@ -12783,10 +12994,22 @@ types:
                 })
                 .collect()
         };
-        let all: Vec<i64> = positions(&out)
-            .into_iter()
-            .chain(positions(&after))
-            .collect();
+        let mut all: Vec<i64> = Vec::new();
+        let mut at = "0".to_string();
+        loop {
+            let out = crate::export::export_page(&w, "log", Some(&at), 1000).unwrap();
+            let exported: usize = out.lines.iter().map(String::len).sum();
+            assert!(exported < bound, "{exported}");
+            assert!(!out.lines.is_empty());
+            if at == "0" {
+                assert!(out.more && out.lines.len() < 200, "{}", out.lines.len());
+            }
+            all.extend(positions(&out));
+            if !out.more {
+                break;
+            }
+            at = out.cursor.clone();
+        }
         assert!(all.windows(2).all(|p| p[0] < p[1]), "out of order or twice");
         assert_eq!(all.len(), w.last_position().unwrap() as usize);
     }

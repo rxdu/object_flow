@@ -528,6 +528,9 @@ impl Run {
             if let Some(detail) = state_spans_against(&world, o, events.get(&o.id)) {
                 return fail("intervals", detail);
             }
+            if let Some(detail) = row_against(o, events.get(&o.id)) {
+                return fail("replay", detail);
+            }
             let Some(t) = world.lib.type_(&o.type_) else {
                 continue;
             };
@@ -647,6 +650,57 @@ impl Run {
         }
         None
     }
+}
+
+/// Where a fold of an object's events does not reproduce its row (§1, "an
+/// event whose replay does not reproduce the row", ADR-0033 decision 2,
+/// ADR-0209 decision 1): its state, the last event's, and its attributes,
+/// each event's `wrote` applied in its order, a null clearing one.
+fn row_against(
+    o: &objectflow_core::world::Object,
+    events: Option<&Vec<objectflow_core::store::Event>>,
+) -> Option<String> {
+    let events = events?;
+    let mut folded: BTreeMap<String, Json> = BTreeMap::new();
+    let mut state = None;
+    for e in events {
+        state = Some(e.to_state.clone());
+        if let Some(wrote) = e.payload.get("wrote").and_then(Json::as_object) {
+            for (a, v) in wrote {
+                if v.is_null() {
+                    folded.remove(a);
+                } else {
+                    folded.insert(a.clone(), v.clone());
+                }
+            }
+        }
+    }
+    if state.as_deref() != Some(o.state.as_str()) {
+        return Some(format!(
+            "{}'s events end in {state:?}, and it is in {}",
+            o.id, o.state
+        ));
+    }
+    let held: BTreeMap<String, Json> = o
+        .attrs
+        .iter()
+        .filter(|(_, v)| !v.is_absent())
+        .map(|(a, v)| (a.clone(), objectflow_core::wire::encode(v)))
+        .collect();
+    if folded != held {
+        let differ: Vec<&String> = held
+            .keys()
+            .chain(folded.keys())
+            .filter(|a| held.get(*a) != folded.get(*a))
+            .collect();
+        return Some(format!(
+            "{}'s events do not reproduce its row: {differ:?} differ, held {:?}, folded {:?}",
+            o.id,
+            differ.iter().map(|a| held.get(*a)).collect::<Vec<_>>(),
+            differ.iter().map(|a| folded.get(*a)).collect::<Vec<_>>()
+        ));
+    }
+    None
 }
 
 /// Where an object's state spans disagree with its log (§1, "an interval

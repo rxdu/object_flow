@@ -412,6 +412,9 @@ pub struct Change {
     /// Each past event's personal input an erasure redacts, by the event's
     /// position and the input's name (§9 step 8).
     pub redacted_inputs: Vec<(i64, String)>,
+    /// Each past event's write of a copy an erasure clears, by the event's
+    /// position and the attribute (ADR-0209 decision 2).
+    pub redacted_writes: Vec<(i64, String)>,
     /// The spans a correction merged into the one before them, which leave
     /// the index: an object, a dimension, the span's entered position and
     /// time, and the correcting event's position, which retracts it
@@ -2894,11 +2897,19 @@ impl Store {
             "INSERT INTO of_event (position, txn, object_id, object_seq, transition, from_state, to_state, changes_state, \
              source, actor_id, actor_kind, declaration_version, taint_version, recorded_at, occurred_at, payload, reads, \
              context) \
-             VALUES (?1, ?2, ?3, 1, 'install', NULL, 'ACTIVE', 1, 'observed', ?3, 'human', 0, 0, ?4, ?4, '{}', '{}', ?5)",
+             VALUES (?1, ?2, ?3, 1, 'install', NULL, 'ACTIVE', 1, 'observed', ?3, 'human', 0, 0, ?4, ?4, ?6, '{}', ?5)",
             // its own act, the context naming the release that created the
             // store, under version 0, which the same step installs
-            // (storage-schema.md §6, ADR-0134)
-            params![position, txn, OPERATOR, at, format!("store-creation:{BUILTINS}")],
+            // (storage-schema.md §6, ADR-0134); what it wrote, its identity
+            // (ADR-0209 decision 1)
+            params![
+                position,
+                txn,
+                OPERATOR,
+                at,
+                format!("store-creation:{BUILTINS}"),
+                serde_json::json!({ "wrote": { "identity": OPERATOR } }).to_string()
+            ],
         )?;
         tx.execute(
             "INSERT INTO t_operator (id, state, version, declaration_version, last_event, identity) VALUES (?1, 'ACTIVE', 1, 0, ?2, ?1)",
@@ -3924,6 +3935,8 @@ impl Store {
                         .discharged
                         .push((x.id.clone(), n.clone(), position));
                 }
+                // what its mappings wrote (ADR-0209 decision 1)
+                let wrote = crate::world::wrote_between(&was.attrs, &x.attrs);
                 let event = event_of(
                     &mut x,
                     Some(&before),
@@ -3935,11 +3948,14 @@ impl Store {
                     "migrated",
                     old.version,
                     new.version,
-                    serde_json::json!({
-                        "mappings": codes,
-                        "admits": admits.iter().map(|(n, _)| n).collect::<Vec<_>>(),
-                        "discharges": discharges,
-                    }),
+                    crate::world::with_wrote(
+                        serde_json::json!({
+                            "mappings": codes,
+                            "admits": admits.iter().map(|(n, _)| n).collect::<Vec<_>>(),
+                            "discharges": discharges,
+                        }),
+                        wrote,
+                    ),
                 )?;
                 // a migration is caused by the publish's event (DESIGN.md §5.9)
                 let event = Event {
@@ -3978,6 +3994,7 @@ impl Store {
             };
             let position = alloc.position();
             positions.push(position);
+            let was = x.attrs.clone();
             for n in &newly {
                 x.attrs.remove(n);
                 for sp in x.parts_mut()?.spans.get_mut(n).into_iter().flatten() {
@@ -4000,6 +4017,8 @@ impl Store {
                 }
             }
             let state = x.state.clone();
+            // what it cleared (ADR-0209 decision 1)
+            let wrote = crate::world::wrote_between(&was, &x.attrs);
             let event = event_of(
                 &mut x,
                 None,
@@ -4011,7 +4030,7 @@ impl Store {
                 "erased",
                 new.version,
                 new.version,
-                serde_json::json!({ "redacted": newly }),
+                crate::world::with_wrote(serde_json::json!({ "redacted": newly }), wrote),
             )?;
             // a migration is caused by the publish's event (DESIGN.md §5.9)
             let event = Event {
@@ -5659,6 +5678,45 @@ CREATE INDEX IF NOT EXISTS of_attempt_by_folded_principal ON of_attempt (lower(a
 CREATE INDEX IF NOT EXISTS of_interval_by_entered ON of_interval (entered_by) WHERE entered_by IS NOT NULL;
 ";
 
+/// A key of a JSON object as a JSON pointer names it.
+fn pointer_key(name: &str) -> String {
+    name.replace('~', "~0").replace('/', "~1")
+}
+
+/// Each event `select` finds, the first parameter `path`, its payload's
+/// value at `pointer` rewritten by `f` where `f` gives another: what an
+/// event wrote of an erased identity, where SQL's JSON cannot rewrite it in
+/// place (ADR-0209 decision 2).
+fn rewrite_written(
+    tx: &Connection,
+    select: &str,
+    path: &str,
+    pointer: &str,
+    f: impl Fn(&serde_json::Value) -> Option<serde_json::Value>,
+) -> Stored<()> {
+    let found: Vec<(i64, String)> = {
+        let mut stmt = tx.prepare(select)?;
+        let rows = stmt.query_map(params![path], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    for (position, text) in found {
+        let Ok(mut payload) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        let Some(next) = payload.pointer(pointer).and_then(&f) else {
+            continue;
+        };
+        if let Some(slot) = payload.pointer_mut(pointer) {
+            *slot = next;
+        }
+        tx.execute(
+            "UPDATE of_event SET payload = ?2 WHERE position = ?1",
+            params![position, payload.to_string()],
+        )?;
+    }
+    Ok(())
+}
+
 fn write(
     tx: &Connection,
     lib: &Library,
@@ -5861,8 +5919,24 @@ fn write(
     }
     // personal values leave the log and the interval index, the events and
     // their shape kept (§9, steps 2 and 9)
+    // the change's own events, which an erasure's redaction of what was
+    // written before it leaves: they write what the erasure left
+    let first = change
+        .writes
+        .iter()
+        .map(|(_, _, e)| e.position)
+        .min()
+        .unwrap_or(i64::MAX);
     for (id, attributes) in &change.redacted {
         for a in attributes {
+            // and what each event before the change wrote of it (ADR-0209
+            // decision 2)
+            let wrote = format!("$.wrote.\"{}\"", a.replace('"', ""));
+            tx.execute(
+                "UPDATE of_event SET payload = json_set(payload, ?2, json('null')) \
+                 WHERE object_id = ?1 AND position < ?3 AND json_type(payload, ?2) IS NOT NULL",
+                params![id, wrote, first],
+            )?;
             // and a correction's record of the value it replaced and wrote
             let corrected = format!("$.corrected.\"{}\"", a.replace('"', ""));
             tx.execute(
@@ -5956,6 +6030,33 @@ fn write(
                  WHERE target_type = ?4 AND json_valid(inputs) AND lower(json_extract(inputs, ?3)) = lower(?1)",
                 params![identity, id, format!("$.\"{}\"", name.replace('"', "")), tn],
             )?;
+            // and those inputs as its events wrote them, text (ADR-0209
+            // decision 2)
+            rewrite_written(
+                tx,
+                &format!(
+                    "SELECT position, payload FROM of_event WHERE object_id IN \
+                     (SELECT id FROM t_proposal WHERE target_type = '{}') AND json_type(payload, ?1) = 'text'",
+                    tn.replace('\'', "''")
+                ),
+                "$.wrote.inputs",
+                "/wrote/inputs",
+                |v| {
+                    let mut held: serde_json::Map<String, serde_json::Value> =
+                        serde_json::from_str(v.as_str()?).ok()?;
+                    let slot = held.get_mut(name.as_str())?;
+                    if !slot
+                        .as_str()
+                        .is_some_and(|s| s.eq_ignore_ascii_case(identity))
+                    {
+                        return None;
+                    }
+                    *slot = serde_json::json!(id);
+                    Some(serde_json::Value::String(
+                        serde_json::Value::Object(held).to_string(),
+                    ))
+                },
+            )?;
             // a refused request's, as its attempt recorded it (S21)
             tx.execute(
                 "UPDATE of_attempt SET request_values = json_set(request_values, ?3, ?2) \
@@ -5979,6 +6080,15 @@ fn write(
                 ),
                 params![identity, id],
             )?;
+            // what an event wrote of it (ADR-0209 decision 2)
+            tx.execute(
+                &format!(
+                    "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
+                     WHERE object_id IN (SELECT id FROM {}) AND lower(json_extract(payload, ?3)) = lower(?1)",
+                    table(tn)
+                ),
+                params![identity, id, format!("$.wrote.\"{}\"", name.replace('"', ""))],
+            )?;
             // a correction's record of it, what it replaced and wrote (S17)
             for part in ["replaced", "value"] {
                 let path = format!("$.corrected.\"{}\".{part}", name.replace('"', ""));
@@ -5994,6 +6104,38 @@ fn write(
         }
         // a set of identities, which holds an element once (S16)
         for (tn, name) in &held.sets {
+            // and each set an event wrote, an element once (ADR-0209
+            // decision 2)
+            rewrite_written(
+                tx,
+                &format!(
+                    "SELECT position, payload FROM of_event WHERE object_id IN (SELECT id FROM {}) \
+                     AND json_type(payload, ?1) = 'array'",
+                    table(tn)
+                ),
+                &format!("$.wrote.\"{}\"", name.replace('"', "")),
+                &format!("/wrote/{}", pointer_key(name)),
+                |v| {
+                    let items = v.as_array()?;
+                    if !items
+                        .iter()
+                        .any(|e| e.as_str().is_some_and(|s| s.eq_ignore_ascii_case(identity)))
+                    {
+                        return None;
+                    }
+                    let mut out: Vec<serde_json::Value> = Vec::new();
+                    for e in items {
+                        let e = match e.as_str() {
+                            Some(s) if s.eq_ignore_ascii_case(identity) => serde_json::json!(id),
+                            _ => e.clone(),
+                        };
+                        if !out.contains(&e) {
+                            out.push(e);
+                        }
+                    }
+                    Some(serde_json::Value::Array(out))
+                },
+            )?;
             let set = quote(&format!("{}__{name}", table(tn)));
             tx.execute(
                 &format!(
@@ -6036,6 +6178,15 @@ fn write(
                     ),
                     params![identity, id],
                 )?;
+                // and what its events wrote of it (ADR-0209 decision 2)
+                tx.execute(
+                    &format!(
+                        "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
+                         WHERE object_id IN (SELECT id FROM {}) AND json_extract(payload, ?3) = ?1",
+                        table(tn)
+                    ),
+                    params![identity, id, format!("$.wrote.\"{column}\"")],
+                )?;
             }
         }
         // a guard's consulted key a store wrote before an identity argument
@@ -6066,6 +6217,14 @@ fn write(
             clear_kept(tx, lib, earlier, o)?;
             redact_legacy(tx, &o.id)?;
         }
+    }
+    for (position, name) in &change.redacted_writes {
+        let path = format!("$.wrote.\"{}\"", name.replace('"', ""));
+        tx.execute(
+            "UPDATE of_event SET payload = json_set(payload, ?2, json('null')) \
+             WHERE position = ?1 AND json_type(payload, ?2) IS NOT NULL",
+            params![position, path],
+        )?;
     }
     for (position, name) in &change.redacted_inputs {
         let path = format!("$.inputs.\"{}\"", name.replace('"', ""));
@@ -6137,6 +6296,43 @@ fn write(
         )?;
     }
     Ok(())
+}
+
+/// That a fold of an object's events reproduces its row: its state, the
+/// last event's, and its attributes, each event's `wrote` applied in its
+/// order, a null clearing one (ADR-0033 decision 2, ADR-0209 decision 1).
+#[cfg(test)]
+pub(crate) fn assert_log_folds(s: &Store, id: &str) {
+    let history = s.history(id).unwrap();
+    let mut folded = serde_json::Map::new();
+    for e in &history {
+        if let Some(wrote) = e
+            .payload
+            .get("wrote")
+            .and_then(serde_json::Value::as_object)
+        {
+            for (a, v) in wrote {
+                if v.is_null() {
+                    folded.remove(a);
+                } else {
+                    folded.insert(a.clone(), v.clone());
+                }
+            }
+        }
+    }
+    let w = s.snapshot().unwrap();
+    let o = w.whole(id).unwrap().unwrap();
+    let held: serde_json::Map<String, serde_json::Value> = o
+        .attrs
+        .iter()
+        .filter(|(_, v)| !v.is_absent())
+        .map(|(a, v)| (a.clone(), crate::wire::encode(v)))
+        .collect();
+    assert_eq!(folded, held, "{id}'s events do not reproduce its row");
+    assert_eq!(
+        history.last().map(|e| e.to_state.as_str()),
+        Some(o.state.as_str())
+    );
 }
 
 #[cfg(test)]

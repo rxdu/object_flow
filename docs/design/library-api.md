@@ -384,7 +384,8 @@ class Event:
     occurred_at: datetime | None          # when a backdated change happened (ADR-0083)
     retries: int                          # serialisation retries its request took
     imported: bool                        # written by import_batch (ADR-0100)
-    payload: Mapping[str, Any]
+    payload: Mapping[str, Any]            # inputs, what the request sent; wrote, each attribute it changed, its value
+                                          # after, None where cleared, which folded give the row (ADR-0209)
     reads: ReadSet
     consulted: Mapping[str, Any]          # per evaluator or metric guard, by its call: the verdict or value given; an
                                           # argument or binding reading anything personal written (personal) (ADR-0200)

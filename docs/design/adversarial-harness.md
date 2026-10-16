@@ -27,7 +27,9 @@ Draft, 2026-09-09, amended 2026-09-23. The acceptance test, which PRD N4 names a
 
   - *added 2026-10-16:* a refusal missing from the attempt log: after each refused request the log holds one more row, naming its transition and a verdict other than satisfied; the run prunes none. Held by a planted defect leaving an unavailable request's row unwritten, caught at the gates' budget.
 
-  Left to a later slice: a replay of the log reproducing each row, a read set re-evaluating to its verdict, a refusal replaying over its read set, and a tracked member's intervals against the log, which the log records only as each request's inputs.
+  - *added 2026-10-16:* an event whose replay does not reproduce the row: after each step, each object's events folded in their order, its state from the last and its attributes from each event's `wrote`, a null clearing one, equal its row (ADR-0033 decision 2, ADR-0209 decision 1). Its first run found the store's creation recording nothing of the operator's identity. It passes the gates' budget and forty seeds of 300 in release; a planted defect leaving a transition's writes unrecorded is caught at step 13 of the first seed, and one leaving the operator's at step 1. The harness takes no import nor publish, so their writes are held by the core's own tests, each folding the log it wrote (`store::assert_log_folds`).
+
+  Left to a later slice: a read set re-evaluating to its verdict, a refusal replaying over its read set, and a tracked member's intervals against the log, which the log now records the writes of (ADR-0209) and nothing yet checks.
 - **Determinism:** a run is a function of its fixture and its seed, held by a test, and a failing run is reduced to the shortest transcript that still fails. The gates run six seeds of 120 steps for each fixture, and `OBJECTFLOW_HARNESS_SEEDS` and `OBJECTFLOW_HARNESS_STEPS` widen a run.
 - **Held by planted defects:** invariants left unenforced, an erasure leaving events' payloads, an event recorded under another actor, and every key refused as reused are each caught at the gates' budget.
 

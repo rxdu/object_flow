@@ -1231,6 +1231,7 @@ fn decide(
         }
         obj.version += 1;
         let from_state = p.held.as_ref().map(|h| h.state.clone());
+        let before = p.held.as_ref().map(|h| h.attrs.clone()).unwrap_or_default();
         let event = Event {
             position,
             retries: 0,
@@ -1249,12 +1250,16 @@ fn decide(
             recorded_at: port,
             occurred_at: Some(port),
             imported: true,
-            payload: json!({ "inputs": o.attributes }),
+            // what it wrote, which a fold of the log reproduces the row by
+            // (ADR-0209 decision 1)
+            payload: crate::world::with_wrote(
+                json!({ "inputs": o.attributes }),
+                crate::world::wrote_between(&before, &obj.attrs),
+            ),
             reads: json!({}),
             context: None,
         };
         // what it wrote, in the write index
-        let before = p.held.as_ref().map(|h| h.attrs.clone()).unwrap_or_default();
         for (a, v) in &obj.attrs {
             if before.get(a) != Some(v) || p.held.is_none() {
                 change.index.push((obj.id.clone(), a.clone(), position));
@@ -1932,6 +1937,9 @@ types:
             (e.transition.as_str(), e.source.as_str(), e.imported),
             ("import", "asserted", true)
         );
+        // what it wrote, which a fold of its events reproduces it by
+        // (ADR-0209 decision 1)
+        crate::store::assert_log_folds(&s, &id);
         // a refresh that changes nothing writes nothing; one that changes a value, one event
         let same = run(
             &mut s,
@@ -1960,6 +1968,22 @@ types:
             s.snapshot().unwrap().whole(&id).unwrap().unwrap().state,
             "LEFT"
         );
+        crate::store::assert_log_folds(&s, &id);
+        // a refresh changing a value writes it, and only it
+        let renamed = run(
+            &mut s,
+            vec![employee(
+                "E-1",
+                "LEFT",
+                json!({"employee_id": "1", "name": "Dee"}),
+            )],
+            &[],
+            false,
+        );
+        assert_eq!(renamed.written, 1);
+        let last = s.history(&id).unwrap().pop().unwrap();
+        assert_eq!(last.payload["wrote"], json!({"name": "Dee"}));
+        crate::store::assert_log_folds(&s, &id);
     }
 
     #[test]

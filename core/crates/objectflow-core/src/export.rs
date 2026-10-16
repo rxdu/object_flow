@@ -382,6 +382,7 @@ fn event_row(world: &World<'_>, e: &Event) -> Result<Json, NotRun> {
     // of 178 KB (eleventh production review)
     let mut type_ = world.type_of(&e.object_id)?;
     let mut transition = e.transition.clone();
+    let mut proposal = false;
     // a proposal's event holds the inputs of the transition it proposed,
     // judged under that transition, where they were judged under the
     // proposal's, which declares none, and its personal inputs were
@@ -393,12 +394,25 @@ fn event_row(world: &World<'_>, e: &Event) -> Result<Json, NotRun> {
     {
         type_ = Some(target);
         transition = proposed;
+        proposal = true;
     }
     let mut payload = e.payload.clone();
-    for part in ["inputs", "corrected"] {
+    // a personal attribute's value, as an input, a correction or a write
+    // (ADR-0209 decision 3)
+    for part in ["inputs", "corrected", "wrote"] {
         if let Some(values) = payload.get_mut(part).and_then(Json::as_object_mut) {
             values.retain(|k, _| !personal(world.lib, type_.as_deref(), &transition, k));
         }
+    }
+    // and a proposal's `inputs` as it wrote them, the text of the inputs it
+    // proposed, without those personal to the transition it proposed, as
+    // its event's inputs are (ADR-0209 decision 3)
+    if proposal
+        && let Some(Json::String(text)) = payload.pointer("/wrote/inputs").cloned()
+        && let Ok(mut held) = serde_json::from_str::<serde_json::Map<String, Json>>(&text)
+    {
+        held.retain(|k, _| !personal(world.lib, type_.as_deref(), &transition, k));
+        payload["wrote"]["inputs"] = Json::String(Json::Object(held).to_string());
     }
     Ok(json!({
         "position": e.position,
@@ -1090,6 +1104,15 @@ types:
         let (log, at) = page(&s, "log", None);
         let opened = log.iter().find(|e| e["object_id"] == json!(calm)).unwrap();
         assert_eq!(opened["payload"]["inputs"], json!({"crew": "NORTH"}));
+        // and what it wrote, its personal attributes omitted (ADR-0209
+        // decision 3)
+        assert_eq!(opened["payload"]["wrote"]["crew"], json!("NORTH"));
+        assert!(
+            ["mood", "note"]
+                .iter()
+                .all(|a| opened["payload"]["wrote"].get(a).is_none()),
+            "{opened}"
+        );
         assert_eq!(at, log.last().unwrap()["position"].to_string());
         assert_eq!(page(&s, "log", Some(&at)).0, Vec::<Json>::new());
         // a page of the log reads each event's object's type, never the

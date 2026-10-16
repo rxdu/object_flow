@@ -451,6 +451,37 @@ pub fn whole_type_reads(type_: &str) -> u64 {
     WHOLE_TYPE_READS.with(|n| n.borrow().get(type_).copied().unwrap_or(0))
 }
 
+/// Each attribute whose value differs between two of an object's states,
+/// with its value after in the wire's notation, null where it is gone: what
+/// an event wrote (ADR-0209 decision 1).
+pub fn wrote_between(
+    was: &BTreeMap<String, Value>,
+    now: &BTreeMap<String, Value>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut out = serde_json::Map::new();
+    for (a, v) in now {
+        if was.get(a) != Some(v) {
+            out.insert(a.clone(), crate::wire::encode(v));
+        }
+    }
+    for a in was.keys().filter(|a| !now.contains_key(*a)) {
+        out.insert(a.clone(), serde_json::Value::Null);
+    }
+    out
+}
+
+/// An event's payload with what it wrote, where it wrote anything; an event
+/// that changed no attribute holds none (ADR-0209 decision 1).
+pub fn with_wrote(
+    mut payload: serde_json::Value,
+    wrote: serde_json::Map<String, serde_json::Value>,
+) -> serde_json::Value {
+    if !wrote.is_empty() {
+        payload["wrote"] = serde_json::Value::Object(wrote);
+    }
+    payload
+}
+
 /// The objects of a store, and the time a request reads.
 #[derive(Clone, Debug)]
 pub struct World<'l> {
@@ -514,6 +545,11 @@ pub struct World<'l> {
     /// decision 4).
     pub stop: Option<(std::sync::Arc<std::sync::atomic::AtomicU64>, u64)>,
     ticks: std::cell::Cell<u32>,
+    /// Each changed object's attributes as its last event in the operation
+    /// left them, or as they were before the operation first changed it, an
+    /// object it made having none: what its next event wrote is measured
+    /// against them (ADR-0209 decision 1).
+    last_written: BTreeMap<String, BTreeMap<String, Value>>,
 }
 
 /// How many steps of a read pass between two readings of the clock against
@@ -576,7 +612,41 @@ impl<'l> World<'l> {
             deadline: None,
             stop: None,
             ticks: std::cell::Cell::new(0),
+            last_written: BTreeMap::new(),
         }
+    }
+
+    /// What an object's event wrote: each attribute changed since its last
+    /// event in the operation, or since the operation first changed it,
+    /// none where the operation never did; and what its next event wrote is
+    /// measured from here (ADR-0209 decision 1).
+    pub fn wrote(
+        &mut self,
+        id: &str,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, crate::eval::NotRun> {
+        let now = self.get(id)?.map(|o| o.attrs.clone()).unwrap_or_default();
+        let was = self
+            .last_written
+            .insert(id.to_string(), now.clone())
+            .unwrap_or_else(|| now.clone());
+        Ok(wrote_between(&was, &now))
+    }
+
+    /// What an event on an object changed apart from the world wrote, as
+    /// [`World::wrote`] measures it, `was` being its attributes before the
+    /// change where the operation had not changed it already; and what its
+    /// next event wrote is measured from `now` (ADR-0209 decision 1).
+    pub fn wrote_apart(
+        &mut self,
+        id: &str,
+        was: &BTreeMap<String, Value>,
+        now: &BTreeMap<String, Value>,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let base = self
+            .last_written
+            .insert(id.to_string(), now.clone())
+            .unwrap_or_else(|| was.clone());
+        wrote_between(&base, now)
     }
 
     /// A type's family, itself and the types extending it, in the library's
@@ -1869,6 +1939,11 @@ impl<'l> World<'l> {
             None => None,
         };
         if let Some(n) = slot {
+            if !self.last_written.contains_key(id)
+                && let Some(o) = self.held.slots.get(n)
+            {
+                self.last_written.insert(id.to_string(), o.attrs.clone());
+            }
             self.held.written.insert(id.to_string());
             self.held.changed.get_mut().push(n);
         }
@@ -1882,6 +1957,13 @@ impl<'l> World<'l> {
         o.held_parts()?;
         self.held.written.insert(o.id.clone());
         let held = self.held.by_id.get_mut().get(&o.id).copied().flatten();
+        if !self.last_written.contains_key(&o.id) {
+            let was = held
+                .and_then(|n| self.held.slots.get(n))
+                .map(|p| p.attrs.clone())
+                .unwrap_or_default();
+            self.last_written.insert(o.id.clone(), was);
+        }
         if let Some(n) = held {
             self.held.changed.get_mut().push(n);
         }

@@ -10,6 +10,7 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 
 - The checker notices an optional attribute of an owned type that nothing writes, so it is always absent (`unwritten`, D557).
 - The checker notices an assignment whose value can be absent through an optional it never tests, which refuses its request `value_in_range` (`absent`, ADR-0201 decision 7), other than a plain read moved into an optional attribute.
+- Each event's payload records what it wrote, `wrote`: each attribute of its object it changed, with its value after and `null` where it cleared one, so a fold of an object's events reproduces its row, where only the inputs were recorded (D692, ADR-0209). An erasure redacts a personal value there as in the inputs, and `export` omits it. Events recorded before hold no `wrote`.
 - A plain read of an absent value, a name or a path, assigned to an optional attribute clears it, as `clear` does, where 0.2.0 refused the request `value_in_range`; arithmetic on an absent value, and an absent value assigned to a required attribute, are still refused (ADR-0209 decision 5).
 - The checker types a computed argument of a `call` or a `create`, refusing one of another kind than its input, an int passed to a time or an amount to an int, which the engine refused when run (the differential battery).
 - The service refuses an option given where a value belongs, naming both (`--store takes a value, and is given the option --create`), where `--store --create --create` made a store file named `--create` and served it.

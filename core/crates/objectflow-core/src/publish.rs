@@ -3593,8 +3593,15 @@ types:
         let redact = history.last().unwrap();
         assert_eq!(
             (redact.transition.as_str(), &redact.payload),
-            ("redact", &json!({"redacted": ["nick"]}))
+            (
+                "redact",
+                &json!({"redacted": ["nick"], "wrote": {"nick": null}})
+            )
         );
+        // each one's events, the migration's and the redaction's among them,
+        // reproduce its row (ADR-0209 decision 1)
+        crate::store::assert_log_folds(&s, &kept);
+        crate::store::assert_log_folds(&s, &erased);
         // the dropped type's object stays readable, and nothing creates one
         assert_eq!(w.whole(&coupon).unwrap().unwrap().state, "ISSUED");
         drop(w);
