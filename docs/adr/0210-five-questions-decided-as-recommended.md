@@ -40,5 +40,5 @@ Each question's other options, as `TODO.md` recorded them:
 - `load.py`'s defaults, `operate.md`, `adversarial-harness.md` and ADR-0204 §1's reading of the profile change with decision 1; the six-year store's whole-history reports are a stated limit with decision 2.
 - `declaration-syntax.md` §8, `storage-schema.md` §4 and ADR-0100 §7's `imported_at` are withdrawn with decision 3.
 - `storage-schema.md` §9 step 3 says what a caller's erasure reaches with decision 4.
-- The harness's refusal condition no longer leaves an effect's stop out with decision 5.
+- A refusal's attempt row records, under the rule `effect`, what its effects read before they stopped, with decision 5. *(This said at first that the harness's refusal condition no longer leaves an effect's stop out; it never did, the stop it leaves out being a satisfied request's, which decision 5 leaves as it was.)*
 - `wire.md` and `errors.md` give `unknown_type` for a request with decision 6, in both backends.

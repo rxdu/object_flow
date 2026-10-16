@@ -830,6 +830,10 @@ struct Ctx<'w> {
     /// Each past event's write of a copy an erasure clears, by the event's
     /// position and the attribute (ADR-0209 decision 2).
     redacted_writes: Vec<(i64, String)>,
+    /// What the request's effects read, which a refusal's read set holds
+    /// besides its rules' reads, so a refusal an effect causes replays over
+    /// its record (ADR-0210 decision 5).
+    effect_read: std::cell::RefCell<Reading>,
     redacted_spans: Vec<(String, String, i64)>,
     /// The external identifiers it writes, and those it no longer holds:
     /// source, value and object, with the attribute of a written one.
@@ -1064,6 +1068,7 @@ fn decide_or_stop(
         external_removed: Vec::new(),
         cleared: Vec::new(),
         redacted_writes: Vec::new(),
+        effect_read: std::cell::RefCell::new(Reading::default()),
         redacted_spans: Vec::new(),
         context: req.context.clone(),
         events: Vec::new(),
@@ -2028,10 +2033,12 @@ fn take_unwound(
                 continue;
             };
             let mut tainted = BTreeSet::new();
-            // personal by the event's own transition alone: what an erasure
-            // reaches through a caller's input that only flowed on into
-            // another object is the author's to decide (TODO.md, caller
-            // taint), so the walk reaches what it did before
+            // personal by the event's own transition, what the walk follows;
+            // and one passed into another object's personal attribute,
+            // redacted on the caller's own event and followed no further,
+            // the value it reached being that object's to erase (ADR-0210
+            // decision 4)
+            let lib = ctx.work.lib;
             if let Some(recorded) = e.payload["inputs"].as_object() {
                 for name in recorded.keys() {
                     if personal_by_own(tv, ex, name)
@@ -2041,6 +2048,9 @@ fn take_unwound(
                     {
                         ctx.redacted_inputs.push((e.position, name.clone()));
                         tainted.insert(name.clone());
+                    } else if input_personal(lib, tv, ex, name) || input_personal(lib, t, ex, name)
+                    {
+                        ctx.redacted_inputs.push((e.position, name.clone()));
                     }
                 }
             }
@@ -4337,6 +4347,10 @@ fn dotted(e: &Expr) -> String {
 /// computed exactly and rounded once at that scale, half to even, where it
 /// was rounded at its dividend's scale first (§8.3, the audit's values W4,
 /// ADR-0205 decision 1).
+/// The rule an effect's reads are recorded under in a refusal's read set
+/// (ADR-0210 decision 5).
+const EFFECT: &str = "effect";
+
 #[derive(Clone, Copy)]
 enum Evaluated {
     Plain,
@@ -4360,7 +4374,8 @@ fn effect_value(
         .with_inputs(inputs)
         .with_actor(&ctx.who)
         .with_answers(&ctx.answers)
-        .with_event(position);
+        .with_event(position)
+        .with_reading(&ctx.effect_read, EFFECT);
     let v = match (how, e) {
         (Evaluated::Filtering, _) => return Ok(ev.filtering().eval_in(e, env)?),
         // a quotient written to a decimal is divided once at its scale
@@ -4787,6 +4802,7 @@ fn cascades(
                 .with_committed(&ctx.before)
                 .with_inputs(inputs)
                 .with_actor(&ctx.who)
+                .with_reading(&ctx.effect_read, EFFECT)
                 .eval(&Expr::Name(an.clone()))?;
             let ids: Vec<String> = match parts {
                 Value::Set(items) => items
@@ -4838,6 +4854,7 @@ fn cascades(
                         .with_committed(&ctx.before)
                         .with_inputs(inputs)
                         .with_actor(&ctx.who)
+                        .with_reading(&ctx.effect_read, EFFECT)
                         .eval(e)?;
                     if !v.is_absent() {
                         values.insert(k.clone(), v);
@@ -6403,6 +6420,8 @@ pub fn check(
 /// cascades reached included, at the versions it left them (`DESIGN.md` §7).
 fn refused_reads(ctx: &Ctx<'_>) -> Result<Json, NotRun> {
     let mut read = ctx.read.clone();
+    // and what its effects read before they stopped (ADR-0210 decision 5)
+    read.merge(ctx.effect_read.borrow().clone());
     for e in &ctx.events {
         if let Some(o) = ctx.work.get(&e.object_id)? {
             read.objects.insert(o.id.clone(), o.version);
@@ -8756,6 +8775,34 @@ types:
             .find(|l| l.contains("\"add_contact\""))
             .expect("the caller's event");
         assert!(!line.contains("555-0100"), "{line}");
+        drop(w);
+        // the customer's erasure redacts the input on its own event, and the
+        // contact's phone stays the contact's to erase (ADR-0210 decision 4)
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&customer, false),
+            json!({"reason": "asked"}),
+        ));
+        let added = s
+            .history(&customer)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.transition == "add_contact")
+            .unwrap();
+        assert_eq!(added.payload["inputs"]["phone"], Json::Null);
+        let w = s.snapshot().unwrap();
+        let contact = w
+            .of_type("Contact")
+            .unwrap()
+            .first()
+            .map(|c| c.id.clone())
+            .unwrap();
+        assert_eq!(
+            w.whole(&contact).unwrap().unwrap().attr("phone"),
+            Value::Text("555-0100".into())
+        );
     }
 
     /// A correction finds the correction already recorded by its kind's
@@ -10976,6 +11023,32 @@ types:
         );
         crate::store::assert_log_folds(&s, &ana);
         crate::store::assert_log_folds(&s, &contact);
+    }
+
+    /// A refusal an effect causes holds in its read set what the effect read
+    /// before it stopped, so it replays over its record, where it held only
+    /// its rules' reads (ADR-0210 decision 5).
+    #[test]
+    fn a_refusal_an_effect_causes_records_what_the_effect_read() {
+        let text = "\nmodule: c\ncategories: [live]\ntypes:\n  Counter:\n    attributes:\n      peer: { reference: Counter, optional: true }\n      count: { type: int, optional: true }\n      total: { type: int, default: 0 }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, optional_inputs: [peer] }\n      take:\n        kind: internal\n        from: [ON]\n        effect:\n          - assign: { location: total, expr: peer.count + 1 }\n";
+        let lib = Library::load(&[("c.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let peer = created(&req(&mut s, "make", OPERATOR, ("Counter", true), json!({})));
+        let id = created(&req(
+            &mut s,
+            "make",
+            OPERATOR,
+            ("Counter", true),
+            json!({"peer": &peer}),
+        ));
+        let v = req(&mut s, "take", OPERATOR, (&id, false), json!({}));
+        assert!(
+            matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "value_in_range"),
+            "{v:?}"
+        );
+        let w = s.snapshot().unwrap();
+        let row = w.attempts().unwrap().last().cloned().unwrap();
+        assert!(row.reads["objects"].get(&peer).is_some(), "{}", row.reads);
     }
 
     /// What an event wrote is measured from its object as the operation

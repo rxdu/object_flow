@@ -14,6 +14,8 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 - An inline value cut at a comma is named as one where it holds an apostrophe, or where two are cut in one mapping, where the schema's raw message was given.
 - A member read through a reference that its type does not declare is refused by the checkers, where it was accepted and a guard reading it refused every request (D695).
 - A mirror's `imported_at` is withdrawn: the checkers refuse reading it, and keep the name (ADR-0210 decision 3).
+- An erasure redacts on the erased object's own events an input they passed into another object's personal attribute, and nothing it flowed into (ADR-0210 decision 4).
+- A refused request's attempt row records, under `effect`, what its effects read before they stopped (ADR-0210 decision 5).
 - A request creating an object of a type the installed version does not declare is answered `unknown_type`, naming the type, where 0.2.0 answered `unknown_transition`; its remedy is `unreachable_from_here` where no version is installed (ADR-0210 decision 6).
 - `scripts/profile/load.py` plays Gate P's readers at the profile's pace, `--stress` back to back (ADR-0210 decision 1).
 - Each event's payload records what it wrote, `wrote`: each attribute of its object it changed, with its value after and `null` where it cleared one, so a fold of an object's events reproduces its row, where only the inputs were recorded (D692, ADR-0209). An erasure redacts a personal value there as in the inputs, and `export` omits it. Events recorded before hold no `wrote`.
