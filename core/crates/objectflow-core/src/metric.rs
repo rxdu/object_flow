@@ -838,6 +838,31 @@ impl<'w> Reader<'w> {
             )
             .any(|t| t.contains("held"))
             || theirs.is_some_and(|e| reads_member(e, "held"));
+        // a window over the item's own time or date read by its column, the
+        // rows at or after the window's start and no other, where a report
+        // over a window read every object of the type (ADR-0210 decision 2);
+        // the window still decides each row below, so this narrows what is
+        // read and not what is kept
+        let since = match (window, text("time_dimension"), text("split_by")) {
+            (Some(w), Some(t), None) if source == "objects" => match parsed(&t)? {
+                Expr::Path(base, attr)
+                    if matches!(&*base, Expr::Name(n) if *n == item)
+                        && owner_t.attribute(&attr).is_some_and(|a| {
+                            !a.many
+                                && matches!(&a.declared, Declared::Scalar(s) if s == "timestamp" || s == "date")
+                        }) =>
+                {
+                    let from = self.world.now.saturating_sub(w);
+                    let at = match owner_t.attribute(&attr).map(|a| &a.declared) {
+                        Some(Declared::Scalar(s)) if s == "date" => Value::Date(from.div_euclid(86_400)),
+                        _ => Value::Timestamp(from),
+                    };
+                    Some((attr, at))
+                }
+                _ => None,
+            },
+            _ => None,
+        };
         let Rows {
             mut rows,
             kind: rowkind,
@@ -848,6 +873,7 @@ impl<'w> Reader<'w> {
             &source,
             narrow.as_ref().map(|e| (item.as_str(), e)),
             &columns,
+            since.as_ref(),
             reads_held,
         )?;
         // many rows read as a scan: the types they reach read whole once
@@ -986,6 +1012,7 @@ impl<'w> Reader<'w> {
     /// type or its family, each span of its state or of a tracked member,
     /// each event of a transition, or each observation of one of its kinds
     /// that nothing has corrected.
+    #[allow(clippy::too_many_arguments)]
     fn rows(
         &self,
         owner: &str,
@@ -993,14 +1020,20 @@ impl<'w> Reader<'w> {
         source: &str,
         narrow: Option<(&str, &Expr)>,
         columns: &[(String, Value)],
+        since: Option<&(String, Value)>,
         reads_held: bool,
     ) -> Result<Rows, NotRun> {
         let world = self.world;
         if source == "objects" {
-            let objects = if columns.is_empty() {
+            let objects = if columns.is_empty() && since.is_none() {
                 world.of_type(owner)?
             } else {
-                world.of_type_where(owner, None, columns)?
+                world.of_type_where_since(
+                    owner,
+                    None,
+                    columns,
+                    since.map(|(a, v)| (a.as_str(), v)),
+                )?
             };
             return Ok(Rows {
                 rows: objects
@@ -4094,6 +4127,77 @@ metrics:
             .iter()
             .map(|(d, v)| (d.to_string(), v.clone()))
             .collect()
+    }
+
+    /// A report over a window reads the objects whose time or date falls in
+    /// it by that column, and no other, where it read every object of the
+    /// type, and answers as a read of every object does (ADR-0210 decision
+    /// 2).
+    #[test]
+    fn a_window_over_an_objects_time_reads_by_its_column() {
+        let text = "\nmodule: v\ncategories: [live]\ntypes:\n  Visit:\n    attributes:\n      at: { type: timestamp, indexed: true }\n      on: { type: date, indexed: true }\n    states:\n      ON: { category: live }\n    transitions:\n      log: { kind: initial, to: ON, required_inputs: [at, on] }\n    metrics:\n      recent:\n        source: objects\n        item: v\n        time_dimension: v.at\n        expression: count()\n      recent_days:\n        source: objects\n        item: v\n        time_dimension: v.on\n        expression: count()\n";
+        let lib = Library::load(&[("v.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        // a visit a day for 400 days, each at its day's start
+        for d in 0..400 {
+            s.now = d * 86_400;
+            let r = crate::request::Request {
+                transition: "log".into(),
+                actor: crate::model::OPERATOR.into(),
+                object_id: None,
+                type_: Some("Visit".into()),
+                inputs: [
+                    ("at".to_string(), json!(crate::value::timestamp_text(s.now))),
+                    ("on".to_string(), json!(crate::value::date_text(d))),
+                ]
+                .into_iter()
+                .collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            assert!(matches!(
+                crate::request::request(&mut s, &r).unwrap().unwrap(),
+                Verdict::Satisfied { .. }
+            ));
+        }
+        for name in ["Visit.recent", "Visit.recent_days"] {
+            // thirty days back from day 399 holds days 369 to 399
+            let w = s.snapshot().unwrap();
+            let windowed = page_as(
+                &w,
+                None,
+                name,
+                &BTreeMap::new(),
+                None,
+                Some(30 * 86_400),
+                None,
+                false,
+            )
+            .unwrap();
+            assert!(w.held_count() <= 32, "{name} held {}", w.held_count());
+            assert_eq!(rows_of(&windowed), vec![(Vec::new(), Some(Rat::int(31)))]);
+            // as a read of every object, held first
+            let all = s.snapshot().unwrap();
+            all.of_type("Visit").unwrap();
+            let whole = page_as(
+                &all,
+                None,
+                name,
+                &BTreeMap::new(),
+                None,
+                Some(30 * 86_400),
+                None,
+                false,
+            )
+            .unwrap();
+            assert_eq!(windowed.rows, whole.rows, "{name}");
+        }
     }
 
     /// The reference runner's reader cases (`flowrun.py`,

@@ -1711,6 +1711,20 @@ impl<'l> World<'l> {
         states: Option<&BTreeSet<String>>,
         columns: &[(String, Value)],
     ) -> Result<Vec<&Object>, crate::eval::NotRun> {
+        self.of_type_where_since(type_, states, columns, None)
+    }
+
+    /// The objects [`World::of_type_where`] gives, and of them, where
+    /// `since` names a time or a date attribute, those whose value is at or
+    /// after the one given, read by its column: a window's rows, never the
+    /// type whole (ADR-0210 decision 2).
+    pub fn of_type_where_since(
+        &self,
+        type_: &str,
+        states: Option<&BTreeSet<String>>,
+        columns: &[(String, Value)],
+        since: Option<(&str, &Value)>,
+    ) -> Result<Vec<&Object>, crate::eval::NotRun> {
         let wanted: Option<Vec<String>> = states.map(|s| s.iter().cloned().collect());
         let pairs: Vec<(&str, &Value)> = columns.iter().map(|(a, v)| (a.as_str(), v)).collect();
         for t in self.family(type_).iter() {
@@ -1718,13 +1732,19 @@ impl<'l> World<'l> {
             if !whole && self.scanned_past(t) {
                 self.hold_type(t)?;
             } else if !whole && let Some(conn) = self.conn {
-                let fetched =
-                    crate::store::read_type_where(conn, self.lib, t, wanted.as_deref(), &pairs)
-                        .map_err(|e| {
-                            crate::eval::NotRun::Unreadable(format!(
-                                "the store's objects of {t} narrowed, which could not be read: {e}"
-                            ))
-                        })?;
+                let fetched = crate::store::read_type_where_since(
+                    conn,
+                    self.lib,
+                    t,
+                    wanted.as_deref(),
+                    &pairs,
+                    since,
+                )
+                .map_err(|e| {
+                    crate::eval::NotRun::Unreadable(format!(
+                        "the store's objects of {t} narrowed, which could not be read: {e}"
+                    ))
+                })?;
                 match fetched {
                     Some(fetched) => self.hold_fetched(fetched)?,
                     None => self.hold_type(t)?,
@@ -1737,6 +1757,11 @@ impl<'l> World<'l> {
                 && pairs.iter().all(|(a, v)| {
                     let x = o.attr(a);
                     x.is_absent() || x.equals(v)
+                })
+                && since.is_none_or(|(a, from)| match (o.attr(a), from) {
+                    (Value::Timestamp(x), Value::Timestamp(f)) => x >= *f,
+                    (Value::Date(x), Value::Date(f)) => x >= *f,
+                    _ => false,
                 })
         };
         // the held objects by the index on a pair's column, where its value

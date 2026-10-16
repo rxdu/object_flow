@@ -4710,20 +4710,37 @@ pub(crate) fn read_type(conn: &Connection, lib: &Library, type_: &str) -> Stored
 /// given, where any are, and whose columns named each hold the value given
 /// or none, in creation order, read through the type's state index and its
 /// columns (ADR-0162 step 3); none where a value has no column to compare
-/// in, a set's or an absent one.
-pub(crate) fn read_type_where(
+/// in, a set's or an absent one; and of them, where `since` names a time or
+/// a date attribute, those whose value is at or after the one given, a
+/// window's rows read by the column, never the type whole, which a report
+/// over a window read every object of the type for (ADR-0210 decision 2).
+pub(crate) fn read_type_where_since(
     conn: &Connection,
     lib: &Library,
     type_: &str,
     states: Option<&[String]>,
     columns: &[(&str, &Value)],
+    since: Option<(&str, &Value)>,
 ) -> Stored<Option<Vec<Object>>> {
     if states.is_some_and(<[String]>::is_empty) {
         return Ok(Some(Vec::new()));
     }
-    let Some(narrowed) = narrowing(conn, lib, type_, states, columns)? else {
+    let Some(mut narrowed) = narrowing(conn, lib, type_, states, columns)? else {
         return Ok(None);
     };
+    if let Some((n, v)) = since {
+        let Some(a) = lib
+            .type_(type_)
+            .and_then(|t| t.attribute(n))
+            .filter(|a| !a.many && comparable(v, &a.declared))
+        else {
+            return Ok(None);
+        };
+        match to_sql(v) {
+            Ok(Sql::Null) | Err(_) => return Ok(None),
+            Ok(sql) => narrowed.since = Some((quote(&column(n, a)), sql)),
+        }
+    }
     Ok(Some(read_objects(
         conn,
         lib,
@@ -4785,6 +4802,7 @@ fn narrowing(
         states: states.map(<[String]>::to_vec),
         columns: Vec::new(),
         bound: None,
+        since: None,
     };
     for (n, v) in columns {
         let Some(a) = t
@@ -4830,6 +4848,9 @@ struct Narrowed {
     /// Where it reads from a place in creation order: its table, the place,
     /// and how many rows at most (READ-PAGES).
     bound: Option<(String, i64, usize)>,
+    /// A column holding a time or a date at or after a value, a row with
+    /// none passed over, as a window passes it over (ADR-0210 decision 2).
+    since: Option<(String, Sql)>,
 }
 
 impl Narrowed {
@@ -4881,6 +4902,10 @@ impl Narrowed {
             } else {
                 format!("{prefix}{c} = ?{n}")
             });
+        }
+        if let Some((c, v)) = &self.since {
+            bound.push(v.clone());
+            parts.push(format!("{prefix}{c} >= ?{}", bound.len()));
         }
         (parts.join(" AND "), bound)
     }
