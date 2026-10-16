@@ -686,6 +686,9 @@ impl Run {
             if let Some(detail) = row_against(o, events.get(&o.id)) {
                 return fail("replay", detail);
             }
+            if let Some(detail) = tracked_spans_against(&world, o, events.get(&o.id)) {
+                return fail("intervals", detail);
+            }
             let Some(t) = world.lib.type_(&o.type_) else {
                 continue;
             };
@@ -923,6 +926,84 @@ fn state_spans_against(
             open.len(),
             open.iter().map(|s| name(&s.value)).collect::<Vec<_>>()
         ));
+    }
+    None
+}
+
+/// Where an object's tracked members' intervals disagree with its log (§1,
+/// "an interval the log does not reproduce"), each member's value after
+/// each event folded from what the events wrote (ADR-0209): a span not
+/// supplied by an import or a migration opened by no event of its object,
+/// or holding another value than the log gives it after that event, or
+/// after the correction that last relabelled it; an event, other than an
+/// import's or a correction's, that changed the member opening no span; and
+/// an open span holding another value than the object's.
+fn tracked_spans_against(
+    world: &objectflow_core::world::World<'_>,
+    o: &objectflow_core::world::Object,
+    events: Option<&Vec<objectflow_core::store::Event>>,
+) -> Option<String> {
+    let t = world.lib.type_(&o.type_)?;
+    let parts = world.parts(o).ok()?;
+    let none = Vec::new();
+    let events = events.unwrap_or(&none);
+    for d in world.lib.tracked(t).into_iter().filter(|d| d != "state") {
+        // the member's value after each event, and whether the event changed it
+        let mut value = Json::Null;
+        let mut after: BTreeMap<i64, (Json, bool)> = BTreeMap::new();
+        for e in events {
+            let was = value.clone();
+            if let Some(v) = e.payload.get("wrote").and_then(|w| w.get(&d)) {
+                value = v.clone();
+            }
+            after.insert(e.position, (value.clone(), value != was));
+        }
+        let spans = parts.spans.get(&d).cloned().unwrap_or_default();
+        for sp in &spans {
+            if sp.legacy || sp.migrated {
+                continue;
+            }
+            let at = sp.corrected_by.unwrap_or(sp.entered_position);
+            let Some((logged, _)) = after.get(&at) else {
+                return Some(format!(
+                    "{}'s span of {d} was opened by event {}, which is none of its own",
+                    o.id, sp.entered_position
+                ));
+            };
+            let held = objectflow_core::wire::encode(&sp.value);
+            if held != *logged {
+                return Some(format!(
+                    "{}'s span of {d} opened by event {} holds {held}, where the log gives {logged}",
+                    o.id, sp.entered_position
+                ));
+            }
+        }
+        let opened: BTreeSet<i64> = spans.iter().map(|s| s.entered_position).collect();
+        for e in events {
+            let changed = after.get(&e.position).is_some_and(|(_, c)| *c);
+            if changed && !e.imported && e.source != "corrected" && !opened.contains(&e.position) {
+                return Some(format!(
+                    "{}'s event {} ({}) changed {d} and opened no span",
+                    o.id, e.position, e.transition
+                ));
+            }
+        }
+        let open: Vec<_> = spans.iter().filter(|s| s.left_position.is_none()).collect();
+        let now = objectflow_core::wire::encode(&o.attr(&d));
+        if open.len() > 1
+            || open
+                .first()
+                .is_some_and(|s| objectflow_core::wire::encode(&s.value) != now)
+        {
+            return Some(format!(
+                "{}'s {d} is {now}, and {} of its spans are open, holding {:?}",
+                o.id,
+                open.len(),
+                open.iter()
+                    .map(|s| objectflow_core::wire::encode(&s.value))
+                    .collect::<Vec<_>>()
+            ));
+        }
     }
     None
 }
