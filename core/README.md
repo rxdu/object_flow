@@ -36,6 +36,10 @@ target/release/objectflow-service --store /var/lib/objectflow/store.sqlite --soc
 
 **A load is not checked.** `/sandbox/load` installs the modules it is given without running the publish checks (ADR-0153 decision 5); run `scripts/check-flows.py` over them first, as the Flow Studio's server does. A version published through `/v1/publish` is checked.
 
+## How fast
+
+Measured on 2026-10-16 by [`scripts/profile/throughput.py`](../scripts/profile/throughput.py), twice, on the release build, a store the service made on an NVMe disk of a 12-core machine other work shared (load about 2.5), over HTTP on the loopback. A write, the smallest a flow makes, took 10.7 ms at p50 and 14 ms at p95 from one client, 95 a second. Requests waiting for the writer commit together (ADR-0208), so 8 clients reached about 265 a second, at p95 40 ms, and 32 clients 760 to 800 a second, at p95 64 to 69 ms. An import of 10,000 objects of a mirror type of two attributes took 0.6 s to dry-run and 2.0 s to run, and one of 1,620 took 0.1 s and 0.3 s. A flow's guards reading other objects, cascades, invariants and metrics add to each; the third hiring review measured about 80 ms a write and 37 s for 1,620 imported objects of its flow, on a debug build before ADR-0208. `scripts/profile/load.py` plays a team's mixed load against a profile store (Gate P).
+
 ## Checks
 
 ```sh
