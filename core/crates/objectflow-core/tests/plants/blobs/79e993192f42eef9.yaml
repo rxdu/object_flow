@@ -1,0 +1,17 @@
+module: m
+categories: [live]
+machines:
+  Flow:
+    description: A flow.
+    requires: { attributes: { memo: { type: string, optional: true } } }
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
+    transitions:
+      t: { kind: initial, to: S }
+      e: { kind: external, from: S, to: E, effect: [ { assign: { location: memo, expr: '"x"' } } ] }
+types:
+  T:
+    description: A thing.
+    tracking: record
+    state_machine: Flow
+    attributes:
+      memo: { type: string, optional: true }

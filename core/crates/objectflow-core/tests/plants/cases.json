@@ -7296,6 +7296,13 @@
     "fatal",
     "names",
     "note_kind is of the type frobnicate, which is neither built in, nor an enumeration this module declares, nor a name it imports"
+   ],
+   [
+    "customers.yaml",
+    36,
+    "notice",
+    "unwritten",
+    "Customer.note_kind is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -9295,6 +9302,13 @@
    ],
    [
     "inventory.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "InventoryItem.state is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "inventory.yaml",
     103,
     "notice",
     "audit",
@@ -11066,6 +11080,71 @@
   "could_violate": {}
  },
  {
+  "label": "<listcomp>: unwritten",
+  "files": [
+   [
+    "unwritten.yaml",
+    "ee96fd76415d9448"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "unwritten.yaml",
+    8,
+    "notice",
+    "unwritten",
+    "T.memo is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<listcomp>: by_input",
+  "files": [
+   [
+    "by_input.yaml",
+    "b80105d099b0c425"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<listcomp>: by_machine",
+  "files": [
+   [
+    "by_machine.yaml",
+    "79e993192f42eef9"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "<listcomp>: agent_declared",
   "files": [
    [
@@ -11786,10 +11865,24 @@
    ],
    [
     "reach.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Claim.who is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "reach.yaml",
     19,
     "notice",
     "unbounded_reach",
     "Claim.forget takes at most 20 of lines, and no invariant of Claim holds it to 20: past 20, the erasure is refused over_limit and cannot be carried out; declare one such as count(x in lines) <= 20 (ADR-0190)"
+   ],
+   [
+    "reach.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Line.note is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -12076,6 +12169,13 @@
   "findings": [
    [
     "node.yaml",
+    8,
+    "notice",
+    "unwritten",
+    "Node.parent is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "node.yaml",
     13,
     "fatal",
     "order",
@@ -12184,7 +12284,15 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "held.yaml",
+    8,
+    "notice",
+    "unwritten",
+    "A.b is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
   "analysed": {
    "A": [
     0,
@@ -21553,7 +21661,29 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "plant.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "CostCentre.note is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
+    21,
+    "notice",
+    "unwritten",
+    "Requisition.backup_centre is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
+    23,
+    "notice",
+    "unwritten",
+    "Requisition.budget_note is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
   "analysed": {
    "CostCentre": [
     0,
@@ -21576,7 +21706,29 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "plant.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "CostCentre.note is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
+    21,
+    "notice",
+    "unwritten",
+    "Requisition.backup_centre is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
+    23,
+    "notice",
+    "unwritten",
+    "Requisition.budget_note is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
   "analysed": {
    "CostCentre": [
     0,
@@ -21599,7 +21751,29 @@
    ]
   ],
   "previous": {},
-  "findings": [],
+  "findings": [
+   [
+    "plant.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "CostCentre.note is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
+    21,
+    "notice",
+    "unwritten",
+    "Requisition.backup_centre is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
+    24,
+    "notice",
+    "unwritten",
+    "Requisition.budget_note is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
   "analysed": {
    "CostCentre": [
     0,
@@ -21625,6 +21799,27 @@
   "findings": [
    [
     "plant.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "CostCentre.note is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
+    21,
+    "notice",
+    "unwritten",
+    "Requisition.backup_centre is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
+    23,
+    "notice",
+    "unwritten",
+    "Requisition.budget_note is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
     29,
     "fatal",
     "required",
@@ -21645,6 +21840,27 @@
   ],
   "previous": {},
   "findings": [
+   [
+    "plant.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "CostCentre.note is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
+    21,
+    "notice",
+    "unwritten",
+    "Requisition.backup_centre is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
+    23,
+    "notice",
+    "unwritten",
+    "Requisition.budget_note is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
    [
     "plant.yaml",
     29,
@@ -22185,6 +22401,13 @@
     "fatal",
     "names",
     "Request.owner_id is the column the store keeps the reference owner in; name the attribute otherwise (storage-schema.md §3.2, D578)"
+   ],
+   [
+    "taken.yaml",
+    35,
+    "notice",
+    "unwritten",
+    "Request.owner_id is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -22602,6 +22825,13 @@
    ],
    [
     "inventory.yaml",
+    26,
+    "notice",
+    "unwritten",
+    "InventoryItem.margin is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "inventory.yaml",
     103,
     "notice",
     "audit",
@@ -22690,6 +22920,13 @@
     "fatal",
     "names",
     "margin is a decimal(19,4); a decimal holds 1 to 18 digits, and its scale is within them"
+   ],
+   [
+    "inventory.yaml",
+    26,
+    "notice",
+    "unwritten",
+    "InventoryItem.margin is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ],
    [
     "inventory.yaml",
@@ -25390,6 +25627,13 @@
     "notice",
     "personal_dropped",
     "T.p was personal, and this version drops it: an erasure no longer reaches its values, which stay where they are (ADR-0196)"
+   ],
+   [
+    "m.yaml",
+    8,
+    "notice",
+    "unwritten",
+    "T.p is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -28012,6 +28256,27 @@
     "fatal",
     "names",
     "Customer.leave writes the personal Customer.name to 'label', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -28079,6 +28344,27 @@
     "fatal",
     "names",
     "Customer.leave writes the personal Customer.name to 'size', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    31,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    33,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -28146,6 +28432,27 @@
     "fatal",
     "names",
     "Customer.leave writes the personal value in the derived Customer.called to 'size', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    31,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    33,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -28213,6 +28520,27 @@
     "fatal",
     "names",
     "Customer.tag writes the personal input 'text' to 'label', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -28280,6 +28608,27 @@
     "fatal",
     "names",
     "Customer.tag writes the personal input 'text' to 'label', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -28340,6 +28689,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ],
    [
     "crm.yaml",
@@ -28410,6 +28773,20 @@
    ],
    [
     "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
     45,
     "fatal",
     "names",
@@ -28474,6 +28851,20 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ],
    [
     "crm.yaml",
@@ -28544,6 +28935,20 @@
    ],
    [
     "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
     45,
     "fatal",
     "names",
@@ -28611,6 +29016,27 @@
    ],
    [
     "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
     45,
     "fatal",
     "names",
@@ -28675,6 +29101,27 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ],
    [
     "crm.yaml",
@@ -28749,6 +29196,27 @@
     "fatal",
     "names",
     "Customer.leave passes the personal Customer.name to Visit.book's input 'note', which writes it to Visit.note, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -28809,6 +29277,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Line (1), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "shop.yaml",
+    10,
+    "notice",
+    "unwritten",
+    "Order.buyer is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ],
    [
     "shop.yaml",
@@ -28888,6 +29363,27 @@
    ],
    [
     "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    31,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    33,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
     51,
     "fatal",
     "names",
@@ -28952,6 +29448,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -29040,6 +29543,27 @@
     "fatal",
     "names",
     "Customer.tag writes the personal input 'text' to 'label', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -29625,6 +30149,27 @@
     "fatal",
     "names",
     "probe reads 'inputs', which only a transition has"
+   ],
+   [
+    "crm.yaml",
+    31,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    34,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -29696,6 +30241,27 @@
     "fatal",
     "names",
     "probe reads 'this_event', which only a transition has"
+   ],
+   [
+    "crm.yaml",
+    31,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    34,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -29760,6 +30326,27 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    31,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    34,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -29846,6 +30433,27 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    31,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    34,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -29927,6 +30535,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (3), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    11,
+    "notice",
+    "unwritten",
+    "Customer.label is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -30124,6 +30739,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (3), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    11,
+    "notice",
+    "unwritten",
+    "Customer.label is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -31172,6 +31794,27 @@
    ],
    [
     "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
     45,
     "fatal",
     "names",
@@ -31243,6 +31886,27 @@
     "fatal",
     "names",
     "Customer.leave passes now, timestamp, to Visit.book's input 'note', which takes string: an argument must fit its input (the model's check 2)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -31303,6 +31967,27 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ],
    [
     "crm.yaml",
@@ -31377,6 +32062,27 @@
     "fatal",
     "names",
     "condition known passes number to crmcheck.known's argument 'n', which takes string: an argument must fit its input (the model's check 2)"
+   ],
+   [
+    "crm.yaml",
+    39,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    40,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    42,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -31444,6 +32150,27 @@
     "fatal",
     "names",
     "condition known passes timestamp to crmcheck.known's argument 'n', which takes string: an argument must fit its input (the model's check 2)"
+   ],
+   [
+    "crm.yaml",
+    39,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    40,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    42,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},
@@ -31504,6 +32231,27 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ],
    [
     "crm.yaml",
@@ -31571,6 +32319,27 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -31652,6 +32421,27 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (7), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    31,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    33,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -31733,6 +32523,27 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    39,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    40,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    42,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -31814,6 +32625,27 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unwritten",
+    "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    30,
+    "notice",
+    "unwritten",
+    "Visit.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    32,
+    "notice",
+    "unwritten",
+    "Visit.flagged is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -31898,6 +32730,13 @@
    ],
    [
     "crew.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Member.alias is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crew.yaml",
     16,
     "fatal",
     "names",
@@ -31965,6 +32804,13 @@
    ],
    [
     "crew.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Member.alias is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crew.yaml",
     16,
     "fatal",
     "names",
@@ -32029,6 +32875,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Member (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crew.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Member.alias is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -35125,6 +35978,13 @@
    ],
    [
     "ledger.yaml",
+    17,
+    "notice",
+    "unwritten",
+    "Account.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "ledger.yaml",
     25,
     "fatal",
     "names",
@@ -35189,6 +36049,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    17,
+    "notice",
+    "unwritten",
+    "Account.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ],
    [
     "ledger.yaml",
@@ -35323,6 +36190,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    17,
+    "notice",
+    "unwritten",
+    "Account.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -36016,6 +36890,13 @@
    ],
    [
     "ledger.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "ledger.yaml",
     25,
     "fatal",
     "names",
@@ -36147,6 +37028,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ],
    [
     "ledger.yaml",
@@ -36284,6 +37172,13 @@
    ],
    [
     "ledger.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "ledger.yaml",
     28,
     "fatal",
     "names",
@@ -36415,6 +37310,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ],
    [
     "ledger.yaml",
@@ -36576,6 +37478,13 @@
    ],
    [
     "ledger.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "ledger.yaml",
     25,
     "fatal",
     "names",
@@ -36640,6 +37549,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ],
    [
     "ledger.yaml",
@@ -36710,6 +37626,13 @@
    ],
    [
     "ledger.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "ledger.yaml",
     25,
     "fatal",
     "names",
@@ -36777,6 +37700,13 @@
    ],
    [
     "ledger.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "ledger.yaml",
     25,
     "fatal",
     "names",
@@ -36841,6 +37771,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -36985,6 +37922,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -37062,6 +38006,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -38261,6 +39212,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Account.signed is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -38743,6 +39701,13 @@
    ],
    [
     "ledger.yaml",
+    17,
+    "notice",
+    "unwritten",
+    "Account.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "ledger.yaml",
     25,
     "fatal",
     "names",
@@ -38807,6 +39772,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "ledger.yaml",
+    17,
+    "notice",
+    "unwritten",
+    "Account.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {
@@ -39799,6 +40771,13 @@
    ],
    [
     "plant.yaml",
+    11,
+    "notice",
+    "unwritten",
+    "Job.note is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
     13,
     "fatal",
     "check 15",
@@ -40044,6 +41023,20 @@
     "fatal",
     "check 62",
     "Job marks 2 actor identities; a type holds one kind of actor, named once"
+   ],
+   [
+    "plant.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Job.who is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plant.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "Job.also is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
    ]
   ],
   "analysed": {},

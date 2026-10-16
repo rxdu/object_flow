@@ -4295,6 +4295,46 @@ def metric_errors(tn, t, mn, m):
     return out
 
 
+def unwritten(v, doc):
+    """An optional attribute of an owned type that nothing writes, so it is always absent: no transition of the type, a
+    subtype or its machine takes it as an input or sets it in an effect, and no migration backfills it; one with a
+    default, a counter, an identifier, an external identifier or a relationship's end, which its far end writes, is
+    written (D557)."""
+    machines = set(v.get("machines") or {})
+    tps = dict(types(v))
+    backfilled = {(tn, a) for tn, given in ((doc.get("migration") or {}).get("backfill") or {}).items()
+                  for a in (given or {})}
+
+    def family(tn):
+        out, grew = {tn}, True
+        while grew:
+            more = {n for n, t in tps.items() if t.get("extends") in out} - out
+            grew, out = bool(more), out | more
+        return out
+
+    out = []
+    for tn, t in tps.items():
+        if tn in machines or t.get("mirror"):
+            continue
+        written = set()
+        for fn in family(tn):
+            for x in ((tps.get(fn) or {}).get("transitions") or {}).values():
+                written |= set(x.get("required_inputs") or []) | set(x.get("optional_inputs") or [])
+                for st, kind, _path, _depth in walk(x.get("effect")):
+                    if kind in ("assign", "add", "remove"):
+                        written.add(st[kind].get("location"))
+        for a, spec in (t.get("attributes") or {}).items():
+            spec = spec or {}
+            if inherited(t, "attributes", a) or not spec.get("optional") or a in written or (tn, a) in backfilled:
+                continue
+            if any(k in spec for k in ("default", "identifier", "external", "opposite")) or spec.get("type") == "counter":
+                continue
+            out.append((("types", tn, "attributes", a), "unwritten",
+                        f"{tn}.{a} is optional and nothing writes it: no transition takes it as an input or sets it, "
+                        "and no migration backfills it, so it is always absent"))
+    return out
+
+
 def notices(doc):
     out = []
     for tn, t in types(doc):
@@ -5776,7 +5816,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
                     if not inherited(t, "invariants", i):
                         violators[f"{tn}.{i}"] = could_violate(library, tn, (spec or {}).get("expression", ""), machines)
         notes += [(f, line_of(idx, back(p)), "notice", c, m)
-                  for p, c, m in notices(v) + unknowns(v, library) + befores(v) + vetoes(v, library) + reaches(v)
+                  for p, c, m in notices(v) + unwritten(v, doc) + unknowns(v, library) + befores(v) + vetoes(v, library) + reaches(v)
                   if back(p) is not None]
         agents += agent_kinds(doc, v)
         opened.append((f, line_of(idx, ("module",)), agent_open(doc, v)))
@@ -6196,6 +6236,26 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     ok &= hit
     print(f"  planted a correction's free-text reason on a type an erasure reaches: "
           f"{'noticed, and neither marked personal nor without an erasure' if hit else 'MISSED ' + str(kept)}")
+    # an optional attribute of an owned type nothing writes is noticed; one an input, a machine's assignment or a
+    # backfill writes is not (D557)
+    unwritten_t = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A thing.\n    tracking: record\n"
+                   "    attributes:\n      memo: { type: string, optional: true }\n"
+                   "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
+                   "    transitions:\n      t: { kind: initial, to: S }\n      e: { kind: external, from: S, to: E }\n")
+    by_input = unwritten_t.replace("t: { kind: initial, to: S }", "t: { kind: initial, to: S, optional_inputs: [memo] }")
+    by_machine = ("module: m\ncategories: [live]\nmachines:\n  Flow:\n    description: A flow.\n"
+                  "    requires: { attributes: { memo: { type: string, optional: true } } }\n"
+                  "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
+                  "    transitions:\n      t: { kind: initial, to: S }\n"
+                  "      e: { kind: external, from: S, to: E, effect: [ { assign: { location: memo, expr: '\"x\"' } } ] }\n"
+                  "types:\n  T:\n    description: A thing.\n    tracking: record\n    state_machine: Flow\n"
+                  "    attributes:\n      memo: { type: string, optional: true }\n")
+    unwritten_seen = [[x for x in check([(f"{name}.yaml", text)])[1] if x[3] == "unwritten"]
+                      for name, text in (("unwritten", unwritten_t), ("by_input", by_input), ("by_machine", by_machine))]
+    hit = [len(k) for k in unwritten_seen] == [1, 0, 0]
+    ok &= hit
+    print(f"  planted an optional attribute nothing writes: "
+          f"{'noticed, and neither one an input nor one a machine writes' if hit else 'MISSED ' + str(unwritten_seen)}")
     # where the version declares an agent kind of actor, a module's transitions that name no taken_by are noticed, once
     # for the module, whichever module checked declares the kind; a version declaring none is not (ADR-0189 decision 1)
     tasks = ("module: tasks\ncategories: [live]\ntypes:\n  Task:\n    description: A task.\n    tracking: record\n"

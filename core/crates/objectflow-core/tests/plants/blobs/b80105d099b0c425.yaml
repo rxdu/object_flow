@@ -1,0 +1,12 @@
+module: m
+categories: [live]
+types:
+  T:
+    description: A thing.
+    tracking: record
+    attributes:
+      memo: { type: string, optional: true }
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
+    transitions:
+      t: { kind: initial, to: S, optional_inputs: [memo] }
+      e: { kind: external, from: S, to: E }

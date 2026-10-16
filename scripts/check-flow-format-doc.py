@@ -119,8 +119,9 @@ def main():
     section7 = doc[doc.index("## 7. Validity"):doc.index("## 8.")]
     stated = {c for c in re.findall(r"^\|[^|]*\| `([a-z_]+)`", section7, re.M) if c != "check"}
     # the notices' paragraph, to its end, each code written `code`, then what it is for: the paragraph's first full
-    # stop fell inside a file's name, and every word in backticks counted as a code (the guides' audit G-21)
-    notice = re.search(r"reports \w+ notices[^\n]*", section7)
+    # stop fell inside a file's name, and every word in backticks counted as a code (the guides' audit G-21); its count
+    # may be hyphenated, which `\w+` missed, every notice then read as unstated ("twenty-one", 2026-10-16)
+    notice = re.search(r"reports [\w-]+ notices[^\n]*", section7)
     stated |= set(re.findall(r"`([a-z_]+)`, (?:for|once|against)", notice.group(0))) if notice else set()
     for c in sorted(reported - stated):
         findings.append(f"§7 does not state the finding code `{c}`, which the checker reports")

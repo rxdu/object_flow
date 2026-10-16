@@ -561,6 +561,7 @@ pub fn checked_reading(
         }
         for (p, code, message) in notices::notices(&v.doc)
             .into_iter()
+            .chain(notices::unwritten(&v.doc, &doc))
             .chain(notices::unknowns(&v.doc, &library))
             .chain(notices::befores(&v.doc))
             .chain(notices::vetoes(&v.doc, &library))

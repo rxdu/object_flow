@@ -817,3 +817,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A command read the gate's tail and committed in one chain, so a run ending `check-all: 2 failed` was committed (`c28866d`) before its verdict was read; the new check had refused a design document's module the gate holds.
 - **Correction:** Never chain `git commit` after reading a gate's output. Read the verdict first; commit in a separate step, only on `every gate passed`. Where a failing commit lands anyway, fix forward with a commit that says so, never rewrite it unasked.
 - **Context:** Every gated commit in this repository; found 2026-10-16.
+
+### A sentence a checker parses is found by its regex, not its text
+- **Pattern:** Adding a notice to `flow-format.md` §7 changed "reports twenty notices" to "twenty-one". A grep of the scripts for the sentence's words found nothing, but `check-flow-format-doc.py` locates the paragraph with `reports \w+ notices`, which a hyphenated count does not match, so the gate read every notice as unstated (2026-10-16).
+- **Correction:** Before rewording prose a gate holds, grep the checkers for its anchor words one at a time (`notices`, `reports`), not for the phrase, and run that checker alone before the full gate. Where the prose is correct English, widen the pattern rather than bending the prose to it.
+- **Context:** ObjectFlow's doc checkers (`scripts/check-*.py`), which parse counts, tables and code lists out of the design docs.

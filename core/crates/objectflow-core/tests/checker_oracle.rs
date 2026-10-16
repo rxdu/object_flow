@@ -38,6 +38,8 @@ const COVERED: &[&str] = &[
     // a version's transitions open to agents, and who may act named no
     // longer or widened against the previous version (ADR-0189)
     "agent_open",
+    // an optional attribute of an owned type nothing writes (D557)
+    "unwritten",
     "taken_by_dropped",
     // a version an agent may approve, and a reach no invariant bounds
     // (ADR-0190)

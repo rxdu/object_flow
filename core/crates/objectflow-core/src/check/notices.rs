@@ -12,8 +12,8 @@ use super::doc::{
 };
 use super::names::children;
 use super::optional::{Env, OptionalReads};
-use super::steps::kind;
-use super::view::types;
+use super::steps::{kind, walk};
+use super::view::{inherited, types};
 use crate::expr::{Expr, parse};
 
 /// An invariant that can only refuse other objects' changes, as
@@ -288,6 +288,85 @@ pub fn vetoes(doc: &Value, library: &Obj) -> Found {
                 "veto".into(),
                 format!(
                     "{tn}.{i} reads through {what}, and every state of {tn} is final, so no transition of its own can break it: it can only refuse a change to what it reads there. To hold a fact as it stood when the {tn} was made, copy it onto the {tn} then (write-a-flow.md, Patterns, ADR-0176)"
+                ),
+            ));
+        }
+    }
+    out
+}
+
+/// An optional attribute of an owned type that nothing writes, so it is
+/// always absent: no transition of the type, a subtype or its machine takes
+/// it as an input or sets it in an effect, and no migration backfills it;
+/// one with a default, a counter, an identifier, an external identifier or
+/// a relationship's end, which its far end writes, is written (D557,
+/// `check-flows.py`'s `unwritten`).
+pub fn unwritten(view: &Value, doc: &Value) -> Found {
+    let machines: BTreeSet<String> = keys(view, "machines").into_iter().collect();
+    let tps: Vec<(String, &Value)> = types(view);
+    let migration = doc.get("migration").cloned().unwrap_or(Value::Null);
+    let mut backfilled = BTreeSet::new();
+    for (tn, given) in obj(&migration, "backfill") {
+        if let Some(m) = given.as_object() {
+            for a in m.keys() {
+                backfilled.insert((tn.clone(), a.clone()));
+            }
+        }
+    }
+    let family = |tn: &str| -> BTreeSet<String> {
+        let mut out: BTreeSet<String> = BTreeSet::from([tn.to_string()]);
+        loop {
+            let more: Vec<String> = tps
+                .iter()
+                .filter(|(n, t)| !out.contains(n) && out.contains(&str_or(t, "extends", "")))
+                .map(|(n, _)| n.clone())
+                .collect();
+            if more.is_empty() {
+                return out;
+            }
+            out.extend(more);
+        }
+    };
+    let mut out = Found::new();
+    for (tn, t) in &tps {
+        if machines.contains(tn) || flag(t, "mirror") {
+            continue;
+        }
+        let mut written: BTreeSet<String> = BTreeSet::new();
+        for f in family(tn) {
+            let Some((_, ft)) = tps.iter().find(|(n, _)| *n == f) else {
+                continue;
+            };
+            for x in obj(ft, "transitions").values() {
+                written.extend(strings(x, "required_inputs"));
+                written.extend(strings(x, "optional_inputs"));
+                for step in walk(x.get("effect")) {
+                    if matches!(step.kind, "assign" | "add" | "remove") {
+                        written.insert(str_or(step.body(), "location", ""));
+                    }
+                }
+            }
+        }
+        for (a, spec) in obj(t, "attributes") {
+            if inherited(t, "attributes", a)
+                || !flag(spec, "optional")
+                || written.contains(a)
+                || backfilled.contains(&(tn.clone(), a.clone()))
+            {
+                continue;
+            }
+            if ["default", "identifier", "external", "opposite"]
+                .iter()
+                .any(|k| spec.get(*k).is_some())
+                || str_or(spec, "type", "") == "counter"
+            {
+                continue;
+            }
+            out.push(finding(
+                segs!["types", tn, "attributes", a],
+                "unwritten",
+                format!(
+                    "{tn}.{a} is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
                 ),
             ));
         }
