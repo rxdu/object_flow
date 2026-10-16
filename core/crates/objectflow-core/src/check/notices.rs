@@ -12,7 +12,7 @@ use super::doc::{
 };
 use super::names::children;
 use super::optional::{Env, OptionalReads};
-use super::steps::{kind, walk};
+use super::steps::{kind, step_kind, walk};
 use super::view::{inherited, types};
 use crate::expr::{Expr, parse};
 
@@ -531,6 +531,121 @@ fn said(why: &BTreeMap<String, String>) -> String {
         .map(|(k, w)| format!("{k} ({w})"))
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+/// Each assignment whose value can be absent through an optional read it
+/// never tests, which refuses its request `value_in_range` when it is
+/// (ADR-0201 decision 7, D655, `check-flows.py`'s `absents`): read as a
+/// guard is for `unknown`, an attribute every state the transition may be
+/// taken in requires being present, and a read a deny guard of the
+/// transition tests being decided before the effect runs; an unsupplied
+/// optional input assigned as it is, which the decision exempts, is not
+/// noticed.
+pub fn absents(v: &Value, library: &Obj) -> Found {
+    let mut out = Found::new();
+    for (tn, t) in types(v) {
+        let conds = obj(t, "conditions");
+        for (xn, x) in obj(t, "transitions") {
+            let mut guarded = BTreeSet::new();
+            for (g, mode) in obj(x, "guards") {
+                let Some(expr) = conds.get(g).and_then(|c| text(c, "expression")) else {
+                    continue;
+                };
+                if py_str(mode) != "deny" {
+                    continue;
+                }
+                let Ok(tree) = parse(expr) else { continue };
+                let mut r = OptionalReads::new(library, &tn, Some(x));
+                r.walk(&tree, &Env::new());
+                guarded.extend(r.tested);
+            }
+            assigned(
+                library,
+                &tn,
+                xn,
+                x,
+                list(x, "effect"),
+                segs!["types", &tn, "transitions", xn, "effect"],
+                &Env::new(),
+                &guarded,
+                &mut out,
+            );
+        }
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assigned(
+    library: &Obj,
+    tn: &str,
+    xn: &str,
+    x: &Value,
+    steps: &[Value],
+    at: Path,
+    env: &Env,
+    guarded: &BTreeSet<String>,
+    out: &mut Found,
+) {
+    for (i, st) in steps.iter().enumerate() {
+        match step_kind(st) {
+            Some("foreach") => {
+                let spec = st.get("foreach").cloned().unwrap_or(Value::Null);
+                let ty = spec
+                    .get("array")
+                    .and_then(|a| parse(&py_str(a)).ok())
+                    .and_then(|tree| OptionalReads::new(library, tn, Some(x)).walk(&tree, env));
+                let mut inner = env.clone();
+                inner.insert(
+                    str_or(&spec, "item", ""),
+                    ty.and_then(|t| t.strip_suffix("[]").map(str::to_string)),
+                );
+                assigned(
+                    library,
+                    tn,
+                    xn,
+                    x,
+                    list(&spec, "steps"),
+                    ext(&at, segs![i, "foreach", "steps"]),
+                    &inner,
+                    guarded,
+                    out,
+                );
+            }
+            Some("assign") => {
+                let body = st.get("assign").cloned().unwrap_or(Value::Null);
+                let Some(expr) = body.get("expr").filter(|e| !e.is_null()).map(py_str) else {
+                    continue;
+                };
+                let Ok(tree) = parse(&expr) else { continue };
+                let mut r = OptionalReads::new(library, tn, Some(x));
+                r.walk(&tree, env);
+                // an optional input assigned as it is leaves the attribute as
+                // it was, which the decision exempts, and inside a larger
+                // expression of a step it is already fatal
+                let why: BTreeMap<String, String> = r
+                    .reads
+                    .iter()
+                    .filter(|(k, _)| {
+                        !r.tested.contains(*k) && !guarded.contains(*k) && !k.starts_with("inputs.")
+                    })
+                    .map(|(k, w)| (k.clone(), w.clone()))
+                    .collect();
+                if !why.is_empty() {
+                    out.push(finding(
+                        ext(&at, segs![i, "assign"]),
+                        "absent",
+                        format!(
+                            "{xn} assigns {} a value that can be absent, through {}, which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range",
+                            str_or(&body, "location", "None"),
+                            said(&why)
+                        ),
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Each guard, and each filter of a loop or a metric, that can be unknown

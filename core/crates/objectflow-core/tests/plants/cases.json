@@ -6404,10 +6404,24 @@
    ],
    [
     "servicedesk.yaml",
+    812,
+    "notice",
+    "absent",
+    "receive assigns on_hand a value that can be absent, through on_hand (PartStock.on_hand is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ],
+   [
+    "servicedesk.yaml",
     819,
     "notice",
     "unknown",
     "enough_available can be unknown when reserve is requested, through on_hand (PartStock.on_hand is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ],
+   [
+    "servicedesk.yaml",
+    841,
+    "notice",
+    "absent",
+    "use assigns on_hand a value that can be absent, through on_hand (PartStock.on_hand is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
    ],
    [
     "servicedesk.yaml",
@@ -10261,6 +10275,13 @@
    ],
    [
     "service.yaml",
+    109,
+    "notice",
+    "absent",
+    "reassign assigns photo a value that can be absent, through photo (ServiceJob.photo is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ],
+   [
+    "service.yaml",
     125,
     "notice",
     "audit",
@@ -11131,6 +11152,204 @@
    [
     "by_machine.yaml",
     "79e993192f42eef9"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: summed",
+  "files": [
+   [
+    "summed.yaml",
+    "b8ab74d498631bcd"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "summed.yaml",
+    13,
+    "notice",
+    "absent",
+    "bump assigns other a value that can be absent, through count (T.count is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: copied",
+  "files": [
+   [
+    "copied.yaml",
+    "0f568f211bfaba0c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "copied.yaml",
+    13,
+    "notice",
+    "absent",
+    "bump assigns other a value that can be absent, through count (T.count is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: looped",
+  "files": [
+   [
+    "looped.yaml",
+    "3474a5936f57a07e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "looped.yaml",
+    14,
+    "notice",
+    "absent",
+    "bump assigns other a value that can be absent, through count (T.count is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ],
+   [
+    "looped.yaml",
+    14,
+    "notice",
+    "unbounded_reach",
+    "T.bump takes at most 10 of nums, and no invariant of T holds it to 10: past 10, it is refused over_limit, and an object holding more can never take it; declare one such as count(x in nums) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: warned",
+  "files": [
+   [
+    "warned.yaml",
+    "6f9875bfe047989a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "warned.yaml",
+    14,
+    "notice",
+    "absent",
+    "bump assigns other a value that can be absent, through count (T.count is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ],
+   [
+    "warned.yaml",
+    14,
+    "notice",
+    "warn",
+    "counted warns: a failure is reported with the result and refuses nothing"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    1,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: tested",
+  "files": [
+   [
+    "tested.yaml",
+    "c8ef3b6247ec158e"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: denied",
+  "files": [
+   [
+    "denied.yaml",
+    "8721c72b8beb38b1"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    1,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: required",
+  "files": [
+   [
+    "required.yaml",
+    "16d27d879f8ef9de"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: input",
+  "files": [
+   [
+    "input.yaml",
+    "2633a1d2f708ef1b"
    ]
   ],
   "previous": {},
@@ -21824,6 +22043,13 @@
     "fatal",
     "required",
     "Requisition.approve enters APPROVED without setting 'budget_year', which APPROVED requires: make it a required input, assign it a value that is provably present, or require it in state DRAFT"
+   ],
+   [
+    "plant.yaml",
+    29,
+    "notice",
+    "absent",
+    "approve assigns budget_year a value that can be absent, through backup_centre (Requisition.backup_centre is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -21867,6 +22093,13 @@
     "fatal",
     "required",
     "Requisition.approve enters APPROVED without setting 'budget_year', which APPROVED requires: make it a required input, assign it a value that is provably present, or require it in state DRAFT"
+   ],
+   [
+    "plant.yaml",
+    29,
+    "notice",
+    "absent",
+    "approve assigns budget_year a value that can be absent, through cost_centre.note (CostCentre.note is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -28259,6 +28492,13 @@
    ],
    [
     "crm.yaml",
+    22,
+    "notice",
+    "absent",
+    "leave assigns label a value that can be absent, through name (Customer.name is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ],
+   [
+    "crm.yaml",
     29,
     "notice",
     "unwritten",
@@ -28710,6 +28950,13 @@
     "fatal",
     "names",
     "Visit.close writes the personal Customer.name to 'summary', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "crm.yaml",
+    45,
+    "notice",
+    "absent",
+    "close assigns summary a value that can be absent, through customer.name (Customer.name is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -28791,6 +29038,13 @@
     "fatal",
     "names",
     "Visit.close writes the personal value in the derived Customer.called to 'summary', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "crm.yaml",
+    45,
+    "notice",
+    "absent",
+    "close assigns summary a value that can be absent, through customer.called (Customer.called can be unknown through name), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -29455,6 +29709,13 @@
     "notice",
     "unwritten",
     "Visit.summary is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "crm.yaml",
+    45,
+    "notice",
+    "absent",
+    "close assigns contact a value that can be absent, through customer.name (Customer.name is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {
@@ -32815,6 +33076,13 @@
     "fatal",
     "names",
     "Member.swap writes login, the identity Member's actors are named by, which is written only at their creation (the model's check 17)"
+   ],
+   [
+    "crew.yaml",
+    16,
+    "notice",
+    "absent",
+    "swap assigns login a value that can be absent, through alias (Member.alias is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -37183,6 +37451,13 @@
     "fatal",
     "names",
     "Account.shut writes tags, a set of string, to label, which holds a string: a write's value must fit its target (the model's check 17)"
+   ],
+   [
+    "ledger.yaml",
+    28,
+    "notice",
+    "absent",
+    "shut assigns label a value that can be absent, through tags (Account.tags is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},

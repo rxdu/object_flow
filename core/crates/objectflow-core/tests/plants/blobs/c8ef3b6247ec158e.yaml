@@ -1,0 +1,14 @@
+module: m
+categories: [live]
+types:
+  T:
+    description: A counter.
+    tracking: record
+    attributes:
+      count: { type: int, optional: true }
+      other: { type: int, optional: true }
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
+    transitions:
+      t: { kind: initial, to: S, optional_inputs: [count, other] }
+      bump: { kind: internal, from: S, inputs: { by: { type: int, optional: true } }, effect: [ { assign: { location: other, expr: 'if count is not null then count + 1 else 0' } } ] }
+      e: { kind: external, from: S, to: E }

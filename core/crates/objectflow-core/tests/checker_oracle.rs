@@ -40,6 +40,8 @@ const COVERED: &[&str] = &[
     "agent_open",
     // an optional attribute of an owned type nothing writes (D557)
     "unwritten",
+    // an assignment whose value can be absent (ADR-0201 decision 7)
+    "absent",
     "taken_by_dropped",
     // a version an agent may approve, and a reach no invariant bounds
     // (ADR-0190)

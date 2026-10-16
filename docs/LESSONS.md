@@ -822,3 +822,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Adding a notice to `flow-format.md` §7 changed "reports twenty notices" to "twenty-one". A grep of the scripts for the sentence's words found nothing, but `check-flow-format-doc.py` locates the paragraph with `reports \w+ notices`, which a hyphenated count does not match, so the gate read every notice as unstated (2026-10-16).
 - **Correction:** Before rewording prose a gate holds, grep the checkers for its anchor words one at a time (`notices`, `reports`), not for the phrase, and run that checker alone before the full gate. Where the prose is correct English, widen the pattern rather than bending the prose to it.
 - **Context:** ObjectFlow's doc checkers (`scripts/check-*.py`), which parse counts, tables and code lists out of the design docs.
+
+### A scan of "the corpus" covers every place the gate assembles modules
+- **Pattern:** Before adding the `absent` notice, a scan of the examples and of `check-flow-docs.py`'s modules found one hit and was reported as the corpus's only case. `check-scenarios.py` assembles `metric-scenarios.md`'s versions on its own, and its version 15 held a second, live case, which only the full gate's replay found (2026-10-16).
+- **Correction:** A scan for a new check's hits runs over the examples, the design documents' modules and the scenarios' assembled versions, or says which it covered; a count of hits is stated as a count over those sources, never as "the corpus's".
+- **Context:** ObjectFlow's checkers; the module sources are `docs/design/flow-format/examples/`, `check-flow-docs.py` and `check-scenarios.py`.
