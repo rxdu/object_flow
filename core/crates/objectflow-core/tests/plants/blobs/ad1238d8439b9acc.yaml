@@ -7,8 +7,9 @@ types:
     attributes:
       count: { type: int, optional: true }
       other: { type: int, optional: true }
-    states: { S: { category: live, description: Open., required_attributes: [count] }, E: { category: live, final: true, description: Done. } }
+      total: { type: int, default: 0 }
+    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
     transitions:
-      t: { kind: initial, to: S, required_inputs: [count], optional_inputs: [other] }
+      t: { kind: initial, to: S, optional_inputs: [count, other] }
       bump: { kind: internal, from: S, inputs: { by: { type: int, optional: true } }, effect: [ { assign: { location: other, expr: 'count + 1' } } ] }
       e: { kind: external, from: S, to: E }

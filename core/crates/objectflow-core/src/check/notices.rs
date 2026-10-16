@@ -535,7 +535,9 @@ fn said(why: &BTreeMap<String, String>) -> String {
 
 /// Each assignment whose value can be absent through an optional read it
 /// never tests, which refuses its request `value_in_range` when it is
-/// (ADR-0201 decision 7, D655, `check-flows.py`'s `absents`): read as a
+/// (ADR-0201 decision 7, D655, `check-flows.py`'s `absents`), other than a
+/// plain read, a name or a path, assigned to an optional attribute, which
+/// clears it (ADR-0209 decision 5): read as a
 /// guard is for `unknown`, an attribute every state the transition may be
 /// taken in requires being present, and a read a deny guard of the
 /// transition tests being decided before the effect runs; an unsupplied
@@ -618,6 +620,18 @@ fn assigned(
                     continue;
                 };
                 let Ok(tree) = parse(&expr) else { continue };
+                // a plain read of an absent value clears an optional
+                // attribute (ADR-0209 decision 5)
+                let target = library.get(tn).and_then(|t| {
+                    obj(t, "attributes")
+                        .get(&str_or(&body, "location", ""))
+                        .cloned()
+                });
+                if matches!(&tree, Expr::Name(_) | Expr::Path(..))
+                    && target.is_some_and(|a| flag(&a, "optional"))
+                {
+                    continue;
+                }
                 let mut r = OptionalReads::new(library, tn, Some(x));
                 r.walk(&tree, env);
                 // an optional input assigned as it is leaves the attribute as

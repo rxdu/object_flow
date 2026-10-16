@@ -2460,7 +2460,6 @@ Read: `notices of version 15`
 
 | module | code | notice |
 |---|---|---|
-| inventory_journey | absent | inventorize assigns procured_for a value that can be absent, through peg (UnitLifecycle.peg is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range |
 | inventory_journey | agent_open | an agent may take on the wire the transitions here that name no taken_by: Delivery (11), Engagement (8), Lease (3), PdiCheck (2), Robot (16), RobotModel (7), ServiceJob (10), Shipment (12), Warranty (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189) |
 | inventory_journey | audit | all_passed is audited: its failures are recorded and it refuses nothing |
 | inventory_journey | metric | delivery_cycle_time's filter counts transitions out of Delivery.PREPARATION, and this version changes which transitions those are, so what the metric counts changes from this version on |

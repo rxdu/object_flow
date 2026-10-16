@@ -7,9 +7,10 @@ types:
     attributes:
       count: { type: int, optional: true }
       other: { type: int, optional: true }
+      total: { type: int, default: 0 }
     states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
     conditions: { counted: { description: Counted., expression: count is not null, remedy: unreachable_from_here } }
     transitions:
       t: { kind: initial, to: S, optional_inputs: [count, other] }
-      bump: { kind: internal, from: S, inputs: { by: { type: int, optional: true } }, guards: { counted: deny }, effect: [ { assign: { location: other, expr: 'count + 1' } } ] }
+      bump: { kind: internal, from: S, inputs: { by: { type: int, optional: true } }, guards: { counted: warn }, effect: [ { assign: { location: other, expr: 'count + 1' } } ] }
       e: { kind: external, from: S, to: E }

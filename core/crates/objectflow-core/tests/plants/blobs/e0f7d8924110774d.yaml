@@ -8,6 +8,7 @@ types:
       count: { type: int, optional: true }
       other: { type: int, optional: true }
       nums: { type: "int[]" }
+      total: { type: int, default: 0 }
     states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }
     transitions:
       t: { kind: initial, to: S, optional_inputs: [count, other] }

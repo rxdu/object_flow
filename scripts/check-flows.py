@@ -4700,7 +4700,8 @@ def befores(v):
 
 def absents(v, library):
     """Each assignment whose value can be absent through an optional read it never tests, which refuses its request
-    `value_in_range` when it is (ADR-0201 decision 7, D655): read as a guard is for `unknown`, an attribute every
+    `value_in_range` when it is (ADR-0201 decision 7, D655), other than a plain read, a name or a path, assigned to an
+    optional attribute, which clears it (ADR-0209 decision 5): read as a guard is for `unknown`, an attribute every
     state the transition may be taken in requires being present, and a read a deny guard of the transition tests
     being decided before the effect runs; an unsupplied optional input assigned as it is, which the decision exempts,
     is not noticed."""
@@ -4727,8 +4728,12 @@ def absents(v, library):
                         continue
                     if kind != "assign" or (st["assign"] or {}).get("expr") is None:
                         continue
+                    tree = flowexpr.parse(str(st["assign"]["expr"]))
+                    target = (((library.get(tn) or {}).get("attributes") or {}).get(st["assign"].get("location"))) or {}
+                    if tree[0] in ("name", "path") and target.get("optional"):
+                        continue                    # a plain read of an absent value clears it (ADR-0209 decision 5)
                     r = OptionalReads(library, tn, x)
-                    r.walk(flowexpr.parse(str(st["assign"]["expr"])), env)
+                    r.walk(tree, env)
                     # an optional input assigned as it is leaves the attribute as it was, which the decision exempts,
                     # and inside a larger expression of a step it is already fatal
                     why = {k: w for k, w in r.reads.items()
@@ -6300,11 +6305,13 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     ok &= hit
     print(f"  planted an optional attribute nothing writes: "
           f"{'noticed, and neither one an input nor one a machine writes' if hit else 'MISSED ' + str(unwritten_seen)}")
-    # an assignment whose value can be absent is noticed, a copy as arithmetic is, and under a warn guard, which refuses
-    # nothing; tested in the expression or by a deny guard, required by the state it is taken in, or an optional input
-    # assigned as it is, it is not (ADR-0201 decision 7)
+    # an assignment whose value can be absent is noticed, a copy into a required attribute as arithmetic is, and under a
+    # warn guard, which refuses nothing; tested in the expression or by a deny guard, required by the state it is taken
+    # in, an optional input assigned as it is, or a plain read moved into an optional attribute, which clears it, it is
+    # not (ADR-0201 decision 7, ADR-0209 decision 5)
     counter = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A counter.\n    tracking: record\n"
                "    attributes:\n      count: { type: int, optional: true }\n      other: { type: int, optional: true }\n"
+               "      total: { type: int, default: 0 }\n"
                "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
                "    transitions:\n      t: { kind: initial, to: S, optional_inputs: [count, other] }\n"
                "      bump: { kind: internal, from: S, inputs: { by: { type: int, optional: true } }, "
@@ -6318,7 +6325,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     counted = "    conditions: { counted: { description: Counted., expression: count is not null, remedy: unreachable_from_here } }\n"
     absent_cases = (
         ("summed", counter, 1),
-        ("copied", counter.replace("'count + 1'", "'count'"), 1),
+        ("copied", counter.replace("location: other, expr: 'count + 1'", "location: total, expr: 'count'"), 1),
+        ("moved", counter.replace("'count + 1'", "'count'"), 0),
         ("looped", looped, 1),
         ("warned", counter.replace("    transitions:", counted + "    transitions:")
                           .replace("effect: [", "guards: { counted: warn }, effect: ["), 1),
@@ -6336,7 +6344,7 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     hit = all(len(absent_seen[name]) == want and not absent_checked[name][0] for name, _, want in absent_cases)
     ok &= hit
     print(f"  planted an assignment whose value can be absent: "
-          f"{'noticed, summed, copied and under a warn guard, and not where it is tested, denied, required or an input' if hit else 'MISSED ' + str({n: len(v) for n, v in absent_seen.items()})}")
+          f"{'noticed, summed, copied to a required attribute and under a warn guard, and not where it is tested, denied, required, an input or moved' if hit else 'MISSED ' + str({n: len(v) for n, v in absent_seen.items()})}")
     # where the version declares an agent kind of actor, a module's transitions that name no taken_by are noticed, once
     # for the module, whichever module checked declares the kind; a version declaring none is not (ADR-0189 decision 1)
     tasks = ("module: tasks\ncategories: [live]\ntypes:\n  Task:\n    description: A task.\n    tracking: record\n"

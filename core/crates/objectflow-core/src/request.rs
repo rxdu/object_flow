@@ -4397,6 +4397,23 @@ fn effects(
                         id,
                     );
                 }
+                // a plain read of an absent value, a name or a path, clears
+                // an optional attribute as `clear` does, so an optional
+                // value can be moved where there may be none (ADR-0209
+                // decision 5)
+                if v.is_absent()
+                    && matches!(expr, Expr::Name(_) | Expr::Path(..))
+                    && t.attribute(location).is_some_and(|a| a.optional)
+                {
+                    if let Some(o) = ctx.work.get_mut(id)? {
+                        o.attrs.remove(location);
+                    }
+                    ctx.wrote
+                        .entry(id.to_string())
+                        .or_default()
+                        .insert(location.clone());
+                    continue;
+                }
                 // an assignment's arithmetic on an absent operand has no
                 // value, which refuses the request as one past its bound
                 // does, where it answered not run (fourteenth production
@@ -10746,6 +10763,44 @@ types:
             "{v:?}"
         );
         created(&req(&mut s, "jot", OPERATOR, (&id, false), json!({})));
+    }
+
+    /// A plain read of an absent value, a name or a path, clears an
+    /// optional attribute as `clear` does, so an optional value can be moved
+    /// where there may be none; one present moves, and an absent value
+    /// copied to a required attribute still refuses (ADR-0209 decision 5).
+    #[test]
+    fn a_plain_read_of_an_absent_value_clears_an_optional_attribute() {
+        let text = "\nmodule: c\ncategories: [live]\ntypes:\n  Unit:\n    attributes:\n      peg: { type: string, optional: true }\n      held: { type: string, optional: true }\n      count: { type: int, optional: true }\n      total: { type: int, default: 0 }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, optional_inputs: [peg, held] }\n      move:\n        kind: internal\n        from: [ON]\n        effect:\n          - assign: { location: held, expr: peg }\n      tally:\n        kind: internal\n        from: [ON]\n        effect:\n          - assign: { location: total, expr: count }\n";
+        let lib = Library::load(&[("c.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let held = |s: &Store, id: &str| {
+            let w = s.snapshot().unwrap();
+            w.whole(id).unwrap().unwrap().attr("held")
+        };
+        let bare = created(&req(
+            &mut s,
+            "make",
+            OPERATOR,
+            ("Unit", true),
+            json!({"held": "x"}),
+        ));
+        created(&req(&mut s, "move", OPERATOR, (&bare, false), json!({})));
+        assert_eq!(held(&s, &bare), Value::Absent);
+        let pegged = created(&req(
+            &mut s,
+            "make",
+            OPERATOR,
+            ("Unit", true),
+            json!({"peg": "p"}),
+        ));
+        created(&req(&mut s, "move", OPERATOR, (&pegged, false), json!({})));
+        assert_eq!(held(&s, &pegged), Value::Text("p".into()));
+        let v = req(&mut s, "tally", OPERATOR, (&bare, false), json!({}));
+        assert!(
+            matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "value_in_range"),
+            "{v:?}"
+        );
     }
 
     /// A date moved by part of a day has no value, so an assignment of it

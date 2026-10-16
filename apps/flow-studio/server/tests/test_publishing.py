@@ -2762,6 +2762,57 @@ def test_an_assignment_of_an_absent_sum_is_refused_alike(tee):
     alike(tee)
 
 
+MOVER = """module: mover
+categories: [live, closed]
+types:
+  Unit:
+    description: A unit that may be pegged.
+    tracking: record
+    attributes:
+      peg: { type: string, optional: true }
+      held: { type: string, optional: true }
+      count: { type: int, optional: true }
+      total: { type: int, default: 0 }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      make: { kind: initial, to: ON, optional_inputs: [peg, held] }
+      move:
+        kind: internal
+        from: [ON]
+        effect:
+          - assign: { location: held, expr: peg }
+      tally:
+        kind: internal
+        from: [ON]
+        effect:
+          - assign: { location: total, expr: count }
+      stop: { kind: external, from: [ON], to: OFF }
+"""
+
+
+def test_a_plain_read_of_an_absent_value_clears_alike(tee):
+    """A plain read of an absent value clears an optional attribute, as `clear` does, where it refused the request
+    value_in_range; one present moves, and an absent value copied to a required attribute still refuses, alike through
+    both backends (ADR-0209 decision 5)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "mover.yaml", "text": MOVER}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    bare = tee.post("/v1/request", {"transition": "make", "actor": OP, "type": "Unit",
+                                    "inputs": {"held": "x"}})["object_id"]
+    v = tee.post("/v1/request", {"transition": "move", "actor": OP, "object_id": bare})
+    assert v["kind"] == "satisfied", v
+    assert tee.post("/v1/get", {"id": bare})["attributes"]["held"] is None
+    pegged = tee.post("/v1/request", {"transition": "make", "actor": OP, "type": "Unit",
+                                      "inputs": {"peg": "p"}})["object_id"]
+    tee.post("/v1/request", {"transition": "move", "actor": OP, "object_id": pegged})
+    assert tee.post("/v1/get", {"id": pegged})["attributes"]["held"] == "p"
+    v = tee.post("/v1/request", {"transition": "tally", "actor": OP, "object_id": bare})
+    assert (v["kind"], v.get("clause")) == ("unsatisfied", "value_in_range"), v
+    alike(tee)
+
+
 DUE = """module: due
 categories: [live, closed]
 types:

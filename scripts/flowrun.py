@@ -2804,6 +2804,12 @@ class Runner:
                 if unsupplied(tree):
                     continue
                 v = ev(tree, written=str((attrs.get(spec["location"]) or {}).get("type") or "").startswith("decimal("))
+                if v is ABSENT and tree[0] in ("name", "path") and (attrs.get(spec["location"]) or {}).get("optional"):
+                    # a plain read of an absent value, a name or a path, clears an optional attribute as `clear` does,
+                    # so an optional value can be moved where there may be none (ADR-0209 decision 5)
+                    o.attrs.pop(spec["location"], None)
+                    ctx.attr_writes.setdefault(o.id, set()).add(spec["location"])
+                    continue
                 if v is ABSENT:
                     # arithmetic on an absent operand has no value, which refuses the request as one past its bound
                     # does, where it answered not run (fourteenth production review N5)

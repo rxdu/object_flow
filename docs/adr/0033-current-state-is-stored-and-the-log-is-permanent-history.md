@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 4 (2026-09-08); accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0083 — intervals are an index the log rebuilds, and refusals go to an attempt log that is not history. ADR-0088 — every event records the read set of the rules evaluated for it.
+- **Refined by:** ADR-0083 — intervals are an index the log rebuilds, and refusals go to an attempt log that is not history. ADR-0088 — every event records the read set of the rules evaluated for it. ADR-0209 — every event records what it wrote, so a fold of the log reproduces a row (D692).
 
 ## Context
 
