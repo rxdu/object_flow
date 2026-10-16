@@ -11009,6 +11009,50 @@
   "could_violate": {}
  },
  {
+  "label": "cut_of",
+  "files": [
+   [
+    "cut.yaml",
+    "693fd7118e572136"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cut.yaml",
+    7,
+    "fatal",
+    "schema",
+    "'for HR's approval.' is not a key but the rest of a value cut at a comma: inside { … }, a value containing a comma is quoted, as in { description: \"One, two.\" } (§2 rule 4)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "cut_of",
+  "files": [
+   [
+    "cut.yaml",
+    "33a9d30cc23e9f3b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cut.yaml",
+    7,
+    "fatal",
+    "schema",
+    "'three.' is not a key but the rest of a value cut at a comma: inside { … }, a value containing a comma is quoted, as in { description: \"One, two.\" } (§2 rule 4)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "self_test: two modules declaring their version's approvers differently",
   "files": [
    [

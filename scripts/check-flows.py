@@ -554,11 +554,17 @@ def schema_errors(doc):
 def cut_value(message):
     """A key that could not be a name, having a space or punctuation in it, is
     the rest of a value an inline mapping cut at a comma, which the author meant
-    as one (§2 rule 4)."""
-    m = re.match(r"Additional properties are not allowed \('([^']*)' was unexpected\)", message)
-    if not m or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", m.group(1)):
+    as one (§2 rule 4): the first such of the keys the message names, each as
+    Python writes it, in double quotes where it holds an apostrophe, the
+    hiring review's variant (P3-4)."""
+    m = re.match(r"Additional properties are not allowed \((.*) (?:was|were) unexpected\)$", message)
+    if not m:
         return message
-    return (f"'{m.group(1)}' is not a key but the rest of a value cut at a comma: inside {{ … }}, "
+    keys = [a or b for a, b in re.findall(r"'([^']*)'|\"([^\"]*)\"", m.group(1))]
+    cut = [k for k in keys if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k)]
+    if not cut:
+        return message
+    return (f"'{cut[0]}' is not a key but the rest of a value cut at a comma: inside {{ … }}, "
             "a value containing a comma is quoted, as in { description: \"One, two.\" } (§2 rule 4)")
 
 
@@ -6257,8 +6263,20 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                                           "    states: { S: { category: live, description: One, two. }, E: { category: live, final: true } }\n"
                                           "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n")])[0]]
     hit = bool(cut) and "§2 rule 4" in cut[0][4] and "'two.'" in cut[0][4]
+    # and the variants the hiring review met (P3-4): a cut value holding an apostrophe, which the schema's message
+    # writes in double quotes, and two cuts in one mapping, which it names together
+    def cut_of(description):
+        text = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A type with one state.\n    tracking: record\n"
+                f"    states: {{ S: {{ category: live, description: {description} }}, E: {{ category: live, final: true }} }}\n"
+                "    transitions: { t: { kind: initial, to: S }, e: { kind: external, from: S, to: E } }\n")
+        return [x[4] for x in check([("cut.yaml", text)])[0]]
+    apostrophe = cut_of("Waits, for HR's approval.")
+    plural = cut_of("One, two, three.")
+    hit = (hit and len(apostrophe) == 1 and "§2 rule 4" in apostrophe[0] and "for HR's approval." in apostrophe[0]
+           and len(plural) == 1 and "§2 rule 4" in plural[0] and "'three.'" in plural[0])
     ok &= hit
-    print(f"  planted a comma in an unquoted inline value: {'named as a cut value' if hit else 'MISSED ' + str(cut[:1])}")
+    print(f"  planted a comma in an unquoted inline value: "
+          f"{'named as a cut value, one holding an apostrophe and two cut at once among them' if hit else 'MISSED ' + str((cut[:1], apostrophe, plural))}")
     bare = [x for x in check([("bare.yaml", "module: m\ncategories: [live]\ntypes:\n  T:\n    description: A type with two states.\n    tracking: record\n"
                                             "    states: { S: { category: live, description: Open. }, E: { category: live, final: true, description: Done. } }\n"
                                             "    conditions: { ready: { description: Ready., expression: 'true', remedy: self_serviceable } }\n"

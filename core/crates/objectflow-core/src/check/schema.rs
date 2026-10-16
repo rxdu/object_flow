@@ -214,7 +214,7 @@ impl Schema {
                         }
                         Value::Bool(false) if !extras.is_empty() => {
                             let names: Vec<String> =
-                                extras.iter().map(|e| format!("'{e}'")).collect();
+                                extras.iter().map(|e| py_str_repr(e)).collect();
                             let verb = if extras.len() == 1 { "was" } else { "were" };
                             out.push(error(
                                 "additionalProperties",
@@ -764,24 +764,49 @@ fn expand<'s>(schema: &'s Schema, set: &[&'s Value]) -> Vec<&'s Value> {
     out
 }
 
+/// A string as Python's `repr` writes it: in single quotes, or in double
+/// quotes where it holds an apostrophe and no double quote, as jsonschema
+/// names an unexpected key.
+fn py_str_repr(s: &str) -> String {
+    if s.contains('\'') && !s.contains('"') {
+        format!("\"{s}\"")
+    } else {
+        format!("'{}'", s.replace('\'', "\\'"))
+    }
+}
+
 /// A key that could not be a name, having a space or punctuation in it, is
 /// the rest of a value an inline mapping cut at a comma (`flow-format.md` §2
-/// rule 4).
+/// rule 4): the first such of the keys the message names, each as Python
+/// writes it, in double quotes where it holds an apostrophe, the hiring
+/// review's variant (P3-4).
 pub fn cut_value(message: &str) -> String {
-    let Some(rest) = message.strip_prefix("Additional properties are not allowed ('") else {
+    let Some(rest) = message.strip_prefix("Additional properties are not allowed (") else {
         return message.to_string();
     };
-    let Some(key) = rest.strip_suffix("' was unexpected)") else {
+    let Some(inner) = rest
+        .strip_suffix(" was unexpected)")
+        .or_else(|| rest.strip_suffix(" were unexpected)"))
+    else {
         return message.to_string();
     };
-    let name = key
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-    if name || key.contains('\'') {
-        return message.to_string();
+    // each key in the quotes it was written in
+    let mut keys = Vec::new();
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c == '\'' || c == '"' {
+            keys.push(chars.by_ref().take_while(|d| *d != c).collect::<String>());
+        }
     }
+    let name = |key: &str| {
+        key.chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    let Some(key) = keys.iter().find(|k| !name(k)) else {
+        return message.to_string();
+    };
     format!(
         "'{key}' is not a key but the rest of a value cut at a comma: inside {{ … }}, \
          a value containing a comma is quoted, as in {{ description: \"One, two.\" }} (§2 rule 4)"
