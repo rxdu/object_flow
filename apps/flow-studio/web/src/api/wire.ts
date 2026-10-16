@@ -75,6 +75,8 @@ export type Verdict = Reported &
       }
     | { kind: "unavailable"; state: string | null; remedy: Remedy }
     | { kind: "unknown_transition"; transition: string; remedy: Remedy }
+    // a request naming no type of the installed version (ADR-0210 decision 6)
+    | { kind: "unknown_type"; type: string; remedy: Remedy }
     | {
         kind: "invalid_input";
         inputs: string[];

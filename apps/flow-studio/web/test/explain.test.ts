@@ -91,6 +91,10 @@ describe("the sentence under a verdict", () => {
         "reopen is not a transition this request can take: supply or correct an input and try again.",
       ],
       [
+        { kind: "unknown_type", type: "Invoice", remedy: "self_serviceable" },
+        "Invoice is not a type of the installed flow: supply or correct an input and try again.",
+      ],
+      [
         {
           kind: "invalid_input",
           inputs: ["engineer", "site"],

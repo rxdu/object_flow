@@ -935,6 +935,19 @@ fn decide_or_stop(
         },
     };
     let Some(t) = lib.type_(&tn) else {
+        // a creation naming no type of the installed version, as the reads
+        // answer it: only the operator's publish helps where none is
+        // installed (ADR-0210 decision 6)
+        if oid.is_none() {
+            return refused(Verdict::UnknownType {
+                type_: tn.clone(),
+                remedy: Some(if lib.version == 0 {
+                    Remedy::UnreachableFromHere
+                } else {
+                    Remedy::SelfServiceable
+                }),
+            });
+        }
         return refused(Verdict::UnknownTransition {
             transition: req.transition.clone(),
         });

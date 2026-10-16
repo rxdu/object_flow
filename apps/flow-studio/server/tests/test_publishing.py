@@ -1643,6 +1643,17 @@ def test_a_proposal_of_what_is_not_proposable_is_refused_alike(tee):
     alike(tee)
 
 
+def test_a_request_naming_no_type_is_answered_unknown_type_alike(tee):
+    """A request naming no type of the installed version is answered unknown_type, as the reads are, its remedy to
+    correct the request where a version is installed, through both backends alike, where it was answered
+    unknown_transition (E3, ADR-0210 decision 6)."""
+    loaded(tee, "service.yaml")
+    tee.found.clear()
+    v = tee.post("/v1/request", {"transition": "open", "actor": OP, "type": "Invoice"})
+    assert (v["kind"], v.get("type"), v["remedy"]) == ("unknown_type", "Invoice", "self_serviceable"), v
+    alike(tee)
+
+
 def test_an_invalid_input_says_why_alike(tee):
     """A refused input says why, each from a closed set, through both
     backends alike (ADR-0173 decision 9): another JSON kind, a value not in

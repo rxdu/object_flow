@@ -49,6 +49,7 @@ Every refusal carries a `remedy`: what the caller can do about it.
 | `invalid_input` | An input is wrong before any rule runs. | `inputs` (the names at fault), `reasons` (each one's reason, below) |
 | `unavailable` | The object's state does not allow this transition. | `state` |
 | `unknown_transition` | The type has no transition of that name. | `transition` |
+| `unknown_type` | The installed version has no type of that name, the request's creation naming it; its remedy is `unreachable_from_here` where no version is installed, since only the operator's publish helps, and `self_serviceable` otherwise (ADR-0210 decision 6). | `type` |
 | `not_requestable` | The transition runs only as part of another, or through its own operation, as a change's `publish` runs through `publish`. | `parents` (the transitions or operation that run it) |
 | `not_proposable` | A proposal (`"propose": true`) of a transition not marked `proposable`, or of a change's or a proposal's own transitions. | none |
 | `stale` | The object moved on, or the store stayed locked. | `cause`: `expected_version` with `expected` and `actual` (re-read, then decide again; an approval's `target_version` is refused the same way), or `retries_exhausted` (remedy `temporal`: another process held the store's write lock too long) |

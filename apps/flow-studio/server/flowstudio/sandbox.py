@@ -1166,6 +1166,10 @@ class Sandbox:
                             if oid in self.store.objects else None)
         elif v == "unknown_transition":
             out["transition"] = xn
+        elif v == "unknown_type":
+            # the type the request named, as the reads answer it
+            # (ADR-0210 decision 6)
+            out["type"] = tn
         elif v == "invalid_input" and r.inputs is not None:
             out["inputs"] = list(r.inputs)
             # why each is at fault (ADR-0173 decision 9)

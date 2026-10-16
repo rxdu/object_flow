@@ -2181,6 +2181,10 @@ class Runner:
         # the store with no operator (ADR-0126, ADR-0184 decision 1)
         if tn == "Operator" and (xn, oid is None) in (("install", True), ("retire", False)):
             raise Refused("not_requestable", remedy="unreachable_from_here")
+        # a creation naming no type of the installed version, as the reads answer it: only the operator's publish helps
+        # where none is installed (ADR-0210 decision 6)
+        if oid is None and tn not in self.kinds:
+            raise Refused("unknown_type", remedy="unreachable_from_here" if work.version == 0 else "self_serviceable")
         if x is None or (x["kind"] == "initial") != (oid is None) or (oid is not None and work.type_of(oid) != tn):
             raise Refused("unknown_transition", remedy="self_serviceable")
         if x.get("only_via"):

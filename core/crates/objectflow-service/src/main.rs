@@ -2122,6 +2122,7 @@ fn verdict_told(v: &Verdict, told: Option<&Told>) -> J {
         Verdict::RetriesExhausted => json!({ "cause": "retries_exhausted" }),
         Verdict::Unavailable { state } => json!({ "state": state }),
         Verdict::UnknownTransition { transition } => json!({ "transition": transition }),
+        Verdict::UnknownType { type_, .. } => json!({ "type": type_ }),
         Verdict::InvalidInput { inputs, reasons } => json!({
             "inputs": inputs,
             // why each input is at fault (ADR-0173 decision 9)

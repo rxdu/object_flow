@@ -122,6 +122,13 @@ pub enum Verdict {
     UnknownTransition {
         transition: String,
     },
+    /// A request naming no type of the installed version, as the reads
+    /// answer it: unreachable from here where no version is installed, since
+    /// only the operator's publish helps (ADR-0210 decision 6).
+    UnknownType {
+        type_: String,
+        remedy: Option<Remedy>,
+    },
     /// Each input at fault, and why, `reasons[i]` being `inputs[i]`'s;
     /// built by `Verdict::invalid_input`, which keeps them in step.
     InvalidInput {
@@ -167,6 +174,7 @@ impl Verdict {
             Verdict::NotFound => "not_found",
             Verdict::Unavailable { .. } => "unavailable",
             Verdict::UnknownTransition { .. } => "unknown_transition",
+            Verdict::UnknownType { .. } => "unknown_type",
             Verdict::InvalidInput { .. } => "invalid_input",
             Verdict::NotRequestable { .. } => "not_requestable",
             Verdict::NotProposable => "not_proposable",
@@ -201,9 +209,9 @@ impl Verdict {
     pub fn remedy(&self) -> Option<Remedy> {
         match self {
             Verdict::Satisfied { .. } => None,
-            Verdict::Unsatisfied { remedy, .. } | Verdict::InvariantViolated { remedy, .. } => {
-                *remedy
-            }
+            Verdict::Unsatisfied { remedy, .. }
+            | Verdict::InvariantViolated { remedy, .. }
+            | Verdict::UnknownType { remedy, .. } => *remedy,
             Verdict::CallRefused { verdict, .. } => verdict.remedy(),
             Verdict::NotFound
             | Verdict::Unavailable { .. }

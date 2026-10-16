@@ -102,6 +102,8 @@ export function explain(v: Verdict): string {
         : "Not available now; it is taken from another state.";
     case "unknown_transition":
       return `${v.transition} is not a transition this request can take${next(v.remedy)}`;
+    case "unknown_type":
+      return `${v.type} is not a type of the installed flow${next(v.remedy)}`;
     // a backend that does not work out which input or parent names none,
     // and says so in `not_computed` (wire.ts); the sentence then names none
     case "invalid_input":

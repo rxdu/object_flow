@@ -6345,3 +6345,29 @@ fn indexes_are_rebuilt_after_an_erasure() {
     let got = post(&s, "/v1/get", &json!({"actor": op, "id": id}));
     assert_eq!(got["state"], json!("EMPLOYED"), "{got}");
 }
+
+/// A request naming no type of the installed version is answered
+/// `unknown_type`, as the reads are, unreachable from here where no version
+/// is installed, since only the operator's publish helps; it was answered
+/// `unknown_transition`, naming only the transition (E3, ADR-0210 decision
+/// 6).
+#[test]
+fn a_request_naming_no_type_is_answered_unknown_type() {
+    let file = fresh_store("unknown-type");
+    let path = file.to_str().expect("a path");
+    let s = start(&["--store", path, "--create", "--port", "0"]);
+    let v = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": {"id": "operator"}, "type": "Claim", "transition": "draft"}),
+    );
+    assert_eq!(
+        (v["kind"].as_str(), v["type"].as_str(), v["remedy"].as_str()),
+        (
+            Some("unknown_type"),
+            Some("Claim"),
+            Some("unreachable_from_here")
+        ),
+        "{v}"
+    );
+}
