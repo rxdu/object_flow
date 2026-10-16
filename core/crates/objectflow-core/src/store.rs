@@ -4272,13 +4272,13 @@ pub(crate) fn library_of(conn: &Connection, version: i64) -> Stored<Option<Libra
 }
 
 impl Store {
-    /// An object's events, in its order.
     /// An object's legacy entries, by ordinal, which `history` returns
     /// before its events (`library-api.md` §6, ADR-0015).
     pub fn legacy_entries(&self, id: &str) -> Stored<Vec<crate::world::LegacyEntry>> {
         read_legacy(&self.conn, id)
     }
 
+    /// An object's events, in its order.
     pub fn history(&self, id: &str) -> Stored<Vec<Event>> {
         let mut stmt = self.conn.prepare(&format!(
             "{EVENT_SELECT} WHERE object_id = ?1 ORDER BY object_seq"
