@@ -6449,6 +6449,365 @@ fn a_store_says_which_files_it_still_holds() {
     );
 }
 
+/// A service started on a store of its own on PostgreSQL, in a schema of
+/// its own, with what it was started with and a connection to the database
+/// beside it; none on SQLite, said.
+fn served_on_postgresql(
+    name: &str,
+) -> Option<(objectflow_core::db::Connection, Vec<String>, String)> {
+    let base = std::env::var("OBJECTFLOW_SANDBOX_POSTGRES").unwrap_or_default();
+    if base.trim().is_empty() {
+        eprintln!("skipped on SQLite: a deployment's store on PostgreSQL");
+        return None;
+    }
+    let (mut kept, mut password) = (Vec::new(), String::new());
+    for part in base.split_whitespace() {
+        match part.strip_prefix("password=") {
+            Some(p) => password = p.to_string(),
+            None => kept.push(part),
+        }
+    }
+    let schema = format!("{name}_{}", std::process::id());
+    let admin = objectflow_core::db::Connection::postgres(&base).expect("the database");
+    admin
+        .execute_batch(&format!(
+            "DROP SCHEMA IF EXISTS {schema} CASCADE; CREATE SCHEMA {schema}"
+        ))
+        .expect("a schema");
+    let url = format!("{} options='-c search_path={schema}'", kept.join(" "));
+    let dir = fresh_store(name)
+        .parent()
+        .expect("a directory")
+        .to_path_buf();
+    let secret = dir.join("password");
+    std::fs::write(&secret, format!("{password}\n")).expect("the password's file");
+    let args = [
+        "--store",
+        &url,
+        "--store-password-file",
+        secret.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]
+    .map(str::to_string)
+    .to_vec();
+    Some((admin, args, schema))
+}
+
+/// A store on PostgreSQL whose connection is lost, its session ended as a
+/// database's restart or an idle timeout ends it, is opened again: the
+/// write that met the loss is answered 503, which a client retries, and the
+/// next applies, the store's lock held again; where every write answered
+/// 500 until a person restarted the service (durability on PostgreSQL 1).
+#[test]
+fn a_store_on_postgresql_whose_connection_is_lost_is_opened_again() {
+    let Some((admin, args, schema)) = served_on_postgresql("lost") else {
+        return;
+    };
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let s = start(&args);
+    publish(&s, &json!({"copies": COPIES}));
+    let op = json!({"id": "operator"});
+    let add = |login: &str| {
+        call(
+            &s,
+            "POST",
+            "/v1/request",
+            Some(
+                &json!({"actor": op, "type": "Person", "transition": "add", "inputs": {"login": login}}),
+            ),
+        )
+    };
+    let (status, ann) = add("ann@example.com");
+    assert_eq!(
+        (status, ann["kind"].as_str()),
+        (200, Some("satisfied")),
+        "{ann}"
+    );
+    // the writer's session, the one holding this store's lock, ended
+    let ended: i64 = admin
+        .query_row(
+            &format!(
+                "SELECT count(pg_terminate_backend(pid)) FROM pg_locks WHERE locktype = 'advisory' \
+                 AND objsubid = 1 AND objid = (hashtext('objectflow {schema}')::bigint & 4294967295)::oid"
+            ),
+            [],
+            |r| r.get(0),
+        )
+        .expect("the writer's session");
+    assert_eq!(ended, 1);
+    let (status, met) = add("bea@example.com");
+    assert_eq!(status, 503, "the write that met the loss: {met}");
+    let (status, cy) = add("cy@example.com");
+    assert_eq!(
+        (status, cy["kind"].as_str()),
+        (200, Some("satisfied")),
+        "{cy}"
+    );
+    // its lock held again: a second service refused
+    let (code, said) = refused(&args);
+    assert_ne!(code, Some(0));
+    assert!(said.contains("another service holds the store"), "{said}");
+    drop(s);
+    admin
+        .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+        .expect("the schema dropped");
+}
+
+/// A store on PostgreSQL whose database is replaced while it is served, a
+/// restore in its place or a standby a failover promoted, is not written:
+/// the lost connection opened again finds another database, and the store
+/// is served no more until a person marks it a copy and starts the service
+/// again, where the service, opening its lost connection again by itself,
+/// would write on a copy that may lack its last writes, handing out again
+/// what they had (durability on PostgreSQL 2, ADR-0207).
+#[test]
+fn a_store_on_postgresql_replaced_in_place_is_served_no_more() {
+    let base = std::env::var("OBJECTFLOW_SANDBOX_POSTGRES").unwrap_or_default();
+    if base.trim().is_empty() {
+        eprintln!("skipped on SQLite: a deployment's store on PostgreSQL");
+        return;
+    }
+    let (mut kept, mut password) = (Vec::new(), String::new());
+    for part in base.split_whitespace() {
+        match part.strip_prefix("password=") {
+            Some(p) => password = p.to_string(),
+            None => kept.push(part),
+        }
+    }
+    let name = format!("objectflow_replaced_{}", std::process::id());
+    let admin = objectflow_core::db::Connection::postgres(&base).expect("the database");
+    let gone = |db: &str| {
+        admin
+            .execute_batch(&format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)"))
+            .expect("a database dropped");
+    };
+    for db in [name.clone(), format!("{name}_old"), format!("{name}_copy")] {
+        gone(&db);
+    }
+    admin
+        .execute_batch(&format!(
+            "CREATE DATABASE {name} TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER libc LC_COLLATE 'C' LC_CTYPE 'C'"
+        ))
+        .expect("the store's database");
+    let url = format!("{} dbname={name}", kept.join(" "));
+    let dir = fresh_store("replaced")
+        .parent()
+        .expect("a directory")
+        .to_path_buf();
+    let secret = dir.join("password");
+    std::fs::write(&secret, format!("{password}\n")).expect("the password's file");
+    let secret = secret.to_str().expect("a path");
+    let s = start(&[
+        "--store",
+        &url,
+        "--store-password-file",
+        secret,
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish(&s, &json!({"copies": COPIES}));
+    let op = json!({"id": "operator"});
+    let add = |login: &str| {
+        call(
+            &s,
+            "POST",
+            "/v1/request",
+            Some(
+                &json!({"actor": op, "type": "Person", "transition": "add", "inputs": {"login": login}}),
+            ),
+        )
+    };
+    let (status, ann) = add("ann@example.com");
+    assert_eq!(
+        (status, ann["kind"].as_str()),
+        (200, Some("satisfied")),
+        "{ann}"
+    );
+    // the database replaced by a copy of itself, as a restore in its place
+    // leaves it: the same store, another database
+    let ended: i64 = admin
+        .query_row(
+            &format!("SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE datname = '{name}'"),
+            [],
+            |r| r.get(0),
+        )
+        .expect("its sessions ended");
+    assert!(ended >= 1, "the writer's session among them");
+    admin
+        .execute_batch(&format!("CREATE DATABASE {name}_copy TEMPLATE {name}"))
+        .expect("a copy");
+    admin
+        .execute_batch(&format!("ALTER DATABASE {name} RENAME TO {name}_old"))
+        .expect("the store's database set aside");
+    admin
+        .execute_batch(&format!("ALTER DATABASE {name}_copy RENAME TO {name}"))
+        .expect("the copy in its place");
+    let (status, met) = add("bea@example.com");
+    assert_eq!(status, 503, "the write that met the loss: {met}");
+    let (status, refused) = add("cy@example.com");
+    assert_eq!(status, 503, "{refused}");
+    assert!(
+        refused["fault"]
+            .as_str()
+            .is_some_and(|f| f.contains("not the one it was")),
+        "{refused}"
+    );
+    let (status, again) = add("dee@example.com");
+    assert_eq!(status, 503, "served no more: {again}");
+    drop(s);
+    for db in [name.clone(), format!("{name}_old")] {
+        gone(&db);
+    }
+}
+
+/// What no store can hold is malformed at the wire, on either backend, so
+/// the backends answer it alike: U+0000 in a request's text, which
+/// PostgreSQL's text cannot store, where SQLite took it and PostgreSQL
+/// answered 500 with the refusal unrecorded; and a name past 1 KiB, which
+/// PostgreSQL's index of the attempt log cannot hold. U+0000 in an input's
+/// value stays the engine's refusal, `invalid_input` (records on
+/// PostgreSQL, F4 and F5).
+#[test]
+fn what_no_store_can_hold_is_malformed_at_the_wire() {
+    let store = fresh_store("unholdable");
+    let s = start(&[
+        "--store",
+        store.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish(&s, &json!({"copies": COPIES}));
+    let op = json!({"id": "operator"});
+    let add = |extra: Value| {
+        let mut body = json!({"actor": op, "type": "Person", "transition": "add", "inputs": {"login": "ann@example.com"}});
+        for (k, v) in extra.as_object().expect("fields") {
+            body[k] = v.clone();
+        }
+        call(&s, "POST", "/v1/request", Some(&body))
+    };
+    for (extra, at) in [
+        (json!({"context": "why\u{0}not"}), "context"),
+        (json!({"idempotency_key": "k\u{0}"}), "idempotency_key"),
+        (json!({"actor": {"id": "op\u{0}erator"}}), "actor.id"),
+        (json!({"actor": {"id": "x".repeat(1025)}}), "actor.id"),
+        (json!({"transition": "a".repeat(1025)}), "transition"),
+    ] {
+        let (status, said) = add(extra);
+        assert_eq!(status, 400, "{at}: {said}");
+        assert!(
+            said["fault"].as_str().is_some_and(|f| f.starts_with(at)),
+            "{at}: {said}"
+        );
+    }
+    // a name of 1 KiB is taken
+    let (status, said) = add(json!({"actor": {"id": "x".repeat(1024)}}));
+    assert_eq!(status, 200, "{said}");
+    // an input's value holding U+0000 is the engine's refusal
+    let (status, said) = add(json!({"inputs": {"login": "ann\u{0}@example.com"}}));
+    assert_eq!(status, 200, "{said}");
+    assert_eq!(said["kind"], "invalid_input", "{said}");
+}
+
+/// A value past the 2,704 bytes PostgreSQL holds in an index's entry, an
+/// identity or a unique or indexed string, is refused there as a conflict
+/// naming the bound, where it answered 500; SQLite has no such bound
+/// (records on PostgreSQL, F4).
+#[test]
+fn a_value_past_postgresqls_index_entry_is_a_conflict() {
+    let Some((admin, args, schema)) = served_on_postgresql("longvalue") else {
+        return;
+    };
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let s = start(&args);
+    publish(&s, &json!({"copies": COPIES}));
+    // varied, as an index's entry compresses a value of one letter repeated
+    // to fit
+    let mut x: u32 = 7;
+    let varied: String = (0..3000)
+        .map(|_| {
+            x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            char::from(b'a' + u8::try_from((x >> 16) % 26).expect("a letter"))
+        })
+        .collect();
+    let login = format!("{varied}@example.com");
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/request",
+        Some(
+            &json!({"actor": {"id": "operator"}, "type": "Person", "transition": "add", "inputs": {"login": login}}),
+        ),
+    );
+    assert_eq!(status, 409, "{said}");
+    assert!(
+        said["fault"]
+            .as_str()
+            .is_some_and(|f| f.contains("2,704 bytes")),
+        "{said}"
+    );
+    drop(s);
+    admin
+        .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+        .expect("the schema dropped");
+}
+
+/// A publish that rebuilds a table another session reads, a backup's dump
+/// or a long read on PostgreSQL, waits for it up to the busy timeout and is
+/// then answered 503, which the operator retries, its version not taken;
+/// the read ended, the same publish applies. Where it answered 500 (records
+/// on PostgreSQL F3, durability 7).
+#[test]
+fn a_publish_beside_a_read_on_postgresql_is_answered_unavailable() {
+    let Some((admin, args, schema)) = served_on_postgresql("beside") else {
+        return;
+    };
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let s = start(&args);
+    publish(&s, &json!({"copies": COPIES}));
+    let op = json!({"id": "operator"});
+    let wider = COPIES.replace(
+        "      login: { type: identity, actor_kind: human, unique: true, personal: true, optional: true }\n",
+        "      login: { type: identity, actor_kind: human, unique: true, personal: true, optional: true }\n      nickname: { type: string, optional: true }\n",
+    );
+    assert_ne!(wider, COPIES);
+    let drafted = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
+                "inputs": {"source": {"copies": wider}, "source_ref": "test:beside"}}),
+    );
+    assert_eq!(drafted["kind"], "satisfied", "{drafted}");
+    let change = drafted["object_id"]
+        .as_str()
+        .expect("the change")
+        .to_string();
+    let submitted = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": change, "transition": "submit"}),
+    );
+    assert_eq!(submitted["kind"], "satisfied", "{submitted}");
+    let approve = json!({"actor": op, "change": change, "expected_version": submitted["version"]});
+    admin
+        .execute_batch(&format!(
+            "BEGIN; LOCK TABLE {schema}.t_person IN ACCESS SHARE MODE"
+        ))
+        .expect("a read holding the table");
+    let (status, said) = call(&s, "POST", "/v1/publish", Some(&approve));
+    assert_eq!(status, 503, "{said}");
+    admin.execute_batch("ROLLBACK").expect("the read ended");
+    let approved = post(&s, "/v1/publish", &approve);
+    assert_eq!(approved["verdict"]["kind"], "satisfied", "{approved}");
+    drop(s);
+    admin
+        .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+        .expect("the schema dropped");
+}
+
 /// A deployment's store on PostgreSQL (ADR-0213): made by `--create` in a
 /// database holding none and refused without it, its password read from a
 /// file and refused on the command line, written by one service alone, and

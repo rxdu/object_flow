@@ -59,7 +59,42 @@ impl StoreError {
     pub fn is_busy(&self) -> bool {
         self.0.starts_with(BUSY)
     }
+
+    /// Whether a value was past what the store's database holds in an
+    /// index's entry, 2,704 bytes on PostgreSQL (records on PostgreSQL, F4).
+    pub fn is_value_too_long(&self) -> bool {
+        self.0.starts_with(VALUE_TOO_LONG)
+    }
+
+    /// Whether the store would make a name its database cuts, which a store
+    /// on PostgreSQL refuses (records on PostgreSQL, F1).
+    pub fn is_name_too_long(&self) -> bool {
+        self.0.starts_with(NAME_TOO_LONG)
+    }
+
+    /// Whether the store's connection to its database was lost, which the
+    /// service answers `503` and opens the store again for the next write
+    /// (durability on PostgreSQL, finding 1).
+    pub fn is_unavailable(&self) -> bool {
+        self.0.starts_with(UNAVAILABLE)
+    }
 }
+
+/// What the daily housekeeping on PostgreSQL names the planner's samples,
+/// `pg_statistic`, which it writes anew after the store's tables.
+pub const PLANNER_SAMPLES: &str = "planner samples";
+
+/// What a write of a value past what an index's entry holds is refused
+/// with, before its reason.
+pub const VALUE_TOO_LONG: &str = "value_too_long";
+
+/// What an operation that would make a name the database cuts is refused
+/// with, before its reason.
+pub const NAME_TOO_LONG: &str = "name_too_long";
+
+/// What an operation that lost the store's connection to its database is
+/// refused with, before its reason.
+pub const UNAVAILABLE: &str = "unavailable";
 
 /// What a write the store's full volume stopped is refused with, before its
 /// reason.
@@ -319,6 +354,24 @@ impl From<crate::db::Error> for StoreError {
         // told apart from the store's own faults (fourth production review)
         if e.is_disk_full() {
             return StoreError(format!("{DISK_FULL}: {e}"));
+        }
+        // a lock not had in its timeout, met at a statement on PostgreSQL,
+        // where SQLite meets it at the transaction's begin: kept as busy, so
+        // the request is answered `stale` and not as the store's fault
+        // (records on PostgreSQL, F3)
+        if e.is_busy() {
+            return StoreError(format!("{BUSY}: {e}"));
+        }
+        if e.is_connection_lost() {
+            return StoreError(format!("{UNAVAILABLE}: {e}"));
+        }
+        if e.is_name_too_long() {
+            return StoreError(format!("{NAME_TOO_LONG}: {e}"));
+        }
+        if e.is_value_too_long() {
+            return StoreError(format!(
+                "{VALUE_TOO_LONG}: a value past the 2,704 bytes PostgreSQL holds in an index's entry, of a unique, indexed or identity attribute: {e}"
+            ));
         }
         StoreError(e.to_string())
     }
@@ -2479,7 +2532,11 @@ impl Readers {
         now: i64,
         answers: BTreeMap<String, String>,
     ) -> Stored<Store> {
-        let idle = self.idle.lock().ok().and_then(|mut idle| idle.pop());
+        let idle = self
+            .idle
+            .lock()
+            .ok()
+            .and_then(|mut idle| std::iter::from_fn(|| idle.pop()).find(|c| !c.is_closed()));
         let conn = match idle {
             Some(conn) => conn,
             None => {
@@ -2501,6 +2558,10 @@ impl Readers {
     /// A read ended: its connection kept for the next, up to `IDLE_READERS`.
     pub fn give_back(&self, read: Store) {
         let conn = read.into_connection();
+        // one whose database went is dropped, never handed to the next read
+        if conn.is_closed() {
+            return;
+        }
         if let Ok(mut idle) = self.idle.lock()
             && idle.len() < IDLE_READERS
         {
@@ -2677,6 +2738,19 @@ impl Store {
     /// it on SQLite, and a crashed one's lock goes with its connection.
     pub fn open_postgres(config: &crate::db::PgConfig, now: i64, create: bool) -> Stored<Store> {
         let conn = Connection::postgres_with(config)?;
+        // a database that takes no write refused at the start, which the
+        // catalog's making refused before it was made once for every
+        // connection (durability on PostgreSQL, S6)
+        let read_only: bool = conn.query_row(
+            "SELECT pg_is_in_recovery() OR current_setting('default_transaction_read_only') = 'on'",
+            [],
+            |r| r.get(0),
+        )?;
+        if read_only {
+            return Err(StoreError(format!(
+                "{config:?} takes no writes, a standby or a database read-only by default: the store's writer needs one it may write"
+            )));
+        }
         // a database holding no store is made one only when asked, as a
         // file is (ADR-0183 decision 3)
         let holds: i64 = conn.query_row(
@@ -2700,7 +2774,25 @@ impl Store {
             )));
         }
         conn.busy_timeout(BUSY_TIMEOUT)?;
-        Store::opened(conn, &format!("{config:?}"), false, now)
+        // the database it is in, held for the service to compare after a
+        // lost connection is opened again
+        conn.origin()?;
+        let due: Option<i64> = if holds == 0 {
+            None
+        } else {
+            conn.query_row(
+                "SELECT value FROM of_counter WHERE name = 'vacuum_due'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?
+        };
+        let mut store = Store::opened(conn, &format!("{config:?}"), due == Some(1), now)?;
+        // an erasure's vacuum a service killed before it ran, run now
+        if store.checkpoint_due {
+            let _ = store.after_erasure(false);
+        }
+        Ok(store)
     }
 
     /// A store opened on its connection, its own or made: what a file's
@@ -2949,20 +3041,42 @@ impl Store {
         // read without pause still clears once the reads open at the
         // erasure end
         let horizon = self.vacuum_horizon.clone().unwrap_or_else(|| "0".into());
+        // every holder of a snapshot older than the erasure's commit: a
+        // session of this database, a standby's feedback through its
+        // walsender, which names no database, a replication slot's, and a
+        // prepared transaction, where the sessions alone were counted and the
+        // others left whole erased rows, unsaid (personal data on PostgreSQL
+        // 5)
         let held: i64 = self.conn.query_row(
-            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() \
-             AND pid <> pg_backend_pid() AND backend_xmin IS NOT NULL \
-             AND age(backend_xmin) > age(?1::text::xid)",
+            "SELECT (SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() \
+               AND backend_xmin IS NOT NULL AND (datname = current_database() OR backend_type = 'walsender') \
+               AND age(backend_xmin) > age(?1::text::xid)) \
+             + (SELECT count(*) FROM pg_replication_slots WHERE \
+               (xmin IS NOT NULL AND age(xmin) > age(?1::text::xid)) \
+               OR (catalog_xmin IS NOT NULL AND age(catalog_xmin) > age(?1::text::xid))) \
+             + (SELECT count(*) FROM pg_prepared_xacts WHERE database = current_database() \
+               AND age(transaction) > age(?1::text::xid))",
             params![horizon],
             |r| r.get(0),
         )?;
+        // none removed while one holds them: tried again later, where the
+        // vacuum ran on every table each time and a slot holding for hours
+        // would have run it every few seconds
+        if held > 0 {
+            self.checkpoint_due = true;
+            return Ok(false);
+        }
         let tables: Vec<String> = self
             .conn
             .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")?
             .query_map([], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
+        // index cleanup forced, which VACUUM skips where under 2% of a
+        // table's pages hold dead rows and left an erased value a live index
+        // entry; and each table analysed afresh, whose samples kept erased
+        // values readable in `pg_stats` (personal data on PostgreSQL 2, 3)
         let vacuumed = self.conn.execute_batch(&format!(
-            "VACUUM {}",
+            "VACUUM (INDEX_CLEANUP ON, ANALYZE) {}",
             tables
                 .iter()
                 .map(|t| quote(t))
@@ -2984,11 +3098,31 @@ impl Store {
         {
             return Err(e.into());
         }
-        self.checkpoint_due = held > 0;
-        if held == 0 {
+        // what the vacuum left of the log, checked rather than assumed: a
+        // reader pinning a page as it ran leaves the page's dead rows whole
+        // (personal data on PostgreSQL 5). The log's rows change only by an
+        // erasure's or a correction's rewrite, so a dead one there is the
+        // erasure's; other tables' rows change with every write, and what an
+        // erasure left in them goes with the daily housekeeping's rewrite
+        let dead: i64 = self.conn.query_row(
+            "SELECT coalesce(sum(n_dead_tup), 0)::bigint FROM pg_stat_user_tables \
+             WHERE schemaname = current_schema() AND relname = 'of_event'",
+            [],
+            |r| r.get(0),
+        )?;
+        let done = dead == 0;
+        self.checkpoint_due = !done;
+        if done {
             self.vacuum_horizon = None;
+            // the mark the erasure's transaction left, cleared once its
+            // vacuum is done, so a service killed before it runs it at its
+            // next start (durability on PostgreSQL 5)
+            self.conn.execute(
+                "UPDATE of_counter SET value = 0 WHERE name = 'vacuum_due'",
+                [],
+            )?;
         }
-        Ok(held == 0)
+        Ok(done)
     }
 
     /// The write-ahead log carried into the store's file and truncated,
@@ -3254,6 +3388,21 @@ impl Store {
         if erased <= covered {
             return Ok(Ok((Vec::new(), covered)));
         }
+        // on PostgreSQL every table, written anew with its indexes, those
+        // backing keys among them, and the planner's samples last, which the
+        // tables' rewrite leaves old rows of: a vacuum frees what an erasure
+        // rewrote without zeroing it, and `REINDEX "name"` was a statement
+        // PostgreSQL refuses (ADR-0213 decision 8, personal data on
+        // PostgreSQL 1 and 4)
+        if self.conn.backend() == crate::db::Backend::Postgres {
+            let mut names = self
+                .conn
+                .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")?
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            names.push(PLANNER_SAMPLES.to_string());
+            return Ok(Ok((names, erased)));
+        }
         let names = self
             .conn
             .prepare(
@@ -3269,6 +3418,18 @@ impl Store {
     /// 9.5): its pages written anew, and the old ones freed, which
     /// `secure_delete` zeroes.
     pub fn rebuild_index(&mut self, name: &str) -> Stored<()> {
+        // on PostgreSQL a table, outside a transaction, where VACUUM runs
+        // alone: its exclusive lock waited for up to the busy timeout, as
+        // the reads holding it end
+        if self.conn.backend() == crate::db::Backend::Postgres {
+            let target = if name == PLANNER_SAMPLES {
+                "pg_catalog.pg_statistic".to_string()
+            } else {
+                quote(name)
+            };
+            self.conn.execute_batch(&format!("VACUUM FULL {target}"))?;
+            return Ok(());
+        }
         let (tx, _) = begin_write!(self);
         tx.execute_batch(&format!("REINDEX {}", quote(name)))?;
         tx.commit()?;
@@ -3765,6 +3926,18 @@ impl Store {
         if self.group.take().is_some() && !self.conn.is_autocommit() {
             let _ = self.conn.execute_batch("ROLLBACK");
         }
+    }
+
+    /// The database a store on PostgreSQL was opened in, as
+    /// [`crate::db::Connection::origin`] names it; none on SQLite.
+    pub fn database_origin(&self) -> Option<String> {
+        self.conn.held_origin()
+    }
+
+    /// Whether the store's connection to its database is lost, which a
+    /// statement that met the loss tells; never on SQLite.
+    pub fn connection_lost(&self) -> bool {
+        self.conn.is_closed()
     }
 
     /// Whether a group of requests is open.
@@ -6364,6 +6537,17 @@ fn write(
         .map(|(_, _, e)| e.position)
         .min()
         .unwrap_or(i64::MAX);
+    // on PostgreSQL the vacuum this redaction needs, marked in its own
+    // transaction, so a service killed before the vacuum runs it at its
+    // next start, where it was held in memory alone and forgotten
+    // (durability on PostgreSQL 5)
+    if !change.redacted.is_empty() && tx.backend() == crate::db::Backend::Postgres {
+        tx.execute(
+            "INSERT INTO of_counter (name, value) VALUES ('vacuum_due', 1) \
+             ON CONFLICT (name) DO UPDATE SET value = 1",
+            [],
+        )?;
+    }
     for (id, attributes) in &change.redacted {
         for a in attributes {
             // and what each event before the change wrote of it (ADR-0209
@@ -6794,6 +6978,62 @@ mod tests {
     /// database holds none, written by one service alone, a second refused
     /// while the first holds it, and reopened at its version; its reads go
     /// through connections of their own (ADR-0213).
+    /// A write meeting another session's lock on PostgreSQL, met at its
+    /// statement and not at its transaction's begin, is answered `stale`,
+    /// `retries_exhausted`, as SQLite's is, where it was the store's fault,
+    /// a 500; the lock gone, the same write applies (records on
+    /// PostgreSQL, F3).
+    #[test]
+    fn a_write_meeting_another_sessions_lock_is_answered_stale() {
+        let config = match std::env::var(SANDBOX_POSTGRES) {
+            Ok(c) if !c.trim().is_empty() => c,
+            _ => {
+                eprintln!(
+                    "skipped on SQLite: another session's lock on a PostgreSQL store, which a store in memory has none of"
+                );
+                return;
+            }
+        };
+        let text = "\nmodule: notes\ncategories: [live]\ntypes:\n  Note:\n    attributes:\n      text: { type: string }\n    states:\n      ON: { category: live }\n    transitions:\n      write: { kind: initial, to: ON, required_inputs: [text] }\n";
+        let lib = Library::load(&[("notes.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        s.set_busy_timeout(std::time::Duration::from_millis(200))
+            .unwrap();
+        let note = crate::request::Request {
+            transition: "write".into(),
+            actor: crate::model::OPERATOR.into(),
+            object_id: None,
+            type_: Some("Note".into()),
+            inputs: serde_json::from_value(serde_json::json!({"text": "n"})).unwrap(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let schema: String = s
+            .conn
+            .query_row("SELECT current_schema()::text", [], |r| r.get(0))
+            .unwrap();
+        let other = Connection::postgres(&config).unwrap();
+        other
+            .execute_batch(&format!(
+                "SET search_path TO {schema}; BEGIN; LOCK TABLE t_note IN SHARE MODE"
+            ))
+            .unwrap();
+        let v = crate::request::request(&mut s, &note).unwrap().unwrap();
+        assert_eq!(v, crate::verdict::Verdict::RetriesExhausted);
+        other.execute_batch("ROLLBACK").unwrap();
+        let v = crate::request::request(&mut s, &note).unwrap().unwrap();
+        assert!(
+            matches!(v, crate::verdict::Verdict::Satisfied { .. }),
+            "{v:?}"
+        );
+    }
+
     #[test]
     fn a_store_on_postgresql_is_made_reopened_and_written_by_one_service() {
         let base = std::env::var(SANDBOX_POSTGRES).unwrap_or_default();

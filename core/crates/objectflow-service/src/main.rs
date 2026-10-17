@@ -491,6 +491,14 @@ struct Watch {
     /// The store's write-ahead log as the writer opened it, its device and
     /// inode, compared at each read and write as the store's file is.
     wal_identity: Mutex<Option<(u64, u64)>>,
+    /// Since when an erasure's vacuum on PostgreSQL has been due, 0 while
+    /// none is, and whether its long wait was said.
+    vacuum_due_since: AtomicI64,
+    vacuum_told: std::sync::atomic::AtomicBool,
+    /// The database a store on PostgreSQL was first found in, compared
+    /// each time a lost connection is opened again, as the store's file is
+    /// at each write (durability on PostgreSQL, finding 2).
+    database: std::sync::OnceLock<String>,
 }
 
 /// The upper bounds, in seconds, of `/metrics`' duration histogram.
@@ -1519,6 +1527,24 @@ impl From<objectflow_core::store::StoreError> for Fault {
             DISK_FULL_AT.store(wall_millis(), Ordering::SeqCst);
             return Fault::Unavailable(e.0);
         }
+        // the store's database out of reach, which a client may retry once
+        // it is back, where it answered 500 (durability on PostgreSQL 1)
+        if e.is_unavailable() {
+            return Fault::Unavailable(e.0);
+        }
+        // a version whose names PostgreSQL would cut, which this store
+        // cannot hold, where it answered 500 or, worse, cut them and merged
+        // two tables (records on PostgreSQL, F1)
+        if e.is_name_too_long() || e.is_value_too_long() {
+            return Fault::Conflict(e.0);
+        }
+        // a lock another session held past the busy timeout, outside a
+        // request, which answers it `stale`: a publish beside a backup or a
+        // long read on PostgreSQL, which a caller retries, where it
+        // answered 500 (records on PostgreSQL F3, durability 7)
+        if e.is_busy() {
+            return Fault::Unavailable(e.0);
+        }
         if names_unreadable(&e.0) {
             return unreadable(&e.0);
         }
@@ -1746,12 +1772,77 @@ impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
         {
             return Err(Fault::Bad(format!("{path} takes no key {k}")));
         }
+        let body = J::Object(body);
+        // a request's text never holds U+0000, which PostgreSQL's text
+        // cannot store, and a name it gives is at most 1 KiB, past which
+        // PostgreSQL's index of the attempt log refused the refusal's row: a
+        // context, a key, an actor or a transition holding either was taken
+        // by SQLite and a 500 on PostgreSQL, the refusal unrecorded (records
+        // on PostgreSQL, F4 and F5); an input's or an attribute's value is
+        // the engine's to refuse, as before
+        if let Some(why) = unholdable(&body, "", false) {
+            return Err(Fault::Bad(why));
+        }
         // an actor, wherever one is given, is an object of an id and a
         // principal, where a read took one of any JSON type, `"actor": [1]`
         // (eighth production review, ADR-0195 decision 7)
-        let body = J::Object(body);
         actor_id(&body)?;
         Ok(Body(body))
+    }
+}
+
+/// The names a request gives, at most [`NAME_BYTES`] each wherever they
+/// stand: an actor's id and principal, a type, a transition, an object's
+/// id, a legacy key and an idempotency key.
+const NAMES: [&str; 7] = [
+    "id",
+    "principal",
+    "type",
+    "transition",
+    "object_id",
+    "legacy_key",
+    "idempotency_key",
+];
+
+/// How long a name a request gives may be.
+const NAME_BYTES: usize = 1024;
+
+/// What in a body no store can hold, by where it stands: U+0000 in a key,
+/// or in a value outside an input's or an attribute's, which the engine
+/// decodes and refuses itself; a name past [`NAME_BYTES`].
+fn unholdable(v: &J, at: &str, decoded: bool) -> Option<String> {
+    match v {
+        J::String(s) if !decoded && s.contains('\0') => Some(format!(
+            "{at} holds U+0000, which a request's text never holds"
+        )),
+        J::Array(items) => items
+            .iter()
+            .enumerate()
+            .find_map(|(i, x)| unholdable(x, &format!("{at}[{i}]"), decoded)),
+        J::Object(m) => m.iter().find_map(|(k, x)| {
+            let here = if at.is_empty() {
+                k.clone()
+            } else {
+                format!("{at}.{k}")
+            };
+            if k.contains('\0') {
+                return Some(format!(
+                    "{here} is a key holding U+0000, which a request's text never holds"
+                ));
+            }
+            if !decoded
+                && NAMES.contains(&k.as_str())
+                && let J::String(s) = x
+                && s.len() > NAME_BYTES
+            {
+                return Some(format!(
+                    "{here} is {} bytes, past the {NAME_BYTES} a name may be",
+                    s.len()
+                ));
+            }
+            unholdable(x, &here, decoded || k == "inputs" || k == "attributes")
+        }),
+        _ => None,
     }
 }
 
@@ -1942,6 +2033,45 @@ fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
     };
     if let Some(replaced) = store_lost(shared) {
         return Err(Fault::Unavailable(replaced));
+    }
+    // a deployment's store on PostgreSQL whose connection a statement
+    // found lost, to the database's restart, a terminated session or an
+    // idle timeout: opened again before this write, its lock taken again,
+    // where every write after the loss answered 500 until a person
+    // restarted the service; where it cannot be yet, this write is answered
+    // unavailable and the next tries again (durability on PostgreSQL 1)
+    let mut guard = guard;
+    if guard.deployment
+        && guard.postgres.is_some()
+        && guard.store.as_ref().is_none_or(Store::connection_lost)
+    {
+        say!(
+            "the store's connection to its database was lost; {}",
+            reopened(&mut guard)
+        );
+        note_log(shared);
+        // a database other than the one the store was in, a standby a
+        // failover promoted or a restore in its place, which may lack the
+        // last writes the store answered: served no more until a person
+        // marks it a copy and starts the service again, where the service
+        // would write on as if it were the store (ADR-0207)
+        let now = guard.store.as_ref().and_then(Store::database_origin);
+        if let (Some(was), Some(now)) = (shared.watch.database.get(), &now)
+            && was != now
+        {
+            guard.store = None;
+            return Err(Fault::Unavailable(latch(
+                shared,
+                format!(
+                    "the store's database is not the one it was, {was} then and {now} now: a standby a failover promoted, or a restore in its place, which may lack the last writes the store answered; mark it a copy as a restored database is (operate.md) and start the service again"
+                ),
+            )));
+        }
+        if guard.store.is_none() {
+            return Err(Fault::Unavailable(
+                "the store's database could not be reached; the next write tries again".into(),
+            ));
+        }
     }
     shared.writer_since.store(wall_millis(), Ordering::SeqCst);
     Ok(Writing {
@@ -5263,6 +5393,64 @@ async fn keep_the_log_short(shared: Shared) {
     }
 }
 
+/// On PostgreSQL, an erasure's vacuum still due tried again every
+/// `CUT_EVERY`, where it waited for the next write and an idle store kept
+/// the erased rows' old versions (personal data on PostgreSQL 9).
+async fn keep_erasures_vacuumed(shared: Shared) {
+    let mut every = tokio::time::interval(CUT_EVERY);
+    loop {
+        every.tick().await;
+        let s = shared.clone();
+        let _ = tokio::task::spawn_blocking(move || vacuum_back(&s)).await;
+    }
+}
+
+/// An erasure's vacuum, due, tried once with the writer where it is free,
+/// since a write runs it itself; said once it has waited a minute, with
+/// why, and once it is done, where a vacuum that stayed due was never said
+/// (personal data on PostgreSQL 5).
+fn vacuum_back(shared: &Service) {
+    let Ok(mut w) = shared.writer.try_lock() else {
+        return;
+    };
+    let Some(s) = w.store.as_mut() else {
+        return;
+    };
+    if !s.checkpoint_due() {
+        return;
+    }
+    let tried = s.after_erasure(false);
+    let now = wall_millis();
+    let since = &shared.watch.vacuum_due_since;
+    if let Ok(true) = tried {
+        if since.swap(0, Ordering::SeqCst) != 0
+            && shared.watch.vacuum_told.swap(false, Ordering::SeqCst)
+        {
+            say!(
+                "an erasure's vacuum is done: no old version of an erased value is left for a query"
+            );
+            note_log(shared);
+        }
+        return;
+    }
+    let first = match since.compare_exchange(0, now, Ordering::SeqCst, Ordering::SeqCst) {
+        Ok(_) => now,
+        Err(first) => first,
+    };
+    if now - first >= 60_000 && !shared.watch.vacuum_told.swap(true, Ordering::SeqCst) {
+        let why = match &tried {
+            Err(e) => format!("it could not run: {e}"),
+            Ok(_) => "a snapshot older than the erasure still holds the erased rows' old versions: a read, a standby's feedback, a replication slot or a prepared transaction".to_string(),
+        };
+        say!(
+            "an erasure's vacuum has been due {} s, tried every {} s: {why}",
+            (now - first) / 1000,
+            CUT_EVERY.as_secs()
+        );
+        note_log(shared);
+    }
+}
+
 /// How often a write's wait for another process's lock is looked for.
 const STALL_LOOK: std::time::Duration = std::time::Duration::from_secs(1);
 
@@ -6499,6 +6687,12 @@ async fn serve() -> std::io::Result<()> {
     // the store's lock waits, read by /health and the log beside the writer
     // (ADR-0195 decision 6)
     let lock_wait = sandbox.lock_wait.clone();
+    // the database a store on PostgreSQL is in at the start, which a lost
+    // connection opened again is compared with
+    let database = std::sync::OnceLock::new();
+    if let Some(at) = sandbox.store.as_ref().and_then(Store::database_origin) {
+        let _ = database.set(at);
+    }
     let service = Service {
         endpoints: sandbox.endpoints.clone(),
         tokens: a.tokens.clone(),
@@ -6524,6 +6718,7 @@ async fn serve() -> std::io::Result<()> {
         watch: Watch {
             lock_wait,
             wal_identity: Mutex::new(a.store.as_deref().and_then(|p| file_identity(&wal_path(p)))),
+            database,
             ..Watch::default()
         },
         groups: Groups::default(),
@@ -6555,6 +6750,8 @@ async fn serve() -> std::io::Result<()> {
     if shared.store_path.is_some() {
         tokio::spawn(keep_the_log_short(shared.clone()));
         tokio::spawn(watch_for_stalls(shared.clone()));
+    } else if deployment {
+        tokio::spawn(keep_erasures_vacuumed(shared.clone()));
     }
     notify("READY=1");
     // a unit of WatchdogSec is told the service lives at half its interval,

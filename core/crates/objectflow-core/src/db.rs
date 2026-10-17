@@ -90,6 +90,13 @@ enum Fault {
         index: usize,
         why: String,
     },
+    /// A name the store made past PostgreSQL's 63 bytes, which it would cut
+    /// to the first 63 and so merge with another name cut to the same.
+    NameTooLong(String),
+    /// A commit refused, the transaction rolled back by a statement of it
+    /// that failed, which PostgreSQL answers a `COMMIT` of with `ROLLBACK`
+    /// and no error.
+    RolledBack(String),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -153,6 +160,36 @@ impl Error {
             if matches!(f.code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
     }
 
+    /// The connection to the database was lost: closed by the server, its
+    /// restart or an idle timeout among the reasons, or its socket failed.
+    /// The store is opened again for the next write, its lock taken again
+    /// (durability on PostgreSQL, finding 1); SQLite has no connection to
+    /// lose.
+    pub fn is_connection_lost(&self) -> bool {
+        let Fault::Postgres(e) = self.fault() else {
+            return false;
+        };
+        if e.is_closed() || std::error::Error::source(e).is_some_and(|s| s.is::<std::io::Error>()) {
+            return true;
+        }
+        e.code().is_some_and(|c| {
+            let c = c.code();
+            c.starts_with("08") || matches!(c, "57P01" | "57P02" | "57P03" | "57P05")
+        })
+    }
+
+    /// A value past what PostgreSQL holds in an index's entry, 2,704 bytes,
+    /// which SQLite has no bound on (records on PostgreSQL, F4).
+    pub fn is_value_too_long(&self) -> bool {
+        self.sqlstate()
+            .is_some_and(|c| *c == postgres::error::SqlState::PROGRAM_LIMIT_EXCEEDED)
+    }
+
+    /// A name the store made would be cut by PostgreSQL.
+    pub fn is_name_too_long(&self) -> bool {
+        matches!(self.fault(), Fault::NameTooLong(_))
+    }
+
     /// The role may not do what was asked, a checkpoint without
     /// `pg_checkpoint`.
     pub fn is_insufficient_privilege(&self) -> bool {
@@ -212,6 +249,12 @@ fn show(fault: &Fault, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "the value at column {index} is {found}, not {wanted}")
             }
             Fault::Undecodable { index, why } => write!(f, "the value at column {index} is {why}"),
+            Fault::RolledBack(why) => write!(f, "rolled back: {why}"),
+            Fault::NameTooLong(name) => write!(
+                f,
+                "the name {name}, {} bytes, past the 63 PostgreSQL keeps of a name: it would cut it, and two names cut alike would be one table; a shorter type or attribute name makes it fit",
+                name.len()
+            ),
         }
     }
 }
@@ -888,6 +931,15 @@ pub struct Pg {
     /// Whether a schema was changed since the last transaction ended, so
     /// what is held is let go again as the one that changed it ends.
     reshaped: std::cell::Cell<bool>,
+    /// Whether a statement of the open transaction failed, which aborts it
+    /// on PostgreSQL until a rollback, to a savepoint or whole: its commit
+    /// is then refused, where PostgreSQL answers it `ROLLBACK` without an
+    /// error and the store took it as committed (records on PostgreSQL,
+    /// F7).
+    aborted: std::cell::Cell<bool>,
+    /// The database reached, as [`Connection::origin`] reads it, held so it
+    /// is known after the connection is lost.
+    origin: std::cell::RefCell<Option<String>>,
 }
 
 impl Pg {
@@ -905,6 +957,15 @@ impl Pg {
         .map_err(|_| busy())
     }
 
+    /// A statement's outcome, a failure inside a transaction marking it
+    /// aborted, as the server holds it.
+    fn met<T>(&self, outcome: Result<T>) -> Result<T> {
+        if outcome.is_err() && self.open.get() {
+            self.aborted.set(true);
+        }
+        outcome
+    }
+
     fn prepare(&self, sql: &str) -> Result<postgres::Statement> {
         // kept by the SQL as the store writes it, so a statement prepared
         // before is found without translating it again: a request runs
@@ -913,12 +974,14 @@ impl Pg {
             return Ok(s.clone());
         }
         let translated = to_postgres(sql);
-        let s = blocking(|| {
-            self.client()?
-                .prepare(&translated)
-                .map_err(|e| Error(Fault::Postgres(e)))
-        })
-        .map_err(|e| e.with_sql(&translated))?;
+        let s = self.met(
+            blocking(|| {
+                self.client()?
+                    .prepare(&translated)
+                    .map_err(|e| Error(Fault::Postgres(e)))
+            })
+            .map_err(|e| e.with_sql(&translated)),
+        )?;
         self.prepared
             .borrow_mut()
             .insert(sql.to_string(), s.clone());
@@ -939,11 +1002,11 @@ impl Pg {
             .iter()
             .map(|b| b as &(dyn postgres::types::ToSql + Sync))
             .collect();
-        blocking(|| {
+        self.met(blocking(|| {
             self.client()?
                 .query(s, &refs)
                 .map_err(|e| Error(Fault::Postgres(e)))
-        })
+        }))
     }
 
     fn execute(&self, s: &postgres::Statement, values: &[ValueRef<'_>]) -> Result<usize> {
@@ -952,11 +1015,11 @@ impl Pg {
             .iter()
             .map(|b| b as &(dyn postgres::types::ToSql + Sync))
             .collect();
-        let n = blocking(|| {
+        let n = self.met(blocking(|| {
             self.client()?
                 .execute(s, &refs)
                 .map_err(|e| Error(Fault::Postgres(e)))
-        })?;
+        }))?;
         Ok(usize::try_from(n).unwrap_or(usize::MAX))
     }
 
@@ -978,21 +1041,55 @@ impl Pg {
         // were deferred to its commit, which PostgreSQL holds as pending
         // events no change of the table may pass, and defers them again
         // after; SQLite turns its keys off around the same rebuild
+        // a name PostgreSQL would cut to 63 bytes refused before it is sent:
+        // two set attributes of a long type shared one table, made `IF NOT
+        // EXISTS`, a document lost and the log recording a write never made
+        // (records on PostgreSQL, F1)
+        if ddl && let Some(name) = long_identifier(&translated) {
+            return self.met(Err(Error(Fault::NameTooLong(name))));
+        }
+        let ends = head.starts_with("COMMIT") || head.starts_with("END");
+        if ends && self.aborted.get() {
+            let rolled = blocking(|| {
+                self.client()?
+                    .batch_execute("ROLLBACK")
+                    .map_err(|e| Error(Fault::Postgres(e)))
+            });
+            self.open.set(false);
+            self.aborted.set(false);
+            if self.reshaped.replace(false) {
+                self.shapes.borrow_mut().clear();
+            }
+            rolled?;
+            return Err(Error(Fault::RolledBack(
+                "a statement of the transaction failed, so nothing of it was committed".into(),
+            )));
+        }
         let sent = if ddl && self.open.get() {
             format!("SET CONSTRAINTS ALL IMMEDIATE; {translated}; SET CONSTRAINTS ALL DEFERRED")
         } else {
             translated.clone()
         };
-        blocking(|| {
+        let ran = blocking(|| {
             self.client()?
                 .batch_execute(&sent)
                 .map_err(|e| Error(Fault::Postgres(e)))
         })
-        .map_err(|e| e.with_sql(&translated))?;
+        .map_err(|e| e.with_sql(&translated));
+        if ran.is_err() && ends {
+            // a commit that fails ends the transaction, rolled back
+            self.open.set(false);
+            self.aborted.set(false);
+        }
+        self.met(ran)?;
         // whether a transaction is open, which the server does not say: a
         // begin opens one, a commit or a rollback but to a savepoint ends it
+        if head.starts_with("ROLLBACK") {
+            self.aborted.set(false);
+        }
         if head.starts_with("BEGIN") || head.starts_with("START TRANSACTION") {
             self.open.set(true);
+            self.aborted.set(false);
         } else if head.starts_with("COMMIT")
             || head.starts_with("END")
             || (head.starts_with("ROLLBACK") && !head.starts_with("ROLLBACK TO"))
@@ -1421,6 +1518,143 @@ impl fmt::Debug for PgConfig {
     }
 }
 
+/// The first name in a statement past the 63 bytes PostgreSQL keeps of
+/// one, bare or quoted, outside its text's literals and comments; none
+/// where every name fits.
+fn long_identifier(sql: &str) -> Option<String> {
+    const KEPT: usize = 63;
+    let b = sql.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'\'' => {
+                i += 1;
+                while i < b.len() {
+                    if b[i] == b'\'' {
+                        if b.get(i + 1) == Some(&b'\'') {
+                            i += 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'-' if b.get(i + 1) == Some(&b'-') => {
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'"' => {
+                let start = i + 1;
+                i += 1;
+                while i < b.len() {
+                    if b[i] == b'"' {
+                        if b.get(i + 1) == Some(&b'"') {
+                            i += 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    i += 1;
+                }
+                let name = sql.get(start..i.min(b.len())).unwrap_or_default();
+                if name.len() > KEPT {
+                    return Some(name.to_string());
+                }
+                i += 1;
+            }
+            c if c.is_ascii_alphabetic() || c == b'_' => {
+                let start = i;
+                while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'$')
+                {
+                    i += 1;
+                }
+                if i - start > KEPT {
+                    return sql.get(start..i).map(str::to_string);
+                }
+            }
+            c if c.is_ascii_digit() => {
+                while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+                    i += 1;
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+/// A connection's settings beside what its configuration names, its own
+/// options kept and these after them, so they hold: a connect, and a
+/// connection's silence, bounded, where none was and a stalled or vanished
+/// database hung every request (durability on PostgreSQL, finding 3); the
+/// server's keepalives on the session, so the store's advisory lock goes
+/// with a vanished host's connection in about half a minute, where the
+/// server's defaults kept it two hours (finding 4); and every commit
+/// flushed before it is answered, whatever the database's default
+/// (finding 8).
+fn settled(config: &postgres::Config) -> postgres::Config {
+    let mut c = config.clone();
+    let mine = c.get_options().unwrap_or_default().to_string();
+    c.options(&format!(
+        "{mine} -c synchronous_commit=on -c tcp_keepalives_idle=10 -c tcp_keepalives_interval=5 \
+         -c tcp_keepalives_count=3 -c tcp_user_timeout=30000"
+    ))
+    .connect_timeout(PG_CONNECT_TIMEOUT)
+    .keepalives(true)
+    .keepalives_idle(Duration::from_secs(10))
+    .keepalives_interval(Duration::from_secs(5))
+    .keepalives_retries(3)
+    .tcp_user_timeout(Duration::from_secs(30));
+    c
+}
+
+/// How long a connection to PostgreSQL is waited for.
+const PG_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The catalog the store's SQL reads PostgreSQL through, in the
+/// connection's schema: made where it is not, or not as this core makes it,
+/// under a lock one connection at a time, its mark a comment on its view;
+/// left as it is otherwise, where every connection rewrote it before the
+/// store's lock was tried, so a start refused changed the database, one
+/// waited behind any transaction that had read the view, and connections
+/// made at once could fail on each other's rewrite (durability on
+/// PostgreSQL, finding 9).
+fn catalogued(client: &mut postgres::Client) -> Result<()> {
+    let mark = catalog_mark();
+    let found: Option<String> = client
+        .query_one(
+            "SELECT CASE WHEN to_regclass('objectflow_catalog') IS NULL THEN NULL \
+             ELSE obj_description(to_regclass('objectflow_catalog'), 'pg_class') END",
+            &[],
+        )
+        .map_err(|e| Error(Fault::Postgres(e)))?
+        .get(0);
+    if found.as_deref() == Some(mark.as_str()) {
+        return Ok(());
+    }
+    client
+        .batch_execute(&format!(
+            "BEGIN; SELECT pg_advisory_xact_lock(hashtext('objectflow catalog ' || current_schema())); \
+             {PG_CATALOG}; COMMENT ON VIEW objectflow_catalog IS '{mark}'; COMMIT"
+        ))
+        .map_err(|e| Error(Fault::Postgres(e)))
+}
+
+/// The catalog's mark: a digest of its text, so a core that makes it
+/// otherwise makes it again.
+fn catalog_mark() -> String {
+    // FNV-1a, 64 bits: a mark, not a secret
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in PG_CATALOG.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("objectflow catalog {h:016x}")
+}
+
 /// TLS for a PostgreSQL connection, through rustls on ring with the
 /// platform's trust store, as the evaluator client has it; used where the
 /// connection string's `sslmode` asks for it, `prefer` by default
@@ -1588,8 +1822,7 @@ impl Connection {
     }
 
     fn postgres_blocking(config: &PgConfig, schema: Option<String>) -> Result<Connection> {
-        let mut client = config
-            .0
+        let mut client = settled(&config.0)
             .connect(tls()?)
             .map_err(|e| Error(Fault::Postgres(e)))?;
         // text sorted as its bytes, and `lower()` folding ASCII letters
@@ -1625,9 +1858,7 @@ impl Connection {
                 .batch_execute(&format!("CREATE SCHEMA {s}; SET search_path TO {s}"))
                 .map_err(|e| Error(Fault::Postgres(e)))?;
         }
-        client
-            .batch_execute(PG_CATALOG)
-            .map_err(|e| Error(Fault::Postgres(e)))?;
+        catalogued(&mut client)?;
         Ok(Connection {
             inner: Inner::Postgres(Box::new(Pg {
                 client: std::cell::RefCell::new(Some(client)),
@@ -1637,6 +1868,8 @@ impl Connection {
                 schema,
                 shapes: std::cell::RefCell::new(std::collections::HashMap::new()),
                 reshaped: std::cell::Cell::new(false),
+                aborted: std::cell::Cell::new(false),
+                origin: std::cell::RefCell::new(None),
             })),
         })
     }
@@ -1764,6 +1997,56 @@ impl Connection {
     }
 
     /// Whether no transaction is open.
+    /// The database a connection to PostgreSQL reached, as the server names
+    /// it: its cluster's system identifier, the timeline it writes on, read
+    /// from its current log file's name so a promotion shows at once, and
+    /// the database's oid; read once and held. A database restarted keeps
+    /// all three; a standby promoted by a failover writes on a new
+    /// timeline, and a restore into another cluster or database has another
+    /// identifier or oid, either a copy that may lack the last writes the
+    /// store answered (durability on PostgreSQL, finding 2). None on
+    /// SQLite.
+    pub fn origin(&self) -> Result<Option<String>> {
+        let Inner::Postgres(pg) = &self.inner else {
+            return Ok(None);
+        };
+        if let Some(held) = pg.origin.borrow().clone() {
+            return Ok(Some(held));
+        }
+        let found: String = self.query_row(
+            "SELECT (SELECT system_identifier::text FROM pg_control_system()) || '/' || \
+             (('x' || substr(pg_walfile_name(pg_current_wal_lsn()), 1, 8))::bit(32)::int)::text || '/' || \
+             (SELECT oid::text FROM pg_database WHERE datname = current_database())",
+            [],
+            |r| r.get(0),
+        )?;
+        *pg.origin.borrow_mut() = Some(found.clone());
+        Ok(Some(found))
+    }
+
+    /// The origin [`Connection::origin`] read, without asking the
+    /// database, which a lost connection cannot.
+    pub fn held_origin(&self) -> Option<String> {
+        match &self.inner {
+            Inner::Sqlite(_) => None,
+            Inner::Postgres(pg) => pg.origin.borrow().clone(),
+        }
+    }
+
+    /// Whether the connection is lost, which a statement that met its loss
+    /// tells: a store's connection to PostgreSQL closed by the server or its
+    /// socket; never on SQLite.
+    pub fn is_closed(&self) -> bool {
+        match &self.inner {
+            Inner::Sqlite(_) => false,
+            Inner::Postgres(pg) => pg
+                .client
+                .try_borrow()
+                .map(|c| c.as_ref().is_none_or(postgres::Client::is_closed))
+                .unwrap_or(false),
+        }
+    }
+
     pub fn is_autocommit(&self) -> bool {
         match &self.inner {
             Inner::Sqlite(c) => c.is_autocommit(),
@@ -2040,6 +2323,119 @@ mod tests {
         assert!(found.is_empty(), "rusqlite named outside db.rs: {found:?}");
     }
 
+    /// A transaction a failed statement aborted is not committed: PostgreSQL
+    /// answers its `COMMIT` with `ROLLBACK` and no error, which the store
+    /// took as committed, so the commit is refused; a rollback to a
+    /// savepoint takes the transaction back, as the server does (records on
+    /// PostgreSQL, F7). SQLite rolls back the failed statement alone, and
+    /// commits the rest.
+    #[test]
+    fn a_transaction_a_failed_statement_aborted_is_not_committed() {
+        let conn = match std::env::var(crate::store::SANDBOX_POSTGRES) {
+            Ok(c) if !c.trim().is_empty() => {
+                Connection::postgres_sandbox(&c, &format!("sandbox_{}_aborted", std::process::id()))
+                    .unwrap()
+            }
+            _ => Connection::open_in_memory().unwrap(),
+        };
+        conn.execute_batch("CREATE TABLE t (a INTEGER NOT NULL)")
+            .unwrap();
+        let count = |a: i64| -> i64 {
+            conn.query_row("SELECT count(*) FROM t WHERE a = ?1", [a], |r| r.get(0))
+                .unwrap()
+        };
+        conn.execute_batch("BEGIN").unwrap();
+        conn.execute("INSERT INTO t (a) VALUES (1)", []).unwrap();
+        assert!(conn.execute("INSERT INTO t (a) VALUES (NULL)", []).is_err());
+        let committed = conn.execute_batch("COMMIT");
+        if conn.backend() == Backend::Postgres {
+            let refused = committed.unwrap_err().to_string();
+            assert!(refused.contains("rolled back"), "{refused}");
+            assert_eq!(count(1), 0, "nothing of it committed");
+        } else {
+            committed.unwrap();
+            assert_eq!(count(1), 1);
+        }
+        assert!(conn.is_autocommit(), "no transaction left open");
+        conn.execute_batch("BEGIN; SAVEPOINT s").unwrap();
+        conn.execute("INSERT INTO t (a) VALUES (2)", []).unwrap();
+        assert!(conn.execute("INSERT INTO t (a) VALUES (NULL)", []).is_err());
+        conn.execute_batch("ROLLBACK TO s").unwrap();
+        conn.execute("INSERT INTO t (a) VALUES (3)", []).unwrap();
+        conn.execute_batch("COMMIT").unwrap();
+        assert_eq!(
+            (count(2), count(3)),
+            (0, 1),
+            "the savepoint's work undone, the rest kept"
+        );
+    }
+
+    /// A connection to PostgreSQL holds what the store's durability needs
+    /// whatever its database's defaults: each commit flushed before it is
+    /// answered, and the server's keepalives short, so the store's lock goes
+    /// with a vanished host's connection (durability on PostgreSQL 4, 8); the
+    /// catalog, made once, is left as it is by the next connection (9); and
+    /// a database that takes no writes is refused to the store's writer at
+    /// its start (S6).
+    #[test]
+    fn a_connection_to_postgresql_holds_its_settings_and_leaves_the_catalog() {
+        let base = match std::env::var(crate::store::SANDBOX_POSTGRES) {
+            Ok(c) if !c.trim().is_empty() => c,
+            _ => {
+                eprintln!("skipped on SQLite: a PostgreSQL connection's settings");
+                return;
+            }
+        };
+        let admin = Connection::postgres(&base).unwrap();
+        let name = format!("objectflow_settings_{}", std::process::id());
+        admin
+            .execute_batch(&format!("DROP DATABASE IF EXISTS {name}"))
+            .unwrap();
+        admin
+            .execute_batch(&format!(
+                "CREATE DATABASE {name} TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER libc LC_COLLATE 'C' LC_CTYPE 'C'"
+            ))
+            .unwrap();
+        admin
+            .execute_batch(&format!(
+                "ALTER DATABASE {name} SET synchronous_commit = off"
+            ))
+            .unwrap();
+        let at = format!("{base} dbname={name}");
+        let setting = |c: &Connection, s: &str| -> String {
+            c.query_row(&format!("SELECT current_setting('{s}')"), [], |r| r.get(0))
+                .unwrap()
+        };
+        let made = |c: &Connection| -> String {
+            c.query_row(
+                "SELECT xmin::text FROM pg_class WHERE oid = to_regclass('objectflow_catalog')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let first = Connection::postgres(&at).unwrap();
+        assert_eq!(setting(&first, "synchronous_commit"), "on");
+        assert_eq!(setting(&first, "tcp_keepalives_idle"), "10");
+        let second = Connection::postgres(&at).unwrap();
+        assert_eq!(made(&first), made(&second), "the catalog made again");
+        drop((first, second));
+        admin
+            .execute_batch(&format!(
+                "ALTER DATABASE {name} SET default_transaction_read_only = on"
+            ))
+            .unwrap();
+        let refused =
+            crate::store::Store::open_postgres(&PgConfig::parse(&at, None).unwrap(), 0, true)
+                .map(|_| ())
+                .unwrap_err()
+                .to_string();
+        assert!(refused.contains("takes no writes"), "{refused}");
+        admin
+            .execute_batch(&format!("DROP DATABASE {name} WITH (FORCE)"))
+            .unwrap();
+    }
+
     /// A database that sorts text otherwise than by its bytes, or folds it
     /// beyond ASCII, is refused, each setting alone: the collation, the
     /// character type, which `lower()` follows, and an ICU provider, whose
@@ -2086,6 +2482,61 @@ mod tests {
                     && refused.contains("LOCALE_PROVIDER libc"),
                 "{what}: {refused}"
             );
+        }
+    }
+
+    /// A name past the 63 bytes PostgreSQL keeps is found, bare or quoted,
+    /// and one of 63 is not; nor is text in a literal or a comment
+    /// (records on PostgreSQL, F1).
+    #[test]
+    fn a_name_past_postgresqls_63_bytes_is_found() {
+        let fits = "a".repeat(63);
+        let past = "a".repeat(64);
+        assert_eq!(
+            long_identifier(&format!("CREATE TABLE {fits} (x TEXT)")),
+            None
+        );
+        assert_eq!(
+            long_identifier(&format!("CREATE TABLE {past} (x TEXT)")),
+            Some(past.clone())
+        );
+        assert_eq!(
+            long_identifier(&format!("CREATE INDEX \"{past}\" ON t (x)")),
+            Some(past.clone())
+        );
+        assert_eq!(
+            long_identifier(&format!(
+                "CREATE TABLE t (x TEXT CHECK (x IN ('{past}', 'it''s {past}'))) -- {past}\n"
+            )),
+            None
+        );
+        assert_eq!(
+            long_identifier(&format!("CREATE TABLE \"{fits}\" (x TEXT)")),
+            None
+        );
+    }
+
+    /// A store whose names PostgreSQL would cut is refused there, where two
+    /// set attributes of a long type shared one table; SQLite keeps whole
+    /// names and takes it (records on PostgreSQL, F1).
+    #[test]
+    fn a_store_whose_names_postgresql_would_cut_is_refused_there() {
+        let text = "\nmodule: onboarding\ncategories: [live]\ntypes:\n  CustomerOnboardingComplianceReviewCase:\n    attributes:\n      supporting_documents_received: { type: \"string[]\", optional: true }\n      supporting_documents_requested: { type: \"string[]\", optional: true }\n    states:\n      OPEN: { category: live }\n    transitions:\n      open: { kind: initial, to: OPEN }\n";
+        let lib = crate::model::Library::load(&[("onboarding.yaml".into(), text.into())]).unwrap();
+        let made = crate::store::Store::sandbox(lib, 0);
+        let postgres =
+            std::env::var(crate::store::SANDBOX_POSTGRES).is_ok_and(|c| !c.trim().is_empty());
+        if postgres {
+            let refused = made.map(|_| ()).unwrap_err();
+            assert!(refused.is_name_too_long(), "{refused}");
+            assert!(
+                refused
+                    .to_string()
+                    .contains("t_customeronboardingcompliancereviewcase__supporting_documents_re"),
+                "{refused}"
+            );
+        } else {
+            made.unwrap();
         }
     }
 

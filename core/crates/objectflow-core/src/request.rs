@@ -6430,7 +6430,11 @@ pub fn request_told(
         }
     }
     // an erasure's values leave the write-ahead log too (D584)
-    store.after_erasure(erasing)?;
+    // one that cannot run yet stays due, tried again by the service, which
+    // says so, never answering a request that committed with an error: an
+    // erasure whose vacuum met a lock was answered 500, and an unkeyed retry
+    // recorded a second erasure (records on PostgreSQL F3)
+    let _ = store.after_erasure(erasing);
     let (verdict, told) = {
         let world = store.snapshot()?;
         // a call refused on an object the refused request was creating
@@ -9878,6 +9882,15 @@ types:
 "#;
         let lib = Library::load(&[("notes.yaml".into(), NOTES.into())]).unwrap();
         let mut s = Store::sandbox(lib, 0).unwrap();
+        for n in 0..20 {
+            created(&req(
+                &mut s,
+                "add",
+                OPERATOR,
+                ("Person", true),
+                json!({"note": format!("note {n:02}")}),
+            ));
+        }
         let ann = created(&req(
             &mut s,
             "add",
@@ -9885,6 +9898,24 @@ types:
             ("Person", true),
             json!({"note": "a secret"}),
         ));
+        // the planner's samples of the notes, the secret among them, as
+        // autoanalyze takes them (personal data on PostgreSQL 3)
+        let sampled = |s: &Store| -> i64 {
+            s.connection()
+                .query_row(
+                    "SELECT count(*) FROM pg_stats WHERE schemaname = current_schema() \
+                     AND (histogram_bounds::text LIKE '%a secret%' OR most_common_vals::text LIKE '%a secret%')",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        s.connection().execute_batch("ANALYZE t_person").unwrap();
+        assert_eq!(
+            sampled(&s),
+            1,
+            "the secret in the samples before the erasure"
+        );
         // a read open before the erasure can still see what it rewrites, so
         // the vacuum stays due while it is open (ADR-0213 decision 8)
         let other = crate::db::Connection::postgres(&config).unwrap();
@@ -9925,6 +9956,199 @@ types:
             )
             .unwrap();
         assert_eq!(vacuumed, 1, "the log's table was not vacuumed");
+        assert_eq!(
+            sampled(&s),
+            0,
+            "the erased secret still in the planner's samples"
+        );
+    }
+
+    /// An erasure on PostgreSQL leaves no byte of the value it erased in
+    /// the store's files once the daily housekeeping has written every table
+    /// anew, its indexes and the planner's samples with it: a vacuum frees
+    /// the space old versions held without zeroing it, and copies were found
+    /// there after every erasure probed (ADR-0213 decision 8, personal data
+    /// on PostgreSQL 1). A value kept, read the same way, shows the files are
+    /// read; the files are read through the server, as its superuser.
+    #[test]
+    fn an_erasure_on_postgresql_leaves_no_byte_once_the_housekeeping_has_run() {
+        let config = std::env::var(crate::store::SANDBOX_POSTGRES).unwrap_or_default();
+        if config.trim().is_empty() {
+            eprintln!("skipped on SQLite: PostgreSQL's files after an erasure");
+            return;
+        }
+        const STAFF: &str = "module: staff\ncategories: [live, closed]\ntypes:\n  Employee:\n    description: A person.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n      name: { type: string, personal: true, optional: true }\n      desk: { type: string, optional: true }\n    states:\n      ACTIVE: { category: live, description: Here. }\n      LEFT: { category: closed, final: true, description: Gone. }\n    transitions:\n      join: { kind: initial, to: ACTIVE, required_inputs: [login], optional_inputs: [name, desk] }\n      rename: { kind: external, from: ACTIVE, to: ACTIVE, optional_inputs: [name] }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+        let lib = Library::load(&[("staff.yaml".into(), STAFF.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        for n in 0..20 {
+            created(&req(
+                &mut s,
+                "join",
+                OPERATOR,
+                ("Employee", true),
+                json!({"login": format!("e{n}"), "name": format!("someone {n:02}")}),
+            ));
+        }
+        let ann = created(&req(
+            &mut s,
+            "join",
+            OPERATOR,
+            ("Employee", true),
+            json!({"login": "ann", "name": "zz-erased-7f3a", "desk": "zz-kept-7f3a"}),
+        ));
+        // a version of her row per write, each holding the name
+        for _ in 0..3 {
+            req(
+                &mut s,
+                "rename",
+                OPERATOR,
+                (&ann, false),
+                json!({"name": "zz-erased-7f3a"}),
+            );
+        }
+        s.connection().execute_batch("ANALYZE").unwrap();
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&ann, false),
+            json!({"reason": "asked"}),
+        ));
+        for _ in 0..100 {
+            if s.after_erasure(false).unwrap() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let (names, through) = s.indexes_to_rebuild(OPERATOR).unwrap().unwrap();
+        assert!(
+            names.len() > 1,
+            "the housekeeping finds the erasure: {names:?}"
+        );
+        for n in &names {
+            s.rebuild_index(n).unwrap();
+        }
+        s.indexes_rebuilt(through).unwrap();
+        let files_holding = |s: &Store, text: &str| -> i64 {
+            s.connection().execute_batch("CHECKPOINT").unwrap();
+            s.connection()
+                .query_row(
+                    "WITH mine AS (SELECT oid, reltoastrelid FROM pg_class \
+                       WHERE relnamespace = current_schema()::regnamespace AND relkind IN ('r', 'i')), \
+                     rels AS (SELECT oid FROM mine \
+                       UNION SELECT reltoastrelid FROM mine WHERE reltoastrelid <> 0 \
+                       UNION SELECT i.indexrelid FROM pg_index i JOIN mine m ON i.indrelid = m.reltoastrelid \
+                       UNION SELECT 'pg_catalog.pg_statistic'::regclass::oid) \
+                     SELECT count(*) FROM rels WHERE pg_relation_filepath(oid) IS NOT NULL \
+                       AND position(convert_to(?1, 'UTF8') IN pg_read_binary_file(pg_relation_filepath(oid))) > 0",
+                    crate::db::params![text],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert!(
+            files_holding(&s, "zz-kept-7f3a") > 0,
+            "the files are not read: a kept value not found"
+        );
+        assert_eq!(
+            files_holding(&s, "zz-erased-7f3a"),
+            0,
+            "an erased value left in the store's files"
+        );
+    }
+
+    /// An erasure's vacuum due when its service stops is run when the store
+    /// is opened next: marked in the erasure's own transaction, where it was
+    /// held in memory alone and a killed service left the erased rows' old
+    /// versions with no end (durability on PostgreSQL 5).
+    #[test]
+    fn an_erasures_vacuum_due_at_a_stop_runs_when_the_store_is_opened_next() {
+        let base = std::env::var(crate::store::SANDBOX_POSTGRES).unwrap_or_default();
+        if base.trim().is_empty() {
+            eprintln!("skipped on SQLite: PostgreSQL's vacuum after an erasure");
+            return;
+        }
+        const STAFF: &str = "module: staff\ncategories: [live, closed]\ntypes:\n  Employee:\n    description: A person.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n      name: { type: string, personal: true, optional: true }\n    states:\n      ACTIVE: { category: live, description: Here. }\n      LEFT: { category: closed, final: true, description: Gone. }\n    transitions:\n      join: { kind: initial, to: ACTIVE, required_inputs: [login], optional_inputs: [name] }\n      leave: { kind: external, from: ACTIVE, to: LEFT }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+        let schema = format!("vacuumdue_{}", std::process::id());
+        let admin = crate::db::Connection::postgres(&base).unwrap();
+        admin
+            .execute_batch(&format!(
+                "DROP SCHEMA IF EXISTS {schema} CASCADE; CREATE SCHEMA {schema}"
+            ))
+            .unwrap();
+        let config =
+            crate::db::PgConfig::parse(&format!("{base} options='-c search_path={schema}'"), None)
+                .unwrap();
+        let marked = |s: &Store| -> Option<i64> {
+            s.connection()
+                .query_row(
+                    "SELECT value FROM of_counter WHERE name = 'vacuum_due'",
+                    [],
+                    |r| r.get(0),
+                )
+                .map_or_else(
+                    |e| if e.is_no_rows() { Ok(None) } else { Err(e) },
+                    |v| Ok(Some(v)),
+                )
+                .unwrap()
+        };
+        {
+            let mut s = Store::open_postgres(&config, 1_767_225_600, true).unwrap();
+            let change = created(&req(
+                &mut s,
+                "draft",
+                OPERATOR,
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"staff": STAFF}, "source_ref": "test:staff"}),
+            ));
+            let submitted = req(&mut s, "submit", OPERATOR, (&change, false), json!({}));
+            let Verdict::Satisfied { version, .. } = submitted else {
+                panic!("the change not submitted: {submitted:?}")
+            };
+            assert!(matches!(
+                s.publish(OPERATOR, &change, version).unwrap().unwrap().0,
+                Verdict::Satisfied { .. }
+            ));
+            let ann = created(&req(
+                &mut s,
+                "join",
+                OPERATOR,
+                ("Employee", true),
+                json!({"login": "ann", "name": "a secret"}),
+            ));
+            let other = crate::db::Connection::postgres(&base).unwrap();
+            other
+                .execute_batch("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT 1")
+                .unwrap();
+            created(&req(
+                &mut s,
+                "forget",
+                OPERATOR,
+                (&ann, false),
+                json!({"reason": "asked"}),
+            ));
+            assert!(s.checkpoint_due(), "held by the older read");
+            assert_eq!(
+                marked(&s),
+                Some(1),
+                "the vacuum due, marked with the erasure"
+            );
+            // the service stopped before its vacuum ran
+            drop(s);
+            other.execute_batch("COMMIT").unwrap();
+        }
+        let mut s = Store::open_postgres(&config, 0, false).unwrap();
+        for _ in 0..100 {
+            if s.after_erasure(false).unwrap() && marked(&s) == Some(0) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert_eq!(marked(&s), Some(0), "the vacuum due at the stop never ran");
+        drop(s);
+        admin
+            .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+            .unwrap();
     }
 
     #[test]
