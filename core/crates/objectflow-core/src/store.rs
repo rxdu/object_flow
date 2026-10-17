@@ -1860,6 +1860,16 @@ fn sql_type(declared: &Declared) -> &'static str {
     }
 }
 
+/// Whether a `--store` names a PostgreSQL database, a `postgresql://` URL or
+/// a connection string, where a file's path is any other text (ADR-0213).
+pub fn names_postgres(store: &str) -> bool {
+    store.starts_with("postgresql://")
+        || store.starts_with("postgres://")
+        || ["host=", "dbname=", "user="]
+            .iter()
+            .any(|k| store.contains(k))
+}
+
 /// What PostgreSQL's schema adds to SQLite's: the directory's creation
 /// order, which SQLite keeps as its `rowid` and the store reads as creation
 /// order (`storage-schema.md` §2), a column of its own (ADR-0213).
@@ -2428,15 +2438,33 @@ pub const IDLE_READERS: usize = 8;
 /// back when it ends.
 #[derive(Debug)]
 pub struct Readers {
-    path: std::path::PathBuf,
+    from: ReadFrom,
     busy_timeout: std::time::Duration,
     idle: std::sync::Mutex<Vec<Connection>>,
+}
+
+/// Where a deployment's reads connect: its store's file, or its
+/// PostgreSQL database (ADR-0213).
+#[derive(Debug)]
+enum ReadFrom {
+    File(std::path::PathBuf),
+    Postgres(Box<crate::db::PgConfig>),
 }
 
 impl Readers {
     pub fn new(path: &std::path::Path, busy_timeout: std::time::Duration) -> Readers {
         Readers {
-            path: path.to_path_buf(),
+            from: ReadFrom::File(path.to_path_buf()),
+            busy_timeout,
+            idle: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The read connections of a store on PostgreSQL, each its own
+    /// connection to the database, read-only by default.
+    pub fn postgres(config: &crate::db::PgConfig, busy_timeout: std::time::Duration) -> Readers {
+        Readers {
+            from: ReadFrom::Postgres(Box::new(config.clone())),
             busy_timeout,
             idle: std::sync::Mutex::new(Vec::new()),
         }
@@ -2455,7 +2483,14 @@ impl Readers {
         let conn = match idle {
             Some(conn) => conn,
             None => {
-                let conn = Store::read_connection(&self.path)?;
+                let conn = match &self.from {
+                    ReadFrom::File(path) => Store::read_connection(path)?,
+                    ReadFrom::Postgres(config) => {
+                        let conn = Connection::postgres_with(config)?;
+                        conn.execute_batch("SET default_transaction_read_only = on")?;
+                        conn
+                    }
+                };
                 conn.busy_timeout(self.busy_timeout)?;
                 conn
             }
@@ -2631,6 +2666,46 @@ impl Store {
         // another connection's write lock is waited for, not met at once
         // (storage-schema.md §7, ADR-0178 decision 2)
         conn.busy_timeout(BUSY_TIMEOUT)?;
+        Store::opened(conn, &path.display().to_string(), frames, now)
+    }
+
+    /// A deployment's store on PostgreSQL (ADR-0213): made where the
+    /// database holds none, at version 0, as a file is, and otherwise
+    /// reopened at its latest version. One service writes it: the store's
+    /// connection holds an advisory lock on it for its life, so a second
+    /// service on the same store is refused, where a file's `.lock` refuses
+    /// it on SQLite, and a crashed one's lock goes with its connection.
+    pub fn open_postgres(config: &crate::db::PgConfig, now: i64, create: bool) -> Stored<Store> {
+        let conn = Connection::postgres_with(config)?;
+        // a database holding no store is made one only when asked, as a
+        // file is (ADR-0183 decision 3)
+        let holds: i64 = conn.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'of_declaration'",
+            [],
+            |r| r.get(0),
+        )?;
+        if holds == 0 && !create {
+            return Err(StoreError(format!(
+                "{config:?} holds no store; --create makes one"
+            )));
+        }
+        let held: bool = conn.query_row(
+            "SELECT pg_try_advisory_lock(hashtext('objectflow ' || current_schema()))",
+            [],
+            |r| r.get(0),
+        )?;
+        if !held {
+            return Err(StoreError(format!(
+                "another service holds the store in {config:?}: one service writes a store"
+            )));
+        }
+        conn.busy_timeout(BUSY_TIMEOUT)?;
+        Store::opened(conn, &format!("{config:?}"), false, now)
+    }
+
+    /// A store opened on its connection, its own or made: what a file's
+    /// and a PostgreSQL database's opening share.
+    fn opened(conn: Connection, at: &str, frames: bool, now: i64) -> Stored<Store> {
         let created: i64 = conn.query_row(
             "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'of_declaration'",
             [],
@@ -2664,6 +2739,9 @@ impl Store {
                 .execute_batch(store.conn.begin_sql(Behavior::Immediate))?;
             let made = (|| -> Stored<()> {
                 store.conn.execute_batch(SCHEMA)?;
+                if store.conn.backend() == crate::db::Backend::Postgres {
+                    store.conn.execute_batch(PG_SCHEMA)?;
+                }
                 store.conn.execute_batch(ACTOR_INDEXES)?;
                 store.conn.execute_batch(EXPORT_INDEXES)?;
                 for t in store.lib.types.values() {
@@ -2690,8 +2768,7 @@ impl Store {
         let release = crate::release::store_release(&store.conn)?;
         if release.as_deref() != Some(BUILTINS) {
             return Err(StoreError(format!(
-                "{ENGINE_MISMATCH}: {} is at {}, and this core is {BUILTINS}",
-                path.display(),
+                "{ENGINE_MISMATCH}: {at} is at {}, and this core is {BUILTINS}",
                 release.as_deref().unwrap_or("no release")
             )));
         }
@@ -6677,6 +6754,75 @@ mod tests {
     #[test]
     fn each_connection_keeps_its_own_page_cache() {
         assert!(matches!(page_caches_shared(), Ok(false)));
+    }
+
+    /// A deployment's store on PostgreSQL is made at version 0 where the
+    /// database holds none, written by one service alone, a second refused
+    /// while the first holds it, and reopened at its version; its reads go
+    /// through connections of their own (ADR-0213).
+    #[test]
+    fn a_store_on_postgresql_is_made_reopened_and_written_by_one_service() {
+        let base = std::env::var(SANDBOX_POSTGRES).unwrap_or_default();
+        if base.trim().is_empty() {
+            eprintln!("skipped on SQLite: a deployment's store on PostgreSQL");
+            return;
+        }
+        let schema = format!("deployed_{}", std::process::id());
+        let admin = Connection::postgres(&base).unwrap();
+        admin
+            .execute_batch(&format!(
+                "DROP SCHEMA IF EXISTS {schema} CASCADE; CREATE SCHEMA {schema}"
+            ))
+            .unwrap();
+        let config =
+            crate::db::PgConfig::parse(&format!("{base} options='-c search_path={schema}'"), None)
+                .unwrap();
+        {
+            let s = Store::open_postgres(&config, 1_767_225_600, true).unwrap();
+            assert_eq!(s.lib.version, 0);
+            let e = Store::open_postgres(&config, 0, false).unwrap_err();
+            assert!(
+                e.to_string().contains("another service holds the store"),
+                "{e}"
+            );
+        }
+        let s = Store::open_postgres(&config, 0, false).unwrap();
+        assert_eq!((s.lib.version, s.now), (0, 1_767_225_600));
+        let readers = Readers::postgres(&config, BUSY_TIMEOUT);
+        let r = readers
+            .read(s.lib.clone(), s.earlier.clone(), s.now, BTreeMap::new())
+            .unwrap();
+        let operators: i64 = r
+            .connection()
+            .query_row("SELECT count(*) FROM of_object", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(operators, 1);
+        // a read connection writes nothing
+        assert!(r.connection().execute("DELETE FROM of_object", []).is_err());
+        drop((r, s));
+        // a database a backup was restored into, marked as operate.md says,
+        // is opened as a restore, its counters moved past what the lost
+        // store may have given out (ADR-0207)
+        admin
+            .execute_batch(&format!(
+                "INSERT INTO {schema}.of_counter (name, value) VALUES ('{COPIED}', 1) \
+                 ON CONFLICT (name) DO UPDATE SET value = 1"
+            ))
+            .unwrap();
+        let s = Store::open_postgres(&config, 1_767_225_600 + 3600, false).unwrap();
+        assert!(s.restored.is_some(), "a marked copy opened as a restore");
+        drop(s);
+        // a database holding no store, refused without --create
+        admin
+            .execute_batch(&format!(
+                "DROP SCHEMA {schema} CASCADE; CREATE SCHEMA {schema}"
+            ))
+            .unwrap();
+        let e = Store::open_postgres(&config, 0, false).unwrap_err();
+        assert!(e.to_string().contains("holds no store"), "{e}");
+        admin
+            .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+            .unwrap();
     }
 
     /// A deployment's store cuts its write-ahead log back to its limit when

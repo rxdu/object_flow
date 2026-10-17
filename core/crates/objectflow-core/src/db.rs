@@ -875,7 +875,9 @@ pub enum Backend {
 /// prepared, whether a transaction is open, and the schema a sandbox made
 /// for itself, dropped with it.
 pub struct Pg {
-    client: std::cell::RefCell<postgres::Client>,
+    client: std::cell::RefCell<Option<postgres::Client>>,
+    /// What it was made from, which a reader of the same store connects with.
+    config: PgConfig,
     prepared: std::cell::RefCell<std::collections::HashMap<String, postgres::Statement>>,
     open: std::cell::Cell<bool>,
     schema: Option<String>,
@@ -883,12 +885,17 @@ pub struct Pg {
 
 impl Pg {
     fn client(&self) -> Result<std::cell::RefMut<'_, postgres::Client>> {
-        self.client.try_borrow_mut().map_err(|_| {
+        let busy = || {
             Error(Fault::Unsupported(
                 "a statement run on a PostgreSQL connection while another's rows are being read"
                     .into(),
             ))
-        })
+        };
+        std::cell::RefMut::filter_map(
+            self.client.try_borrow_mut().map_err(|_| busy())?,
+            Option::as_mut,
+        )
+        .map_err(|_| busy())
     }
 
     fn prepare(&self, sql: &str) -> Result<postgres::Statement> {
@@ -896,10 +903,12 @@ impl Pg {
         if let Some(s) = self.prepared.borrow().get(&translated) {
             return Ok(s.clone());
         }
-        let s = self
-            .client()?
-            .prepare(&translated)
-            .map_err(|e| Error(Fault::Postgres(e)).with_sql(&translated))?;
+        let s = blocking(|| {
+            self.client()?
+                .prepare(&translated)
+                .map_err(|e| Error(Fault::Postgres(e)))
+        })
+        .map_err(|e| e.with_sql(&translated))?;
         self.prepared.borrow_mut().insert(translated, s.clone());
         Ok(s)
     }
@@ -918,9 +927,11 @@ impl Pg {
             .iter()
             .map(|b| b as &(dyn postgres::types::ToSql + Sync))
             .collect();
-        self.client()?
-            .query(s, &refs)
-            .map_err(|e| Error(Fault::Postgres(e)))
+        blocking(|| {
+            self.client()?
+                .query(s, &refs)
+                .map_err(|e| Error(Fault::Postgres(e)))
+        })
     }
 
     fn execute(&self, s: &postgres::Statement, values: &[ValueRef<'_>]) -> Result<usize> {
@@ -929,10 +940,11 @@ impl Pg {
             .iter()
             .map(|b| b as &(dyn postgres::types::ToSql + Sync))
             .collect();
-        let n = self
-            .client()?
-            .execute(s, &refs)
-            .map_err(|e| Error(Fault::Postgres(e)))?;
+        let n = blocking(|| {
+            self.client()?
+                .execute(s, &refs)
+                .map_err(|e| Error(Fault::Postgres(e)))
+        })?;
         Ok(usize::try_from(n).unwrap_or(usize::MAX))
     }
 
@@ -957,9 +969,12 @@ impl Pg {
         } else {
             translated.clone()
         };
-        self.client()?
-            .batch_execute(&sent)
-            .map_err(|e| Error(Fault::Postgres(e)).with_sql(&translated))?;
+        blocking(|| {
+            self.client()?
+                .batch_execute(&sent)
+                .map_err(|e| Error(Fault::Postgres(e)))
+        })
+        .map_err(|e| e.with_sql(&translated))?;
         // whether a transaction is open, which the server does not say: a
         // begin opens one, a commit or a rollback but to a savepoint ends it
         if head.starts_with("BEGIN") || head.starts_with("START TRANSACTION") {
@@ -976,11 +991,30 @@ impl Pg {
 
 impl Drop for Pg {
     fn drop(&mut self) {
-        if let Some(schema) = &self.schema
-            && let Ok(mut c) = self.client.try_borrow_mut()
-        {
-            let _ = c.batch_execute(&format!("ROLLBACK; DROP SCHEMA IF EXISTS {schema} CASCADE"));
+        // a sandbox's schema dropped, and the client closed, each blocking
+        // as the client does, beside a caller's runtime too
+        let client = self.client.get_mut().take();
+        let schema = self.schema.take();
+        blocking(move || {
+            if let (Some(schema), Some(mut c)) = (schema, client) {
+                let _ =
+                    c.batch_execute(&format!("ROLLBACK; DROP SCHEMA IF EXISTS {schema} CASCADE"));
+                drop(c);
+            }
+        });
+    }
+}
+
+/// A call into the PostgreSQL client, which blocks on a runtime of its own:
+/// made through `block_in_place` where the caller is a worker of a
+/// multi-threaded tokio runtime, the service's, on which the client's
+/// runtime cannot block, and as it is anywhere else (ADR-0213).
+fn blocking<T>(f: impl FnOnce() -> T) -> T {
+    match tokio::runtime::Handle::try_current() {
+        Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(f)
         }
+        _ => f(),
     }
 }
 
@@ -1297,6 +1331,93 @@ fn drop_orphaned_sandboxes(client: &mut postgres::Client) {
     }
 }
 
+/// How a PostgreSQL store is reached: its connection string or URL, and the
+/// password set apart from it, so it is never written where a process list
+/// shows it (ADR-0213).
+#[derive(Clone)]
+pub struct PgConfig(postgres::Config);
+
+impl PgConfig {
+    /// A connection string or a `postgresql://` URL, with the password given
+    /// apart where one is; one written in the string itself is refused, as
+    /// a command line shows it to every user of the machine.
+    pub fn parse(config: &str, password: Option<&str>) -> Result<PgConfig> {
+        let mut c: postgres::Config = config.parse().map_err(|e| Error(Fault::Postgres(e)))?;
+        if c.get_password().is_some() && password.is_some() {
+            return Err(Error(Fault::Unsupported(
+                "a password both in the store's connection string and given apart".into(),
+            )));
+        }
+        if let Some(p) = password {
+            c.password(p);
+        }
+        Ok(PgConfig(c))
+    }
+
+    /// Whether the string itself carried a password.
+    pub fn has_password(config: &str) -> bool {
+        config
+            .parse::<postgres::Config>()
+            .is_ok_and(|c| c.get_password().is_some())
+    }
+
+    /// Whether the connection may run without TLS to a host beyond the
+    /// machine: an `sslmode` short of `require`, which falls back to a
+    /// plain connection where TLS fails, to a host not the loopback's or a
+    /// socket's.
+    pub fn plain_to_another_host(&self) -> bool {
+        let remote = self.0.get_hosts().iter().any(|h| match h {
+            postgres::config::Host::Tcp(h) => {
+                !["localhost", "127.0.0.1", "::1"].contains(&h.as_str())
+            }
+            postgres::config::Host::Unix(_) => false,
+        });
+        remote && self.0.get_ssl_mode() != postgres::config::SslMode::Require
+    }
+
+    /// The database it names, and its host, for what a start says.
+    pub fn describe(&self) -> String {
+        let host = self
+            .0
+            .get_hosts()
+            .first()
+            .map(|h| match h {
+                postgres::config::Host::Tcp(h) => h.clone(),
+                postgres::config::Host::Unix(p) => p.display().to_string(),
+            })
+            .unwrap_or_default();
+        format!(
+            "PostgreSQL database {} on {host}",
+            self.0.get_dbname().unwrap_or("(the user's)")
+        )
+    }
+}
+
+impl fmt::Debug for PgConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // its password never printed
+        f.write_str(&self.describe())
+    }
+}
+
+/// TLS for a PostgreSQL connection, through rustls on ring with the
+/// platform's trust store, as the evaluator client has it; used where the
+/// connection string's `sslmode` asks for it, `prefer` by default
+/// (ADR-0213 decision 3). A certificate is always verified, host and chain.
+fn tls() -> Result<tokio_postgres_rustls::MakeRustlsConnect> {
+    use rustls_platform_verifier::BuilderVerifierExt;
+    let fault = |e: rustls::Error| Error(Fault::Unsupported(format!("TLS: {e}")));
+    let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(fault)?
+    .with_platform_verifier()
+    .map_err(fault)?
+    .with_no_client_auth();
+    Ok(tokio_postgres_rustls::MakeRustlsConnect::new(config))
+}
+
 /// A connection to the database.
 pub struct Connection {
     inner: Inner,
@@ -1353,17 +1474,49 @@ impl Connection {
     /// by bytes, as SQLite compares it and the store's ascending id order
     /// needs (ADR-0213).
     pub fn postgres(config: &str) -> Result<Connection> {
+        Connection::postgres_with(&PgConfig::parse(config, None)?)
+    }
+
+    /// A PostgreSQL database as its configuration says.
+    pub fn postgres_with(config: &PgConfig) -> Result<Connection> {
         Connection::postgres_in(config, None)
     }
 
     /// A PostgreSQL database, every table of it in a schema of its own,
     /// made for it and dropped with it: a sandbox's or a test's.
     pub fn postgres_sandbox(config: &str, schema: &str) -> Result<Connection> {
-        Connection::postgres_in(config, Some(schema.to_string()))
+        Connection::postgres_in(&PgConfig::parse(config, None)?, Some(schema.to_string()))
     }
 
-    fn postgres_in(config: &str, schema: Option<String>) -> Result<Connection> {
-        let mut client = postgres::Client::connect(config, postgres::NoTls)
+    /// A connection that reads the same store, a deployment's read
+    /// connection (ADR-0178): a SQLite file opened read-only, or the same
+    /// PostgreSQL database, read-only by default.
+    pub fn reader(&self) -> Result<Connection> {
+        match &self.inner {
+            Inner::Sqlite(c) => {
+                let path = c.path().ok_or_else(|| {
+                    Error(Fault::Unsupported(
+                        "a reader of a database in memory".into(),
+                    ))
+                })?;
+                Connection::open_with_flags(path, OpenFlags::READ_ONLY.one_thread())
+            }
+            Inner::Postgres(pg) => {
+                let r = Connection::postgres_in(&pg.config, None)?;
+                r.execute_batch("SET default_transaction_read_only = on")?;
+                Ok(r)
+            }
+        }
+    }
+
+    fn postgres_in(config: &PgConfig, schema: Option<String>) -> Result<Connection> {
+        blocking(|| Connection::postgres_blocking(config, schema))
+    }
+
+    fn postgres_blocking(config: &PgConfig, schema: Option<String>) -> Result<Connection> {
+        let mut client = config
+            .0
+            .connect(tls()?)
             .map_err(|e| Error(Fault::Postgres(e)))?;
         let collation: String = client
             .query_one(
@@ -1388,7 +1541,8 @@ impl Connection {
             .map_err(|e| Error(Fault::Postgres(e)))?;
         Ok(Connection {
             inner: Inner::Postgres(Box::new(Pg {
-                client: std::cell::RefCell::new(client),
+                client: std::cell::RefCell::new(Some(client)),
+                config: config.clone(),
                 prepared: std::cell::RefCell::new(std::collections::HashMap::new()),
                 open: std::cell::Cell::new(false),
                 schema,
@@ -1539,7 +1693,12 @@ impl Connection {
         InterruptHandle {
             inner: match &self.inner {
                 Inner::Sqlite(c) => InterruptInner::Sqlite(c.get_interrupt_handle()),
-                Inner::Postgres(pg) => InterruptInner::Postgres(pg.client.borrow().cancel_token()),
+                Inner::Postgres(pg) => InterruptInner::Postgres(
+                    pg.client
+                        .borrow()
+                        .as_ref()
+                        .map(postgres::Client::cancel_token),
+                ),
             },
         }
     }
@@ -1552,17 +1711,22 @@ pub struct InterruptHandle {
 
 enum InterruptInner {
     Sqlite(rusqlite::InterruptHandle),
-    Postgres(postgres::CancelToken),
+    Postgres(Option<postgres::CancelToken>),
 }
 
 impl InterruptHandle {
     pub fn interrupt(&self) {
         match &self.inner {
             InterruptInner::Sqlite(h) => h.interrupt(),
-            // a cancel that fails leaves the statement to its own deadline
-            InterruptInner::Postgres(t) => {
-                let _ = t.cancel_query(postgres::NoTls);
+            // a cancel that fails leaves the statement to its own deadline;
+            // sent over TLS where the server asks it, as it refuses one
+            // without
+            InterruptInner::Postgres(Some(t)) => {
+                if let Ok(tls) = tls() {
+                    let _ = blocking(|| t.cancel_query(tls));
+                }
             }
+            InterruptInner::Postgres(None) => {}
         }
     }
 }

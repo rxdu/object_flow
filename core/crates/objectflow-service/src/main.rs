@@ -56,6 +56,9 @@ struct Sandbox {
     evaluator_timeout: std::time::Duration,
     /// A deployment's store file, which an upgrade opens.
     path: Option<std::path::PathBuf>,
+    /// A deployment's store on PostgreSQL, where it is kept there
+    /// (ADR-0213).
+    postgres: Option<objectflow_core::db::PgConfig>,
     /// How long its writes wait out another process's write lock
     /// (ADR-0178 decision 2).
     busy_timeout: std::time::Duration,
@@ -793,8 +796,9 @@ fn resident_bytes() -> Option<u64> {
 /// 4).
 struct Reads {
     pool: Readers,
-    /// The store's file, which `GET /health` opens afresh.
-    path: std::path::PathBuf,
+    /// The store's file, which `GET /health` opens afresh; none for a store
+    /// on PostgreSQL, which its reads reach (ADR-0213).
+    path: Option<std::path::PathBuf>,
     seen: std::sync::RwLock<Seen>,
     floor: AtomicI64,
 }
@@ -1950,6 +1954,24 @@ fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
 /// A deployment's store opened again from its file, as the service opens
 /// it at its start; what was done, said.
 fn reopened(sandbox: &mut Sandbox) -> String {
+    if let Some(config) = sandbox.postgres.clone().filter(|_| sandbox.deployment) {
+        // the store's connection, holding its lock, let go first, so the
+        // one opened takes the lock again
+        sandbox.store = None;
+        let opened = Store::open_postgres(&config, wall_clock(), false).and_then(|mut s| {
+            (s.attempt_retention, s.idempotency_retention) = sandbox.retentions;
+            s.lock_wait = Some(sandbox.lock_wait.clone());
+            s.set_busy_timeout(sandbox.busy_timeout)?;
+            Ok(s)
+        });
+        return match opened {
+            Ok(s) => {
+                sandbox.store = Some(s);
+                format!("the store opened again from {config:?}")
+            }
+            Err(e) => format!("the store could not be opened again from {config:?}: {e}"),
+        };
+    }
     let Some(path) = sandbox
         .path
         .clone()
@@ -4070,7 +4092,10 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
             // OBSERVE): its file opened afresh, which a read connection,
             // whose pages stay cached while no write moves the log, never
             // rereads, and its release found to be the one served
-            match objectflow_core::release::store_release_at(&reads.path) {
+            match reads.path.as_deref().map_or(
+                Ok(Some(BUILTINS.to_string())),
+                objectflow_core::release::store_release_at,
+            ) {
                 Ok(Some(r)) if r == BUILTINS => {}
                 // a code an operator acts on, as every one of /health's is,
                 // where it answered 500 internal (ninth production review,
@@ -4082,7 +4107,10 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                         &shared,
                         format!(
                             "store_unreadable: {} holds {}; restore the store with the service stopped (operate.md, Backups and restore)",
-                            reads.path.display(),
+                            reads
+                                .path
+                                .as_deref()
+                                .map_or_else(String::new, |p| p.display().to_string()),
                             at.map_or("no store".to_string(), |r| format!("a store at {r}"))
                         ),
                     )));
@@ -4092,7 +4120,10 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                         &shared,
                         format!(
                             "store_unreadable: {}: {e}; restore the store with the service stopped (operate.md, Backups and restore)",
-                            reads.path.display()
+                            reads
+                                .path
+                                .as_deref()
+                                .map_or_else(String::new, |p| p.display().to_string())
                         ),
                     )));
                 }
@@ -4103,7 +4134,7 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
             s.snapshot()?.get(objectflow_core::model::OPERATOR)?;
             let now = s.now;
             drop(r);
-            let free = disk_free(&reads.path);
+            let free = reads.path.as_deref().and_then(disk_free);
             let mut body = json!({"release": BUILTINS, "shape": "deployment", "version": version,
                               "now": timestamp_text(now), "store_release": BUILTINS,
                               "upgrade_due": false, "clock_lead_seconds": clock_lead(&shared),
@@ -4228,6 +4259,19 @@ async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let dry_run = flag(&body, "dry_run")?;
         let mut sandbox = locked(&shared)?;
+        // a store on PostgreSQL is made at this release, which no earlier
+        // one made (ADR-0213 decision 6): nothing is due, said to its
+        // operator as a file's is
+        if sandbox.deployment && sandbox.postgres.is_some() {
+            let s = store(&mut sandbox)?;
+            if !is_operator(&s.snapshot()?, actor)? {
+                return Err(Fault::Conflict(
+                    "an upgrade is the store's operator's".to_string(),
+                ));
+            }
+            return Ok(Json(json!({"from": BUILTINS, "to": BUILTINS, "steps": [],
+                                  "dry_run": dry_run, "upgraded": false, "restored": J::Null})));
+        }
         let Some(path) = sandbox.path.clone().filter(|_| sandbox.deployment) else {
             return Err(Fault::Bad(
                 "a sandbox's store is this release's; only a deployment's is upgraded".to_string(),
@@ -4724,7 +4768,8 @@ async fn metrics(State(shared): State<Shared>) -> Response {
 const USAGE: &str = "usage: objectflow-service [--port <n> | --bind <host:port> | --socket <path>]
                           [--idle-timeout <duration>] [--max-connections <n>]
                           [--metrics-bind <host:port>]
-                          [--store <file> [--create]
+                          [--store <file> | --store <postgresql://…> [--store-password-file <file>]
+                                          [--create]
                                           [--attempt-retention <duration>]
                                           [--idempotency-retention <duration>]
                                           [--evaluator <name>=<url> ...]
@@ -4748,7 +4793,13 @@ Without --store the store is a sandbox's, held in memory, with its controls,
 POST /sandbox/<control>. With --store it is a deployment's: the SQLite file
 named, which must hold a store unless --create is given, which makes one at
 version 0, its files 0600, whose flow is published through the wire; the
-wall clock; and no controls (ADR-0174, ADR-0183). Each --evaluator names
+wall clock; and no controls (ADR-0174, ADR-0183). --store may name a
+PostgreSQL database instead, a postgresql:// URL or a connection string, the
+store kept there and made in it by --create where it holds none; its
+password is read from OBJECTFLOW_STORE_PASSWORD or --store-password-file and
+refused on the command line, its connection uses TLS where its sslmode asks,
+and its database must compare text by bytes, made with LC_COLLATE 'C'
+(ADR-0213). Each --evaluator names
 the endpoint a namespace's calls are posted to, answered within the timeout,
 5 s unless given, and an evaluator no endpoint answers is unknown
 (ADR-0175), sent the token each --evaluator-token's file holds (ADR-0188).
@@ -4770,6 +4821,11 @@ struct Args {
     /// decision 4).
     socket: Option<std::path::PathBuf>,
     store: Option<std::path::PathBuf>,
+    /// A deployment's store on PostgreSQL, the connection string or URL
+    /// `--store` names in a file's place, and the file its password is read
+    /// from, which is never given on the command line (ADR-0213).
+    postgres: Option<String>,
+    password_file: Option<std::path::PathBuf>,
     /// Whether a store is made where the path holds none (ADR-0183
     /// decision 3).
     create: bool,
@@ -4795,6 +4851,14 @@ struct Args {
     metrics_bind: Option<String>,
 }
 
+impl Args {
+    /// Whether the store is a deployment's, a file's or a PostgreSQL
+    /// database's, where none is a sandbox's.
+    fn deployed(&self) -> bool {
+        self.store.is_some() || self.postgres.is_some()
+    }
+}
+
 /// The reads that grow with the store run at once unless `--max-reads`
 /// says otherwise (ADR-0189 decision 2).
 const MAX_READS: usize = 4;
@@ -4808,6 +4872,8 @@ fn args() -> Result<Args, String> {
         bind: "127.0.0.1:8712".to_string(),
         socket: None,
         store: None,
+        postgres: None,
+        password_file: None,
         create: false,
         retentions: (None, None),
         endpoints: std::collections::BTreeMap::new(),
@@ -4847,7 +4913,15 @@ fn args() -> Result<Args, String> {
                 addressed = true;
             }
             "--socket" => out.socket = Some(value()?.into()),
-            "--store" => out.store = Some(value()?.into()),
+            "--store" => {
+                let v = value()?;
+                if objectflow_core::store::names_postgres(&v) {
+                    out.postgres = Some(v);
+                } else {
+                    out.store = Some(v.into());
+                }
+            }
+            "--store-password-file" => out.password_file = Some(value()?.into()),
             "--create" => out.create = true,
             "--attempt-retention" | "--idempotency-retention" => {
                 let d = value()?;
@@ -4943,31 +5017,37 @@ fn args() -> Result<Args, String> {
     if addressed && out.socket.is_some() {
         return Err("--socket listens in the address's place; give one or the other".to_string());
     }
-    if out.dry_run_timeout.is_some() && out.store.is_none() {
+    if out.dry_run_timeout.is_some() && !out.deployed() {
         return Err(
             "a dry run's timeout is a deployment's; a sandbox's dry runs take the writer's lock"
                 .to_string(),
         );
     }
-    if out.read_timeout.is_some() && out.store.is_none() {
+    if out.read_timeout.is_some() && !out.deployed() {
         return Err(
             "a read's timeout is a deployment's; a sandbox's reads take the writer's lock"
                 .to_string(),
         );
     }
-    if out.busy_timeout.is_some() && out.store.is_none() {
+    if out.busy_timeout.is_some() && !out.deployed() {
         return Err(
             "how long a write waits out another process's lock is a deployment's; a sandbox's store is its own"
                 .to_string(),
         );
     }
-    if out.max_reads.is_some() && out.store.is_none() {
+    if out.max_reads.is_some() && !out.deployed() {
         return Err(
             "how many reads run at once is a deployment's; a sandbox's reads take the writer's lock"
                 .to_string(),
         );
     }
-    if out.create && out.store.is_none() {
+    if out.password_file.is_some() && out.postgres.is_none() {
+        return Err(
+            "--store-password-file is a PostgreSQL store's; a file's store has no password"
+                .to_string(),
+        );
+    }
+    if out.create && !out.deployed() {
         return Err("--create makes a deployment's store, which --store names".to_string());
     }
     // a socket path no socket can have is refused before anything is made,
@@ -4975,10 +5055,10 @@ fn args() -> Result<Args, String> {
     if let Some(said) = out.socket.as_deref().and_then(socket_too_long) {
         return Err(said);
     }
-    if retained && out.store.is_none() {
+    if retained && !out.deployed() {
         return Err("a retention is a deployment's; a sandbox's load names its own".to_string());
     }
-    if (!out.endpoints.is_empty() || out.evaluator_timeout.is_some()) && out.store.is_none() {
+    if (!out.endpoints.is_empty() || out.evaluator_timeout.is_some()) && !out.deployed() {
         return Err("an evaluator's endpoint is a deployment's; a sandbox's evaluators answer as it sets them".to_string());
     }
     if let Some(name) = out.tokens.keys().find(|n| !out.endpoints.contains_key(*n)) {
@@ -6059,6 +6139,36 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
     Ok(notes)
 }
 
+/// A deployment's store on PostgreSQL (ADR-0213): its password read from
+/// `OBJECTFLOW_STORE_PASSWORD` or the file given, never the command line,
+/// where a URL holding one is refused; made in the database by `--create`
+/// where it holds none, and refused without it.
+fn postgres_store(
+    url: &str,
+    password_file: Option<&std::path::Path>,
+    create: bool,
+) -> std::io::Result<(Store, objectflow_core::db::PgConfig)> {
+    if objectflow_core::db::PgConfig::has_password(url) {
+        return Err(std::io::Error::other(
+            "--store gives the database's password on the command line, which every user of the machine can read: give it in OBJECTFLOW_STORE_PASSWORD or --store-password-file",
+        ));
+    }
+    let password = match password_file {
+        Some(file) => Some(
+            std::fs::read_to_string(file)
+                .map_err(|e| std::io::Error::other(format!("{}: {e}", file.display())))?
+                .trim_end_matches(['\n', '\r'])
+                .to_string(),
+        ),
+        None => std::env::var("OBJECTFLOW_STORE_PASSWORD").ok(),
+    };
+    let config = objectflow_core::db::PgConfig::parse(url, password.as_deref())
+        .map_err(|e| std::io::Error::other(format!("--store: {e}")))?;
+    let store = Store::open_postgres(&config, wall_clock(), create)
+        .map_err(|e| std::io::Error::other(format!("{config:?}: {e}")))?;
+    Ok((store, config))
+}
+
 /// The store's lock, `<store>.lock` beside it, taken for the process's life;
 /// where another service holds it, what the start says of it.
 fn hold_store(path: &std::path::Path) -> std::io::Result<Option<String>> {
@@ -6282,6 +6392,40 @@ async fn serve() -> std::io::Result<()> {
             .evaluator_timeout
             .unwrap_or(std::time::Duration::from_secs(5));
     }
+    if let Some(url) = &a.postgres {
+        let (s, config) = postgres_store(url, a.password_file.as_deref(), a.create)?;
+        let mut s = s;
+        (s.attempt_retention, s.idempotency_retention) = a.retentions;
+        s.lock_wait = Some(sandbox.lock_wait.clone());
+        let busy = a
+            .busy_timeout
+            .unwrap_or(objectflow_core::store::BUSY_TIMEOUT);
+        s.set_busy_timeout(busy)
+            .map_err(|e| std::io::Error::other(format!("{config:?}: {e}")))?;
+        if a.retentions.0.is_none() {
+            noted.push(
+                "no --attempt-retention is given, so refused attempts are kept for ever with what their requests sent; give one, as operate.md's unit does".to_string(),
+            );
+        }
+        noted.push(format!(
+            "the store {config:?} at version {}, under {BUILTINS}",
+            s.lib.version
+        ));
+        if config.plain_to_another_host() {
+            noted.push(
+                "the store's connection may run without TLS, its sslmode short of require: give sslmode=require, whose certificate and host are always verified (operate.md, A store on PostgreSQL)".to_string(),
+            );
+        }
+        sandbox.deployment = true;
+        sandbox.postgres = Some(config);
+        sandbox.retentions = a.retentions;
+        sandbox.store = Some(s);
+        sandbox.busy_timeout = busy;
+        sandbox.endpoints = a.endpoints.clone();
+        sandbox.evaluator_timeout = a
+            .evaluator_timeout
+            .unwrap_or(std::time::Duration::from_secs(5));
+    }
     let deployment = sandbox.deployment;
     for line in listening_said {
         say!("{line}");
@@ -6338,13 +6482,17 @@ async fn serve() -> std::io::Result<()> {
         }
     }
     // a deployment's reads, beside its writer (ADR-0178)
-    let reads = a.store.as_ref().map(|path| Reads {
-        path: path.clone(),
-        pool: Readers::new(
-            path,
-            a.busy_timeout
-                .unwrap_or(objectflow_core::store::BUSY_TIMEOUT),
-        ),
+    let read_busy = a
+        .busy_timeout
+        .unwrap_or(objectflow_core::store::BUSY_TIMEOUT);
+    let pool = match (&a.store, &sandbox.postgres) {
+        (Some(path), _) => Some(Readers::new(path, read_busy)),
+        (None, Some(config)) => Some(Readers::postgres(config, read_busy)),
+        (None, None) => None,
+    };
+    let reads = pool.map(|pool| Reads {
+        path: a.store.clone(),
+        pool,
         seen: std::sync::RwLock::new(Seen::of(&sandbox)),
         floor: AtomicI64::new(sandbox.store.as_ref().map_or(0, |s| s.now)),
     });
@@ -6735,7 +6883,7 @@ mod tests {
             ..Default::default()
         };
         let reads = Reads {
-            path: path.clone(),
+            path: Some(path.clone()),
             pool: Readers::new(&path, objectflow_core::store::BUSY_TIMEOUT),
             seen: std::sync::RwLock::new(Seen::of(&sandbox)),
             floor: AtomicI64::new(0),
@@ -6920,7 +7068,7 @@ mod tests {
             ..Default::default()
         };
         let reads = Reads {
-            path: path.clone(),
+            path: Some(path.clone()),
             pool: Readers::new(&path, objectflow_core::store::BUSY_TIMEOUT),
             seen: std::sync::RwLock::new(Seen::of(&sandbox)),
             floor: AtomicI64::new(0),
@@ -7073,7 +7221,7 @@ mod tests {
             ..Default::default()
         };
         let reads = Reads {
-            path: path.clone(),
+            path: Some(path.clone()),
             pool: Readers::new(&path, objectflow_core::store::BUSY_TIMEOUT),
             seen: std::sync::RwLock::new(Seen::of(&sandbox)),
             floor: AtomicI64::new(0),
@@ -7287,7 +7435,7 @@ mod tests {
             ..Default::default()
         };
         let reads = Reads {
-            path: path.clone(),
+            path: Some(path.clone()),
             pool: Readers::new(&path, objectflow_core::store::BUSY_TIMEOUT),
             seen: std::sync::RwLock::new(Seen::of(&sandbox)),
             floor: AtomicI64::new(0),
@@ -7458,7 +7606,7 @@ mod tests {
             ..Default::default()
         };
         let reads = Reads {
-            path: path.clone(),
+            path: Some(path.clone()),
             pool: Readers::new(&path, objectflow_core::store::BUSY_TIMEOUT),
             seen: std::sync::RwLock::new(Seen::of(&sandbox)),
             floor: AtomicI64::new(0),

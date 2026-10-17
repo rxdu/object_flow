@@ -12,6 +12,11 @@ saphyr-parser.workspace = true
 rusqlite.workspace = true
 postgres.workspace = true
 bytes.workspace = true
+tokio-postgres-rustls.workspace = true
+rustls.workspace = true
+rustls-platform-verifier.workspace = true
+# the client's own runtime run beside a caller's, block_in_place (ADR-0213)
+tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

@@ -6448,3 +6448,99 @@ fn a_store_says_which_files_it_still_holds() {
         json!({"referenced": [], "refused": "actor_known"})
     );
 }
+
+/// A deployment's store on PostgreSQL (ADR-0213): made by `--create` in a
+/// database holding none and refused without it, its password read from a
+/// file and refused on the command line, written by one service alone, and
+/// served again by the next start as it was left.
+#[test]
+fn a_store_on_postgresql_is_served_made_and_kept() {
+    let base = std::env::var("OBJECTFLOW_SANDBOX_POSTGRES").unwrap_or_default();
+    if base.trim().is_empty() {
+        eprintln!("skipped on SQLite: a deployment's store on PostgreSQL");
+        return;
+    }
+    // the password apart from the connection string, in a file of its own
+    let (mut kept, mut password) = (Vec::new(), String::new());
+    for part in base.split_whitespace() {
+        match part.strip_prefix("password=") {
+            Some(p) => password = p.to_string(),
+            None => kept.push(part),
+        }
+    }
+    let schema = format!("served_{}", std::process::id());
+    let admin = objectflow_core::db::Connection::postgres(&base).expect("the database");
+    admin
+        .execute_batch(&format!(
+            "DROP SCHEMA IF EXISTS {schema} CASCADE; CREATE SCHEMA {schema}"
+        ))
+        .expect("a schema");
+    let url = format!("{} options='-c search_path={schema}'", kept.join(" "));
+    let dir = fresh_store("postgres")
+        .parent()
+        .expect("a directory")
+        .to_path_buf();
+    let secret = dir.join("password");
+    std::fs::write(&secret, format!("{password}\n")).expect("the password's file");
+    let secret = secret.to_str().expect("a path");
+    // a database holding no store, refused without --create; a password on
+    // the command line, refused
+    let (code, said) = refused(&[
+        "--store",
+        &url,
+        "--store-password-file",
+        secret,
+        "--port",
+        "0",
+    ]);
+    assert_ne!(code, Some(0));
+    assert!(
+        said.contains("holds no store; --create makes one"),
+        "{said}"
+    );
+    let (code, said) = refused(&["--store", &base, "--create", "--port", "0"]);
+    assert_ne!(code, Some(0));
+    assert!(
+        said.contains("OBJECTFLOW_STORE_PASSWORD or --store-password-file"),
+        "{said}"
+    );
+    let args = [
+        "--store",
+        &url,
+        "--store-password-file",
+        secret,
+        "--create",
+        "--port",
+        "0",
+    ];
+    let memo = {
+        let s = start(&args);
+        publish(&s, &json!({"copies": COPIES}));
+        let op = json!({"id": "operator"});
+        let ann = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Person", "transition": "add", "inputs": {"login": "ann@example.com"}}),
+        );
+        assert_eq!(ann["kind"], "satisfied", "{ann}");
+        // a second service on the same store is refused while the first holds it
+        let (code, said) = refused(&args);
+        assert_ne!(code, Some(0));
+        assert!(said.contains("another service holds the store"), "{said}");
+        ann["object_id"].as_str().expect("the person").to_string()
+    };
+    // the next start serves the store as it was left, its reads included
+    let s = start(&args);
+    let got = post(
+        &s,
+        "/v1/get",
+        &json!({"actor": {"id": "operator"}, "id": memo}),
+    );
+    assert_eq!(got["attributes"]["login"], "ann@example.com", "{got}");
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 200, "{health}");
+    drop(s);
+    admin
+        .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+        .expect("the schema dropped");
+}

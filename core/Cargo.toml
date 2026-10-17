@@ -21,6 +21,11 @@ postgres = "0.19.14"
 # the buffer a value is written into for PostgreSQL, already resolved through
 # postgres
 bytes = "1.12.1"
+# a PostgreSQL store reached over TLS through rustls, on ring as ureq has it,
+# with the platform's trust store (ADR-0213 decision 3)
+tokio-postgres-rustls = "0.14.0"
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-platform-verifier = "0.7.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 sha2 = "0.11.0"

@@ -4,7 +4,7 @@ How to run ObjectFlow as a live service on one Linux machine: install it, start 
 
 ## What you are running
 
-One process, `objectflow-service`, serving one **store**: a SQLite file and the files SQLite keeps beside it (`-wal`, `-shm`), plus `<store>.lock`, which the service holds while it runs. It writes one request at a time and reads beside its writes. A second service started on the same store says so at start and shares it, as an upgrade's overlap needs; stop one otherwise. *A PostgreSQL store is decided for 1.0.0 and being built (ADR-0213); this page describes the SQLite store until it lands.*
+One process, `objectflow-service`, serving one **store**: a SQLite file and the files SQLite keeps beside it (`-wal`, `-shm`), plus `<store>.lock`, which the service holds while it runs. It writes one request at a time and reads beside its writes. A second service started on the same store says so at start and shares it, as an upgrade's overlap needs; stop one otherwise. A store may instead be a PostgreSQL database, which [A store on PostgreSQL](#a-store-on-postgresql) describes.
 
 **It authenticates nobody.** Whoever can reach it can act as any actor. Put it behind the application that authenticates your users: on a Unix socket only your application can open, or on loopback. Never put it on a network your users reach.
 
@@ -57,6 +57,42 @@ of publish "{\"actor\": {\"id\": \"operator\"}, \"change\": \"$CHANGE\", \"expec
 ```
 
 Once it is approved, `/health` answers the new `version`. A submit refused `dry_run_clean` says why in a preview: `of publish "{\"actor\": {\"id\": \"operator\"}, \"change\": \"$CHANGE\", \"dry_run\": true}"`.
+
+## A store on PostgreSQL
+
+The store may be a PostgreSQL database instead of a file (ADR-0213): `--store` names it, a `postgresql://` URL or a connection string, and everything else on this page holds but what this section says differs.
+
+**The database.** PostgreSQL 16 or later, a database of the store's own whose text is compared by bytes, which the service refuses otherwise, since the store's ids sort as their bytes do, and a role that owns it:
+
+```sql
+CREATE ROLE objectflow LOGIN PASSWORD '…';
+CREATE DATABASE objectflow OWNER objectflow TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C';
+GRANT pg_checkpoint TO objectflow;   -- an erasure's checkpoint, below; PostgreSQL 15 and later
+```
+
+**Start it** with the password in a file the service's user alone reads, or in `OBJECTFLOW_STORE_PASSWORD`; a URL holding one is refused, since a command line is shown to every user of the machine. The first start makes the store with `--create`, and a database holding none is refused without it:
+
+```sh
+sudo install -o objectflow -m 0600 /dev/stdin /etc/objectflow/db-password <<< '…'
+sudo -u objectflow objectflow-service --create --port 0 \
+    --store 'postgresql://objectflow@db.internal:5432/objectflow?sslmode=require' \
+    --store-password-file /etc/objectflow/db-password
+```
+
+In the unit, `--store` and `--store-password-file` take `--store <file>`'s place. **TLS:** give `sslmode=require`; the service then verifies the server's certificate and its host against the machine's trust store, so install your provider's certificate authority there (`/usr/local/share/ca-certificates`, then `update-ca-certificates`). The client takes `disable`, `prefer` and `require`, not `verify-full`, `require` verifying as `verify-full` does; `prefer`, the default, falls back to a plain connection, which the start says where the host is not this machine.
+
+**One service writes it.** The store's connection holds an advisory lock on it for its life, so a second service started on the same store is refused, and the lock goes with a crashed service's connection. After a failover, start the service again against the new primary. Several services writing one store at once is not supported. **Connections:** the writer's, and one for each read running at once, up to `--max-reads` beside the reads every request makes and eight kept idle; size the server's `max_connections` for them.
+
+**Back it up** with your provider's snapshots and point-in-time recovery, or `pg_dump --format=custom`. A database restored from a backup is a copy, which must be marked before the service starts on it, as a file's copy is, so the restore moves the store's counters past what the lost store may have given out (ADR-0207):
+
+```sh
+psql 'postgresql://objectflow@db.internal/objectflow?sslmode=require' \
+    -c "INSERT INTO of_counter (name, value) VALUES ('copied', 1) ON CONFLICT (name) DO UPDATE SET value = 1"
+```
+
+**An erasure** rewrites every copy the store holds, as on a file, then vacuums the store's tables and takes a checkpoint, so no erased value stays in the data files once no read that was open at the erasure remains; a read open then keeps them, and the vacuum is tried again after the next write. Measured on PostgreSQL 16.8, three erased values were in no table's or TOAST's file after the vacuum and the checkpoint, and each was still in one segment of the write-ahead log, which keeps them until its segments are recycled. **A limit:** a log archive, a backup, a snapshot or a replica taken before the erasure holds the erased values until it is deleted, so bound their retention to what your erasure policy allows (ADR-0213 decision 8). Without `pg_checkpoint` the data files lose them at the server's next scheduled checkpoint.
+
+**What differs from a file's store.** No `-wal`, `-shm` or `.lock` beside it, and no file mode to check; `/health` reports no `disk_free_bytes`, the store's volume being the server's, so watch its disk there. A store on PostgreSQL is made at this release; a later release's upgrade runs on it as on a file.
 
 ## Run it under systemd
 
@@ -131,7 +167,8 @@ Durations are a count and a unit, with a space: `30 s`, `2 min`, `1 h`, `90 days
 | `--idle-timeout <duration>` | `30 s` | How long a connection may take to send a request's head, or leave its answer unread. A body that does not arrive in time is answered `408`; an answer not read in time closes the connection. |
 | `--max-connections <n>` | `512` | Connections served at once, at most 4,096. At the cap, the oldest idle connection is closed to make room; only when every one is busy is a newcomer answered `503 busy`. |
 | `--metrics-bind <host:port>` | | Serves `GET /health` and `GET /metrics` alone on a second address. |
-| `--store <file>` | | Serves the deployment store in this file. Without it, the service runs a sandbox. |
+| `--store <file>` | | Serves the deployment store in this file, or in the PostgreSQL database a `postgresql://` URL or a connection string names ([A store on PostgreSQL](#a-store-on-postgresql)). Without it, the service runs a sandbox. |
+| `--store-password-file <file>` | | The file a PostgreSQL store's password is read from, else `OBJECTFLOW_STORE_PASSWORD`. A password in `--store` itself is refused. |
 | `--create` | | Makes the store, the first time. *Deployment only.* |
 | `--attempt-retention <duration>` | none | How long refused attempts are kept before `maintain` may prune them. *Deployment only.* |
 | `--idempotency-retention <duration>` | none | How long idempotency records are kept before `maintain` may prune them. *Deployment only.* |
