@@ -2,12 +2,16 @@
 # runner and the document checks, pinned whole so they give the same findings on
 # every machine. scripts/setup/python-env builds scripts/.venv from it.
 #
-# PyYAML is 6.0.2 where the checks were first run on Ubuntu's 5.4.1, which builds
+# PyYAML is 6.0.3 where the checks were first run on Ubuntu's 5.4.1, which builds
 # from source on Python 3.10 and fails to; every check's output is the same under
-# both (2026-10-06). jsonschema and its dependencies are the versions they ran on.
-PyYAML==6.0.2
+# both (2026-10-06, 6.0.2; 2026-10-18, 6.0.3). jsonschema is the version they ran
+# on, 3.2.0: 4 brings three packages the tree does not hold, one compiled, and
+# words of its own in the findings, so it waits for a change of its own. Its
+# dependencies are taken as Dependabot proposes them within its ranges, every
+# check's output the same (2026-10-18).
+PyYAML==6.0.3
 jsonschema==3.2.0
 attrs==21.2.0
-pyrsistent==0.18.1
-six==1.16.0
-setuptools==59.6.0
+pyrsistent==0.20.0
+six==1.17.0
+setuptools==84.0.0
