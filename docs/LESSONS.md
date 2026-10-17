@@ -859,3 +859,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Twice in one day a 45-minute `scripts/check-all` ran on Rust I had edited with scripted replacements and not formatted; its `core` check stops at `cargo fmt --check`, so the run ended with the core's lints and SQLite tests never run, and the gate had to be taken again.
 - **Correction:** Run `cargo fmt` and `cargo clippy --all-targets --all-features -- -D warnings` in `core/` as the last step of every change, before freezing a snapshot or starting the gate; a scripted edit never produces rustfmt's layout.
 - **Context:** ObjectFlow's core, edits made by script; 2026-10-17.
+
+### A snapshot made with git diff leaves new files out
+- **Pattern:** To gate a change on a worktree while working on, I froze it with `git diff HEAD > patch` and applied that; `git diff` shows no untracked file, so a new ADR was missing from the snapshot, and `check-corpus` reported every reference to it as broken. Committing the same patch with `git apply --cached` would have left the ADR out of the commit too.
+- **Correction:** Mark new files first (`git add -N <file>`, or `git add -A` and `git diff --cached`), or list `git status --short | grep '^??'` before freezing a snapshot, and check the worktree holds them.
+- **Context:** ObjectFlow's gates on a frozen worktree, any patch-based snapshot; 2026-10-18.
+
+### A replacement anchored mid-line splits the line it anchors in
+- **Pattern:** To add a note after an author's decision in `TODO.md`, I replaced a sentence in the middle of its line with the sentence, a newline and the note; the rest of the decision's line went to the end of the note, and the gate passed, since no check reads a TODO line's sense. It was found only when staging the note alone for its commit.
+- **Correction:** Anchor a scripted insertion of a line on a whole line (its end included), never on a phrase inside one, and after any scripted edit to prose run `git diff` and read every changed line whole, as the rules on editing documents say.
+- **Context:** ObjectFlow's TODO.md and documents edited by script; 2026-10-18.

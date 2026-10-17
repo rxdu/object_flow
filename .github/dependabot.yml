@@ -10,10 +10,18 @@ updates:
     directory: /scripts
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    ignore:
+      # 4 brings three packages the tree does not hold, one compiled, and words of its own in the checks' findings: a
+      # change of its own, never a weekly bump (scripts/requirements-dev.txt, 2026-10-18)
+      - dependency-name: jsonschema
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: pip
     directory: /apps/flow-studio/server
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    # the server's own pin alone: the scripts' it includes are the /scripts entry's, which opened each again here
+    allow:
+      - dependency-name: pytest
   - package-ecosystem: npm
     directory: /apps/flow-studio/web
     schedule: { interval: weekly }
