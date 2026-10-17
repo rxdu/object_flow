@@ -2,7 +2,7 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is to be tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`); none is tagged yet, 0.1.0 and 0.2.0 among them.
 
-## 0.3.0, unreleased
+## 0.3.0, 2026-10-18
 
 A release before 1.0.0 (ADR-0214): what the first deployment, the operations platform, runs while it is built, on SQLite or on PostgreSQL. 1.0.0, from which ADR-0180's promise binds, follows a working operations system, after ADR-0204's soak and confirming review; until then a 0.x release may change `/v1`, each change listed here, and every release carries an upgrade from the one before. Stores made by development builds since 0.2.0, which named their release 1.0.0, are not opened by this release: make them again.
 
@@ -259,6 +259,9 @@ A release before 1.0.0 (ADR-0214): what the first deployment, the operations pla
 - A publish report shows each of the checks' findings, where it kept the first of each code, so a second module's notice or a second refusal of one code was never shown (D608).
 
 ### Performance
+
+- A write's counters, the spans it touched and its write index are written in a few statements of many rows, where each was a statement of its own: about twelve fewer a write, which on PostgreSQL are as many round trips. At the profile's steady load on one machine, writes' p95 on PostgreSQL went from 103.4 ms to 94.5 ms, within C5's 100 ms; on a file's store it is 35.4 ms.
+- On PostgreSQL, a catalog read before every narrowed read of an object, a quarter of the database's time under the profile's load, is held by the connection, and a metric's groups are ranked by reading the directory's places in one statement, where each object they name was loaded whole (Gates P and I on PostgreSQL).
 
 - A metric over intervals that never reads `held`, the standard `time_in_state` among them, reads the state's spans and the member's by type, where it read each object's record whole and built each row's `held`: `time_in_state` idle on the two-year synthetic store from 782 ms to 374 ms, its answer the same.
 - Requests that wait for the writer while it commits are committed together, each on a savepoint of one transaction and each answered only after its flush, so the writer is no longer one flush per request. Measured on the reference machine's two-year synthetic store, writes alone at twice the steady rate: 87 a second answered at p95 406 ms before, every one of 101 a second at p95 34 ms after (ADR-0208). `/metrics` counts the groups and the requests they held.
