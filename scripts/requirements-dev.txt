@@ -9,5 +9,5 @@ PyYAML==6.0.2
 jsonschema==3.2.0
 attrs==21.2.0
 pyrsistent==0.18.1
-six==1.16.0
+six==1.17.0
 setuptools==59.6.0
