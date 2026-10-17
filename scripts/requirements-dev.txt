@@ -6,7 +6,7 @@
 # from source on Python 3.10 and fails to; every check's output is the same under
 # both (2026-10-06). jsonschema and its dependencies are the versions they ran on.
 PyYAML==6.0.2
-jsonschema==3.2.0
+jsonschema==4.26.0
 attrs==21.2.0
 pyrsistent==0.18.1
 six==1.16.0
