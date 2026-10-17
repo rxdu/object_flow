@@ -1563,6 +1563,7 @@ const TAKES: &[(&str, &[&str])] = &[
     ),
     ("/v1/history", &["actor", "id", "follow", "limit", "cursor"]),
     ("/v1/events", &["actor", "positions"]),
+    ("/v1/referenced", &["actor", "hashes"]),
     ("/v1/exceptions", &["actor", "type", "cursor"]),
     ("/v1/declaration", &["actor", "type", "version"]),
     ("/v1/tools", &["actor", "actor_kind"]),
@@ -3601,6 +3602,54 @@ async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
     .await
 }
 
+/// Which of the file hashes given the store still holds, for the
+/// application to delete the bytes of the rest (ADR-0211 decision 1): each
+/// hash once, well formed, a page's worth at most, as `events` takes its
+/// positions; a scan of the store, waiting its turn beside the analytics.
+async fn referenced(State(shared): State<Shared>, Body(body): Body) -> Answer {
+    answered_off(move || {
+        let Some(hashes) = array(&body, "hashes")?.and_then(|hs| {
+            hs.iter()
+                .map(|h| h.as_str().map(str::to_string))
+                .collect::<Option<Vec<String>>>()
+        }) else {
+            return Err(Fault::Bad(
+                "referenced takes hashes, a list of file hashes".to_string(),
+            ));
+        };
+        if hashes.len() > reads::PAGE_LIMIT {
+            return Err(Fault::Bad(format!(
+                "referenced takes at most {} hashes",
+                reads::PAGE_LIMIT
+            )));
+        }
+        if let Some(bad) = hashes
+            .iter()
+            .find(|h| !objectflow_core::wire::is_file_hash(h))
+        {
+            return Err(Fault::Bad(format!(
+                "a file's hash is sha256:<64 lowercase hex digits>, not {bad}"
+            )));
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        if let Some(twice) = hashes.iter().find(|h| !seen.insert(h.as_str())) {
+            return Err(Fault::Bad(format!(
+                "referenced takes each hash once, not {twice} twice"
+            )));
+        }
+        let Some(actor) = actor_id(&body)? else {
+            return Err(Fault::Bad("referenced names its actor".to_string()));
+        };
+        let (_slot, mut r) = heavy_reading(&shared, &shared.admission, Some(actor))?;
+        let s = r.store()?;
+        Ok(Json(match s.referenced(actor, &hashes)? {
+            Ok(held) => json!({ "referenced": held, "refused": J::Null }),
+            Err(why) => json!({ "referenced": [], "refused": why }),
+        }))
+    })
+    .await
+}
+
 async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answered_off(move || {
         let Some(positions) = array(&body, "positions")?
@@ -4256,6 +4305,7 @@ fn app(shared: Shared, deployment: bool) -> Router {
         .route("/v1/get", post(get))
         .route("/v1/history", post(history))
         .route("/v1/events", post(events))
+        .route("/v1/referenced", post(referenced))
         .route("/v1/declaration", post(declaration))
         .route("/v1/tools", post(tools))
         .route("/v1/availability", post(availability))

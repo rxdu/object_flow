@@ -2,7 +2,7 @@
 
 - **Status:** **Accepted** — confirmed by the author 2026-09-08, after the readiness review
 - **Date:** 2026-09-07
-- **Refined by:** ADR-0087 — a file's content is deleted when its last unerased reference goes, not when one reference does.
+- **Refined by:** ADR-0087 — a file's content is deleted when its last unerased reference goes, not when one reference does. ADR-0211 — decision 1: the engine deletes no file's bytes; `referenced` answers which hashes the store still holds, and the application deletes the rest.
 
 ## Context
 

@@ -63,6 +63,7 @@ def bases(oid: str, change: str) -> dict:
         "/v1/declaration": {"actor": OP, "type": "B"},
         "/v1/diagnostics": {"actor": OP, "type": "B"},
         "/v1/events": {"actor": OP, "positions": [1]},
+        "/v1/referenced": {"actor": OP, "hashes": ["sha256:" + "a" * 64]},
         "/v1/exceptions": {"actor": OP, "type": "B"},
         "/v1/export": {"actor": OP, "source": "log"},
         "/v1/lookup": {"actor": OP, "source": "erp", "value": "x"},

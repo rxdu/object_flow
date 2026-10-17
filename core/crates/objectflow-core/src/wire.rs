@@ -355,6 +355,17 @@ pub fn decode(
     }
 }
 
+/// Whether a text is a file's hash as the wire writes it,
+/// `sha256:<64 lowercase hex digits>` (ADR-0173 decision 11).
+pub fn is_file_hash(hash: &str) -> bool {
+    hash.strip_prefix("sha256:").is_some_and(|hex| {
+        hex.len() == 64
+            && hex
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
+}
+
 /// A value as the wire carries it.
 /// A file's wire form, `{"hash": "sha256:<hex>", "size": <bytes>,
 /// "media_type": "<type>/<subtype>"}`, read as a value: none where it is not
@@ -368,12 +379,7 @@ pub fn file_of(v: &Json) -> Result<Value, Option<String>> {
         return Err(Some(format!("a file has no {k}")));
     }
     let hash = o.get("hash").and_then(Json::as_str).unwrap_or_default();
-    let hex = hash.strip_prefix("sha256:").unwrap_or_default();
-    if hex.len() != 64
-        || !hex
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
+    if !is_file_hash(hash) {
         return Err(Some(format!(
             "a file's hash is sha256:<64 lowercase hex digits>, not {hash}"
         )));

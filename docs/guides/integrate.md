@@ -15,7 +15,7 @@ ObjectFlow holds your business objects and enforces their flow. Your application
 | Notifications | Delivers events through subscriptions. | Sends the email, the chat message, the push. |
 | Outside systems | Asks your endpoint when a rule needs an answer. | Answers it, and writes to the other system itself. |
 | Search | Filters by attributes, with the indexes the flow declares. | Full-text search, over an export or the event feed. |
-| Files | Records a file's hash, size and type. | Stores, serves and deletes the bytes. |
+| Files | Records a file's hash, size and type, and answers which hashes it still holds (`referenced`). | Stores and serves the bytes, and deletes those no longer held: ask `referenced` with your blob store's hashes after an erasure, or on a schedule. |
 | Reporting | Computes declared and standard metrics, and exports rows. | Dashboards and analysis beyond them. |
 | Personal data | Marks what is personal, erases it on request, labels metrics that name people. | Decides who may see it. |
 

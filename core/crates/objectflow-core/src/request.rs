@@ -9734,6 +9734,94 @@ types:
     }
 
     #[test]
+    fn a_file_is_referenced_until_its_last_copy_is_erased() {
+        const PICS: &str = r#"
+module: pics
+categories: [live]
+types:
+  Person:
+    attributes:
+      photo: { type: file, optional: true, personal: true }
+      badge: { type: file, optional: true }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, optional_inputs: [photo, badge] }
+      rebadge: { kind: internal, from: [ON], required_inputs: [badge] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+        let lib = Library::load(&[("pics.yaml".into(), PICS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let hash = |c: char| format!("sha256:{}", c.to_string().repeat(64));
+        let file = |c: char| json!({"hash": hash(c), "size": 10, "media_type": "image/png"});
+        let (shared, first_badge, second_badge, new_badge, never) =
+            (hash('a'), hash('b'), hash('c'), hash('d'), hash('e'));
+        let all = vec![
+            shared.clone(),
+            first_badge.clone(),
+            second_badge.clone(),
+            new_badge.clone(),
+            never.clone(),
+        ];
+        // two people share one photo; the first's badge is replaced, so the
+        // log alone holds the old one
+        let ann = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Person", true),
+            json!({"photo": file('a'), "badge": file('b')}),
+        ));
+        let bo = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Person", true),
+            json!({"photo": file('a'), "badge": file('c')}),
+        ));
+        created(&req(
+            &mut s,
+            "rebadge",
+            OPERATOR,
+            (&ann, false),
+            json!({"badge": file('d')}),
+        ));
+        let held = |s: &Store| s.referenced(OPERATOR, &all).unwrap().unwrap();
+        // a hash in the log keeps its bytes, the log being permanent; one
+        // never written is held by nothing
+        assert_eq!(
+            held(&s),
+            vec![
+                shared.clone(),
+                first_badge.clone(),
+                second_badge.clone(),
+                new_badge.clone()
+            ]
+        );
+        // erased, a person's photo is held while another holds it, and by
+        // nothing once the last is erased: every copy, rows and payloads,
+        // gone (ADR-0211 decision 1)
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&ann, false),
+            json!({"reason": "asked"}),
+        ));
+        assert_eq!(held(&s).len(), 4);
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&bo, false),
+            json!({"reason": "asked"}),
+        ));
+        assert_eq!(held(&s), vec![first_badge, second_badge, new_badge]);
+        // asked by an actor the store does not know, refused as maintain is
+        assert_eq!(s.referenced("nobody", &all).unwrap(), Err("actor_known"));
+    }
+
+    #[test]
     fn a_satisfied_verdict_names_what_it_created() {
         const MADE: &str = r#"
 module: made

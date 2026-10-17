@@ -724,6 +724,10 @@ class Store(Protocol):
     def exceptions(self, actor: Actor, type: str,
                    cursor: str | None = None) -> Page: ...
 
+    # which of the file hashes given the store still holds anywhere it keeps a value, in the
+    # order given: the application deletes the bytes of the rest (ADR-0211 decision 1)
+    def referenced(self, actor: Actor, hashes: Sequence[str]) -> Sequence[str]: ...
+
     def declaration(self, actor: Actor, type: str,
                     version: int | None = None) -> Mapping[str, Any]: ...
 

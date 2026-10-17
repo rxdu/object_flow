@@ -6377,3 +6377,74 @@ fn a_request_naming_no_type_is_answered_unknown_type() {
         "{v}"
     );
 }
+
+/// Which file hashes the store still holds, which the application asks of
+/// its blob store's inventory to delete the bytes of the rest: a photo two
+/// people share held until the last is erased, a hash the store never
+/// held named by nothing, and the hashes taken as `events` takes its
+/// positions (ADR-0211 decision 1).
+#[test]
+fn a_store_says_which_files_it_still_holds() {
+    const PICS: &str = "module: pics\ncategories: [live, closed]\ntypes:\n  Person:\n    description: Someone with a photo.\n    tracking: record\n    attributes:\n      photo: { type: file, optional: true, personal: true }\n    states:\n      ON: { category: live }\n      GONE: { category: closed, final: true }\n    transitions:\n      add: { kind: initial, to: ON, optional_inputs: [photo], description: Adds them. }\n      leave: { kind: external, from: [ON], to: GONE, description: Ends them. }\n      forget: { kind: erasure, inputs: { reason: { type: string } }, description: Erases them. }\n";
+    let file = fresh_store("referenced");
+    let path = file.to_str().expect("a path");
+    let s = start(&["--store", path, "--create", "--port", "0"]);
+    publish(&s, &json!({ "pics": PICS }));
+    let op = json!({"id": "operator"});
+    let (photo, other) = (
+        format!("sha256:{}", "a".repeat(64)),
+        format!("sha256:{}", "b".repeat(64)),
+    );
+    let add = || {
+        let v = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Person", "transition": "add",
+                    "inputs": {"photo": {"hash": photo, "size": 10, "media_type": "image/png"}}}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        v["object_id"].as_str().expect("the person").to_string()
+    };
+    let (ann, bo) = (add(), add());
+    let held = || {
+        post(
+            &s,
+            "/v1/referenced",
+            &json!({"actor": op, "hashes": [photo, other]}),
+        )
+    };
+    assert_eq!(held(), json!({"referenced": [photo], "refused": null}));
+    for who in [&ann, &bo] {
+        let v = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "object_id": who, "transition": "forget", "inputs": {"reason": "asked"}}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+    }
+    // once the last who held it is erased, nothing holds it, every copy gone
+    assert_eq!(held(), json!({"referenced": [], "refused": null}));
+    // a hash not as the wire writes one, or one given twice, is refused; an
+    // actor the store does not know is told so
+    for bad in [
+        json!(["sha256:ABC"]),
+        json!([photo, photo]),
+        json!("sha256:"),
+    ] {
+        let (status, out) = call(
+            &s,
+            "POST",
+            "/v1/referenced",
+            Some(&json!({"actor": op, "hashes": bad})),
+        );
+        assert_eq!(status, 400, "{out}");
+    }
+    assert_eq!(
+        post(
+            &s,
+            "/v1/referenced",
+            &json!({"actor": {"id": "nobody"}, "hashes": [photo]})
+        ),
+        json!({"referenced": [], "refused": "actor_known"})
+    );
+}

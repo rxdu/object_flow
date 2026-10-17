@@ -39,7 +39,7 @@ Seven questions stood open on 2026-10-16, each in `TODO.md` with its options:
 
 ## Consequences
 
-- `wire.md`, `wire-v1.json`, `library-api.md`, `integrate.md`, `DESIGN.md` §9 and `storage-schema.md` §9 step 4 change with decision 1; the reference runner answers the read alike.
+- `wire.md`, `wire-v1.json`, `library-api.md`, `integrate.md`, `DESIGN.md` §5 and §10 and `storage-schema.md` §9 step 4 change with decision 1. *Corrected 2026-10-17: this said the reference runner answers the read alike; the Studio's sandbox answers the part of the wire examples use, and the read, an operation's as `query`, `export`, `diagnostics` and `maintain` are, is the core's alone.* Built the same day as a scan of every table's text for the hashes asked, which keeps no index the writer maintains; its cost measured 2026-10-17 on stores the release service made with `--create` and filled by imports of synthetic mirror objects, each a row and an import event holding a photo's hash and a 600-byte note, on a 12-core machine at a load of about 1, the file in the page cache: a 184 MiB store (52,000 objects, the two-year store's file being 182 MB) answered in 0.30 s at the median of three for a hash it holds nowhere, which reads it whole, and 0.31 s for 1,000 such hashes; a 550 MiB store (155,000 objects, the six-year store's 548 MB) in 0.89 s and 0.92 s.
 - `.github/dependabot.yml` and `scripts/setup/github-settings.sh` with decision 2.
 - The satisfied verdict's shape in both backends, the Studio's verdict type, `errors.md` and `wire.md` with decision 3.
 - ~~`publish-and-import.md` §4's dry run with decision 4.~~ *None: decision 4 was already the dry run's behaviour.*

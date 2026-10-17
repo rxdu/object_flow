@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D05, D06, D27, D28, D31, D36, 2026-09-08; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand. Its consequence, that a deployment gives the engine a blob-store credential that can delete, is accepted with theme 4 of the triage.
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0071 — mandatory bounds and guard names stay; the reported worst-case product goes. ADR-0074 — an invariant an assertion may admit is not compiled, since a database constraint has no per-row exemption. ADR-0076 — the replay is checked before `expected_version`, so a retry carrying its original version replays rather than refusing. ADR-0103 — the replay holds for as long as the store's idempotency retention keeps the key; `maintain` prunes past it.
+- **Refined by:** ADR-0071 — mandatory bounds and guard names stay; the reported worst-case product goes. ADR-0074 — an invariant an assertion may admit is not compiled, since a database constraint has no per-row exemption. ADR-0076 — the replay is checked before `expected_version`, so a retry carrying its original version replays rather than refusing. ADR-0103 — the replay holds for as long as the store's idempotency retention keeps the key; `maintain` prunes past it. ADR-0211 — decision 1: the engine deletes no file's bytes; `referenced` answers which hashes the store still holds, and the application deletes the rest.
 
 ## Context
 

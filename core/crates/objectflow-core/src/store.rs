@@ -1716,6 +1716,14 @@ fn rebuild(tx: &Transaction<'_>, lib: &Library, t: &Type, relaxed: bool) -> Stor
     Ok(())
 }
 
+/// Each file hash a text holds, as the wire writes one.
+fn hashes_in(text: &str) -> impl Iterator<Item = &str> {
+    text.match_indices("sha256:").filter_map(move |(at, _)| {
+        text.get(at..at + 71)
+            .filter(|h| crate::wire::is_file_hash(h))
+    })
+}
+
 fn quote(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
@@ -3079,6 +3087,98 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// Which of the file hashes given the store still holds, in the order
+    /// given: each written in any value it keeps, an object's or a part's,
+    /// an event's payload, a proposal's inputs, an attempt's or a legacy
+    /// entry's, a value an erasure redacted holding it no longer. The
+    /// application asks it of its blob store's inventory, after an erasure
+    /// or on a schedule, and deletes the bytes of each hash it does not
+    /// name: the engine reads, streams and deletes no bytes, and keeps no
+    /// erased hash to say which (ADR-0211 decision 1). A hash in the log
+    /// keeps its bytes, the log being permanent; and every place a value is
+    /// kept is read, the store's own tables among them, since a hash wrongly
+    /// held only delays a deletion where one wrongly freed loses a file
+    /// history shows. One pass over the store's text, whatever the count
+    /// given, ending once each is found; refused, naming the generated
+    /// guard, for an actor the store does not know or one in a final state,
+    /// as `maintain` is.
+    pub fn referenced(
+        &self,
+        actor: &str,
+        hashes: &[String],
+    ) -> Stored<Result<Vec<String>, &'static str>> {
+        {
+            let world = self.snapshot()?;
+            match crate::request::active(resolve_actor(&world, actor)?) {
+                Ok(_) => {}
+                Err(Verdict::Unsatisfied { clause, .. }) if clause == "actor_active" => {
+                    return Ok(Err("actor_active"));
+                }
+                Err(_) => return Ok(Err("actor_known")),
+            }
+        }
+        let wanted: BTreeSet<&str> = hashes.iter().map(String::as_str).collect();
+        let mut held: BTreeSet<String> = BTreeSet::new();
+        let tables: Vec<String> = self
+            .conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name")?
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        'tables: for t in &tables {
+            if held.len() == wanted.len() {
+                break;
+            }
+            // the columns that may hold text, a value's JSON among them
+            let columns: Vec<String> = self
+                .conn
+                .prepare("SELECT name, type FROM pragma_table_info(?1)")?
+                .query_map([t], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .filter(|(_, ty)| ty.is_empty() || ty.eq_ignore_ascii_case("TEXT"))
+                .map(|(c, _)| c)
+                .collect();
+            if columns.is_empty() {
+                continue;
+            }
+            let read = columns
+                .iter()
+                .map(|c| quote(c))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let holding = columns
+                .iter()
+                .map(|c| format!("instr({}, 'sha256:') > 0", quote(c)))
+                .collect::<Vec<_>>()
+                .join(" OR ");
+            let mut st = self
+                .conn
+                .prepare(&format!("SELECT {read} FROM {} WHERE {holding}", quote(t)))?;
+            let mut rows = st.query([])?;
+            while let Some(row) = rows.next()? {
+                for i in 0..columns.len() {
+                    if let Ok(Some(text)) = row.get::<_, Option<String>>(i) {
+                        for h in hashes_in(&text) {
+                            if wanted.contains(h) {
+                                held.insert(h.to_string());
+                            }
+                        }
+                    }
+                }
+                if held.len() == wanted.len() {
+                    break 'tables;
+                }
+            }
+        }
+        Ok(Ok(hashes
+            .iter()
+            .filter(|h| held.contains(h.as_str()))
+            .cloned()
+            .collect()))
     }
 
     pub fn maintain(

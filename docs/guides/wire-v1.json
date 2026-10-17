@@ -133,6 +133,10 @@
       "limit",
       "reads_personal"
     ],
+    "/v1/referenced": [
+      "actor",
+      "hashes"
+    ],
     "/v1/request": [
       "transition",
       "actor",
@@ -175,6 +179,10 @@
     ],
     "/v1/events": [
       "positions"
+    ],
+    "/v1/referenced": [
+      "actor",
+      "hashes"
     ],
     "/v1/availability": [
       "actor",
