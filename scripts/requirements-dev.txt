@@ -5,7 +5,7 @@
 # PyYAML is 6.0.2 where the checks were first run on Ubuntu's 5.4.1, which builds
 # from source on Python 3.10 and fails to; every check's output is the same under
 # both (2026-10-06). jsonschema and its dependencies are the versions they ran on.
-PyYAML==6.0.2
+PyYAML==6.0.3
 jsonschema==3.2.0
 attrs==21.2.0
 pyrsistent==0.18.1
