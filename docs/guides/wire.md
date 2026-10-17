@@ -5,7 +5,7 @@ Every operation of the engine's service: what it takes and what it answers. [Bui
 ## Basics
 
 - Every operation is `POST /v1/<operation>`, with a JSON object as its body and `Content-Type: application/json`. A body is at most 2 MiB.
-- **No text holds U+0000**, and **a name is at most 1 KiB**: an actor's id or principal, a type, a transition, an object's id, a legacy key or an idempotency key. Either is refused `400`, since a store on PostgreSQL can hold neither; an input's or an attribute's value holding U+0000 is refused `invalid_input` instead.
+- **No text holds U+0000**, and **a name is at most 1 KiB**: an actor's id or principal, a type, a transition, an object's id or a legacy key; an idempotency key is at most 256 bytes (below). Either is refused `400`, since a store on PostgreSQL can hold neither; an input's or an attribute's value holding U+0000 is refused `invalid_input` instead.
 - An answer is `200` with the operation's result. **A refusal is also `200`**: a verdict whose `kind` names it.
 - A fault is a `4xx` or `5xx` whose body is `{"fault": "<reason>", "code": "<code>"}`. Branch on `code`; the reason is text for people and may change.
 - **Unknown keys are refused** `400`, and so is **a key named twice** in one object. `null` is the same as leaving a key out.
