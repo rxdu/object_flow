@@ -4,7 +4,7 @@ How to run ObjectFlow as a live service on one Linux machine: install it, start 
 
 ## What you are running
 
-One process, `objectflow-service`, serving one **store**: a SQLite file and the files SQLite keeps beside it (`-wal`, `-shm`), plus `<store>.lock`, which the service holds while it runs. It writes one request at a time and reads beside its writes. A second service started on the same store says so at start and shares it, as an upgrade's overlap needs; stop one otherwise.
+One process, `objectflow-service`, serving one **store**: a SQLite file and the files SQLite keeps beside it (`-wal`, `-shm`), plus `<store>.lock`, which the service holds while it runs. It writes one request at a time and reads beside its writes. A second service started on the same store says so at start and shares it, as an upgrade's overlap needs; stop one otherwise. *A PostgreSQL store is decided for 1.0.0 and being built (ADR-0213); this page describes the SQLite store until it lands.*
 
 **It authenticates nobody.** Whoever can reach it can act as any actor. Put it behind the application that authenticates your users: on a Unix socket only your application can open, or on loopback. Never put it on a network your users reach.
 

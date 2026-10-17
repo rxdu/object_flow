@@ -2,6 +2,7 @@
 
 - **Status:** **Accepted** by the author, 2026-10-11, by ADR-0182 ("go with your recommendations on the fifteen questions"). Before: Built at the author's direction, 2026-10-10 ("continue with your recommendation", on a plan naming "the deployment service: an ADR, then a first slice"), for the author's review. Decision 7's transport waits on a dependency the author approves.
 - **Date:** 2026-10-10
+- **Superseded in part by:** ADR-0213 — decision 2: a deployment's store is PostgreSQL or one SQLite file, PostgreSQL in 1.0.0 for the first deployment.
 - **Refined by:** ADR-0177 — a store an earlier release made starts, serving only the upgrade until it runs; one of a release this core does not upgrade from still does not. ADR-0178 — reads beside the writer, on read connections of their own; writes begun `IMMEDIATE` with a busy timeout. ADR-0181 — the store's file holds nothing an erasure erased: `secure_delete` and a truncated log. ADR-0183 — decision 1's store is made only when the start gives `--create`, a path holding none refused otherwise; the service may listen on a Unix socket.
 - **Builds:** `DESIGN.md` §2's deployment shape (ADR-0110, ADR-0132), ADR-0173 decision 2
 - **Relates to:** `design/procurement-cold-draft.md` (I2, I16), `design/storage-schema.md` §6, `docs/guides/integrate.md`, `core/README.md`, `TODO.md`

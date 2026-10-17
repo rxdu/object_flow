@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
+- **Refined by:** ADR-0213 — PostgreSQL built for 1.0.0, SQLite beside it.
 
 ## Context
 

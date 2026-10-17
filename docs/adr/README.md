@@ -2,7 +2,7 @@
 
 | ADR | Decision | Status |
 |---|---|---|
-| [0001](0001-store-owns-persistence.md) | The store owns persistence and is the sole write path | Accepted |
+| [0001](0001-store-owns-persistence.md) | The store owns persistence and is the sole write path | Accepted — later refined by ADR-0213 |
 | [0002](0002-requiredness-attaches-to-transitions.md) | Requiredness attaches to transitions, not to attributes | Accepted |
 | [0003](0003-one-state-machine-per-object-type.md) | One state machine per object type; composition rather than parallel regions | Accepted — later refined by ADR-0064 |
 | [0004](0004-composite-state-is-gated-not-derived.md) | Composite state is gated by its parts, not derived from them | Accepted — later refined by ADR-0019, ADR-0021 |
@@ -175,7 +175,7 @@
 | [0171](0171-a-traversal-invariant-reads-through-any-relationship-end.md) | A traversal invariant reads through any relationship end | Decided by the author |
 | [0172](0172-the-internal-form-stays-as-the-reference-checkers-path.md) | The internal form stays as the reference checker's path | Decided by the author |
 | [0173](0173-the-procurement-reviews-questions-decided.md) | The procurement review's questions, decided | Decided by the author |
-| [0174](0174-a-deployments-service-its-first-slice.md) | A deployment's service, its first slice | Accepted (ADR-0182); decision 7 replaced by ADR-0175 |
+| [0174](0174-a-deployments-service-its-first-slice.md) | A deployment's service, its first slice | Accepted (ADR-0182); decision 7 replaced by ADR-0175 — superseded in part by ADR-0213 |
 | [0175](0175-the-evaluators-http-transport.md) | The evaluators' HTTP transport | Accepted (ADR-0182) |
 | [0176](0176-the-second-procurement-reviews-questions-decided.md) | The second procurement review's questions, decided | Decided by the author |
 | [0177](0177-an-engine-releases-upgrade-as-built.md) | An engine release's upgrade, as built | Accepted (ADR-0182) |
@@ -204,7 +204,7 @@
 | [0201](0201-the-fourteenth-reviews-findings-decided.md) | The fourteenth review's findings, decided | Decided on the author's standing instruction — decision 4 superseded by ADR-0206; later refined by ADR-0202, ADR-0203, ADR-0204, ADR-0205, ADR-0209 |
 | [0202](0202-the-fifteenth-reviews-findings-decided.md) | The fifteenth review's findings, decided | Decided on the author's standing instruction — decision 3 superseded by ADR-0206; later refined by ADR-0203, ADR-0204, ADR-0205 |
 | [0203](0203-the-sixteenth-reviews-findings-decided.md) | The sixteenth review's findings, decided | Decided on the author's standing instruction — later refined by ADR-0205 |
-| [0204](0204-what-production-readiness-means-and-when-the-reviews-stop.md) | What production readiness means, and when the reviews stop | Decided by the author — later refined by ADR-0205, ADR-0206, ADR-0207, ADR-0210 |
+| [0204](0204-what-production-readiness-means-and-when-the-reviews-stop.md) | What production readiness means, and when the reviews stop | Decided by the author — later refined by ADR-0205, ADR-0206, ADR-0207, ADR-0210, ADR-0213 |
 | [0205](0205-the-audits-decisions.md) | The audit's decisions | Decided by the author — later refined by ADR-0206, ADR-0207, ADR-0208 |
 | [0206](0206-a-read-by-a-personal-value-is-opted-into.md) | A read by a personal value is opted into | Decided on the author's standing instruction |
 | [0207](0207-a-restored-store-skips-what-its-copy-never-saw.md) | A restored store skips what its copy never saw | Decided on the author's standing instruction |
@@ -213,4 +213,5 @@
 | [0210](0210-five-questions-decided-as-recommended.md) | Five questions decided as recommended | Decided by the author |
 | [0211](0211-seven-questions-decided-as-recommended.md) | Seven questions decided as recommended | Decided by the author — later refined by ADR-0212 |
 | [0212](0212-a-dry-runs-class-says-what-excluding-it-uncovers.md) | A dry run's class says what excluding it uncovers | Decided by the author |
+| [0213](0213-postgresql-in-1-0-0.md) | PostgreSQL in 1.0.0 | Decided by the author (decisions 1 and 8), and as recommended at the author's direction (2 to 7) |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

@@ -108,7 +108,7 @@ flowchart TB
         integ["Integrations"]
     end
     apps -->|"one interface · your applications authenticate and authorise"| core["ObjectFlow service<br/>declared flows · enforced rules · the record · metrics"]
-    core --> db[("one SQLite file today<br/>PostgreSQL when a deployment outgrows it")]
+    core --> db[("one SQLite file today<br/>PostgreSQL in 1.0.0, being built (ADR-0213)")]
 ```
 
 ObjectFlow runs as an internal service beside your applications, one per store, and it is the only thing that writes the store. Your applications authenticate their users and decide what each may do and see. ObjectFlow enforces the flow's rules on every request and records who made it ([ADR-0114](docs/adr/0114-objectflow-records-who-acted-and-never-evaluates-it.md)).
