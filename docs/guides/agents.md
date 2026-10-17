@@ -117,9 +117,9 @@ of request '{"actor": {"id": "operator"}, "type": "Assistant", "transition": "en
 ```
 
 ```json
-{"kind": "satisfied", "flags": [], "object_id": "employee-1", "version": 1, "events": [2], "replayed": false}
-{"kind": "satisfied", "flags": [], "object_id": "employee-2", "version": 1, "events": [3], "replayed": false}
-{"kind": "satisfied", "flags": [], "object_id": "assistant-3", "version": 1, "events": [4], "replayed": false}
+{"kind": "satisfied", "flags": [], "object_id": "employee-1", "version": 1, "events": [2], "created": ["employee-1"], "replayed": false}
+{"kind": "satisfied", "flags": [], "object_id": "employee-2", "version": 1, "events": [3], "created": ["employee-2"], "replayed": false}
+{"kind": "satisfied", "flags": [], "object_id": "assistant-3", "version": 1, "events": [4], "created": ["assistant-3"], "replayed": false}
 ```
 
 The agent's tools: one per transition it may take, `approve` for proposing only, and four reads.
@@ -142,8 +142,8 @@ of request '{"actor": {"id": "helper", "principal": "ana"}, "object_id": "leaver
 ```
 
 ```json
-{"kind": "satisfied", "flags": [], "object_id": "leaverequest-4", "version": 1, "events": [5], "replayed": false}
-{"kind": "satisfied", "flags": [], "object_id": "leaverequest-4", "version": 2, "events": [6], "replayed": false}
+{"kind": "satisfied", "flags": [], "object_id": "leaverequest-4", "version": 1, "events": [5], "created": ["leaverequest-4"], "replayed": false}
+{"kind": "satisfied", "flags": [], "object_id": "leaverequest-4", "version": 2, "events": [6], "created": [], "replayed": false}
 ```
 
 It may not approve. The refusal is `delegable`, and says a proposal would be accepted:
@@ -163,7 +163,7 @@ of request '{"actor": {"id": "helper"}, "object_id": "leaverequest-4", "transiti
 ```
 
 ```json
-{"kind": "satisfied", "flags": [], "object_id": "proposal-5", "version": 1, "events": [7], "replayed": false}
+{"kind": "satisfied", "flags": [], "object_id": "proposal-5", "version": 1, "events": [7], "created": ["proposal-5"], "replayed": false}
 ```
 
 ```sh
@@ -171,7 +171,7 @@ of request '{"actor": {"id": "bo"}, "object_id": "proposal-5", "transition": "ap
 ```
 
 ```json
-{"kind": "satisfied", "flags": [], "object_id": "leaverequest-4", "version": 3, "events": [8, 9], "replayed": false}
+{"kind": "satisfied", "flags": [], "object_id": "leaverequest-4", "version": 3, "events": [8, 9], "created": [], "replayed": false}
 ```
 
 The record says who did what, and of which kind:

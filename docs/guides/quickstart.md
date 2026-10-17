@@ -99,7 +99,7 @@ of request '{"actor": {"id": "operator"}, "type": "Employee", "transition": "joi
 ```
 
 ```json
-{"kind": "satisfied", "flags": [], "object_id": "employee-1", "version": 1, "events": [2], "replayed": false}
+{"kind": "satisfied", "flags": [], "object_id": "employee-1", "version": 1, "events": [2], "created": ["employee-1"], "replayed": false}
 ```
 
 ```sh
@@ -107,7 +107,7 @@ of request '{"actor": {"id": "operator"}, "type": "Employee", "transition": "joi
 ```
 
 ```json
-{"kind": "satisfied", "flags": [], "object_id": "employee-2", "version": 1, "events": [3], "replayed": false}
+{"kind": "satisfied", "flags": [], "object_id": "employee-2", "version": 1, "events": [3], "created": ["employee-2"], "replayed": false}
 ```
 
 A request names its actor by identity (`ana`) or by object id (`employee-1`). The engine records who acted. It never decides whether they were allowed to: that is your application's job.
@@ -131,7 +131,7 @@ of request '{"actor": {"id": "ana"}, "type": "LeaveRequest", "transition": "open
 ```
 
 ```json
-{"kind": "satisfied", "flags": [], "object_id": "leaverequest-3", "version": 1, "events": [4], "replayed": false}
+{"kind": "satisfied", "flags": [], "object_id": "leaverequest-3", "version": 1, "events": [4], "created": ["leaverequest-3"], "replayed": false}
 ```
 
 ```sh
@@ -139,7 +139,7 @@ of request '{"actor": {"id": "ana"}, "object_id": "leaverequest-3", "transition"
 ```
 
 ```json
-{"kind": "satisfied", "flags": [], "object_id": "leaverequest-3", "version": 2, "events": [5], "replayed": false}
+{"kind": "satisfied", "flags": [], "object_id": "leaverequest-3", "version": 2, "events": [5], "created": [], "replayed": false}
 ```
 
 A value of the wrong form is refused before any rule runs:
@@ -196,7 +196,7 @@ of request '{"actor": {"id": "bo"}, "object_id": "leaverequest-3", "transition":
 ```
 
 ```json
-{"kind": "satisfied", "flags": [], "object_id": "leaverequest-3", "version": 3, "events": [6], "replayed": false}
+{"kind": "satisfied", "flags": [], "object_id": "leaverequest-3", "version": 3, "events": [6], "created": [], "replayed": false}
 ```
 
 ```sh
@@ -204,7 +204,7 @@ of request '{"actor": {"id": "bo"}, "object_id": "leaverequest-3", "transition":
 ```
 
 ```json
-{"kind": "satisfied", "flags": [], "object_id": "leaverequest-3", "version": 3, "events": [6], "replayed": true}
+{"kind": "satisfied", "flags": [], "object_id": "leaverequest-3", "version": 3, "events": [6], "created": [], "replayed": true}
 ```
 
 A transition the object's state does not allow is `unavailable`, and its remedy, `unreachable_from_here`, says no retry will help:

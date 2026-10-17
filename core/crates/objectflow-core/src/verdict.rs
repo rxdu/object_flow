@@ -95,6 +95,10 @@ pub enum Verdict {
         version: i64,
         /// The positions of every event it appended, the parent's first.
         events: Vec<i64>,
+        /// Each object it created, in the order created, its own first
+        /// where it is a creation, so a caller opens what it made without
+        /// reading its events (E16, ADR-0211 decision 3).
+        created: Vec<String>,
         flags: Vec<Flag>,
         /// Returned for a retry of a request its actor's key applied before,
         /// the first result replayed (`DESIGN.md` §6 step 2, ADR-0041).

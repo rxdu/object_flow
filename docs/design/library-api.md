@@ -163,6 +163,7 @@ class Satisfied:
     object_id: str
     version: int
     events: Sequence[int]
+    created: Sequence[str] = ()           # each object it created, its own first where it is a creation
     replayed: bool = False
     flags: Sequence[Flag] = ()            # every flag the request raised, cascades included
 
@@ -282,7 +283,7 @@ Verdict = (
 
 `Stale` carries its cause. Only a stale `expected_version` has an expected and an actual version; exhausted retries — a contended row on PostgreSQL, a busy timeout on SQLite (ADR-0090) — have neither.
 
-`Satisfied.events` is the positions of every event the request appended, the parent's first. A cascade of three parts returns four. `events` reads them, so a caller learns what its request created, its creation events after the first, and what it caused, its events after the first but a `redact` (ADR-0151).
+`Satisfied.events` is the positions of every event the request appended, the parent's first. A cascade of three parts returns four. `events` reads them, so a caller learns what its request caused, its events after the first but a `redact` (ADR-0151). `Satisfied.created` names each object the request created, in the order its first events were appended, which puts the request's own object first where it is a creation, so a caller opens what it made without reading its events or guessing from its parent's (E16, ADR-0211 decision 3): a proposal filed names the proposal, its approval what the request it runs created, and a replay what the first created, read from its events.
 
 `Satisfied.flags` is every flag the request raised, at any depth of its cascades: the request proceeded, and the caller is told what a deployment wants seen (PRD F9, ADR-0111). A replay returns the original's flags. A flag is not a refusal, so it is never a verdict of its own, and a caller that ignores it has lost nothing the store enforced.
 

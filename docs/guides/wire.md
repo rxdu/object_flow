@@ -57,8 +57,10 @@ POST /v1/request
 {"actor": {"id": "u10442"}, "type": "Claim", "transition": "draft",
  "inputs": {"claimant": "employee-1", "title": "Taxis"}, "idempotency_key": "draft-1"}
 
-{"kind": "satisfied", "object_id": "claim-4", "version": 1, "events": [5], "replayed": false, "flags": []}
+{"kind": "satisfied", "object_id": "claim-4", "version": 1, "events": [5], "created": ["claim-4"], "replayed": false, "flags": []}
 ```
+
+A satisfied answer names the object requested, or the one a creation made, as `object_id`, and each object the request created as `created`, in the order made, the request's own first where it is a creation. A transition whose effect creates answers its own object's id, so a screen opening what it made opens `created`; a filed proposal's names the proposal.
 
 - `inputs`: the transition's inputs, by name, in the notation above.
 - `expected_version`: the version the caller read. If the object has moved on, the request is refused `stale`.

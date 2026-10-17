@@ -2094,10 +2094,12 @@ fn verdict_told(v: &Verdict, told: Option<&Told>) -> J {
             object_id,
             version,
             events,
+            created,
             flags: fs,
             replayed,
         } => {
-            json!({"object_id": object_id, "version": version, "events": events, "replayed": replayed, "flags": flags(fs)})
+            json!({"object_id": object_id, "version": version, "events": events, "created": created,
+                   "replayed": replayed, "flags": flags(fs)})
         }
         Verdict::Unsatisfied { clause, .. } => match told {
             Some(t) => {
@@ -6486,6 +6488,7 @@ mod tests {
             object_id: "x-1".into(),
             version: 1,
             events: Vec::new(),
+            created: Vec::new(),
             flags: Vec::new(),
             replayed: false,
         });
@@ -6509,6 +6512,7 @@ mod tests {
             object_id: "x-1".into(),
             version: 2,
             events: Vec::new(),
+            created: Vec::new(),
             flags: Vec::new(),
             replayed: false,
         });

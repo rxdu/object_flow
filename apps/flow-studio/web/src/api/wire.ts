@@ -57,6 +57,8 @@ export type Verdict = Reported &
         object_id: string;
         version: number | null;
         events: number[];
+        /** each object the request created, its own first where it is a creation */
+        created: string[];
         replayed: boolean;
         flags: Flag[];
       }

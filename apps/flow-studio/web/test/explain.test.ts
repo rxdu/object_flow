@@ -9,6 +9,7 @@ describe("the sentence under a verdict", () => {
       object_id: "ServiceJob:1",
       version: 1,
       events: [1],
+      created: ["ServiceJob:1"],
       replayed: false,
       flags: [],
     };

@@ -521,8 +521,8 @@ class Sandbox:
                 body.get("inputs") or {}, sort_keys=True,
                 separators=(",", ":"), ensure_ascii=False)
             return {"kind": "satisfied", "object_id": key, "version": 1,
-                    "events": [s.position], "replayed": False, "flags": [],
-                    "not_computed": []}
+                    "events": [s.position], "created": [key],
+                    "replayed": False, "flags": [], "not_computed": []}
         if xn not in PROPOSAL_VERBS:
             return {"kind": "unknown_transition", "transition": xn,
                     "remedy": "self_serviceable"}
@@ -552,7 +552,8 @@ class Sandbox:
                     "version": p.version,
                     "events": [e["position"] for e in s.events
                                if e["position"] > before],
-                    "replayed": False, "flags": [], "not_computed": []}
+                    "created": [], "replayed": False, "flags": [],
+                    "not_computed": []}
         if outcome[0] == "refused" and getattr(outcome[1], "on_proposal",
                                                False):
             # the proposal's own state refuses the decision (DESIGN.md §9)
@@ -1114,6 +1115,13 @@ class Sandbox:
                 # (`library-api.md` §4)
                 "events": sorted(e["position"] for e in s.events
                                  if e["position"] > before),
+                # each object it created, by its first event's position,
+                # which puts its own first where it is a creation (E16,
+                # ADR-0211 decision 3)
+                "created": [e["object"] for e in sorted(
+                    (e for e in s.events if e["position"] > before),
+                    key=lambda e: e["position"])
+                    if e["from_state"] is flowrun.ABSENT],
                 "replayed": False, "flags": flags}
 
     def refusal(self, r, tn, oid, x, xn) -> dict:

@@ -255,6 +255,8 @@ fn replayed_verdict(recorded: &Json) -> Result<Verdict, NotRun> {
         object_id,
         version,
         events: events.iter().filter_map(Json::as_i64).collect(),
+        // what it created, read from its events where it replays
+        created: Vec::new(),
         flags: flags
             .iter()
             .map(|f| Flag {
@@ -898,9 +900,48 @@ fn decide_as(
         decide_or_stop(world, alloc, req, answers, None, checking, None)
     };
     match answer {
-        Ok((v, change)) => Ok((v, change, Refusal::default())),
+        Ok((v, change)) => {
+            let created = change.as_ref().map(|c| {
+                let mut made: Vec<(i64, String)> = c
+                    .writes
+                    .iter()
+                    .filter(|(_, _, e)| e.object_seq == 1)
+                    .map(|(o, _, e)| (e.position, o.id.clone()))
+                    .collect();
+                made.sort();
+                made.into_iter().map(|(_, id)| id).collect()
+            });
+            Ok((with_created(v, created), change, Refusal::default()))
+        }
         Err(Stop::Refused(v, r)) => Ok((v, None, *r)),
         Err(Stop::NotRun(e)) => Err(e),
+    }
+}
+
+/// A satisfied verdict naming what its request created: each object whose
+/// first event it appended, in the order of those events, which puts its
+/// own first where it is a creation (E16, ADR-0211 decision 3).
+fn with_created(v: Verdict, made: Option<Vec<String>>) -> Verdict {
+    match (v, made) {
+        (
+            Verdict::Satisfied {
+                object_id,
+                version,
+                events,
+                flags,
+                replayed,
+                ..
+            },
+            Some(created),
+        ) => Verdict::Satisfied {
+            object_id,
+            version,
+            events,
+            created,
+            flags,
+            replayed,
+        },
+        (v, _) => v,
     }
 }
 
@@ -1257,6 +1298,7 @@ fn decide_or_stop(
             object_id: root,
             version,
             events: positions,
+            created: Vec::new(),
             flags: ctx.flags,
             replayed: false,
         },
@@ -3323,6 +3365,7 @@ fn file(
             object_id: id,
             version: 1,
             events: vec![position],
+            created: Vec::new(),
             flags: Vec::new(),
             replayed: false,
         },
@@ -3756,6 +3799,7 @@ fn decide_change(
             object_id: id,
             version,
             events: vec![position],
+            created: Vec::new(),
             flags: Vec::new(),
             replayed: false,
         },
@@ -3987,6 +4031,7 @@ fn decide_proposal(
                 object_id: p.id.clone(),
                 version: decided.version,
                 events: vec![position],
+                created: Vec::new(),
                 flags: Vec::new(),
                 replayed: false,
             },
@@ -4068,6 +4113,7 @@ fn decide_proposal(
                     object_id,
                     version,
                     events,
+                    created: Vec::new(),
                     flags,
                     replayed: false,
                 }
@@ -6292,7 +6338,23 @@ pub fn request_told(
                 return Err(NoVerdict::KeyReused { key: key.clone() });
             }
             let v = replayed_verdict(recorded)?;
-            return Ok(((v, Refusal::default(), false), None));
+            // what it created, from the events it appended, a creation's
+            // first event being the object's first
+            let made = match &v {
+                Verdict::Satisfied { events, .. } => {
+                    let mut made = Vec::new();
+                    for p in events {
+                        if let Some(e) = world.event_at(*p)?
+                            && e.object_seq == 1
+                        {
+                            made.push(e.object_id);
+                        }
+                    }
+                    Some(made)
+                }
+                _ => None,
+            };
+            return Ok(((with_created(v, made), Refusal::default(), false), None));
         }
         let (v, change, r) = decide_as(world, alloc, req, &answers, &None, prepared.as_deref())?;
         // what a key applied is recorded with it, so only what commits replays
@@ -7408,10 +7470,13 @@ types:
                 object_id,
                 version,
                 events,
+                created,
                 flags,
                 replayed,
             } => {
                 assert!(!replayed);
+                // a transition of an existing object creates nothing
+                assert_eq!(created, Vec::<String>::new());
                 assert_eq!(object_id, job);
                 assert_eq!(version, 2);
                 assert_eq!(events.len(), 1);
@@ -9669,6 +9734,104 @@ types:
     }
 
     #[test]
+    fn a_satisfied_verdict_names_what_it_created() {
+        const MADE: &str = r#"
+module: made
+categories: [live]
+types:
+  Order:
+    attributes:
+      note: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      place: { kind: initial, to: OPEN, effect: [ { create: { type: Line, transition: add, inputs: { order: this } } } ] }
+      add_two:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: this } }
+          - create: { type: Line, transition: add, inputs: { order: this } }
+      annotate: { kind: internal, from: [OPEN], required_inputs: [note] }
+      extend: { kind: internal, from: [OPEN], proposable: true, effect: [ { create: { type: Line, transition: add, inputs: { order: this } } } ] }
+  Line:
+    attributes:
+      order: { reference: Order }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [order] }
+"#;
+        let lib = Library::load(&[("made.yaml".into(), MADE.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let made = |v: &Verdict| match v {
+            Verdict::Satisfied {
+                object_id, created, ..
+            } => (object_id.clone(), created.clone()),
+            other => panic!("{other:?}"),
+        };
+        let lines = |s: &Store| -> Vec<String> {
+            s.snapshot()
+                .unwrap()
+                .in_order()
+                .unwrap()
+                .into_iter()
+                .filter(|o| o.type_ == "Line")
+                .map(|o| o.id.clone())
+                .collect()
+        };
+        // a creation names its own object first, then what its effect made
+        let (order, created) = made(&req(&mut s, "place", OPERATOR, ("Order", true), json!({})));
+        assert_eq!(created, vec![order.clone(), lines(&s)[0].clone()]);
+        // a transition answers its own object's id, and names what it made,
+        // in the order made, which E16's screen re-read the parent to guess
+        let (id, created) = made(&req(
+            &mut s,
+            "add_two",
+            OPERATOR,
+            (&order, false),
+            json!({}),
+        ));
+        assert_eq!((id, created), (order.clone(), lines(&s)[1..3].to_vec()));
+        let (_, created) = made(&req(
+            &mut s,
+            "annotate",
+            OPERATOR,
+            (&order, false),
+            json!({"note": "rush"}),
+        ));
+        assert!(created.is_empty());
+        // a proposal filed is what filing creates, and its approval names
+        // what the request it runs creates, the approval's own event first
+        let r = Request {
+            transition: "extend".into(),
+            actor: OPERATOR.into(),
+            object_id: Some(order.clone()),
+            type_: None,
+            inputs: BTreeMap::new(),
+            occurred_at: None,
+            propose: true,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let (proposal, created) = made(&request(&mut s, &r).unwrap().unwrap());
+        assert_eq!(created, vec![proposal.clone()]);
+        let (_, created) = made(&req(
+            &mut s,
+            "approve",
+            OPERATOR,
+            (&proposal, false),
+            json!({}),
+        ));
+        assert_eq!(created, lines(&s)[3..].to_vec());
+        assert_eq!(created.len(), 1);
+    }
+
+    #[test]
     fn a_second_pending_proposal_from_its_proposer_is_refused_naming_the_first() {
         let text = JOBS
             .replace(
@@ -10462,12 +10625,16 @@ types:
             object_id: job,
             version,
             events,
+            created,
             replayed: false,
             ..
         } = first.clone()
         else {
             panic!("{first:?}")
         };
+        // a creation names what it created, its own object, and its replay
+        // names it again, read from its events (ADR-0211 decision 3)
+        assert_eq!(created, vec![job.clone()]);
         let before = counts(&s);
         assert_eq!(
             request(&mut s, &open).unwrap().unwrap(),
@@ -10475,6 +10642,7 @@ types:
                 object_id: job.clone(),
                 version,
                 events,
+                created,
                 flags: Vec::new(),
                 replayed: true,
             }

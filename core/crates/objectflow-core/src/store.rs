@@ -3657,6 +3657,7 @@ impl Store {
                 object_id: change.to_string(),
                 version,
                 events,
+                created: Vec::new(),
                 flags: Vec::new(),
                 replayed: false,
             },
