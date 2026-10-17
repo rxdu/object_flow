@@ -13,7 +13,7 @@ publish = false
 
 [workspace.dependencies]
 objectflow-core = { path = "crates/objectflow-core" }
-saphyr-parser = "0.1.0"
+saphyr-parser = "0.2.1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
