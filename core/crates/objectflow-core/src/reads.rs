@@ -2986,14 +2986,16 @@ types:
             crate::db::params![below, at],
         )
         .unwrap();
-        let plan: String = conn
-            .query_row(
-                "EXPLAIN QUERY PLAN SELECT id FROM t_job WHERE state_source = 'asserted'",
-                [],
-                |r| r.get(3),
-            )
-            .unwrap();
-        assert!(plan.contains("t_job_asserted_ix"), "{plan}");
+        if !crate::db::sqlite_only(s.backend(), "its index plans") {
+            let plan: String = conn
+                .query_row(
+                    "EXPLAIN QUERY PLAN SELECT id FROM t_job WHERE state_source = 'asserted'",
+                    [],
+                    |r| r.get(3),
+                )
+                .unwrap();
+            assert!(plan.contains("t_job_asserted_ix"), "{plan}");
+        }
         let w = s.snapshot().unwrap();
         assert_eq!(ids(&exceptions(&w, "Task").unwrap()), [big.as_str()]);
         assert_eq!(w.held().count(), 1);

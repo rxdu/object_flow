@@ -14,10 +14,26 @@ jobs:
   check-all:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    # PostgreSQL 16, the floor ADR-0213 sets, its text compared by bytes as
+    # the store needs; pinned by digest, as an action is by commit
+    services:
+      postgres:
+        image: postgres@sha256:301bcb60b8a3ee4ab7e147932723e3abd1cef53516ce5210b39fd9fe5e3602ae # 16.8
+        env:
+          POSTGRES_USER: objectflow
+          POSTGRES_PASSWORD: objectflow
+          POSTGRES_DB: objectflow
+          POSTGRES_INITDB_ARGS: --locale=C --encoding=UTF8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U objectflow" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       # a compiler warning fails CI, as clippy's do everywhere; set for the
       # whole job, so every build in it shares one cache
       RUSTFLAGS: -D warnings
+      # the core's tests run again on the service above (ADR-0213)
+      OBJECTFLOW_CHECK_POSTGRES: host=localhost port=5432 user=objectflow password=objectflow dbname=objectflow
     steps:
       # pinned by commit, as every action is: a tag can be moved under a
       # workflow, a commit cannot (fifth production review, ADR-0191)
