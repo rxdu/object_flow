@@ -46,7 +46,9 @@ run() {
 # on SQLite, whatever a sandbox's database is set to in the environment
 run "core" env -u OBJECTFLOW_SANDBOX_POSTGRES CARGO="$CARGO" "$ROOT/core/scripts/check"
 if [ -n "${OBJECTFLOW_CHECK_POSTGRES:-}" ]; then
-  run "core on postgres" env OBJECTFLOW_SANDBOX_POSTGRES="$OBJECTFLOW_CHECK_POSTGRES" \
+  # the harness one seed of each sample there, its fork a copy of the store's
+  # schema for every request it takes, where SQLite's run holds six
+  run "core on postgres" env OBJECTFLOW_SANDBOX_POSTGRES="$OBJECTFLOW_CHECK_POSTGRES" OBJECTFLOW_HARNESS_SEEDS=1 \
     bash -c "cd '$ROOT/core' && '$CARGO' test -q --all-features 2>&1 | awk '/^test result/ {p += \$4; f += \$6} END {print p \" passed, \" f \" failed on PostgreSQL\"}'; exit \${PIPESTATUS[0]}"
 else
   skipped+=("core on postgres")

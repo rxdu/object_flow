@@ -2,7 +2,8 @@
 """Gate P: ADR-0204 §1's load profile against a store, held to PRD C5 and the audit's thresholds.
 
 The audit of 2026-10-14 defined the gate and did not keep its scripts (`docs/design/audit/cost.md` §3, "Gate P"). This
-is that gate: the service started on a copy of a store `build-store.py` made, and the profile's steady load played on
+is that gate: the service started on a copy of a store `build-store.py` made, a PostgreSQL store on itself, its run's
+writes kept, so each run that must start alike is given a store built for it, and the profile's steady load played on
 it for `--seconds`, at `--scale` 1 or 2, the month-end peak being twice the steady load:
 
 - sixteen people's sessions at once, each a mix of one-object reads, worklists and writes, the writes of every
@@ -29,7 +30,7 @@ erasure batch, a backup and a prune, belong to the soak (ADR-0204 §7) and are n
 
 Usage:
 
-    load.py <objectflow-service> <store.sqlite> [--seconds 150] [--scale 1] [--memory-max 8G]
+    load.py <objectflow-service> <store.sqlite | postgresql> [--seconds 150] [--scale 1] [--memory-max 8G]
             [--sessions N] [--reporters N] [--agents N] [--think 1] [--report-think 10] [--stress]
 """
 import argparse
@@ -144,6 +145,12 @@ def pages(wire, body):
             return items
 
 
+def postgres(store):
+    """Whether a store names a PostgreSQL database, a `postgresql://` URL or a connection string, which the service
+    is given as it is, its password in OBJECTFLOW_STORE_PASSWORD (ADR-0213), where any other text is a file."""
+    return store.startswith(("postgresql://", "postgres://")) or any(k in store for k in ("host=", "dbname="))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("service")
@@ -173,9 +180,14 @@ def main():
     agents = 2 * a.scale if a.agents is None else a.agents
     memory_max = size(a.memory_max)
     work = pathlib.Path(tempfile.mkdtemp(prefix="objectflow-profile-"))
-    copy = work / "store.sqlite"
-    shutil.copy(a.store, copy)
-    os.chmod(copy, 0o600)
+    # a file's copy, so each run starts from the store it was given; a PostgreSQL database is used as it is,
+    # its run's writes kept, so a run that must start from the same state is given a store built for it
+    if postgres(a.store):
+        copy = a.store
+    else:
+        copy = work / "store.sqlite"
+        shutil.copy(a.store, copy)
+        os.chmod(copy, 0o600)
     proc = subprocess.Popen([a.service, "--store", str(copy), "--port", "0", "--attempt-retention", "90 days"],
                             stderr=subprocess.PIPE, text=True)
     said = []

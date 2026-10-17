@@ -286,7 +286,18 @@ impl Run {
                 let logged = self.attempts_held();
                 // the store as the request finds it, to decide it again over
                 // its read set alone
-                let before = self.store.fork(&self.fork.0).ok();
+                // a copy that fails fails the run, where it was dropped and the
+                // conditions deciding over it skipped without a word, as they
+                // were on PostgreSQL before its fork (ADR-0213)
+                let before = match self.store.fork(&self.fork.0) {
+                    Ok(copy) => Some(copy),
+                    Err(e) => {
+                        return Some(fail(
+                            "fork",
+                            format!("the store could not be copied to decide again: {e:?}"),
+                        ));
+                    }
+                };
                 let answered = catch_unwind(AssertUnwindSafe(|| request(&mut self.store, r)));
                 let verdict = match answered {
                     Err(_) => return Some(fail("panic", format!("{r:?}"))),

@@ -11,7 +11,10 @@ Measurement conditions, said with the result: the machine's load at the start an
 
 Usage:
 
-    idle.py <objectflow-service> <store.sqlite> [--runs 5]
+    idle.py <objectflow-service> <store.sqlite | postgresql> [--runs 5]
+
+A PostgreSQL store, named by a connection string or a `postgresql://` URL, its password in `OBJECTFLOW_STORE_PASSWORD`,
+is read as it is, idle.py writing nothing (ADR-0213).
 """
 import argparse
 import os
@@ -28,6 +31,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from load import OPERATOR, REPORTS, Wire, pages  # noqa: E402
 
 
+def postgres(store):
+    """Whether a store names a PostgreSQL database, a `postgresql://` URL or a connection string, which the service
+    is given as it is, its password in OBJECTFLOW_STORE_PASSWORD (ADR-0213), where any other text is a file."""
+    return store.startswith(("postgresql://", "postgres://")) or any(k in store for k in ("host=", "dbname="))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("service")
@@ -35,9 +44,13 @@ def main():
     ap.add_argument("--runs", type=int, default=5)
     a = ap.parse_args()
     work = pathlib.Path(tempfile.mkdtemp(prefix="objectflow-idle-"))
-    copy = work / "store.sqlite"
-    shutil.copy(a.store, copy)
-    os.chmod(copy, 0o600)
+    # a file's copy; a PostgreSQL database read as it is, idle.py writing nothing
+    if postgres(a.store):
+        copy = a.store
+    else:
+        copy = work / "store.sqlite"
+        shutil.copy(a.store, copy)
+        os.chmod(copy, 0o600)
     proc = subprocess.Popen([a.service, "--store", str(copy), "--port", "0"], stderr=subprocess.PIPE, text=True)
     said = []
     try:

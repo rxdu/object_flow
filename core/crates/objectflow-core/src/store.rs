@@ -3055,13 +3055,20 @@ impl Store {
     /// one request and thrown away, it flushes nothing.
     #[cfg(feature = "harness")]
     pub fn fork(&self, path: &std::path::Path) -> Stored<Store> {
-        let _ = std::fs::remove_file(path);
-        let at = path
-            .to_str()
-            .ok_or_else(|| StoreError(format!("{}: not a path SQLite takes", path.display())))?;
-        self.conn.execute("VACUUM INTO ?1", params![at])?;
-        let conn = Connection::open(path)?;
-        conn.execute_batch("PRAGMA foreign_keys = OFF; PRAGMA synchronous = OFF;")?;
+        // on PostgreSQL a copy of the store's schema in one of its own,
+        // dropped with it, and `path` unused (ADR-0213)
+        let conn = if self.conn.backend() == crate::db::Backend::Postgres {
+            self.conn.copied()?
+        } else {
+            let _ = std::fs::remove_file(path);
+            let at = path.to_str().ok_or_else(|| {
+                StoreError(format!("{}: not a path SQLite takes", path.display()))
+            })?;
+            self.conn.execute("VACUUM INTO ?1", params![at])?;
+            let conn = Connection::open(path)?;
+            conn.execute_batch("PRAGMA foreign_keys = OFF; PRAGMA synchronous = OFF;")?;
+            conn
+        };
         Ok(Store {
             conn,
             lib: Arc::clone(&self.lib),
@@ -5089,7 +5096,7 @@ fn narrowing(
     let required = if columns.is_empty() {
         BTreeSet::new()
     } else {
-        not_null(conn, &table(type_))?
+        not_null(conn, lib, &table(type_))?
     };
     let mut narrowed = Narrowed {
         states: states.map(<[String]>::to_vec),
@@ -5117,18 +5124,22 @@ fn narrowing(
 }
 
 /// The columns of a table that hold no null, as the table declares them:
-/// a required attribute's, unless the table was built relaxed.
-fn not_null(conn: &Connection, name: &str) -> Stored<BTreeSet<String>> {
-    let mut info = conn.prepare(&format!("PRAGMA table_info({})", quote(name)))?;
-    let rows = info.query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, i64>(3)?)))?;
-    let mut out = BTreeSet::new();
-    for row in rows {
-        let (col, notnull) = row?;
-        if notnull != 0 {
-            out.insert(col);
+/// a required attribute's, unless the table was built relaxed; held by the
+/// connection for the library's version on PostgreSQL, where each read of
+/// them was a round trip to its catalog (ADR-0213).
+fn not_null(conn: &Connection, lib: &Library, name: &str) -> Stored<BTreeSet<String>> {
+    Ok(conn.not_null_held(&format!("{name} {}", lib.version), || {
+        let mut info = conn.prepare(&format!("PRAGMA table_info({})", quote(name)))?;
+        let rows = info.query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, i64>(3)?)))?;
+        let mut out = BTreeSet::new();
+        for row in rows {
+            let (col, notnull) = row?;
+            if notnull != 0 {
+                out.insert(col);
+            }
         }
-    }
-    Ok(out)
+        Ok(out)
+    })?)
 }
 
 /// What a read of a type's objects narrows them to: a state among those
@@ -5512,6 +5523,29 @@ pub(crate) fn read_parts_of_ids(
             .map(|id| (id.clone(), type_.to_string()))
             .collect();
         out.extend(read_parts(conn, lib, &Scope::Ids(chunk), &types)?);
+    }
+    Ok(out)
+}
+
+/// The place in creation order of each object named that the directory
+/// holds, a few hundred ids to each read, where a metric's groups were
+/// ranked by objects each loaded whole by queries of its own, two round
+/// trips an object on PostgreSQL: 1,200 for a metric naming 600 claimants
+/// (Gate P on PostgreSQL, ADR-0213).
+pub(crate) fn read_orders(conn: &Connection, ids: &[String]) -> Stored<BTreeMap<String, i64>> {
+    let mut out = BTreeMap::new();
+    for chunk in ids.chunks(PARTS_CHUNK) {
+        let mut q = conn.prepare(&format!(
+            "SELECT id, rowid FROM of_object WHERE id IN ({})",
+            marks(chunk.len())
+        ))?;
+        let rows = q.query_map(crate::db::params_from_iter(chunk), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (id, order) = row?;
+            out.insert(id, order);
+        }
     }
     Ok(out)
 }

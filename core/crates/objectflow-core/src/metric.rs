@@ -2523,23 +2523,16 @@ impl<'w> Reader<'w> {
     }
 
     /// The place in creation order of each object the keys given name, which
-    /// [`Reader::order`] ranks objects by.
+    /// [`Reader::order`] ranks objects by, read from the directory, never
+    /// each object whole (ADR-0213).
     fn places<'k>(
         &self,
         keys: impl Iterator<Item = &'k [Value]>,
     ) -> Result<BTreeMap<String, i64>, NotRun> {
-        let mut places = BTreeMap::new();
-        for key in keys {
-            for v in key {
-                if let Value::Object(id) = v
-                    && !places.contains_key(id)
-                    && let Some(o) = self.world.get(id)?
-                {
-                    places.insert(id.clone(), o.order);
-                }
-            }
-        }
-        Ok(places)
+        self.world.orders(keys.flatten().filter_map(|v| match v {
+            Value::Object(id) => Some(id.as_str()),
+            _ => None,
+        }))
     }
 }
 
@@ -3656,6 +3649,62 @@ metrics:
         .unwrap();
         assert_eq!(p.rows[0].value, Value::Int(20));
         assert_eq!(crate::world::events_read() - events, 20);
+    }
+
+    /// A metric's groups by an object are in the objects' creation order,
+    /// read from the store's directory, never their ids' text, which part
+    /// from it past the ninth: `note-10` after `note-9`, not after `note-1`
+    /// (ADR-0127, ADR-0213).
+    #[test]
+    fn a_metrics_groups_by_an_object_are_in_creation_order() {
+        let text = "\nmodule: shop\ncategories: [live]\ntypes:\n  Note:\n    attributes:\n      text: { type: string }\n    states:\n      ON: { category: live }\n    transitions:\n      write: { kind: initial, to: ON, required_inputs: [text] }\n  Order:\n    attributes:\n      note: { reference: Note }\n    states:\n      OPEN: { category: live }\n    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [note] }\n    metrics:\n      by_note:\n        source: objects\n        item: o\n        dimensions:\n          note: o.note\n        expression: count()\n";
+        let lib = Library::load(&[("shop.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let mut ask = |t: &str, xn: &str, inputs: Json| {
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some(t.into()),
+                inputs: serde_json::from_value(inputs).unwrap(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            match request(&mut s, &r).unwrap().unwrap() {
+                Verdict::Satisfied { object_id, .. } => object_id,
+                other => panic!("{other:?}"),
+            }
+        };
+        let notes: Vec<String> = (0..12)
+            .map(|_| ask("Note", "write", json!({"text": "n"})))
+            .collect();
+        // the notes made first, the orders naming them after, newest first
+        for n in notes.iter().rev() {
+            ask("Order", "open", json!({"note": n}));
+        }
+        let mut by_text = notes.clone();
+        by_text.sort();
+        assert_ne!(by_text, notes, "ids whose text orders them otherwise");
+        let w = s.snapshot().unwrap();
+        let p = page(
+            &w,
+            None,
+            "Order.by_note",
+            &BTreeMap::new(),
+            Some(&["note".into()]),
+            None,
+            None,
+        )
+        .unwrap();
+        let ranked: Vec<Value> = p.rows.iter().map(|r| r.dimensions[0].1.clone()).collect();
+        let made: Vec<Value> = notes.iter().cloned().map(Value::Object).collect();
+        assert_eq!(ranked, made);
     }
 
     /// A metric over objects bound to one of the item's own stored

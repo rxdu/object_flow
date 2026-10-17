@@ -5,6 +5,7 @@
 //! until PostgreSQL's lands behind it; nothing outside this module names
 //! `rusqlite`, which `a_store_names_no_database_but_through_db` holds.
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::Path;
 use std::time::Duration;
@@ -881,6 +882,12 @@ pub struct Pg {
     prepared: std::cell::RefCell<std::collections::HashMap<String, postgres::Statement>>,
     open: std::cell::Cell<bool>,
     schema: Option<String>,
+    /// The columns holding no null of each table read, by the store's key:
+    /// see [`Connection::not_null_held`].
+    shapes: std::cell::RefCell<std::collections::HashMap<String, BTreeSet<String>>>,
+    /// Whether a schema was changed since the last transaction ended, so
+    /// what is held is let go again as the one that changed it ends.
+    reshaped: std::cell::Cell<bool>,
 }
 
 impl Pg {
@@ -899,17 +906,22 @@ impl Pg {
     }
 
     fn prepare(&self, sql: &str) -> Result<postgres::Statement> {
-        let translated = to_postgres(sql);
-        if let Some(s) = self.prepared.borrow().get(&translated) {
+        // kept by the SQL as the store writes it, so a statement prepared
+        // before is found without translating it again: a request runs
+        // tens of them
+        if let Some(s) = self.prepared.borrow().get(sql) {
             return Ok(s.clone());
         }
+        let translated = to_postgres(sql);
         let s = blocking(|| {
             self.client()?
                 .prepare(&translated)
                 .map_err(|e| Error(Fault::Postgres(e)))
         })
         .map_err(|e| e.with_sql(&translated))?;
-        self.prepared.borrow_mut().insert(translated, s.clone());
+        self.prepared
+            .borrow_mut()
+            .insert(sql.to_string(), s.clone());
         Ok(s)
     }
 
@@ -959,6 +971,8 @@ impl Pg {
         let ddl = ["CREATE", "ALTER", "DROP"].iter().any(|w| head.contains(w));
         if ddl {
             self.prepared.borrow_mut().clear();
+            self.shapes.borrow_mut().clear();
+            self.reshaped.set(true);
         }
         // a table changed inside a transaction has the keys checked that
         // were deferred to its commit, which PostgreSQL holds as pending
@@ -984,6 +998,13 @@ impl Pg {
             || (head.starts_with("ROLLBACK") && !head.starts_with("ROLLBACK TO"))
         {
             self.open.set(false);
+            // what was read after a schema changed let go once more as its
+            // transaction ends, so a change rolled back leaves no shape of it
+            if self.reshaped.replace(false) {
+                self.shapes.borrow_mut().clear();
+            }
+        } else if head.starts_with("ROLLBACK TO") && self.reshaped.get() {
+            self.shapes.borrow_mut().clear();
         }
         Ok(())
     }
@@ -1488,6 +1509,59 @@ impl Connection {
         Connection::postgres_in(&PgConfig::parse(config, None)?, Some(schema.to_string()))
     }
 
+    /// A copy of a PostgreSQL store, every table of its schema with its
+    /// rows, in a schema of its own dropped with it, each identity carried
+    /// on from where it stood: the adversarial harness's fork, which a file
+    /// makes with `VACUUM INTO` (ADR-0213). Its keys to other tables are not
+    /// copied, as a file's copy turns its keys off.
+    pub fn copied(&self) -> Result<Connection> {
+        let Inner::Postgres(pg) = &self.inner else {
+            return Err(Error(Fault::Unsupported(
+                "a copy of a SQLite store, which VACUUM INTO makes".into(),
+            )));
+        };
+        static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let source: String = self.query_row("SELECT current_schema()::text", [], |r| r.get(0))?;
+        let tables: Vec<String> = self
+            .prepare("SELECT name FROM objectflow_catalog WHERE type = 'table' ORDER BY name")?
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_>>()?;
+        let n = MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let fork = Connection::postgres_in(
+            &pg.config,
+            Some(format!("sandbox_{}_fork{n}", std::process::id())),
+        )?;
+        // every table made and filled, and each identity carried on from
+        // the largest value copied, as the store's own would give the next,
+        // in one batch: a fork for every request the harness takes
+        let identities: Vec<(String, String)> = self
+            .prepare(
+                "SELECT table_name::text, column_name::text FROM information_schema.columns \
+                 WHERE table_schema = current_schema() AND is_identity = 'YES'",
+            )?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_>>()?;
+        let named = |t: &str| format!("\"{}\"", t.replace('"', "\"\""));
+        let mut batch = String::new();
+        for t in &tables {
+            let quoted = named(t);
+            batch.push_str(&format!(
+                "CREATE TABLE {quoted} (LIKE \"{source}\".{quoted} INCLUDING ALL); \
+                 INSERT INTO {quoted} OVERRIDING SYSTEM VALUE SELECT * FROM \"{source}\".{quoted}; "
+            ));
+        }
+        for (t, c) in &identities {
+            batch.push_str(&format!(
+                "SELECT setval(pg_get_serial_sequence('{}', '{c}'), \
+                 GREATEST(COALESCE(max(\"{c}\"), 0), 1), max(\"{c}\") IS NOT NULL) FROM {}; ",
+                named(t).replace('\'', "''"),
+                named(t)
+            ));
+        }
+        fork.execute_batch(&batch)?;
+        Ok(fork)
+    }
+
     /// A connection that reads the same store, a deployment's read
     /// connection (ADR-0178): a SQLite file opened read-only, or the same
     /// PostgreSQL database, read-only by default.
@@ -1546,8 +1620,40 @@ impl Connection {
                 prepared: std::cell::RefCell::new(std::collections::HashMap::new()),
                 open: std::cell::Cell::new(false),
                 schema,
+                shapes: std::cell::RefCell::new(std::collections::HashMap::new()),
+                reshaped: std::cell::Cell::new(false),
             })),
         })
+    }
+
+    /// The columns of a table that hold no null, as `read` reads them from
+    /// the database: on PostgreSQL read once for each key and held, where
+    /// the catalog's answer was a round trip before every narrowed read of
+    /// an object, a quarter of the database's time under the profile's load
+    /// (Gate P on PostgreSQL, ADR-0213); on SQLite read each time, its
+    /// pragma a call in the process. The key names the table and the
+    /// library version read by, as a type's table changes shape only with
+    /// a publish, a new version, and a reader's library follows the
+    /// store's. What is held is let go when the connection changes a
+    /// schema, and again as that transaction ends or rolls back to a
+    /// savepoint, so neither a publish's relaxed tables nor one rolled back
+    /// outlive it under a version a later publish takes.
+    pub fn not_null_held(
+        &self,
+        key: &str,
+        read: impl FnOnce() -> Result<BTreeSet<String>>,
+    ) -> Result<BTreeSet<String>> {
+        let Inner::Postgres(pg) = &self.inner else {
+            return read();
+        };
+        if let Some(held) = pg.shapes.borrow().get(key).cloned() {
+            return Ok(held);
+        }
+        let found = read()?;
+        pg.shapes
+            .borrow_mut()
+            .insert(key.to_string(), found.clone());
+        Ok(found)
     }
 
     /// Which database the connection reaches.
@@ -1917,6 +2023,80 @@ mod tests {
             }
         }
         assert!(found.is_empty(), "rusqlite named outside db.rs: {found:?}");
+    }
+
+    /// The columns a table holds no null in, held on PostgreSQL by their
+    /// key and read again once a schema changes, both inside the
+    /// transaction that changed it and after it ends, by a commit, a
+    /// rollback or one to a savepoint, so a NOT NULL a rollback undid is
+    /// never served: narrowing would compare its column alone and miss the
+    /// rows holding none (ADR-0213). On SQLite read each time.
+    #[test]
+    fn a_tables_shape_is_held_until_a_schema_changes() {
+        let conn = match std::env::var(crate::store::SANDBOX_POSTGRES) {
+            Ok(c) if !c.trim().is_empty() => {
+                Connection::postgres_sandbox(&c, &format!("sandbox_{}_shape", std::process::id()))
+                    .unwrap()
+            }
+            _ => Connection::open_in_memory().unwrap(),
+        };
+        conn.execute_batch("CREATE TABLE t (a TEXT NOT NULL, b TEXT)")
+            .unwrap();
+        let reads = std::cell::Cell::new(0);
+        let shape = || {
+            conn.not_null_held("t 1", || {
+                reads.set(reads.get() + 1);
+                let mut info = conn.prepare("PRAGMA table_info(t)")?;
+                let rows =
+                    info.query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, i64>(3)?)))?;
+                let mut out = BTreeSet::new();
+                for row in rows {
+                    let (c, n) = row?;
+                    if n != 0 {
+                        out.insert(c);
+                    }
+                }
+                Ok(out)
+            })
+            .unwrap()
+        };
+        let a = BTreeSet::from(["a".to_string()]);
+        let ab = BTreeSet::from(["a".to_string(), "b".to_string()]);
+        assert_eq!(shape(), a);
+        assert_eq!(shape(), a);
+        if conn.backend() == Backend::Sqlite {
+            assert_eq!(reads.get(), 2, "SQLite's pragma is read each time");
+            return;
+        }
+        assert_eq!(reads.get(), 1, "held on PostgreSQL");
+        conn.execute_batch("BEGIN").unwrap();
+        conn.execute_batch("ALTER TABLE t ALTER COLUMN b SET NOT NULL")
+            .unwrap();
+        assert_eq!(
+            shape(),
+            ab,
+            "read again inside the transaction that changed it"
+        );
+        conn.execute_batch("ROLLBACK").unwrap();
+        assert_eq!(shape(), a, "read again once a rollback undid it");
+        conn.execute_batch("BEGIN; SAVEPOINT s").unwrap();
+        conn.execute_batch("ALTER TABLE t ALTER COLUMN b SET NOT NULL")
+            .unwrap();
+        assert_eq!(shape(), ab);
+        conn.execute_batch("ROLLBACK TO s").unwrap();
+        assert_eq!(
+            shape(),
+            a,
+            "read again once a savepoint's rollback undid it"
+        );
+        conn.execute_batch("COMMIT").unwrap();
+        conn.execute_batch("ALTER TABLE t ALTER COLUMN b SET NOT NULL")
+            .unwrap();
+        assert_eq!(
+            shape(),
+            ab,
+            "read again after a change outside a transaction"
+        );
     }
 
     /// The store's SQL as PostgreSQL takes it, each rule at its case

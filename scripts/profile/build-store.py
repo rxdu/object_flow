@@ -20,7 +20,10 @@ so the stores have the profile's counts, not its spread over years.
 
 Usage:
 
-    build-store.py <objectflow-service> <out.sqlite> [--claims 12000] [--employees 600] [--seed 7] [--writers 8]
+    build-store.py <objectflow-service> <out.sqlite | postgresql> [--claims 12000] [--employees 600] [--seed 7] [--writers 8]
+
+A PostgreSQL store is built in an empty database the connection string or `postgresql://` URL names, its password in
+`OBJECTFLOW_STORE_PASSWORD` (ADR-0213).
 """
 import argparse
 import hashlib
@@ -127,6 +130,12 @@ def claim_life(wire, rng, n, claimant, staff_id, categories, functions):
     return count + 1
 
 
+def postgres(store):
+    """Whether a store names a PostgreSQL database, a `postgresql://` URL or a connection string, which the service
+    is given as it is, its password in OBJECTFLOW_STORE_PASSWORD (ADR-0213), where any other text is a file."""
+    return store.startswith(("postgresql://", "postgres://")) or any(k in store for k in ("host=", "dbname="))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("service")
@@ -136,10 +145,12 @@ def main():
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--writers", type=int, default=8)
     a = ap.parse_args()
-    out = pathlib.Path(a.out)
-    for p in out.parent.glob(out.name + "*"):
-        p.unlink()
-    proc = subprocess.Popen([a.service, "--store", str(out), "--create", "--port", "0",
+    # a file made anew, or a PostgreSQL database holding no store, which --create makes one in
+    if not postgres(a.out):
+        out = pathlib.Path(a.out)
+        for p in out.parent.glob(out.name + "*"):
+            p.unlink()
+    proc = subprocess.Popen([a.service, "--store", a.out, "--create", "--port", "0",
                              "--attempt-retention", "90 days"], stderr=subprocess.PIPE, text=True)
     said = []
     try:
@@ -199,7 +210,7 @@ def main():
         if errors:
             raise SystemExit("the store was not built:\n" + "\n".join(errors))
         health = urllib.request.urlopen(wire.url + "/health", timeout=30).read().decode()
-        print(f"built {out}: {a.claims} claims, {a.employees} employees, {requests[0]} requests in "
+        print(f"built {a.out}: {a.claims} claims, {a.employees} employees, {requests[0]} requests in "
               f"{time.monotonic() - began:.0f} s; {health[:200]}")
     finally:
         proc.terminate()

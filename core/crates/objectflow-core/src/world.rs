@@ -1310,6 +1310,47 @@ impl<'l> World<'l> {
         }
     }
 
+    /// The place in creation order of each object the ids name: a held
+    /// object's, and the others' from the store's directory in reads of a
+    /// few hundred ids, holding nothing more; an id neither holds is left
+    /// out, as [`World::get`] finds no object for it. Where each was got
+    /// whole, a metric ranking its groups by the 600 claimants they name
+    /// made 1,200 round trips on PostgreSQL (ADR-0213).
+    pub fn orders<'i>(
+        &self,
+        ids: impl IntoIterator<Item = &'i str>,
+    ) -> Result<BTreeMap<String, i64>, crate::eval::NotRun> {
+        self.on_time()?;
+        let mut out = BTreeMap::new();
+        let mut unread = BTreeSet::new();
+        {
+            let by_id = self.held.by_id.borrow();
+            for id in ids {
+                match by_id.get(id) {
+                    Some(slot) => {
+                        if let Some(o) = slot.and_then(|n| self.held.slots.get(n)) {
+                            out.insert(id.to_string(), o.order);
+                        }
+                    }
+                    None => {
+                        unread.insert(id.to_string());
+                    }
+                }
+            }
+        }
+        if let Some(conn) = self.conn
+            && !unread.is_empty()
+        {
+            let unread: Vec<String> = unread.into_iter().collect();
+            out.extend(crate::store::read_orders(conn, &unread).map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the store's directory, which could not be read: {e}"
+                ))
+            })?);
+        }
+        Ok(out)
+    }
+
     /// The object an id names where one is given, as [`World::get`] reads
     /// it; none where none is.
     pub fn get_if(&self, id: Option<&str>) -> Result<Option<&Object>, crate::eval::NotRun> {
