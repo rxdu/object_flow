@@ -4751,7 +4751,7 @@ pub(crate) fn read_type_where_since(
 
 /// The objects of a concrete type after a place in creation order, the
 /// first so many of those in the states and holding the values given, each
-/// as [`read_type_where`] reads it: the next of a read in order from a
+/// as [`read_type_where_since`] reads it: the next of a read in order from a
 /// cursor, never the type whole, which each page of a query read again
 /// (READ-PAGES); none where a value has no column to compare in.
 pub(crate) fn read_type_from(
@@ -4778,7 +4778,7 @@ pub(crate) fn read_type_from(
     )?))
 }
 
-/// What [`read_type_where`] narrows a type's rows to, or none where a value
+/// What [`read_type_where_since`] narrows a type's rows to, or none where a value
 /// has no column to compare in; a column the table holds no null in is
 /// compared alone, which its index serves (`storage-schema.md` §5).
 fn narrowing(

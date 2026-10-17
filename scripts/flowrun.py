@@ -1950,7 +1950,7 @@ def written_locations(steps):
 GENERATED_REMEDY = {"actor_known": "dependent", "actor_active": "dependent", "occurred_within": "self_serviceable", "whole_open": "self_serviceable",
                     "not_erased": "unreachable_from_here", "subject_open": "unreachable_from_here",
                     "corrects_current": "self_serviceable", "subject_owned": "unreachable_from_here",
-                    "successor_not_superseded": "self_serviceable"}
+                    "successor_not_superseded": "self_serviceable", "proposal_pending": "dependent"}
 
 
 def input_personal(t, x, name):
@@ -3918,8 +3918,16 @@ def file_proposal(runner, store, st, aliases):
             limit = x.get("backdating_limit")
             if limit is None or not store.now - seconds(limit) <= occurred <= store.now:
                 raise Refused("unsatisfied", "occurred_within", GENERATED_REMEDY["occurred_within"])
-        key = store.new_id(PROPOSAL)
         proposer = aliases.get(r.get("actor", OPERATOR), r.get("actor"))
+        # a second pending proposal from the same proposer, of the same transition on the same object, refused naming
+        # the pending one, which a reviewer's queue filled with (E32, ADR-0211 decision 5); another proposer's is taken,
+        # each proposal its proposer's record. The runner's proposals have no expiry, so none stops pending by one
+        if oid is not None:
+            same = [k for k, held in store.proposals.items() if held["state"] == "pending" and held["object"] == oid
+                    and held["transition"] == r["transition"] and held["proposer"] == proposer]
+            if same:
+                raise Refused("unsatisfied", "proposal_pending", GENERATED_REMEDY["proposal_pending"], objects=same[:1])
+        key = store.new_id(PROPOSAL)
         p = Obj(key, PROPOSAL, "PENDING", store.now)
         p.id_order = store.counter
         p.created_by_kind = (store.actor_attr(store.type_of(proposer)) or (None, "unknown"))[1] \
@@ -4806,6 +4814,20 @@ def self_test():
         check("filing a proposal that leaves out a required input", "filed", "invalid_input")
     except Refused as e:
         check("filing a proposal that leaves out a required input", e.verdict, "invalid_input")
+    # a second pending proposal from the same proposer, of the same transition on the same object, is refused naming
+    # the pending one, and withdrawn, it holds no second one back (E32, ADR-0211 decision 5)
+    remark = lambda text, alias: step(r, s, {"propose": {"object": "u", "transition": "remark", "inputs": {"text": text},
+                                                         "proposal": alias}}, aliases, {})
+    remark("a", "m1")
+    try:
+        remark("b", "m2")
+        check("a second pending proposal of the same transition", "filed", "proposal_pending")
+    except Refused as e:
+        check("a second pending proposal of the same transition", (e.clause, e.remedy, e.objects),
+              ("proposal_pending", "dependent", [aliases["m1"][1]]))
+    step(r, s, {"withdraw": {"proposal": "m1"}}, aliases, {})
+    remark("b", "m2")
+    check("a withdrawn proposal holds no second one back", s.proposals[aliases["m2"][1]]["state"], "pending")
     # a type's invariants are named in their order, its own declared before a generated one; a loop over values runs in
     # ascending value order, whatever order they were given in (flow-format.md §4.8, ADR-0147)
     k = {"Operator": kinds["Operator"], "Tag": {

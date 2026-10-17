@@ -41,6 +41,7 @@ const GENERATED_GUARDS: &[&str] = &[
     "subject_owned",
     "successor_not_superseded",
     "value_in_range",
+    "proposal_pending",
 ];
 const BUILT_IN_MEMBERS: &[&str] = &[
     "id",

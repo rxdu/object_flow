@@ -439,8 +439,8 @@ fn refused<T>(v: Verdict) -> Result<T, Stop> {
 }
 
 /// A generated guard's refusal, naming the objects it states (`DESIGN.md`
-/// §5.5): its subject, the correction already recorded, its successor or
-/// the destination whole.
+/// §5.5): its subject, the correction already recorded, its successor, the
+/// destination whole or the proposal pending.
 fn refused_naming<T>(v: Verdict, object: &str) -> Result<T, Stop> {
     Err(Stop::Refused(
         v,
@@ -3215,6 +3215,34 @@ fn file(
                 clause: "occurred_within".into(),
                 remedy: Some(Remedy::SelfServiceable),
             });
+        }
+    }
+    // a second pending proposal from the same proposer, of the same
+    // transition on the same object, refused naming the pending one, which a
+    // reviewer's queue filled with (E32, ADR-0211 decision 5); another
+    // proposer's is taken, each proposal its proposer's record, and one past
+    // its expiry pending no longer
+    if let Some(target) = &oid {
+        let pending = BTreeSet::from(["PENDING".to_string()]);
+        let on = [("target".to_string(), Value::Text(target.clone()))];
+        let same = world
+            .of_type_where(PROPOSAL, Some(&pending), &on)?
+            .into_iter()
+            .find(|p| {
+                p.attr("target") == Value::Text(target.clone())
+                    && p.attr("transition") == Value::Text(req.transition.clone())
+                    && p.attr("proposer") == Value::Text(who.id.clone())
+                    && !matches!(p.attr("expires_at"), Value::Timestamp(e) if e <= world.now)
+            })
+            .map(|p| p.id.clone());
+        if let Some(pending) = same {
+            return refused_naming(
+                Verdict::Unsatisfied {
+                    clause: "proposal_pending".into(),
+                    remedy: Some(Remedy::Dependent),
+                },
+                &pending,
+            );
         }
     }
     let Some(pt) = lib.type_(PROPOSAL) else {
@@ -9638,6 +9666,87 @@ types:
             decided("withdraw", &change, Some(DECLARATION_CHANGE), false),
             Verdict::Satisfied { .. }
         ));
+    }
+
+    #[test]
+    fn a_second_pending_proposal_from_its_proposer_is_refused_naming_the_first() {
+        let text = JOBS
+            .replace(
+                "      finish: { kind: external, from: [WORKING], to: DONE }",
+                "      finish: { kind: external, from: [WORKING], to: DONE, proposable: true }",
+            )
+            .replace(
+                "      annotate: { kind: internal, from: [OPEN], required_inputs: [note] }",
+                "      annotate: { kind: internal, from: [OPEN], required_inputs: [note], proposable: true }",
+            );
+        let lib = Library::load(&[("jobs.yaml".into(), text)]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix"}),
+        ));
+        created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        let propose = |s: &mut Store, actor: &str, xn: &str, expires_at: Option<i64>| {
+            let r = Request {
+                transition: xn.into(),
+                actor: actor.into(),
+                object_id: Some(job.clone()),
+                type_: None,
+                inputs: if xn == "annotate" {
+                    [("note".to_string(), json!("why"))].into_iter().collect()
+                } else {
+                    BTreeMap::new()
+                },
+                occurred_at: None,
+                propose: true,
+                expires_at,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            request_told(s, &r).unwrap().unwrap()
+        };
+        let pending = Verdict::Unsatisfied {
+            clause: "proposal_pending".into(),
+            remedy: Some(Remedy::Dependent),
+        };
+        let (v, _) = propose(&mut s, OPERATOR, "finish", None);
+        let first = created(&v);
+        // the same proposer, transition and object: refused, naming the one
+        // pending, which a reviewer's queue filled with (E32, ADR-0211)
+        let (v, told) = propose(&mut s, OPERATOR, "finish", None);
+        assert_eq!((v, told.objects), (pending.clone(), vec![first.clone()]));
+        // another proposer's is their own record, and another transition is
+        // another request
+        created(&propose(&mut s, "ana", "finish", None).0);
+        created(&propose(&mut s, OPERATOR, "annotate", None).0);
+        // withdrawn, it is pending no longer, and the proposer files again
+        created(&req(
+            &mut s,
+            "withdraw",
+            OPERATOR,
+            (&first, false),
+            json!({}),
+        ));
+        let until = s.now + 60;
+        let (v, _) = propose(&mut s, OPERATOR, "finish", Some(until));
+        let expiring = created(&v);
+        let (v, told) = propose(&mut s, OPERATOR, "finish", None);
+        assert_eq!((v, told.objects), (pending, vec![expiring]));
+        // past its expiry it can no longer be approved, so it holds nothing
+        s.now += 60;
+        created(&propose(&mut s, OPERATOR, "finish", None).0);
     }
 
     #[test]

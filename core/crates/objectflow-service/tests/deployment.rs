@@ -4635,10 +4635,16 @@ fn an_erased_identity_leaves_every_copy() {
         &op,
         json!({"object_id": memo, "transition": "hand", "inputs": {"to": "ANN.SECRET@CORP.EXAMPLE"}}),
     );
-    took(
+    // a proposal she withdraws keeps what it was filed with, and a second
+    // pending one of the same transition is refused (ADR-0211 decision 5)
+    let first = took(
         &me,
         json!({"object_id": memo, "transition": "hand", "inputs": {"to": email}, "propose": true}),
-    );
+    )["object_id"]
+        .as_str()
+        .expect("the proposal")
+        .to_string();
+    took(&me, json!({"object_id": first, "transition": "withdraw"}));
     let second = took(
         &me,
         json!({"object_id": memo, "transition": "hand", "inputs": {"to": "Ann.Secret@corp.EXAMPLE"}, "propose": true}),

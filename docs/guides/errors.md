@@ -88,6 +88,7 @@ Besides the rules a flow declares, the engine adds some of its own. A refusal na
 | `identity_unchanged` | `unreachable_from_here` | changing an actor's identity after its creation: the record names actors by it. |
 | `successor_not_superseded` | `self_serviceable` | naming as successor the object itself, or one already superseded. |
 | `corrects_current` | `self_serviceable` | a correction of an observation that was already corrected. |
+| `proposal_pending` | `dependent` | filing a proposal of a transition on an object where the same proposer has one pending. `objects` names it: withdraw it, or wait for its decision. Another proposer's is taken. |
 | `not_erased` | `unreachable_from_here` | writing a personal attribute again on an object whose personal data was erased, by an input or a step at any depth, a loop's included. |
 | `subject_open` | `unreachable_from_here` | recording a label or an observation on an object in a final state. |
 | `subject_owned` | `unreachable_from_here` | recording on an object another system owns (a `mirror` type). |

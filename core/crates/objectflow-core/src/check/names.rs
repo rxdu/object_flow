@@ -76,6 +76,7 @@ const GENERATED_GUARDS: &[&str] = &[
     "subject_owned",
     "successor_not_superseded",
     "value_in_range",
+    "proposal_pending",
 ];
 const SIMPLE_TYPES: &[&str] = &[
     "string",
