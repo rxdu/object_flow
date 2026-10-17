@@ -2351,6 +2351,10 @@ pub struct Store {
     /// truncated, so the log's earlier frames still hold what it erased
     /// (D584).
     checkpoint_due: bool,
+    /// On PostgreSQL, the next transaction id when the last erasure
+    /// committed: a snapshot older than it may see what the erasure
+    /// rewrote, a later one cannot (ADR-0213 decision 8).
+    vacuum_horizon: Option<String>,
     /// The group of requests whose transaction is open, each request on a
     /// savepoint of it until the group commits (ADR-0208).
     group: Option<Group>,
@@ -2527,6 +2531,7 @@ impl Store {
             answers: BTreeMap::new(),
             attempt_retention: None,
             checkpoint_due: false,
+            vacuum_horizon: None,
             group: None,
             deadline: None,
             stop: None,
@@ -2639,6 +2644,7 @@ impl Store {
             answers: BTreeMap::new(),
             attempt_retention: None,
             checkpoint_due: false,
+            vacuum_horizon: None,
             group: None,
             deadline: None,
             stop: None,
@@ -2775,6 +2781,7 @@ impl Store {
             answers,
             attempt_retention: None,
             checkpoint_due: false,
+            vacuum_horizon: None,
             group: None,
             deadline: None,
             stop: None,
@@ -2813,6 +2820,16 @@ impl Store {
         if self.group.is_some() {
             return Ok(false);
         }
+        if self.conn.backend() == crate::db::Backend::Postgres {
+            if erased || self.vacuum_horizon.is_none() {
+                self.vacuum_horizon = Some(self.conn.query_row(
+                    "SELECT xid(pg_snapshot_xmax(pg_current_snapshot()))::text",
+                    [],
+                    |r| r.get(0),
+                )?);
+            }
+            return self.vacuum_erased();
+        }
         // tried once, waiting for no reader: a reader holding the log keeps
         // it until it ends, and the truncation stays due after the next
         // write; waiting here, under the writer's lock, made every write
@@ -2837,6 +2854,66 @@ impl Store {
         Ok(busy == 0)
     }
 
+    /// An erasure's rewritten values removed from PostgreSQL's data files
+    /// (ADR-0213 decision 8): every table of the store vacuumed, so no dead
+    /// version of what it rewrote stays in them, and a checkpoint taken
+    /// where the role may (`pg_checkpoint`), so the files lose them now
+    /// rather than at the next scheduled one. A snapshot older than the
+    /// vacuum, a read open when the erasure committed, keeps those versions,
+    /// as a SQLite reader keeps the log: the vacuum is then due again after
+    /// the next write, until none holds them. A table another vacuum holds,
+    /// autovacuum's, is waited for no longer than a lock is, and leaves it
+    /// due. Probed 2026-10-17 on PostgreSQL 16.8: three values a vacuum and
+    /// a checkpoint left in no table's or TOAST's file, each still in one
+    /// segment of the live write-ahead log, which `operate.md` states.
+    fn vacuum_erased(&mut self) -> Stored<bool> {
+        // the snapshots older than the erasure's commit, which alone may
+        // see what it rewrote: one taken since is no holder, so a store
+        // read without pause still clears once the reads open at the
+        // erasure end
+        let horizon = self.vacuum_horizon.clone().unwrap_or_else(|| "0".into());
+        let held: i64 = self.conn.query_row(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() \
+             AND pid <> pg_backend_pid() AND backend_xmin IS NOT NULL \
+             AND age(backend_xmin) > age(?1::text::xid)",
+            params![horizon],
+            |r| r.get(0),
+        )?;
+        let tables: Vec<String> = self
+            .conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")?
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        let vacuumed = self.conn.execute_batch(&format!(
+            "VACUUM {}",
+            tables
+                .iter()
+                .map(|t| quote(t))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        match vacuumed.map_err(StoreError::from) {
+            Ok(()) => {}
+            Err(e) if e.is_busy() => {
+                self.checkpoint_due = true;
+                return Ok(false);
+            }
+            Err(e) => return Err(e),
+        }
+        // a role that may not take a checkpoint leaves it to the server's
+        // own, at most its checkpoint timeout later
+        if let Err(e) = self.conn.execute_batch("CHECKPOINT")
+            && !e.is_insufficient_privilege()
+        {
+            return Err(e.into());
+        }
+        self.checkpoint_due = held > 0;
+        if held == 0 {
+            self.vacuum_horizon = None;
+        }
+        Ok(held == 0)
+    }
+
     /// The write-ahead log carried into the store's file and truncated,
     /// waiting `wait` for the reads still open on it, which a service holding
     /// back its long reads leaves short: whether it completed, an erasure's
@@ -2844,6 +2921,14 @@ impl Store {
     /// kept the log growing, 3.2 GB in 150 s, and an erasure's frames in it
     /// (fourth production review A-5, A-14).
     pub fn truncate_log(&mut self, wait: std::time::Duration) -> Stored<bool> {
+        // PostgreSQL's log is its own; what an erasure left due is its vacuum
+        if self.conn.backend() == crate::db::Backend::Postgres {
+            return if self.checkpoint_due {
+                self.vacuum_erased()
+            } else {
+                Ok(true)
+            };
+        }
         self.conn.busy_timeout(wait)?;
         let tried: crate::db::Result<i64> =
             self.conn
@@ -2907,6 +2992,7 @@ impl Store {
             answers: self.answers.clone(),
             attempt_retention: self.attempt_retention,
             checkpoint_due: false,
+            vacuum_horizon: None,
             group: None,
             deadline: None,
             stop: None,

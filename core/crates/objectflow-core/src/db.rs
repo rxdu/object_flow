@@ -152,6 +152,13 @@ impl Error {
             if matches!(f.code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
     }
 
+    /// The role may not do what was asked, a checkpoint without
+    /// `pg_checkpoint`.
+    pub fn is_insufficient_privilege(&self) -> bool {
+        self.sqlstate()
+            .is_some_and(|c| *c == postgres::error::SqlState::INSUFFICIENT_PRIVILEGE)
+    }
+
     /// The volume the database writes to is full.
     pub fn is_disk_full(&self) -> bool {
         if let Some(code) = self.sqlstate() {
@@ -1267,6 +1274,29 @@ fn arguments(rest: &str) -> usize {
     count
 }
 
+/// The schemas of sandboxes whose process no longer runs on this machine,
+/// dropped: a process killed, a service's test ending it, drops none of its
+/// own (ADR-0213). One made elsewhere, or by a process still running, is
+/// left; one that cannot be dropped is left to the next.
+fn drop_orphaned_sandboxes(client: &mut postgres::Client) {
+    let Ok(rows) = client.query(
+        "SELECT nspname::text FROM pg_namespace WHERE nspname LIKE 'sandbox\\_%' ESCAPE '\\'",
+        &[],
+    ) else {
+        return;
+    };
+    for row in rows {
+        let name: String = row.get(0);
+        let pid = name.split('_').nth(1).and_then(|p| p.parse::<u32>().ok());
+        if let Some(pid) = pid
+            && cfg!(target_os = "linux")
+            && !Path::new(&format!("/proc/{pid}")).exists()
+        {
+            let _ = client.batch_execute(&format!("DROP SCHEMA IF EXISTS {name} CASCADE"));
+        }
+    }
+}
+
 /// A connection to the database.
 pub struct Connection {
     inner: Inner,
@@ -1348,6 +1378,7 @@ impl Connection {
             ))));
         }
         if let Some(s) = &schema {
+            drop_orphaned_sandboxes(&mut client);
             client
                 .batch_execute(&format!("CREATE SCHEMA {s}; SET search_path TO {s}"))
                 .map_err(|e| Error(Fault::Postgres(e)))?;

@@ -47,7 +47,7 @@ run() {
 run "core" env -u OBJECTFLOW_SANDBOX_POSTGRES CARGO="$CARGO" "$ROOT/core/scripts/check"
 if [ -n "${OBJECTFLOW_CHECK_POSTGRES:-}" ]; then
   run "core on postgres" env OBJECTFLOW_SANDBOX_POSTGRES="$OBJECTFLOW_CHECK_POSTGRES" \
-    bash -c "cd '$ROOT/core' && '$CARGO' test -q --all-features 2>&1 | grep -E '^test result' | tail -1; exit \${PIPESTATUS[0]}"
+    bash -c "cd '$ROOT/core' && '$CARGO' test -q --all-features 2>&1 | awk '/^test result/ {p += \$4; f += \$6} END {print p \" passed, \" f \" failed on PostgreSQL\"}'; exit \${PIPESTATUS[0]}"
 else
   skipped+=("core on postgres")
 fi

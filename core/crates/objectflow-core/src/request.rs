@@ -9857,6 +9857,77 @@ types:
     }
 
     #[test]
+    fn an_erasure_on_postgresql_vacuums_once_no_older_snapshot_holds_it() {
+        let config = std::env::var(crate::store::SANDBOX_POSTGRES).unwrap_or_default();
+        if config.trim().is_empty() {
+            eprintln!("skipped on SQLite: PostgreSQL's vacuum after an erasure");
+            return;
+        }
+        const NOTES: &str = r#"
+module: notes
+categories: [live]
+types:
+  Person:
+    attributes:
+      note: { type: string, optional: true, personal: true }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, optional_inputs: [note] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+        let lib = Library::load(&[("notes.yaml".into(), NOTES.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ann = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Person", true),
+            json!({"note": "a secret"}),
+        ));
+        // a read open before the erasure can still see what it rewrites, so
+        // the vacuum stays due while it is open (ADR-0213 decision 8)
+        let other = crate::db::Connection::postgres(&config).unwrap();
+        other
+            .execute_batch("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT 1")
+            .unwrap();
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&ann, false),
+            json!({"reason": "asked"}),
+        ));
+        assert!(
+            s.checkpoint_due(),
+            "a snapshot older than the erasure keeps its vacuum due"
+        );
+        // ended, it holds nothing; the next write's retry clears it once
+        // no other test's transaction holds a snapshot either
+        other.execute_batch("COMMIT").unwrap();
+        drop(other);
+        let mut done = false;
+        for _ in 0..100 {
+            if s.after_erasure(false).unwrap() {
+                done = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(done && !s.checkpoint_due(), "the vacuum stayed due");
+        let vacuumed: i64 = s
+            .connection()
+            .query_row(
+                "SELECT count(*) FROM pg_stat_user_tables WHERE schemaname = current_schema() \
+                 AND relname = 'of_event' AND last_vacuum IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(vacuumed, 1, "the log's table was not vacuumed");
+    }
+
+    #[test]
     fn a_file_is_referenced_until_its_last_copy_is_erased() {
         const PICS: &str = r#"
 module: pics
