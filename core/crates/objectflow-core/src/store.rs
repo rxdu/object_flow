@@ -1710,33 +1710,101 @@ pub(crate) fn read_log(conn: &Connection) -> crate::db::Result<Vec<Event>> {
     rows.collect()
 }
 
-/// One span of the interval index, inserted or brought up to date.
-fn upsert_span(tx: &Connection, id: &str, dimension: &str, sp: &Span) -> Stored<()> {
-    tx.execute(
-        "INSERT INTO of_interval (object_id, dimension, value, entered_position, left_position, \
-         entered_at, left_at, entered_by, entered_by_kind, declaration_version, migrated, legacy, corrected_by) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?11, ?10, ?12, ?13) \
-         ON CONFLICT (object_id, dimension, entered_position, entered_at) DO UPDATE SET \
-         value = excluded.value, left_position = excluded.left_position, left_at = excluded.left_at, \
-         corrected_by = excluded.corrected_by",
-        params![
-            id,
-            dimension,
-            to_sql(&sp.value)?,
-            sp.entered_position,
-            sp.left_position,
-            timestamp_text(sp.entered_at),
-            sp.left_at.map(timestamp_text),
-            sp.entered_by,
-            sp.entered_by_kind,
-            i64::from(sp.migrated),
-            sp.declaration_version,
-            i64::from(sp.legacy),
-            sp.corrected_by,
-        ],
-    )?;
+/// The spans of the interval index a write touched, inserted or brought up
+/// to date, in a few statements of many rows, where each was a statement of
+/// its own and, on PostgreSQL, a round trip through the one writer (Gate P
+/// on PostgreSQL, ADR-0213). A span touched twice keeps the last, as one
+/// statement each left it; PostgreSQL refuses a statement that brings one
+/// row up to date twice.
+fn upsert_spans(tx: &Connection, spans: &[(&str, &str, &Span)]) -> Stored<()> {
+    let mut last: BTreeMap<(&str, &str, i64, i64), &Span> = BTreeMap::new();
+    for (id, dimension, sp) in spans {
+        last.insert((id, dimension, sp.entered_position, sp.entered_at), sp);
+    }
+    let rows: Vec<_> = last.into_iter().collect();
+    for chunk in rows.chunks(SPAN_ROWS) {
+        let mut binds: Vec<Sql> = Vec::with_capacity(chunk.len() * 13);
+        let mut tuples = Vec::with_capacity(chunk.len());
+        for ((id, dimension, _, _), sp) in chunk {
+            let at = binds.len();
+            tuples.push(format!(
+                "({})",
+                (1..=13)
+                    .map(|k| format!("?{}", at + k))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            binds.extend([
+                Sql::Text((*id).to_string()),
+                Sql::Text((*dimension).to_string()),
+                to_sql(&sp.value)?,
+                Sql::Integer(sp.entered_position),
+                sp.left_position.map_or(Sql::Null, Sql::Integer),
+                Sql::Text(timestamp_text(sp.entered_at)),
+                sp.left_at
+                    .map_or(Sql::Null, |t| Sql::Text(timestamp_text(t))),
+                sp.entered_by.clone().map_or(Sql::Null, Sql::Text),
+                Sql::Text(sp.entered_by_kind.clone()),
+                Sql::Integer(sp.declaration_version),
+                Sql::Integer(i64::from(sp.migrated)),
+                Sql::Integer(i64::from(sp.legacy)),
+                sp.corrected_by.map_or(Sql::Null, Sql::Integer),
+            ]);
+        }
+        tx.execute(
+            &format!(
+                "INSERT INTO of_interval (object_id, dimension, value, entered_position, left_position, \
+                 entered_at, left_at, entered_by, entered_by_kind, declaration_version, migrated, legacy, corrected_by) \
+                 VALUES {} \
+                 ON CONFLICT (object_id, dimension, entered_position, entered_at) DO UPDATE SET \
+                 value = excluded.value, left_position = excluded.left_position, left_at = excluded.left_at, \
+                 corrected_by = excluded.corrected_by",
+                tuples.join(", ")
+            ),
+            crate::db::params_from_iter(binds),
+        )?;
+    }
     Ok(())
 }
+
+/// The write index, each object's attribute and the position of the event
+/// that last wrote it, in statements of many rows, each pair's last
+/// position kept, as one statement each left it, where each was a statement
+/// of its own and, on PostgreSQL, a round trip through the one writer (Gate
+/// P on PostgreSQL, ADR-0213).
+fn write_index(tx: &Connection, written: &[(String, String, i64)]) -> Stored<()> {
+    let mut index: BTreeMap<(&str, &str), i64> = BTreeMap::new();
+    for (id, attribute, position) in written {
+        index.insert((id.as_str(), attribute.as_str()), *position);
+    }
+    let index: Vec<_> = index.into_iter().collect();
+    for chunk in index.chunks(SPAN_ROWS) {
+        let mut binds: Vec<Sql> = Vec::with_capacity(chunk.len() * 3);
+        let mut tuples = Vec::with_capacity(chunk.len());
+        for ((id, attribute), position) in chunk {
+            let at = binds.len();
+            tuples.push(format!("(?{}, ?{}, ?{})", at + 1, at + 2, at + 3));
+            binds.extend([
+                Sql::Text((*id).to_string()),
+                Sql::Text((*attribute).to_string()),
+                Sql::Integer(*position),
+            ]);
+        }
+        tx.execute(
+            &format!(
+                "INSERT INTO of_attribute_write (object_id, attribute, position) VALUES {} \
+                 ON CONFLICT (object_id, attribute) DO UPDATE SET position = excluded.position",
+                tuples.join(", ")
+            ),
+            crate::db::params_from_iter(binds),
+        )?;
+    }
+    Ok(())
+}
+
+/// How many spans one statement writes, its thirteen values each well
+/// within either backend's bound on a statement's parameters.
+const SPAN_ROWS: usize = 200;
 
 /// A table brought to a version's shape (§10): a new copy of its columns,
 /// relaxed or exact, every column the old one held that the version does
@@ -4954,13 +5022,17 @@ pub struct Allocator {
 
 impl Allocator {
     fn read(tx: &Connection) -> Stored<Allocator> {
-        let get = |n: &str| -> Stored<i64> {
-            Ok(tx.query_row(
-                "SELECT value FROM of_counter WHERE name = ?1",
-                params![n],
-                |r| r.get(0),
-            )?)
-        };
+        // the three counters and the restore's floor in one statement, where
+        // each was a statement of its own and, on PostgreSQL, a round trip
+        // through the one writer (Gate P on PostgreSQL, ADR-0213)
+        let (position, txn, object, floor): (i64, i64, i64, Option<i64>) = tx.query_row(
+            "SELECT (SELECT value FROM of_counter WHERE name = 'position'), \
+                    (SELECT value FROM of_counter WHERE name = 'txn'), \
+                    (SELECT value FROM of_counter WHERE name = 'object'), \
+                    (SELECT sequence_floor FROM of_restore ORDER BY seq DESC LIMIT 1)",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )?;
         let mut sequences = BTreeMap::new();
         // each sequence's last number drawn, the one before its next
         // read whole and counted here, never in SQL, where a next value an
@@ -4977,18 +5049,11 @@ impl Allocator {
                 .unwrap_or(SEQUENCE_MOST);
             sequences.insert(key, last);
         }
-        let floor = tx
-            .query_row(
-                "SELECT sequence_floor FROM of_restore ORDER BY seq DESC LIMIT 1",
-                [],
-                |r| r.get(0),
-            )
-            .optional()?
-            .unwrap_or(0);
+        let floor = floor.unwrap_or(0);
         Ok(Allocator {
-            position: get("position")?,
-            txn: get("txn")?,
-            object: get("object")?,
+            position,
+            txn,
+            object,
             txn_taken: false,
             sequences,
             drawn: std::collections::BTreeSet::new(),
@@ -5047,16 +5112,13 @@ impl Allocator {
     }
 
     fn write(&self, tx: &Connection) -> Stored<()> {
-        for (n, v) in [
-            ("position", self.position),
-            ("txn", self.txn),
-            ("object", self.object),
-        ] {
-            tx.execute(
-                "UPDATE of_counter SET value = ?2 WHERE name = ?1",
-                params![n, v],
-            )?;
-        }
+        // the three in one statement (Gate P on PostgreSQL)
+        tx.execute(
+            "UPDATE of_counter SET value = CASE name WHEN 'position' THEN CAST(?1 AS INTEGER) \
+             WHEN 'txn' THEN CAST(?2 AS INTEGER) ELSE CAST(?3 AS INTEGER) END \
+             WHERE name IN ('position', 'txn', 'object')",
+            params![self.position, self.txn, self.object],
+        )?;
         Ok(())
     }
 }
@@ -6402,6 +6464,7 @@ fn write(
     earlier: &BTreeMap<i64, Library>,
     change: &Change,
 ) -> Stored<()> {
+    let mut touched: Vec<(&str, &str, &Span)> = Vec::new();
     for (o, created, event) in &change.writes {
         let Some(t) = lib.type_(&o.type_) else {
             return Err(StoreError(format!(
@@ -6528,7 +6591,7 @@ fn write(
                     || sp.left_position == Some(event.position)
                     || sp.corrected_by == Some(event.position)
             }) {
-                upsert_span(tx, &o.id, dimension, sp)?;
+                touched.push((&o.id, dimension, sp));
             }
         }
         for (n, _) in t.attributes.iter().filter(|(_, a)| a.stored_set()) {
@@ -6551,6 +6614,9 @@ fn write(
             }
         }
     }
+    // the spans the events touched, written once the loop is done, before
+    // the merged ones go
+    upsert_spans(tx, &touched)?;
     for (id, dimension, position, at, by) in &change.merged {
         tx.execute(
             "DELETE FROM of_interval WHERE object_id = ?1 AND dimension = ?2 \
@@ -6567,22 +6633,19 @@ fn write(
         )?;
     }
     // the write index, once every event it names is in the log
-    for (id, attribute, position) in &change.index {
-        tx.execute(
-            "INSERT INTO of_attribute_write (object_id, attribute, position) VALUES (?1, ?2, ?3) \
-             ON CONFLICT (object_id, attribute) DO UPDATE SET position = excluded.position",
-            params![id, attribute, position],
-        )?;
-    }
+    write_index(tx, &change.index)?;
     for (id, invariant, position, reason) in &change.admitted {
         tx.execute(
             "INSERT INTO of_admission (object_id, invariant, position, reason) VALUES (?1, ?2, ?3, ?4)",
             params![id, invariant, position, reason],
         )?;
     }
-    for (id, dimension, sp) in &change.spans {
-        upsert_span(tx, id, dimension, sp)?;
-    }
+    let spans: Vec<(&str, &str, &Span)> = change
+        .spans
+        .iter()
+        .map(|(id, dimension, sp)| (id.as_str(), dimension.as_str(), sp))
+        .collect();
+    upsert_spans(tx, &spans)?;
     // a raised flag and an observing clause's would-be refusal, written with
     // the event each is linked to (storage-schema.md §6)
     for a in &change.attempts {
@@ -7101,6 +7164,93 @@ mod tests {
             matches!(v, crate::verdict::Verdict::Satisfied { .. }),
             "{v:?}"
         );
+    }
+
+    /// A span, or an attribute's last write, named twice in one write keeps
+    /// the later, as a statement for each left it, now that each goes in a
+    /// statement of many rows (Gate P on PostgreSQL), on either backend.
+    #[test]
+    fn a_span_or_a_write_named_twice_in_one_write_keeps_the_later() {
+        let text = "\nmodule: notes\ncategories: [live]\ntypes:\n  Note:\n    attributes:\n      text: { type: string }\n    states:\n      ON: { category: live }\n    transitions:\n      write: { kind: initial, to: ON, required_inputs: [text] }\n";
+        let lib = Library::load(&[("notes.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        // a note, so the log holds a second event to name
+        let written = crate::request::request(
+            &mut s,
+            &crate::request::Request {
+                transition: "write".into(),
+                actor: crate::model::OPERATOR.into(),
+                object_id: None,
+                type_: Some("Note".into()),
+                inputs: serde_json::from_value(serde_json::json!({"text": "n"})).unwrap(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            },
+        )
+        .unwrap()
+        .unwrap();
+        let crate::verdict::Verdict::Satisfied {
+            object_id: note,
+            events,
+            ..
+        } = written
+        else {
+            panic!("{written:?}")
+        };
+        let (first, later) = (1, events[0]);
+        assert!(later > first);
+        let span = |left: Option<i64>| Span {
+            value: Value::Text("ON".into()),
+            entered_position: 1,
+            left_position: left,
+            entered_at: 0,
+            left_at: left.map(|_| 60),
+            entered_by: None,
+            entered_by_kind: "human".into(),
+            migrated: false,
+            declaration_version: 1,
+            legacy: false,
+            corrected_by: None,
+        };
+        let (open, closed) = (span(None), span(Some(1)));
+        upsert_spans(
+            &s.conn,
+            &[(&note, "state", &open), (&note, "state", &closed)],
+        )
+        .unwrap();
+        let left: Option<i64> = s
+            .conn
+            .query_row(
+                "SELECT left_position FROM of_interval WHERE object_id = ?1 AND dimension = 'state' \
+                 AND entered_position = 1",
+                params![note],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, Some(1), "the span left open, the earlier kept");
+        write_index(
+            &s.conn,
+            &[
+                (note.clone(), "text".into(), first),
+                (note.clone(), "text".into(), later),
+            ],
+        )
+        .unwrap();
+        let last: i64 = s
+            .conn
+            .query_row(
+                "SELECT position FROM of_attribute_write WHERE object_id = ?1 AND attribute = 'text'",
+                params![note],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(last, later, "the earlier write's position kept");
     }
 
     #[test]
