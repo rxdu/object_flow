@@ -834,3 +834,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The harness's read-set condition was written into `adversarial-harness.md` and `TODO.md` as passing forty seeds of 300 while that run was still going; it failed, finding D693, and both records had to be corrected (2026-10-16).
 - **Correction:** Write a run's outcome into a document only from its output. Where the documentation is drafted while the run goes, leave the outcome as a marked gap and fill it from the result, never from the expected result.
 - **Context:** Any record of a test or harness run in this repository: `TODO.md`, the design documents' Built sections, `CHANGELOG.md`.
+
+### A mutant that loops outlives the timeout that ended its cargo
+- **Pattern:** A mutant removing the visited set from ADR-0212's walk over references made the test loop for ever on a reference cycle, as it should. The mutation script ran `cargo test` under Python's `subprocess` timeout, which killed `cargo` and reported the mutant killed, but the test binary `cargo` had started kept running, found ten minutes later still looping.
+- **Correction:** After a mutant run that timed out, list the test binaries still running (`ps -eo pid,etime,cmd | grep objectflow_core-`) and stop each by pid before the next run; or run the test binary under `timeout` itself, which signals the process that loops rather than its parent.
+- **Context:** Mutation testing in ObjectFlow's core, any test that can fail by not ending; 2026-10-17.

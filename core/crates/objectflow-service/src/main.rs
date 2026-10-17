@@ -3149,6 +3149,7 @@ fn violation_class(c: &J) -> Result<ViolationClass, Fault> {
             "disposition",
             "decided_by",
             "reason",
+            "uncovers",
         ],
     )?;
     let field = |k: &str| -> Result<Option<String>, Fault> { Ok(text(c, k)?.map(str::to_string)) };
@@ -3188,6 +3189,9 @@ fn violation_class(c: &J) -> Result<ViolationClass, Fault> {
         disposition,
         decided_by: field("decided_by")?,
         reason: field("reason")?,
+        // what the report said excluding it uncovers, which deciding it
+        // leaves aside (ADR-0212)
+        uncovers: Vec::new(),
     })
 }
 
@@ -3198,6 +3202,9 @@ fn report(r: &ImportReport) -> J {
             "id": c.id, "type": c.type_, "kind": c.kind.text(), "rule": c.rule, "shape": c.shape,
             "count": c.count, "sample": c.sample, "disposition": c.disposition.text(),
             "decided_by": c.decided_by, "reason": c.reason,
+            "uncovers": c.uncovers.iter().map(|u| json!({
+                "id": u.id, "type": u.type_, "rule": u.rule, "count": u.count,
+            })).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
         "refused_types": r.refused_types,
         "refusal": r.refusal.as_ref().map(|f| json!({"type": f.type_, "legacy_key": f.legacy_key, "reason": f.reason})),

@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-17 by the author ("go with your recommendations."), given after the seven questions were listed on 2026-10-16, each with the recommendation `TODO.md` records; each decision is that recommendation. The release gate the author keeps (ADR-0204 §7, §8) is not decided by it.
 - **Date:** 2026-10-17
+- **Refined by:** ADR-0212 — decision 4's remainder: a dry run's class says what excluding it uncovers.
 - **Refines:** ADR-0147 (a dry run's dispositions); ADR-0191 decision 7 (the repository's settings)
 - **Relates to:** `DESIGN.md` §5 and §9; ADR-0017, ADR-0041, ADR-0087 (a file's bytes); `design/hiring-third-review.md` E16, E24, E32; ADR-0208 (the writer at the peak); ADR-0210 decision 2
 

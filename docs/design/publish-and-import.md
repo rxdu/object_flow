@@ -267,6 +267,15 @@ class ViolationKind(Enum):
 
 
 @dataclass(frozen=True)
+class Uncovered:
+    """A reference class excluding another would add (ADR-0212)."""
+    id: str                      # as a class's: "<type>.<rule>: names an excluded object"
+    type: str
+    rule: str                    # the reference attribute
+    count: int
+
+
+@dataclass(frozen=True)
 class ViolationClass:
     """Every object failing the same rule in the same way, as one decision.
 
@@ -284,6 +293,8 @@ class ViolationClass:
     disposition: Disposition = Disposition.UNDECIDED
     decided_by: str | None = None
     reason: str | None = None    # required for ADMIT and EXCLUDE
+    uncovers: Sequence[Uncovered] = ()   # what excluding it would uncover; report data (ADR-0212)
+
 
 
 # The file: the classes as a person decided them (ADR-0154).
@@ -296,7 +307,9 @@ Five rules make it useful rather than ceremonial.
 
 **What each kind covers** (ADR-0154). A state, an enumeration member or a value of the wrong type is a `GUARD` class, so its objects can be excluded or cleaned upstream, while an attribute the type does not declare refuses the batch, as the mapping's error (C35). A mirror's `unique` is an `INVARIANT` class like its other invariants, since §8 of `storage-schema.md` compiles none of a mirror's, and an external identifier two objects share is a `GUARD` class, `of_external_id`'s key holding it (C22). An excluded object is one this batch's file excludes and the store does not hold, and a reference to it is a `REFERENCE` class; one the store holds is left as last imported, and a reference to it resolves; `DROP` on a required reference refuses the batch, and the dry run reports it (C29).
 
-**`ADMIT` and `EXCLUDE` require a reason, and it is recorded.** An admitted violation becomes an admission on the object, which `exceptions(type)` returns until the invariant holds again (ADR-0054). An excluded object leaves a row in the file and nothing in the store, and one the store already holds is left as last imported, which the dry run reports (ADR-0147), which is the only record that it was left behind.
+**`ADMIT` and `EXCLUDE` require a reason, and it is recorded.** An admitted violation becomes an admission on the object, which `exceptions(type)` returns until the invariant holds again (ADR-0054). An excluded object leaves a row in the file and nothing in the store, and one the store already holds is left as last imported, which the dry run reports (ADR-0147), which is the only record that it was left behind. An exclusion's consequences are reported in the same dry run, the file's exclusions applied until nothing more is excluded: an object whose reference names an excluded one is a class of its own, `names an excluded object`.
+
+**A class says what excluding it would uncover** (ADR-0212). Each class lists in `uncovers` the reference classes its exclusion would add, by type and attribute with a count, followed through references as if each were excluded in turn, so a chain, an application's interviews and an interview's notes, is told in the first dry run rather than one dry run after each decision. A class the file excludes uncovers nothing more, its consequences being classes of their own. It reads references alone: an invariant an exclusion would break, a count over what remains, is found by the next dry run. Like `count` and `sample` it is report data, which a file sending it back may keep and which deciding the class leaves aside.
 
 **Nor can an actor's identity another actor holds**, `identity_taken`, compared without case: two actors holding one identity would have the first made answer for both, which no reason makes right (ADR-0192 decision 6). **A guard class cannot be admitted.** An admission names an object and an invariant (ADR-0054); a structural guard — a required attribute or reference absent — has no admission shape, a creation guard being one no import meets, since a mirror declares no creation (ADR-0147), and its column is `NOT NULL` besides. A guard class is cleaned upstream, supplied by the mapping, or excluded, and the dry run refuses `ADMIT` on one rather than leaving the import to fail on it (ADR-0077).
 

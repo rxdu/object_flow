@@ -175,6 +175,22 @@ pub struct ViolationClass {
     pub disposition: Disposition,
     pub decided_by: Option<String>,
     pub reason: Option<String>,
+    /// What excluding it would uncover: each reference class the exclusion
+    /// would add, followed through references as if each were excluded in
+    /// turn; none where the file excludes it, its consequences being
+    /// reported as classes of their own (ADR-0212). Report data, as `count`
+    /// and `sample` are, which deciding the class leaves aside.
+    pub uncovers: Vec<Uncovered>,
+}
+
+/// A reference class excluding another would add, and how many objects it
+/// would hold (ADR-0212).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Uncovered {
+    pub id: String,
+    pub type_: String,
+    pub rule: String,
+    pub count: usize,
 }
 
 impl ViolationClass {
@@ -576,6 +592,7 @@ fn decide(
             disposition: Disposition::Undecided,
             decided_by: None,
             reason: None,
+            uncovers: Vec::new(),
         };
         match classes.iter_mut().find(|(c, _)| c.same(&class)) {
             Some((_, objects)) => {
@@ -1010,6 +1027,54 @@ fn decide(
             );
         }
     }
+    // what excluding a class would uncover, a round at a time as the dry
+    // runs after it would find it: the objects whose references name what
+    // the round before excluded, by the class each joins, each then taken
+    // as excluded too, so a chain is told whole in the first dry run, where
+    // the hiring review's took three (E24, ADR-0212)
+    let mut naming: BTreeMap<&(String, String), Vec<&Reference>> = BTreeMap::new();
+    for r in &references {
+        for key in &r.named {
+            naming.entry(key).or_default().push(r);
+        }
+    }
+    let uncovered_by = |objects: &BTreeSet<usize>| -> Vec<Uncovered> {
+        let mut gone: BTreeSet<usize> = excluded.union(objects).copied().collect();
+        let mut round: BTreeSet<usize> = objects.difference(&excluded).copied().collect();
+        let mut joined: BTreeMap<(String, String), BTreeSet<usize>> = BTreeMap::new();
+        while !round.is_empty() {
+            let mut next = BTreeSet::new();
+            for i in &round {
+                let o = &batch.objects[*i];
+                let key = legacy(lib, &o.type_, &o.legacy_key);
+                // one the store holds stays, and nothing naming it is lost
+                if external.contains_key(&key) {
+                    continue;
+                }
+                for r in naming.get(&key).into_iter().flatten() {
+                    if gone.contains(&r.index) {
+                        continue;
+                    }
+                    joined
+                        .entry((batch.objects[r.index].type_.clone(), r.attribute.clone()))
+                        .or_default()
+                        .insert(r.index);
+                    next.insert(r.index);
+                }
+            }
+            gone.extend(next.iter().copied());
+            round = next;
+        }
+        joined
+            .into_iter()
+            .map(|((type_, rule), held)| Uncovered {
+                id: format!("{type_}.{rule}: {NAMES_EXCLUDED}"),
+                type_,
+                rule,
+                count: held.len(),
+            })
+            .collect()
+    };
     // each class as the file decides it, counted and sampled
     for (c, objects) in &found_classes {
         let mut class = c.clone();
@@ -1024,6 +1089,8 @@ fn decide(
             class.decided_by = f.decided_by.clone();
             class.reason = f.reason.clone();
         }
+        // one the file excludes starts from nothing, its objects excluded
+        class.uncovers = uncovered_by(objects);
         report.findings.push(class);
     }
     // a class the file leaves to be decided, or decides wrongly, refuses; a
@@ -2010,6 +2077,152 @@ types:
         assert!(
             s.snapshot().unwrap().external_all().unwrap().is_empty(),
             "nothing is written"
+        );
+    }
+
+    #[test]
+    fn a_class_says_what_excluding_it_uncovers() {
+        const ATS: &str = r#"
+module: ats
+categories: [live]
+types:
+  Application:
+    mirror: true
+    attributes:
+      code: { type: string, external: ats }
+      last_interview: { reference: Interview, optional: true }
+    states:
+      OPEN: { category: live }
+  Interview:
+    mirror: true
+    attributes:
+      code: { type: string, external: ats }
+      application: { reference: Application }
+    states:
+      HELD: { category: live }
+  Note:
+    mirror: true
+    attributes:
+      code: { type: string, external: ats }
+      interview: { reference: Interview }
+    states:
+      KEPT: { category: live }
+  Offer:
+    mirror: true
+    attributes:
+      code: { type: string, external: ats }
+      application: { reference: Application }
+    states:
+      MADE: { category: live }
+"#;
+        let lib = Library::load(&[("ats.yaml".into(), ATS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let object = |type_: &str, key: &str, state: &str, refs: &[(&str, &str)]| {
+            let mut attributes: BTreeMap<String, Json> =
+                [("code".to_string(), json!(key.to_lowercase()))].into();
+            for (a, k) in refs {
+                attributes.insert((*a).to_string(), json!(k));
+            }
+            ImportedObject {
+                type_: type_.into(),
+                legacy_key: key.into(),
+                state: state.into(),
+                attributes,
+                ..ImportedObject::default()
+            }
+        };
+        // an application on hold, which the flow does not declare, with an
+        // interview naming it back, a note on it and an offer; and one open,
+        // with its own
+        let batch = vec![
+            object(
+                "Application",
+                "A-1",
+                "ON_HOLD",
+                &[("last_interview", "I-1")],
+            ),
+            object("Application", "A-2", "OPEN", &[]),
+            object("Interview", "I-1", "HELD", &[("application", "A-1")]),
+            object("Interview", "I-2", "HELD", &[("application", "A-2")]),
+            object("Note", "N-1", "KEPT", &[("interview", "I-1")]),
+            object("Offer", "O-1", "MADE", &[("application", "A-1")]),
+        ];
+        let told = |c: &ViolationClass| {
+            c.uncovers
+                .iter()
+                .map(|u| (u.id.clone(), u.count))
+                .collect::<Vec<_>>()
+        };
+        let excluded = |rule: &str| format!("{rule}: {NAMES_EXCLUDED}");
+        // the first dry run tells what excluding the held one would uncover,
+        // the note behind its interview included, where E24 met each class a
+        // round later
+        let first = run(&mut s, batch.clone(), &[], true);
+        assert_eq!(first.findings.len(), 1, "{:?}", first.findings);
+        let held = first.findings[0].clone();
+        assert_eq!(
+            told(&held),
+            vec![
+                (excluded("Interview.application"), 1),
+                (excluded("Note.interview"), 1),
+                (excluded("Offer.application"), 1),
+            ]
+        );
+        // excluded, it tells nothing more, its consequences being classes of
+        // their own, each saying what excluding it would uncover in turn
+        let file = [decided(&held, Disposition::Exclude, "on hold")];
+        let second = run(&mut s, batch.clone(), &file, true);
+        let by_id = |r: &ImportReport| {
+            r.findings
+                .iter()
+                .map(|c| (c.id.clone(), told(c)))
+                .collect::<BTreeMap<_, _>>()
+        };
+        assert_eq!(
+            by_id(&second),
+            BTreeMap::from([
+                ("Application.state: is not declared".to_string(), vec![]),
+                (
+                    excluded("Interview.application"),
+                    vec![(excluded("Note.interview"), 1)]
+                ),
+                (excluded("Offer.application"), vec![]),
+            ])
+        );
+        // and deciding every class the first dry run told of converges
+        let mut file = file.to_vec();
+        for c in &second.findings {
+            if c.kind == ViolationKind::Reference {
+                file.push(decided(c, Disposition::Exclude, "with the application"));
+            }
+        }
+        let third = run(&mut s, batch.clone(), &file, true);
+        let note = third
+            .findings
+            .iter()
+            .find(|c| c.id == excluded("Note.interview"))
+            .unwrap()
+            .clone();
+        file.push(decided(&note, Disposition::Exclude, "with the interview"));
+        let run_ = run(&mut s, batch, &file, false);
+        assert_eq!((run_.written, run_.refusal), (2, None));
+        // excluding an object the store holds loses nothing naming it
+        let again = run(
+            &mut s,
+            vec![
+                object("Application", "A-2", "ON_HOLD", &[]),
+                object("Interview", "I-5", "HELD", &[("application", "A-2")]),
+            ],
+            &[],
+            true,
+        );
+        assert_eq!(
+            again
+                .findings
+                .iter()
+                .map(|c| (c.id.clone(), told(c)))
+                .collect::<Vec<_>>(),
+            vec![("Application.state: is not declared".to_string(), vec![])]
         );
     }
 
