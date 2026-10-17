@@ -1,0 +1,24 @@
+# Dependabot, as ADR-0211 decision 2 sets it: weekly, a pull request for each dependency a manifest pins, for cargo,
+# pip, npm and the workflows' actions; the author merges or closes each. It takes effect once this file is pushed.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /core
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: pip
+    directory: /scripts
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: pip
+    directory: /apps/flow-studio/server
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /apps/flow-studio/web
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5

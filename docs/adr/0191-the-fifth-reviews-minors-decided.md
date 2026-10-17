@@ -2,7 +2,7 @@
 
 - **Status:** **Decided** 2026-10-13 on the author's standing instruction, "continue the loop to get the stack ready for production, follow your recommendations", each decision the recommendation stated here, but decision 7, which is the author's.
 - **Date:** 2026-10-13
-- **Refined by:** ADR-0205 — decision 3's derived time past the calendar refuses the read `value_in_range`, where it was answered null.
+- **Refined by:** ADR-0205 — decision 3's derived time past the calendar refuses the read `value_in_range`, where it was answered null. ADR-0211 — decision 7's settings: the `v*` tags' ruleset and Dependabot, `check-all` on `main` waiting for pull requests.
 - **Refines:** ADR-0176 and ADR-0189 (`taken_by`), ADR-0185 (`value_in_range`), ADR-0190 decision 1 (the calendar), ADR-0183 decision 3 (`--create`), ADR-0188 (the evaluator's token)
 - **Relates to:** `design/production-review.md` §9; `DESIGN.md` §9; `guides/wire.md`; `guides/integrate.md` §6, §9; `flow-format.md` §7
 

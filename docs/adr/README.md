@@ -148,7 +148,7 @@
 | [0144](0144-a-successor-is-neither-the-object-nor-one-already-superseded.md) | A successor is neither the object nor one already superseded, so a supersession chain has no cycle | Accepted by the author |
 | [0145](0145-a-kind-of-actor-and-a-calendar-date-are-types.md) | A kind of actor and a calendar date are types, and an amount in another currency is recorded beside the one the rules compute with | Accepted by the author |
 | [0146](0146-what-the-engine-does-beyond-a-request-as-a-cold-reading-found.md) | What the engine does beyond a request, as a cold reading found it unsettled | Accepted by the author (decisions 1 to 4), and at the author's direction (the rest) — later refined by ADR-0147 |
-| [0147](0147-what-a-second-cold-reading-found-in-adr-0146s-text.md) | What a second cold reading found in the text written for ADR-0146 | Accepted by the author (decisions 1 to 3), and at the author's direction (the rest) — later refined by ADR-0148, ADR-0155, ADR-0157 |
+| [0147](0147-what-a-second-cold-reading-found-in-adr-0146s-text.md) | What a second cold reading found in the text written for ADR-0146 | Accepted by the author (decisions 1 to 3), and at the author's direction (the rest) — later refined by ADR-0148, ADR-0155, ADR-0157, ADR-0211 |
 | [0148](0148-one-normative-home-per-rule.md) | One normative home per rule, and what the third cold reading left open | Accepted by the author |
 | [0149](0149-the-flow-studio-is-the-first-application-built-on-the-engine.md) | The Flow Studio is the first application built on the engine | Accepted by the author — later refined by ADR-0150 |
 | [0150](0150-the-services-wire-and-the-flow-studios-stack.md) | The service's wire, and the Flow Studio's stack | Accepted by the author (decisions 1, 3 to 5), and at the author's direction (decision 2) — later refined by ADR-0151 |
@@ -191,7 +191,7 @@
 | [0188](0188-a-text-bound-an-evaluators-token-and-the-disk.md) | A text's bound, an evaluator's token and the disk in health | Decided by the author; built |
 | [0189](0189-agents-closed-by-their-tools-reads-bounded-main-protected.md) | An agent's tools opt-in, heavy reads bounded, `main` protected | Decided by the author; built |
 | [0190](0190-the-fifth-reviews-findings-decided.md) | The fifth review's findings, decided | Decided on the author's standing instruction; built |
-| [0191](0191-the-fifth-reviews-minors-decided.md) | The fifth review's minors, decided | Decided on the author's standing instruction, but decision 7, the author's; built |
+| [0191](0191-the-fifth-reviews-minors-decided.md) | The fifth review's minors, decided | Decided on the author's standing instruction, but decision 7, the author's; built — later refined by ADR-0211 |
 | [0192](0192-the-sixth-reviews-findings-decided.md) | The sixth review's findings, decided | Decided on the author's standing instruction; built |
 | [0193](0193-the-guides-written-for-people-and-agents.md) | The guides, written for people and agents, and checked against the engine | Decided on the author's request; built |
 | [0194](0194-the-seventh-reviews-findings-decided.md) | The seventh review's findings, decided | Decided on the author's standing instruction; built |
@@ -211,4 +211,5 @@
 | [0208](0208-requests-waiting-for-the-writer-commit-together.md) | Requests waiting for the writer commit together | Decided on the author's standing instruction |
 | [0209](0209-the-log-records-what-each-event-wrote.md) | The log records what each event wrote, and a plain read of an absent value clears | Decided by the author |
 | [0210](0210-five-questions-decided-as-recommended.md) | Five questions decided as recommended | Decided by the author |
+| [0211](0211-seven-questions-decided-as-recommended.md) | Seven questions decided as recommended | Decided by the author |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |
