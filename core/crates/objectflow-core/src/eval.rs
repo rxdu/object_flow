@@ -252,6 +252,9 @@ pub struct Evaluator<'a> {
     /// Where the objects a clause names are noted, for its refusal; none
     /// where nothing notes them.
     naming: Option<&'a std::cell::RefCell<Named>>,
+    /// Whether a scan of a type leaves out `this`, as an invariant's does:
+    /// it ranges over every other object (ADR-0061 decision 1).
+    others: bool,
     /// How many derived attributes, each reading the next, this evaluation
     /// is inside: past [`DERIVED_HOPS`] the read is not run, where a derived
     /// attribute reading itself through a reference, `parent.depth + 1`,
@@ -386,6 +389,7 @@ impl<'a> Evaluator<'a> {
             quiet: std::cell::Cell::new(0),
             aside: std::cell::Cell::new(0),
             naming: None,
+            others: false,
             hops: 0,
             known: std::cell::OnceCell::new(),
         }
@@ -511,6 +515,15 @@ impl<'a> Evaluator<'a> {
 
     pub fn filtering(mut self) -> Evaluator<'a> {
         self.filter_mode = true;
+        self
+    }
+
+    /// Evaluating an invariant, whose scan of a type ranges over every
+    /// other object, the object written never in it: a booking overlaps
+    /// itself, so `none(b in Booking where … overlap …)` was false for
+    /// every booking (ADR-0061 decision 1, D696).
+    pub fn over_others(mut self) -> Evaluator<'a> {
+        self.others = true;
         self
     }
 
@@ -1336,7 +1349,13 @@ impl<'a> Evaluator<'a> {
                 // index; any other fails a conjunct of the filter outright,
                 // so it would be neither selected nor undecided (ADR-0162
                 // step 3)
-                let narrowed = filter.and_then(|f| self.narrowing(&t, var, f, env));
+                // what the narrowing reads to find the columns' values is the
+                // where's, which names nothing: only what it selects is named
+                // (D697)
+                let narrowed = {
+                    let _quiet = Deeper::new(self.naming);
+                    filter.and_then(|f| self.narrowing(&t, var, f, env))
+                };
                 let scanned_objects = match narrowed {
                     Some((states, columns)) => {
                         self.world.of_type_where(&t, states.as_ref(), &columns)?
@@ -1345,6 +1364,7 @@ impl<'a> Evaluator<'a> {
                 };
                 let all = scanned_objects
                     .into_iter()
+                    .filter(|o| !self.others || self.this != Some(o.id.as_str()))
                     .map(|o| Value::Object(o.id.clone()))
                     .collect();
                 scanned = Some(t);

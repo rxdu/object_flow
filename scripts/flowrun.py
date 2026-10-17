@@ -782,8 +782,10 @@ class Store:
 class Evaluator:
     """An expression's value over the store, for one object and one request (§8, §9.2)."""
 
-    def __init__(self, store, tn, this=None, inputs=None, actor=None, stubs=None, filter_mode=False, event=None, committed=None):
+    def __init__(self, store, tn, this=None, inputs=None, actor=None, stubs=None, filter_mode=False, event=None, committed=None,
+                 others=False):
         self.s, self.tn, self.this, self.event = store, tn, this, event
+        self.others = others                    # an invariant's scan of a type leaves out `this` (ADR-0061 decision 1)
         self.inputs, self.actor, self.stubs = inputs or {}, actor, stubs or {}
         self.filter_mode = filter_mode          # a filter leaves out an element it cannot decide (§8.2)
         self.committed = committed              # the store as the request found it, which a metric guard reads (ADR-0084)
@@ -1250,8 +1252,10 @@ class Evaluator:
         if items is ABSENT:
             return ABSENT
         if isinstance(items, tuple) and items[:1] == ("typeref",) and items[1] in self.s.kinds:
-            # a type scan: every object of the type and its family, in ascending id order (declaration-syntax.md §8)
-            items = tuple(o.id for o in sorted(self.s.objects.values(), key=lambda o: o.id_order) if self.s.is_a(o.type, items[1]))
+            # a type scan: every object of the type and its family, in ascending id order (declaration-syntax.md §8), and
+            # an invariant's every other object, the object written never in it, as the core's (ADR-0061 decision 1, D696)
+            items = tuple(o.id for o in sorted(self.s.objects.values(), key=lambda o: o.id_order)
+                          if self.s.is_a(o.type, items[1]) and not (self.others and o.id == self.this))
         if not isinstance(items, tuple):
             raise NotRunnable("an aggregate over a value that is not a collection")
         if self.naming is None:
@@ -3476,7 +3480,7 @@ class Runner:
         invariants = t.get("invariants") or {}
         origin = t.get("_from") or {}
         for n in [n for n in invariants if ("invariants", n) not in origin] + [n for n in invariants if ("invariants", n) in origin]:
-            if truth(Evaluator(store, o.type, o.id).value(flowexpr.parse(invariants[n]["expression"]), {})) is False:
+            if truth(Evaluator(store, o.type, o.id, others=True).value(flowexpr.parse(invariants[n]["expression"]), {})) is False:
                 out.append(n)
         st = (t.get("states") or {}).get(o.state) or {}
         if any(a not in o.attrs for a in st.get("required_attributes") or []):
@@ -4828,6 +4832,29 @@ def self_test():
     step(r, s, {"withdraw": {"proposal": "m1"}}, aliases, {})
     remark("b", "m2")
     check("a withdrawn proposal holds no second one back", s.proposals[aliases["m2"][1]]["state"], "pending")
+    # an invariant's scan of a type ranges over every other object, so a booking, which overlaps itself, holds alone, and
+    # one overlapping it is refused, as the core decides it (ADR-0061 decision 1, D696)
+    k = {"Operator": kinds["Operator"],
+         "Room": {"attributes": {}, "states": {"OPEN": {"category": "live"}},
+                  "transitions": {"add": {"kind": "initial", "to": "OPEN"}}},
+         "Booking": {"attributes": {"room": {"reference": "Room"}, "start": {"type": "timestamp", "indexed": True},
+                                    "end": {"type": "timestamp", "indexed": True}},
+                     "states": {"BOOKED": {"category": "live"}},
+                     "invariants": {"no_overlap": {"expression":
+                                                   "none(b in Booking where b.room == room and b.start < end and b.end > start)"}},
+                     "transitions": {"book": {"kind": "initial", "to": "BOOKED", "required_inputs": ["room", "start", "end"]}}}}
+    r, s, aliases = Runner(k, {}), Store(k, {}), {OPERATOR: OPERATOR}
+    step(r, s, {"request": {"type": "Room", "transition": "add", "as": "room"}}, aliases, {})
+    booked = []
+    for start, end in (("10:00", "12:00"), ("11:00", "13:00"), ("12:00", "14:00")):
+        try:
+            outcome = step(r, s, {"request": {"type": "Booking", "transition": "book", "inputs": {
+                "room": "room", "start": f"2026-11-02T{start}Z", "end": f"2026-11-02T{end}Z"}}}, aliases, {})
+            booked.append(outcome[0] if outcome[0] != "refused" else outcome[1].verdict)
+        except Refused as e:
+            booked.append(e.verdict)
+    check("a booking holds alone, an overlap is refused and touching ends are not",
+          booked, ["applied", "invariant_violated", "applied"])
     # a type's invariants are named in their order, its own declared before a generated one; a loop over values runs in
     # ascending value order, whatever order they were given in (flow-format.md §4.8, ADR-0147)
     k = {"Operator": kinds["Operator"], "Tag": {

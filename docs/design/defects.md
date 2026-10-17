@@ -707,6 +707,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D693](#d693) | An actor's identity another actor holds is refused with nothing in its record of what it read | Resolved |
 | [D694](#d694) | A second correction of an observation is refused with nothing in its record of the correction that refused it | Resolved |
 | [D695](#d695) | A member read through a reference that its type does not declare was accepted | Resolved |
+| [D696](#d696) | An invariant's scan of a type included the object written, so a booking overlapped itself | Resolved |
+| [D697](#d697) | A scan narrowed by an index named what its narrowing read | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4471,3 +4473,14 @@ Brought to the author the day it was found, with a recommendation (`TODO.md`, un
 **A member read through a reference that its type does not declare was accepted, and refused every request at run time.** Both checkers type a path through a reference by the target type's member and gave a name the type does not declare no type and no finding, so `customer.nonexistent + 1 h >= now` passed check 2 and step 3, where a bare `nonexistent` is refused `names`. A guard reading it is unknown at run time and refuses every request it guards. Found 2026-10-16 withdrawing a mirror's `imported_at` (ADR-0210 decision 3), which a path read as `customer.imported_at` and nothing refused.
 
 **Resolved** 2026-10-16: both checkers refuse such a member, "it reads {m} of {T}, which {T} does not declare", a type's members being its attributes, derived attributes and observation kinds, what every object has, its flow data, its state and its referrers, and the withdrawn `imported_at` named as withdrawn (`check-flows.py` `Typing.undeclared`, `check/names.rs` `undeclared`); held by a plant and the oracle, two mutants of each checker killed. The corpus's only use of a member outside the first list, `intervals` read through a reference, set the flow data's place in it.
+
+### D696
+**An invariant's scan of a type included the object written, so every booking under a no-overlap rule was refused, the first included.** ADR-0061 decision 1 has a type-scan invariant range over every other object, the object written never in the scanned set; both backends scanned the whole type, so `none(b in Booking where b.room == room and b.start < end and b.end > start …)`, the overlap rule `declaration-syntax.md` §3.4 gives, was false for every booking, which overlaps itself, and any uniqueness written as a scan was false for every object. A creation and an update alike: confirming the only booking of a room was refused. The two backends agreed, so their tee never found it, and no flow of the corpus holds an invariant that scans a whole type, only ones over a relationship. Found 2026-10-17 checking, for the operations platform's agent, whether the core refuses an overlapping booking on SQLite: a booking flow published to the release service refused its first booking `no_overlap`.
+
+**Resolved** 2026-10-17: where an invariant is decided, its scan of a type leaves out the object written, in the core (`Evaluator::over_others`, set in `failing_invariants_reading`) and the reference runner (`Evaluator(..., others=True)` in `failing_invariants`), every invariant judged there, a request's, a publish's simulation and an import's alike. Held by `an_invariant_scans_every_other_object` (a first booking, an overlap and an enclosure refused naming the booking overlapped, touching ends, a move within its own span and into another's, a cancelled booking), the runner's self-test and the tee test `test_scans.py`; a mutant of each backend killed. Probed on the release service: sixteen requests at once for one slot applied once. Where a refusal names the objects in conflict the object was already left out (`Named::on`), so the naming needed no change.
+
+### D697
+**A scan narrowed by an index named what its narrowing read.** An aggregate's `where` names nothing and the aggregate names what it selects (`DESIGN.md` §5.5); the core narrows a type scan by the columns its `where` compares (ADR-0162 step 3), and evaluated the compared values before naming was suppressed, so an overlap refusal named the room its `where` read beside the booking it overlapped, where the reference runner named the booking alone. Found 2026-10-17 by the tee test written for D696, the first in the corpus to scan with a narrowable `where`.
+
+**Resolved** 2026-10-17: the narrowing's evaluation names nothing, as the `where`'s does (`eval.rs` `aggregate_choosing`); held by `an_invariant_scans_every_other_object` and `test_scans.py`, a mutant killed.
+

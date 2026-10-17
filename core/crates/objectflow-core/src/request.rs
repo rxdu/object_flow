@@ -5746,7 +5746,7 @@ fn failing_invariants_reading(
     };
     let mut out = Vec::new();
     for (n, e) in &t.invariants {
-        let mut evaluating = Evaluator::new(world, Some(t), Some(&o.id));
+        let mut evaluating = Evaluator::new(world, Some(t), Some(&o.id)).over_others();
         if let Some(r) = reading {
             evaluating = evaluating.with_reading(r, n);
         }
@@ -9731,6 +9731,129 @@ types:
             decided("withdraw", &change, Some(DECLARATION_CHANGE), false),
             Verdict::Satisfied { .. }
         ));
+    }
+
+    #[test]
+    fn an_invariant_scans_every_other_object() {
+        const ROOMS: &str = r#"
+module: rooms
+categories: [live, closed]
+types:
+  Room:
+    attributes:
+      name: { type: string }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [name] }
+  Booking:
+    attributes:
+      room: { reference: Room }
+      start: { type: timestamp, indexed: true }
+      end: { type: timestamp, indexed: true }
+    states:
+      BOOKED: { category: live }
+      CANCELLED: { category: closed, final: true }
+    invariants:
+      no_overlap:
+        expression: >-
+          none(b in Booking where b.room == room and b.start < end and b.end > start
+               and b.state.category != closed and state.category != closed)
+    transitions:
+      book: { kind: initial, to: BOOKED, required_inputs: [room, start, end] }
+      move: { kind: internal, from: [BOOKED], required_inputs: [start, end] }
+      cancel: { kind: external, from: [BOOKED], to: CANCELLED }
+"#;
+        let lib = Library::load(&[("rooms.yaml".into(), ROOMS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let room = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Room", true),
+            json!({"name": "A"}),
+        ));
+        let at = |h: u32, m: u32| format!("2026-11-02T{h:02}:{m:02}:00Z");
+        let span =
+            |a: (u32, u32), b: (u32, u32)| json!({"start": at(a.0, a.1), "end": at(b.0, b.1)});
+        let book = |s: &mut Store, a, b| {
+            let mut inputs = span(a, b);
+            inputs["room"] = json!(room);
+            req(s, "book", OPERATOR, ("Booking", true), inputs)
+        };
+        let refused_naming = |s: &mut Store, r: &Request| match request_told(s, r).unwrap().unwrap()
+        {
+            (Verdict::InvariantViolated { .. }, told) => told.objects,
+            (other, _) => panic!("{other:?}"),
+        };
+        // the first booking holds: it overlaps itself, which the scan of
+        // every other booking leaves out (ADR-0061 decision 1, D696)
+        let first = created(&book(&mut s, (10, 0), (12, 0)));
+        // an overlap, an enclosure, refused naming the booking it overlaps,
+        // what the scan selects, and nothing its where reads, the room
+        // (DESIGN.md §5.5, D697)
+        for (a, b) in [((11, 0), (13, 0)), ((9, 0), (14, 0))] {
+            let mut inputs = span(a, b);
+            inputs["room"] = json!(room);
+            let r = Request {
+                transition: "book".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some("Booking".into()),
+                inputs: inputs.as_object().cloned().unwrap().into_iter().collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            assert_eq!(refused_naming(&mut s, &r), vec![first.clone()]);
+        }
+        // touching ends do not overlap
+        let next = created(&book(&mut s, (12, 0), (14, 0)));
+        // moved, a booking is judged against the others alone: within its
+        // own span it holds, and into the first's it is refused, the
+        // invariant failing on each of the two
+        created(&req(
+            &mut s,
+            "move",
+            OPERATOR,
+            (&next, false),
+            span((12, 30), (14, 0)),
+        ));
+        let r = Request {
+            transition: "move".into(),
+            actor: OPERATOR.into(),
+            object_id: Some(next.clone()),
+            type_: None,
+            inputs: span((11, 30), (14, 0))
+                .as_object()
+                .cloned()
+                .unwrap()
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let Verdict::InvariantViolated { failures, .. } = request(&mut s, &r).unwrap().unwrap()
+        else {
+            panic!("the move into the first's span applied")
+        };
+        let mut on: Vec<Option<String>> = failures.iter().map(|f| f.object_id.clone()).collect();
+        on.sort();
+        assert_eq!(on, vec![Some(first.clone()), Some(next.clone())]);
+        // a cancelled booking holds the room no longer
+        created(&req(&mut s, "cancel", OPERATOR, (&first, false), json!({})));
+        created(&book(&mut s, (10, 0), (12, 0)));
     }
 
     #[test]
