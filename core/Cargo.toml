@@ -13,7 +13,7 @@ publish = false
 
 [workspace.dependencies]
 objectflow-core = { path = "crates/objectflow-core" }
-saphyr-parser = "0.1.0"
+saphyr-parser = "0.2.1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 # a deployment's store on PostgreSQL, synchronous as the core is (ADR-0213
 # decision 3)
