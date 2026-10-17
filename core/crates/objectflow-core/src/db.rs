@@ -1592,16 +1592,31 @@ impl Connection {
             .0
             .connect(tls()?)
             .map_err(|e| Error(Fault::Postgres(e)))?;
-        let collation: String = client
+        // text sorted as its bytes, and `lower()` folding ASCII letters
+        // alone, as the engine and SQLite do: under another character type
+        // or ICU's, `lower()` folds `Ä` to `ä`, two identities the engine
+        // holds apart match, and an erasure of one renamed the other
+        // (records and personal-data reviews on PostgreSQL, ADR-0213)
+        let locale = client
             .query_one(
-                "SELECT datcollate FROM pg_database WHERE datname = current_database()",
+                "SELECT datcollate::text, datctype::text, datlocprovider::text FROM pg_database \
+                 WHERE datname = current_database()",
                 &[],
             )
-            .map_err(|e| Error(Fault::Postgres(e)))?
-            .get(0);
-        if collation != "C" && collation != "POSIX" {
+            .map_err(|e| Error(Fault::Postgres(e)))?;
+        let (collation, ctype, provider): (String, String, String) =
+            (locale.get(0), locale.get(1), locale.get(2));
+        let bytes = |l: &str| l == "C" || l == "POSIX";
+        if !bytes(&collation) || !bytes(&ctype) || provider != "c" {
             return Err(Error(Fault::Unsupported(format!(
-                "a PostgreSQL database whose text is compared by its collation {collation}: the store needs one made with `LC_COLLATE 'C'`, so text sorts as its bytes do"
+                "a PostgreSQL database whose text is compared by the collation {collation} and folded by the character type {ctype}, of the {} provider: the store needs one made with `TEMPLATE template0 LOCALE_PROVIDER libc LC_COLLATE 'C' LC_CTYPE 'C'`, so text sorts as its bytes do and folds its ASCII letters alone, as the engine does",
+                if provider == "c" {
+                    "libc"
+                } else if provider == "i" {
+                    "ICU"
+                } else {
+                    provider.as_str()
+                }
             ))));
         }
         if let Some(s) = &schema {
@@ -2023,6 +2038,55 @@ mod tests {
             }
         }
         assert!(found.is_empty(), "rusqlite named outside db.rs: {found:?}");
+    }
+
+    /// A database that sorts text otherwise than by its bytes, or folds it
+    /// beyond ASCII, is refused, each setting alone: the collation, the
+    /// character type, which `lower()` follows, and an ICU provider, whose
+    /// collation and folding are its own whatever the other two say
+    /// (ADR-0213). On SQLite there is nothing to choose.
+    #[test]
+    fn a_database_sorting_or_folding_text_beyond_bytes_is_refused() {
+        let base = match std::env::var(crate::store::SANDBOX_POSTGRES) {
+            Ok(c) if !c.trim().is_empty() => c,
+            _ => {
+                eprintln!(
+                    "skipped on SQLite: a PostgreSQL database's locale, which SQLite has none of"
+                );
+                return;
+            }
+        };
+        let admin = Connection::postgres(&base).unwrap();
+        for (what, made) in [
+            ("collation", "LC_COLLATE 'en_US.utf8' LC_CTYPE 'C'"),
+            ("ctype", "LC_COLLATE 'C' LC_CTYPE 'en_US.utf8'"),
+            (
+                "icu",
+                "LOCALE_PROVIDER icu ICU_LOCALE 'en-US' LC_COLLATE 'C' LC_CTYPE 'C'",
+            ),
+        ] {
+            let name = format!("objectflow_locale_{}_{what}", std::process::id());
+            admin
+                .execute_batch(&format!("DROP DATABASE IF EXISTS {name}"))
+                .unwrap();
+            admin
+                .execute_batch(&format!(
+                    "CREATE DATABASE {name} TEMPLATE template0 ENCODING 'UTF8' {made}"
+                ))
+                .unwrap();
+            let refused = Connection::postgres(&format!("{base} dbname={name}"))
+                .map(|_| ())
+                .unwrap_err()
+                .to_string();
+            admin
+                .execute_batch(&format!("DROP DATABASE {name} WITH (FORCE)"))
+                .unwrap();
+            assert!(
+                refused.contains("LC_COLLATE 'C' LC_CTYPE 'C'")
+                    && refused.contains("LOCALE_PROVIDER libc"),
+                "{what}: {refused}"
+            );
+        }
     }
 
     /// The columns a table holds no null in, held on PostgreSQL by their

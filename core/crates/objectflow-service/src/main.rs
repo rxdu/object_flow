@@ -4798,8 +4798,8 @@ PostgreSQL database instead, a postgresql:// URL or a connection string, the
 store kept there and made in it by --create where it holds none; its
 password is read from OBJECTFLOW_STORE_PASSWORD or --store-password-file and
 refused on the command line, its connection uses TLS where its sslmode asks,
-and its database must compare text by bytes, made with LC_COLLATE 'C'
-(ADR-0213). Each --evaluator names
+and its database must compare text by bytes and fold ASCII letters alone, made
+with LOCALE_PROVIDER libc LC_COLLATE 'C' LC_CTYPE 'C' (ADR-0213). Each --evaluator names
 the endpoint a namespace's calls are posted to, answered within the timeout,
 5 s unless given, and an evaluator no endpoint answers is unknown
 (ADR-0175), sent the token each --evaluator-token's file holds (ADR-0188).

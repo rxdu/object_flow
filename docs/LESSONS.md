@@ -854,3 +854,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Gate P failed on PostgreSQL where it passed on SQLite, and I first restarted the server with a larger `shared_buffers` and built a new store, a ten-minute experiment that changed nothing. The cause was the count of statements: a catalog read before every narrowed read of an object (21,884 in a minute, a quarter of the database's time) and a metric loading each of 600 claimants whole to rank its groups. On SQLite each is a call in the process, so no gate taken there could show it.
 - **Correction:** When a read slows on a database across a socket, count its statements first (`pg_stat_statements`, reset before the read, read after) and compare the database's time with the read's; where the database's is a small part, the cost is round trips, and the fix is fewer statements, a fact held per connection or rows read by many ids at once, not the server's settings.
 - **Context:** ObjectFlow's core on PostgreSQL (ADR-0213), any store written against an embedded database first; 2026-10-17.
+
+### A gate started on unformatted code is a gate wasted
+- **Pattern:** Twice in one day a 45-minute `scripts/check-all` ran on Rust I had edited with scripted replacements and not formatted; its `core` check stops at `cargo fmt --check`, so the run ended with the core's lints and SQLite tests never run, and the gate had to be taken again.
+- **Correction:** Run `cargo fmt` and `cargo clippy --all-targets --all-features -- -D warnings` in `core/` as the last step of every change, before freezing a snapshot or starting the gate; a scripted edit never produces rustfmt's layout.
+- **Context:** ObjectFlow's core, edits made by script; 2026-10-17.

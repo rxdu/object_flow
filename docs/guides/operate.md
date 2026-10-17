@@ -62,11 +62,11 @@ Once it is approved, `/health` answers the new `version`. A submit refused `dry_
 
 The store may be a PostgreSQL database instead of a file (ADR-0213): `--store` names it, a `postgresql://` URL or a connection string, and everything else on this page holds but what this section says differs.
 
-**The database.** PostgreSQL 16 or later, a database of the store's own whose text is compared by bytes, which the service refuses otherwise, since the store's ids sort as their bytes do, and a role that owns it:
+**The database.** PostgreSQL 16 or later, a database of the store's own whose text is compared by bytes and folded in its ASCII letters alone, which the service refuses otherwise, since the store's ids sort as their bytes do and an identity is matched in another case as the engine folds it: under another character type or ICU's, `lower()` folds `Ä` to `ä`, and two people the engine holds apart would match. Name the provider, since a server whose default is ICU makes an ICU database without it. And a role that owns it:
 
 ```sql
 CREATE ROLE objectflow LOGIN PASSWORD '…';
-CREATE DATABASE objectflow OWNER objectflow TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C';
+CREATE DATABASE objectflow OWNER objectflow TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER libc LC_COLLATE 'C' LC_CTYPE 'C';
 GRANT pg_checkpoint TO objectflow;   -- an erasure's checkpoint, below; PostgreSQL 15 and later
 ```
 
