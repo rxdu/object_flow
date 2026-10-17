@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use crate::db::{Behavior, Connection, OptionalExtension, Transaction, params};
 
 use crate::model::OPERATOR;
 use crate::store::{BUILTINS, StoreError, next_counter, release_fingerprint};
@@ -105,18 +105,14 @@ CREATE TABLE of_engine_release (
 /// with the store's declarations' table. A file that is no database, or is
 /// another application's, does not, and is never made one.
 pub fn holds_store(path: &Path) -> Result<bool, StoreError> {
-    let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let conn = Connection::open_with_flags(path, crate::db::OpenFlags::READ_ONLY)?;
     match conn.query_row(
         "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'of_declaration'",
         [],
         |r| r.get::<_, i64>(0),
     ) {
         Ok(n) => Ok(n > 0),
-        Err(rusqlite::Error::SqliteFailure(e, _))
-            if e.code == rusqlite::ErrorCode::NotADatabase =>
-        {
-            Ok(false)
-        }
+        Err(e) if e.is_not_a_database() => Ok(false),
         Err(e) => Err(e.into()),
     }
 }
@@ -127,16 +123,12 @@ pub fn holds_store(path: &Path) -> Result<bool, StoreError> {
 /// (the audit's durability W11). A file that is no database holds
 /// something, and is said so elsewhere.
 pub fn holds_nothing(path: &Path) -> Result<bool, StoreError> {
-    let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let conn = Connection::open_with_flags(path, crate::db::OpenFlags::READ_ONLY)?;
     match conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
         r.get::<_, i64>(0)
     }) {
         Ok(n) => Ok(n == 0),
-        Err(rusqlite::Error::SqliteFailure(e, _))
-            if e.code == rusqlite::ErrorCode::NotADatabase =>
-        {
-            Ok(false)
-        }
+        Err(e) if e.is_not_a_database() => Ok(false),
         Err(e) => Err(e.into()),
     }
 }
@@ -302,14 +294,14 @@ pub fn upgrade_through(
         restored: None,
     };
     if dry_run {
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = conn.transaction_with_behavior(Behavior::Immediate)?;
         for r in &steps {
             report.restored = step(&tx, r, now, &operator)?.or(report.restored);
         }
         tx.rollback()?;
     } else {
         for r in &steps {
-            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let tx = conn.transaction_with_behavior(Behavior::Immediate)?;
             report.restored = step(&tx, r, now, &operator)?.or(report.restored);
             tx.commit()?;
         }

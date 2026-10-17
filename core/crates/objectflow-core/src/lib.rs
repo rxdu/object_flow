@@ -25,6 +25,8 @@ mod rat;
 pub mod verdict;
 pub mod wire;
 
+/// The database the store reaches, behind one interface (ADR-0213).
+pub mod db;
 pub mod store;
 pub mod subscription;
 

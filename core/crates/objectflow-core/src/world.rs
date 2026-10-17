@@ -512,7 +512,7 @@ pub struct World<'l> {
     stored: std::cell::OnceCell<Result<Vec<Event>, String>>,
     /// The store's connection, which the log and the objects are read
     /// through; none for a world built without a store.
-    conn: Option<&'l rusqlite::Connection>,
+    conn: Option<&'l crate::db::Connection>,
     /// The position of each event that recorded an admission, which is an
     /// override (`declaration-syntax.md` §6.9, `of_admission`).
     pub admitting: BTreeSet<i64>,
@@ -745,7 +745,7 @@ impl<'l> World<'l> {
 
     /// A world that reads its log and its objects through the connection
     /// given.
-    pub(crate) fn reading_from(mut self, conn: &'l rusqlite::Connection) -> World<'l> {
+    pub(crate) fn reading_from(mut self, conn: &'l crate::db::Connection) -> World<'l> {
         self.conn = Some(conn);
         self
     }
@@ -756,7 +756,7 @@ impl<'l> World<'l> {
     fn events_where(
         &self,
         clause: &str,
-        value: &dyn rusqlite::ToSql,
+        value: &dyn crate::db::ToSql,
         keep: impl Fn(&Event) -> bool,
     ) -> Result<Vec<Event>, crate::eval::NotRun> {
         let Some(conn) = self.conn.filter(|_| self.stored.get().is_none()) else {
@@ -1101,7 +1101,7 @@ impl<'l> World<'l> {
     fn attempts_where(
         &self,
         clause: &str,
-        value: &dyn rusqlite::ToSql,
+        value: &dyn crate::db::ToSql,
         keep: impl Fn(&crate::store::Attempt) -> bool,
     ) -> Result<Vec<crate::store::Attempt>, crate::eval::NotRun> {
         let Some(conn) = self.conn.filter(|_| self.stored_attempts.get().is_none()) else {
@@ -1669,7 +1669,7 @@ impl<'l> World<'l> {
     /// hundred to each read of each part's table.
     fn read_together(
         &self,
-        conn: &rusqlite::Connection,
+        conn: &crate::db::Connection,
         type_: &str,
         objects: &[&Object],
     ) -> Result<(), crate::eval::NotRun> {

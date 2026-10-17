@@ -13,8 +13,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
-use rusqlite::types::Value as Sql;
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use crate::db::Value as Sql;
+use crate::db::{Behavior, Connection, OptionalExtension, Transaction, params};
 
 use crate::eval::NotRun;
 use crate::model::{Attribute, DECLARATION_CHANGE, Declared, Library, OPERATOR, Remedy, Type};
@@ -98,9 +98,8 @@ fn millis_now() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
-fn is_busy(e: &rusqlite::Error) -> bool {
-    matches!(e, rusqlite::Error::SqliteFailure(f, _)
-        if f.code == rusqlite::ErrorCode::DatabaseBusy || f.code == rusqlite::ErrorCode::DatabaseLocked)
+fn is_busy(e: &crate::db::Error) -> bool {
+    e.is_busy()
 }
 
 /// A write transaction, begun `IMMEDIATE` so its reads and its writes are
@@ -118,7 +117,7 @@ macro_rules! begin_write {
         loop {
             match $store
                 .conn
-                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .transaction_with_behavior(crate::db::Behavior::Immediate)
             {
                 Ok(tx) => {
                     if let Some(w) = &$store.lock_wait {
@@ -167,7 +166,7 @@ fn release_held(conn: &Connection) -> Stored<()> {
         )
         .map(Some)
         .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            e if e.is_no_rows() => Ok(None),
             e => Err(e),
         })?;
     match at {
@@ -314,13 +313,11 @@ fn fingerprint_values() -> Vec<Value> {
     out
 }
 
-impl From<rusqlite::Error> for StoreError {
-    fn from(e: rusqlite::Error) -> StoreError {
+impl From<crate::db::Error> for StoreError {
+    fn from(e: crate::db::Error) -> StoreError {
         // a full volume, which a client may retry once space is freed,
         // told apart from the store's own faults (fourth production review)
-        if let rusqlite::Error::SqliteFailure(f, _) = &e
-            && f.code == rusqlite::ErrorCode::DiskFull
-        {
+        if e.is_disk_full() {
             return StoreError(format!("{DISK_FULL}: {e}"));
         }
         StoreError(e.to_string())
@@ -344,7 +341,7 @@ type Stored<T> = Result<T, StoreError>;
 /// once each took what all four did, 11.2 s for a filter taking 2.2 s alone
 /// (fourteenth production review M2, ADR-0201).
 pub fn page_caches_shared() -> Stored<bool> {
-    let conn = rusqlite::Connection::open_in_memory()?;
+    let conn = crate::db::Connection::open_in_memory()?;
     let used: i64 = conn.query_row(
         "SELECT sqlite_compileoption_used('ENABLE_MEMORY_MANAGEMENT')",
         [],
@@ -538,7 +535,7 @@ fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
     Ok(())
 }
 
-fn attempt_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Attempt> {
+fn attempt_row(r: &crate::db::Row<'_>) -> crate::db::Result<Attempt> {
     let at: String = r.get(0)?;
     let values = json_column(r, 13, "an attempt's request_values")?;
     Ok(Attempt {
@@ -579,25 +576,21 @@ fn attempt_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Attempt> {
 /// A column of a row read that does not decode, which fails the row: a
 /// damaged row is refused, never read as a default. The error names the
 /// column and what it holds, not its text, which may be personal.
-fn undecodable(column: usize, what: &str) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(
-        column,
-        rusqlite::types::Type::Text,
-        Box::new(StoreError(format!("{what}, which does not decode"))),
-    )
+fn undecodable(column: usize, what: &str) -> crate::db::Error {
+    crate::db::Error::undecodable(column, format!("{what}, which does not decode"))
 }
 
 /// A time column's text, decoded.
-fn time_column(column: usize, text: &str, what: &str) -> rusqlite::Result<i64> {
+fn time_column(column: usize, text: &str, what: &str) -> crate::db::Result<i64> {
     parse_timestamp(text).ok_or_else(|| undecodable(column, what))
 }
 
 /// A JSON column, decoded; `null` where the column holds none.
 fn json_column(
-    r: &rusqlite::Row<'_>,
+    r: &crate::db::Row<'_>,
     column: usize,
     what: &str,
-) -> rusqlite::Result<serde_json::Value> {
+) -> crate::db::Result<serde_json::Value> {
     match r.get::<_, Option<String>>(column)? {
         None => Ok(serde_json::Value::Null),
         Some(text) => serde_json::from_str(&text).map_err(|_| undecodable(column, what)),
@@ -1178,7 +1171,7 @@ fn redact_legacy(tx: &Connection, id: &str) -> Stored<()> {
 
 /// The attempt log, in the order written, which a world reads where an
 /// operation reads it (ADR-0162 step 1).
-pub(crate) fn read_attempts(conn: &Connection) -> rusqlite::Result<Vec<Attempt>> {
+pub(crate) fn read_attempts(conn: &Connection) -> crate::db::Result<Vec<Attempt>> {
     let mut attempts = conn.prepare(
         "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
          flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn, call, context, \
@@ -1193,8 +1186,8 @@ pub(crate) fn read_attempts(conn: &Connection) -> rusqlite::Result<Vec<Attempt>>
 pub(crate) fn read_attempts_where(
     conn: &Connection,
     clause: &str,
-    value: &dyn rusqlite::ToSql,
-) -> rusqlite::Result<Vec<Attempt>> {
+    value: &dyn crate::db::ToSql,
+) -> crate::db::Result<Vec<Attempt>> {
     let mut attempts = conn.prepare(&format!(
         "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
          flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn, call, context, \
@@ -1223,7 +1216,7 @@ pub(crate) fn read_ids_after(
                 "SELECT id, last_event FROM {name} WHERE last_event > ?1 ORDER BY last_event LIMIT ?2"
             ))?;
             q.query_map(params![after, limit], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect::<rusqlite::Result<_>>()?
+                .collect::<crate::db::Result<_>>()?
         }
         Some(types) => {
             let subject = lib
@@ -1239,10 +1232,10 @@ pub(crate) fn read_ids_after(
                 quote(&subject),
                 marks.join(", ")
             ))?;
-            q.query_map(rusqlite::params_from_iter(&binds), |r| {
+            q.query_map(crate::db::params_from_iter(&binds), |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })?
-            .collect::<rusqlite::Result<_>>()?
+            .collect::<crate::db::Result<_>>()?
         }
     };
     Ok(rows)
@@ -1250,7 +1243,7 @@ pub(crate) fn read_ids_after(
 
 /// The declaration version an object's last event was recorded under, by
 /// the object's index; none where it has no event.
-pub(crate) fn read_last_version(conn: &Connection, id: &str) -> rusqlite::Result<Option<i64>> {
+pub(crate) fn read_last_version(conn: &Connection, id: &str) -> crate::db::Result<Option<i64>> {
     conn.query_row(
         "SELECT declaration_version FROM of_event WHERE object_id = ?1 ORDER BY object_seq DESC LIMIT 1",
         params![id],
@@ -1269,7 +1262,7 @@ pub(crate) fn read_attempts_after(
     after: (i64, i64),
     upto: i64,
     limit: usize,
-) -> rusqlite::Result<Vec<(i64, Attempt)>> {
+) -> crate::db::Result<Vec<(i64, Attempt)>> {
     let marks: Vec<String> = (0..types.len()).map(|n| format!("?{}", n + 5)).collect();
     let mut binds: Vec<Sql> = vec![
         Sql::Integer(after.0),
@@ -1286,7 +1279,7 @@ pub(crate) fn read_attempts_after(
          ORDER BY txn, id LIMIT ?4",
         marks.join(", ")
     ))?;
-    let rows = attempts.query_map(rusqlite::params_from_iter(binds), |r| {
+    let rows = attempts.query_map(crate::db::params_from_iter(binds), |r| {
         Ok((r.get::<_, i64>(22)?, attempt_row(r)?))
     })?;
     rows.collect()
@@ -1296,13 +1289,13 @@ pub(crate) fn read_attempts_after(
 /// source, which a world reads where an operation reads them.
 pub(crate) fn read_rollup(
     conn: &Connection,
-) -> rusqlite::Result<Vec<(BTreeMap<String, Value>, i64)>> {
+) -> crate::db::Result<Vec<(BTreeMap<String, Value>, i64)>> {
     let mut rolled = conn.prepare(
         "SELECT day, object_id, verdict, type, transition, clause, remedy, actor_kind, enforced, flagged, \
          declaration_version, count FROM of_attempt_rollup",
     )?;
     let rows = rolled.query_map([], |r| {
-        let text = |i: usize| -> rusqlite::Result<Value> {
+        let text = |i: usize| -> crate::db::Result<Value> {
             let t: String = r.get(i)?;
             Ok(if t.is_empty() {
                 Value::Absent
@@ -1359,7 +1352,7 @@ pub(crate) fn read_idempotency(
         )
         .map(Some)
         .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            e if e.is_no_rows() => Ok(None),
             other => Err(other),
         })?;
     let Some((digest, verdict)) = row else {
@@ -1386,7 +1379,7 @@ pub(crate) fn read_log_after(
     types: Option<&[String]>,
     entering: Option<&[String]>,
     limit: usize,
-) -> rusqlite::Result<Vec<Event>> {
+) -> crate::db::Result<Vec<Event>> {
     // no state entered, no event
     if entering.is_some_and(<[String]>::is_empty) {
         return Ok(Vec::new());
@@ -1427,7 +1420,7 @@ pub(crate) fn read_log_after(
         binds.len()
     ));
     let mut page = conn.prepare(&sql)?;
-    let rows = page.query_map(rusqlite::params_from_iter(binds), event_row)?;
+    let rows = page.query_map(crate::db::params_from_iter(binds), event_row)?;
     rows.collect()
 }
 
@@ -1460,7 +1453,7 @@ pub(crate) fn read_log_heads_after(
     after: i64,
     types: Option<&[String]>,
     limit: usize,
-) -> rusqlite::Result<Vec<Head>> {
+) -> crate::db::Result<Vec<Head>> {
     let mut binds: Vec<Sql> = vec![Sql::Integer(after)];
     let mut sql = "SELECT of_event.position, of_event.transition, of_event.changes_state, of_event.recorded_at FROM of_event".to_string();
     match types {
@@ -1485,7 +1478,7 @@ pub(crate) fn read_log_heads_after(
         binds.len()
     ));
     let mut page = conn.prepare(&sql)?;
-    let rows = page.query_map(rusqlite::params_from_iter(binds), |r| {
+    let rows = page.query_map(crate::db::params_from_iter(binds), |r| {
         let position: i64 = r.get(0)?;
         let recorded: String = r.get(3)?;
         Ok(Head {
@@ -1540,7 +1533,7 @@ fn masked_consulted(tx: &Connection, lib: &Library, identity: &str) -> Stored<()
                 table(&t.name)
             ))?;
             q.query_map([&folded], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect::<rusqlite::Result<_>>()?
+                .collect::<crate::db::Result<_>>()?
         };
         for (position, payload) in rows {
             let mut p: serde_json::Value = serde_json::from_str(&payload).unwrap_or_default();
@@ -1557,7 +1550,7 @@ fn masked_consulted(tx: &Connection, lib: &Library, identity: &str) -> Stored<()
                 "SELECT id, consulted FROM of_attempt WHERE type = ?2 AND instr(lower(consulted), ?1) > 0",
             )?;
             q.query_map(params![&folded, &t.name], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect::<rusqlite::Result<_>>()?
+                .collect::<crate::db::Result<_>>()?
         };
         for (row, consulted) in rows {
             let c: serde_json::Value = serde_json::from_str(&consulted).unwrap_or_default();
@@ -1584,7 +1577,7 @@ pub const MASKED_DIGEST: &str = "sha256-masked:";
 
 /// A counter's value: the last position, transaction or object number
 /// the store has handed out.
-pub(crate) fn read_counter(conn: &Connection, name: &str) -> rusqlite::Result<i64> {
+pub(crate) fn read_counter(conn: &Connection, name: &str) -> crate::db::Result<i64> {
     conn.query_row(
         "SELECT value FROM of_counter WHERE name = ?1",
         params![name],
@@ -1593,7 +1586,7 @@ pub(crate) fn read_counter(conn: &Connection, name: &str) -> rusqlite::Result<i6
 }
 
 /// The log's last position, 0 for an empty log.
-pub(crate) fn read_last_position(conn: &Connection) -> rusqlite::Result<i64> {
+pub(crate) fn read_last_position(conn: &Connection) -> crate::db::Result<i64> {
     conn.query_row("SELECT COALESCE(MAX(position), 0) FROM of_event", [], |r| {
         r.get(0)
     })
@@ -1606,14 +1599,8 @@ pub(crate) fn read_last_position(conn: &Connection) -> rusqlite::Result<i64> {
 /// closed, which the check after it did not (fourth production review A-16,
 /// fifth production review).
 pub(crate) fn looking(path: &std::path::Path) -> Stored<Connection> {
-    let conn = Connection::open_with_flags(
-        path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
-    conn.set_db_config(
-        rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
-        true,
-    )?;
+    let conn = Connection::open_with_flags(path, crate::db::OpenFlags::READ_WRITE.one_thread())?;
+    conn.keep_log_on_close()?;
     Ok(conn)
 }
 
@@ -1623,15 +1610,15 @@ pub(crate) fn looking(path: &std::path::Path) -> Stored<Connection> {
 pub(crate) fn read_events(
     conn: &Connection,
     clause: &str,
-    value: &dyn rusqlite::ToSql,
-) -> rusqlite::Result<Vec<Event>> {
+    value: &dyn crate::db::ToSql,
+) -> crate::db::Result<Vec<Event>> {
     let mut read = conn.prepare(&format!("{EVENT_SELECT} WHERE {clause} ORDER BY position"))?;
     let rows = read.query_map([value], event_row)?;
     rows.collect()
 }
 
 /// An object's first event's position, by the index on its events.
-pub(crate) fn read_first_position(conn: &Connection, id: &str) -> rusqlite::Result<Option<i64>> {
+pub(crate) fn read_first_position(conn: &Connection, id: &str) -> crate::db::Result<Option<i64>> {
     conn.query_row(
         "SELECT MIN(position) FROM of_event WHERE object_id = ?1",
         params![id],
@@ -1639,7 +1626,7 @@ pub(crate) fn read_first_position(conn: &Connection, id: &str) -> rusqlite::Resu
     )
 }
 
-pub(crate) fn read_log(conn: &Connection) -> rusqlite::Result<Vec<Event>> {
+pub(crate) fn read_log(conn: &Connection) -> crate::db::Result<Vec<Event>> {
     let mut log = conn.prepare(&format!("{EVENT_SELECT} ORDER BY position"))?;
     let rows = log.query_map([], event_row)?;
     rows.collect()
@@ -2161,13 +2148,13 @@ impl Restore {
 }
 
 /// The restores a store has had, oldest first (ADR-0207).
-pub(crate) fn read_restores(conn: &Connection) -> rusqlite::Result<Vec<Restore>> {
+pub(crate) fn read_restores(conn: &Connection) -> crate::db::Result<Vec<Restore>> {
     let mut q = conn.prepare(
         "SELECT restored_at, copy_last_at, margin, position_from, position_to, txn_from, txn_to, \
          object_from, object_to, sequence_floor FROM of_restore ORDER BY seq",
     )?;
     let rows = q.query_map([], |r| {
-        let at = |i: usize| -> rusqlite::Result<i64> {
+        let at = |i: usize| -> crate::db::Result<i64> {
             let text: String = r.get(i)?;
             Ok(parse_timestamp(&text).unwrap_or(0))
         };
@@ -2256,7 +2243,7 @@ pub(crate) fn restore_copy(tx: &Connection, now: i64) -> Stored<Option<Restore>>
     let held: Vec<(String, String, Option<i64>)> = {
         let mut q = tx.prepare("SELECT name, scope_key, next_value FROM of_sequence")?;
         q.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2).ok())))?
-            .collect::<rusqlite::Result<_>>()?
+            .collect::<crate::db::Result<_>>()?
     };
     for (name, scope, next) in held {
         let Some(next) = next else { continue };
@@ -2706,7 +2693,7 @@ impl Store {
             store.now = store.now.max(at);
         }
         // a copy restored, before anything is handed out (ADR-0207)
-        let tx = Transaction::new_unchecked(&store.conn, TransactionBehavior::Immediate)?;
+        let tx = Transaction::new_unchecked(&store.conn, Behavior::Immediate)?;
         let restored = restore_copy(&tx, store.now)?;
         tx.commit()?;
         store.restored = restored;
@@ -2792,7 +2779,7 @@ impl Store {
         // take the busy timeout while any read older than the erasure was
         // open (ERASE-CHECKPOINT)
         self.conn.busy_timeout(std::time::Duration::ZERO)?;
-        let tried: Result<i64, rusqlite::Error> =
+        let tried: crate::db::Result<i64> =
             self.conn
                 .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0));
         self.conn.busy_timeout(self.busy.get())?;
@@ -2818,7 +2805,7 @@ impl Store {
     /// (fourth production review A-5, A-14).
     pub fn truncate_log(&mut self, wait: std::time::Duration) -> Stored<bool> {
         self.conn.busy_timeout(wait)?;
-        let tried: Result<i64, rusqlite::Error> =
+        let tried: crate::db::Result<i64> =
             self.conn
                 .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0));
         self.conn.busy_timeout(self.busy.get())?;
@@ -2854,10 +2841,7 @@ impl Store {
     }
 
     pub fn read_connection(path: &std::path::Path) -> Stored<Connection> {
-        let conn = Connection::open_with_flags(
-            path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
+        let conn = Connection::open_with_flags(path, crate::db::OpenFlags::READ_ONLY.one_thread())?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
         Ok(conn)
     }
@@ -4325,7 +4309,7 @@ impl Store {
             )
             .map(Some)
             .or_else(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                e if e.is_no_rows() => Ok(None),
                 other => Err(other),
             })
             .map_err(Into::into)
@@ -4354,7 +4338,7 @@ pub(crate) fn library_of(conn: &Connection, version: i64) -> Stored<Option<Libra
         )
         .map(Some)
         .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            e if e.is_no_rows() => Ok(None),
             other => Err(other),
         })?;
     let Some(source) = source else {
@@ -4416,15 +4400,12 @@ impl Store {
             "{EVENT_SELECT} WHERE object_id IN ({}) AND position > ?1 ORDER BY position LIMIT ?2",
             marks.join(", ")
         ))?;
-        let mut values: Vec<rusqlite::types::Value> = vec![
-            rusqlite::types::Value::Integer(after),
-            rusqlite::types::Value::Integer(i64::try_from(limit).unwrap_or(i64::MAX)),
+        let mut values: Vec<crate::db::Value> = vec![
+            crate::db::Value::Integer(after),
+            crate::db::Value::Integer(i64::try_from(limit).unwrap_or(i64::MAX)),
         ];
-        values.extend(
-            ids.iter()
-                .map(|id| rusqlite::types::Value::Text(id.clone())),
-        );
-        let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), event_row)?;
+        values.extend(ids.iter().map(|id| crate::db::Value::Text(id.clone())));
+        let rows = stmt.query_map(crate::db::params_from_iter(values.iter()), event_row)?;
         let mut out = Vec::new();
         let mut bytes = 0;
         for row in rows {
@@ -4641,7 +4622,7 @@ const EVENT_SELECT: &str = "SELECT position, object_id, object_seq, transition, 
     source, actor_id, actor_kind, declaration_version, recorded_at, occurred_at, imported, payload, actor_principal, \
     cause_position, reads, context, retries FROM of_event";
 
-fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
+fn event_row(r: &crate::db::Row<'_>) -> crate::db::Result<Event> {
     let position: i64 = r.get(0)?;
     let recorded: String = r.get(11)?;
     let occurred: Option<String> = r.get(12)?;
@@ -5206,7 +5187,7 @@ pub(crate) fn read_ids_with(
         conditions.join(" AND ")
     ))?;
     let ids = stmt
-        .query_map(rusqlite::params_from_iter(values.iter()), |r| {
+        .query_map(crate::db::params_from_iter(values.iter()), |r| {
             r.get::<_, String>(0)
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -5268,7 +5249,9 @@ pub(crate) fn read_excepted(
             "SELECT DISTINCT a.object_id FROM of_admission a JOIN of_object o ON o.id = a.object_id \
              WHERE a.discharged_position IS NULL AND o.type IN ({marks})"
         ))?;
-        for id in q.query_map(rusqlite::params_from_iter(types), |r| r.get::<_, String>(0))? {
+        for id in q.query_map(crate::db::params_from_iter(types), |r| {
+            r.get::<_, String>(0)
+        })? {
             admitted.insert(id?);
         }
     }
@@ -5397,7 +5380,7 @@ fn read_rows(
         "SELECT {} FROM {name} t JOIN of_object o ON o.id = t.id {of_row}",
         cols.join(", ")
     ))?;
-    let read = stmt.query_map(rusqlite::params_from_iter(&only), |r| {
+    let read = stmt.query_map(crate::db::params_from_iter(&only), |r| {
         let mut values = Vec::new();
         for i in 0..scalars.len() {
             values.push(r.get::<_, Sql>(i + first)?);
@@ -5469,7 +5452,7 @@ fn read_rows(
             "SELECT object_id, value FROM {}{of_set} ORDER BY object_id, ordinal",
             quote(&format!("{name}__{n}"))
         ))?;
-        let items = set.query_map(rusqlite::params_from_iter(&only), |r| {
+        let items = set.query_map(crate::db::params_from_iter(&only), |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, Sql>(1)?))
         })?;
         for item in items {
@@ -5504,7 +5487,7 @@ fn read_parts(
         "SELECT object_id, attribute, position FROM of_attribute_write{}",
         scope.on_object("WHERE")
     ))?;
-    let rows = index.query_map(rusqlite::params_from_iter(&only), |r| {
+    let rows = index.query_map(crate::db::params_from_iter(&only), |r| {
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
@@ -5525,7 +5508,9 @@ fn read_parts(
          AND transition NOT IN ('redact', 'invalidate'){}",
         scope.on_object("AND")
     ))?;
-    let rows = erasures.query_map(rusqlite::params_from_iter(&only), |r| r.get::<_, String>(0))?;
+    let rows = erasures.query_map(crate::db::params_from_iter(&only), |r| {
+        r.get::<_, String>(0)
+    })?;
     for row in rows {
         if let Some(p) = parts.get_mut(&row?) {
             p.erased = true;
@@ -5536,7 +5521,7 @@ fn read_parts(
         "SELECT object_id, invariant FROM of_admission WHERE discharged_position IS NULL{}",
         scope.on_object("AND")
     ))?;
-    let rows = standing.query_map(rusqlite::params_from_iter(&only), |r| {
+    let rows = standing.query_map(crate::db::params_from_iter(&only), |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
     })?;
     for row in rows {
@@ -5572,7 +5557,7 @@ pub(crate) fn read_type_spans(
         table(type_),
         marks.join(", ")
     ))?;
-    let rows = stmt.query_map(rusqlite::params_from_iter(dimensions), |r| raw_span(r, 0))?;
+    let rows = stmt.query_map(crate::db::params_from_iter(dimensions), |r| raw_span(r, 0))?;
     for row in rows {
         let raw = row?;
         let id = raw.id.clone();
@@ -5602,7 +5587,7 @@ fn spans(
          ORDER BY i.object_id, i.dimension, i.entered_position, i.entered_at",
         scope.on_object("WHERE")
     ))?;
-    let rows = stmt.query_map(rusqlite::params_from_iter(&only), |r| raw_span(r, 0))?;
+    let rows = stmt.query_map(crate::db::params_from_iter(&only), |r| raw_span(r, 0))?;
     for row in rows {
         let raw = row?;
         let (Some(type_), Some(p)) = (types.get(&raw.id), parts.get_mut(&raw.id)) else {
@@ -5641,7 +5626,7 @@ struct RawSpan {
 }
 
 /// [`SPAN_COLUMNS`] read from a row, starting at the column given.
-fn raw_span(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<RawSpan> {
+fn raw_span(r: &crate::db::Row<'_>, at: usize) -> crate::db::Result<RawSpan> {
     Ok(RawSpan {
         id: r.get(at)?,
         dimension: r.get(at + 1)?,
@@ -5771,7 +5756,7 @@ pub(crate) fn read_interval_retractions(
         marks.join(", ")
     );
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(rusqlite::params_from_iter(&binds), |r| {
+    let rows = stmt.query_map(crate::db::params_from_iter(&binds), |r| {
         let at: String = r.get(4)?;
         Ok(Retraction {
             position: r.get(0)?,
@@ -5781,7 +5766,7 @@ pub(crate) fn read_interval_retractions(
             entered_at: parse_timestamp(&at).unwrap_or(0),
         })
     })?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
+    Ok(rows.collect::<crate::db::Result<_>>()?)
 }
 
 pub(crate) fn read_interval_page(
@@ -5814,7 +5799,7 @@ pub(crate) fn read_interval_page(
     let mut out = Vec::new();
     for sql in [written, legacy] {
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(&binds), |r| {
+        let rows = stmt.query_map(crate::db::params_from_iter(&binds), |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, String>(1)?,
@@ -6026,7 +6011,7 @@ fn write(
                     cols.join(", "),
                     marks.join(", ")
                 ),
-                rusqlite::params_from_iter(vals.iter()),
+                crate::db::params_from_iter(vals.iter()),
             )?;
         } else {
             // an existing row is updated in place, since its set tables'
@@ -6039,7 +6024,7 @@ fn write(
                 .collect();
             tx.execute(
                 &format!("UPDATE {name} SET {} WHERE id = ?1", sets.join(", ")),
-                rusqlite::params_from_iter(vals.iter()),
+                crate::db::params_from_iter(vals.iter()),
             )?;
         }
         // the spans this event opened or ended, written with it, in the same
@@ -6177,7 +6162,7 @@ fn write(
                 })
                 .map(Some)
                 .or_else(|e| match e {
-                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                    e if e.is_no_rows() => Ok(None),
                     other => Err(other),
                 })?;
             if let Some(t) = type_.as_deref().and_then(|n| lib.type_(n)) {
@@ -6573,11 +6558,7 @@ mod tests {
         // a write the log holds, which no close carries into the file
         {
             let w = Connection::open(&path).unwrap();
-            w.set_db_config(
-                rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
-                true,
-            )
-            .unwrap();
+            w.keep_log_on_close().unwrap();
             w.execute_batch("PRAGMA wal_autocheckpoint = 0; CREATE TABLE later (x); INSERT INTO later VALUES (1);")
                 .unwrap();
         }
@@ -6959,7 +6940,7 @@ types:
                 ))
                 .unwrap();
             let plan: Vec<String> = st
-                .query_map(rusqlite::params_from_iter(bound), |r| r.get(3))
+                .query_map(crate::db::params_from_iter(bound), |r| r.get(3))
                 .unwrap()
                 .map(Result::unwrap)
                 .collect();
@@ -7003,7 +6984,7 @@ types:
             ))
             .unwrap();
         let plan: Vec<String> = st
-            .query_map(rusqlite::params_from_iter(bound), |r| r.get(3))
+            .query_map(crate::db::params_from_iter(bound), |r| r.get(3))
             .unwrap()
             .map(Result::unwrap)
             .collect();
@@ -7038,7 +7019,7 @@ types:
             ))
             .unwrap();
         let plan: Vec<String> = st
-            .query_map(rusqlite::params_from_iter(bound), |r| r.get(3))
+            .query_map(crate::db::params_from_iter(bound), |r| r.get(3))
             .unwrap()
             .map(Result::unwrap)
             .collect();

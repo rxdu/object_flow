@@ -6553,10 +6553,7 @@ mod tests {
         assert!(trim_due(0, 3, 0));
         assert!(!trim_due(3, 3, 0));
         assert!(!trim_due(0, 3, 1));
-        let full = rusqlite::Error::SqliteFailure(
-            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
-            Some("database or disk is full".into()),
-        );
+        let full = objectflow_core::db::Error::disk_full();
         std::thread::sleep(std::time::Duration::from_millis(5));
         let fault = Fault::from(objectflow_core::store::StoreError::from(full));
         let answer = fault.into_response();

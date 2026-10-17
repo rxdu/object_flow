@@ -8372,7 +8372,7 @@ types:
         for id in [&a, &c] {
             conn.execute(
                 "INSERT INTO of_admission (object_id, invariant, position, reason) VALUES (?1, 'ref_unique', ?2, '')",
-                rusqlite::params![id, at],
+                crate::db::params![id, at],
             )
             .unwrap();
         }
@@ -14147,7 +14147,7 @@ types:
         s.connection()
             .execute(
                 "UPDATE of_event SET payload = ?1 WHERE position = ?2",
-                rusqlite::params![unmasked, vouched.position],
+                crate::db::params![unmasked, vouched.position],
             )
             .unwrap();
         created(&req(

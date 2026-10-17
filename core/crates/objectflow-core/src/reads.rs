@@ -2977,13 +2977,13 @@ types:
         conn.execute(
             "INSERT INTO of_admission (object_id, invariant, position, reason) \
              VALUES (?1, 'bounded', ?2, 'test')",
-            rusqlite::params![big, at],
+            crate::db::params![big, at],
         )
         .unwrap();
         conn.execute(
             "INSERT INTO of_admission (object_id, invariant, position, reason, discharged_position) \
              VALUES (?1, 'bounded', ?2, 'test', ?2)",
-            rusqlite::params![below, at],
+            crate::db::params![below, at],
         )
         .unwrap();
         let plan: String = conn
@@ -3074,7 +3074,7 @@ types:
             conn.execute(
                 "INSERT INTO of_admission (object_id, invariant, position, reason) \
                  VALUES (?1, 'bounded', ?2, 'test')",
-                rusqlite::params![id, at],
+                crate::db::params![id, at],
             )
             .unwrap();
         }

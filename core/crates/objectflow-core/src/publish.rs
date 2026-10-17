@@ -3256,7 +3256,7 @@ types:
                         "SELECT value FROM of_interval WHERE object_id = ?1 AND dimension = ?2",
                     )
                     .unwrap();
-                q.query_map(rusqlite::params![ana, dimension], |r| r.get(0))
+                q.query_map(crate::db::params![ana, dimension], |r| r.get(0))
                     .unwrap()
                     .map(Result::unwrap)
                     .collect()
