@@ -1902,10 +1902,14 @@ types:
             t.elapsed().as_secs_f64()
         };
         // four times the types: about four times the time, where a check
-        // quadratic in them takes sixteen
+        // quadratic in them takes sixteen. Bounded at eight, the two's
+        // geometric mean, since CI's shared runners measured 5.6 for checks
+        // that grow linearly, failing a bound of 5.5 on unrelated changes
+        // (2026-10-17, run 38999362004)
+        const BOUND: f64 = 8.0;
         let (small, large) = (timed(1000), timed(4000));
         assert!(
-            large < small * 5.5,
+            large < small * BOUND,
             "checks: 1,000 types {small:.2} s, 4,000 types {large:.2} s"
         );
         // and types the checks refuse, each with findings of its own: each
@@ -1932,7 +1936,7 @@ types:
         };
         let (small, large) = (refused(1000), refused(4000));
         assert!(
-            large < small * 5.5,
+            large < small * BOUND,
             "checks: 1,000 refused types {small:.2} s, 4,000 {large:.2} s"
         );
         let keys = format!(
