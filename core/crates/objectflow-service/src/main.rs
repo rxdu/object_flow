@@ -2045,11 +2045,14 @@ fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
         && guard.postgres.is_some()
         && guard.store.as_ref().is_none_or(Store::connection_lost)
     {
-        say!(
-            "the store's connection to its database was lost; {}",
-            reopened(&mut guard)
-        );
+        let said = reopened(&mut guard);
+        say!("the store's connection to its database was lost; {said}");
         note_log(shared);
+        // the database found not the store's at its opening, which refuses
+        // it: served no more, rather than tried again at every write
+        if said.contains(objectflow_core::store::NOT_ITS_DATABASE) {
+            return Err(Fault::Unavailable(latch(shared, said)));
+        }
         // a database other than the one the store was in, a standby a
         // failover promoted or a restore in its place, which may lack the
         // last writes the store answered: served no more until a person
@@ -4438,7 +4441,7 @@ async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
             .map(|(release, changes)| json!({"release": release, "changes": changes}))
             .collect();
         if let (Some(r), false) = (&report.restored, report.dry_run) {
-            say!("{}", restore_said(&path, r));
+            say!("{}", restore_said(&path.display().to_string(), r));
         }
         Ok(Json(
             json!({"from": report.from, "to": report.to, "steps": steps,
@@ -4460,10 +4463,9 @@ fn restore_json(r: &objectflow_core::store::Restore) -> J {
 /// A restore said as the start and the upgrade say it, with what an
 /// operator checks it against: the highest ids and numbers integrations
 /// hold from after the copy (ADR-0207, `operate.md`).
-fn restore_said(path: &std::path::Path, r: &objectflow_core::store::Restore) -> String {
+fn restore_said(at: &str, r: &objectflow_core::store::Restore) -> String {
     format!(
-        "the store {} is a restored copy, its last record at {} and its last position {}: every number it hands out was advanced by {}, past what the live store may have handed out since, so positions go on from {}, transactions from {} and object numbers from {}; the gap is recorded in of_restore, and a cursor in it is refused (ADR-0207)",
-        path.display(),
+        "the store {at} is a restored copy, its last record at {} and its last position {}: every number it hands out was advanced by {}, past what the live store may have handed out since, so positions go on from {}, transactions from {} and object numbers from {}; the gap is recorded in of_restore, and a cursor in it is refused (ADR-0207)",
         timestamp_text(r.copy_last_at),
         r.positions.0,
         r.margin,
@@ -6540,7 +6542,7 @@ async fn serve() -> std::io::Result<()> {
                 let mut s = Store::open(path, wall_clock()).map_err(|e| refused_start(path, &e))?;
                 // a copy restored at its opening, said (ADR-0207)
                 if let Some(r) = &s.restored {
-                    noted.push(restore_said(path, r));
+                    noted.push(restore_said(&path.display().to_string(), r));
                 }
                 (s.attempt_retention, s.idempotency_retention) = a.retentions;
                 s.lock_wait = Some(sandbox.lock_wait.clone());
@@ -6583,6 +6585,11 @@ async fn serve() -> std::io::Result<()> {
     if let Some(url) = &a.postgres {
         let (s, config) = postgres_store(url, a.password_file.as_deref(), a.create)?;
         let mut s = s;
+        // a copy restored at its opening, said, as a file's is, where the
+        // start said nothing of it (durability on PostgreSQL 2)
+        if let Some(r) = &s.restored {
+            noted.push(restore_said(&format!("{config:?}"), r));
+        }
         (s.attempt_retention, s.idempotency_retention) = a.retentions;
         s.lock_wait = Some(sandbox.lock_wait.clone());
         let busy = a
@@ -6791,10 +6798,17 @@ async fn serve() -> std::io::Result<()> {
     // its log into a file that is not the store's, or out of one that is
     // gone (ADR-0205 decision 8)
     if let Some(why) = shared.watch.latched.get() {
-        say!(
-            "the write-ahead log was not carried into the store's file, the store being lost: {why}"
-        );
-    } else if let Ok(writer) = shared.writer.lock()
+        // a store on PostgreSQL has no file to carry a log into, where the
+        // stop named SQLite's (durability on PostgreSQL 10)
+        if shared.store_path.is_some() {
+            say!(
+                "the write-ahead log was not carried into the store's file, the store being lost: {why}"
+            );
+        } else {
+            say!("the store was served no more: {why}");
+        }
+    } else if shared.store_path.is_some()
+        && let Ok(writer) = shared.writer.lock()
         && let Some(s) = &writer.store
     {
         match s.checkpoint() {

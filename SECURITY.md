@@ -22,9 +22,9 @@ A vulnerability is a request that, within that design, does what the design says
 
 Reports of these are welcome, and so are reports of a dependency's advisory that reaches the service, which CI checks against the RustSec database on every push.
 
-## The limits a 1.0.0 production accepts
+## The limits a production accepts
 
-These are limits of the design, accepted for 1.0.0 ([ADR-0204](docs/adr/0204-what-production-readiness-means-and-when-the-reviews-stop.md) §10), not vulnerabilities:
+These are limits of the design, accepted for production ([ADR-0204](docs/adr/0204-what-production-readiness-means-and-when-the-reviews-stop.md) §10), not vulnerabilities:
 
 - **One machine, one writer, no replica** ([ADR-0178](docs/adr/0178-more-than-one-request-at-a-time.md)). The store is one SQLite file served by one process; a second machine is no standby.
 - **Recovery is the last backup.** What was written since it is lost, so the recovery point is the backup interval you choose ([ADR-0197](docs/adr/0197-the-tenth-reviews-findings-decided.md) decision 8). A restore advances the store's counters past a margin estimated from its own history, so an id an integration kept from the lost period does not come to name another object; this needs the copy marked, which the guide's backup commands do and its restore steps do for a copy made otherwise ([ADR-0207](docs/adr/0207-a-restored-store-skips-what-its-copy-never-saw.md)). A request the lost period applied is applied again if retried, under a new id.

@@ -3,6 +3,7 @@
 - **Status:** **Decided** 2026-10-17 by the author ("we need postgresql in 1.0.0 for the first deployment"), option (a) of the question `TODO.md` recorded the same day. Decisions 2 to 7 are the recommendations given with it, which the author did not answer and set going ("iterate until the postgresql support is complete"); they are taken as recommended under that direction, and stand for the author to change. Decision 8, erasure's standard on PostgreSQL, which changes what property P promises, was decided by the author the same day as recommended ("go with your recommendation on erasure").
 - **Date:** 2026-10-17
 - **Supersedes in part:** ADR-0174 decision 2 (a deployment's store is one SQLite file)
+- **Superseded in part by:** ADR-0214 — decision 1: the release that ships PostgreSQL is 0.3.0, before 1.0.0
 - **Refines:** ADR-0204 §7 (the release gate); ADR-0001 (storage delegated to PostgreSQL, or SQLite for embedded use)
 - **Relates to:** `storage-schema.md` (both backends' columns, §8's constraints, §9's erasure); ADR-0039, ADR-0089, ADR-0090 (serialisable isolation, PostgreSQL's contended rows); ADR-0076 (the sequence store); ADR-0207 (a restored copy); ADR-0208 (grouped commits)
 

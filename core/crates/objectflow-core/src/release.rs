@@ -55,16 +55,16 @@ pub const RELEASES: &[Release] = &[
         migrate: release_table,
     },
     Release {
-        name: "objectflow-core 1.0.0",
+        name: "objectflow-core 0.3.0",
         from: &["objectflow-core 0.2.0"],
-        fingerprint: "sha256:cd3ddb7113b5f23410555b4fdb2e2974745acd746233f714774c51865f8c95cd",
+        fingerprint: "sha256:6cf9647018a3ca76cdbe5728aca806b5d0c532d54f797a01e585b130683d94a2",
         changes: "the store records each restore of a copy in of_restore, so a restored store hands out no id, position or number its copy never saw, and refuses a cursor from the gap (ADR-0207); and each interval a later commit deleted or moved in of_interval_retraction, which the intervals export retracts (ADR-0205 decision 9)",
         builtins_changed: false,
         migrate: restore_table,
     },
 ];
 
-/// 0.2.0 to 1.0.0: the restore table, empty, since no store of 0.2.0 was
+/// 0.2.0 to 0.3.0: the restore table, empty, since no store of 0.2.0 was
 /// restored by this release (ADR-0207); the interval retractions, empty,
 /// with the moved rows' cursor, since 0.2.0 retracted nothing it recorded
 /// (ADR-0205 decision 9); and the release table's commit, unknown for the
@@ -338,7 +338,7 @@ fn step(
         params![r.name, at, operator],
     )?;
     // the commit of the build that carried it, where the table holds the
-    // column, which the step to 1.0.0 adds (the audit's durability U7)
+    // column, which the step to 0.3.0 adds (the audit's durability U7)
     let has_commit: i64 = tx.query_row(
         "SELECT count(*) FROM pragma_table_info('of_engine_release') WHERE name = 'commit_id'",
         [],

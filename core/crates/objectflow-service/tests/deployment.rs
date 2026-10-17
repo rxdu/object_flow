@@ -5841,7 +5841,7 @@ fn a_restore_undone_by_a_later_log_is_done_again_as_the_start_says() {
     assert_eq!(get(&later), Value::Null, "the restore undone");
 }
 
-/// A backup's copy of an earlier release, marked as a 1.0.0 guide marks
+/// A backup's copy of an earlier release, marked as a 0.3.0 guide marks
 /// one, is restored by its upgrade, before the upgrade records its act, and
 /// the upgrade says so (ADR-0207 decision 7).
 #[test]
@@ -6652,7 +6652,7 @@ fn a_store_on_postgresql_replaced_in_place_is_served_no_more() {
     assert!(
         refused["fault"]
             .as_str()
-            .is_some_and(|f| f.contains("not the one it was")),
+            .is_some_and(|f| f.contains("not_its_database")),
         "{refused}"
     );
     let (status, again) = add("dee@example.com");
@@ -6753,6 +6753,120 @@ fn a_value_past_postgresqls_index_entry_is_a_conflict() {
     admin
         .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
         .expect("the schema dropped");
+}
+
+/// A store on PostgreSQL started on a database that is not the one it was
+/// last opened in, a restore in its place or a standby a failover
+/// promoted, is refused until marked a copy, since no PostgreSQL backup
+/// carries the mark and an unmarked copy handed out ids, positions and
+/// numbers again; marked, it starts as a restore and says so, its new
+/// database then its own (durability on PostgreSQL 2, ADR-0207).
+#[test]
+fn a_store_on_postgresql_restored_in_place_is_refused_until_marked() {
+    let base = std::env::var("OBJECTFLOW_SANDBOX_POSTGRES").unwrap_or_default();
+    if base.trim().is_empty() {
+        eprintln!("skipped on SQLite: a deployment's store on PostgreSQL");
+        return;
+    }
+    let (mut kept, mut password) = (Vec::new(), String::new());
+    for part in base.split_whitespace() {
+        match part.strip_prefix("password=") {
+            Some(p) => password = p.to_string(),
+            None => kept.push(part),
+        }
+    }
+    let name = format!("objectflow_restored_{}", std::process::id());
+    let admin = objectflow_core::db::Connection::postgres(&base).expect("the database");
+    let gone = |db: &str| {
+        admin
+            .execute_batch(&format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)"))
+            .expect("a database dropped");
+    };
+    for db in [name.clone(), format!("{name}_old"), format!("{name}_copy")] {
+        gone(&db);
+    }
+    admin
+        .execute_batch(&format!(
+            "CREATE DATABASE {name} TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER libc LC_COLLATE 'C' LC_CTYPE 'C'"
+        ))
+        .expect("the store's database");
+    let url = format!("{} dbname={name}", kept.join(" "));
+    let dir = fresh_store("restored")
+        .parent()
+        .expect("a directory")
+        .to_path_buf();
+    let secret = dir.join("password");
+    std::fs::write(&secret, format!("{password}\n")).expect("the password's file");
+    let secret = secret.to_str().expect("a path");
+    let args = |create: bool| {
+        let mut a = vec![
+            "--store",
+            url.as_str(),
+            "--store-password-file",
+            secret,
+            "--port",
+            "0",
+        ];
+        if create {
+            a.push("--create");
+        }
+        a
+    };
+    {
+        let s = start(&args(true));
+        publish(&s, &json!({"copies": COPIES}));
+        let ann = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": {"id": "operator"}, "type": "Person", "transition": "add", "inputs": {"login": "ann@example.com"}}),
+        );
+        assert_eq!(ann["kind"], "satisfied", "{ann}");
+    }
+    // the database replaced by a copy of itself while the service is stopped
+    admin
+        .execute_batch(&format!(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{name}'"
+        ))
+        .expect("its sessions ended");
+    admin
+        .execute_batch(&format!("CREATE DATABASE {name}_copy TEMPLATE {name}"))
+        .expect("a copy");
+    admin
+        .execute_batch(&format!("ALTER DATABASE {name} RENAME TO {name}_old"))
+        .expect("the store's database set aside");
+    admin
+        .execute_batch(&format!("ALTER DATABASE {name}_copy RENAME TO {name}"))
+        .expect("the copy in its place");
+    let (code, said) = refused(&args(false));
+    assert_ne!(code, Some(0));
+    assert!(
+        said.contains("is not the database the store was last opened in"),
+        "{said}"
+    );
+    // marked as operate.md says, it starts as a restore and says so
+    let copy = objectflow_core::db::Connection::postgres(&format!("{base} dbname={name}"))
+        .expect("the copy");
+    copy.execute_batch(
+        "INSERT INTO of_counter (name, value) VALUES ('copied', 1) ON CONFLICT (name) DO UPDATE SET value = 1",
+    )
+    .expect("the copy marked");
+    drop(copy);
+    {
+        let s = start(&args(false));
+        let said = s.said_within("is a restored copy");
+        assert!(said.contains("is a restored copy"), "{said}");
+    }
+    // its database its own now: the next start is no restore
+    let s = start(&args(false));
+    let said = s.said_within("at version");
+    assert!(
+        said.contains("at version") && !said.contains("is a restored copy"),
+        "{said}"
+    );
+    drop(s);
+    for db in [name.clone(), format!("{name}_old")] {
+        gone(&db);
+    }
 }
 
 /// A publish that rebuilds a table another session reads, a backup's dump

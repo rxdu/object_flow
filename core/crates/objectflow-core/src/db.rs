@@ -1141,7 +1141,9 @@ fn blocking<T>(f: impl FnOnce() -> T) -> T {
 /// `sqlite_master` lists them, an index that backs a constraint left out as
 /// SQLite's automatic ones are, and a table's columns as `PRAGMA
 /// table_info` gives them, each type named as SQLite names it.
-const PG_CATALOG: &str = r#"
+/// The catalog a store on PostgreSQL is read through, which the release's
+/// fingerprint digests.
+pub(crate) const PG_CATALOG: &str = r#"
 CREATE OR REPLACE VIEW objectflow_catalog AS
   SELECT 'table'::text AS type, c.relname::text AS name, c.relname::text AS tbl_name, NULL::text AS sql
     FROM pg_class c
@@ -1363,6 +1365,31 @@ pub fn to_postgres(sql: &str) -> String {
                         out.push_str("REFERENCES of_object");
                         skip_reference_target(&mut chars);
                     }
+                    // a list built empty, which SQLite reads as matching
+                    // nothing and PostgreSQL refuses: the same answer, true
+                    // for every row where it is negated (records on
+                    // PostgreSQL, outside its area)
+                    "IN" if empty_list(&sql[i + word.len()..]) => {
+                        let kept = out.trim_end();
+                        let negated = kept.len() >= 3
+                            && kept[kept.len() - 3..].eq_ignore_ascii_case("NOT")
+                            && !kept[..kept.len() - 3]
+                                .ends_with(|c: char| c.is_ascii_alphanumeric() || c == '_');
+                        if negated {
+                            let at = kept.len() - 3;
+                            out.truncate(at);
+                        }
+                        out.push_str(if negated {
+                            "IN (NULL) IS NOT TRUE"
+                        } else {
+                            "IN (NULL) IS TRUE"
+                        });
+                        for (_, d) in chars.by_ref() {
+                            if d == ')' {
+                                break;
+                            }
+                        }
+                    }
                     "REAL" => out.push_str("DOUBLE PRECISION"),
                     "BLOB" => out.push_str("BYTEA"),
                     "INSTR" if sql[i + word.len()..].trim_start().starts_with('(') => {
@@ -1384,6 +1411,14 @@ pub fn to_postgres(sql: &str) -> String {
 }
 
 /// Whether a `REFERENCES` names a type's table, `t_…`, quoted or not.
+/// Whether what follows a word is an empty list, `()` with nothing but
+/// space within.
+fn empty_list(rest: &str) -> bool {
+    rest.trim_start()
+        .strip_prefix('(')
+        .is_some_and(|r| r.trim_start().starts_with(')'))
+}
+
 fn references_type_table(rest: &str) -> bool {
     let r = rest.trim_start().trim_start_matches('"');
     r.starts_with("t_")
@@ -1426,9 +1461,33 @@ fn arguments(rest: &str) -> usize {
     count
 }
 
-/// The schemas of sandboxes whose process no longer runs on this machine,
+/// The schema a sandbox on PostgreSQL is made in, named for this machine,
+/// the process and the name given, so only this machine takes it for
+/// orphaned once its process is gone, where a sandbox another machine made
+/// on a shared server was dropped as this machine's (the personal-data
+/// review on PostgreSQL, outside its area).
+pub fn sandbox_schema(name: &str) -> String {
+    format!("sandbox_{}_{}_{name}", machine_mark(), std::process::id())
+}
+
+/// This machine, as a sandbox's schema names it: a digest of its machine
+/// id, or of its host's name where it has none.
+fn machine_mark() -> String {
+    let seen = std::fs::read_to_string("/etc/machine-id")
+        .or_else(|_| std::fs::read_to_string("/proc/sys/kernel/hostname"))
+        .unwrap_or_default();
+    // FNV-1a, 32 bits: a mark, not a secret
+    let mut h: u32 = 0x811c_9dc5;
+    for b in seen.trim().bytes() {
+        h ^= u32::from(b);
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    format!("m{h:08x}")
+}
+
+/// The schemas of this machine's sandboxes whose process no longer runs,
 /// dropped: a process killed, a service's test ending it, drops none of its
-/// own (ADR-0213). One made elsewhere, or by a process still running, is
+/// own (ADR-0213). One another machine made, or a process still running, is
 /// left; one that cannot be dropped is left to the next.
 fn drop_orphaned_sandboxes(client: &mut postgres::Client) {
     let Ok(rows) = client.query(
@@ -1437,9 +1496,13 @@ fn drop_orphaned_sandboxes(client: &mut postgres::Client) {
     ) else {
         return;
     };
+    let mine = format!("sandbox_{}_", machine_mark());
     for row in rows {
         let name: String = row.get(0);
-        let pid = name.split('_').nth(1).and_then(|p| p.parse::<u32>().ok());
+        let pid = name
+            .strip_prefix(&mine)
+            .and_then(|rest| rest.split('_').next())
+            .and_then(|p| p.parse::<u32>().ok());
         if let Some(pid) = pid
             && cfg!(target_os = "linux")
             && !Path::new(&format!("/proc/{pid}")).exists()
@@ -1761,10 +1824,7 @@ impl Connection {
             .query_map([], |r| r.get(0))?
             .collect::<Result<_>>()?;
         let n = MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let fork = Connection::postgres_in(
-            &pg.config,
-            Some(format!("sandbox_{}_fork{n}", std::process::id())),
-        )?;
+        let fork = Connection::postgres_in(&pg.config, Some(sandbox_schema(&format!("fork{n}"))))?;
         // every table made and filled, and each identity carried on from
         // the largest value copied, as the store's own would give the next,
         // in one batch: a fork for every request the harness takes
@@ -2323,6 +2383,71 @@ mod tests {
         assert!(found.is_empty(), "rusqlite named outside db.rs: {found:?}");
     }
 
+    /// A list built empty matches no row, and none negated matches every
+    /// row, on either backend: SQLite reads `IN ()` so, and PostgreSQL,
+    /// which refuses it, is given the same (records on PostgreSQL).
+    #[test]
+    fn an_empty_list_matches_as_sqlite_reads_it() {
+        let conn = match std::env::var(crate::store::SANDBOX_POSTGRES) {
+            Ok(c) if !c.trim().is_empty() => {
+                Connection::postgres_sandbox(&c, &sandbox_schema("emptylist")).unwrap()
+            }
+            _ => Connection::open_in_memory().unwrap(),
+        };
+        conn.execute_batch(
+            "CREATE TABLE t (a INTEGER, b TEXT); INSERT INTO t VALUES (1, 'x'), (2, NULL)",
+        )
+        .unwrap();
+        let count = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get(0)).unwrap() };
+        assert_eq!(count("SELECT count(*) FROM t WHERE b IN ()"), 0);
+        assert_eq!(count("SELECT count(*) FROM t WHERE a = 1 AND b IN ()"), 0);
+        assert_eq!(count("SELECT count(*) FROM t WHERE b NOT IN ()"), 2);
+        assert_eq!(
+            count("SELECT count(*) FROM t WHERE a = 2 AND b NOT IN ()"),
+            1
+        );
+    }
+
+    /// A sandbox's schema left by a process that is gone is dropped by the
+    /// next sandbox made on this machine, and one another machine made is
+    /// left, its process unknown here (the personal-data review on
+    /// PostgreSQL, outside its area).
+    #[test]
+    fn a_sandbox_another_machine_made_is_left() {
+        let base = match std::env::var(crate::store::SANDBOX_POSTGRES) {
+            Ok(c) if !c.trim().is_empty() => c,
+            _ => {
+                eprintln!("skipped on SQLite: sandboxes on a shared PostgreSQL");
+                return;
+            }
+        };
+        let gone = u32::MAX - 1;
+        let mine = format!("sandbox_{}_{gone}_left", machine_mark());
+        let theirs = format!("sandbox_m00000000_{gone}_left");
+        let admin = Connection::postgres(&base).unwrap();
+        for s in [&mine, &theirs] {
+            admin
+                .execute_batch(&format!(
+                    "DROP SCHEMA IF EXISTS {s} CASCADE; CREATE SCHEMA {s}"
+                ))
+                .unwrap();
+        }
+        drop(Connection::postgres_sandbox(&base, &sandbox_schema("orphans")).unwrap());
+        let left = |s: &str| -> i64 {
+            admin
+                .query_row(
+                    "SELECT count(*) FROM pg_namespace WHERE nspname = ?1",
+                    [s],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!((left(&mine), left(&theirs)), (0, 1));
+        admin
+            .execute_batch(&format!("DROP SCHEMA {theirs} CASCADE"))
+            .unwrap();
+    }
+
     /// A transaction a failed statement aborted is not committed: PostgreSQL
     /// answers its `COMMIT` with `ROLLBACK` and no error, which the store
     /// took as committed, so the commit is refused; a rollback to a
@@ -2333,8 +2458,7 @@ mod tests {
     fn a_transaction_a_failed_statement_aborted_is_not_committed() {
         let conn = match std::env::var(crate::store::SANDBOX_POSTGRES) {
             Ok(c) if !c.trim().is_empty() => {
-                Connection::postgres_sandbox(&c, &format!("sandbox_{}_aborted", std::process::id()))
-                    .unwrap()
+                Connection::postgres_sandbox(&c, &sandbox_schema("aborted")).unwrap()
             }
             _ => Connection::open_in_memory().unwrap(),
         };
@@ -2550,8 +2674,7 @@ mod tests {
     fn a_tables_shape_is_held_until_a_schema_changes() {
         let conn = match std::env::var(crate::store::SANDBOX_POSTGRES) {
             Ok(c) if !c.trim().is_empty() => {
-                Connection::postgres_sandbox(&c, &format!("sandbox_{}_shape", std::process::id()))
-                    .unwrap()
+                Connection::postgres_sandbox(&c, &sandbox_schema("shape")).unwrap()
             }
             _ => Connection::open_in_memory().unwrap(),
         };
@@ -2643,6 +2766,18 @@ mod tests {
             (
                 "SELECT max(a, b), max(c), min(d, (e)) FROM t",
                 "SELECT GREATEST(a, b), max(c), LEAST(d, (e)) FROM t",
+            ),
+            (
+                "SELECT a FROM t WHERE b = 1 AND c IN () ORDER BY a",
+                "SELECT a FROM t WHERE b = 1 AND c IN (NULL) IS TRUE ORDER BY a",
+            ),
+            (
+                "SELECT a FROM t WHERE c NOT IN ( )",
+                "SELECT a FROM t WHERE c IN (NULL) IS NOT TRUE",
+            ),
+            (
+                "SELECT a FROM t WHERE c IN (?1)",
+                "SELECT a FROM t WHERE c IN ($1)",
             ),
             (
                 "INSERT OR IGNORE INTO t (a) VALUES (?1)",

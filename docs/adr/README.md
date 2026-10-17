@@ -213,5 +213,6 @@
 | [0210](0210-five-questions-decided-as-recommended.md) | Five questions decided as recommended | Decided by the author |
 | [0211](0211-seven-questions-decided-as-recommended.md) | Seven questions decided as recommended | Decided by the author — later refined by ADR-0212 |
 | [0212](0212-a-dry-runs-class-says-what-excluding-it-uncovers.md) | A dry run's class says what excluding it uncovers | Decided by the author |
-| [0213](0213-postgresql-in-1-0-0.md) | PostgreSQL in 1.0.0 | Decided by the author (decisions 1 and 8), and as recommended at the author's direction (2 to 7) |
+| [0213](0213-postgresql-in-1-0-0.md) | PostgreSQL in 1.0.0 | Decided by the author (decisions 1 and 8), and as recommended at the author's direction (2 to 7) — the release 0.3.0 since ADR-0214 |
+| [0214](0214-a-release-before-1-0-0.md) | A release before 1.0.0, 0.3.0 | Decided by the author (decision 1), and as recommended at the author's direction (2 to 5) |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

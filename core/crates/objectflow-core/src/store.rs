@@ -80,6 +80,15 @@ impl StoreError {
     }
 }
 
+/// What an opening of a store on PostgreSQL in a database that is not the
+/// one it was last opened in is refused with, before its reason.
+pub const NOT_ITS_DATABASE: &str = "not_its_database";
+
+/// The counters a store on PostgreSQL keeps the database it was last
+/// opened in by: its cluster's system identifier, its timeline and the
+/// database's oid ([`crate::db::Connection::origin`]).
+const ORIGIN: [&str; 3] = ["origin_system", "origin_timeline", "origin_database"];
+
 /// What the daily housekeeping on PostgreSQL names the planner's samples,
 /// `pg_statistic`, which it writes anew after the store's tables.
 pub const PLANNER_SAMPLES: &str = "planner samples";
@@ -221,6 +230,12 @@ pub fn release_fingerprint() -> String {
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
     h.update(SCHEMA.as_bytes());
+    // and what a store on PostgreSQL holds of it: the schema as translated,
+    // its own additions and the catalog it is read through, so a change to
+    // any is a release's (durability on PostgreSQL 11)
+    h.update(crate::db::to_postgres(SCHEMA).as_bytes());
+    h.update(PG_SCHEMA.as_bytes());
+    h.update(crate::db::PG_CATALOG.as_bytes());
     if let Ok(lib) = Library::load(&[]) {
         for (name, t) in &lib.types {
             h.update(format!("\ntype {name}\n").as_bytes());
@@ -234,6 +249,7 @@ pub fn release_fingerprint() -> String {
                 .map(|l| format!("{l}\n"))
                 .collect();
             h.update(kept.as_bytes());
+            h.update(crate::db::to_postgres(&kept).as_bytes());
             for (s, st) in &t.states {
                 h.update(format!("state {s} {} {}\n", st.category, st.is_final).as_bytes());
             }
@@ -2602,10 +2618,7 @@ impl Store {
             Ok(config) if !config.trim().is_empty() => {
                 static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
                 let n = MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                Connection::postgres_sandbox(
-                    &config,
-                    &format!("sandbox_{}_{n}", std::process::id()),
-                )?
+                Connection::postgres_sandbox(&config, &crate::db::sandbox_schema(&n.to_string()))?
             }
             _ => Connection::open_in_memory()?,
         };
@@ -2777,6 +2790,49 @@ impl Store {
         // the database it is in, held for the service to compare after a
         // lost connection is opened again
         conn.origin()?;
+        // the database the store was last opened in, kept in its counters:
+        // one that is not it, a restore or a standby a failover promoted,
+        // which may lack the last writes the store answered, is refused
+        // unless marked a copy, where no backup on PostgreSQL carries the
+        // mark and a copy unmarked handed out ids, positions and numbers
+        // again (durability on PostgreSQL 2, ADR-0207)
+        let here: Vec<i64> = conn
+            .origin()?
+            .unwrap_or_default()
+            .split('/')
+            .map(|p| p.parse().unwrap_or(0))
+            .collect();
+        if holds > 0 {
+            let was: Vec<i64> = ORIGIN
+                .iter()
+                .map(|name| {
+                    conn.query_row(
+                        "SELECT value FROM of_counter WHERE name = ?1",
+                        params![name],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                })
+                .collect::<crate::db::Result<Option<Vec<i64>>>>()?
+                .unwrap_or_default();
+            let marked: Option<i64> = conn
+                .query_row(
+                    "SELECT value FROM of_counter WHERE name = ?1",
+                    params![COPIED],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if !was.is_empty() && was != here && marked.is_none() {
+                return Err(StoreError(format!(
+                    "{NOT_ITS_DATABASE}: {config:?} is not the database the store was last opened in, its cluster, timeline and database {} then and {} now: a restore, or a standby a failover promoted, either of which may lack the last writes the store answered; mark it a copy as operate.md says, so the store skips what the live store may have handed out since, and start again",
+                    was.iter().map(i64::to_string).collect::<Vec<_>>().join("/"),
+                    here.iter()
+                        .map(i64::to_string)
+                        .collect::<Vec<_>>()
+                        .join("/")
+                )));
+            }
+        }
         let due: Option<i64> = if holds == 0 {
             None
         } else {
@@ -2788,6 +2844,15 @@ impl Store {
             .optional()?
         };
         let mut store = Store::opened(conn, &format!("{config:?}"), due == Some(1), now)?;
+        // the database it is in now recorded, a copy's once its restore is
+        // done
+        for (name, value) in ORIGIN.iter().zip(&here) {
+            store.conn.execute(
+                "INSERT INTO of_counter (name, value) VALUES (?1, ?2) \
+                 ON CONFLICT (name) DO UPDATE SET value = excluded.value",
+                params![name, value],
+            )?;
+        }
         // an erasure's vacuum a service killed before it ran, run now
         if store.checkpoint_due {
             let _ = store.after_erasure(false);
@@ -3170,6 +3235,10 @@ impl Store {
     /// service stopping cleanly leaves it: whether it completed, which a
     /// reader still open prevents.
     pub fn checkpoint(&self) -> Stored<bool> {
+        // a database keeps its own log, nothing to carry into a file
+        if self.conn.backend() == crate::db::Backend::Postgres {
+            return Ok(true);
+        }
         let busy: i64 = self
             .conn
             .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;

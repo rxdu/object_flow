@@ -13,7 +13,7 @@ Every operation of the engine's service: what it takes and what it answers. [Bui
 - An object that does not exist reads as `null` from `get`, `history` and `availability`; a request naming it is refused `not_found`.
 - `GET /health` and `GET /metrics` serve operators ([Operate](operate.md)). A sandbox also serves `POST /sandbox/<control>` ([below](#sandbox-controls)).
 
-**What `/v1` promises**, from release 1.0.0. Within `/v1` a release only adds: an operation, an optional request key, an answer field, a verdict `kind`, an `invalid_input` reason, a refusal or finding code. It never removes or renames one, changes a field's type or meaning, makes an optional key required, changes a default (such as a page's 100), or changes an operation's status codes. `/health`'s fields, the evaluator call and its answer, and the sandbox's controls are held to the same rule, and a service flag is renamed or removed only in a major release. A change that needs more is `/v2`, served beside `/v1`. [`wire-v1.json`](wire-v1.json) lists the keys each operation takes, and a test of the service holds it to that list.
+**What `/v1` promises**, from release 1.0.0; a release before it, 0.x, may change `/v1`, each change in the changelog (ADR-0214). Within `/v1` a release only adds: an operation, an optional request key, an answer field, a verdict `kind`, an `invalid_input` reason, a refusal or finding code. It never removes or renames one, changes a field's type or meaning, makes an optional key required, changes a default (such as a page's 100), or changes an operation's status codes. `/health`'s fields, the evaluator call and its answer, and the sandbox's controls are held to the same rule, and a service flag is renamed or removed only in a major release. A change that needs more is `/v2`, served beside `/v1`. [`wire-v1.json`](wire-v1.json) lists the keys each operation takes, and a test of the service holds it to that list.
 
 ## The actor
 
@@ -42,7 +42,7 @@ A value is JSON's own where JSON keeps it exactly, and otherwise a string in the
 | set | an array, no element repeated and none `null`, each of its element's type; an element that is not, `null` among them, is `wrong_type` | `["a-1", "a-2"]` |
 | `file` | an object: the content's SHA-256, its size in bytes and its media type; a name is refused `wrong_type` | `{"hash": "sha256:9f86…", "size": 48213, "media_type": "application/pdf"}` |
 
-Dates and times stay within 0001-01-01 to 9999-12-31T23:59:59Z. An effect that would write one past that is refused `value_in_range`, and so is any arithmetic past its type's bound, wherever it is evaluated: a date or a time computed past the calendar, a date moved by part of a day, an integer past 64 bits. A read that meets one, a `get`, a `query` or a `metric`, answers `{"refused": "value_in_range", "reason": …, "object_id": …}`, naming the object and no value; it was answered `null` before 1.0.0 (ADR-0205 decision 2). `availability` and `check` say it as the transition's verdict. A division by zero is unknown, and reads as `null`. A duration you are given back is written in whichever unit reads best (`"15 days"`, `"1431 h"`): parse the count and the unit. An object's id is `<type in lower case>-<number>`.
+Dates and times stay within 0001-01-01 to 9999-12-31T23:59:59Z. An effect that would write one past that is refused `value_in_range`, and so is any arithmetic past its type's bound, wherever it is evaluated: a date or a time computed past the calendar, a date moved by part of a day, an integer past 64 bits. A read that meets one, a `get`, a `query` or a `metric`, answers `{"refused": "value_in_range", "reason": …, "object_id": …}`, naming the object and no value; it was answered `null` before 0.3.0 (ADR-0205 decision 2). `availability` and `check` say it as the transition's verdict. A division by zero is unknown, and reads as `null`. A duration you are given back is written in whichever unit reads best (`"15 days"`, `"1431 h"`): parse the count and the unit. An object's id is `<type in lower case>-<number>`.
 
 ## Requests
 
@@ -226,8 +226,8 @@ A service started on a store an earlier release made answers every operation but
 POST /v1/upgrade
 {"actor": {"id": "operator"}, "dry_run": true}
 
-{"from": "objectflow-core 0.2.0", "to": "objectflow-core 1.0.0", "dry_run": true, "upgraded": false,
- "steps": [{"release": "objectflow-core 1.0.0", "changes": "the store records each restore of a copy in of_restore, …"}],
+{"from": "objectflow-core 0.2.0", "to": "objectflow-core 0.3.0", "dry_run": true, "upgraded": false,
+ "steps": [{"release": "objectflow-core 0.3.0", "changes": "the store records each restore of a copy in of_restore, …"}],
  "restored": null}
 ```
 

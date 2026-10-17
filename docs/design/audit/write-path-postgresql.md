@@ -1,4 +1,4 @@
-<!-- The audit's area `write-path.md` taken again on PostgreSQL for ADR-0213's block 6, 2026-10-17, by a reviewer agent on the release build of `952c28c`'s tree. Its probe scripts and their outputs were in the session's scratchpad and were not kept; each finding names its probe, the method and what it printed. Findings and their fixes are tracked in TODO.md, PostgreSQL in 1.0.0, block 7. -->
+<!-- The audit's area `write-path.md` taken again on PostgreSQL for ADR-0213's block 6, 2026-10-17, by a reviewer agent on the release build of `952c28c`'s tree. Its probe scripts and their outputs were in the session's scratchpad and were not kept; each finding names its probe, the method and what it printed. Findings and their fixes are tracked in TODO.md, PostgreSQL in the release, block 7. -->
 
 # Rules and the record on the write path, on PostgreSQL (promises R and A)
 

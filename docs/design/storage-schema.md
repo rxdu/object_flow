@@ -423,7 +423,7 @@ CREATE TABLE of_engine_release (
   release       TEXT    NOT NULL,     -- the release whose tables and meanings apply
   installed_at  TEXT    NOT NULL,
   installed_by  TEXT    NOT NULL,     -- the operator who created the store or asked for the upgrade (§12)
-  commit_id     TEXT                  -- the commit the build that wrote the row was made from, where its build was told, as a release's build is; none before 1.0.0 (the audit's durability U7)
+  commit_id     TEXT                  -- the commit the build that wrote the row was made from, where its build was told, as a release's build is; none before 0.3.0 (the audit's durability U7)
 );
 
 -- Each interval row a later commit deleted or moved, which the `.intervals`

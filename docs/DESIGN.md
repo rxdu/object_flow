@@ -14,7 +14,7 @@
 - ADR-0138, on 2026-09-29: the generated guards' remedies, an effect before the cascades, and a silent evaluator, three gaps the reference runner found.
 - ADR-0139 to ADR-0142, on 2026-09-29: four metric rules, accepted in advance; the examples asserting warnings and an invariant's remedy, and naming what a request creates, each accepted in advance and then by the author; and a span split across the periods it covers.
 - ADR-0143 and ADR-0144, on 2026-09-30: the core's YAML parser and decimal type, and a successor neither the object nor one already superseded.
-- ADR-0174, ADR-0175 and ADR-0177 to ADR-0181, on 2026-10-11, by ADR-0182: a deployment's service, its evaluators' transport, an engine release's upgrade, requests at once, a refusal's detail and pages, what a release promises, and the hiring review's findings, with the release numbered 1.0.0, from which the promise binds.
+- ADR-0174, ADR-0175 and ADR-0177 to ADR-0181, on 2026-10-11, by ADR-0182: a deployment's service, its evaluators' transport, an engine release's upgrade, requests at once, a refusal's detail and pages, what a release promises, and the hiring review's findings, with the release numbered 1.0.0, from which the promise binds (ADR-0214: the release is 0.3.0, before 1.0.0, from which the promise still binds).
 
 **Awaiting review:** this document and the declaration syntax read whole, the flow format specification, and the six implementation documents of 2026-09-09 (`../TODO.md`).
 

@@ -2,9 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is to be tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`); none is tagged yet, 0.1.0 and 0.2.0 among them.
 
-## Unreleased, toward 1.0.0
+## 0.3.0, unreleased
 
-Release 1.0.0 is held until a production review, on the same 36.7k-object store as the first, finds no blocker or major (ADR-0183 decision 1; `docs/design/production-review.md`); each of the sixteen so far found some.
+A release before 1.0.0 (ADR-0214): what the first deployment, the operations platform, runs while it is built, on SQLite or on PostgreSQL. 1.0.0, from which ADR-0180's promise binds, follows a working operations system, after ADR-0204's soak and confirming review; until then a 0.x release may change `/v1`, each change listed here, and every release carries an upgrade from the one before. Stores made by development builds since 0.2.0, which named their release 1.0.0, are not opened by this release: make them again.
 
 ### Changes to what 0.2.0 answered
 
@@ -80,6 +80,9 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 - Two decimals, and two rationals in a metric, compare exactly at any scale. Where they did not align within 128 bits, 0.2.0 compared them by sign alone, so `0.000…01 == 1000000000` held, and a metric compared them as floats.
 
 ### Changes that may refuse what 0.2.0 accepted
+
+- A request's text holding U+0000 outside an input's or an attribute's value, or a name past 1 KiB (an actor's id or principal, a type, a transition, an object's id, a legacy or an idempotency key), is refused `400`, on both backends, where SQLite stored it and PostgreSQL answered 500 (the records area on PostgreSQL, F4 and F5).
+- On PostgreSQL, a version whose generated names would pass the 63 bytes PostgreSQL keeps of a name, and a value of a unique, indexed or identity attribute past the 2,704 bytes an index's entry holds, are refused `409`; SQLite takes both (F1, F4).
 
 - `declaration` with no `type` is refused `400`, where it was read as a type with no name and answered `404`; `wire-v1.json` now records each operation's required keys, which a test sends each request without (the guides' audit G-93).
 - A sandbox refuses `--busy-timeout`, which is a deployment's; its clock moved by `advance` and `set` at once; and an evaluator stubbed with an answer other than `satisfied`, `unsatisfied` or `unanswered`, in both backends (the guides' audit G-46).
@@ -212,6 +215,8 @@ Release 1.0.0 is held until a production review, on the same 36.7k-object store 
 - The wire's baseline, `docs/guides/wire-v1.json`, and format 1's frozen corpus, each held by a check (ADR-0180 decision 7).
 
 ### Fixed
+
+- On PostgreSQL: a database folding text beyond ASCII is refused, where an erasure of one person renamed another's identity; a lock wait is answered `stale` or `503`, not `500`; a lost connection is answered `503` and the store opened again for the next write, where every write failed until a restart; a database that is not the one the store was last opened in, a restore or a promoted standby, is refused until marked a copy, and a restore is said at the start; a transaction a failed statement aborted is never taken as committed; an erasure's vacuum cleans indexes and the planner's samples, waits for every older snapshot, standbys' and slots' among them, is kept due across a restart, and the daily housekeeping writes every table anew, so no erased value stays in the store's files past it (the three areas taken again on PostgreSQL, `docs/design/audit/*-postgresql.md`; ADR-0213 decision 8 refined).
 
 - The reimbursement sample's agent no longer may take a claim's or a line's transitions on the wire: both types are `taken_by: [human, service]`, as the sample says the agent never commits a financial write.
 - A refused call's `object_id` is `null` where the call targeted an object its own refused request was creating, which never exists, as the refusal's other ids already were (D581's residue).

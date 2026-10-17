@@ -4,6 +4,7 @@
 - **Date:** 2026-10-14
 - **Refined by:** ADR-0205 — decisions 9.3 and 9.4 widened by the audit. ADR-0206 — decision 9.3's design. ADR-0207 — decision 9.4's design. ADR-0210 — §1's report readers read at a pace, back to back a stress run beside the gate. ADR-0213 — §7: the soak and the confirming review on PostgreSQL, the storage areas audited on it.
 - **Supersedes:** ADR-0183 decision 1, the bar of a production review that finds no blocker and no major
+- **Superseded in part by:** ADR-0214 — §7 and §8's decision of 1.0.0 gate 1.0.0 alone; the release before it, 0.3.0, has a gate of its own
 - **Relates to:**
   - ADR-0180 (what a release promises); ADR-0183 (the production review, the release workflow, `/metrics`' names); ADR-0174, ADR-0178, ADR-0197 and ADR-0199 (the limits of section 10); ADR-0201 decision 4 and ADR-0202 decision 3 (the read guards this ADR replaces);
   - `PRD.md` N1, N3, N4, N7, C5 and T5;
