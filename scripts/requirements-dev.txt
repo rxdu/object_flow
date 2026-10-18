@@ -11,7 +11,7 @@
 # check's output the same (2026-10-18).
 PyYAML==6.0.3
 jsonschema==3.2.0
-attrs==21.2.0
+attrs==26.1.0
 pyrsistent==0.20.0
 six==1.17.0
 setuptools==84.0.0
