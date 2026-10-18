@@ -11385,6 +11385,161 @@ types:
         );
     }
 
+    /// An erased actor's identity leaves a correction's record of an
+    /// identity attribute, what it replaced and what it wrote, each by the
+    /// actor's object id, matched in any case of its ASCII letters, as it
+    /// leaves the attribute and the inputs that sent it (the audit's
+    /// personal data S17, ADR-0203 decision 1), where no test held it.
+    #[test]
+    fn an_erased_identity_leaves_a_corrections_record() {
+        const HANDED: &str = r#"
+module: handed
+categories: [live, closed]
+types:
+  Person:
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true, personal: true, optional: true }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [login] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Memo:
+    attributes:
+      owner: { type: identity, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      write: { kind: initial, to: OPEN, optional_inputs: [owner] }
+      fix_owner: { kind: internal, from: [OPEN], corrects: [owner], required_inputs: [owner], inputs: { reason: { type: string } } }
+"#;
+        let lib = Library::load(&[("handed.yaml".into(), HANDED.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let person = |s: &mut Store, login: &str| {
+            created(&req(
+                s,
+                "add",
+                OPERATOR,
+                ("Person", true),
+                json!({"login": login}),
+            ))
+        };
+        let ann = person(&mut s, "ann.secret@corp.example");
+        let bea = person(&mut s, "bea.secret@corp.example");
+        let memo = created(&req(
+            &mut s,
+            "write",
+            OPERATOR,
+            ("Memo", true),
+            json!({"owner": "ann.secret@corp.example"}),
+        ));
+        created(&req(
+            &mut s,
+            "fix_owner",
+            OPERATOR,
+            (&memo, false),
+            json!({"owner": "Bea.Secret@CORP.example", "reason": "the wrong person"}),
+        ));
+        let fixed = |s: &Store| {
+            s.history(&memo)
+                .unwrap()
+                .into_iter()
+                .find(|e| e.transition == "fix_owner")
+                .unwrap()
+                .payload["corrected"]["owner"]
+                .clone()
+        };
+        assert_eq!(fixed(&s)["replaced"], json!("ann.secret@corp.example"));
+        for (who, erased) in [(&ann, "ann"), (&bea, "bea")] {
+            created(&req(
+                &mut s,
+                "forget",
+                OPERATOR,
+                (who, false),
+                json!({"reason": "asked"}),
+            ));
+            let log: Vec<String> = s
+                .connection()
+                .prepare("SELECT payload FROM of_event")
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert!(
+                log.iter()
+                    .all(|p| !p.to_lowercase().contains(&format!("{erased}.secret"))),
+                "{log:?}"
+            );
+        }
+        let fixed = fixed(&s);
+        assert_eq!(
+            (&fixed["replaced"], &fixed["value"]),
+            (&json!(ann), &json!(bea))
+        );
+        crate::store::assert_log_folds(&s, &memo);
+    }
+
+    /// An erasure's rewrite leaves a payload as the engine wrote it, each
+    /// erased value null and no key moved, on either backend, where
+    /// PostgreSQL's `jsonb` gave its keys in its own order, the shortest
+    /// first (records F6); values compared as JSON cannot see it, a map's
+    /// equality ignoring its order.
+    #[test]
+    fn an_erasure_keeps_a_payload_as_it_was_written() {
+        const NOTES: &str = r#"
+module: notes
+categories: [live, closed]
+types:
+  Job:
+    attributes:
+      title: { type: string }
+      owner_name: { type: string, optional: true, personal: true }
+      ab: { type: string, optional: true, personal: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title], optional_inputs: [owner_name, ab] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+        let lib = Library::load(&[("notes.yaml".into(), NOTES.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Fix", "owner_name": "Dana Q", "ab": "Zed Q"}),
+        ));
+        let text = |s: &Store| -> String {
+            s.connection()
+                .query_row(
+                    "SELECT payload FROM of_event WHERE object_id = ?1 AND transition = 'open'",
+                    crate::db::params![job],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        let before = text(&s);
+        assert!(
+            before.contains("\"Dana Q\"") && before.contains("\"Zed Q\""),
+            "{before}"
+        );
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&job, false),
+            json!({"reason": "request"}),
+        ));
+        assert_eq!(
+            text(&s),
+            before
+                .replace("\"Dana Q\"", "null")
+                .replace("\"Zed Q\"", "null")
+        );
+    }
+
     /// A request's `context`, the caller's reason (`DESIGN.md` §6, ADR-0105
     /// §8): every event it makes records it, a cascade's included, as does
     /// each attempt row, an audit's and a refusal's; a proposal keeps its

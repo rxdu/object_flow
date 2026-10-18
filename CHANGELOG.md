@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Fixed
+
+- On PostgreSQL, an erasure's rewritten payloads keep their keys in the order the engine wrote them, where they came back in `jsonb`'s order, the shortest key first, on `/v1/history` and every read of the log; and an erasure writes each row it rewrites once, where it wrote an event once for each personal value in it, every version holding the rest until the housekeeping (the personal-data area on PostgreSQL, records F6).
+
 ### Added
 
 - An upgrade runs on a store on PostgreSQL as on a file: a release started on a PostgreSQL store at an earlier release serves `/v1/upgrade` alone until it runs, where it refused the store at its start, and the upgrade holds the store's lock, refused while another service writes it (the durability area on PostgreSQL, finding 6; ADR-0214 decision 3).

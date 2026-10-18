@@ -6435,27 +6435,117 @@ fn rewrite_written(
     pointer: &str,
     f: impl Fn(&serde_json::Value) -> Option<serde_json::Value>,
 ) -> Stored<()> {
-    let found: Vec<(i64, String)> = {
+    rewrite_json(
+        tx,
+        "of_event",
+        "position",
+        "payload",
+        select,
+        params![path],
+        |_, payload| {
+            let Some(next) = payload.pointer(pointer).and_then(&f) else {
+                return false;
+            };
+            if let Some(slot) = payload.pointer_mut(pointer) {
+                *slot = next;
+            }
+            true
+        },
+    )
+}
+
+/// The most text one statement of an erasure's rewrite binds, beside its
+/// [`SPAN_ROWS`] rows, an event holding up to [`EVENT_BYTES`].
+const REWRITE_BYTES: usize = EVENT_BYTES;
+
+/// Each row `select` finds, its key and its JSON text the first two
+/// columns, edited by `edit` and written back where that changed it, in as
+/// few statements as [`SPAN_ROWS`] and [`REWRITE_BYTES`] allow: a value an
+/// erasure rewrites, its keys kept in the order the engine wrote them on
+/// either backend, where PostgreSQL's `jsonb` gave them in its own, and
+/// each row written once a pass, where it was written once for each value
+/// erased in it, every version holding the rest until the housekeeping
+/// (records F6; personal data on PostgreSQL 1).
+fn rewrite_json(
+    tx: &Connection,
+    table: &str,
+    key: &str,
+    column: &str,
+    select: &str,
+    params: impl crate::db::Params,
+    mut edit: impl FnMut(&Sql, &mut serde_json::Value) -> bool,
+) -> Stored<()> {
+    let found: Vec<(Sql, String)> = {
         let mut stmt = tx.prepare(select)?;
-        let rows = stmt.query_map(params![path], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let rows = stmt.query_map(params, |r| Ok((r.get(0)?, r.get(1)?)))?;
         rows.collect::<Result<_, _>>()?
     };
-    for (position, text) in found {
-        let Ok(mut payload) = serde_json::from_str::<serde_json::Value>(&text) else {
+    let mut changed: Vec<(Sql, String)> = Vec::new();
+    for (at, text) in found {
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else {
             continue;
         };
-        let Some(next) = payload.pointer(pointer).and_then(&f) else {
-            continue;
-        };
-        if let Some(slot) = payload.pointer_mut(pointer) {
-            *slot = next;
+        if edit(&at, &mut value) {
+            let next = value.to_string();
+            if next != text {
+                changed.push((at, next));
+            }
         }
+    }
+    let mut rows = changed.into_iter().peekable();
+    while rows.peek().is_some() {
+        let mut binds: Vec<Sql> = Vec::new();
+        let mut whens: Vec<String> = Vec::new();
+        let mut bytes = 0;
+        while let Some((at, text)) = rows.next_if(|(_, t)| {
+            whens.is_empty() || (whens.len() < SPAN_ROWS && bytes + t.len() <= REWRITE_BYTES)
+        }) {
+            bytes += text.len();
+            whens.push(format!(
+                "WHEN ?{} THEN ?{}",
+                binds.len() + 1,
+                binds.len() + 2
+            ));
+            binds.push(at);
+            binds.push(Sql::Text(text));
+        }
+        let keys: Vec<String> = (0..whens.len())
+            .map(|k| format!("?{}", 2 * k + 1))
+            .collect();
         tx.execute(
-            "UPDATE of_event SET payload = ?2 WHERE position = ?1",
-            params![position, payload.to_string()],
+            &format!(
+                "UPDATE {table} SET {column} = CASE {key} {} END WHERE {key} IN ({})",
+                whens.join(" "),
+                keys.join(", ")
+            ),
+            crate::db::params_from_iter(binds),
         )?;
     }
     Ok(())
+}
+
+/// The value at `path` in `v`, through objects alone, as `json_set` reads
+/// a path of keys.
+fn at_path<'a>(v: &'a mut serde_json::Value, path: &[&str]) -> Option<&'a mut serde_json::Value> {
+    path.iter()
+        .try_fold(v, |v, k| v.as_object_mut()?.get_mut(*k))
+}
+
+/// The value at `path` in `v` replaced by what `f` gives for it, where it
+/// is held and `f` gives one: whether it was.
+fn replaced_at(
+    v: &mut serde_json::Value,
+    path: &[&str],
+    f: impl FnOnce(&serde_json::Value) -> Option<serde_json::Value>,
+) -> bool {
+    let Some(slot) = at_path(v, path) else {
+        return false;
+    };
+    let Some(next) = f(slot) else {
+        return false;
+    };
+    *slot = next;
+    true
 }
 
 fn write(
@@ -6681,28 +6771,60 @@ fn write(
         )?;
     }
     for (id, attributes) in &change.redacted {
+        // what each event before the change wrote of each attribute, a
+        // correction's record of the value it replaced and wrote, and the
+        // inputs that sent it, nulled in one pass over the object's events,
+        // each event written once, where it was written once for each
+        // attribute and part, every version holding the rest (ADR-0209
+        // decision 2; personal data on PostgreSQL 1, records F6); the query
+        // finds every event holding any part, and the edit alone decides
+        // what it rewrites, leaving what the change's own events wrote
+        let keys: Vec<String> = attributes.iter().map(|a| a.replace('"', "")).collect();
+        let mut binds = vec![Sql::Text(id.clone())];
+        let mut holds = Vec::with_capacity(keys.len() * 3);
+        for k in &keys {
+            for part in ["wrote", "corrected", "inputs"] {
+                binds.push(Sql::Text(format!("$.{part}.\"{k}\"")));
+                holds.push(format!("json_type(payload, ?{}) IS NOT NULL", binds.len()));
+            }
+        }
+        if !keys.is_empty() {
+            rewrite_json(
+                tx,
+                "of_event",
+                "position",
+                "payload",
+                &format!(
+                    "SELECT position, payload FROM of_event WHERE object_id = ?1 AND ({})",
+                    holds.join(" OR ")
+                ),
+                crate::db::params_from_iter(binds),
+                |at, payload| {
+                    let before = matches!(at, Sql::Integer(p) if *p < first);
+                    let mut nulled = false;
+                    for k in &keys {
+                        if before {
+                            nulled |= replaced_at(payload, &["wrote", k], |_| {
+                                Some(serde_json::Value::Null)
+                            });
+                        }
+                        // both parts, either made where it is missing, as
+                        // json_set made it
+                        if let Some(c) = at_path(payload, &["corrected", k])
+                            .and_then(serde_json::Value::as_object_mut)
+                        {
+                            c.insert("replaced".to_string(), serde_json::Value::Null);
+                            c.insert("value".to_string(), serde_json::Value::Null);
+                            nulled = true;
+                        }
+                        nulled |=
+                            replaced_at(payload, &["inputs", k], |_| Some(serde_json::Value::Null));
+                    }
+                    nulled
+                },
+            )?;
+        }
         for a in attributes {
-            // and what each event before the change wrote of it (ADR-0209
-            // decision 2)
-            let wrote = format!("$.wrote.\"{}\"", a.replace('"', ""));
-            tx.execute(
-                "UPDATE of_event SET payload = json_set(payload, ?2, json('null')) \
-                 WHERE object_id = ?1 AND position < ?3 AND json_type(payload, ?2) IS NOT NULL",
-                params![id, wrote, first],
-            )?;
-            // and a correction's record of the value it replaced and wrote
-            let corrected = format!("$.corrected.\"{}\"", a.replace('"', ""));
-            tx.execute(
-                "UPDATE of_event SET payload = json_set(payload, ?2 || '.replaced', json('null'), \
-                 ?2 || '.value', json('null')) WHERE object_id = ?1 AND json_type(payload, ?2) IS NOT NULL",
-                params![id, corrected],
-            )?;
-            let path = format!("$.inputs.\"{}\"", a.replace('"', ""));
-            tx.execute(
-                "UPDATE of_event SET payload = json_set(payload, ?2, json('null')) \
-                 WHERE object_id = ?1 AND json_type(payload, ?2) IS NOT NULL",
-                params![id, path],
-            )?;
             tx.execute(
                 "UPDATE of_interval SET value = NULL WHERE object_id = ?1 AND dimension = ?2",
                 params![id, a],
@@ -6760,28 +6882,51 @@ fn write(
     // ASCII letters (`wire.md`), where one sent in another case kept it
     // (the audit's personal data S22, ADR-0205 decision 6)
     for (identity, id) in &change.renamed_actors {
+        // each copy rewritten in Rust, its keys kept in their order (records
+        // F6), and matched again there as identities compare
+        let renamed = |v: &serde_json::Value| {
+            v.as_str()
+                .is_some_and(|s| s.eq_ignore_ascii_case(identity))
+                .then(|| serde_json::Value::String(id.clone()))
+        };
         for (tn, name) in &held.inputs {
-            let path = format!("$.inputs.\"{}\"", name.replace('"', ""));
-            tx.execute(
+            let key = name.replace('"', "");
+            let path = format!("$.inputs.\"{key}\"");
+            rewrite_json(
+                tx,
+                "of_event",
+                "position",
+                "payload",
                 &format!(
-                    "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
-                     WHERE object_id IN (SELECT id FROM {}) AND lower(json_extract(payload, ?3)) = lower(?1)",
+                    "SELECT position, payload FROM of_event \
+                     WHERE object_id IN (SELECT id FROM {}) AND lower(json_extract(payload, ?2)) = lower(?1)",
                     table(tn)
                 ),
-                params![identity, id, path],
+                params![identity, path],
+                |_, payload| replaced_at(payload, &["inputs", key.as_str()], renamed),
             )?;
             // a proposal of a transition of the type: its own events and the
             // inputs it holds, pending or decided (S18)
-            tx.execute(
-                "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
-                 WHERE object_id IN (SELECT id FROM t_proposal WHERE target_type = ?4) \
-                 AND lower(json_extract(payload, ?3)) = lower(?1)",
-                params![identity, id, path, tn],
+            rewrite_json(
+                tx,
+                "of_event",
+                "position",
+                "payload",
+                "SELECT position, payload FROM of_event \
+                 WHERE object_id IN (SELECT id FROM t_proposal WHERE target_type = ?3) \
+                 AND lower(json_extract(payload, ?2)) = lower(?1)",
+                params![identity, path, tn],
+                |_, payload| replaced_at(payload, &["inputs", key.as_str()], renamed),
             )?;
-            tx.execute(
-                "UPDATE t_proposal SET inputs = json_set(inputs, ?3, ?2) \
-                 WHERE target_type = ?4 AND json_valid(inputs) AND lower(json_extract(inputs, ?3)) = lower(?1)",
-                params![identity, id, format!("$.\"{}\"", name.replace('"', "")), tn],
+            rewrite_json(
+                tx,
+                "t_proposal",
+                "id",
+                "inputs",
+                "SELECT id, inputs FROM t_proposal \
+                 WHERE target_type = ?3 AND json_valid(inputs) AND lower(json_extract(inputs, ?2)) = lower(?1)",
+                params![identity, format!("$.\"{key}\""), tn],
+                |_, inputs| replaced_at(inputs, &[key.as_str()], renamed),
             )?;
             // and those inputs as its events wrote them, text (ADR-0209
             // decision 2)
@@ -6811,16 +6956,15 @@ fn write(
                 },
             )?;
             // a refused request's, as its attempt recorded it (S21)
-            tx.execute(
-                "UPDATE of_attempt SET request_values = json_set(request_values, ?3, ?2) \
-                 WHERE type = ?4 AND json_valid(request_values) \
-                 AND lower(json_extract(request_values, ?3)) = lower(?1)",
-                params![
-                    identity,
-                    id,
-                    format!("$.values.inputs.\"{}\"", name.replace('"', "")),
-                    tn
-                ],
+            rewrite_json(
+                tx,
+                "of_attempt",
+                "id",
+                "request_values",
+                "SELECT id, request_values FROM of_attempt WHERE type = ?3 AND json_valid(request_values) \
+                 AND lower(json_extract(request_values, ?2)) = lower(?1)",
+                params![identity, format!("$.values.inputs.\"{key}\""), tn],
+                |_, values| replaced_at(values, &["values", "inputs", key.as_str()], renamed),
             )?;
         }
         for (tn, name) in &held.attrs {
@@ -6833,27 +6977,34 @@ fn write(
                 ),
                 params![identity, id],
             )?;
-            // what an event wrote of it (ADR-0209 decision 2)
-            tx.execute(
+            // what an event wrote of it (ADR-0209 decision 2) and a
+            // correction's record of it, what it replaced and wrote (S17),
+            // in one pass, each event written once (records F6)
+            let key = name.replace('"', "");
+            rewrite_json(
+                tx,
+                "of_event",
+                "position",
+                "payload",
                 &format!(
-                    "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
-                     WHERE object_id IN (SELECT id FROM {}) AND lower(json_extract(payload, ?3)) = lower(?1)",
+                    "SELECT position, payload FROM of_event WHERE object_id IN (SELECT id FROM {}) \
+                     AND (lower(json_extract(payload, ?2)) = lower(?1) \
+                     OR lower(json_extract(payload, ?3)) = lower(?1) \
+                     OR lower(json_extract(payload, ?4)) = lower(?1))",
                     table(tn)
                 ),
-                params![identity, id, format!("$.wrote.\"{}\"", name.replace('"', ""))],
+                params![
+                    identity,
+                    format!("$.wrote.\"{key}\""),
+                    format!("$.corrected.\"{key}\".replaced"),
+                    format!("$.corrected.\"{key}\".value")
+                ],
+                |_, payload| {
+                    replaced_at(payload, &["wrote", key.as_str()], renamed)
+                        | replaced_at(payload, &["corrected", key.as_str(), "replaced"], renamed)
+                        | replaced_at(payload, &["corrected", key.as_str(), "value"], renamed)
+                },
             )?;
-            // a correction's record of it, what it replaced and wrote (S17)
-            for part in ["replaced", "value"] {
-                let path = format!("$.corrected.\"{}\".{part}", name.replace('"', ""));
-                tx.execute(
-                    &format!(
-                        "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
-                         WHERE object_id IN (SELECT id FROM {}) AND lower(json_extract(payload, ?3)) = lower(?1)",
-                        table(tn)
-                    ),
-                    params![identity, id, path],
-                )?;
-            }
         }
         // a set of identities, which holds an element once (S16)
         for (tn, name) in &held.sets {
@@ -6935,14 +7086,25 @@ fn write(
                     ),
                     params![identity, id],
                 )?;
-                // and what its events wrote of it (ADR-0209 decision 2)
-                tx.execute(
+                // and what its events wrote of it (ADR-0209 decision 2),
+                // compared as its column is
+                rewrite_json(
+                    tx,
+                    "of_event",
+                    "position",
+                    "payload",
                     &format!(
-                        "UPDATE of_event SET payload = json_set(payload, ?3, ?2) \
-                         WHERE object_id IN (SELECT id FROM {}) AND json_extract(payload, ?3) = ?1",
+                        "SELECT position, payload FROM of_event \
+                         WHERE object_id IN (SELECT id FROM {}) AND json_extract(payload, ?2) = ?1",
                         table(tn)
                     ),
-                    params![identity, id, format!("$.wrote.\"{column}\"")],
+                    params![identity, format!("$.wrote.\"{column}\"")],
+                    |_, payload| {
+                        replaced_at(payload, &["wrote", column], |v| {
+                            (v.as_str() == Some(identity.as_str()))
+                                .then(|| serde_json::Value::String(id.clone()))
+                        })
+                    },
                 )?;
             }
         }
@@ -6975,21 +7137,50 @@ fn write(
             redact_legacy(tx, &o.id)?;
         }
     }
-    for (position, name) in &change.redacted_writes {
-        let path = format!("$.wrote.\"{}\"", name.replace('"', ""));
-        tx.execute(
-            "UPDATE of_event SET payload = json_set(payload, ?2, json('null')) \
-             WHERE position = ?1 AND json_type(payload, ?2) IS NOT NULL",
-            params![position, path],
+    // what the change redacts of single events, written by one or sent as
+    // its inputs, nulled in one pass, each event written once (records F6)
+    let mut single: BTreeMap<i64, Vec<(&str, String)>> = BTreeMap::new();
+    for (part, redacted) in [
+        ("wrote", &change.redacted_writes),
+        ("inputs", &change.redacted_inputs),
+    ] {
+        for (position, name) in redacted {
+            single
+                .entry(*position)
+                .or_default()
+                .push((part, name.replace('"', "")));
+        }
+    }
+    let positions: Vec<i64> = single.keys().copied().collect();
+    for chunk in positions.chunks(SPAN_ROWS) {
+        rewrite_json(
+            tx,
+            "of_event",
+            "position",
+            "payload",
+            &format!(
+                "SELECT position, payload FROM of_event WHERE position IN ({})",
+                (1..=chunk.len())
+                    .map(|k| format!("?{k}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            crate::db::params_from_iter(chunk.iter().copied()),
+            |at, payload| {
+                let Sql::Integer(at) = at else {
+                    return false;
+                };
+                let mut nulled = false;
+                for (part, k) in single.get(at).into_iter().flatten() {
+                    nulled |= replaced_at(payload, &[*part, k.as_str()], |_| {
+                        Some(serde_json::Value::Null)
+                    });
+                }
+                nulled
+            },
         )?;
     }
-    for (position, name) in &change.redacted_inputs {
-        let path = format!("$.inputs.\"{}\"", name.replace('"', ""));
-        tx.execute(
-            "UPDATE of_event SET payload = json_set(payload, ?2, json('null')) \
-             WHERE position = ?1 AND json_type(payload, ?2) IS NOT NULL",
-            params![position, path],
-        )?;
+    for (position, _) in &change.redacted_inputs {
         // the key of the request that sent it, its digest made before
         // personal values were masked in one, replays its verdict whatever
         // is sent under it, so its digest confirms no guess of what was
