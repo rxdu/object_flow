@@ -117,7 +117,7 @@ The start says the restore in one line, as a file's does. **A forgotten mark sto
 
 Without `pg_checkpoint` the data files lose the old versions at the server's next scheduled checkpoint.
 
-**What differs from a file's store.** No `-wal`, `-shm` or `.lock` beside it, and no file mode to check; the start's quick check is SQLite's and does nothing here, so make the cluster with data checksums (`initdb --data-checksums`, or your provider's setting) and check it with PostgreSQL's own tools; `/health` reports no `disk_free_bytes`, the store's volume being the server's, so watch its disk there. **Names and values PostgreSQL bounds.** It keeps 63 bytes of a name, so a version whose tables or indexes, named from a type's name and an attribute's, would pass them is refused `409` there, where SQLite takes it; and an index's entry holds 2,704 bytes, so a value of a unique, indexed or identity attribute past them is refused `409` (a value that compresses well may fit). A store on PostgreSQL is made at this release, and **an upgrade does not yet run on one**: the upgrade opens a file, so a later release must carry it to PostgreSQL before such a store can move to it (`TODO.md`, PostgreSQL in the release, block 7g; this page said it ran as on a file, which was not so). **`maintain`'s `rebuild_indexes`** writes every table anew on PostgreSQL, below.
+**What differs from a file's store.** No `-wal`, `-shm` or `.lock` beside it, and no file mode to check; the start's quick check is SQLite's and does nothing here, so make the cluster with data checksums (`initdb --data-checksums`, or your provider's setting) and check it with PostgreSQL's own tools; `/health` reports no `disk_free_bytes`, the store's volume being the server's, so watch its disk there. **Names and values PostgreSQL bounds.** It keeps 63 bytes of a name, so a version whose tables or indexes, named from a type's name and an attribute's, would pass them is refused `409` there, where SQLite takes it; and an index's entry holds 2,704 bytes, so a value of a unique, indexed or identity attribute past them is refused `409` (a value that compresses well may fit). **A store on PostgreSQL is upgraded as a file's is** (To upgrade, below): a later release started on it serves the upgrade alone until it runs, and the upgrade holds the store's lock, so it is refused while an older service still writes the store. **`maintain`'s `rebuild_indexes`** writes every table anew on PostgreSQL, below.
 
 ## Run it under systemd
 
@@ -416,7 +416,7 @@ What a later release promises, from 1.0.0:
 **To upgrade:**
 
 1. Stop the service.
-2. Back up the store's file, and its `-wal` if one is beside it.
+2. Back up the store's file, and its `-wal` if one is beside it; on PostgreSQL, its database, `pg_dump --format=custom` or your provider's snapshot.
 3. Start the new release on the store. It answers every operation `503 engine_mismatch`, and `/health` `503 upgrade_due`, until the store is upgraded.
 4. As the operator, see the steps: `POST /v1/upgrade {"actor": {"id": "operator"}, "dry_run": true}`.
 5. Run them: the same without `dry_run`. The service then serves the store.

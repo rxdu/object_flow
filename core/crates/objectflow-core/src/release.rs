@@ -241,6 +241,68 @@ pub fn upgrade_through(
         "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;",
     )?;
     conn.busy_timeout(crate::store::BUSY_TIMEOUT)?;
+    upgrade_on(&mut conn, from, to, now, actor, dry_run, releases)
+}
+
+/// The release a store on PostgreSQL is at, or none where its database
+/// holds no store, as [`store_release_at`] reads a file's.
+pub fn store_release_postgres(config: &crate::db::PgConfig) -> Result<Option<String>, StoreError> {
+    store_release(&Connection::postgres_with(config)?)
+}
+
+/// `upgrade` of a store on PostgreSQL, through each release between, as a
+/// file's is: the store's lock held for it, so no service writes beside
+/// the upgrade, and refused where one holds it (ADR-0213; durability on
+/// PostgreSQL 6, where every PostgreSQL store was stranded at the first
+/// release after the one that made it).
+pub fn upgrade_postgres(
+    config: &crate::db::PgConfig,
+    now: i64,
+    actor: &str,
+    dry_run: bool,
+) -> Result<Result<UpgradeReport, String>, StoreError> {
+    upgrade_postgres_through(config, now, actor, dry_run, RELEASES)
+}
+
+pub fn upgrade_postgres_through(
+    config: &crate::db::PgConfig,
+    now: i64,
+    actor: &str,
+    dry_run: bool,
+    releases: &[Release],
+) -> Result<Result<UpgradeReport, String>, StoreError> {
+    let Some(to) = releases.last().map(|r| r.name.to_string()) else {
+        return Ok(Err("no release is known".into()));
+    };
+    let mut conn = Connection::postgres_with(config)?;
+    let Some(from) = store_release(&conn)? else {
+        return Ok(Err(format!("{config:?} holds no store")));
+    };
+    let held: bool = conn.query_row(
+        "SELECT pg_try_advisory_lock(hashtext('objectflow ' || current_schema()))",
+        [],
+        |r| r.get(0),
+    )?;
+    if !held {
+        return Ok(Err(format!(
+            "another service holds the store in {config:?}: stop it, or upgrade through it"
+        )));
+    }
+    conn.busy_timeout(crate::store::BUSY_TIMEOUT)?;
+    upgrade_on(&mut conn, from, to, now, actor, dry_run, releases)
+}
+
+/// An upgrade on a store's connection, from the release it is at to the
+/// last of those given, a file's or a PostgreSQL database's alike.
+fn upgrade_on(
+    conn: &mut Connection,
+    from: String,
+    to: String,
+    now: i64,
+    actor: &str,
+    dry_run: bool,
+    releases: &[Release],
+) -> Result<Result<UpgradeReport, String>, StoreError> {
     let operator: Option<String> = conn
         .query_row(
             "SELECT id FROM t_operator WHERE id = ?1 OR identity = ?1",
@@ -268,7 +330,7 @@ pub fn upgrade_through(
         .collect::<Result<_, _>>()?;
     let unloadable: Vec<String> = versions
         .iter()
-        .filter_map(|v| crate::store::library_of(&conn, *v).err().map(|e| e.0))
+        .filter_map(|v| crate::store::library_of(conn, *v).err().map(|e| e.0))
         .collect();
     if !unloadable.is_empty() {
         return Ok(Err(format!(
@@ -405,6 +467,97 @@ mod tests {
             "the store's own tables or the built-ins changed: that is a new release, with a migration from \
              this one, in RELEASES, recording this fingerprint (ADR-0177 decision 1)"
         );
+    }
+
+    /// A store on PostgreSQL is upgraded as a file's is: each release
+    /// between a step of its own, its row and its operator's act recorded,
+    /// a dry run leaving it as it was; and refused while a service holds the
+    /// store, where every PostgreSQL store was stranded at the first release
+    /// after the one that made it (durability on PostgreSQL 6).
+    #[test]
+    fn a_store_on_postgresql_is_upgraded_through_each_release_between() {
+        let base = std::env::var(crate::store::SANDBOX_POSTGRES).unwrap_or_default();
+        if base.trim().is_empty() {
+            eprintln!("skipped on SQLite: an upgrade of a store on PostgreSQL");
+            return;
+        }
+        let schema = format!("upgraded_{}", std::process::id());
+        let admin = Connection::postgres(&base).unwrap();
+        admin
+            .execute_batch(&format!(
+                "DROP SCHEMA IF EXISTS {schema} CASCADE; CREATE SCHEMA {schema}"
+            ))
+            .unwrap();
+        let config =
+            crate::db::PgConfig::parse(&format!("{base} options='-c search_path={schema}'"), None)
+                .unwrap();
+        // the store made at this release, its service gone
+        drop(crate::store::Store::open_postgres(&config, 1_767_225_600, true).unwrap());
+        let releases = [
+            Release {
+                name: crate::store::BUILTINS,
+                from: &[],
+                fingerprint: "",
+                changes: "",
+                builtins_changed: false,
+                migrate: |_, _| Ok(()),
+            },
+            Release {
+                name: "objectflow-core 0.3.9",
+                from: &[crate::store::BUILTINS],
+                fingerprint: "",
+                changes: "a table, for the test",
+                builtins_changed: false,
+                migrate: |tx, _| {
+                    tx.execute_batch("CREATE TABLE of_probe_upgrade (n INTEGER)")?;
+                    Ok(())
+                },
+            },
+        ];
+        let at = || store_release_postgres(&config).unwrap();
+        let dry = upgrade_postgres_through(&config, 0, crate::model::OPERATOR, true, &releases)
+            .unwrap()
+            .unwrap();
+        assert_eq!((dry.steps.len(), dry.upgraded), (1, false));
+        assert_eq!(
+            at().as_deref(),
+            Some(crate::store::BUILTINS),
+            "a dry run kept nothing"
+        );
+        {
+            let _service = crate::store::Store::open_postgres(&config, 0, false).unwrap();
+            let refused =
+                upgrade_postgres_through(&config, 0, crate::model::OPERATOR, false, &releases)
+                    .unwrap()
+                    .unwrap_err();
+            assert!(
+                refused.contains("another service holds the store"),
+                "{refused}"
+            );
+        }
+        let done = upgrade_postgres_through(&config, 0, crate::model::OPERATOR, false, &releases)
+            .unwrap()
+            .unwrap();
+        assert!(done.upgraded);
+        assert_eq!(at().as_deref(), Some("objectflow-core 0.3.9"));
+        let conn = Connection::postgres_with(&config).unwrap();
+        let count = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get(0)).unwrap() };
+        assert_eq!(
+            count(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'of_probe_upgrade'"
+            ),
+            1,
+            "the release's migration ran"
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM of_event WHERE transition = 'upgrade'"),
+            1,
+            "the operator's act recorded"
+        );
+        drop(conn);
+        admin
+            .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+            .unwrap();
     }
 
     #[test]

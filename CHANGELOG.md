@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is to be tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`); none is tagged yet, 0.1.0 and 0.2.0 among them.
 
+## Unreleased
+
+### Added
+
+- An upgrade runs on a store on PostgreSQL as on a file: a release started on a PostgreSQL store at an earlier release serves `/v1/upgrade` alone until it runs, where it refused the store at its start, and the upgrade holds the store's lock, refused while another service writes it (the durability area on PostgreSQL, finding 6; ADR-0214 decision 3).
+
 ## 0.3.0, 2026-10-18
 
 A release before 1.0.0 (ADR-0214): what the first deployment, the operations platform, runs while it is built, on SQLite or on PostgreSQL. 1.0.0, from which ADR-0180's promise binds, follows a working operations system, after ADR-0204's soak and confirming review; until then a 0.x release may change `/v1`, each change listed here, and every release carries an upgrade from the one before. Stores made by development builds since 0.2.0, which named their release 1.0.0, are not opened by this release: make them again.

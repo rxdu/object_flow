@@ -6880,6 +6880,70 @@ fn a_store_on_postgresql_restored_in_place_is_refused_until_marked() {
     }
 }
 
+/// A store on PostgreSQL at an earlier release is served as due, every
+/// operation refused until its upgrade, which carries it to this release
+/// with what it held, as a file's is, where it was refused at the start and
+/// so stranded (durability on PostgreSQL 6).
+#[test]
+fn a_store_on_postgresql_at_an_earlier_release_is_upgraded() {
+    let Some((admin, args, schema)) = served_on_postgresql("behind") else {
+        return;
+    };
+    let made: Vec<&str> = args.iter().map(String::as_str).collect();
+    let again: Vec<&str> = made.iter().copied().filter(|a| *a != "--create").collect();
+    let op = json!({"id": "operator"});
+    let ann = {
+        let s = start(&made);
+        publish(&s, &json!({"copies": COPIES}));
+        let ann = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Person", "transition": "add", "inputs": {"login": "ann@example.com"}}),
+        );
+        ann["object_id"].as_str().expect("a person").to_string()
+    };
+    // taken back to the shape a store 0.2.0 made has: what the step from
+    // 0.2.0 adds, undone, and its release named
+    admin
+        .execute_batch(&format!(
+            "SET search_path TO {schema}; DROP TABLE of_restore; DROP TABLE of_interval_retraction; \
+             ALTER TABLE of_interval DROP COLUMN moved_position; \
+             ALTER TABLE of_engine_release DROP COLUMN commit_id; \
+             UPDATE of_engine_release SET release = 'objectflow-core 0.2.0'; RESET search_path"
+        ))
+        .expect("the store taken back to 0.2.0");
+    let s = start(&again);
+    let said = s.said_within("POST /v1/upgrade");
+    assert!(said.contains("is at objectflow-core 0.2.0"), "{said}");
+    let (status, refused) = call(
+        &s,
+        "POST",
+        "/v1/get",
+        Some(&json!({"actor": op, "id": ann})),
+    );
+    assert_eq!(status, 503, "a read while the upgrade is due: {refused}");
+    let up = post(&s, "/v1/upgrade", &json!({"actor": op}));
+    assert_eq!(up["upgraded"], true, "{up}");
+    assert_eq!(up["from"], "objectflow-core 0.2.0", "{up}");
+    assert_eq!(
+        up["to"],
+        format!("objectflow-core {}", env!("CARGO_PKG_VERSION")),
+        "{up}"
+    );
+    let got = post(&s, "/v1/get", &json!({"actor": op, "id": ann}));
+    assert_eq!(got["attributes"]["login"], "ann@example.com", "{got}");
+    let bea = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Person", "transition": "add", "inputs": {"login": "bea@example.com"}}),
+    );
+    assert_eq!(bea["kind"], "satisfied", "{bea}");
+    drop(s);
+    admin
+        .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+        .expect("the schema dropped");
+}
+
 /// A publish that rebuilds a table another session reads, a backup's dump
 /// or a long read on PostgreSQL, waits for it up to the busy timeout and is
 /// then answered 503, which the operator retries, its version not taken;

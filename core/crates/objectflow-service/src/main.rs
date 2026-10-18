@@ -2041,8 +2041,10 @@ fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
     // restarted the service; where it cannot be yet, this write is answered
     // unavailable and the next tries again (durability on PostgreSQL 1)
     let mut guard = guard;
+    // a store due an upgrade is not open, deliberately, and is not lost
     if guard.deployment
         && guard.postgres.is_some()
+        && guard.due.is_none()
         && guard.store.as_ref().is_none_or(Store::connection_lost)
     {
         let said = reopened(&mut guard);
@@ -4392,24 +4394,15 @@ async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let dry_run = flag(&body, "dry_run")?;
         let mut sandbox = locked(&shared)?;
-        // a store on PostgreSQL is made at this release, which no earlier
-        // one made (ADR-0213 decision 6): nothing is due, said to its
-        // operator as a file's is
-        if sandbox.deployment && sandbox.postgres.is_some() {
-            let s = store(&mut sandbox)?;
-            if !is_operator(&s.snapshot()?, actor)? {
-                return Err(Fault::Conflict(
-                    "an upgrade is the store's operator's".to_string(),
-                ));
-            }
-            return Ok(Json(json!({"from": BUILTINS, "to": BUILTINS, "steps": [],
-                                  "dry_run": dry_run, "upgraded": false, "restored": J::Null})));
-        }
-        let Some(path) = sandbox.path.clone().filter(|_| sandbox.deployment) else {
+        // a deployment's store, a file or a PostgreSQL database, upgraded
+        // alike (ADR-0177; durability on PostgreSQL 6)
+        let postgres = sandbox.postgres.clone().filter(|_| sandbox.deployment);
+        let path = sandbox.path.clone().filter(|_| sandbox.deployment);
+        if postgres.is_none() && path.is_none() {
             return Err(Fault::Bad(
                 "a sandbox's store is this release's; only a deployment's is upgraded".to_string(),
             ));
-        };
+        }
         if sandbox.due.is_none() {
             // an operator's act whether or not one is due: another actor was
             // answered that nothing was due (third production review)
@@ -4422,12 +4415,27 @@ async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
             return Ok(Json(json!({"from": BUILTINS, "to": BUILTINS, "steps": [],
                               "dry_run": dry_run, "upgraded": false})));
         }
-        let report = match objectflow_core::release::upgrade(&path, wall_clock(), actor, dry_run)? {
+        let (upgraded, at) = match (&postgres, &path) {
+            (Some(config), _) => (
+                objectflow_core::release::upgrade_postgres(config, wall_clock(), actor, dry_run)?,
+                format!("{config:?}"),
+            ),
+            (None, Some(path)) => (
+                objectflow_core::release::upgrade(path, wall_clock(), actor, dry_run)?,
+                path.display().to_string(),
+            ),
+            (None, None) => unreachable!("a deployment's store is a file or a database"),
+        };
+        let report = match upgraded {
             Ok(r) => r,
             Err(why) => return Err(Fault::Conflict(why)),
         };
         if report.upgraded {
-            let mut s = Store::open(&path, wall_clock())?;
+            let mut s = match (&postgres, &path) {
+                (Some(config), _) => Store::open_postgres(config, wall_clock(), false)?,
+                (None, Some(path)) => Store::open(path, wall_clock())?,
+                (None, None) => unreachable!("a deployment's store is a file or a database"),
+            };
             (s.attempt_retention, s.idempotency_retention) = sandbox.retentions;
             s.lock_wait = Some(sandbox.lock_wait.clone());
             s.set_busy_timeout(sandbox.busy_timeout)?;
@@ -4441,7 +4449,7 @@ async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
             .map(|(release, changes)| json!({"release": release, "changes": changes}))
             .collect();
         if let (Some(r), false) = (&report.restored, report.dry_run) {
-            say!("{}", restore_said(&path.display().to_string(), r));
+            say!("{}", restore_said(&at, r));
         }
         Ok(Json(
             json!({"from": report.from, "to": report.to, "steps": steps,
@@ -6333,11 +6341,10 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
 /// `OBJECTFLOW_STORE_PASSWORD` or the file given, never the command line,
 /// where a URL holding one is refused; made in the database by `--create`
 /// where it holds none, and refused without it.
-fn postgres_store(
+fn postgres_config(
     url: &str,
     password_file: Option<&std::path::Path>,
-    create: bool,
-) -> std::io::Result<(Store, objectflow_core::db::PgConfig)> {
+) -> std::io::Result<objectflow_core::db::PgConfig> {
     if objectflow_core::db::PgConfig::has_password(url) {
         return Err(std::io::Error::other(
             "--store gives the database's password on the command line, which every user of the machine can read: give it in OBJECTFLOW_STORE_PASSWORD or --store-password-file",
@@ -6352,11 +6359,8 @@ fn postgres_store(
         ),
         None => std::env::var("OBJECTFLOW_STORE_PASSWORD").ok(),
     };
-    let config = objectflow_core::db::PgConfig::parse(url, password.as_deref())
-        .map_err(|e| std::io::Error::other(format!("--store: {e}")))?;
-    let store = Store::open_postgres(&config, wall_clock(), create)
-        .map_err(|e| std::io::Error::other(format!("{config:?}: {e}")))?;
-    Ok((store, config))
+    objectflow_core::db::PgConfig::parse(url, password.as_deref())
+        .map_err(|e| std::io::Error::other(format!("--store: {e}")))
 }
 
 /// The store's lock, `<store>.lock` beside it, taken for the process's life;
@@ -6583,43 +6587,71 @@ async fn serve() -> std::io::Result<()> {
             .unwrap_or(std::time::Duration::from_secs(5));
     }
     if let Some(url) = &a.postgres {
-        let (s, config) = postgres_store(url, a.password_file.as_deref(), a.create)?;
-        let mut s = s;
-        // a copy restored at its opening, said, as a file's is, where the
-        // start said nothing of it (durability on PostgreSQL 2)
-        if let Some(r) = &s.restored {
-            noted.push(restore_said(&format!("{config:?}"), r));
-        }
-        (s.attempt_retention, s.idempotency_retention) = a.retentions;
-        s.lock_wait = Some(sandbox.lock_wait.clone());
+        let config = postgres_config(url, a.password_file.as_deref())?;
+        // a store at an earlier release served its upgrade alone, as a
+        // file's is, where it was refused at the start and stranded
+        // (durability on PostgreSQL 6)
+        let at = objectflow_core::release::store_release_postgres(&config)
+            .map_err(|e| std::io::Error::other(format!("{config:?}: {e}")))?;
         let busy = a
             .busy_timeout
             .unwrap_or(objectflow_core::store::BUSY_TIMEOUT);
-        s.set_busy_timeout(busy)
-            .map_err(|e| std::io::Error::other(format!("{config:?}: {e}")))?;
-        if a.retentions.0.is_none() {
-            noted.push(
+        if let Some(r) = at.filter(|r| r != BUILTINS) {
+            if objectflow_core::release::steps_from(&r, objectflow_core::release::RELEASES)
+                .is_none()
+            {
+                return Err(std::io::Error::other(format!(
+                    "{config:?} is at {r}, which {BUILTINS} does not upgrade from"
+                )));
+            }
+            noted.push(format!(
+                "the store {config:?} is at {r}, and this core is {BUILTINS}: every operation is refused until POST /v1/upgrade runs (ADR-0177)"
+            ));
+            sandbox.due = Some(r);
+            sandbox.deployment = true;
+            sandbox.postgres = Some(config);
+            sandbox.retentions = a.retentions;
+            sandbox.busy_timeout = busy;
+            sandbox.endpoints = a.endpoints.clone();
+            sandbox.evaluator_timeout = a
+                .evaluator_timeout
+                .unwrap_or(std::time::Duration::from_secs(5));
+        } else {
+            let mut s = Store::open_postgres(&config, wall_clock(), a.create)
+                .map_err(|e| std::io::Error::other(format!("{config:?}: {e}")))?;
+            // a copy restored at its opening, said, as a file's is, where the
+            // start said nothing of it (durability on PostgreSQL 2)
+            if let Some(r) = &s.restored {
+                noted.push(restore_said(&format!("{config:?}"), r));
+            }
+            (s.attempt_retention, s.idempotency_retention) = a.retentions;
+            s.lock_wait = Some(sandbox.lock_wait.clone());
+            s.set_busy_timeout(busy)
+                .map_err(|e| std::io::Error::other(format!("{config:?}: {e}")))?;
+            if a.retentions.0.is_none() {
+                noted.push(
                 "no --attempt-retention is given, so refused attempts are kept for ever with what their requests sent; give one, as operate.md's unit does".to_string(),
             );
-        }
-        noted.push(format!(
-            "the store {config:?} at version {}, under {BUILTINS}",
-            s.lib.version
-        ));
-        if config.plain_to_another_host() {
-            noted.push(
+            }
+            noted.push(format!(
+                "the store {config:?} at version {}, under {BUILTINS}",
+                s.lib.version
+            ));
+            if config.plain_to_another_host() {
+                noted.push(
                 "the store's connection may run without TLS, its sslmode short of require: give sslmode=require, whose certificate and host are always verified (operate.md, A store on PostgreSQL)".to_string(),
             );
+            }
+            sandbox.deployment = true;
+            sandbox.postgres = Some(config);
+            sandbox.retentions = a.retentions;
+            sandbox.store = Some(s);
+            sandbox.busy_timeout = busy;
+            sandbox.endpoints = a.endpoints.clone();
+            sandbox.evaluator_timeout = a
+                .evaluator_timeout
+                .unwrap_or(std::time::Duration::from_secs(5));
         }
-        sandbox.deployment = true;
-        sandbox.postgres = Some(config);
-        sandbox.retentions = a.retentions;
-        sandbox.store = Some(s);
-        sandbox.busy_timeout = busy;
-        sandbox.endpoints = a.endpoints.clone();
-        sandbox.evaluator_timeout = a
-            .evaluator_timeout
-            .unwrap_or(std::time::Duration::from_secs(5));
     }
     let deployment = sandbox.deployment;
     for line in listening_said {
