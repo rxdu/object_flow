@@ -2672,10 +2672,16 @@ mod tests {
             }
         };
         let config = PgConfig::parse(&base, None).unwrap();
+        // made under a deadline that leaves its making room, a loaded
+        // machine's included, and given half a second for the statement,
+        // where half a second for both failed a gate run beside two others
+        let read = Connection::postgres_reading(
+            &config,
+            std::time::Instant::now() + std::time::Duration::from_secs(20),
+        )
+        .unwrap();
         let began = std::time::Instant::now();
-        let read =
-            Connection::postgres_reading(&config, began + std::time::Duration::from_millis(500))
-                .unwrap();
+        read.set_deadline(Some(began + std::time::Duration::from_millis(500)));
         let slept = read.query_row("SELECT pg_sleep(5)::text", [], |r| r.get::<_, String>(0));
         let Err(e) = slept else {
             panic!("a read slept past its deadline")

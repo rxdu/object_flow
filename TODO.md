@@ -664,6 +664,16 @@ Decided by the author 2026-10-14 ("go with your recommendations on all six"), af
 - [ ] 1.0.0: the confirming review, one operator and one adversary, graded by ADR-0204 §3 to §5.
 - [ ] **Author:** decide 1.0.0 on what remains.
 
+## The operations platform's issues
+
+Filed on GitHub on 2026-10-18 by the operations platform's developer, each reproduced at 0.3.0; the author asked them addressed properly, "so that they don't have to work around it", and answered in the issue where one is by design with a good answer already.
+
+- [ ] **#22, check 33 misses seven members an object answers**, so an attribute named `attempts`, `type` or `labels` was shadowed in every expression, a guard on a counter `attempts == 0` silently false.
+- [x] **#26, `/sandbox/load` installs a flow the checker refuses**, the first request reaching the refused construct answered `500`. *By design and documented (`quickstart.md`: "the service does not check what a sandbox loads, so always run the checker first"), and fixed 2026-10-18 all the same, since the documented answer was the workaround: the core's service checks a load with its own checker, which agrees with the reference checker by the oracle, its modules without their examples, and refuses with the findings in the shape a file that does not parse is refused in; `"unchecked": true` installs as before, on the studio's server too; the three guides that said a load is unchecked corrected. Test `a_sandbox_load_refuses_what_the_checker_refuses`, the issue's flow.*
+- [ ] **#25, `only_via` cannot say "only as a consequence"** without naming the importing module.
+- [ ] **#24, a query's filter cannot state an absolute date or time**: bound parameters.
+- [ ] **#23, a personal attribute's name makes same-named members of every other type personal in queries.**
+
 ## The guides
 
 Decided by ADR-0193 on the author's request, 2026-10-13.

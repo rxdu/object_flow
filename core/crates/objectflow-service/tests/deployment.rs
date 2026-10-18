@@ -5976,6 +5976,58 @@ fn a_marked_copy_due_an_upgrade_is_restored_at_it() {
     );
 }
 
+/// A sandbox's load checks the flow first, as a publish does but for its
+/// examples, and refuses one the checker refuses with its findings, where
+/// it installed it and the first request reaching what the checker names
+/// faulted `500` with a store error (issue #26); `unchecked` installs it as
+/// it was, and a flow the checker passes loads with its notices counted.
+#[test]
+fn a_sandbox_load_refuses_what_the_checker_refuses() {
+    const ROOMS: &str = "module: rooms\ncategories: [live, closed]\ntypes:\n  Booking:\n    description: A room booked, with whom to call about it.\n    tracking: record\n    attributes:\n      title: { type: string }\n      contact: { type: string, personal: true }\n    states:\n      HELD: { description: Held., category: live }\n      RELEASED: { description: Released., category: closed, final: true }\n    transitions:\n      request: { kind: initial, to: HELD, required_inputs: [title], optional_inputs: [contact] }\n      release: { kind: external, from: HELD, to: RELEASED }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+    let s = start(&["--port", "0"]);
+    let files = json!([{"name": "rooms.yaml", "text": ROOMS}]);
+    let refused = post(&s, "/sandbox/load", &json!({"files": files}));
+    assert_eq!(refused["loaded"], json!(false), "{refused}");
+    let findings = refused["findings"].as_array().expect("findings");
+    assert!(
+        findings.iter().any(|f| f["file"] == "rooms.yaml"
+            && f["message"].as_str().is_some_and(|m| m.contains("contact"))),
+        "{refused}"
+    );
+    // nothing installed: a request is refused for no module, not run
+    let (status, _) = call(
+        &s,
+        "POST",
+        "/v1/request",
+        Some(
+            &json!({"actor": {"id": "operator"}, "type": "Booking", "transition": "request", "inputs": {"title": "Standup"}}),
+        ),
+    );
+    assert_ne!(status, 200);
+    // installed as written where asked, as before
+    let unchecked = post(
+        &s,
+        "/sandbox/load",
+        &json!({"files": files, "unchecked": true}),
+    );
+    assert_eq!(unchecked["loaded"], json!(true), "{unchecked}");
+    // and a flow the checker passes loads, its notices counted
+    let people = post(
+        &s,
+        "/sandbox/load",
+        &json!({"files": [{"name": "people.yaml", "text": example("people.yaml")}]}),
+    );
+    assert_eq!(people["loaded"], json!(true), "{people}");
+    assert!(people["notices"].is_u64(), "{people}");
+    let (status, bad) = call(
+        &s,
+        "POST",
+        "/sandbox/load",
+        Some(&json!({"files": files, "unchecked": "yes"})),
+    );
+    assert_eq!(status, 400, "unchecked is a boolean: {bad}");
+}
+
 /// A sandbox refuses what is a deployment's or what it would take in an
 /// order of its own: `--busy-timeout`, the clock moved by both keys at
 /// once, and an evaluator's answer other than the three, where each was

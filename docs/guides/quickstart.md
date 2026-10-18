@@ -68,7 +68,7 @@ types:
 
 `Employee` is an **actor** type: its `login` is an `identity`, so an employee can make requests. `reasonable` is a **condition**, and `open` uses it as a **guard** that denies a request it fails. Its `remedy` tells the caller what to do about a refusal: `self_serviceable` means "change your request". The guard reads `inputs.days`, the value sent, because a guard runs before the transition writes anything.
 
-Check the flow. The service does not check what a sandbox loads, so always run the checker first:
+Check the flow. A sandbox's load runs the checker too, and refuses a flow it finds wrong with the same findings, but the checker also runs the flow's examples, which a load does not:
 
 ```sh
 scripts/setup/python-env          # once: the checker's Python environment

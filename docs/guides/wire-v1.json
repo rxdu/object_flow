@@ -11,7 +11,8 @@
     "/sandbox/load": [
       "files",
       "attempt_retention",
-      "idempotency_retention"
+      "idempotency_retention",
+      "unchecked"
     ],
     "/sandbox/reset": [],
     "/v1/acknowledge": [

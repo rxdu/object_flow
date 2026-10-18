@@ -171,7 +171,7 @@ Run your tests against a sandbox. It serves every operation, plus four controls 
 
 | Control | Body | Does |
 |---|---|---|
-| `/sandbox/load` | `{"files": [{"name", "text"}, …]}`, imports first | Installs the flow (unchecked: run `scripts/check-flows.py` first) and empties the store. |
+| `/sandbox/load` | `{"files": [{"name", "text"}, …]}`, imports first | Checks the flow, refusing one the checker finds wrong with its findings, then installs it and empties the store; `"unchecked": true` installs it as written. |
 | `/sandbox/reset` | `{}` | Empties the store and keeps the flow. |
 | `/sandbox/clock` | `{"advance": "2 h"}` or `{"set": "<timestamp>"}` | Moves the clock, which otherwise stands still. |
 | `/sandbox/evaluators` | `{"answers": {"<evaluator>.<function>": "satisfied"}}` | Fixes what an outside system answers. |

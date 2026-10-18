@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Changed, and may refuse what 0.3.0 accepted
+
+- `/sandbox/load` checks the flow first, its modules without their examples, and answers `{"loaded": false, "findings": […]}` for one the checker finds wrong, where it installed it and the first request reaching what the checker names faulted `500`; `"unchecked": true` installs it as written, on the core's service and the Flow Studio's alike (issue #26).
+
 ### Fixed
 
 - On PostgreSQL, a read is answered `503 read_timeout` at its deadline by a database that stops answering with its connections open, frozen or stalled on its disk, where it waited with the database past its deadline, as did every new connection's making (the durability area on PostgreSQL, finding 3; ADR-0215). The facade calls `tokio-postgres` itself, which the `postgres` crate wrapped, and the `postgres` crate leaves the tree; writes still wait for the database.

@@ -151,6 +151,12 @@ def checked(body: dict) -> tuple[list[tuple[str, str]], dict | None, int]:
     files = [(n, t) for n, t in files if not n.endswith(".examples.yaml")]
     if not files:
         raise Fault(400, "load takes the module files, in import order")
+    # installed as written where asked, as the core's load takes it (issue #26)
+    unchecked = body.get("unchecked", False)
+    if not isinstance(unchecked, bool):
+        raise Fault(400, "unchecked is a boolean")
+    if unchecked:
+        return files, None, 0
     found, notes = flows.check(files)
     if found:
         return files, {

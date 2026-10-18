@@ -1732,7 +1732,12 @@ const TAKES: &[(&str, &[&str])] = &[
     ),
     (
         "/sandbox/load",
-        &["files", "attempt_retention", "idempotency_retention"],
+        &[
+            "files",
+            "attempt_retention",
+            "idempotency_retention",
+            "unchecked",
+        ],
     ),
     ("/sandbox/reset", &[]),
     ("/sandbox/clock", &["advance", "set"]),
@@ -2531,6 +2536,29 @@ async fn load(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "load takes the module files, in import order".to_string(),
             ));
         }
+        // the flow checked first, its modules without their examples, which
+        // a publish runs, as the studio's load checks it: a flow the checker
+        // refuses is answered with its findings, where it was installed and
+        // its first request reaching what the checker names faulted 500
+        // (issue #26); `unchecked` installs it as it was
+        let mut notices = 0;
+        if !flag(&body, "unchecked")? {
+            let modules: Vec<(String, String)> = files
+                .iter()
+                .filter(|(n, _)| !n.ends_with(".examples.yaml"))
+                .cloned()
+                .collect();
+            let found = objectflow_core::check::check(&modules, &std::collections::BTreeMap::new());
+            let fatal: Vec<J> = found
+                .iter()
+                .filter(|f| f.severity == objectflow_core::check::Severity::Fatal)
+                .map(|f| json!({"file": f.file, "line": f.line, "code": f.code, "message": f.message}))
+                .collect();
+            if !fatal.is_empty() {
+                return Ok(Json(json!({"loaded": false, "findings": fatal})));
+            }
+            notices = found.len();
+        }
         let lib = match Library::load(&files) {
             Ok(lib) => lib,
             Err(e) => {
@@ -2539,7 +2567,7 @@ async fn load(State(shared): State<Shared>, Body(body): Body) -> Answer {
             }
         };
         // the types the load installed, as the reference runner lists them
-        let answer = json!({"loaded": true, "modules": lib.modules, "notices": 0, "now": CLOCK_START,
+        let answer = json!({"loaded": true, "modules": lib.modules, "notices": notices, "now": CLOCK_START,
                         "types": lib.declared, "evaluators": lib.evaluators});
         let now = parse_timestamp(CLOCK_START).unwrap_or(0);
         let mut store = Store::sandbox(lib, now)?;

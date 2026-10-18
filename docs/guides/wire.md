@@ -249,7 +249,7 @@ A sandbox serves these beside every operation; a deployment serves none of them.
 
 | Control | Keys | Answers |
 |---|---|---|
-| `/sandbox/load` | `files` (each `name` and `text`, imported modules first), `attempt_retention`, `idempotency_retention` | `{"loaded": true, "modules": […], "notices": …, "types": […], "evaluators": […], "now": …}`. It installs the flow unchecked and empties the store. |
+| `/sandbox/load` | `files` (each `name` and `text`, imported modules first), `attempt_retention`, `idempotency_retention`, `unchecked` | `{"loaded": true, "modules": […], "notices": …, "types": […], "evaluators": […], "now": …}`. It checks the flow first, as a publish does but for its examples, and where the checker finds it wrong answers `{"loaded": false, "findings": [{"file", "line", "code", "message"}, …]}` and installs nothing; `"unchecked": true` installs it as written, a flow the checker refuses failing where a request reaches what it names. It empties the store. |
 | `/sandbox/reset` | none | `{"now": …}`: every object gone, the flow kept |
 | `/sandbox/clock` | `advance` (a duration) or `set` (a timestamp) | `{"now": …}` |
 | `/sandbox/evaluators` | `answers`: each `"<evaluator>.<function>"` to `satisfied`, `unsatisfied` or `unanswered` | the answers held |
