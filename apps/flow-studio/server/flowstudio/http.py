@@ -231,6 +231,10 @@ def handler(box: Sandbox, cat: Catalogue, origin: str | None,
             except Fault as f:
                 self.send(f.status, {"fault": f.message})
                 return
+            except Exception as e:  # a fault of the server's own, answered as the runner's path answers it
+                log.error("unhandled: %s", traceback.format_exc())
+                self.send(500, {"fault": f"{type(e).__name__}: {e}"})
+                return
             if refused:
                 self.send(200, refused)
                 return

@@ -65,6 +65,32 @@ def test_a_fault_keeps_the_cores_status_and_words(studio):
         wire.post("/v1/nothing", {})
 
 
+def test_a_load_of_another_shape_is_answered_not_dropped(studio, workspace, monkeypatch):
+    # files named where each is an object of a name and a text: answered
+    # 400 naming the shape, by either backend's server, where the core's
+    # forwarder raised and closed the socket, a 502 through the front end's
+    # proxy (found restarting the studio on 0.3.0)
+    wire, _ = studio
+    with pytest.raises(Failed, match="400: load takes `files`"):
+        wire.post("/sandbox/load", {"files": ["service.yaml"]})
+    server, runner = running(workspace, None)
+    try:
+        with pytest.raises(Failed, match="400: load takes `files`"):
+            runner.post("/sandbox/load", {"files": ["service.yaml"]})
+    finally:
+        server.shutdown()
+        server.server_close()
+    # and a fault of the forwarder's own is answered 500, never a closed socket
+    import flowstudio.http
+
+    def broken(_body):
+        raise RuntimeError("a fault of its own")
+    monkeypatch.setattr(flowstudio.http, "checked", broken)
+    with pytest.raises(Failed, match="500: RuntimeError: a fault of its own"):
+        wire.post("/sandbox/load", {"files": []})
+    assert wire.get("/studio/backend")["backend"] == "core"
+
+
 def test_a_load_the_checker_refuses_never_reaches_the_core(studio):
     # the studio's load runs the flow checker first, for either backend
     # (ADR-0153 decision 5): the refusal is the checker's, and the core

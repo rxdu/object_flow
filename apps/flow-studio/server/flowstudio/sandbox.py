@@ -140,7 +140,14 @@ def checked(body: dict) -> tuple[list[tuple[str, str]], dict | None, int]:
     studio's load runs before either backend loads them (ADR-0153 decision
     5): the files, the answer refusing them where it finds them wrong, and
     the number of its notes."""
-    files = [(f["name"], f["text"]) for f in body.get("files") or []]
+    given = body.get("files") or []
+    # each file an object of a name and a text, where another shape raised
+    # and the server closed the socket (found restarting the studio on 0.3.0)
+    if not isinstance(given, list) or not all(
+            isinstance(f, dict) and isinstance(f.get("name"), str) and isinstance(f.get("text"), str)
+            for f in given):
+        raise Fault(400, "load takes `files`, each an object of a `name` and a `text`")
+    files = [(f["name"], f["text"]) for f in given]
     files = [(n, t) for n, t in files if not n.endswith(".examples.yaml")]
     if not files:
         raise Fault(400, "load takes the module files, in import order")
