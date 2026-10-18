@@ -72,7 +72,7 @@ pub struct Error(Fault);
 #[derive(Debug)]
 enum Fault {
     Sqlite(rusqlite::Error),
-    Postgres(postgres::Error),
+    Postgres(tokio_postgres::Error),
     /// What a backend cannot do, or the store asked of it wrongly.
     Unsupported(String),
     /// A fault with the statement that met it, PostgreSQL's SQL as sent.
@@ -97,6 +97,9 @@ enum Fault {
     /// that failed, which PostgreSQL answers a `COMMIT` of with `ROLLBACK`
     /// and no error.
     RolledBack(String),
+    /// A statement on PostgreSQL stopped at the deadline set on its
+    /// connection, which is closed (ADR-0215), naming what it was doing.
+    DeadlinePassed(String),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -136,7 +139,7 @@ impl Error {
     }
 
     /// PostgreSQL's code for the fault, where it gave one.
-    fn sqlstate(&self) -> Option<&postgres::error::SqlState> {
+    fn sqlstate(&self) -> Option<&tokio_postgres::error::SqlState> {
         match self.fault() {
             Fault::Postgres(e) => e.code(),
             _ => None,
@@ -147,7 +150,7 @@ impl Error {
     /// PostgreSQL a lock not had in its timeout, or a serialisable
     /// transaction the server rolled back, each retried as SQLite's busy is.
     pub fn is_busy(&self) -> bool {
-        use postgres::error::SqlState;
+        use tokio_postgres::error::SqlState;
         if let Some(code) = self.sqlstate() {
             return [
                 SqlState::LOCK_NOT_AVAILABLE,
@@ -165,6 +168,11 @@ impl Error {
     /// The store is opened again for the next write, its lock taken again
     /// (durability on PostgreSQL, finding 1); SQLite has no connection to
     /// lose.
+    /// A statement stopped at its connection's deadline (ADR-0215).
+    pub fn is_deadline_passed(&self) -> bool {
+        matches!(self.fault(), Fault::DeadlinePassed(_))
+    }
+
     pub fn is_connection_lost(&self) -> bool {
         let Fault::Postgres(e) = self.fault() else {
             return false;
@@ -182,7 +190,7 @@ impl Error {
     /// which SQLite has no bound on (records on PostgreSQL, F4).
     pub fn is_value_too_long(&self) -> bool {
         self.sqlstate()
-            .is_some_and(|c| *c == postgres::error::SqlState::PROGRAM_LIMIT_EXCEEDED)
+            .is_some_and(|c| *c == tokio_postgres::error::SqlState::PROGRAM_LIMIT_EXCEEDED)
     }
 
     /// A name the store made would be cut by PostgreSQL.
@@ -194,13 +202,13 @@ impl Error {
     /// `pg_checkpoint`.
     pub fn is_insufficient_privilege(&self) -> bool {
         self.sqlstate()
-            .is_some_and(|c| *c == postgres::error::SqlState::INSUFFICIENT_PRIVILEGE)
+            .is_some_and(|c| *c == tokio_postgres::error::SqlState::INSUFFICIENT_PRIVILEGE)
     }
 
     /// The volume the database writes to is full.
     pub fn is_disk_full(&self) -> bool {
         if let Some(code) = self.sqlstate() {
-            return *code == postgres::error::SqlState::DISK_FULL;
+            return *code == tokio_postgres::error::SqlState::DISK_FULL;
         }
         matches!(self.fault(), Fault::Sqlite(rusqlite::Error::SqliteFailure(f, _))
             if f.code == rusqlite::ErrorCode::DiskFull)
@@ -250,6 +258,10 @@ fn show(fault: &Fault, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             }
             Fault::Undecodable { index, why } => write!(f, "the value at column {index} is {why}"),
             Fault::RolledBack(why) => write!(f, "rolled back: {why}"),
+            Fault::DeadlinePassed(what) => write!(
+                f,
+                "{what} passed its deadline, the database not answering in time; its connection was closed"
+            ),
             Fault::NameTooLong(name) => write!(
                 f,
                 "the name {name}, {} bytes, past the 63 PostgreSQL keeps of a name: it would cut it, and two names cut alike would be one table; a shorter type or attribute name makes it fit",
@@ -520,8 +532,8 @@ fn bind_refs<'a>(binds: &'a [Bound<'a>]) -> Vec<&'a dyn rusqlite::ToSql> {
 #[derive(Debug)]
 struct PgBound<'a>(ValueRef<'a>);
 
-fn texty(ty: &postgres::types::Type) -> bool {
-    use postgres::types::Type;
+fn texty(ty: &tokio_postgres::types::Type) -> bool {
+    use tokio_postgres::types::Type;
     [
         Type::TEXT,
         Type::VARCHAR,
@@ -532,46 +544,48 @@ fn texty(ty: &postgres::types::Type) -> bool {
     .contains(ty)
 }
 
-impl postgres::types::ToSql for PgBound<'_> {
+impl tokio_postgres::types::ToSql for PgBound<'_> {
     fn to_sql(
         &self,
-        ty: &postgres::types::Type,
+        ty: &tokio_postgres::types::Type,
         out: &mut bytes::BytesMut,
-    ) -> std::result::Result<postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>>
+    ) -> std::result::Result<tokio_postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>>
     {
-        use postgres::types::{IsNull, Type};
+        use tokio_postgres::types::{IsNull, Type};
         match self.0 {
             ValueRef::Null => Ok(IsNull::Yes),
             ValueRef::Integer(i) if *ty == Type::INT8 => {
-                postgres::types::ToSql::to_sql(&i, ty, out)
+                tokio_postgres::types::ToSql::to_sql(&i, ty, out)
             }
             ValueRef::Integer(i) if *ty == Type::INT4 => {
-                postgres::types::ToSql::to_sql(&i32::try_from(i)?, ty, out)
+                tokio_postgres::types::ToSql::to_sql(&i32::try_from(i)?, ty, out)
             }
             ValueRef::Integer(i) if *ty == Type::INT2 => {
-                postgres::types::ToSql::to_sql(&i16::try_from(i)?, ty, out)
+                tokio_postgres::types::ToSql::to_sql(&i16::try_from(i)?, ty, out)
             }
             ValueRef::Integer(i) if *ty == Type::BOOL => {
-                postgres::types::ToSql::to_sql(&(i != 0), ty, out)
+                tokio_postgres::types::ToSql::to_sql(&(i != 0), ty, out)
             }
             #[allow(clippy::cast_precision_loss)]
             ValueRef::Integer(i) if *ty == Type::FLOAT8 => {
-                postgres::types::ToSql::to_sql(&(i as f64), ty, out)
+                tokio_postgres::types::ToSql::to_sql(&(i as f64), ty, out)
             }
             ValueRef::Integer(i) if texty(ty) => {
-                postgres::types::ToSql::to_sql(&i.to_string(), ty, out)
+                tokio_postgres::types::ToSql::to_sql(&i.to_string(), ty, out)
             }
-            ValueRef::Real(r) if *ty == Type::FLOAT8 => postgres::types::ToSql::to_sql(&r, ty, out),
+            ValueRef::Real(r) if *ty == Type::FLOAT8 => {
+                tokio_postgres::types::ToSql::to_sql(&r, ty, out)
+            }
             #[allow(clippy::cast_possible_truncation)]
             ValueRef::Real(r) if *ty == Type::FLOAT4 => {
-                postgres::types::ToSql::to_sql(&(r as f32), ty, out)
+                tokio_postgres::types::ToSql::to_sql(&(r as f32), ty, out)
             }
             ValueRef::Real(r) if texty(ty) => {
-                postgres::types::ToSql::to_sql(&r.to_string(), ty, out)
+                tokio_postgres::types::ToSql::to_sql(&r.to_string(), ty, out)
             }
-            ValueRef::Text(t) if texty(ty) => postgres::types::ToSql::to_sql(&t, ty, out),
+            ValueRef::Text(t) if texty(ty) => tokio_postgres::types::ToSql::to_sql(&t, ty, out),
             ValueRef::Text(t) if *ty == Type::INT8 => {
-                postgres::types::ToSql::to_sql(&t.parse::<i64>()?, ty, out)
+                tokio_postgres::types::ToSql::to_sql(&t.parse::<i64>()?, ty, out)
             }
             ValueRef::Text(t) if *ty == Type::JSON || *ty == Type::JSONB => {
                 serde_json::from_str::<serde_json::Value>(t)?;
@@ -581,16 +595,18 @@ impl postgres::types::ToSql for PgBound<'_> {
                 out.extend_from_slice(t.as_bytes());
                 Ok(IsNull::No)
             }
-            ValueRef::Blob(b) if *ty == Type::BYTEA => postgres::types::ToSql::to_sql(&b, ty, out),
+            ValueRef::Blob(b) if *ty == Type::BYTEA => {
+                tokio_postgres::types::ToSql::to_sql(&b, ty, out)
+            }
             v => Err(format!("{} bound where PostgreSQL wants {ty}", v.kind()).into()),
         }
     }
 
-    fn accepts(_: &postgres::types::Type) -> bool {
+    fn accepts(_: &tokio_postgres::types::Type) -> bool {
         true
     }
 
-    postgres::types::to_sql_checked!();
+    tokio_postgres::types::to_sql_checked!();
 }
 
 /// A row a query read.
@@ -600,7 +616,7 @@ pub struct Row<'r> {
 
 enum RowInner<'r> {
     Sqlite(&'r rusqlite::Row<'r>),
-    Postgres(&'r postgres::Row),
+    Postgres(&'r tokio_postgres::Row),
 }
 
 /// A column of a row, by its place, as `rusqlite::RowIndex`.
@@ -655,8 +671,8 @@ impl Row<'_> {
 
 /// A PostgreSQL column read as one of the five kinds SQLite holds: an
 /// integer of any width or a boolean as an integer, a real, text, bytes.
-fn pg_value<'r>(r: &'r postgres::Row, index: usize) -> Result<ValueRef<'r>> {
-    use postgres::types::Type;
+fn pg_value<'r>(r: &'r tokio_postgres::Row, index: usize) -> Result<ValueRef<'r>> {
+    use tokio_postgres::types::Type;
     let Some(column) = r.columns().get(index) else {
         return Err(Error(Fault::Conversion {
             index,
@@ -665,7 +681,7 @@ fn pg_value<'r>(r: &'r postgres::Row, index: usize) -> Result<ValueRef<'r>> {
         }));
     };
     let ty = column.type_();
-    let read = |e: postgres::Error| Error(Fault::Postgres(e));
+    let read = |e: tokio_postgres::Error| Error(Fault::Postgres(e));
     Ok(if *ty == Type::INT8 {
         r.try_get::<_, Option<i64>>(index)
             .map_err(read)?
@@ -715,7 +731,7 @@ pub struct MappedRows<'s, F> {
 
 enum MappedInner<'s> {
     Sqlite(rusqlite::Rows<'s>),
-    Postgres(std::vec::IntoIter<postgres::Row>),
+    Postgres(std::vec::IntoIter<tokio_postgres::Row>),
 }
 
 impl<T, F> Iterator for MappedRows<'_, F>
@@ -749,7 +765,10 @@ pub struct Rows<'s> {
 
 enum RowsInner<'s> {
     Sqlite(rusqlite::Rows<'s>),
-    Postgres { rows: Vec<postgres::Row>, at: usize },
+    Postgres {
+        rows: Vec<tokio_postgres::Row>,
+        at: usize,
+    },
 }
 
 impl Rows<'_> {
@@ -779,7 +798,7 @@ pub struct Statement<'c> {
 enum StatementInner<'c> {
     Sqlite(rusqlite::Statement<'c>),
     SqliteCached(rusqlite::CachedStatement<'c>),
-    Postgres(&'c Pg, postgres::Statement),
+    Postgres(&'c Pg, tokio_postgres::Statement),
 }
 
 /// A statement the connection keeps prepared.
@@ -919,10 +938,10 @@ pub enum Backend {
 /// prepared, whether a transaction is open, and the schema a sandbox made
 /// for itself, dropped with it.
 pub struct Pg {
-    client: std::cell::RefCell<Option<postgres::Client>>,
+    client: std::cell::RefCell<Option<PgClient>>,
     /// What it was made from, which a reader of the same store connects with.
     config: PgConfig,
-    prepared: std::cell::RefCell<std::collections::HashMap<String, postgres::Statement>>,
+    prepared: std::cell::RefCell<std::collections::HashMap<String, tokio_postgres::Statement>>,
     open: std::cell::Cell<bool>,
     schema: Option<String>,
     /// The columns holding no null of each table read, by the store's key:
@@ -943,7 +962,7 @@ pub struct Pg {
 }
 
 impl Pg {
-    fn client(&self) -> Result<std::cell::RefMut<'_, postgres::Client>> {
+    fn client(&self) -> Result<std::cell::RefMut<'_, PgClient>> {
         let busy = || {
             Error(Fault::Unsupported(
                 "a statement run on a PostgreSQL connection while another's rows are being read"
@@ -966,7 +985,7 @@ impl Pg {
         outcome
     }
 
-    fn prepare(&self, sql: &str) -> Result<postgres::Statement> {
+    fn prepare(&self, sql: &str) -> Result<tokio_postgres::Statement> {
         // kept by the SQL as the store writes it, so a statement prepared
         // before is found without translating it again: a request runs
         // tens of them
@@ -975,12 +994,7 @@ impl Pg {
         }
         let translated = to_postgres(sql);
         let s = self.met(
-            blocking(|| {
-                self.client()?
-                    .prepare(&translated)
-                    .map_err(|e| Error(Fault::Postgres(e)))
-            })
-            .map_err(|e| e.with_sql(&translated)),
+            blocking(|| self.client()?.prepare(&translated)).map_err(|e| e.with_sql(&translated)),
         )?;
         self.prepared
             .borrow_mut()
@@ -994,32 +1008,24 @@ impl Pg {
 
     fn query(
         &self,
-        s: &postgres::Statement,
+        s: &tokio_postgres::Statement,
         values: &[ValueRef<'_>],
-    ) -> Result<Vec<postgres::Row>> {
+    ) -> Result<Vec<tokio_postgres::Row>> {
         let binds = Pg::bind(values);
-        let refs: Vec<&(dyn postgres::types::ToSql + Sync)> = binds
+        let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = binds
             .iter()
-            .map(|b| b as &(dyn postgres::types::ToSql + Sync))
+            .map(|b| b as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
-        self.met(blocking(|| {
-            self.client()?
-                .query(s, &refs)
-                .map_err(|e| Error(Fault::Postgres(e)))
-        }))
+        self.met(blocking(|| self.client()?.query(s, &refs)))
     }
 
-    fn execute(&self, s: &postgres::Statement, values: &[ValueRef<'_>]) -> Result<usize> {
+    fn execute(&self, s: &tokio_postgres::Statement, values: &[ValueRef<'_>]) -> Result<usize> {
         let binds = Pg::bind(values);
-        let refs: Vec<&(dyn postgres::types::ToSql + Sync)> = binds
+        let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = binds
             .iter()
-            .map(|b| b as &(dyn postgres::types::ToSql + Sync))
+            .map(|b| b as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
-        let n = self.met(blocking(|| {
-            self.client()?
-                .execute(s, &refs)
-                .map_err(|e| Error(Fault::Postgres(e)))
-        }))?;
+        let n = self.met(blocking(|| self.client()?.execute(s, &refs)))?;
         Ok(usize::try_from(n).unwrap_or(usize::MAX))
     }
 
@@ -1050,11 +1056,7 @@ impl Pg {
         }
         let ends = head.starts_with("COMMIT") || head.starts_with("END");
         if ends && self.aborted.get() {
-            let rolled = blocking(|| {
-                self.client()?
-                    .batch_execute("ROLLBACK")
-                    .map_err(|e| Error(Fault::Postgres(e)))
-            });
+            let rolled = blocking(|| self.client()?.batch_execute("ROLLBACK"));
             self.open.set(false);
             self.aborted.set(false);
             if self.reshaped.replace(false) {
@@ -1070,12 +1072,8 @@ impl Pg {
         } else {
             translated.clone()
         };
-        let ran = blocking(|| {
-            self.client()?
-                .batch_execute(&sent)
-                .map_err(|e| Error(Fault::Postgres(e)))
-        })
-        .map_err(|e| e.with_sql(&translated));
+        let ran =
+            blocking(|| self.client()?.batch_execute(&sent)).map_err(|e| e.with_sql(&translated));
         if ran.is_err() && ends {
             // a commit that fails ends the transaction, rolled back
             self.open.set(false);
@@ -1114,7 +1112,7 @@ impl Drop for Pg {
         let client = self.client.get_mut().take();
         let schema = self.schema.take();
         blocking(move || {
-            if let (Some(schema), Some(mut c)) = (schema, client) {
+            if let (Some(schema), Some(c)) = (schema, client) {
                 let _ =
                     c.batch_execute(&format!("ROLLBACK; DROP SCHEMA IF EXISTS {schema} CASCADE"));
                 drop(c);
@@ -1133,6 +1131,195 @@ fn blocking<T>(f: impl FnOnce() -> T) -> T {
             tokio::task::block_in_place(f)
         }
         _ => f(),
+    }
+}
+
+/// How long the making of a PostgreSQL connection is waited for, its
+/// startup and the store's checks of the database included: the socket's
+/// connect alone was bounded, by `connect_timeout`, so a server that stops
+/// answering with its socket open held a new connection without end
+/// (ADR-0215).
+const PG_SETUP_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long a closing connection is given to tell the server it goes.
+const PG_GOODBYE: Duration = Duration::from_secs(1);
+
+/// A client of PostgreSQL: `tokio-postgres`'s, blocked on a runtime of its
+/// own, as the `postgres` crate wrapped it, its connection's I/O a task of
+/// that runtime, run while a call waits; and each call bounded by the
+/// deadline set on it, past which the connection is closed, so a read is
+/// answered at its deadline by a server that stops answering with its
+/// connection open, frozen or stalled on its disk, where it waited with the
+/// server (ADR-0215). A write's connection has none, since a commit cut
+/// short has an outcome no one knows.
+struct PgClient {
+    runtime: tokio::runtime::Runtime,
+    client: Option<tokio_postgres::Client>,
+    connection: std::cell::RefCell<Option<tokio::task::JoinHandle<()>>>,
+    deadline: std::cell::Cell<Option<std::time::Instant>>,
+}
+
+impl fmt::Debug for PgClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PgClient")
+            .field("deadline", &self.deadline.get())
+            .finish_non_exhaustive()
+    }
+}
+
+impl PgClient {
+    /// A connection made as `config` says, by `until` or not at all, its
+    /// deadline `until` until it is set otherwise.
+    fn connect(config: &tokio_postgres::Config, until: std::time::Instant) -> Result<PgClient> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| {
+                Error(Fault::Unsupported(format!(
+                    "a runtime for PostgreSQL's client: {e}"
+                )))
+            })?;
+        let tls = tls()?;
+        // the timer made within the runtime, whose clock it reads
+        let made = runtime.block_on(async {
+            tokio::time::timeout_at(tokio::time::Instant::from_std(until), config.connect(tls))
+                .await
+        });
+        let (client, connection) = match made {
+            Ok(made) => made.map_err(|e| Error(Fault::Postgres(e)))?,
+            Err(_) => {
+                return Err(Error(Fault::DeadlinePassed(
+                    "the connection's making".into(),
+                )));
+            }
+        };
+        let connection = runtime.spawn(async move {
+            let _ = connection.await;
+        });
+        Ok(PgClient {
+            runtime,
+            client: Some(client),
+            connection: std::cell::RefCell::new(Some(connection)),
+            deadline: std::cell::Cell::new(Some(until)),
+        })
+    }
+
+    fn client(&self) -> Result<&tokio_postgres::Client> {
+        self.client
+            .as_ref()
+            .filter(|_| self.connection.borrow().is_some())
+            .ok_or_else(|| {
+                Error(Fault::Unsupported(
+                    "a statement on a PostgreSQL connection closed at its deadline".into(),
+                ))
+            })
+    }
+
+    /// `work` waited for, by the deadline where one is set; past it the
+    /// connection closed and the call answered as stopped there.
+    fn run<T>(
+        &self,
+        what: &str,
+        work: impl std::future::Future<Output = std::result::Result<T, tokio_postgres::Error>>,
+    ) -> Result<T> {
+        let done = match self.deadline.get() {
+            None => self.runtime.block_on(work),
+            Some(at) => match self.runtime.block_on(async {
+                tokio::time::timeout_at(tokio::time::Instant::from_std(at), work).await
+            }) {
+                Ok(done) => done,
+                Err(_) => {
+                    self.close();
+                    return Err(Error(Fault::DeadlinePassed(what.to_string())));
+                }
+            },
+        };
+        // a call that met the connection's loss closes it, so the loss is
+        // known at once, where its task, run only while a call waits, had
+        // not yet read the server's goodbye and the connection was taken
+        // for open, the next write sent on it and refused (durability on
+        // PostgreSQL 1)
+        done.map_err(|e| {
+            let e = Error(Fault::Postgres(e));
+            if e.is_connection_lost() {
+                self.close();
+            }
+            e
+        })
+    }
+
+    /// The connection closed now: its task stopped, its socket dropped
+    /// with it, so nothing of the stopped call is read on it after.
+    fn close(&self) {
+        let task = self.connection.borrow_mut().take();
+        if let Some(task) = task {
+            task.abort();
+            let _ = self.runtime.block_on(task);
+        }
+    }
+
+    fn is_closed(&self) -> bool {
+        self.client
+            .as_ref()
+            .is_none_or(tokio_postgres::Client::is_closed)
+            || self
+                .connection
+                .borrow()
+                .as_ref()
+                .is_none_or(tokio::task::JoinHandle::is_finished)
+    }
+
+    fn prepare(&self, sql: &str) -> Result<tokio_postgres::Statement> {
+        let c = self.client()?;
+        self.run("a statement's preparing", c.prepare(sql))
+    }
+
+    fn query<S: ?Sized + tokio_postgres::ToStatement + Sync>(
+        &self,
+        s: &S,
+        params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<Vec<tokio_postgres::Row>> {
+        let c = self.client()?;
+        self.run("a read", c.query(s, params))
+    }
+
+    fn query_one(&self, sql: &str) -> Result<tokio_postgres::Row> {
+        let c = self.client()?;
+        self.run("a read", c.query_one(sql, &[]))
+    }
+
+    fn execute<S: ?Sized + tokio_postgres::ToStatement + Sync>(
+        &self,
+        s: &S,
+        params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<u64> {
+        let c = self.client()?;
+        self.run("a statement", c.execute(s, params))
+    }
+
+    fn batch_execute(&self, sql: &str) -> Result<()> {
+        let c = self.client()?;
+        self.run("a statement", c.batch_execute(sql))
+    }
+
+    fn cancel_token(&self) -> Option<tokio_postgres::CancelToken> {
+        self.client
+            .as_ref()
+            .map(tokio_postgres::Client::cancel_token)
+    }
+}
+
+impl Drop for PgClient {
+    fn drop(&mut self) {
+        // the client let go, so its connection tells the server it goes and
+        // ends, given a moment; one closed at a deadline ended already.
+        // Dropped where the thread may block, as `Pg`'s drop does.
+        drop(self.client.take());
+        if let Some(task) = self.connection.get_mut().take() {
+            let _ = self
+                .runtime
+                .block_on(async { tokio::time::timeout(PG_GOODBYE, task).await });
+        }
     }
 }
 
@@ -1489,7 +1676,7 @@ fn machine_mark() -> String {
 /// dropped: a process killed, a service's test ending it, drops none of its
 /// own (ADR-0213). One another machine made, or a process still running, is
 /// left; one that cannot be dropped is left to the next.
-fn drop_orphaned_sandboxes(client: &mut postgres::Client) {
+fn drop_orphaned_sandboxes(client: &PgClient) {
     let Ok(rows) = client.query(
         "SELECT nspname::text FROM pg_namespace WHERE nspname LIKE 'sandbox\\_%' ESCAPE '\\'",
         &[],
@@ -1516,14 +1703,15 @@ fn drop_orphaned_sandboxes(client: &mut postgres::Client) {
 /// password set apart from it, so it is never written where a process list
 /// shows it (ADR-0213).
 #[derive(Clone)]
-pub struct PgConfig(postgres::Config);
+pub struct PgConfig(tokio_postgres::Config);
 
 impl PgConfig {
     /// A connection string or a `postgresql://` URL, with the password given
     /// apart where one is; one written in the string itself is refused, as
     /// a command line shows it to every user of the machine.
     pub fn parse(config: &str, password: Option<&str>) -> Result<PgConfig> {
-        let mut c: postgres::Config = config.parse().map_err(|e| Error(Fault::Postgres(e)))?;
+        let mut c: tokio_postgres::Config =
+            config.parse().map_err(|e| Error(Fault::Postgres(e)))?;
         if c.get_password().is_some() && password.is_some() {
             return Err(Error(Fault::Unsupported(
                 "a password both in the store's connection string and given apart".into(),
@@ -1538,7 +1726,7 @@ impl PgConfig {
     /// Whether the string itself carried a password.
     pub fn has_password(config: &str) -> bool {
         config
-            .parse::<postgres::Config>()
+            .parse::<tokio_postgres::Config>()
             .is_ok_and(|c| c.get_password().is_some())
     }
 
@@ -1548,12 +1736,12 @@ impl PgConfig {
     /// socket's.
     pub fn plain_to_another_host(&self) -> bool {
         let remote = self.0.get_hosts().iter().any(|h| match h {
-            postgres::config::Host::Tcp(h) => {
+            tokio_postgres::config::Host::Tcp(h) => {
                 !["localhost", "127.0.0.1", "::1"].contains(&h.as_str())
             }
-            postgres::config::Host::Unix(_) => false,
+            tokio_postgres::config::Host::Unix(_) => false,
         });
-        remote && self.0.get_ssl_mode() != postgres::config::SslMode::Require
+        remote && self.0.get_ssl_mode() != tokio_postgres::config::SslMode::Require
     }
 
     /// The database it names, and its host, for what a start says.
@@ -1563,8 +1751,8 @@ impl PgConfig {
             .get_hosts()
             .first()
             .map(|h| match h {
-                postgres::config::Host::Tcp(h) => h.clone(),
-                postgres::config::Host::Unix(p) => p.display().to_string(),
+                tokio_postgres::config::Host::Tcp(h) => h.clone(),
+                tokio_postgres::config::Host::Unix(p) => p.display().to_string(),
             })
             .unwrap_or_default();
         format!(
@@ -1658,10 +1846,10 @@ fn long_identifier(sql: &str) -> Option<String> {
 /// server's defaults kept it two hours (finding 4); and every commit
 /// flushed before it is answered, whatever the database's default
 /// (finding 8).
-fn settled(config: &postgres::Config) -> postgres::Config {
+fn settled(config: &tokio_postgres::Config) -> tokio_postgres::Config {
     let mut c = config.clone();
     let mine = c.get_options().unwrap_or_default().to_string();
-    c.options(&format!(
+    c.options(format!(
         "{mine} -c synchronous_commit=on -c tcp_keepalives_idle=10 -c tcp_keepalives_interval=5 \
          -c tcp_keepalives_count=3 -c tcp_user_timeout=30000"
     ))
@@ -1685,25 +1873,21 @@ const PG_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// waited behind any transaction that had read the view, and connections
 /// made at once could fail on each other's rewrite (durability on
 /// PostgreSQL, finding 9).
-fn catalogued(client: &mut postgres::Client) -> Result<()> {
+fn catalogued(client: &PgClient) -> Result<()> {
     let mark = catalog_mark();
     let found: Option<String> = client
         .query_one(
             "SELECT CASE WHEN to_regclass('objectflow_catalog') IS NULL THEN NULL \
              ELSE obj_description(to_regclass('objectflow_catalog'), 'pg_class') END",
-            &[],
-        )
-        .map_err(|e| Error(Fault::Postgres(e)))?
+        )?
         .get(0);
     if found.as_deref() == Some(mark.as_str()) {
         return Ok(());
     }
-    client
-        .batch_execute(&format!(
-            "BEGIN; SELECT pg_advisory_xact_lock(hashtext('objectflow catalog ' || current_schema())); \
+    client.batch_execute(&format!(
+        "BEGIN; SELECT pg_advisory_xact_lock(hashtext('objectflow catalog ' || current_schema())); \
              {PG_CATALOG}; COMMENT ON VIEW objectflow_catalog IS '{mark}'; COMMIT"
-        ))
-        .map_err(|e| Error(Fault::Postgres(e)))
+    ))
 }
 
 /// The catalog's mark: a digest of its text, so a core that makes it
@@ -1797,13 +1981,17 @@ impl Connection {
 
     /// A PostgreSQL database as its configuration says.
     pub fn postgres_with(config: &PgConfig) -> Result<Connection> {
-        Connection::postgres_in(config, None)
+        Connection::postgres_in(config, None, None)
     }
 
     /// A PostgreSQL database, every table of it in a schema of its own,
     /// made for it and dropped with it: a sandbox's or a test's.
     pub fn postgres_sandbox(config: &str, schema: &str) -> Result<Connection> {
-        Connection::postgres_in(&PgConfig::parse(config, None)?, Some(schema.to_string()))
+        Connection::postgres_in(
+            &PgConfig::parse(config, None)?,
+            Some(schema.to_string()),
+            None,
+        )
     }
 
     /// A copy of a PostgreSQL store, every table of its schema with its
@@ -1824,7 +2012,8 @@ impl Connection {
             .query_map([], |r| r.get(0))?
             .collect::<Result<_>>()?;
         let n = MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let fork = Connection::postgres_in(&pg.config, Some(sandbox_schema(&format!("fork{n}"))))?;
+        let fork =
+            Connection::postgres_in(&pg.config, Some(sandbox_schema(&format!("fork{n}"))), None)?;
         // every table made and filled, and each identity carried on from
         // the largest value copied, as the store's own would give the next,
         // in one batch: a fork for every request the harness takes
@@ -1870,33 +2059,62 @@ impl Connection {
                 Connection::open_with_flags(path, OpenFlags::READ_ONLY.one_thread())
             }
             Inner::Postgres(pg) => {
-                let r = Connection::postgres_in(&pg.config, None)?;
+                let r = Connection::postgres_in(&pg.config, None, None)?;
                 r.execute_batch("SET default_transaction_read_only = on")?;
                 Ok(r)
             }
         }
     }
 
-    fn postgres_in(config: &PgConfig, schema: Option<String>) -> Result<Connection> {
-        blocking(|| Connection::postgres_blocking(config, schema))
+    /// A read connection to a PostgreSQL store, read-only, its every
+    /// statement, and its making, bounded by `until`, the read's deadline,
+    /// past which it is closed (ADR-0215).
+    pub fn postgres_reading(config: &PgConfig, until: std::time::Instant) -> Result<Connection> {
+        let conn = Connection::postgres_in(config, None, Some(until))?;
+        conn.execute_batch("SET default_transaction_read_only = on")?;
+        Ok(conn)
     }
 
-    fn postgres_blocking(config: &PgConfig, schema: Option<String>) -> Result<Connection> {
-        let mut client = settled(&config.0)
-            .connect(tls()?)
-            .map_err(|e| Error(Fault::Postgres(e)))?;
+    /// The deadline every statement on a read connection is stopped at, the
+    /// connection closed (ADR-0215), or none: on PostgreSQL, where a server
+    /// that stops answering would hold a statement past it; a write's
+    /// connection is given none. SQLite's reads are bounded by the store's
+    /// own checks between their steps.
+    pub fn set_deadline(&self, at: Option<std::time::Instant>) {
+        if let Inner::Postgres(pg) = &self.inner
+            && let Ok(client) = pg.client.try_borrow()
+            && let Some(client) = client.as_ref()
+        {
+            client.deadline.set(at);
+        }
+    }
+
+    fn postgres_in(
+        config: &PgConfig,
+        schema: Option<String>,
+        keep: Option<std::time::Instant>,
+    ) -> Result<Connection> {
+        blocking(|| Connection::postgres_blocking(config, schema, keep))
+    }
+
+    /// A connection made by [`PG_SETUP_TIMEOUT`], or by `keep` where that
+    /// comes first, and bounded by `keep` after.
+    fn postgres_blocking(
+        config: &PgConfig,
+        schema: Option<String>,
+        keep: Option<std::time::Instant>,
+    ) -> Result<Connection> {
+        let setup = std::time::Instant::now() + PG_SETUP_TIMEOUT;
+        let client = PgClient::connect(&settled(&config.0), keep.map_or(setup, |k| k.min(setup)))?;
         // text sorted as its bytes, and `lower()` folding ASCII letters
         // alone, as the engine and SQLite do: under another character type
         // or ICU's, `lower()` folds `Ä` to `ä`, two identities the engine
         // holds apart match, and an erasure of one renamed the other
         // (records and personal-data reviews on PostgreSQL, ADR-0213)
-        let locale = client
-            .query_one(
-                "SELECT datcollate::text, datctype::text, datlocprovider::text FROM pg_database \
-                 WHERE datname = current_database()",
-                &[],
-            )
-            .map_err(|e| Error(Fault::Postgres(e)))?;
+        let locale = client.query_one(
+            "SELECT datcollate::text, datctype::text, datlocprovider::text FROM pg_database \
+             WHERE datname = current_database()",
+        )?;
         let (collation, ctype, provider): (String, String, String) =
             (locale.get(0), locale.get(1), locale.get(2));
         let bytes = |l: &str| l == "C" || l == "POSIX";
@@ -1913,12 +2131,11 @@ impl Connection {
             ))));
         }
         if let Some(s) = &schema {
-            drop_orphaned_sandboxes(&mut client);
-            client
-                .batch_execute(&format!("CREATE SCHEMA {s}; SET search_path TO {s}"))
-                .map_err(|e| Error(Fault::Postgres(e)))?;
+            drop_orphaned_sandboxes(&client);
+            client.batch_execute(&format!("CREATE SCHEMA {s}; SET search_path TO {s}"))?;
         }
-        catalogued(&mut client)?;
+        catalogued(&client)?;
+        client.deadline.set(keep);
         Ok(Connection {
             inner: Inner::Postgres(Box::new(Pg {
                 client: std::cell::RefCell::new(Some(client)),
@@ -2102,7 +2319,7 @@ impl Connection {
             Inner::Postgres(pg) => pg
                 .client
                 .try_borrow()
-                .map(|c| c.as_ref().is_none_or(postgres::Client::is_closed))
+                .map(|c| c.as_ref().is_none_or(PgClient::is_closed))
                 .unwrap_or(false),
         }
     }
@@ -2158,10 +2375,7 @@ impl Connection {
             inner: match &self.inner {
                 Inner::Sqlite(c) => InterruptInner::Sqlite(c.get_interrupt_handle()),
                 Inner::Postgres(pg) => InterruptInner::Postgres(
-                    pg.client
-                        .borrow()
-                        .as_ref()
-                        .map(postgres::Client::cancel_token),
+                    pg.client.borrow().as_ref().and_then(PgClient::cancel_token),
                 ),
             },
         }
@@ -2175,7 +2389,7 @@ pub struct InterruptHandle {
 
 enum InterruptInner {
     Sqlite(rusqlite::InterruptHandle),
-    Postgres(Option<postgres::CancelToken>),
+    Postgres(Option<tokio_postgres::CancelToken>),
 }
 
 impl InterruptHandle {
@@ -2187,7 +2401,12 @@ impl InterruptHandle {
             // without
             InterruptInner::Postgres(Some(t)) => {
                 if let Ok(tls) = tls() {
-                    let _ = blocking(|| t.cancel_query(tls));
+                    let _ = blocking(|| {
+                        tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .map(|r| r.block_on(t.cancel_query(tls)))
+                    });
                 }
             }
             InterruptInner::Postgres(None) => {}
@@ -2412,6 +2631,88 @@ mod tests {
     /// next sandbox made on this machine, and one another machine made is
     /// left, its process unknown here (the personal-data review on
     /// PostgreSQL, outside its area).
+    /// A connection to a server that takes the connection and never
+    /// answers, as a frozen one does, its kernel completing the handshake,
+    /// is given up at the read's deadline, where only the socket's connect
+    /// was bounded and its startup waited without end (ADR-0215). Needs no
+    /// database: a listener that never answers is the server.
+    #[test]
+    fn a_connection_never_answered_is_given_up_at_its_deadline() {
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = silent.local_addr().unwrap().port();
+        let config =
+            PgConfig::parse(&format!("host=127.0.0.1 port={port} user=x dbname=x"), None).unwrap();
+        let began = std::time::Instant::now();
+        let made =
+            Connection::postgres_reading(&config, began + std::time::Duration::from_millis(300));
+        let Err(e) = made else {
+            panic!("a silent server connected to")
+        };
+        assert!(e.is_deadline_passed(), "{e}");
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(3),
+            "{:?}",
+            began.elapsed()
+        );
+        drop(silent);
+    }
+
+    /// A read connection's statement is stopped at its deadline and the
+    /// connection closed, so a database that does not answer in time holds
+    /// no read past it, where a cancel request, which a frozen server never
+    /// acts on, was all there was (ADR-0215); a connection given no
+    /// deadline, a write's, waits as it did.
+    #[test]
+    fn a_read_connection_stops_at_its_deadline() {
+        let base = match std::env::var(crate::store::SANDBOX_POSTGRES) {
+            Ok(c) if !c.trim().is_empty() => c,
+            _ => {
+                eprintln!("skipped on SQLite: a statement's deadline on PostgreSQL");
+                return;
+            }
+        };
+        let config = PgConfig::parse(&base, None).unwrap();
+        let began = std::time::Instant::now();
+        let read =
+            Connection::postgres_reading(&config, began + std::time::Duration::from_millis(500))
+                .unwrap();
+        let slept = read.query_row("SELECT pg_sleep(5)::text", [], |r| r.get::<_, String>(0));
+        let Err(e) = slept else {
+            panic!("a read slept past its deadline")
+        };
+        assert!(e.is_deadline_passed(), "{e}");
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(3),
+            "{:?}",
+            began.elapsed()
+        );
+        assert!(
+            read.is_closed(),
+            "a connection stopped at its deadline is closed"
+        );
+        assert!(
+            read.query_row("SELECT 1", [], |r| r.get::<_, i64>(0))
+                .is_err()
+        );
+        // a deadline let go, a kept connection's, bounds nothing
+        let kept = Connection::postgres_reading(
+            &config,
+            std::time::Instant::now() + std::time::Duration::from_secs(5),
+        )
+        .unwrap();
+        kept.set_deadline(None);
+        let write = Connection::postgres(&base).unwrap();
+        for c in [&kept, &write] {
+            let began = std::time::Instant::now();
+            let slept: String = c
+                .query_row("SELECT pg_sleep(0.7)::text", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(slept, "");
+            assert!(began.elapsed() >= std::time::Duration::from_millis(700));
+            assert!(!c.is_closed());
+        }
+    }
+
     #[test]
     fn a_sandbox_another_machine_made_is_left() {
         let base = match std::env::var(crate::store::SANDBOX_POSTGRES) {

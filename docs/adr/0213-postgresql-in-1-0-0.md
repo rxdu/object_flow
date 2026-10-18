@@ -3,7 +3,7 @@
 - **Status:** **Decided** 2026-10-17 by the author ("we need postgresql in 1.0.0 for the first deployment"), option (a) of the question `TODO.md` recorded the same day. Decisions 2 to 7 are the recommendations given with it, which the author did not answer and set going ("iterate until the postgresql support is complete"); they are taken as recommended under that direction, and stand for the author to change. Decision 8, erasure's standard on PostgreSQL, which changes what property P promises, was decided by the author the same day as recommended ("go with your recommendation on erasure").
 - **Date:** 2026-10-17
 - **Supersedes in part:** ADR-0174 decision 2 (a deployment's store is one SQLite file)
-- **Superseded in part by:** ADR-0214 — decision 1: the release that ships PostgreSQL is 0.3.0, before 1.0.0
+- **Superseded in part by:** ADR-0214 — decision 1: the release that ships PostgreSQL is 0.3.0, before 1.0.0; ADR-0215 — decision 3: the client is `tokio-postgres`, which the `postgres` crate wraps, behind the facade's synchronous API, so a read's statements are bounded by its deadline
 - **Refines:** ADR-0204 §7 (the release gate); ADR-0001 (storage delegated to PostgreSQL, or SQLite for embedded use)
 - **Relates to:** `storage-schema.md` (both backends' columns, §8's constraints, §9's erasure); ADR-0039, ADR-0089, ADR-0090 (serialisable isolation, PostgreSQL's contended rows); ADR-0076 (the sequence store); ADR-0207 (a restored copy); ADR-0208 (grouped commits)
 
@@ -17,7 +17,7 @@ The first deployment, the operations platform's, runs on PostgreSQL.
 
 1. **1.0.0 ships PostgreSQL as a deployment's store, and SQLite beside it**, for sandboxes, the Flow Studio, tests and small deployments; both are held to the same tests, the core's and the service's run on each.
 2. **One store implementation over a connection seam.** The store's SQL is written once, over a connection with two implementations, SQLite's and PostgreSQL's, and a dialect for the constructs that differ; the engine above the store does not know which it runs on.
-3. **The client is the `postgres` crate**, synchronous as the core is, connecting over TLS through rustls, which the tree already carries.
+3. **The client is the `postgres` crate**, synchronous as the core is, connecting over TLS through rustls, which the tree already carries. *Superseded 2026-10-18 by ADR-0215: `tokio-postgres` itself, blocked on a runtime of each connection's own as the `postgres` crate blocked it, the facade's API still synchronous, since the `postgres` crate bounds no statement.*
 4. **One active writing instance**, writing one transaction at a time as the service does on SQLite, serialisable isolation the database's safety net beneath it (ADR-0039); availability from the database's own failover, the service restarted against the new primary. Several instances writing at once, transactions racing and retried (`DESIGN.md` §6), is later work.
 5. **PostgreSQL 16 is the floor**, the version ADR-0089 and ADR-0090 probed; CI runs the suite on it.
 6. **A first deployment starts empty.** Moving a store from SQLite to PostgreSQL is later work.

@@ -10,7 +10,7 @@ publish.workspace = true
 [dependencies]
 saphyr-parser.workspace = true
 rusqlite.workspace = true
-postgres.workspace = true
+tokio-postgres.workspace = true
 bytes.workspace = true
 tokio-postgres-rustls.workspace = true
 rustls.workspace = true

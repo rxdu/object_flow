@@ -6,6 +6,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Fixed
 
+- On PostgreSQL, a read is answered `503 read_timeout` at its deadline by a database that stops answering with its connections open, frozen or stalled on its disk, where it waited with the database past its deadline, as did every new connection's making (the durability area on PostgreSQL, finding 3; ADR-0215). The facade calls `tokio-postgres` itself, which the `postgres` crate wrapped, and the `postgres` crate leaves the tree; writes still wait for the database.
 - On PostgreSQL, an erasure's rewritten payloads keep their keys in the order the engine wrote them, where they came back in `jsonb`'s order, the shortest key first, on `/v1/history` and every read of the log; and an erasure writes each row it rewrites once, where it wrote an event once for each personal value in it, every version holding the rest until the housekeeping (the personal-data area on PostgreSQL, records F6).
 
 ### Added

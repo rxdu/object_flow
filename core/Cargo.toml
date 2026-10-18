@@ -16,8 +16,10 @@ objectflow-core = { path = "crates/objectflow-core" }
 saphyr-parser = "0.2.1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 # a deployment's store on PostgreSQL, synchronous as the core is (ADR-0213
-# decision 3)
-postgres = "0.19.14"
+# decision 3): tokio-postgres, which the postgres crate wraps, blocked on a
+# runtime of the facade's own, so each statement of a read is bounded by its
+# deadline (ADR-0215)
+tokio-postgres = "0.7.18"
 # the buffer a value is written into for PostgreSQL, already resolved through
 # postgres
 bytes = "1.12.1"

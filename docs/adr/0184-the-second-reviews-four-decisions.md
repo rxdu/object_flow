@@ -2,7 +2,7 @@
 
 - **Status:** **Decided by the author**, 2026-10-12 ("go with your recommendations on the four questions"), on the recommendations `TODO.md` states with each, after the second production review (`design/production-review.md` §6). Decisions 1, 3 and 4 built the same day; decision 2 is the repository owner's to act on.
 - **Date:** 2026-10-12
-- **Refined by:** ADR-0186 — decision 4's cap makes room by closing the oldest connection answering nothing, and tells a newcomer `503 busy` only when every one is answering. ADR-0187 — a store's flow may declare who approves its versions, which decision 1 left to the gateway. ADR-0189 — the reads that grow with the store wait for one of `--max-reads` slots within decision 3's deadline.
+- **Refined by:** ADR-0186 — decision 4's cap makes room by closing the oldest connection answering nothing, and tells a newcomer `503 busy` only when every one is answering. ADR-0187 — a store's flow may declare who approves its versions, which decision 1 left to the gateway. ADR-0189 — the reads that grow with the store wait for one of `--max-reads` slots within decision 3's deadline. ADR-0215 — decision 3's deadline holds on PostgreSQL too: a read connection's every statement, and its making, is bounded by it at the client, the connection closed there.
 - **Refines:** ADR-0126 decision 1 (the operator's `retire`), ADR-0183 decision 7 (the store's own acts) and decision 10 (idle connections, recorded and not built)
 - **Relates to:** `PRD.md` T6, N7; ADR-0114; ADR-0177 decision 6; ADR-0178; ADR-0180; `guides/wire.md`; `guides/integrate.md` §6, §9; `core/README.md`; `SECURITY.md`
 

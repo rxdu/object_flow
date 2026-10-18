@@ -819,6 +819,14 @@ fn probed(shared: &Shared) -> Result<(i64, i64), Fault> {
                     Err(Fault::Internal(
                         "the health read panicked; the line above says where".to_string(),
                     ))
+                })
+                // its read stopped at its own deadline by a store not
+                // answering, said as the stall it is (ADR-0215)
+                .map_err(|f| match f {
+                    Fault::TimedOut(why) => Fault::Unavailable(format!(
+                        "store_stalled: the store did not answer /health's read by its deadline: {why}"
+                    )),
+                    other => other,
                 });
                 let probe = &mine.watch.probe;
                 if let Ok(mut st) = probe.state.lock() {
@@ -1373,7 +1381,9 @@ fn reading_until(shared: &Shared, until: std::time::Instant) -> Result<Reading<'
         .floor
         .fetch_max(wall_clock(), Ordering::SeqCst)
         .max(wall_clock());
-    let mut store = reads.pool.read(lib, earlier, now, answers)?;
+    // its connection bounded by the deadline too, so a database that stops
+    // answering holds no read past it (ADR-0215)
+    let mut store = reads.pool.read(lib, earlier, now, answers, Some(until))?;
     // a read answers within its deadline or is stopped there, so no read
     // holds a reader, and an erasure's truncation behind it, without bound
     // (ADR-0184 decision 3); and is stopped where an urgent cut of the log
@@ -1537,6 +1547,10 @@ impl From<NotRun> for Fault {
         match e {
             NotRun::Unsupported(w) => Fault::NotRun(w),
             NotRun::Unanswered(c) => Fault::NotRun(c.said),
+            // the store's words carried through a world's read of it
+            NotRun::Unreadable(w) if w.contains(objectflow_core::store::DEADLINE_PASSED) => {
+                Fault::TimedOut(w)
+            }
             NotRun::Unreadable(w) if names_unreadable(&w) => unreadable(&w),
             NotRun::Unreadable(w) => Fault::Internal(format!("storage unavailable: {w}")),
             NotRun::TimedOut(w) => Fault::TimedOut(w),
@@ -1606,6 +1620,12 @@ impl From<objectflow_core::store::StoreError> for Fault {
     fn from(e: objectflow_core::store::StoreError) -> Fault {
         if e.is_mismatch() {
             return Fault::Mismatch(e.0);
+        }
+        // a read stopped at its deadline on the database, which did not
+        // answer in time, answered as a read past its deadline is, where it
+        // waited with the database (ADR-0215)
+        if e.is_deadline_passed() {
+            return Fault::TimedOut(e.0);
         }
         // a full volume answers 503, which a client may retry, where it
         // answered 500, the service's own fault (fourth production review)
@@ -8367,6 +8387,30 @@ mod tests {
     /// latches the service on; and a service latched answers every write
     /// with why until a restart (the audit's durability S5, ADR-0205
     /// decision 8).
+    /// A read stopped at its deadline on the database is answered `503
+    /// read_timeout`, as one past its deadline between steps is, whether the
+    /// store's error reaches the service itself or through a world's read
+    /// of the store, which carries its words, where it answered `500`
+    /// (ADR-0215).
+    #[test]
+    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    fn a_read_stopped_at_the_database_is_a_read_timeout() {
+        let said = format!(
+            "{}: a read passed its deadline, the database not answering in time; its connection was closed",
+            objectflow_core::store::DEADLINE_PASSED
+        );
+        for fault in [
+            Fault::from(objectflow_core::store::StoreError(said.clone())),
+            Fault::from(NotRun::Unreadable(format!(
+                "the actors, by identity: {said}"
+            ))),
+        ] {
+            assert!(matches!(&fault, Fault::TimedOut(_)), "{fault:?}");
+            let answer = fault.into_response();
+            assert_eq!(answer.status(), StatusCode::SERVICE_UNAVAILABLE);
+        }
+    }
+
     #[test]
     #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     fn a_store_found_unreadable_latches_the_service() {

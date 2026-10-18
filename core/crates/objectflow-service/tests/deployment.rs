@@ -7072,13 +7072,27 @@ fn freezing_proxy(upstream: String) -> (u16, std::sync::Arc<std::sync::atomic::A
 /// `GET path` answered within `wait`, its status and how long it took, or
 /// none where it was not.
 fn get_within(s: &Service, path: &str, wait: std::time::Duration) -> Option<(u16, Value, f64)> {
+    asked_within(s, "GET", path, None, wait)
+}
+
+/// A request answered within `wait`, its status and how long it took, or
+/// none where it was not.
+fn asked_within(
+    s: &Service,
+    method: &str,
+    path: &str,
+    body: Option<&Value>,
+    wait: std::time::Duration,
+) -> Option<(u16, Value, f64)> {
     let began = std::time::Instant::now();
     let mut stream = TcpStream::connect(&s.addr).expect("a connection");
     stream.set_read_timeout(Some(wait)).expect("a timeout");
+    let text = body.map(Value::to_string).unwrap_or_default();
     write!(
         stream,
-        "GET {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-        s.addr
+        "{method} {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}",
+        s.addr,
+        text.len()
     )
     .expect("the request is written");
     let mut raw = String::new();
@@ -7099,7 +7113,9 @@ fn get_within(s: &Service, path: &str, wait: std::time::Duration) -> Option<(u16
 /// `/health` answering, `503 store_stalled` within its wait and at once
 /// when asked again, the read it started left to finish, and `200` once the
 /// database answers again, where `/health` waited on it with every request
-/// and said nothing (durability on PostgreSQL 3).
+/// and said nothing (durability on PostgreSQL 3); and a read answered `503
+/// read_timeout` at its deadline, on the connection it held and on one it
+/// makes, where it waited with the database (ADR-0215).
 #[test]
 fn a_stalled_database_is_said_by_health() {
     let Some((admin, args, schema)) = served_on_postgresql("stalled") else {
@@ -7134,12 +7150,47 @@ fn a_stalled_database_is_said_by_health() {
                 .join(" ")
         })
         .collect();
-    let through: Vec<&str> = through.iter().map(String::as_str).collect();
+    let mut through: Vec<&str> = through.iter().map(String::as_str).collect();
+    // a read's deadline past /health's wait, so the probe is still running
+    // when /health is asked again
+    through.extend(["--read-timeout", "8 s"]);
     let s = start(&through);
     let wait = std::time::Duration::from_secs(20);
     let (status, body, _) = get_within(&s, "/health", wait).expect("an answer");
     assert_eq!(status, 200, "{body}");
+    // a read answered at its deadline: first on the connection the pool
+    // kept from the read before, its statement stopped there, then on a new
+    // one, whose making is (ADR-0215); and a query, which reads the store
+    // through its world
+    let op = json!({"id": "operator"});
+    let read = || {
+        asked_within(
+            &s,
+            "POST",
+            "/v1/get",
+            Some(&json!({"actor": op, "id": "operator"})),
+            wait,
+        )
+    };
+    let query = || {
+        asked_within(
+            &s,
+            "POST",
+            "/v1/query",
+            Some(&json!({"actor": op, "type": "DeclarationChange"})),
+            wait,
+        )
+    };
     frozen.store(true, std::sync::atomic::Ordering::SeqCst);
+    for (n, answered) in [read(), read(), query()].into_iter().enumerate() {
+        let (status, body, took) = answered.expect("a read answered while stalled");
+        assert_eq!(
+            (status, body["code"].as_str()),
+            (503, Some("read_timeout")),
+            "read {n}: {body}"
+        );
+        assert!(took < 12.0, "read {n} answered in {took} s");
+    }
     let (status, body, took) = get_within(&s, "/health", wait).expect("an answer while stalled");
     assert_eq!(
         (status, body["code"].as_str()),
@@ -7166,6 +7217,8 @@ fn a_stalled_database_is_said_by_health() {
     }
     let (status, body, _) = answered.expect("an answer once the database answers");
     assert_eq!(status, 200, "{body}");
+    let (status, body, _) = read().expect("a read answered");
+    assert_eq!(status, 200, "a read once the database answers: {body}");
     // and a later stall is read afresh, never answered from the last read
     frozen.store(true, std::sync::atomic::Ordering::SeqCst);
     let (status, body, _) = get_within(&s, "/health", wait).expect("an answer stalled again");

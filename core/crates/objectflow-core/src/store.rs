@@ -78,6 +78,13 @@ impl StoreError {
     pub fn is_unavailable(&self) -> bool {
         self.0.starts_with(UNAVAILABLE)
     }
+
+    /// A read stopped at its deadline on the database, its connection
+    /// closed (ADR-0215), which the service answers as a read past its
+    /// deadline is answered.
+    pub fn is_deadline_passed(&self) -> bool {
+        self.0.starts_with(DEADLINE_PASSED)
+    }
 }
 
 /// What an opening of a store on PostgreSQL in a database that is not the
@@ -104,6 +111,11 @@ pub const NAME_TOO_LONG: &str = "name_too_long";
 /// What an operation that lost the store's connection to its database is
 /// refused with, before its reason.
 pub const UNAVAILABLE: &str = "unavailable";
+
+/// The prefix of a read stopped at its deadline on the database, its
+/// connection closed (ADR-0215): told apart from the store's own faults
+/// wherever its words are carried, a world's read of the store among them.
+pub const DEADLINE_PASSED: &str = "deadline_passed";
 
 /// What a write the store's full volume stopped is refused with, before its
 /// reason.
@@ -377,6 +389,9 @@ impl From<crate::db::Error> for StoreError {
         // (records on PostgreSQL, F3)
         if e.is_busy() {
             return StoreError(format!("{BUSY}: {e}"));
+        }
+        if e.is_deadline_passed() {
+            return StoreError(format!("{DEADLINE_PASSED}: {e}"));
         }
         if e.is_connection_lost() {
             return StoreError(format!("{UNAVAILABLE}: {e}"));
@@ -2608,13 +2623,17 @@ impl Readers {
     }
 
     /// A read of the store as it stands, with the library, the earlier
-    /// versions', the clock and the evaluator answers the writer holds.
+    /// versions', the clock and the evaluator answers the writer holds,
+    /// bounded by `until`, its deadline, where it has one: on PostgreSQL its
+    /// connection, made for it or kept from an earlier read, closed at the
+    /// deadline (ADR-0215).
     pub fn read(
         &self,
         lib: Arc<Library>,
         earlier: Arc<BTreeMap<i64, Library>>,
         now: i64,
         answers: BTreeMap<String, String>,
+        until: Option<std::time::Instant>,
     ) -> Stored<Store> {
         let idle = self
             .idle
@@ -2622,11 +2641,17 @@ impl Readers {
             .ok()
             .and_then(|mut idle| std::iter::from_fn(|| idle.pop()).find(|c| !c.is_closed()));
         let conn = match idle {
-            Some(conn) => conn,
+            Some(conn) => {
+                conn.set_deadline(until);
+                conn
+            }
             None => {
-                let conn = match &self.from {
-                    ReadFrom::File(path) => Store::read_connection(path)?,
-                    ReadFrom::Postgres(config) => {
+                let conn = match (&self.from, until) {
+                    (ReadFrom::File(path), _) => Store::read_connection(path)?,
+                    (ReadFrom::Postgres(config), Some(until)) => {
+                        Connection::postgres_reading(config, until)?
+                    }
+                    (ReadFrom::Postgres(config), None) => {
                         let conn = Connection::postgres_with(config)?;
                         conn.execute_batch("SET default_transaction_read_only = on")?;
                         conn
@@ -2636,16 +2661,20 @@ impl Readers {
                 conn
             }
         };
-        Store::reading(conn, lib, earlier, now, answers)
+        let mut store = Store::reading(conn, lib, earlier, now, answers)?;
+        store.deadline = until;
+        Ok(store)
     }
 
     /// A read ended: its connection kept for the next, up to `IDLE_READERS`.
     pub fn give_back(&self, read: Store) {
         let conn = read.into_connection();
-        // one whose database went is dropped, never handed to the next read
+        // one whose database went, or closed at its deadline, is dropped,
+        // never handed to the next read; one kept holds no deadline
         if conn.is_closed() {
             return;
         }
+        conn.set_deadline(None);
         if let Ok(mut idle) = self.idle.lock()
             && idle.len() < IDLE_READERS
         {
@@ -7474,7 +7503,13 @@ mod tests {
         assert_eq!((s.lib.version, s.now), (0, 1_767_225_600));
         let readers = Readers::postgres(&config, BUSY_TIMEOUT);
         let r = readers
-            .read(s.lib.clone(), s.earlier.clone(), s.now, BTreeMap::new())
+            .read(
+                s.lib.clone(),
+                s.earlier.clone(),
+                s.now,
+                BTreeMap::new(),
+                None,
+            )
             .unwrap();
         let operators: i64 = r
             .connection()
