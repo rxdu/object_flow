@@ -6327,18 +6327,20 @@ fn killed_imports(on: &str, store: &Trials) {
         );
         let addr = s.addr.clone();
         let sent = body.to_string();
-        // the batch sent by hand, its answer never read: the kill ends it
-        let sender = std::thread::spawn(move || {
+        // the batch sent by hand, its answer read where it comes: the kill
+        // ends it but where it is waited for, after the commit
+        let mut sender = Some(std::thread::spawn(move || {
+            let mut answer = String::new();
             if let Ok(mut stream) = TcpStream::connect(&addr) {
                 let _ = write!(
                     stream,
                     "POST /v1/import_batch HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sent}",
                     sent.len()
                 );
-                let mut answer = String::new();
                 let _ = stream.read_to_string(&mut answer);
             }
-        });
+            answer
+        }));
         match at {
             At::Held => {
                 let began = std::time::Instant::now();
@@ -6354,11 +6356,22 @@ fn killed_imports(on: &str, store: &Trials) {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                 }
             }
-            At::After => std::thread::sleep(std::time::Duration::from_secs(8)),
+            // its answer, which the service gives once the batch committed,
+            // where it slept 8 s and a slower machine's import on
+            // PostgreSQL, about 6 s here, was killed within its transaction
+            At::After => {
+                let answer = sender
+                    .take()
+                    .map(|h| h.join().expect("the sender"))
+                    .unwrap_or_default();
+                assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+            }
             At::Early => std::thread::sleep(std::time::Duration::from_millis(80)),
         }
         drop(s);
-        let _ = sender.join();
+        if let Some(h) = sender {
+            let _ = h.join();
+        }
         let s = start(&again);
         let held = count(&s);
         match at {
