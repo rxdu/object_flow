@@ -72,8 +72,15 @@ impl Drop for Service {
 }
 
 fn start(args: &[&str]) -> Service {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
-        .args(args)
+    let mut service = Command::new(env!("CARGO_BIN_EXE_objectflow-service"));
+    service.args(args);
+    start_command(service)
+}
+
+/// The service started by `command`, which runs it, as `nsenter` does
+/// within a namespace.
+fn start_command(mut command: Command) -> Service {
+    let mut child = command
         .stderr(Stdio::piped())
         .spawn()
         .expect("the service starts");
@@ -7159,6 +7166,146 @@ fn a_stalled_database_is_said_by_health() {
     admin
         .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
         .expect("the schema dropped");
+}
+
+const NOTES: &str = "module: notes
+categories: [live, closed]
+types:
+  Note:
+    description: A note.
+    tracking: record
+    attributes:
+      text: { type: string }
+    states:
+      KEPT: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text] }
+      drop: { kind: external, from: KEPT, to: GONE }
+";
+
+/// A store on a volume that fills (the audit's durability S1): the writes
+/// past its last space are answered `503 disk_full` and none acknowledged
+/// is lost; killed while it is full, the service starts again and serves
+/// every acknowledged write; once space is freed, writes apply again. On a
+/// tmpfs in a user and mount namespace of its own, where the suite held
+/// tests of the predicates alone and the audit probed it by hand; skipped,
+/// said, where the system refuses the namespace, and failed so in CI,
+/// which allows it (`check.yml`).
+#[test]
+fn a_full_volume_loses_no_acknowledged_write() {
+    let dir = fresh_store("full")
+        .parent()
+        .expect("a directory")
+        .to_path_buf();
+    let d = dir.to_str().expect("a path").to_string();
+    // the namespace held by a process of its own, the volume mounted over
+    // the directory there, a megabyte of ballast on it to free later
+    let held = Command::new("unshare")
+        .args([
+            "-rm",
+            "sh",
+            "-c",
+            "mount -t tmpfs -o size=8m tmpfs \"$0\" && head -c 1048576 /dev/zero > \"$0/ballast\" && echo mounted && exec sleep 600",
+            &d,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let refused = |why: String| {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "CI runs this test, which needs a user and mount namespace: {why}"
+        );
+        eprintln!("skipped: no user and mount namespace here: {why}");
+    };
+    let mut holder = match held {
+        Ok(h) => h,
+        Err(e) => return refused(e.to_string()),
+    };
+    let mut line = String::new();
+    let _ = BufReader::new(holder.stdout.take().expect("its stdout")).read_line(&mut line);
+    if line.trim() != "mounted" {
+        let _ = holder.kill();
+        let _ = holder.wait();
+        let mut why = String::new();
+        if let Some(mut e) = holder.stderr.take() {
+            let _ = e.read_to_string(&mut why);
+        }
+        return refused(why);
+    }
+    let pid = holder.id().to_string();
+    let inside = |program: &str, args: &[&str]| {
+        let mut c = Command::new("nsenter");
+        // its credentials kept, since the namespace refuses setgroups
+        c.args(["-t", &pid, "-U", "-m", "--preserve-credentials", program])
+            .args(args);
+        c
+    };
+    let service = env!("CARGO_BIN_EXE_objectflow-service");
+    let store = format!("{d}/store.sqlite");
+    let op = json!({"id": "operator"});
+    let text = |i: usize| format!("{i:06}:{}", "x".repeat(16 * 1024));
+    let write = |s: &Service, i: usize| {
+        call(
+            s,
+            "POST",
+            "/v1/request",
+            Some(
+                &json!({"actor": op, "type": "Note", "transition": "write", "inputs": {"text": text(i)}}),
+            ),
+        )
+    };
+    let s = start_command(inside(
+        service,
+        &["--store", &store, "--create", "--port", "0"],
+    ));
+    publish(&s, &json!({"notes": NOTES}));
+    let (mut kept, mut full) = (Vec::new(), 0);
+    for i in 0..2000 {
+        let (status, v) = write(&s, i);
+        match status {
+            200 => {
+                assert_eq!(v["kind"], "satisfied", "{v}");
+                kept.push((v["object_id"].as_str().expect("an id").to_string(), i));
+            }
+            503 => {
+                assert_eq!(v["code"], "disk_full", "{v}");
+                full += 1;
+                if full == 5 {
+                    break;
+                }
+            }
+            _ => panic!("write {i}: {status} {v}"),
+        }
+    }
+    assert!(
+        full == 5 && kept.len() >= 5,
+        "{} kept, {full} refused for a full volume",
+        kept.len()
+    );
+    // killed while the volume is full, and started again on it
+    drop(s);
+    let s = start_command(inside(service, &["--store", &store, "--port", "0"]));
+    for (id, i) in &kept {
+        let got = post(&s, "/v1/get", &json!({"actor": op, "id": id}));
+        assert_eq!(got["attributes"]["text"], json!(text(*i)), "{id}");
+    }
+    // space freed, writes apply again
+    let freed = inside("rm", &[&format!("{d}/ballast")])
+        .status()
+        .expect("rm runs");
+    assert!(freed.success());
+    let (status, v) = write(&s, 9999);
+    assert_eq!(
+        (status, v["kind"].as_str()),
+        (200, Some("satisfied")),
+        "{v}"
+    );
+    drop(s);
+    let _ = holder.kill();
+    let _ = holder.wait();
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A store on PostgreSQL at an earlier release is served as due, every

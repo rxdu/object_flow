@@ -54,6 +54,14 @@ jobs:
           python-version: "3.10"
       - name: The scripts' Python environment, which the core's parity tests read
         run: scripts/setup/python-env
+      # the full-volume test needs a user and mount namespace, and fails in CI
+      # rather than skip (`a_full_volume_loses_no_acknowledged_write`)
+      - name: Unprivileged user namespaces, for the full-volume test
+        run: |
+          # where AppArmor holds the restriction, from Ubuntu 23.10; 22.04 has none
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - name: The core's and the service's tests, on this runner
         working-directory: core
         run: cargo test --release --locked -p objectflow-core -p objectflow-service

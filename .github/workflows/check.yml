@@ -72,5 +72,15 @@ jobs:
         run: |
           corepack enable
           corepack pnpm install --frozen-lockfile
+      # the full-volume test mounts a tmpfs in a user and mount namespace of
+      # its own, which Ubuntu 24.04's AppArmor refuses an unprivileged process
+      # unless this is lifted; the test fails in CI rather than skip
+      # (`a_full_volume_loses_no_acknowledged_write`, the audit's durability S1)
+      - name: Unprivileged user namespaces, for the full-volume test
+        run: |
+          # where AppArmor holds the restriction, from Ubuntu 23.10; 22.04 has none
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - name: Every gate
         run: scripts/check-all
