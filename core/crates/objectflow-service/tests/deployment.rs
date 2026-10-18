@@ -1966,6 +1966,11 @@ fn idle_and_half_sent_connections_are_closed() {
 /// answering a request is a newcomer refused, told `503 busy` rather than
 /// reset, and `/metrics` counts both (third production review C-1,
 /// ADR-0186).
+///
+/// Each step waits on what the service says of its connections, read on
+/// its metrics listener, which has a cap of its own, where sleeps of 200
+/// and 300 ms let a slow runner's request at the cap find a connection not
+/// yet answering, and be answered 200 (run 38999367710).
 #[test]
 fn a_connection_at_the_cap_makes_room_or_is_told_busy() {
     let s = start(&[
@@ -1975,11 +1980,45 @@ fn a_connection_at_the_cap_makes_room_or_is_told_busy() {
         "2 s",
         "--max-connections",
         "3",
+        "--metrics-bind",
+        "127.0.0.1:0",
     ]);
+    let said = s.said_within("metrics and health on http://");
+    let watch = Service {
+        child: None,
+        addr: said
+            .lines()
+            .find_map(|l| {
+                l.split_once("metrics and health on http://")
+                    .map(|(_, a)| a.trim().to_string())
+            })
+            .expect("the metrics address"),
+        said: std::sync::Arc::new(std::sync::Mutex::new(String::new())),
+    };
+    // what /health on the metrics listener says, its own connection and
+    // request counted in it
+    let seen = |key: &str| -> u64 {
+        call(&watch, "GET", "/health", None).1[key]
+            .as_u64()
+            .unwrap_or(0)
+    };
+    let until = |what: &str, ready: &dyn Fn() -> bool| {
+        let began = std::time::Instant::now();
+        while !ready() {
+            assert!(
+                began.elapsed() < std::time::Duration::from_secs(20),
+                "never {what}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    };
+    let (open, flying) = (seen("connections_open"), seen("requests_in_flight"));
     let silent: Vec<TcpStream> = (0..3)
         .map(|_| TcpStream::connect(&s.addr).expect("a connection"))
         .collect();
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    until("the three silent connections taken", &|| {
+        seen("connections_open") >= open + 3
+    });
     for _ in 0..3 {
         let (status, health) = call(&s, "GET", "/health", None);
         assert_eq!(status, 200, "{health}");
@@ -1997,7 +2036,9 @@ fn a_connection_at_the_cap_makes_room_or_is_told_busy() {
             c
         })
         .collect();
-    std::thread::sleep(std::time::Duration::from_millis(300));
+    until("the three requests answering", &|| {
+        seen("requests_in_flight") >= flying + 3
+    });
     let mut told = TcpStream::connect(&s.addr).expect("a connection");
     told.set_read_timeout(Some(std::time::Duration::from_secs(3)))
         .expect("a read timeout");
@@ -2009,7 +2050,9 @@ fn a_connection_at_the_cap_makes_room_or_is_told_busy() {
     assert!(said.contains("busy: every connection"), "{said}");
     // the half-sent bodies time out, and the service answers again
     drop(answering);
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    until("the three requests ended", &|| {
+        seen("requests_in_flight") <= flying && seen("connections_open") <= open
+    });
     let mut stream = TcpStream::connect(&s.addr).expect("a connection");
     write!(
         stream,
@@ -6624,6 +6667,16 @@ fn a_store_on_postgresql_whose_connection_is_lost_is_opened_again() {
     assert_eq!(ended, 1);
     let (status, met) = add("bea@example.com");
     assert_eq!(status, 503, "the write that met the loss: {met}");
+    // said as a lost connection, never as SQLite's log or a full volume,
+    // nor by /health, where both named them after a loss (durability on
+    // PostgreSQL 10)
+    let fault = met["fault"].as_str().unwrap_or_default();
+    assert!(
+        met["code"] == "unavailable" && !fault.contains("wal") && !fault.contains("full"),
+        "{met}"
+    );
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 200, "/health after the loss: {health}");
     let (status, cy) = add("cy@example.com");
     assert_eq!(
         (status, cy["kind"].as_str()),
