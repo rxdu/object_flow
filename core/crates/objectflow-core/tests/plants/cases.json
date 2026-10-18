@@ -3131,6 +3131,105 @@
   }
  },
  {
+  "label": "self_test: an only_via any beside a transition it names",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "inventory.yaml",
+    "65ecd13f6aa3d6a8"
+   ],
+   [
+    "delivery.yaml",
+    "91419285e269a61d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "delivery.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: ChecklistItem (1), Courier (2), Delivery (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "delivery.yaml",
+    37,
+    "notice",
+    "unbounded_reach",
+    "Delivery.checklist_items's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in checklist_items) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    45,
+    "notice",
+    "unbounded_reach",
+    "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    165,
+    "fatal",
+    "names",
+    "ChecklistItem.discard is only via any, every transition of any type, which takes no other transition beside it"
+   ],
+   [
+    "inventory.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InventoryItem (10), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "inventory.yaml",
+    102,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
   "label": "self_test: a condition that reads an attribute the type does not declare",
   "files": [
    [

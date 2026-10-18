@@ -1373,10 +1373,14 @@ fn take(
         && let Some(x) = lib.type_(tn).and_then(|t| t.transition(xn))
         && !x.only_via.is_empty()
     {
+        // `any`: taken by every transition of any type, where only those it
+        // named could, so a module imported may say so without naming its
+        // importers (issue #25, ADR-0217)
         let named = ctx.taking.last().is_some_and(|(pt, px)| {
             x.only_via.iter().any(|v| {
-                v.split_once('.')
-                    .is_some_and(|(vt, vx)| vx == px && lib.is_a(pt, vt))
+                v == "any"
+                    || v.split_once('.')
+                        .is_some_and(|(vt, vx)| vx == px && lib.is_a(pt, vt))
             })
         });
         if !named {
@@ -11383,6 +11387,105 @@ types:
                 ("sign".to_string(), json!({"signer": null})),
             ]
         );
+    }
+
+    /// A transition `only_via: [any]` is taken by any other transition, of
+    /// any type, a creation's and a call's, and refused to a direct request,
+    /// so a module imported says "only as a consequence" without naming its
+    /// importers, which the import order forbade it to (issue #25,
+    /// ADR-0217); the core's checker takes both modules.
+    #[test]
+    fn a_transition_only_via_any_is_taken_by_any_other() {
+        const PEOPLE: &str = r#"
+module: people
+categories: [live, closed]
+types:
+  Absence:
+    description: When someone is away.
+    tracking: record
+    attributes:
+      starts_at: { type: timestamp }
+      ends_at: { type: timestamp }
+    states:
+      AWAY: { description: Away., category: live }
+      OVER: { description: Over., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: AWAY, description: Opens it., required_inputs: [starts_at, ends_at], only_via: [any] }
+      close: { kind: external, from: AWAY, to: OVER, description: Closes it., only_via: [any] }
+"#;
+        const LEAVE: &str = r#"
+module: leave
+imports: { people: [Absence] }
+categories: [live, closed]
+types:
+  Leave:
+    description: Leave asked for, which opens an absence.
+    tracking: record
+    attributes:
+      starts_at: { type: timestamp }
+      ends_at: { type: timestamp }
+      away: { reference: Absence, optional: true }
+    states:
+      ASKED: { description: Asked., category: live }
+      WITHDRAWN: { description: Withdrawn., category: closed, final: true }
+    transitions:
+      ask:
+        kind: initial
+        to: ASKED
+        description: Asks for leave, opening its absence.
+        required_inputs: [starts_at, ends_at]
+        effect:
+          - create: { type: Absence, transition: open, inputs: { starts_at: inputs.starts_at, ends_at: inputs.ends_at }, result: made }
+          - assign: { location: away, expr: made }
+      withdraw:
+        kind: external
+        from: ASKED
+        to: WITHDRAWN
+        description: Withdraws the leave, closing its absence.
+        effect:
+          - call: { target: away, transition: close }
+"#;
+        let files = [
+            ("people.yaml".to_string(), PEOPLE.to_string()),
+            ("leave.yaml".to_string(), LEAVE.to_string()),
+        ];
+        let found = crate::check::check(&files, &BTreeMap::new());
+        assert!(
+            found
+                .iter()
+                .all(|f| f.severity != crate::check::Severity::Fatal),
+            "{found:?}"
+        );
+        let lib = Library::load(&files).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let span = json!({"starts_at": "2026-01-05T00:00:00Z", "ends_at": "2026-01-09T00:00:00Z"});
+        assert!(
+            matches!(
+                req(&mut s, "open", OPERATOR, ("Absence", true), span.clone()),
+                Verdict::NotRequestable { .. }
+            ),
+            "requested directly"
+        );
+        let leave = created(&req(&mut s, "ask", OPERATOR, ("Leave", true), span));
+        let w = s.snapshot().unwrap();
+        let Value::Object(away) = w.whole(&leave).unwrap().unwrap().attr("away") else {
+            panic!("an absence opened")
+        };
+        assert_eq!(w.whole(&away).unwrap().unwrap().state, "AWAY");
+        drop(w);
+        assert!(matches!(
+            req(&mut s, "close", OPERATOR, (&away, false), json!({})),
+            Verdict::NotRequestable { .. }
+        ));
+        created(&req(
+            &mut s,
+            "withdraw",
+            OPERATOR,
+            (&leave, false),
+            json!({}),
+        ));
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.whole(&away).unwrap().unwrap().state, "OVER");
     }
 
     /// A type's own member named like one an object answers by a path,

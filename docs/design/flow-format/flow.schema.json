@@ -607,9 +607,9 @@
           "minItems": 1,
           "items": {
             "type": "string",
-            "pattern": "^[A-Z][A-Za-z0-9]*\\.[a-z][a-z0-9_]*$"
+            "pattern": "^(any|[A-Z][A-Za-z0-9]*\\.[a-z][a-z0-9_]*)$"
           },
-          "description": "The transitions, as Type.transition, that alone may take this one, by a call, a create or a cascade; no caller may request it."
+          "description": "The transitions, as Type.transition, that alone may take this one, by a call, a create or a cascade, or any alone, every transition of any type; no caller may request it."
         },
         "proposable": {
           "type": "boolean",

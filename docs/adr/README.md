@@ -217,4 +217,5 @@
 | [0214](0214-a-release-before-1-0-0.md) | A release before 1.0.0, 0.3.0 | Decided by the author (decision 1), and as recommended at the author's direction (2 to 5) |
 | [0215](0215-a-reads-deadline-bounded-at-postgresqls-client.md) | A read's deadline bounded at PostgreSQL's client | Decided by the author |
 | [0216](0216-a-member-added-after-format-1-yields-to-a-types-own.md) | A member added after format 1 yields to a type's own | Decided under the author's direction |
+| [0217](0217-only-via-any.md) | A transition taken only as a consequence, `only_via: [any]` | Decided under the author's direction |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

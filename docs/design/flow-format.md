@@ -171,7 +171,7 @@ A transition changes an object, and every change to an object is one. A transiti
 |---|---|---|
 | `kind`, `from`, `to` | as above | |
 | `description` | no | what the transition does, in one sentence |
-| `only_via` | no | the transitions, written `Type.transition`, that alone may take this one, by a `call`, a `create` or a cascade; no caller may request it (step 3, `names`). |
+| `only_via` | no | the transitions, written `Type.transition`, that alone may take this one, by a `call`, a `create` or a cascade; no caller may request it (step 3, `names`). `[any]` alone lets every transition of any type take it, and still no caller request it, so a module imported says "only as a consequence" without naming the modules that import it, which come after it (ADR-0217); a part's creation names its whole's transitions all the same (check 11) |
 | `proposable` | no | `true` if a request for the transition may be filed as a proposal instead, executed as its approver when approved (ADR-0036); never with `only_via`, since no one requests such a transition (step 3, `names`; the model's check 14). When to propose, and who may approve, are the application's (ADR-0114) |
 | `taken_by` | no | the kinds of actor that may take the transition, `[human]`, or several: sugar for an optional attribute `<transition>_by_kind`, of type `actor_kind`, that the effect's first step assigns `actor.kind`, and an invariant `<transition>_taken_by`, that the attribute is absent or one of the kinds, each after the type's own (ADR-0176). An actor of another kind is refused `invariant_violated` with the remedy `delegable`, whether it requests the transition or causes it by a `call`, a `create` or a cascade, and an approver executing a proposal takes it as themself, so an agent may propose what a person takes. A transition that declares none takes its type's `taken_by` (§4.2, ADR-0182). On any transition: an initial, external or internal one, a correction among them, the record it generates being no value it corrects (ADR-0190 decision 5), and an erasure and an assertion, the erasure of a person among them (D579). An agent's generated tools offer a transition only where it, or its type, names `agent`, and any other only for proposing where it is proposable (ADR-0189 decision 1), so a transition an agent takes names `agent`, as `reimbursement.yaml`'s `suggest_nature` does; neither name it generates may be declared by the type, and no `may_admit` admits the invariant, since who may take a transition is never admitted (step 3, `names`) |
 | `corrects` | no | on an internal or external transition: the attributes it corrects, which it writes exactly (§4.13) |
@@ -650,7 +650,7 @@ Each form converts to the text language as follows, and means what that declarat
 | `sequences: { s: … }` | `sequence s version 1` |
 | `identifier: { sequence: s, scope: r, format: f }` | `identifier from s scoped by r format "f"` |
 | `unique: in_scope`, `unique: { with: [a, b] }`, `unique: { where: e }` | `unique in scope`, `unique with a, b`, `unique where e` |
-| `only_via: [W.t]` | `only via W.t` in the transition's head |
+| `only_via: [W.t]` | `only via W.t` in the transition's head; `only_via: [any]`, `only via any` |
 | `reference: T, opposite: e` (and `stored: true`) | `ref <name> : T inverse e` (`stored`) |
 | `reference: "T[]", aggregation: composite, opposite: e` | `part <name> : T[] inverse e` |
 | the part's end back, `reference: W, opposite: <composite end>` | `owner <name> : W inverse <composite end>` |

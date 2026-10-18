@@ -2083,7 +2083,11 @@ def name_errors(doc, library=None, ordered=True):
             if x.get("proposable") and x.get("only_via"):
                 out.append((base + ("proposable",), "names", f"{tn}.{xn} is proposable and only via other transitions; "
                                                            "no one may request it, so no proposal of it could be approved (check 14)"))
-            for v in x.get("only_via", []):
+            # `any`, every transition of any type, stands alone (ADR-0217)
+            if len(x.get("only_via", [])) > 1 and "any" in x["only_via"]:
+                out.append((base + ("only_via",), "names", f"{tn}.{xn} is only via any, every transition of any type, "
+                                                          "which takes no other transition beside it"))
+            for v in (v for v in x.get("only_via", []) if v != "any"):
                 vt, vx = v.split(".")
                 if vt in library and vx not in (library[vt].get("transitions") or {}):
                     out.append((base + ("only_via",), "names", f"{tn}.{xn} is only via {v}, which is not a transition of {vt}"))
@@ -6024,6 +6028,8 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(delivery, "delivery: { reference: Delivery, opposite: checklist_items }", "delivery: { reference: Delivery, opposite: items }")),
         ("an only_via that names a missing transition", "names", "delivery.yaml",
          plant(delivery, "only_via: [Delivery.cancel]", "only_via: [Delivery.abort]")),
+        ("an only_via any beside a transition it names", "names", "delivery.yaml",
+         plant(delivery, "only_via: [Delivery.cancel]", "only_via: [any, Delivery.cancel]")),
         ("a condition that reads an attribute the type does not declare", "names", "inventory.yaml",
          plant(inventory, "expression: condition != Condition.DAMAGED", "expression: grade != Condition.DAMAGED")),
         ("a machine condition that reads an attribute the machine does not require", "names", "approvals.yaml",

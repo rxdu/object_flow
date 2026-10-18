@@ -2480,8 +2480,9 @@ class Runner:
         x = ((self.kinds.get(tn) or {}).get("transitions") or {}).get(xn)
         if depth and x is not None and x.get("only_via"):
             parent = ctx.taking[-1] if ctx.taking else None
+            # `any`: taken by every transition of any type (issue #25, ADR-0217)
             named = parent is not None and any(
-                "." in v and v.split(".", 1)[1] == parent[1] and ctx.work.is_a(parent[0], v.split(".", 1)[0])
+                v == "any" or ("." in v and v.split(".", 1)[1] == parent[1] and ctx.work.is_a(parent[0], v.split(".", 1)[0]))
                 for v in x["only_via"])
             if not named:
                 raise Refused("not_requestable", remedy="unreachable_from_here", parents=list(x["only_via"]))
@@ -4761,6 +4762,20 @@ def self_test():
         own = (refusal.verdict, refusal.clause, refusal.remedy)
     check("an invariant failing on a part the request creates, over a value written from the actor, is delegable",
           own, ("invariant_violated", "Nod.not_own", "delegable"))
+    # only via any (ADR-0217): a creation from another type's transition takes it, a direct request is refused
+    k3 = copy.deepcopy(k2)
+    k3["Nod"]["transitions"]["give"]["only_via"] = ["any"]
+    k3["Nod"].pop("invariants")
+    r3, s3 = Runner(k3, {}), Store(k3, {})
+    ask = r3.attempt(s3, "Ask", "raise", None, OPERATOR, {}, {}, {})[1]
+    check("a transition only via any is taken by another type's transition",
+          r3.attempt(s3, "Ask", "approve", ask, OPERATOR, {}, {}, {})[3], ["Nod.give"])
+    try:
+        r3.attempt(s3, "Nod", "give", None, OPERATOR, {"ask": ask, "who": "x"}, {}, {})
+        direct = ("applied",)
+    except Refused as refusal:
+        direct = (refusal.verdict,)
+    check("a transition only via any is not requested directly", direct, ("not_requestable",))
     # erasure (ADR-0147): its admission on the object the invariant fails on, one hop away; not_erased refusing an
     # assignment or an add to a personal attribute and passing a clear; a pending proposal on it invalidated
     k = {"Operator": kinds["Operator"],

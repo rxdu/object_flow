@@ -1342,7 +1342,12 @@ fn only_via_reached(d: &Decl, world: &BTreeMap<&str, &Decl>, out: &mut Vec<Found
             }) else {
                 continue;
             };
-            let parents = strings(&ct.x, "only_via");
+            // `any` names no parent, as the text's pattern reads `only via
+            // any`, so every caller may take it (ADR-0217)
+            let parents: Vec<String> = strings(&ct.x, "only_via")
+                .into_iter()
+                .filter(|p| p.contains('.'))
+                .collect();
             if parents.is_empty() {
                 continue;
             }

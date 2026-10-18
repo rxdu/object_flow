@@ -417,8 +417,17 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
                     format!("{tn}.{xn} is proposable and only via other transitions; no one may request it, so no proposal of it could be approved (check 14)"),
                 ));
             }
-            for v in strings(x, "only_via") {
-                let (vt, vx) = v.split_once('.').unwrap_or((&v, ""));
+            // `any`, every transition of any type, stands alone (ADR-0217)
+            let via = strings(x, "only_via");
+            if via.len() > 1 && via.iter().any(|v| v == "any") {
+                out.push(finding(
+                    ext(&base, segs!["only_via"]),
+                    "names",
+                    format!("{tn}.{xn} is only via any, every transition of any type, which takes no other transition beside it"),
+                ));
+            }
+            for v in via.iter().filter(|v| *v != "any") {
+                let (vt, vx) = v.split_once('.').unwrap_or((v, ""));
                 if let Some(other) = library.get(vt) {
                     if !obj(other, "transitions").contains_key(vx) {
                         out.push(finding(
