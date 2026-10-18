@@ -6880,6 +6880,159 @@ fn a_store_on_postgresql_restored_in_place_is_refused_until_marked() {
     }
 }
 
+/// A TCP proxy to `upstream` that passes no byte while its switch is set,
+/// every connection kept open: a database frozen as `docker pause` freezes
+/// one, whose kernel still takes what is sent to it, so no timeout of the
+/// connection's fires (durability on PostgreSQL 3).
+fn freezing_proxy(upstream: String) -> (u16, std::sync::Arc<std::sync::atomic::AtomicBool>) {
+    use std::sync::atomic::Ordering;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+    let port = listener.local_addr().expect("an address").port();
+    let frozen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let switch = frozen.clone();
+    std::thread::spawn(move || {
+        for client in listener.incoming().flatten() {
+            let Ok(server) = TcpStream::connect(&upstream) else {
+                continue;
+            };
+            let (Ok(c), Ok(s)) = (client.try_clone(), server.try_clone()) else {
+                continue;
+            };
+            for (mut from, mut to) in [(c, s), (server, client)] {
+                let frozen = switch.clone();
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 16 * 1024];
+                    while let Ok(n) = from.read(&mut buf) {
+                        if n == 0 {
+                            break;
+                        }
+                        while frozen.load(Ordering::SeqCst) {
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                        if to.write_all(&buf[..n]).is_err() {
+                            break;
+                        }
+                    }
+                    let _ = to.shutdown(std::net::Shutdown::Write);
+                });
+            }
+        }
+    });
+    (port, frozen)
+}
+
+/// `GET path` answered within `wait`, its status and how long it took, or
+/// none where it was not.
+fn get_within(s: &Service, path: &str, wait: std::time::Duration) -> Option<(u16, Value, f64)> {
+    let began = std::time::Instant::now();
+    let mut stream = TcpStream::connect(&s.addr).expect("a connection");
+    stream.set_read_timeout(Some(wait)).expect("a timeout");
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+        s.addr
+    )
+    .expect("the request is written");
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).ok()?;
+    let status = raw.get(9..12)?.parse().ok()?;
+    let body = raw
+        .split_once("\r\n\r\n")
+        .map(|(_, b)| b)
+        .unwrap_or_default();
+    Some((
+        status,
+        serde_json::from_str(body).unwrap_or(Value::Null),
+        began.elapsed().as_secs_f64(),
+    ))
+}
+
+/// A database that stops answering without closing its connections leaves
+/// `/health` answering, `503 store_stalled` within its wait and at once
+/// when asked again, the read it started left to finish, and `200` once the
+/// database answers again, where `/health` waited on it with every request
+/// and said nothing (durability on PostgreSQL 3).
+#[test]
+fn a_stalled_database_is_said_by_health() {
+    let Some((admin, args, schema)) = served_on_postgresql("stalled") else {
+        return;
+    };
+    let base = std::env::var("OBJECTFLOW_SANDBOX_POSTGRES").expect("the database");
+    let at = |key: &str| {
+        base.split_whitespace()
+            .find_map(|p| p.strip_prefix(key))
+            .map(str::to_string)
+    };
+    let upstream = format!(
+        "{}:{}",
+        at("host=").unwrap_or_else(|| "127.0.0.1".to_string()),
+        at("port=").unwrap_or_else(|| "5432".to_string())
+    );
+    let (port, frozen) = freezing_proxy(upstream);
+    let through: Vec<String> = args
+        .iter()
+        .map(|a| {
+            a.split_whitespace()
+                .map(|p| {
+                    if p.starts_with("host=") {
+                        "host=127.0.0.1".to_string()
+                    } else if p.starts_with("port=") {
+                        format!("port={port}")
+                    } else {
+                        p.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    let through: Vec<&str> = through.iter().map(String::as_str).collect();
+    let s = start(&through);
+    let wait = std::time::Duration::from_secs(20);
+    let (status, body, _) = get_within(&s, "/health", wait).expect("an answer");
+    assert_eq!(status, 200, "{body}");
+    frozen.store(true, std::sync::atomic::Ordering::SeqCst);
+    let (status, body, took) = get_within(&s, "/health", wait).expect("an answer while stalled");
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (503, Some("store_stalled")),
+        "{body}"
+    );
+    assert!(took < 10.0, "answered in {took} s");
+    // asked again, the read still running is joined, not started again
+    let (status, body, took) = get_within(&s, "/health", wait).expect("an answer again");
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (503, Some("store_stalled")),
+        "{body}"
+    );
+    assert!(took < 2.0, "answered again in {took} s");
+    frozen.store(false, std::sync::atomic::Ordering::SeqCst);
+    let mut answered = None;
+    for _ in 0..40 {
+        answered = get_within(&s, "/health", wait);
+        if answered.as_ref().is_some_and(|(st, _, _)| *st == 200) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    let (status, body, _) = answered.expect("an answer once the database answers");
+    assert_eq!(status, 200, "{body}");
+    // and a later stall is read afresh, never answered from the last read
+    frozen.store(true, std::sync::atomic::Ordering::SeqCst);
+    let (status, body, _) = get_within(&s, "/health", wait).expect("an answer stalled again");
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (503, Some("store_stalled")),
+        "{body}"
+    );
+    frozen.store(false, std::sync::atomic::Ordering::SeqCst);
+    drop(s);
+    admin
+        .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+        .expect("the schema dropped");
+}
+
 /// A store on PostgreSQL at an earlier release is served as due, every
 /// operation refused until its upgrade, which carries it to this release
 /// with what it held, as a file's is, where it was refused at the start and

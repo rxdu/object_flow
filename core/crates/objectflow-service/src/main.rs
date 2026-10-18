@@ -460,6 +460,8 @@ struct Service {
 /// lock past its retries, each verdict's kind, and each route's durations.
 #[derive(Debug, Default)]
 struct Watch {
+    /// `/health`'s read of the store, run beside it ([`probed`]).
+    probe: Probe,
     written_at: AtomicI64,
     stalled_at: AtomicI64,
     /// Since when writes have waited for another process's lock, as the
@@ -767,6 +769,89 @@ fn wall_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+}
+
+/// How long `/health` waits for its read of the store before it answers
+/// `503 store_stalled`.
+const HEALTH_WAIT_MS: i64 = 5_000;
+
+/// `/health`'s read of the store, one at a time: when the one running
+/// started, how many have started and finished, and what the last found.
+#[derive(Debug, Default)]
+struct Probe {
+    state: Mutex<Probed>,
+    done: std::sync::Condvar,
+}
+
+#[derive(Debug, Default)]
+struct Probed {
+    since: Option<i64>,
+    started: u64,
+    finished: u64,
+    last: Option<Result<(i64, i64), Fault>>,
+}
+
+/// The store read for `/health`, its library's version and its clock, on a
+/// thread of its own and waited for [`HEALTH_WAIT_MS`] from its start at
+/// most: a store whose database stops answering without closing its
+/// connections, frozen or stalled on its disk, answers `503
+/// store_stalled`, where `/health` waited on it with every other request
+/// and said nothing (durability on PostgreSQL 3). A read still running is
+/// joined, never started again, so a stall holds one thread and one read
+/// connection however often `/health` is asked.
+fn probed(shared: &Shared) -> Result<(i64, i64), Fault> {
+    let poisoned = || Fault::Internal("a previous request panicked".to_string());
+    let probe = &shared.watch.probe;
+    let mut st = probe.state.lock().map_err(|_| poisoned())?;
+    if st.since.is_none() {
+        let mine = shared.clone();
+        std::thread::Builder::new()
+            .name("health".to_string())
+            .spawn(move || {
+                let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut r = reading(&mine)?;
+                    let s = r.store()?;
+                    let version = s.lib.version;
+                    s.snapshot()?.get(objectflow_core::model::OPERATOR)?;
+                    Ok((version, s.now))
+                }))
+                .unwrap_or_else(|_| {
+                    Err(Fault::Internal(
+                        "the health read panicked; the line above says where".to_string(),
+                    ))
+                });
+                let probe = &mine.watch.probe;
+                if let Ok(mut st) = probe.state.lock() {
+                    st.since = None;
+                    st.finished = st.started;
+                    st.last = Some(found);
+                }
+                probe.done.notify_all();
+            })
+            .map_err(|e| Fault::Internal(format!("the health read could not start: {e}")))?;
+        st.since = Some(wall_millis());
+        st.started += 1;
+    }
+    let (want, since) = (st.started, st.since.unwrap_or_else(wall_millis));
+    while st.finished < want {
+        let left = since + HEALTH_WAIT_MS - wall_millis();
+        if left <= 0 {
+            return Err(Fault::Unavailable(format!(
+                "store_stalled: the store has not answered /health's read in {} s; a database that stops answering holds every request waiting on it (operate.md, PostgreSQL)",
+                (wall_millis() - since).max(0) / 1000
+            )));
+        }
+        st = probe
+            .done
+            .wait_timeout(st, std::time::Duration::from_millis(left.unsigned_abs()))
+            .map_err(|_| poisoned())?
+            .0;
+    }
+    st.last.clone().unwrap_or_else(|| {
+        Err(Fault::Internal(
+            "the health read finished with nothing".to_string(),
+        ))
+    })
 }
 
 /// How long the writer has been held, in seconds, or none while it is free:
@@ -1378,6 +1463,7 @@ fn due(at: &str) -> Fault {
 }
 
 /// What the service answers a request it cannot: the wire's 4xx or 5xx.
+#[derive(Clone, Debug)]
 enum Fault {
     Bad(String),
     Missing(String),
@@ -4263,12 +4349,9 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                     )));
                 }
             }
-            let mut r = reading(&shared)?;
-            let s = r.store()?;
-            let version = s.lib.version;
-            s.snapshot()?.get(objectflow_core::model::OPERATOR)?;
-            let now = s.now;
-            drop(r);
+            // read beside the request, so a stalled store is answered, not
+            // waited on (durability on PostgreSQL 3)
+            let (version, now) = probed(&shared)?;
             let free = reads.path.as_deref().and_then(disk_free);
             let mut body = json!({"release": BUILTINS, "shape": "deployment", "version": version,
                               "now": timestamp_text(now), "store_release": BUILTINS,
