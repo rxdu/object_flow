@@ -182,6 +182,30 @@ fn post(s: &Service, path: &str, body: &Value) -> Value {
     out
 }
 
+/// Each test's directory is named once in this file, so no test removes
+/// another's under its running service: two PostgreSQL tests made theirs as
+/// the file tests named alike made theirs, and a run of both failed one,
+/// its store replaced (2026-10-18, twice).
+#[test]
+fn every_tests_directory_is_its_own() {
+    let source = include_str!("deployment.rs");
+    let mut seen = std::collections::BTreeSet::new();
+    let quote = '"';
+    let opening = format!("fresh_store({quote}");
+    for (at, _) in source.match_indices(&opening) {
+        let rest = &source[at + opening.len()..];
+        let Some(end) = rest.find(quote) else {
+            continue;
+        };
+        let name = &rest[..end];
+        assert!(
+            seen.insert(name.to_string()),
+            "fresh_store({name:?}) is named twice"
+        );
+    }
+    assert!(seen.len() > 20, "{} names read", seen.len());
+}
+
 fn fresh_store(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("objectflow-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -6803,7 +6827,8 @@ fn a_store_on_postgresql_replaced_in_place_is_served_no_more() {
         ))
         .expect("the store's database");
     let url = format!("{} dbname={name}", kept.join(" "));
-    let dir = fresh_store("replaced")
+    // a directory of its own, never the test on a file named alike
+    let dir = fresh_store("pg-replaced")
         .parent()
         .expect("a directory")
         .to_path_buf();
@@ -7002,7 +7027,8 @@ fn a_store_on_postgresql_restored_in_place_is_refused_until_marked() {
         ))
         .expect("the store's database");
     let url = format!("{} dbname={name}", kept.join(" "));
-    let dir = fresh_store("restored")
+    // a directory of its own, never the test on a file named alike
+    let dir = fresh_store("pg-restored")
         .parent()
         .expect("a directory")
         .to_path_buf();

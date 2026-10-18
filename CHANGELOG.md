@@ -6,6 +6,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Added
 
+- A query's filter names parameters, `:name`, whose values its body's `params` gives, each read as the member it is compared with is declared: a date, an instant, an object's id or a text stated as data, never written into the filter, where a day could be stated only as an offset from the engine's clock and every caller escaped its values (issue #24, ADR-0218).
 - `only_via: [any]`: a transition taken only as another transition's consequence, by a `create`, a `call` or a cascade from any transition of any type, and refused to a direct request, so a module imported states it without naming the modules that import it, which it cannot (issue #25, ADR-0217).
 - `/health` answers `503 store_stalled` when the store has not answered its read within 5 s, as when a PostgreSQL database stops answering without closing its connections, where `/health` waited on it with every other request and said nothing (the durability area on PostgreSQL, finding 3).
 - An upgrade runs on a store on PostgreSQL as on a file: a release started on a PostgreSQL store at an earlier release serves `/v1/upgrade` alone until it runs, where it refused the store at its start, and the upgrade holds the store's lock, refused while another service writes it (the durability area on PostgreSQL, finding 6; ADR-0214 decision 3).

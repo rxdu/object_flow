@@ -733,7 +733,180 @@ pub fn query(
     order: &[String],
     fields: Option<&[String]>,
 ) -> Result<QueryPage, NotRun> {
-    query_page(world, type_, filter, order, fields, None, usize::MAX)
+    query_page(world, type_, filter, None, order, fields, None, usize::MAX)
+}
+
+/// A read's parameters, by name, as its request gives them (ADR-0218).
+pub type Params = serde_json::Map<String, serde_json::Value>;
+
+/// What a parameter is read as: a member's declared type, or the queried
+/// type's state.
+enum Reads {
+    Declared(Declared),
+    State(String),
+}
+
+/// What a filter's operand reads, where it says how to read a value
+/// compared with it: a stored member of the type, by its bare name or
+/// through `this`, or one reference away, an object's `id` and
+/// `created_at`, and the state; and whether it holds a set.
+fn reads_as(lib: &Library, t: &Type, e: &Expr) -> Option<(Reads, bool)> {
+    fn of(t: &Type, m: &str) -> Option<(Reads, bool)> {
+        match m {
+            "state" => Some((Reads::State(t.name.clone()), false)),
+            "id" => Some((Reads::Declared(Declared::Scalar("string".into())), false)),
+            "created_at" => Some((Reads::Declared(Declared::Scalar("timestamp".into())), false)),
+            _ => t
+                .attribute(m)
+                .map(|a| (Reads::Declared(a.declared.clone()), a.many)),
+        }
+    }
+    match e {
+        Expr::Name(m) => of(t, m),
+        Expr::Path(base, m) => match &**base {
+            Expr::Name(b) if b == "this" => of(t, m),
+            Expr::Name(r) => match t.attribute(r).map(|a| &a.declared) {
+                Some(Declared::Reference(target)) => of(lib.type_(target)?, m),
+                _ => None,
+            },
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// A read's filter with its parameters bound: each `:name` replaced by the
+/// value `params` gives it, read as the member it is compared with is
+/// declared, as a request's input of that type is read, so a date, an
+/// instant, an amount or an object's id is stated as data, never written
+/// into the filter's text, and no caller escapes a value or states a day
+/// as an offset from the engine's clock (issue #24, ADR-0218). A parameter
+/// compared with nothing that says how to read it, one `params` does not
+/// give, a value that is not of its member's type, and one given and never
+/// named are each refused, naming the parameter and never its value.
+pub fn bound(lib: &Library, t: &Type, e: Expr, params: &Params) -> Result<Expr, String> {
+    fn contains_param(e: &Expr) -> bool {
+        matches!(e, Expr::Param(_)) || e.children().into_iter().any(contains_param)
+    }
+    fn value(
+        lib: &Library,
+        n: &str,
+        reads: &Reads,
+        params: &Params,
+        used: &mut BTreeSet<String>,
+    ) -> Result<Expr, String> {
+        let Some(given) = params.get(n) else {
+            return Err(format!(
+                "it names the parameter :{n}, which params does not give"
+            ));
+        };
+        used.insert(n.to_string());
+        let v = match reads {
+            // its member's type named, never its value, which may be personal
+            Reads::Declared(declared) => {
+                crate::wire::decode(given, declared, false, lib).map_err(|_| {
+                    let ty = match declared {
+                        Declared::Scalar(ty) => format!("a {ty}"),
+                        Declared::Reference(target) => format!("the id of a {target}"),
+                    };
+                    format!("the parameter :{n} is not a value of its member's type, {ty}")
+                })?
+            }
+            Reads::State(tn) => {
+                let named = given.as_str().unwrap_or_default();
+                let name = named.strip_prefix(&format!("{tn}.")).unwrap_or(named);
+                if lib.type_(tn).and_then(|t| t.state(name)).is_none() {
+                    return Err(format!("the parameter :{n} names no state of {tn}"));
+                }
+                Value::State {
+                    type_: tn.clone(),
+                    name: name.to_string(),
+                }
+            }
+        };
+        Ok(Expr::Lit(Box::new(v)))
+    }
+    fn go(
+        lib: &Library,
+        t: &Type,
+        e: Expr,
+        params: &Params,
+        used: &mut BTreeSet<String>,
+    ) -> Result<Expr, String> {
+        let side = |other: &Expr, this: Expr, used: &mut BTreeSet<String>| match (
+            &this,
+            reads_as(lib, t, other),
+        ) {
+            (Expr::Param(n), Some((reads, _))) => value(lib, n, &reads, params, used),
+            _ => go(lib, t, this, params, used),
+        };
+        match e {
+            Expr::Bin(op, a, b)
+                if matches!(
+                    op,
+                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+                ) =>
+            {
+                let a2 = side(&b, *a.clone(), used)?;
+                let b2 = side(&a, *b, used)?;
+                Ok(Expr::Bin(op, Box::new(a2), Box::new(b2)))
+            }
+            Expr::Bin(op, a, b) => Ok(Expr::Bin(
+                op,
+                Box::new(go(lib, t, *a, params, used)?),
+                Box::new(go(lib, t, *b, params, used)?),
+            )),
+            // a member among parameters, each read as the member is, or a
+            // parameter among a set's elements, read as an element
+            Expr::In(x, set) => match (*x, *set) {
+                (member, Expr::Set(items)) if reads_as(lib, t, &member).is_some() => {
+                    let reads = reads_as(lib, t, &member).map(|(r, _)| r);
+                    let mut out = Vec::new();
+                    for item in items {
+                        out.push(match (&item, &reads) {
+                            (Expr::Param(n), Some(r)) => value(lib, n, r, params, used)?,
+                            _ => go(lib, t, item, params, used)?,
+                        });
+                    }
+                    Ok(Expr::In(Box::new(member), Box::new(Expr::Set(out))))
+                }
+                (Expr::Param(n), member) if reads_as(lib, t, &member).is_some_and(|(_, many)| many) => {
+                    let (reads, _) = reads_as(lib, t, &member).ok_or_else(String::new)?;
+                    Ok(Expr::In(
+                        Box::new(value(lib, &n, &reads, params, used)?),
+                        Box::new(member),
+                    ))
+                }
+                (x, set) => Ok(Expr::In(
+                    Box::new(go(lib, t, x, params, used)?),
+                    Box::new(go(lib, t, set, params, used)?),
+                )),
+            },
+            Expr::Not(x) => Ok(Expr::Not(Box::new(go(lib, t, *x, params, used)?))),
+            Expr::Neg(x) => Ok(Expr::Neg(Box::new(go(lib, t, *x, params, used)?))),
+            Expr::IsNull(x, negated) => Ok(Expr::IsNull(Box::new(go(lib, t, *x, params, used)?), negated)),
+            Expr::If(c, a, b) => Ok(Expr::If(
+                Box::new(go(lib, t, *c, params, used)?),
+                Box::new(go(lib, t, *a, params, used)?),
+                Box::new(go(lib, t, *b, params, used)?),
+            )),
+            Expr::Param(n) => Err(format!(
+                "the parameter :{n} is compared with no member that says how to read it; compare it with one, as day >= :{n}"
+            )),
+            other if contains_param(&other) => Err(
+                "a parameter is read only compared with a member of the type, or one reference away, or among a set's elements".to_string(),
+            ),
+            other => Ok(other),
+        }
+    }
+    let mut used = BTreeSet::new();
+    let out = go(lib, t, e, params, &mut used)?;
+    if let Some(unused) = params.keys().find(|k| !used.contains(*k)) {
+        return Err(format!(
+            "params gives :{unused}, which the filter never names"
+        ));
+    }
+    Ok(out)
 }
 
 /// How many objects of a type a page in creation order reads at a time, at
@@ -782,7 +955,8 @@ pub fn query_scans(
             return true;
         }
     }
-    let parsed = match filter.map(crate::expr::parse) {
+    // read as a query reads it, its parameters among it (ADR-0218)
+    let parsed = match filter.map(crate::expr::parse_filter) {
         Some(Ok(e)) => Some(e),
         Some(Err(_)) => return false,
         None => None,
@@ -921,8 +1095,11 @@ pub fn personal_members(lib: &Library) -> BTreeSet<String> {
 /// (ADR-0201 decision 4, ADR-0202 decision 3, superseded).
 pub fn query_reads_personal(lib: &Library, filter: Option<&str>, order: &[String]) -> bool {
     let personal = personal_members(lib);
+    // parsed as a query parses it, its parameters among it, so a filter
+    // naming one is judged by the members it reads, where one that did not
+    // parse read as reading nothing personal (ADR-0218)
     let filtered = filter
-        .and_then(|f| crate::expr::parse(f).ok())
+        .and_then(|f| crate::expr::parse_filter(f).ok())
         .is_some_and(|e| crate::eval::reads_any(&e, &personal));
     let ordered = order.iter().any(|k| {
         let key = k.split_whitespace().next().unwrap_or_default();
@@ -1016,18 +1193,24 @@ fn aggregates(lib: &Library, type_: &str, e: &Expr, seen: &mut BTreeSet<String>)
 /// the cursor names in the query's order, which is the next page's place
 /// whatever was written since; the cursor of a further page, none where
 /// this is the last; a cursor of another read refused `malformed_cursor`.
+#[allow(clippy::too_many_arguments)]
 pub fn query_page(
     world: &World<'_>,
     type_: &str,
     filter: Option<&str>,
+    params: Option<&Params>,
     order: &[String],
     fields: Option<&[String]>,
     after: Option<&str>,
     limit: usize,
 ) -> Result<QueryPage, NotRun> {
+    // the parameters too, so a cursor continues only a read given the same
     let read = format!(
-        "query\u{1f}{type_}\u{1f}{}\u{1f}{}\u{1f}{}",
+        "query\u{1f}{type_}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
         filter.unwrap_or_default(),
+        params
+            .map(|p| serde_json::Value::Object(p.clone()).to_string())
+            .unwrap_or_default(),
         order.join(","),
         fields.map(|f| f.join(",")).unwrap_or_default()
     );
@@ -1057,7 +1240,23 @@ pub fn query_page(
             None => return refuse("malformed_cursor"),
         },
     };
-    let filter = match filter.map(crate::expr::parse) {
+    if filter.is_none() && params.is_some_and(|p| !p.is_empty()) {
+        return malformed(
+            "params gives parameters, and there is no filter to name them".to_string(),
+        );
+    }
+    let empty = Params::new();
+    let parsed = filter.map(|f| {
+        crate::expr::parse_filter(f)
+            .map_err(|e| format!("it does not parse: {e}"))
+            .and_then(|e| bound(world.lib, t, e, params.unwrap_or(&empty)))
+    });
+    let filter = match parsed {
+        Some(Err(why)) => return malformed(why),
+        Some(Ok(e)) => Some(Ok::<Expr, String>(e)),
+        None => None,
+    };
+    let filter = match filter {
         None => None,
         Some(Ok(e)) if misread_reference(world.lib, t, &e) => {
             return malformed(
@@ -1091,7 +1290,7 @@ pub fn query_page(
             return malformed("it holds a literal past what its type holds".to_string());
         }
         Some(Ok(e)) => Some(e),
-        Some(Err(e)) => return malformed(format!("it does not parse: {e}")),
+        Some(Err(e)) => return malformed(e),
     };
     let mut keys = Vec::new();
     for k in order {
@@ -1899,6 +2098,210 @@ mod tests {
     use crate::store::Store;
     use serde_json::json;
 
+    /// A filter's parameters are stated as data, each read as the member it
+    /// meets is declared: a day, an instant, an object's id, a text holding
+    /// quotes and a state, alone and among a set's elements, so a window of
+    /// days answers the same whatever the engine's clock says and no caller
+    /// writes a value into the filter's text, where the only way to state a
+    /// day was an offset from the engine's clock (issue #24, ADR-0218); a
+    /// parameter missing, unused, compared with nothing that says how to
+    /// read it, or not of its member's type is refused, and one on a
+    /// personal member is personal still.
+    #[test]
+    fn a_filters_parameters_are_read_as_their_members() {
+        const DESK: &str = r#"
+module: desk
+categories: [live, closed]
+types:
+  Site:
+    attributes:
+      code: { type: string }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [code] }
+  Booking:
+    attributes:
+      day: { type: date, indexed: true }
+      at: { type: timestamp, indexed: true }
+      site: { reference: Site }
+      note: { type: string }
+      guest: { type: string, optional: true, personal: true }
+    states:
+      BOOKED: { category: live }
+      RELEASED: { category: closed, final: true }
+    transitions:
+      book: { kind: initial, to: BOOKED, required_inputs: [day, at, site, note], optional_inputs: [guest] }
+      release: { kind: external, from: BOOKED, to: RELEASED }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+        let lib = Library::load(&[("desk.yaml".into(), DESK.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask =
+            |s: &mut Store, tn: &str, xn: &str, id: Option<&str>, inputs: serde_json::Value| {
+                let r = Request {
+                    transition: xn.into(),
+                    actor: OPERATOR.into(),
+                    object_id: id.map(str::to_string),
+                    type_: id.is_none().then(|| tn.to_string()),
+                    inputs: inputs
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect(),
+                    occurred_at: None,
+                    propose: false,
+                    expires_at: None,
+                    expected_version: None,
+                    target_version: None,
+                    principal: None,
+                    idempotency_key: None,
+                    context: None,
+                };
+                match request(s, &r).unwrap().unwrap() {
+                    crate::verdict::Verdict::Satisfied { object_id, .. } => object_id,
+                    other => panic!("{other:?}"),
+                }
+            };
+        let north = ask(&mut s, "Site", "add", None, json!({"code": "N"}));
+        let south = ask(&mut s, "Site", "add", None, json!({"code": "S"}));
+        let mut made = Vec::new();
+        for (day, site, note) in [
+            ("2026-11-02", &north, "plain"),
+            (
+                "2026-11-09",
+                &north,
+                "a \"quoted\" note \\ with a backslash",
+            ),
+            ("2026-11-16", &south, "plain"),
+        ] {
+            made.push(ask(
+                &mut s,
+                "Booking",
+                "book",
+                None,
+                json!({"day": day, "at": format!("{day}T09:00:00Z"), "site": site, "note": note, "guest": "Ana"}),
+            ));
+        }
+        let ask_page = |s: &Store, filter: &str, params: serde_json::Value| {
+            let w = s.snapshot().unwrap();
+            let p = params.as_object().cloned();
+            query_page(
+                &w,
+                "Booking",
+                Some(filter),
+                p.as_ref(),
+                &[],
+                None,
+                None,
+                100,
+            )
+            .unwrap()
+        };
+        let ids = |page: QueryPage| -> Vec<String> {
+            assert!(
+                page.refused.is_none(),
+                "{:?} {:?}",
+                page.refused,
+                page.reason
+            );
+            page.items.into_iter().map(|i| i.id).collect()
+        };
+        let window = json!({"from": "2026-11-09", "to": "2026-11-22"});
+        assert_eq!(
+            ids(ask_page(&s, "day >= :from and day <= :to", window.clone())),
+            made[1..].to_vec()
+        );
+        // the same answer whatever the engine's clock says
+        s.now += 400 * 86_400;
+        assert_eq!(
+            ids(ask_page(&s, "day >= :from and day <= :to", window)),
+            made[1..].to_vec()
+        );
+        assert_eq!(
+            ids(ask_page(
+                &s,
+                "at <= :t",
+                json!({"t": "2026-11-09T12:00:00Z"})
+            )),
+            made[..2].to_vec()
+        );
+        assert_eq!(
+            ids(ask_page(&s, "site == :s", json!({"s": south}))),
+            made[2..].to_vec()
+        );
+        assert_eq!(
+            ids(ask_page(
+                &s,
+                "note == :n",
+                json!({"n": "a \"quoted\" note \\ with a backslash"})
+            )),
+            made[1..2].to_vec()
+        );
+        assert_eq!(
+            ids(ask_page(&s, "state == :st", json!({"st": "BOOKED"}))),
+            made.clone()
+        );
+        assert_eq!(
+            ids(ask_page(
+                &s,
+                "day in {:a, :b}",
+                json!({"a": "2026-11-02", "b": "2026-11-16"})
+            )),
+            vec![made[0].clone(), made[2].clone()]
+        );
+        let refused = |filter: &str, params: serde_json::Value, why: &str| {
+            let page = ask_page(&s, filter, params);
+            assert_eq!(
+                page.refused.as_deref(),
+                Some("malformed_filter"),
+                "{filter}"
+            );
+            let reason = page.reason.unwrap_or_default();
+            assert!(reason.contains(why), "{filter}: {reason}");
+            assert!(!reason.contains("2026"), "a value said: {reason}");
+        };
+        refused("day >= :from", json!({}), "params does not give");
+        refused(
+            "day >= :from",
+            json!({"from": "2026-11-09", "to": "2026-11-22"}),
+            ":to, which the filter never names",
+        );
+        refused(
+            ":a == :b",
+            json!({"a": 1, "b": 1}),
+            "compared with no member",
+        );
+        refused(
+            "day >= :from",
+            json!({"from": "2026-13-45"}),
+            "not a value of its member's type",
+        );
+        refused(
+            "count(x in {1} where x > :n) > 0",
+            json!({"n": 1}),
+            "a parameter is read only",
+        );
+        let w = s.snapshot().unwrap();
+        let page = query_page(
+            &w,
+            "Booking",
+            None,
+            json!({"x": 1}).as_object(),
+            &[],
+            None,
+            None,
+            10,
+        )
+        .unwrap();
+        assert_eq!(page.refused.as_deref(), Some("malformed_filter"));
+        drop(w);
+        // a parameter on a personal member is personal still
+        assert!(query_reads_personal(&s.lib, Some("guest == :g"), &[]));
+        assert!(!query_reads_personal(&s.lib, Some("day == :d"), &[]));
+    }
+
     /// One object's rules reading its transitions, its attempts, its
     /// declaration version or an observation collection read each by an
     /// index in a `get`, an `availability` and a `check`, never the whole
@@ -2180,7 +2583,17 @@ mod tests {
         let w = s.snapshot().unwrap();
         let before = crate::world::records_read();
         let order = ["entered_at(state)".to_string()];
-        let page = query_page(&w, "Job", Some("state == OPEN"), &order, None, None, 5).unwrap();
+        let page = query_page(
+            &w,
+            "Job",
+            Some("state == OPEN"),
+            None,
+            &order,
+            None,
+            None,
+            5,
+        )
+        .unwrap();
         assert_eq!(page.items.len(), 5);
         let read = crate::world::records_read() - before;
         assert!(read <= 20, "a page of five read {read} records");

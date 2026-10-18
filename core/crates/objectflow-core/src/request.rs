@@ -5326,9 +5326,13 @@ impl Walk<'_> {
         here: &(String, Vec<Hop>),
     ) -> Result<Denotes, ()> {
         Ok(match e {
-            Expr::Num(_) | Expr::Str(_) | Expr::Bool(_) | Expr::Dur(..) | Expr::Money(..) => {
-                Denotes::Nothing
-            }
+            Expr::Num(_)
+            | Expr::Str(_)
+            | Expr::Bool(_)
+            | Expr::Dur(..)
+            | Expr::Money(..)
+            | Expr::Param(_)
+            | Expr::Lit(_) => Denotes::Nothing,
             Expr::Name(n) => match env.get(n) {
                 Some(d) => d.clone(),
                 None if n == "this" => Denotes::Objects(here.0.clone(), here.1.clone()),
@@ -5567,7 +5571,13 @@ fn reads_only_this(lib: &Library, t: &Type, e: &Expr, seen: &mut BTreeSet<String
             || ["human", "agent", "service"].contains(&n)
     };
     match e {
-        Expr::Num(_) | Expr::Str(_) | Expr::Bool(_) | Expr::Dur(..) | Expr::Money(..) => true,
+        Expr::Num(_)
+        | Expr::Str(_)
+        | Expr::Bool(_)
+        | Expr::Dur(..)
+        | Expr::Money(..)
+        | Expr::Param(_)
+        | Expr::Lit(_) => true,
         Expr::Name(n) => name(n, seen),
         Expr::Path(base, m) => match base.as_ref() {
             Expr::Name(b) if b == "this" => name(m, seen),
@@ -5920,6 +5930,7 @@ pub(crate) fn names_read(e: &Expr, out: &mut BTreeSet<String>) {
         Expr::Name(n) => {
             out.insert(n.clone());
         }
+        Expr::Param(_) | Expr::Lit(_) => {}
         Expr::Path(b, _) => names_read(b, out),
         Expr::Agg {
             var,
@@ -13362,7 +13373,7 @@ types:
         let filter = Some("n - (n / 100) * 100 == 7");
         let whole: Vec<String> = {
             let w = s.snapshot().unwrap();
-            crate::reads::query_page(&w, "Asset", filter, &[], None, None, 1000)
+            crate::reads::query_page(&w, "Asset", filter, None, &[], None, None, 1000)
                 .unwrap()
                 .items
                 .into_iter()
@@ -13375,9 +13386,17 @@ types:
         let mut deepest = 0;
         loop {
             let w = s.snapshot().unwrap();
-            let page =
-                crate::reads::query_page(&w, "Asset", filter, &[], None, cursor.as_deref(), 7)
-                    .unwrap();
+            let page = crate::reads::query_page(
+                &w,
+                "Asset",
+                filter,
+                None,
+                &[],
+                None,
+                cursor.as_deref(),
+                7,
+            )
+            .unwrap();
             assert!(page.refused.is_none(), "{:?}", page.refused);
             paged.extend(page.items.into_iter().map(|i| i.id));
             deepest = deepest.max(w.held_count());
@@ -14207,7 +14226,8 @@ types:
         // a query asking for the text
         let fields = ["text".to_string()];
         let first =
-            crate::reads::query_page(&w, "Note", None, &[], Some(&fields), None, 1000).unwrap();
+            crate::reads::query_page(&w, "Note", None, None, &[], Some(&fields), None, 1000)
+                .unwrap();
         assert!(
             first.items.len() > 50 && first.items.len() < 200,
             "{} items",
@@ -14218,6 +14238,7 @@ types:
         let rest = crate::reads::query_page(
             &w,
             "Note",
+            None,
             None,
             &[],
             Some(&fields),

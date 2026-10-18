@@ -942,7 +942,9 @@ fn map_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
         | Expr::Bool(_)
         | Expr::Dur(..)
         | Expr::Money(..)
-        | Expr::Name(_) => e.clone(),
+        | Expr::Name(_)
+        | Expr::Param(_)
+        | Expr::Lit(_) => e.clone(),
         Expr::Path(base, m) => Expr::Path(b(base), m.clone()),
         Expr::Call(func, args) => {
             let func = b(func);
@@ -1136,6 +1138,7 @@ fn normalised(e: &Expr) -> Canon {
             Canon::Leaf(format!("name:{m}"))
         }
         Expr::Name(n) => Canon::Leaf(format!("name:{n}")),
+        Expr::Param(_) | Expr::Lit(_) => Canon::Leaf(format!("{e:?}")),
         Expr::Bin(BinOp::And, ..) => Canon::Set(
             "and".into(),
             conjuncts(e).into_iter().map(normalised).collect(),
@@ -3370,6 +3373,8 @@ impl Typing<'_> {
             })),
             Expr::Str(_) => Some(Ty::Str),
             Expr::Bool(_) => Some(Ty::Bool),
+            // a read's filter's, never a flow's
+            Expr::Param(_) | Expr::Lit(_) => None,
             // an amount in a currency the engine has no minor unit for, or
             // with more places than its minor unit, is one it cannot hold,
             // where it was rounded (the audit's values L1 and L6)
@@ -5704,6 +5709,7 @@ fn scan_errors(tn: &str, t: &Value, library: &Obj) -> Found {
 /// An expression's direct subexpressions, as `flowexpr`'s tuples hold them.
 pub fn children(e: &Expr) -> Vec<&Expr> {
     match e {
+        Expr::Param(_) | Expr::Lit(_) => Vec::new(),
         Expr::Num(_)
         | Expr::Str(_)
         | Expr::Bool(_)

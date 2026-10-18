@@ -107,6 +107,12 @@ pub enum Expr {
     In(Box<Expr>, Box<Expr>),
     Bin(BinOp, Box<Expr>, Box<Expr>),
     If(Box<Expr>, Box<Expr>, Box<Expr>),
+    /// `:name`, a read's filter's parameter, which only [`parse_filter`]
+    /// reads, bound to its value before the filter is used (ADR-0218).
+    Param(String),
+    /// A value written into the tree, a parameter bound: what no literal
+    /// writes, a date or an instant among them (ADR-0218).
+    Lit(Box<crate::value::Value>),
 }
 
 impl Expr {
@@ -118,7 +124,9 @@ impl Expr {
             | Expr::Bool(_)
             | Expr::Dur(..)
             | Expr::Money(..)
-            | Expr::Name(_) => Vec::new(),
+            | Expr::Name(_)
+            | Expr::Param(_)
+            | Expr::Lit(_) => Vec::new(),
             Expr::Path(b, _) => vec![b.as_ref()],
             Expr::Call(f, args) => std::iter::once(f.as_ref()).chain(args).collect(),
             Expr::Agg {
@@ -353,6 +361,8 @@ struct Parser {
     i: usize,
     /// How deeply the parse has nested, bounded by `MAX_NESTING`.
     depth: usize,
+    /// Whether `:name` is a parameter, a read's filter's alone (ADR-0218).
+    params: bool,
 }
 
 /// The most an expression's parse may nest, parentheses, `not`, `-`,
@@ -379,7 +389,9 @@ fn depth(e: &Expr) -> usize {
             | Expr::Bool(_)
             | Expr::Dur(..)
             | Expr::Money(..)
-            | Expr::Name(_) => {}
+            | Expr::Name(_)
+            | Expr::Param(_)
+            | Expr::Lit(_) => {}
             Expr::Path(b, _)
             | Expr::Not(b)
             | Expr::Neg(b)
@@ -662,6 +674,10 @@ impl Parser {
 
     fn primary(&mut self) -> Parsed<Expr> {
         let t = self.peek(0).clone();
+        if self.params && t.kind == Kind::Op && t.text == ":" && self.peek(1).kind == Kind::Name {
+            self.take();
+            return Ok(Expr::Param(self.take().text));
+        }
         match t.kind {
             Kind::Num => {
                 self.take();
@@ -865,6 +881,8 @@ impl Expr {
             Expr::Dur(n, u) => json!(["dur", n.json(), u]),
             Expr::Money(c, a) => json!(["money", c, a]),
             Expr::Name(n) => json!(["name", n]),
+            Expr::Param(n) => json!(["param", n]),
+            Expr::Lit(v) => json!(["lit", crate::wire::encode(v)]),
             Expr::Path(b, m) => json!(["path", b.tree(), m]),
             Expr::Call(f, args) => {
                 json!([
@@ -918,11 +936,22 @@ impl Expr {
 
 /// The tree of an expression written as text.
 pub fn parse(text: &str) -> Result<Expr, ParseError> {
+    parsed(text, false)
+}
+
+/// The tree of a read's filter, which may name parameters, `:name`, each
+/// bound to a value the request gives beside it (ADR-0218).
+pub fn parse_filter(text: &str) -> Result<Expr, ParseError> {
+    parsed(text, true)
+}
+
+fn parsed(text: &str, params: bool) -> Result<Expr, ParseError> {
     let mut p = Parser {
         text: text.to_string(),
         toks: tokenize(text)?,
         i: 0,
         depth: 0,
+        params,
     };
     let node = p.expr()?;
     if p.peek(0).kind != Kind::End {

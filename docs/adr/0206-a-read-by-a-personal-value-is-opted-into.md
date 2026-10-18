@@ -3,6 +3,7 @@
 - **Status:** **Decided** 2026-10-14 on the author's standing instruction ("go with your recommendations"), the design ADR-0204 decision 9.3 asked for, within ADR-0205 decision 11's scope
 - **Date:** 2026-10-14
 - **Supersedes:** ADR-0201 decision 4 and ADR-0202 decision 3 (read guards by the actor's kind)
+- **Refined by:** ADR-0218 — decision 2's guard parses a query's filter with its parameters, so a parameter on a personal member is personal.
 - **Refines:** ADR-0204 decision 9.3; ADR-0205 decision 11
 - **Relates to:** PRD T5, N7; `design/audit/personal-data.md` §2.3 and §2.6; `guides/wire.md`, `guides/errors.md`, `guides/integrate.md`, `guides/agents.md`
 

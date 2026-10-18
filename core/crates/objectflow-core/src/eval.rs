@@ -590,6 +590,12 @@ impl<'a> Evaluator<'a> {
                 None => return not_run(format!("the number {t}")),
             },
             Expr::Str(s) => Term::Value(Value::Text(s.clone())),
+            // a read's filter's parameter, bound before it is evaluated; its
+            // refusal made out of this frame, which every level of an
+            // expression's recursion holds (a derived value's hops ran out
+            // of stack on PostgreSQL with it inline)
+            Expr::Lit(v) => Term::Value((**v).clone()),
+            Expr::Param(n) => return Err(unbound(n)),
             Expr::Bool(b) => Term::Value(Value::Bool(*b)),
             Expr::Dur(n, unit) => {
                 let Some(size) = unit_seconds(unit) else {
@@ -1892,6 +1898,14 @@ impl<'a> Evaluator<'a> {
         self.consult(format!("{written}({})", bindings.join(", ")), &value);
         Ok(value)
     }
+}
+
+/// A parameter no read bound, which `term` refuses, made apart from its
+/// frame.
+#[cold]
+#[inline(never)]
+fn unbound(n: &str) -> NotRun {
+    NotRun::Unsupported(format!("the parameter :{n}, which nothing bound"))
 }
 
 /// What a consulted reference writes for a value an expression reads from

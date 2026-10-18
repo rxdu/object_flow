@@ -128,6 +128,7 @@
       "actor",
       "type",
       "filter",
+      "params",
       "order",
       "cursor",
       "fields",

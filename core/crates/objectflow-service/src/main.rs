@@ -1674,6 +1674,7 @@ const TAKES: &[(&str, &[&str])] = &[
             "actor",
             "type",
             "filter",
+            "params",
             "order",
             "cursor",
             "fields",
@@ -4241,10 +4242,22 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let (_slot, mut r) = heavy_reading(&shared, pool, actor_id(&body)?)?;
         let s = r.store()?;
         let world = s.snapshot()?;
+        // a filter's parameters, an object of values by name, bound as the
+        // members they meet are read (issue #24, ADR-0218)
+        let params = match body.get("params") {
+            None | Some(J::Null) => None,
+            Some(J::Object(p)) => Some(p),
+            Some(_) => {
+                return Err(Fault::Bad(
+                    "params is an object of the filter's parameters, each by its name".to_string(),
+                ));
+            }
+        };
         let page = reads::query_page(
             &world,
             type_,
             text(&body, "filter")?,
+            params,
             &order,
             fields.as_deref(),
             text(&body, "cursor")?,

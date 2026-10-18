@@ -202,6 +202,7 @@ impl<'l> OptionalReads<'l> {
     /// `T[]`; noting its optional reads.
     pub fn walk(&mut self, e: &Expr, env: &Env) -> Option<String> {
         match e {
+            Expr::Param(_) | Expr::Lit(_) => None,
             Expr::IsNull(inner, _) => {
                 if let Some(k) = OptionalReads::key(inner) {
                     self.tested.insert(k);
