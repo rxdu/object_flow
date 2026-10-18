@@ -4,19 +4,20 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Added
+
+- `/health` answers `503 store_stalled` when the store has not answered its read within 5 s, as when a PostgreSQL database stops answering without closing its connections, where `/health` waited on it with every other request and said nothing (the durability area on PostgreSQL, finding 3).
+- An upgrade runs on a store on PostgreSQL as on a file: a release started on a PostgreSQL store at an earlier release serves `/v1/upgrade` alone until it runs, where it refused the store at its start, and the upgrade holds the store's lock, refused while another service writes it (the durability area on PostgreSQL, finding 6; ADR-0214 decision 3).
+
 ### Changed, and may refuse what 0.3.0 accepted
 
 - `/sandbox/load` checks the flow first, its modules without their examples, and answers `{"loaded": false, "findings": […]}` for one the checker finds wrong, where it installed it and the first request reaching what the checker names faulted `500`; `"unchecked": true` installs it as written, on the core's service and the Flow Studio's alike (issue #26).
 
 ### Fixed
 
+- A type's own member named `type`, `recorded_by_kind`, `actor_id`, `intervals`, `transitions`, `attempts` or `labels`, members an object answers by a path, is read as the type's, where the object's shadowed it in every expression and a guard on a counter named `attempts` was silently false; the checkers note the hidden member, `hides_member` (issue #22, ADR-0216).
 - On PostgreSQL, a read is answered `503 read_timeout` at its deadline by a database that stops answering with its connections open, frozen or stalled on its disk, where it waited with the database past its deadline, as did every new connection's making (the durability area on PostgreSQL, finding 3; ADR-0215). The facade calls `tokio-postgres` itself, which the `postgres` crate wrapped, and the `postgres` crate leaves the tree; writes still wait for the database.
 - On PostgreSQL, an erasure's rewritten payloads keep their keys in the order the engine wrote them, where they came back in `jsonb`'s order, the shortest key first, on `/v1/history` and every read of the log; and an erasure writes each row it rewrites once, where it wrote an event once for each personal value in it, every version holding the rest until the housekeeping (the personal-data area on PostgreSQL, records F6).
-
-### Added
-
-- `/health` answers `503 store_stalled` when the store has not answered its read within 5 s, as when a PostgreSQL database stops answering without closing its connections, where `/health` waited on it with every other request and said nothing (the durability area on PostgreSQL, finding 3).
-- An upgrade runs on a store on PostgreSQL as on a file: a release started on a PostgreSQL store at an earlier release serves `/v1/upgrade` alone until it runs, where it refused the store at its start, and the upgrade holds the store's lock, refused while another service writes it (the durability area on PostgreSQL, finding 6; ADR-0214 decision 3).
 
 ## 0.3.0, 2026-10-18
 

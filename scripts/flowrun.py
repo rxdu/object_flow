@@ -52,6 +52,12 @@ CLOCK_START = "2026-01-01T00:00:00Z"            # flow-format.md §11.3
 ACTOR_KINDS = ("human", "agent", "service")
 OPERATOR = "operator"                           # the alias, and the identity, of the store's operator (ADR-0126)
 BUCKETS = {"day", "week", "month", "quarter", "year"}
+# the members every object has, each read by its bare name as `state` is, which no type may declare (the model's
+# check 33), and those an object answers by a path alone, added after format 1, which yield to a type's own member of
+# the name, so a member the engine adds never changes what a flow's expression reads (issue #22, ADR-0216); the
+# core's `eval.rs` holds the same two lists, and the checker reads these
+OBJECT_MEMBERS = ("id", "open", "created_at", "created_by_kind", "recorded_from", "declaration_version")
+YIELDING_MEMBERS = ("type", "recorded_by_kind", "actor_id", "intervals", "transitions", "attempts", "labels")
 ROW_AGGREGATES = {"count", "sum", "min", "max", "avg", "median", "percentile"}
 AVERAGE_SCALE = 6                               # an average of integers is a decimal to six places (ADR-0139)
 # each currency's minor unit, the scale its amounts are rounded to (ISO 4217; declaration-syntax.md §8.3)
@@ -779,6 +785,11 @@ class Store:
         return set(formula(self.kinds, self.enums, owner, spec).get("dimensions") or {}) | {"version", "actor_kind"}
 
 
+
+def declares_member(t, m):
+    """Whether a type declares a member of the name, which comes before a yielding member (ADR-0216)."""
+    return m in (t.get("attributes") or {}) or m in (t.get("derived_attributes") or {}) or m in (t.get("observations") or {})
+
 class Evaluator:
     """An expression's value over the store, for one object and one request (§8, §9.2)."""
 
@@ -885,26 +896,28 @@ class Evaluator:
             raise NotRunnable(f"a member `{m}` of a value that is not an object")
         o = self.s.objects[base]
         t = self.s.kinds.get(o.type) or {}
+        # a member added after format 1 that the type declares itself is the type's (ADR-0216)
+        builtin = m not in YIELDING_MEMBERS or not declares_member(t, m)
         if m == "id":
             return o.id
-        if m == "type":
+        if m == "type" and builtin:
             return ("typeref", o.type)
-        if m == "intervals":
+        if m == "intervals" and builtin:
             return self.intervals(o, "state")
-        if m == "transitions":
+        if m == "transitions" and builtin:
             return tuple(Row(e) for e in self.s.events if e["object"] == o.id)
-        if m == "actor_id":
+        if m == "actor_id" and builtin:
             marked = self.s.actor_attr(o.type)
             return o.attrs.get(marked[0], ABSENT) if marked else ABSENT
-        if m == "attempts":
+        if m == "attempts" and builtin:
             return tuple(Row(a) for a in self.s.attempts if a["object"] == o.id)
-        if m == "labels":
+        if m == "labels" and builtin:
             raise NotRunnable(f"an object's `{m}`")
         if m == "state":
             return ("state", o.type, o.state)
         if m == "created_at":
             return o.created_at
-        if m in ("created_by_kind", "recorded_by_kind"):
+        if m == "created_by_kind" or (m == "recorded_by_kind" and builtin):
             return o.created_by_kind
         if m == "recorded_from":
             return o.created_at             # an object the example created has its whole record

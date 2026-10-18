@@ -432,6 +432,31 @@ pub fn notices(doc: &Value) -> Found {
                 ));
             }
         }
+        // a member added after format 1 that the type declares itself: its
+        // own comes first, and the object's is not read there (ADR-0216)
+        let mut own: Vec<String> = obj(t, "attributes").keys().cloned().collect();
+        own.extend(keys(t, "derived_attributes"));
+        own.extend(keys(t, "observations"));
+        for m in own
+            .iter()
+            .filter(|m| crate::eval::YIELDING_MEMBERS.contains(&m.as_str()))
+        {
+            let at = if obj(t, "attributes").contains_key(m) {
+                segs!["types", &tn, "attributes", m]
+            } else if keys(t, "derived_attributes").contains(m) {
+                segs!["types", &tn, "derived_attributes", m]
+            } else {
+                segs!["types", &tn, "observations", m]
+            };
+            out.push(finding(
+                at,
+                "hides_member",
+                format!(
+                    "{tn}.{m} hides every object's own `{m}`, {}: an expression reading {tn}'s `{m}` reads this member (ADR-0216)",
+                    hidden(m)
+                ),
+            ));
+        }
     }
     out
 }
@@ -800,5 +825,18 @@ fn loops(
             &inner,
             out,
         );
+    }
+}
+
+/// What a yielding member of an object is, as a notice names it.
+fn hidden(m: &str) -> &'static str {
+    match m {
+        "type" => "the type it is of",
+        "recorded_by_kind" => "the kind of actor that made it",
+        "actor_id" => "the identity it acts by",
+        "intervals" => "the spans of its states",
+        "transitions" => "the events of its transitions",
+        "attempts" => "the requests refused on it",
+        _ => "the labels put on it",
     }
 }

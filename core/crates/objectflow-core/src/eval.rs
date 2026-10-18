@@ -89,8 +89,10 @@ fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
 
 /// The members every object has, each read by its bare name as `state` is
 /// (`flow-format.md` §5), where `recorded_from` and `declaration_version`
-/// were read as a type and not run (the values audit's G9).
-const EVERY_OBJECT: [&str; 6] = [
+/// were read as a type and not run (the values audit's G9); no type may
+/// declare one, which it would shadow (the model's check 33, which reads
+/// this list).
+pub const OBJECT_MEMBERS: &[&str] = &[
     "id",
     "open",
     "created_at",
@@ -98,6 +100,33 @@ const EVERY_OBJECT: [&str; 6] = [
     "recorded_from",
     "declaration_version",
 ];
+
+/// The members an object answers by a path alone, added after format 1:
+/// its type, its kind as recorded, its actor's identity, and its flow data.
+/// A type's own member of one of these names comes first, so a member the
+/// engine adds never changes what a flow's expression reads, where it
+/// shadowed the attribute and a guard on a counter named `attempts` read
+/// the object's attempt log (issue #22, ADR-0216); the checkers note the
+/// member hidden on that type. `member` answers these and
+/// [`OBJECT_MEMBERS`], and `state`, and no other, so the lists cannot drift
+/// from what is answered.
+pub const YIELDING_MEMBERS: &[&str] = &[
+    "type",
+    "recorded_by_kind",
+    "actor_id",
+    "intervals",
+    "transitions",
+    "attempts",
+    "labels",
+];
+
+/// Whether a type declares a member of the name, an attribute, a derived
+/// attribute or an observation, which comes before a yielding member.
+pub fn declares_member(t: &Type, m: &str) -> bool {
+    t.attribute(m).is_some()
+        || t.derived.iter().any(|(d, _)| d == m)
+        || t.observations.iter().any(|(c, _)| c == m)
+}
 
 /// A member of a row of an object's flow data, as an expression reads it:
 /// its field, a span's `corrected_by` absent where no correction relabelled
@@ -756,7 +785,7 @@ impl<'a> Evaluator<'a> {
                 || t.attribute(n).is_some()
                 || t.derived.iter().any(|(d, _)| d == n)
                 || t.observations.iter().any(|(c, _)| c == n)
-                || EVERY_OBJECT.contains(&n);
+                || OBJECT_MEMBERS.contains(&n);
             if member {
                 return match self.this {
                     Some(id) => self.member(&Term::Value(Value::Object(id.to_string())), n),
@@ -842,27 +871,33 @@ impl<'a> Evaluator<'a> {
         let Some(t) = self.type_named(&o.type_) else {
             return not_run(format!("the type {}", o.type_));
         };
-        Ok(Term::Value(match m {
-            "id" => Value::Text(o.id.clone()),
-            "type" => return Ok(Term::TypeRef(o.type_.clone())),
-            "state" => Value::State {
+        // a member every object has, by the lists alone, and one added after
+        // format 1 only where the type declares none of its name (ADR-0216)
+        let builtin = (m == "state"
+            || OBJECT_MEMBERS.contains(&m)
+            || (YIELDING_MEMBERS.contains(&m) && !declares_member(t, m)))
+        .then_some(m);
+        Ok(Term::Value(match builtin {
+            Some("id") => Value::Text(o.id.clone()),
+            Some("type") => return Ok(Term::TypeRef(o.type_.clone())),
+            Some("state") => Value::State {
                 type_: o.type_.clone(),
                 name: o.state.clone(),
             },
-            "created_at" => Value::Timestamp(o.created_at),
-            "recorded_from" => Value::Timestamp(o.recorded_from),
-            "created_by_kind" | "recorded_by_kind" => Value::Text(o.created_by_kind.clone()),
-            "declaration_version" => Value::Int(self.world.version_of(&o.id)?),
-            "open" => Value::Bool(!t.finished(&o.state)),
-            "actor_id" => match t.actor_identity() {
+            Some("created_at") => Value::Timestamp(o.created_at),
+            Some("recorded_from") => Value::Timestamp(o.recorded_from),
+            Some("created_by_kind" | "recorded_by_kind") => Value::Text(o.created_by_kind.clone()),
+            Some("declaration_version") => Value::Int(self.world.version_of(&o.id)?),
+            Some("open") => Value::Bool(!t.finished(&o.state)),
+            Some("actor_id") => match t.actor_identity() {
                 Some((attr, _)) => o.attr(attr),
                 None => Value::Absent,
             },
-            "intervals" => self.intervals(o, t, "state")?,
+            Some("intervals") => self.intervals(o, t, "state")?,
             // its own events and attempts, read by their index, where each
             // read the whole log or attempt log (the audit's cost B1,
             // ADR-0205 decision 12)
-            "transitions" => {
+            Some("transitions") => {
                 let p = self.world.parts(o)?;
                 Value::Set(
                     self.world
@@ -872,14 +907,14 @@ impl<'a> Evaluator<'a> {
                         .collect::<Result<_, _>>()?,
                 )
             }
-            "attempts" => Value::Set(
+            Some("attempts") => Value::Set(
                 self.world
                     .attempts_of(&o.id)?
                     .iter()
                     .map(|a| attempt_row(self.world, a))
                     .collect::<Result<_, _>>()?,
             ),
-            "labels" => {
+            Some("labels") => {
                 return not_run(format!("an object's `{m}`, its flow data"));
             }
             _ => {
@@ -1147,7 +1182,7 @@ impl<'a> Evaluator<'a> {
                     || t.attribute(n).is_some()
                     || t.derived.iter().any(|(d, _)| d == n)
                     || t.observations.iter().any(|(c, _)| c == n)
-                    || EVERY_OBJECT.contains(&n))
+                    || OBJECT_MEMBERS.contains(&n))
                 && t.state(n).is_some()
         };
         // a bare name this evaluator reads as a type
@@ -1169,7 +1204,7 @@ impl<'a> Evaluator<'a> {
                         || t.attribute(n).is_some()
                         || t.derived.iter().any(|(d, _)| d == n)
                         || t.observations.iter().any(|(c, _)| c == n)
-                        || EVERY_OBJECT.contains(&n)
+                        || OBJECT_MEMBERS.contains(&n)
                         || t.state(n).is_some()
                         || t.states.iter().any(|(_, s)| s.category == n))
                 })

@@ -258,7 +258,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 
 ## Expressions (§5, `declaration-syntax.md` §8)
 
-- **Names**: an attribute by its name; an input as `inputs.<name>`; `state`, `now`, `id`, `open`, `created_at`, `created_by_kind`, `recorded_from`, `declaration_version`; `this_event`, `referrers`; a value qualified, `Condition.WORN`, a state of another type `Item.AVAILABLE`, a category bare, `closed`.
+- **Names**: an attribute by its name; an input as `inputs.<name>`; `state`, `now`, `id`, `open`, `created_at`, `created_by_kind`, `recorded_from`, `declaration_version`, none of which a type may declare; by a path alone, `this.attempts`, an object's `type`, `recorded_by_kind`, `actor_id`, `intervals`, `transitions`, `attempts` and `labels`, each hidden on a type that declares a member of its name (`hides_member`); `this_event`, `referrers`; a value qualified, `Condition.WORN`, a state of another type `Item.AVAILABLE`, a category bare, `closed`.
 - **Logic**: `and`, `or`, `not`, `implies`; `is null`, `is not null`. A comparison with an absent value is **unknown**, and an unknown guard fails as a false one does.
 - **Aggregates**: `count`, `sum`, `any`, `all`, `none`, `min`, `max`, `avg`, `median`, `percentile`, written `count(l in loans where l.open)`; over nothing, `count` and `sum` are 0, `all` and `none` true, `any` false, the others absent.
 - **Values**: money `USD 12.50`, a date `date(now) + 30 days`, a duration `2 h`, text quoted inside the YAML string, `'"HQ"'`; `true`, `false` and numbers bare.
@@ -295,4 +295,4 @@ A refusal names its clause and one of five remedies, the one a caller acts on: `
 | 5. logic | `contradiction` |
 | 6. examples | `example` |
 
-Notices, which refuse nothing: `audit`, `warn`, `self_serviceable`, `reason_kept`, `unwritten`, `imports`, `metric`, `coverage`, `neverpasses`, `before`, `unknown`, `absent`, `undecided`, `notrun`, `migration`, `veto`, `agent_open`, `taken_by_dropped`, `unbounded_reach`, `publishing_open`, `personal_dropped`, `rule_changed`.
+Notices, which refuse nothing: `hides_member`, `audit`, `warn`, `self_serviceable`, `reason_kept`, `unwritten`, `imports`, `metric`, `coverage`, `neverpasses`, `before`, `unknown`, `absent`, `undecided`, `notrun`, `migration`, `veto`, `agent_open`, `taken_by_dropped`, `unbounded_reach`, `publishing_open`, `personal_dropped`, `rule_changed`.

@@ -969,6 +969,13 @@
    ],
    [
     "issues.yaml",
+    120,
+    "notice",
+    "hides_member",
+    "WorkItem.labels hides every object's own `labels`, the labels put on it: an expression reading WorkItem's `labels` reads this member (ADR-0216)"
+   ],
+   [
+    "issues.yaml",
     131,
     "notice",
     "unbounded_reach",
@@ -17663,6 +17670,13 @@
    ],
    [
     "module.yaml",
+    120,
+    "notice",
+    "hides_member",
+    "WorkItem.labels hides every object's own `labels`, the labels put on it: an expression reading WorkItem's `labels` reads this member (ADR-0216)"
+   ],
+   [
+    "module.yaml",
     131,
     "notice",
     "unbounded_reach",
@@ -19329,6 +19343,13 @@
    ],
    [
     "issues.yaml",
+    120,
+    "notice",
+    "hides_member",
+    "WorkItem.labels hides every object's own `labels`, the labels put on it: an expression reading WorkItem's `labels` reads this member (ADR-0216)"
+   ],
+   [
+    "issues.yaml",
     131,
     "notice",
     "unbounded_reach",
@@ -20843,6 +20864,13 @@
    ],
    [
     "module.yaml",
+    120,
+    "notice",
+    "hides_member",
+    "WorkItem.labels hides every object's own `labels`, the labels put on it: an expression reading WorkItem's `labels` reads this member (ADR-0216)"
+   ],
+   [
+    "module.yaml",
     131,
     "notice",
     "unbounded_reach",
@@ -20980,6 +21008,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
+    120,
+    "notice",
+    "hides_member",
+    "WorkItem.labels hides every object's own `labels`, the labels put on it: an expression reading WorkItem's `labels` reads this member (ADR-0216)"
    ],
    [
     "module.yaml",
@@ -21481,6 +21516,13 @@
    ],
    [
     "module.yaml",
+    120,
+    "notice",
+    "hides_member",
+    "WorkItem.labels hides every object's own `labels`, the labels put on it: an expression reading WorkItem's `labels` reads this member (ADR-0216)"
+   ],
+   [
+    "module.yaml",
     131,
     "notice",
     "unbounded_reach",
@@ -21573,6 +21615,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Document (6), Epic (5), Space (2), Sprint (6), Subtask (6), Version (7), WorkItem (21), WorkItemLink (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
+    120,
+    "notice",
+    "hides_member",
+    "WorkItem.labels hides every object's own `labels`, the labels put on it: an expression reading WorkItem's `labels` reads this member (ADR-0216)"
    ],
    [
     "module.yaml",

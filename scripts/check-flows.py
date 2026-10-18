@@ -85,7 +85,9 @@ NOT_A_TRANSITION = {"any", "migrate", "import", "redact"}     # the last three n
 NOT_AN_ATTRIBUTE = {"state", "inputs", "actor", "this", "now", "referrers", "this_event"}
 # what every object has beside its state, read by name as the state is (declaration-syntax.md §8),
 # and what a mirror has besides; a member of one of the reserved names would shadow it (the model's check 33)
-OBJECT_MEMBERS = {"id", "open", "created_at", "created_by_kind", "recorded_from", "declaration_version"}
+OBJECT_MEMBERS = set(flowrun.OBJECT_MEMBERS)     # the runner's list, which the core's evaluator holds too (ADR-0216)
+# what an object answers by a path alone, added after format 1, which a type's own member of the name hides (ADR-0216)
+YIELDING_MEMBERS = set(flowrun.YIELDING_MEMBERS)
 # a member withdrawn before 1.0.0, its name kept against shadowing so that it may return with a use (ADR-0210
 # decision 3): a mirror's `imported_at`, which no store kept
 WITHDRAWN_MEMBERS = {"imported_at"}
@@ -4388,7 +4390,24 @@ def notices(doc):
             if erasable and x.get("corrects") and reason.get("type") == "string" and not reason.get("personal"):
                 out.append((("types", tn, "transitions", xn, "inputs", "reason"), "reason_kept",
                             f"{tn}.{xn}'s reason is free text, which its event keeps through an erasure of the {tn}: mark it personal, which keeps it off the record, or make it an enumeration, as an override's is"))
+        # a member added after format 1 that the type declares itself: its own comes first, and the object's is not
+        # read there (ADR-0216)
+        own = list(t.get("attributes") or {}) + list(t.get("derived_attributes") or {}) + list(t.get("observations") or {})
+        for m in own:
+            if m not in YIELDING_MEMBERS:
+                continue
+            where = ("attributes" if m in (t.get("attributes") or {}) else
+                     "derived_attributes" if m in (t.get("derived_attributes") or {}) else "observations")
+            out.append((("types", tn, where, m), "hides_member",
+                        f"{tn}.{m} hides every object's own `{m}`, {HIDDEN[m]}: an expression reading {tn}'s `{m}` "
+                        f"reads this member (ADR-0216)"))
     return out
+
+
+HIDDEN = {"type": "the type it is of", "recorded_by_kind": "the kind of actor that made it",
+          "actor_id": "the identity it acts by", "intervals": "the spans of its states",
+          "transitions": "the events of its transitions", "attempts": "the requests refused on it",
+          "labels": "the labels put on it"}
 
 
 def hiding(c):

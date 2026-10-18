@@ -11385,6 +11385,119 @@ types:
         );
     }
 
+    /// A type's own member named like one an object answers by a path,
+    /// added after format 1, is the type's: a retry counter named `attempts`
+    /// is read as the counter, by its bare name and by a path, where the
+    /// object's attempt log shadowed it, a guard `attempts == 0` was false on
+    /// a counter holding 0 and `attempts + 1` was not run (issue #22,
+    /// ADR-0216); a type declaring none keeps the object's own.
+    #[test]
+    fn an_attribute_named_like_a_later_member_is_the_types() {
+        const JOBS: &str = r#"
+module: jobs
+categories: [live, closed]
+types:
+  Job:
+    attributes:
+      attempts: { type: int, default: 0 }
+    states:
+      QUEUED: { category: live }
+      DONE: { category: closed, final: true }
+    conditions:
+      never_tried: { expression: attempts == 0, remedy: unreachable_from_here }
+      tried_once: { expression: this.attempts == 1, remedy: unreachable_from_here }
+    transitions:
+      queue: { kind: initial, to: QUEUED }
+      retry: { kind: internal, from: QUEUED, effect: [ { assign: { location: attempts, expr: attempts + 1 } } ] }
+      finish_untried: { kind: external, from: QUEUED, to: DONE, guards: { never_tried: deny } }
+      finish_tried: { kind: external, from: QUEUED, to: DONE, guards: { tried_once: deny } }
+  Note:
+    attributes:
+      text: { type: string }
+    states:
+      KEPT: { category: live }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text] }
+"#;
+        let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let fresh = created(&req(&mut s, "queue", OPERATOR, ("Job", true), json!({})));
+        created(&req(
+            &mut s,
+            "finish_untried",
+            OPERATOR,
+            (&fresh, false),
+            json!({}),
+        ));
+        let job = created(&req(&mut s, "queue", OPERATOR, ("Job", true), json!({})));
+        created(&req(&mut s, "retry", OPERATOR, (&job, false), json!({})));
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.whole(&job).unwrap().unwrap().attr("attempts"),
+            Value::Int(1)
+        );
+        drop(w);
+        created(&req(
+            &mut s,
+            "finish_tried",
+            OPERATOR,
+            (&job, false),
+            json!({}),
+        ));
+        // the object's own attempt log where the type declares no member of
+        // the name
+        let note = created(&req(
+            &mut s,
+            "write",
+            OPERATOR,
+            ("Note", true),
+            json!({"text": "x"}),
+        ));
+        let w = s.snapshot().unwrap();
+        let o = w.whole(&note).unwrap().unwrap();
+        let t = w.lib.type_("Note").unwrap();
+        let e = crate::expr::parse("this.attempts").unwrap();
+        let v = crate::eval::Evaluator::new(&w, Some(t), Some(&o.id))
+            .eval(&e)
+            .unwrap();
+        assert_eq!(v, Value::Set(Vec::new()), "the attempt log, none refused");
+    }
+
+    /// Every member the lists name is answered as the object's own on a type
+    /// that declares none of its name, and every other name falls to the
+    /// type's members: the lists and the evaluator cannot drift apart, as
+    /// check 33's list had from the evaluator's (issue #22, ADR-0216).
+    #[test]
+    fn every_listed_member_is_answered_and_no_other() {
+        const PLAIN: &str = "module: plain\ncategories: [live]\ntypes:\n  Thing:\n    attributes:\n      name: { type: string }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [name] }\n";
+        let lib = Library::load(&[("plain.yaml".into(), PLAIN.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let thing = created(&req(
+            &mut s,
+            "make",
+            OPERATOR,
+            ("Thing", true),
+            json!({"name": "a"}),
+        ));
+        let w = s.snapshot().unwrap();
+        let t = w.lib.type_("Thing").unwrap();
+        let ask = |m: &str| {
+            let e = crate::expr::parse(&format!("this.{m}")).unwrap();
+            crate::eval::Evaluator::new(&w, Some(t), Some(&thing)).eval(&e)
+        };
+        let unknown = |r: &Result<Value, NotRun>| matches!(r, Err(NotRun::Unsupported(w)) if w.contains("the member `Thing."));
+        for m in crate::eval::OBJECT_MEMBERS
+            .iter()
+            .chain(crate::eval::YIELDING_MEMBERS)
+            .chain(&["state"])
+        {
+            let r = ask(m);
+            assert!(!unknown(&r), "{m}: {r:?}");
+        }
+        assert!(unknown(&ask("nothing_of_the_kind")));
+        assert!(matches!(ask("name"), Ok(Value::Text(n)) if n == "a"));
+    }
+
     /// An erased actor's identity leaves a correction's record of an
     /// identity attribute, what it replaced and what it wrote, each by the
     /// actor's object id, matched in any case of its ASCII letters, as it

@@ -38,14 +38,9 @@ pub const NOT_AN_ATTRIBUTE: &[&str] = &[
     "referrers",
     "this_event",
 ];
-pub const OBJECT_MEMBERS: &[&str] = &[
-    "id",
-    "open",
-    "created_at",
-    "created_by_kind",
-    "recorded_from",
-    "declaration_version",
-];
+/// The members every object has, which no type may declare: the
+/// evaluator's own list, so the two cannot drift (issue #22, ADR-0216).
+pub use crate::eval::OBJECT_MEMBERS;
 /// A member withdrawn before 1.0.0, its name kept against shadowing so that
 /// it may return with a use (ADR-0210 decision 3): a mirror's `imported_at`,
 /// which no store kept.

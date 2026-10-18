@@ -1422,7 +1422,7 @@ A bare name in an expression resolves in this order, the first match winning:
 
 Outside an expression a name resolves to a declaration **of the kind the grammar requires in that position** — a machine after `machine`, a sequence after `from`, a type after `:`, an evaluator before a `.` in a guard call, an invariant after `requires invariant` — which is why those kinds appear in check 19 and not in the list above.
 
-The order is a resolution rule, not a disambiguation rule: publishing rejects a type whose state names collide with its member names, or a category colliding with either, so no declaration reaches the ambiguous case (check 33). An aggregate is distinguished from a member of the same name by the `(` that must follow it, which is why `count` and `min` are legal attribute names.
+The order is a resolution rule, not a disambiguation rule: publishing rejects a type whose state names collide with its member names, or a category colliding with either, so no declaration reaches the ambiguous case (check 33). A member an object answers by a path alone, added after format 1 (`type`, `recorded_by_kind`, `actor_id`, `intervals`, `transitions`, `attempts`, `labels`), yields to a type's own member of its name, which check 33 notes rather than refuses (ADR-0216). An aggregate is distinguished from a member of the same name by the `(` that must follow it, which is why `count` and `min` are legal attribute names.
 
 ### 9.3 Symbols
 
