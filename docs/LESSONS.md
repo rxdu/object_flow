@@ -869,3 +869,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** To add a note after an author's decision in `TODO.md`, I replaced a sentence in the middle of its line with the sentence, a newline and the note; the rest of the decision's line went to the end of the note, and the gate passed, since no check reads a TODO line's sense. It was found only when staging the note alone for its commit.
 - **Correction:** Anchor a scripted insertion of a line on a whole line (its end included), never on a phrase inside one, and after any scripted edit to prose run `git diff` and read every changed line whole, as the rules on editing documents say.
 - **Context:** ObjectFlow's TODO.md and documents edited by script; 2026-10-18.
+
+### The release job's tests run as no gate ran them
+- **Pattern:** `release.yml` runs `cargo test --release --locked` on its own runner; every gate ran the tests as a debug build. The first tag, v0.3.0, found a test whose precondition was a duration, a submit of 600 types taking over 500 ms, which the optimised build on the runner finished in 465 ms, so the release published nothing and its tag had to be moved.
+- **Correction:** Before tagging, run the release job's test command locally, `cargo test --release --locked -p objectflow-core -p objectflow-service`; and a test that needs work to take long enough sizes the work until it does, rather than failing when the machine is fast.
+- **Context:** ObjectFlow's releases, any test with a timing precondition; 2026-10-18.
