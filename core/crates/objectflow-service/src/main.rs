@@ -4221,7 +4221,7 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
                     fields.as_deref(),
                 ),
                 !opted(&body)?
-                    && reads::query_reads_personal(&s.lib, text(&body, "filter")?, &order),
+                    && reads::query_reads_personal(&s.lib, type_, text(&body, "filter")?, &order),
             )
         };
         if personal {

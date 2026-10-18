@@ -1089,25 +1089,181 @@ pub fn personal_members(lib: &Library) -> BTreeSet<String> {
     out
 }
 
+/// What a library holds personal, read by type (ADR-0219): each type's
+/// members personal by its own declaration, a derived attribute reading
+/// one of the members its expression reaches, and, where an actor type
+/// marks its identity personal, every member of type `identity`; and the
+/// names personal in any type, for a member whose type an expression does
+/// not tell, judged by its name as every member was.
+struct Personal<'l> {
+    lib: &'l Library,
+    derived: BTreeSet<(String, String)>,
+    identities: bool,
+    anywhere: BTreeSet<String>,
+}
+
+/// The names an expression binds, each to the type its objects are of,
+/// where the expression tells it.
+type Bound = BTreeMap<String, Option<String>>;
+
+impl<'l> Personal<'l> {
+    fn of(lib: &'l Library) -> Personal<'l> {
+        let mut p = Personal {
+            lib,
+            derived: BTreeSet::new(),
+            identities: crate::eval::identities_personal(lib),
+            anywhere: personal_members(lib),
+        };
+        loop {
+            let mut grew = false;
+            for t in lib.types.values() {
+                for (d, e) in &t.derived {
+                    let key = (t.name.clone(), d.clone());
+                    if !p.derived.contains(&key) && p.reads(t, e, &Bound::new()) {
+                        p.derived.insert(key);
+                        grew = true;
+                    }
+                }
+            }
+            if !grew {
+                return p;
+            }
+        }
+    }
+
+    /// Whether a type's own member is personal.
+    fn member(&self, t: &Type, m: &str) -> bool {
+        match t.attribute(m) {
+            Some(a) => {
+                a.personal
+                    || (self.identities
+                        && matches!(&a.declared, Declared::Scalar(ty) if ty == "identity"))
+            }
+            None => self.derived.contains(&(t.name.clone(), m.to_string())),
+        }
+    }
+
+    /// The type of the objects an expression names, where it tells: `this`,
+    /// a name bound to a type, and a single reference, by itself or at the
+    /// end of a path of them.
+    fn type_of(&self, t: &'l Type, e: &Expr, bound: &Bound) -> Option<&'l Type> {
+        let one = |owner: &Type, m: &str| match owner.attribute(m) {
+            Some(a) if !a.many => match &a.declared {
+                Declared::Reference(target) => self.lib.type_(target),
+                Declared::Scalar(_) => None,
+            },
+            _ => None,
+        };
+        match e {
+            Expr::Name(n) if n == "this" => Some(t),
+            Expr::Name(n) => match bound.get(n) {
+                Some(Some(tn)) => self.lib.type_(tn),
+                Some(None) => None,
+                None => one(t, n),
+            },
+            Expr::Path(b, m) => {
+                let owner = self.type_of(t, b, bound)?;
+                one(owner, m)
+            }
+            _ => None,
+        }
+    }
+
+    /// The type of the elements of a collection an aggregate ranges over,
+    /// where it tells: a set of references, or a type scanned whole.
+    fn element_type(&self, t: &'l Type, c: &Expr, bound: &Bound) -> Option<&'l Type> {
+        let set = |owner: &Type, m: &str| match owner.attribute(m) {
+            Some(a) if a.many => match &a.declared {
+                Declared::Reference(target) => self.lib.type_(target),
+                Declared::Scalar(_) => None,
+            },
+            _ => None,
+        };
+        match c {
+            Expr::Name(n) if !bound.contains_key(n) && t.attribute(n).is_none() => {
+                self.lib.type_(n)
+            }
+            Expr::Name(n) if !bound.contains_key(n) => set(t, n),
+            Expr::Path(b, m) => set(self.type_of(t, b, bound)?, m),
+            _ => None,
+        }
+    }
+
+    /// Whether an expression, read on an object of `t`, reads a personal
+    /// member: a member of `t` by its bare name, one a path through
+    /// references or an aggregate's binding reaches on its own type, and
+    /// one whose type it does not tell, by its name in any type.
+    fn reads(&self, t: &'l Type, e: &Expr, bound: &Bound) -> bool {
+        match e {
+            Expr::Name(n) => !bound.contains_key(n) && self.member(t, n),
+            Expr::Path(b, m) => {
+                self.reads(t, b, bound)
+                    || match self.type_of(t, b, bound) {
+                        Some(owner) => self.member(owner, m),
+                        None => self.anywhere.contains(m),
+                    }
+            }
+            Expr::Agg {
+                var,
+                collection,
+                filter,
+                body,
+                ..
+            } => {
+                let mut inner = bound.clone();
+                if let Some(v) = var {
+                    let of = collection
+                        .as_deref()
+                        .and_then(|c| self.element_type(t, c, bound))
+                        .map(|et| et.name.clone());
+                    inner.insert(v.clone(), of);
+                }
+                collection
+                    .as_deref()
+                    .is_some_and(|c| self.reads(t, c, bound))
+                    || filter.as_deref().is_some_and(|f| self.reads(t, f, &inner))
+                    || body.as_deref().is_some_and(|b| self.reads(t, b, &inner))
+            }
+            other => other
+                .children()
+                .into_iter()
+                .any(|c| self.reads(t, c, bound)),
+        }
+    }
+}
+
 /// Whether a query's filter or order reads a personal member, which its
 /// request then opts into or is refused `personal` (ADR-0206 decision 2),
 /// whoever asks, where an agent's alone was refused, by the actor's kind
-/// (ADR-0201 decision 4, ADR-0202 decision 3, superseded).
-pub fn query_reads_personal(lib: &Library, filter: Option<&str>, order: &[String]) -> bool {
-    let personal = personal_members(lib);
+/// (ADR-0201 decision 4, ADR-0202 decision 3, superseded). A member is
+/// judged as the queried type and the types its paths reach declare it, so
+/// a room's own `name` is not personal because a contact's is, which made a
+/// personal name of one module reserved in every other (issue #23,
+/// ADR-0219); one whose type the filter does not tell is judged by its
+/// name, as every member was.
+pub fn query_reads_personal(
+    lib: &Library,
+    type_: &str,
+    filter: Option<&str>,
+    order: &[String],
+) -> bool {
+    let Some(t) = lib.type_(type_) else {
+        return false;
+    };
+    let personal = Personal::of(lib);
     // parsed as a query parses it, its parameters among it, so a filter
     // naming one is judged by the members it reads, where one that did not
     // parse read as reading nothing personal (ADR-0218)
     let filtered = filter
         .and_then(|f| crate::expr::parse_filter(f).ok())
-        .is_some_and(|e| crate::eval::reads_any(&e, &personal));
+        .is_some_and(|e| personal.reads(t, &e, &Bound::new()));
     let ordered = order.iter().any(|k| {
         let key = k.split_whitespace().next().unwrap_or_default();
         let member = key
             .strip_prefix("entered_at(")
             .and_then(|m| m.strip_suffix(')'))
             .unwrap_or(key);
-        personal.contains(member)
+        personal.member(t, member)
     });
     filtered || ordered
 }
@@ -2098,6 +2254,73 @@ mod tests {
     use crate::store::Store;
     use serde_json::json;
 
+    /// A query's members are judged personal as the types they belong to
+    /// declare them: a room's own `name` is not personal because a contact's
+    /// is, filtered or ordered, nor a derived attribute reading it, where
+    /// marking a contact's name personal refused the room list (issue #23,
+    /// ADR-0219); a contact's name is personal still, read on the contact,
+    /// through a reference, through an aggregate's binding and through a
+    /// derived attribute that reads it.
+    #[test]
+    fn a_querys_members_are_personal_as_their_own_types_declare() {
+        const OFFICE: &str = r#"
+module: office
+categories: [live, closed]
+types:
+  Contact:
+    attributes:
+      name: { type: string, personal: true, optional: true }
+    states:
+      KNOWN: { category: live }
+    transitions:
+      add: { kind: initial, to: KNOWN, optional_inputs: [name] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Room:
+    attributes:
+      name: { type: string, indexed: true }
+      floor: { type: int, indexed: true }
+      host: { reference: Contact, optional: true }
+      guests: { reference: "Contact[]", optional: true }
+    derived_attributes:
+      label: { type: string, expression: name }
+      hosted_by: { type: string, expression: host.name }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [name, floor], optional_inputs: [host, guests] }
+"#;
+        let lib = Library::load(&[("office.yaml".into(), OFFICE.into())]).unwrap();
+        let personal = |ty: &str, filter: Option<&str>, order: &[&str]| {
+            let order: Vec<String> = order.iter().map(|o| o.to_string()).collect();
+            query_reads_personal(&lib, ty, filter, &order)
+        };
+        // the room's own, which no type marks personal on the room
+        assert!(!personal("Room", None, &["name"]));
+        assert!(!personal("Room", Some("name == \"Pantry\""), &[]));
+        assert!(!personal(
+            "Room",
+            Some("this.name == \"Pantry\" and floor > 1"),
+            &["floor"]
+        ));
+        assert!(!personal("Room", Some("label == \"Pantry\""), &[]));
+        // the contact's, wherever the filter reaches it
+        assert!(personal("Contact", None, &["name"]));
+        assert!(personal("Contact", Some("name == \"Ana\""), &[]));
+        assert!(personal("Room", Some("host.name == \"Ana\""), &[]));
+        assert!(personal(
+            "Room",
+            Some("count(g in guests where g.name == \"Ana\") > 0"),
+            &[]
+        ));
+        assert!(personal(
+            "Room",
+            Some("count(c in Contact where c.name == \"Ana\") > 0"),
+            &[]
+        ));
+        assert!(personal("Room", Some("hosted_by == \"Ana\""), &[]));
+        assert!(personal("Room", None, &["hosted_by"]));
+    }
+
     /// A filter's parameters are stated as data, each read as the member it
     /// meets is declared: a day, an instant, an object's id, a text holding
     /// quotes and a state, alone and among a set's elements, so a window of
@@ -2298,8 +2521,18 @@ types:
         assert_eq!(page.refused.as_deref(), Some("malformed_filter"));
         drop(w);
         // a parameter on a personal member is personal still
-        assert!(query_reads_personal(&s.lib, Some("guest == :g"), &[]));
-        assert!(!query_reads_personal(&s.lib, Some("day == :d"), &[]));
+        assert!(query_reads_personal(
+            &s.lib,
+            "Booking",
+            Some("guest == :g"),
+            &[]
+        ));
+        assert!(!query_reads_personal(
+            &s.lib,
+            "Booking",
+            Some("note == :n"),
+            &[]
+        ));
     }
 
     /// One object's rules reading its transitions, its attempts, its
@@ -2729,7 +2962,7 @@ types:
             );
             let lib = Library::load(&[("crm.yaml".into(), text)]).unwrap();
             assert_eq!(
-                query_reads_personal(&lib, Some("author >= \"a\""), &[]),
+                query_reads_personal(&lib, "Memo", Some("author >= \"a\""), &[]),
                 refused,
                 "personal: {personal}"
             );
