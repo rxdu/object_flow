@@ -880,3 +880,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A PostgreSQL test I named `stopping`, as its SQLite twin was named, failed the twin: `served_on_postgresql` calls `fresh_store(name)` for its password file, which removed and remade the directory holding the twin's store under its running service, answered `store_replaced`. Two older PostgreSQL tests, `stalled` and `beside`, shared names with SQLite tests the same way, a flake waiting for the two to overlap.
 - **Correction:** A helper that makes a named resource on another helper's behalf gives it a prefix of its own (`pg-<name>`), so no test's choice of name can reach another's; and when a test meets "replaced" or "missing" for its own files, look for a sibling sharing the name before suspecting the code.
 - **Context:** ObjectFlow's deployment tests, any test suite run in parallel with per-test directories; 2026-10-18.
+
+### A sample added to a corpus meets the tests that count it
+- **Pattern:** Adding `bookings.yaml` to the examples, I ran the tests that read the samples (the checker's oracle, the harness, the publish of every sample, the studio's replays) and the gate still failed at its first step: `load_like_python` asserted "the design's eleven modules", and the studio's `test_every_examples_file_is_replayed` ten examples files; neither reads the new sample, both count the corpus.
+- **Correction:** Before gating an addition to a corpus, search for its count as well as its name, the number and the word (`== 11`, `eleven`, `len(FILES)`), and run the whole workspace's tests, not those that name the corpus.
+- **Context:** ObjectFlow's examples directory, any test pinned to the size of a fixture set; 2026-10-18.
+
+### A gate's FAILED line is not its end
+- **Pattern:** A gate failed at its first step, and I took the `FAILED` line in its log for the run's end, fixed the cause and started a second run in the same worktree; `check-all` runs every step after a failure, so the first run went on beside the second for half an hour. Then, finding the second run's `check-corpus` failing, I edited the snapshots' `TODO.md` and `DESIGN.md` while both gates still ran, breaking the rule that no gated file is edited during a gate run.
+- **Correction:** A gate run ends when its process exits: wait on that (its task's notification, or an exit file the command writes last), never on a line of its log; stop a run before starting another in its worktree; and once a gate has found what to fix, stop it, fix the snapshot, and gate it again from the start.
+- **Context:** ObjectFlow's gates on frozen worktrees, `scripts/check-all`; 2026-10-18. Both runs were discarded and the snapshots gated again.
