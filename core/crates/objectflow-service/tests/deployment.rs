@@ -1285,20 +1285,53 @@ fn each_answer_is_logged_and_counted_and_health_reads_the_store() {
 /// (ADR-0183 decision 9).
 #[test]
 fn a_stopped_service_answers_the_requests_in_flight() {
-    let (url, _, _) = bank();
     let file = fresh_store("stopping");
-    let named = format!("bank={url}");
-    let mut s = start(&[
+    let args = [
         "--store",
         file.to_str().expect("a path"),
         "--create",
         "--port",
         "0",
-        "--evaluator",
-        &named,
-        "--evaluator-timeout",
-        "2 s",
-    ]);
+    ];
+    stopped_in_flight(&args.map(str::to_string));
+    // a clean stop leaves the store whole in its one file
+    let wal = std::fs::metadata(format!("{}-wal", file.display())).map_or(0, |m| m.len());
+    assert_eq!(wal, 0);
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+/// On PostgreSQL alike, and the stopped service's session closed, so a
+/// service started next takes the store's lock at once (durability on
+/// PostgreSQL 12, where no test stopped a service on PostgreSQL).
+#[test]
+fn a_stopped_service_on_postgresql_answers_the_requests_in_flight() {
+    let Some((admin, args, schema)) = served_on_postgresql("stopping") else {
+        return;
+    };
+    stopped_in_flight(&args);
+    let again: Vec<&str> = args
+        .iter()
+        .map(String::as_str)
+        .filter(|a| *a != "--create")
+        .collect();
+    let s = start(&again);
+    let (status, body) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 200, "{body}");
+    drop(s);
+    admin
+        .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+        .expect("the schema dropped");
+}
+
+/// A service started with `store`, stopped by SIGTERM with a slow request
+/// in flight: it takes no new connection, answers the request and exits
+/// cleanly, saying so.
+fn stopped_in_flight(store: &[String]) {
+    let (url, _, _) = bank();
+    let named = format!("bank={url}");
+    let mut args: Vec<&str> = store.iter().map(String::as_str).collect();
+    args.extend(["--evaluator", &named, "--evaluator-timeout", "2 s"]);
+    let mut s = start(&args);
     publish(&s, &json!({"payments": PAYMENTS}));
     // SIGHUP, as a log rotation sends it, is said and ignored, where it
     // ended the service at once (eleventh production review)
@@ -1344,10 +1377,6 @@ fn a_stopped_service_answers_the_requests_in_flight() {
         said.contains(" stopping: ") && said.contains(" stopped"),
         "{said}"
     );
-    // a clean stop leaves the store whole in its one file
-    let wal = std::fs::metadata(format!("{}-wal", file.display())).map_or(0, |m| m.len());
-    assert_eq!(wal, 0, "{said}");
-    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
 /// An attribute a version marks `indexed` has an index on its column, made
@@ -6170,6 +6199,40 @@ fn an_upgrade_is_refused_over_a_version_this_release_cannot_read() {
 /// keeps none; long after it committed, which keeps all; and early, either.
 #[test]
 fn an_import_killed_midway_leaves_all_or_none() {
+    killed_imports("", &|trial| {
+        let file = fresh_store(&format!("import-kill-{trial}"));
+        let args = [
+            "--store",
+            file.to_str().expect("a path"),
+            "--create",
+            "--port",
+            "0",
+        ];
+        Some((args.map(str::to_string).to_vec(), None))
+    });
+}
+
+/// On PostgreSQL alike, and the killed service's session gone with it, so
+/// its restart takes the store's lock (durability on PostgreSQL 12, where
+/// no test killed a service on PostgreSQL).
+#[test]
+fn an_import_killed_midway_on_postgresql_leaves_all_or_none() {
+    killed_imports(" on PostgreSQL", &|trial| {
+        served_on_postgresql(&format!("importkill{trial}"))
+            .map(|(admin, args, schema)| (args, Some((admin, schema))))
+    });
+}
+
+/// A store for each trial, the arguments that make it and, on
+/// PostgreSQL, the database and the schema to drop after.
+type Trials = dyn Fn(
+    usize,
+) -> Option<(
+    Vec<String>,
+    Option<(objectflow_core::db::Connection, String)>,
+)>;
+
+fn killed_imports(on: &str, store: &Trials) {
     let op = json!({"id": "operator"});
     let batch: Vec<Value> = (0..3000)
         .map(|i| {
@@ -6201,9 +6264,12 @@ fn an_import_killed_midway_leaves_all_or_none() {
         Early,
     }
     for (trial, at) in [At::Held, At::After, At::Early].into_iter().enumerate() {
-        let file = fresh_store(&format!("import-kill-{trial}"));
-        let path = file.to_str().expect("a path");
-        let s = start(&["--store", path, "--create", "--port", "0"]);
+        let Some((made, postgres)) = store(trial) else {
+            return;
+        };
+        let made: Vec<&str> = made.iter().map(String::as_str).collect();
+        let again: Vec<&str> = made.iter().copied().filter(|a| *a != "--create").collect();
+        let s = start(&made);
         publish(
             &s,
             &json!({"people": example("people.yaml"), "servicedesk": example("servicedesk.yaml")}),
@@ -6242,17 +6308,23 @@ fn an_import_killed_midway_leaves_all_or_none() {
         }
         drop(s);
         let _ = sender.join();
-        let s = start(&["--store", path, "--port", "0"]);
+        let s = start(&again);
         let held = count(&s);
         match at {
-            At::Held => assert_eq!(held, 0, "killed in the transaction, some kept"),
-            At::After => assert_eq!(held, 3000, "killed after the commit, some lost"),
-            At::Early => assert!(held == 0 || held == 3000, "{held} of 3000 kept"),
+            At::Held => assert_eq!(held, 0, "killed in the transaction, some kept{on}"),
+            At::After => assert_eq!(held, 3000, "killed after the commit, some lost{on}"),
+            At::Early => assert!(held == 0 || held == 3000, "{held} of 3000 kept{on}"),
         }
-        let again = post(&s, "/v1/import_batch", &body);
-        assert!(again["refusal"].is_null(), "{again}");
-        assert_eq!(again["written"], json!(3000 - held), "{again}");
+        let sent = post(&s, "/v1/import_batch", &body);
+        assert!(sent["refusal"].is_null(), "{sent}");
+        assert_eq!(sent["written"], json!(3000 - held), "{sent}");
         assert_eq!(count(&s), 3000);
+        drop(s);
+        if let Some((admin, schema)) = postgres {
+            admin
+                .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+                .expect("the schema dropped");
+        }
     }
 }
 
@@ -6486,7 +6558,9 @@ fn served_on_postgresql(
         ))
         .expect("a schema");
     let url = format!("{} options='-c search_path={schema}'", kept.join(" "));
-    let dir = fresh_store(name)
+    // a directory of its own, never one a test on a file makes under the
+    // same name, which it would remove under that test's running service
+    let dir = fresh_store(&format!("pg-{name}"))
         .parent()
         .expect("a directory")
         .to_path_buf();
