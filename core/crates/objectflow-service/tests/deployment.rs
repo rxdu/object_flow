@@ -6086,6 +6086,7 @@ fn every_sample_publishes_with_its_examples() {
     let sets: &[&[&[&str]]] = &[
         &[&["people.yaml"]],
         &[&["approvals.yaml", "approvals.examples.yaml"]],
+        &[&["bookings.yaml", "bookings.examples.yaml"]],
         &[&["reimbursement.yaml", "reimbursement.examples.yaml"]],
         &[
             &["inventory.yaml", "inventory.examples.yaml"],

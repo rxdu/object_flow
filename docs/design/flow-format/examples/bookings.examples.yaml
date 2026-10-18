@@ -1,0 +1,100 @@
+# yaml-language-server: $schema=../examples.schema.json
+# What the no-overlap rule does to a rig's bookings, as examples the engine runs at every publish (flow-format.md §11,
+# ADR-0136): a type scan that leaves out the booking written (D696) and names the booking it meets.
+examples_for: bookings
+
+setups:
+  a_booked_rig:
+    description: A rig booked for two hours a day from now, its hours written as offsets from now.
+    steps:
+      - request: { type: Rig, transition: add, as: rig, inputs: { name: Bench 1 } }
+      - request: { type: Booking, transition: book, as: first, inputs: { rig: rig, start: now + 24 h, end: now + 26 h } }
+
+examples:
+  a_first_booking_is_taken:
+    description: A rig's first booking is taken, the booking never counted as overlapping itself.
+    steps:
+      - request: { type: Rig, transition: add, as: rig, inputs: { name: Bench 1 } }
+    request: { type: Booking, transition: book, inputs: { rig: rig, start: now + 24 h, end: now + 25 h } }
+    expect: { verdict: applied, state: BOOKED }
+
+  an_overlapping_booking_is_refused:
+    description: A booking that begins inside another of the rig's is refused, naming the rule.
+    given: a_booked_rig
+    request: { type: Booking, transition: book, inputs: { rig: rig, start: now + 25 h, end: now + 27 h } }
+    expect: { verdict: invariant_violated, clause: no_overlap }
+
+  an_enclosing_booking_is_refused:
+    description: A booking that holds another of the rig's within it is refused.
+    given: a_booked_rig
+    request: { type: Booking, transition: book, inputs: { rig: rig, start: now + 23 h, end: now + 27 h } }
+    expect: { verdict: invariant_violated, clause: no_overlap }
+
+  a_booking_may_start_as_another_ends:
+    description: Touching ends do not overlap, so the next hour is booked.
+    given: a_booked_rig
+    request: { type: Booking, transition: book, inputs: { rig: rig, start: now + 26 h, end: now + 27 h } }
+    expect: { verdict: applied, state: BOOKED }
+
+  another_rig_is_free_at_the_same_hour:
+    description: The rule holds within a rig, so another rig is booked for the same hour.
+    given: a_booked_rig
+    steps:
+      - request: { type: Rig, transition: add, as: other, inputs: { name: Bench 2 } }
+    request: { type: Booking, transition: book, inputs: { rig: other, start: now + 24 h, end: now + 26 h } }
+    expect: { verdict: applied, state: BOOKED }
+
+  a_booking_moves_within_its_own_span:
+    description: A booking moved to a span that overlaps only its old one is taken, the booking written left out of the scan.
+    given: a_booked_rig
+    request: { object: first, transition: move, inputs: { start: now + 25 h, end: now + 27 h } }
+    expect: { verdict: applied, state: BOOKED }
+
+  a_move_onto_another_booking_is_refused:
+    description: A booking moved onto another of the rig's is refused.
+    given: a_booked_rig
+    steps:
+      - request: { type: Booking, transition: book, as: second, inputs: { rig: rig, start: now + 27 h, end: now + 28 h } }
+    request: { object: second, transition: move, inputs: { start: now + 25 h, end: now + 27 h } }
+    expect: { verdict: invariant_violated, clause: no_overlap }
+
+  a_cancelled_booking_frees_its_span:
+    description: Once a booking is cancelled, its span is booked again.
+    given: a_booked_rig
+    steps:
+      - request: { object: first, transition: cancel }
+    request: { type: Booking, transition: book, inputs: { rig: rig, start: now + 24 h, end: now + 26 h } }
+    expect: { verdict: applied, state: BOOKED }
+
+  a_booking_ends_after_it_starts:
+    description: A booking whose end comes before its start is refused.
+    steps:
+      - request: { type: Rig, transition: add, as: rig, inputs: { name: Bench 1 } }
+    request: { type: Booking, transition: book, inputs: { rig: rig, start: now + 25 h, end: now + 24 h } }
+    expect: { verdict: invariant_violated, clause: ends_after_start }
+
+  a_rig_is_added:
+    description: A rig added is in service, to be booked.
+    request: { type: Rig, transition: add, inputs: { name: Bench 1 } }
+    expect: { verdict: applied, state: IN_SERVICE, values: { name: Bench 1 } }
+
+  a_booking_is_cancelled:
+    description: A booking is cancelled, which ends it.
+    given: a_booked_rig
+    request: { object: first, transition: cancel }
+    expect: { verdict: applied, state: CANCELLED }
+
+  a_rig_is_retired:
+    description: A rig is taken out of service.
+    steps:
+      - request: { type: Rig, transition: add, as: rig, inputs: { name: Bench 1 } }
+    request: { object: rig, transition: retire }
+    expect: { verdict: applied, state: RETIRED }
+
+  a_retired_rig_is_booked_no_more:
+    description: A rig taken out of service is booked no more; the requester books another.
+    steps:
+      - request: { type: Rig, transition: add, as: rig, inputs: { name: Bench 1 } }
+      - request: { object: rig, transition: retire }
+    request: { type: Booking, transition: book, inputs: { rig: rig, start: now + 24 h, end: now + 26 h } }
+    expect: { verdict: unsatisfied, clause: rig_in_service, remedy: self_serviceable }

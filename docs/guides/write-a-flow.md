@@ -116,6 +116,7 @@ The [Flow Studio](../../apps/flow-studio/README.md) is the same loop with a diag
 |---|---|---|
 | `people.yaml` | Actors: types whose objects make requests. | `people.yaml` |
 | `approvals.yaml` | A state machine two types share, one replacing its creation. | `approvals.yaml approvals.examples.yaml` |
+| `bookings.yaml` | Rigs booked for spans, no two bookings of a rig overlapping: an invariant over every other object of a type. | `bookings.yaml bookings.examples.yaml` |
 | `reimbursement.yaml` | A claim with lines, policy flags that warn, an agent suggesting and a person confirming, an outside system's check. | `reimbursement.yaml reimbursement.examples.yaml` |
 | `delivery.yaml`, `inventory.yaml` | An item handed over with a checklist, cascades, and a proposal a person approves. | `inventory.yaml inventory.examples.yaml`; `people.yaml inventory.yaml delivery.yaml delivery.examples.yaml` |
 | `service.yaml`, `service-v2.yaml` | Observations recorded about a job, and a second version migrating live jobs. | `people.yaml service.yaml service.examples.yaml`; `--previous=service.yaml people.yaml service-v2.yaml service-v2.examples.yaml`; `people.yaml service.yaml service-migration.examples.yaml`, whose examples publish version 2 over version 1 and so are never carried into a change |

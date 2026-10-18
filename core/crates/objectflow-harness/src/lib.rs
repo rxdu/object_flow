@@ -77,7 +77,7 @@ pub struct Fixture {
 
 /// The fixtures, read from the examples' directory.
 pub fn fixtures(examples: &std::path::Path) -> std::io::Result<Vec<Fixture>> {
-    let sets: [(&str, &[&str]); 7] = [
+    let sets: [(&str, &[&str]); 8] = [
         ("service", &["people.yaml", "service.yaml"]),
         ("issues", &["people.yaml", "issues.yaml"]),
         ("delivery", &["inventory.yaml", "delivery.yaml"]),
@@ -85,6 +85,7 @@ pub fn fixtures(examples: &std::path::Path) -> std::io::Result<Vec<Fixture>> {
         ("servicedesk", &["servicedesk.yaml"]),
         ("customers", &["customers.yaml"]),
         ("approvals", &["approvals.yaml"]),
+        ("bookings", &["bookings.yaml"]),
     ];
     let mut out = Vec::new();
     for (name, files) in sets {
@@ -722,9 +723,14 @@ impl Run {
                 .parts(o)
                 .map(|p| p.admissions.clone())
                 .unwrap_or_default();
-            // every invariant holds, but one an admission lets stand
+            // every invariant holds, but one an admission lets stand, a
+            // scan of a type over every other object, as the engine decides
+            // it, where the harness scanned the object too and found every
+            // booking overlapping itself (ADR-0061 decision 1, D696)
             for (name, e) in &t.invariants {
-                let v = Evaluator::new(&world, Some(t), Some(&o.id)).eval(e);
+                let v = Evaluator::new(&world, Some(t), Some(&o.id))
+                    .over_others()
+                    .eval(e);
                 if matches!(v, Ok(Value::Bool(false))) && !admitted.contains(name) {
                     return fail("invariant", format!("{}'s invariant {name} is false", o.id));
                 }

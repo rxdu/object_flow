@@ -88,4 +88,4 @@ def test_an_identity_that_is_also_an_alias_reads_as_written(wire):
 
 
 def test_every_examples_file_is_replayed():
-    assert len(FILES) == 10
+    assert len(FILES) == 11

@@ -709,6 +709,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D695](#d695) | A member read through a reference that its type does not declare was accepted | Resolved |
 | [D696](#d696) | An invariant's scan of a type included the object written, so a booking overlapped itself | Resolved |
 | [D697](#d697) | A scan narrowed by an index named what its narrowing read | Resolved |
+| [D698](#d698) | The harness's oracle scanned the object written, so a booking overlapped itself there too | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4483,4 +4484,9 @@ Brought to the author the day it was found, with a recommendation (`TODO.md`, un
 **A scan narrowed by an index named what its narrowing read.** An aggregate's `where` names nothing and the aggregate names what it selects (`DESIGN.md` §5.5); the core narrows a type scan by the columns its `where` compares (ADR-0162 step 3), and evaluated the compared values before naming was suppressed, so an overlap refusal named the room its `where` read beside the booking it overlapped, where the reference runner named the booking alone. Found 2026-10-17 by the tee test written for D696, the first in the corpus to scan with a narrowable `where`.
 
 **Resolved** 2026-10-17: the narrowing's evaluation names nothing, as the `where`'s does (`eval.rs` `aggregate_choosing`); held by `an_invariant_scans_every_other_object` and `test_scans.py`, a mutant killed.
+
+### D698
+**The harness's oracle scanned the object written, so a booking overlapped itself there too.** D696's fix left the object written out of an invariant's scan of a type where the core and the reference runner decide an invariant; the adversarial harness's own check that no run reaches an impossible state evaluated each invariant with a plain evaluator, the object scanned among the others, so the first fixture holding such a scan, the bookings sample, failed it at its first booking: `bookings seed 1: invariant at step 16: booking-3's invariant no_overlap is false`, reduced to two rigs added and one booking. The engine was right and the oracle wrong; no fixture held a whole-type scan until 2026-10-18 (`TODO.md`, a corpus flow whose invariant scans a whole type), so the harness never ran one.
+
+**Resolved** 2026-10-18: the harness evaluates each invariant over the other objects, as the engine decides it (`objectflow-harness` `lib.rs`, `.over_others()`); held by the bookings fixture, the check failing without it on the trace above. The core's one other evaluation of an invariant, `invariant_objects`, only names the objects in conflict, and its naming already leaves the object out (`Named::on`).
 

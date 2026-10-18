@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=../flow.schema.json
+# Bookings: test rigs booked for spans of time, no two bookings of a rig overlapping. The corpus's one invariant that
+# scans a whole type rather than a relationship, which no flow held when D696 lived (TODO.md, a corpus flow whose
+# invariant scans a whole type).
+module: bookings
+categories: [live, closed]
+
+types:
+  Rig:
+    description: A test rig, booked by the hour.
+    tracking: record
+    attributes:
+      name: { type: string }
+    states:
+      IN_SERVICE: { category: live }
+      RETIRED:    { category: closed, final: true }
+    transitions:
+      add:
+        kind: initial
+        to: IN_SERVICE
+        description: Adds a rig that may be booked.
+        required_inputs: [name]
+      retire:
+        kind: external
+        from: IN_SERVICE
+        to: RETIRED
+        description: Takes a rig out of service, so it is booked no more.
+
+  Booking:
+    description: A rig held for a span of time, from its start to its end.
+    tracking: record
+    attributes:
+      rig:   { reference: Rig }
+      start: { type: timestamp, indexed: true }
+      end:   { type: timestamp, indexed: true }
+    states:
+      BOOKED:    { category: live }
+      CANCELLED: { category: closed, final: true }
+    invariants:
+      ends_after_start:
+        description: A booking ends after it starts.
+        expression: end > start
+      no_overlap:
+        description: No two live bookings of a rig overlap; a booking may start as another ends.
+        expression: >-
+          none(b in Booking where b.rig == rig and b.start < end and b.end > start
+               and b.state.category != closed and state.category != closed)
+    conditions:
+      rig_in_service:
+        description: The rig booked is in service.
+        expression: inputs.rig.state.category != closed
+        remedy: self_serviceable
+    transitions:
+      book:
+        kind: initial
+        to: BOOKED
+        description: Books a rig for a span.
+        required_inputs: [rig, start, end]
+        guards:
+          rig_in_service: deny
+      move:
+        kind: internal
+        from: [BOOKED]
+        description: Moves a booking to another span of the same rig.
+        required_inputs: [start, end]
+      cancel:
+        kind: external
+        from: [BOOKED]
+        to: CANCELLED
+        description: Cancels a booking, which frees its span.

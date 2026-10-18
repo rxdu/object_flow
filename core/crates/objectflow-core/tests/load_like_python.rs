@@ -89,7 +89,7 @@ fn every_module_of_the_design_loads_as_python_reads_it() {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    assert_eq!(lines.len(), 11, "the design's eleven modules");
+    assert_eq!(lines.len(), 12, "the design's twelve modules");
     let dir = repo().join("docs/design/flow-format/examples");
     for line in &lines {
         let file = line["file"].as_str().unwrap();
