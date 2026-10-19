@@ -739,9 +739,9 @@ pub fn query(
 /// A read's parameters, by name, as its request gives them (ADR-0218).
 pub type Params = serde_json::Map<String, serde_json::Value>;
 
-/// What a parameter is read as: a member's declared type, or the queried
-/// type's state.
-enum Reads {
+/// What a parameter is read as: a member's declared type, or a type's
+/// state.
+pub(crate) enum Reads {
     Declared(Declared),
     State(String),
 }
@@ -751,16 +751,7 @@ enum Reads {
 /// through `this`, or one reference away, an object's `id` and
 /// `created_at`, and the state; and whether it holds a set.
 fn reads_as(lib: &Library, t: &Type, e: &Expr) -> Option<(Reads, bool)> {
-    fn of(t: &Type, m: &str) -> Option<(Reads, bool)> {
-        match m {
-            "state" => Some((Reads::State(t.name.clone()), false)),
-            "id" => Some((Reads::Declared(Declared::Scalar("string".into())), false)),
-            "created_at" => Some((Reads::Declared(Declared::Scalar("timestamp".into())), false)),
-            _ => t
-                .attribute(m)
-                .map(|a| (Reads::Declared(a.declared.clone()), a.many)),
-        }
-    }
+    let of = member_reads;
     match e {
         Expr::Name(m) => of(t, m),
         Expr::Path(base, m) => match &**base {
@@ -775,6 +766,20 @@ fn reads_as(lib: &Library, t: &Type, e: &Expr) -> Option<(Reads, bool)> {
     }
 }
 
+/// What a member of an object of a type reads as: its state, its `id` and
+/// `created_at`, and a stored attribute, as declared; and whether it holds
+/// a set.
+pub(crate) fn member_reads(t: &Type, m: &str) -> Option<(Reads, bool)> {
+    match m {
+        "state" => Some((Reads::State(t.name.clone()), false)),
+        "id" => Some((Reads::Declared(Declared::Scalar("string".into())), false)),
+        "created_at" => Some((Reads::Declared(Declared::Scalar("timestamp".into())), false)),
+        _ => t
+            .attribute(m)
+            .map(|a| (Reads::Declared(a.declared.clone()), a.many)),
+    }
+}
+
 /// A read's filter with its parameters bound: each `:name` replaced by the
 /// value `params` gives it, read as the member it is compared with is
 /// declared, as a request's input of that type is read, so a date, an
@@ -785,6 +790,27 @@ fn reads_as(lib: &Library, t: &Type, e: &Expr) -> Option<(Reads, bool)> {
 /// give, a value that is not of its member's type, and one given and never
 /// named are each refused, naming the parameter and never its value.
 pub fn bound(lib: &Library, t: &Type, e: Expr, params: &Params) -> Result<Expr, String> {
+    bound_by(
+        lib,
+        e,
+        params,
+        &|x| reads_as(lib, t, x),
+        "a member of the type, or one reference away",
+    )
+}
+
+/// A filter's parameters bound as [`bound`] binds a query's, each operand
+/// read by `reads`, which says how to read a value compared with it: a
+/// query's by the queried type, a metric's by the fields of its rows
+/// (ADR-0221); `operands` says which, in the refusal of a parameter
+/// compared with anything else.
+pub(crate) fn bound_by(
+    lib: &Library,
+    e: Expr,
+    params: &Params,
+    reads: &dyn Fn(&Expr) -> Option<(Reads, bool)>,
+    operands: &str,
+) -> Result<Expr, String> {
     fn contains_param(e: &Expr) -> bool {
         matches!(e, Expr::Param(_)) || e.children().into_iter().any(contains_param)
     }
@@ -828,17 +854,15 @@ pub fn bound(lib: &Library, t: &Type, e: Expr, params: &Params) -> Result<Expr, 
     }
     fn go(
         lib: &Library,
-        t: &Type,
+        r: &dyn Fn(&Expr) -> Option<(Reads, bool)>,
+        operands: &str,
         e: Expr,
         params: &Params,
         used: &mut BTreeSet<String>,
     ) -> Result<Expr, String> {
-        let side = |other: &Expr, this: Expr, used: &mut BTreeSet<String>| match (
-            &this,
-            reads_as(lib, t, other),
-        ) {
+        let side = |other: &Expr, this: Expr, used: &mut BTreeSet<String>| match (&this, r(other)) {
             (Expr::Param(n), Some((reads, _))) => value(lib, n, &reads, params, used),
-            _ => go(lib, t, this, params, used),
+            _ => go(lib, r, operands, this, params, used),
         };
         match e {
             Expr::Bin(op, a, b)
@@ -853,54 +877,57 @@ pub fn bound(lib: &Library, t: &Type, e: Expr, params: &Params) -> Result<Expr, 
             }
             Expr::Bin(op, a, b) => Ok(Expr::Bin(
                 op,
-                Box::new(go(lib, t, *a, params, used)?),
-                Box::new(go(lib, t, *b, params, used)?),
+                Box::new(go(lib, r, operands, *a, params, used)?),
+                Box::new(go(lib, r, operands, *b, params, used)?),
             )),
             // a member among parameters, each read as the member is, or a
             // parameter among a set's elements, read as an element
             Expr::In(x, set) => match (*x, *set) {
-                (member, Expr::Set(items)) if reads_as(lib, t, &member).is_some() => {
-                    let reads = reads_as(lib, t, &member).map(|(r, _)| r);
+                (member, Expr::Set(items)) if r(&member).is_some() => {
+                    let reads = r(&member).map(|(how, _)| how);
                     let mut out = Vec::new();
                     for item in items {
                         out.push(match (&item, &reads) {
-                            (Expr::Param(n), Some(r)) => value(lib, n, r, params, used)?,
-                            _ => go(lib, t, item, params, used)?,
+                            (Expr::Param(n), Some(how)) => value(lib, n, how, params, used)?,
+                            _ => go(lib, r, operands, item, params, used)?,
                         });
                     }
                     Ok(Expr::In(Box::new(member), Box::new(Expr::Set(out))))
                 }
-                (Expr::Param(n), member) if reads_as(lib, t, &member).is_some_and(|(_, many)| many) => {
-                    let (reads, _) = reads_as(lib, t, &member).ok_or_else(String::new)?;
+                (Expr::Param(n), member) if r(&member).is_some_and(|(_, many)| many) => {
+                    let (reads, _) = r(&member).ok_or_else(String::new)?;
                     Ok(Expr::In(
                         Box::new(value(lib, &n, &reads, params, used)?),
                         Box::new(member),
                     ))
                 }
                 (x, set) => Ok(Expr::In(
-                    Box::new(go(lib, t, x, params, used)?),
-                    Box::new(go(lib, t, set, params, used)?),
+                    Box::new(go(lib, r, operands, x, params, used)?),
+                    Box::new(go(lib, r, operands, set, params, used)?),
                 )),
             },
-            Expr::Not(x) => Ok(Expr::Not(Box::new(go(lib, t, *x, params, used)?))),
-            Expr::Neg(x) => Ok(Expr::Neg(Box::new(go(lib, t, *x, params, used)?))),
-            Expr::IsNull(x, negated) => Ok(Expr::IsNull(Box::new(go(lib, t, *x, params, used)?), negated)),
+            Expr::Not(x) => Ok(Expr::Not(Box::new(go(lib, r, operands, *x, params, used)?))),
+            Expr::Neg(x) => Ok(Expr::Neg(Box::new(go(lib, r, operands, *x, params, used)?))),
+            Expr::IsNull(x, negated) => Ok(Expr::IsNull(
+                Box::new(go(lib, r, operands, *x, params, used)?),
+                negated,
+            )),
             Expr::If(c, a, b) => Ok(Expr::If(
-                Box::new(go(lib, t, *c, params, used)?),
-                Box::new(go(lib, t, *a, params, used)?),
-                Box::new(go(lib, t, *b, params, used)?),
+                Box::new(go(lib, r, operands, *c, params, used)?),
+                Box::new(go(lib, r, operands, *a, params, used)?),
+                Box::new(go(lib, r, operands, *b, params, used)?),
             )),
             Expr::Param(n) => Err(format!(
                 "the parameter :{n} is compared with no member that says how to read it; compare it with one, as day >= :{n}"
             )),
-            other if contains_param(&other) => Err(
-                "a parameter is read only compared with a member of the type, or one reference away, or among a set's elements".to_string(),
-            ),
+            other if contains_param(&other) => Err(format!(
+                "a parameter is read only compared with {operands}, or among a set's elements"
+            )),
             other => Ok(other),
         }
     }
     let mut used = BTreeSet::new();
-    let out = go(lib, t, e, params, &mut used)?;
+    let out = go(lib, reads, operands, e, params, &mut used)?;
     if let Some(unused) = params.keys().find(|k| !used.contains(*k)) {
         return Err(format!(
             "params gives :{unused}, which the filter never names"

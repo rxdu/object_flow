@@ -3,6 +3,7 @@
 - **Status:** **Decided** 2026-10-18 under the author's direction ("we need to address the issues properly so that they don't have to work around it"), for issue #24, which the operations platform's developer filed.
 - **Date:** 2026-10-18
 - **Refines:** ADR-0179 (a query's filter and its pages); ADR-0206 decision 2 (a read by a personal member opted into)
+- **Refined by:** ADR-0221 — decision 6, a metric's filter takes parameters
 - **Relates to:** `wire.md`, Filters and order; issue #24
 
 ## Context
@@ -16,7 +17,7 @@ A filter is the flow's expression language over the type's members, and the lang
 3. **What cannot be bound is refused `malformed_filter`, naming the parameter and never its value**: a parameter `params` does not give, one given and never named, one compared with nothing that says how to read it or read elsewhere, and a value not of its member's type, the refusal naming the type. A value may be personal, so it is never said.
 4. **The guards read a filter as the query does**: the personal guard and the cost guard parse its parameters too, so a parameter on a personal member is personal, where a filter that did not parse read as reading nothing personal.
 5. **A cursor carries the parameters** with the filter, so a page continues only the read given the same values.
-6. **A metric's filter takes none yet**: its rows' fields depend on its source, and typing a parameter there needs their table, a change of its own (`TODO.md`).
+6. **A metric's filter takes none yet**: its rows' fields depend on its source, and typing a parameter there needs their table, a change of its own (`TODO.md`). *(Refined 2026-10-19 by ADR-0221: a metric's filter takes them, each bound by the field of the rows it meets.)*
 
 ## Alternatives rejected
 

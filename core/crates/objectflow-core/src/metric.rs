@@ -1933,6 +1933,134 @@ fn reads_only_its_rows(lib: &Library, item: &str, e: &Expr) -> bool {
     within(lib, &[item], e)
 }
 
+/// What an operand of a metric's filter reads as, where it says how to read
+/// a value compared with it, and whether it holds a set (ADR-0221): a field
+/// of the metric's rows through its item, as `declaration-syntax.md` §6.9
+/// lists each source's, or a member of an object a field names, through
+/// references, as a query's operand is read. A field §6.9 gives no one
+/// type, an override's `.reason`, an enumeration's member or a text by the
+/// transition, reads as nothing, so a parameter compared with it is
+/// refused.
+fn row_reads(
+    lib: &Library,
+    owner: &str,
+    source: &str,
+    item: &str,
+    e: &Expr,
+) -> Option<(crate::reads::Reads, bool)> {
+    use crate::reads::{Reads, member_reads};
+    /// The fields of a path from the item, first first; none where it
+    /// starts elsewhere. A reader's filter names no member bare, so it holds
+    /// no `.held(<member>)`, which reads as nothing here (D569).
+    fn steps<'e>(e: &'e Expr, item: &str, out: &mut Vec<&'e str>) -> bool {
+        match e {
+            Expr::Name(n) => n == item,
+            Expr::Path(b, m) => {
+                let from_item = steps(b, item, out);
+                out.push(m);
+                from_item
+            }
+            _ => false,
+        }
+    }
+    let as_ = |ty: &str| Some((Reads::Declared(Declared::Scalar(ty.into())), false));
+    let to = |ty: &str| Some((Reads::Declared(Declared::Reference(ty.into())), false));
+    // an object's members, and those §6.9 gives every object a row reads
+    let object = |t: &Type, m: &str| {
+        member_reads(t, m).or_else(|| match m {
+            "open" => as_("bool"),
+            "created_by_kind" => as_("string"),
+            "recorded_from" => as_("timestamp"),
+            "declaration_version" => as_("int"),
+            _ => None,
+        })
+    };
+    let t = lib.type_(owner)?;
+    let field = |f: &str| -> Option<(Reads, bool)> {
+        // every source's rows carry it (§6.9)
+        if f == "declaration_version" {
+            return as_("int");
+        }
+        match source {
+            "objects" => object(t, f),
+            "transitions" => match f {
+                "object" => to(owner),
+                "transition" | "actor_id" | "actor_kind" => as_("string"),
+                "from_state" | "to_state" => Some((Reads::State(owner.to_string()), false)),
+                "completes" | "returns" | "asserted" | "overrides" | "imported" | "migrated"
+                | "redacted" => as_("bool"),
+                "occurred_at" | "recorded_at" => as_("timestamp"),
+                _ => None,
+            },
+            "attempts" => match f {
+                "object" => to(owner),
+                "transition" | "verdict" | "clause" | "remedy" | "actor_id" | "actor_kind" => {
+                    as_("string")
+                }
+                "unknown" | "enforced" | "flagged" => as_("bool"),
+                "at" => as_("timestamp"),
+                _ => None,
+            },
+            "attempt_counts" => match f {
+                "day" => as_("date"),
+                "object" => to(owner),
+                "transition" | "verdict" | "clause" | "remedy" | "actor_kind" => as_("string"),
+                "enforced" | "flagged" => as_("bool"),
+                "count" => as_("int"),
+                _ => None,
+            },
+            // a label's own attributes, its subject's state among them as
+            // the text it records; its subject an object of the metric's
+            // type, which a path reads on
+            "labels" => match f {
+                "subject" => to(owner),
+                "recorded_by_kind" => as_("string"),
+                _ => lib
+                    .type_(crate::model::LABEL)
+                    .and_then(|l| member_reads(l, f)),
+            },
+            s if s == "intervals" || s.starts_with("intervals(") => {
+                let member = s
+                    .strip_prefix("intervals(")
+                    .and_then(|m| m.strip_suffix(')'));
+                match f {
+                    "object" => to(owner),
+                    "state" if member.is_none() => Some((Reads::State(owner.to_string()), false)),
+                    "value" => member.and_then(|m| member_reads(t, m)),
+                    "entered_at" | "left_at" | "piece_start" | "piece_end" => as_("timestamp"),
+                    "duration" => as_("duration"),
+                    "entered_by_kind" | "period" => as_("string"),
+                    "legacy" | "migrated" => as_("bool"),
+                    "corrected_by" => as_("int"),
+                    _ => None,
+                }
+            }
+            // an observation kind's rows, each an object of the kind, whose
+            // type declares its subject and its times beside its fields
+            observed => {
+                let (_, kind) = t.observations.iter().find(|(c, _)| c == observed)?;
+                match f {
+                    "recorded_by_kind" => as_("string"),
+                    _ => member_reads(lib.type_(kind)?, f),
+                }
+            }
+        }
+    };
+    let mut path = Vec::new();
+    if !steps(e, item, &mut path) {
+        return None;
+    }
+    let (first, rest) = path.split_first()?;
+    let mut now = field(first)?;
+    for m in rest {
+        let (Reads::Declared(Declared::Reference(target)), false) = &now else {
+            return None;
+        };
+        now = object(lib.type_(target)?, m)?;
+    }
+    Some(now)
+}
+
 /// A metric's value, as a guard reads it: its rows those of the store as
 /// the request found it, narrowed to the dimensions bound and the window,
 /// and rounded once (`declaration-syntax.md` §6.9, ADR-0128).
@@ -2553,10 +2681,12 @@ pub fn page(
     over: Option<i64>,
     filter: Option<&str>,
 ) -> Result<Page, NotRun> {
-    page_as(world, answers, name, bind, keep, over, filter, false)
+    page_as(world, answers, name, bind, keep, over, filter, None, false)
 }
 
-/// A page, its request opting into reading by a personal value or not: a
+/// A page, its filter's parameters bound by the fields of the metric's rows
+/// as a query's are by its type (ADR-0221), its request opting into
+/// reading by a personal value or not: a
 /// filter reading one, or a binding of a dimension that names a person, is
 /// refused `personal` without the opt-in, whoever asks (ADR-0206 decision
 /// 2), where a binding of an author's address was answered to an agent
@@ -2570,6 +2700,7 @@ pub fn page_as(
     keep: Option<&[String]>,
     over: Option<i64>,
     filter: Option<&str>,
+    params: Option<&crate::reads::Params>,
     reads_personal: bool,
 ) -> Result<Page, NotRun> {
     let refused = |why: &'static str| {
@@ -2623,18 +2754,47 @@ pub fn page_as(
     if over.is_some() && !reader.windowed(owner, &found.spec, &found.module)? {
         return refused("no_window");
     }
+    let malformed = |why: String| {
+        Ok(Page {
+            refused: Some("malformed_filter"),
+            reason: Some(why),
+            history_complete: true,
+            ..Page::default()
+        })
+    };
+    if filter.is_none() && params.is_some_and(|p| !p.is_empty()) {
+        return malformed(
+            "params gives parameters, and there is no filter to name them".to_string(),
+        );
+    }
     // a filter reads the rows through the metric's item: a name it does not
     // bind is a filter the read cannot apply, refused rather than answered
-    // with no rows (D569)
-    let theirs = match filter.map(parse).transpose() {
-        Ok(t) => t,
-        Err(e) => {
-            return Ok(Page {
-                refused: Some("malformed_filter"),
-                reason: Some(format!("it does not parse: {e}")),
-                history_complete: true,
-                ..Page::default()
-            });
+    // with no rows (D569); and its parameters are bound as the fields of the
+    // rows they meet are typed, before anything reads it (ADR-0221)
+    let theirs = match filter {
+        None => None,
+        Some(text) => {
+            let f = formula(lib, owner.unwrap_or_default(), &found.spec)?;
+            let (source, item) = (
+                f.get("source").and_then(Json::as_str).unwrap_or_default(),
+                f.get("item").and_then(Json::as_str).unwrap_or_default(),
+            );
+            let empty = crate::reads::Params::new();
+            let read = crate::expr::parse_filter(text)
+                .map_err(|e| format!("it does not parse: {e}"))
+                .and_then(|e| {
+                    crate::reads::bound_by(
+                        lib,
+                        e,
+                        params.unwrap_or(&empty),
+                        &|x| row_reads(lib, owner.unwrap_or_default(), source, item, x),
+                        "a field of the metric's rows, or a member of an object one names",
+                    )
+                });
+            match read {
+                Ok(e) => Some(e),
+                Err(why) => return malformed(why),
+            }
         }
     };
     // and takes a query filter's bounds, where a set of 5,000 members ran to
@@ -3265,6 +3425,336 @@ metrics:
         assert_eq!(crate::world::whole_log_reads(), before.2);
     }
 
+    /// Each operand of a metric's filter reads as `declaration-syntax.md`
+    /// §6.9 types its source's fields, through the item, and a member of an
+    /// object a field names through references, so a parameter compared
+    /// with it is read as that type (ADR-0221); a field with no one type, a
+    /// path not from the item, and `.held`, which a reader's filter cannot
+    /// name, read as nothing.
+    #[test]
+    fn a_metric_filters_operands_read_as_its_rows_fields() {
+        let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
+        let reads = |source: &str, item: &str, text: &str| -> Option<String> {
+            row_reads(&lib, "Job", source, item, &parse(text).unwrap()).map(|(r, many)| {
+                let what = match r {
+                    crate::reads::Reads::Declared(Declared::Scalar(s)) => s,
+                    crate::reads::Reads::Declared(Declared::Reference(t)) => format!("id of {t}"),
+                    crate::reads::Reads::State(t) => format!("state of {t}"),
+                };
+                if many { format!("{what}[]") } else { what }
+            })
+        };
+        let is = |s: &str| Some(s.to_string());
+        for (source, item, text, want) in [
+            ("objects", "o", "o.engineer", is("id of User")),
+            ("objects", "o", "o.engineer.login", is("identity")),
+            ("objects", "o", "o.state", is("state of Job")),
+            ("objects", "o", "o.created_at", is("timestamp")),
+            ("objects", "o", "o.open", is("bool")),
+            ("objects", "o", "o.recorded_from", is("timestamp")),
+            ("objects", "o", "o.tags", is("string[]")),
+            ("objects", "o", "o.declaration_version", is("int")),
+            ("objects", "o", "o.created_at.year", None),
+            ("objects", "o", "x.engineer", None),
+            ("transitions", "t", "t.to_state", is("state of Job")),
+            ("transitions", "t", "t.occurred_at", is("timestamp")),
+            ("transitions", "t", "t.actor_kind", is("string")),
+            ("transitions", "t", "t.completes", is("bool")),
+            ("transitions", "t", "t.object.engineer", is("id of User")),
+            ("transitions", "t", "t.held(engineer)", None),
+            ("transitions", "t", "t.reason", None),
+            ("intervals", "i", "i.state", is("state of Job")),
+            ("intervals", "i", "i.entered_at", is("timestamp")),
+            ("intervals", "i", "i.duration", is("duration")),
+            ("intervals", "i", "i.period", is("string")),
+            ("intervals", "i", "i.corrected_by", is("int")),
+            ("intervals", "i", "i.value", None),
+            ("intervals(engineer)", "i", "i.value", is("id of User")),
+            ("intervals(engineer)", "i", "i.state", None),
+            ("attempts", "a", "a.at", is("timestamp")),
+            ("attempts", "a", "a.clause", is("string")),
+            ("attempts", "a", "a.enforced", is("bool")),
+            ("attempt_counts", "a", "a.day", is("date")),
+            ("attempt_counts", "a", "a.count", is("int")),
+            ("labels", "l", "l.name", is("string")),
+            ("labels", "l", "l.subject_state", is("string")),
+            ("labels", "l", "l.subject", is("id of Job")),
+            ("labels", "l", "l.occurred_at", is("timestamp")),
+            ("labels", "l", "l.subject.engineer", is("id of User")),
+            ("checks", "r", "r.outcome", is("Outcome")),
+            ("checks", "r", "r.subject.engineer.login", is("identity")),
+            ("checks", "r", "r.occurred_at", is("timestamp")),
+            ("checks", "r", "r.subject", is("id of Job")),
+            ("checks", "r", "r.recorded_by_kind", is("string")),
+            ("nowhere", "r", "r.outcome", None),
+        ] {
+            assert_eq!(reads(source, item, text), want, "{source}: {text}");
+        }
+    }
+
+    /// A metric's filter states its values as parameters, each read as the
+    /// field of the rows it meets is typed, so a page with them answers as
+    /// the same filter written with the values does, over objects, spans,
+    /// transitions, labels, observations and attempt counts (ADR-0221);
+    /// each parameter that cannot be bound is refused `malformed_filter`,
+    /// naming it and never its value; and one on a personal member is
+    /// refused `personal` without the opt-in, as the member is.
+    #[test]
+    fn a_metric_filters_parameters_are_read_as_its_rows_fields() {
+        let mut s = world();
+        let ana = user(&mut s, "ana");
+        let bo = user(&mut s, "bo");
+        let j1 = job(&mut s, json!({ "engineer": ana, "tags": ["urgent"] }));
+        let j2 = job(&mut s, json!({ "engineer": bo }));
+        take(&mut s, "start", &j2);
+        job(&mut s, json!({}));
+        record(&mut s, &j1, &["PASS", "FAIL", "PASS"]);
+        req(
+            &mut s,
+            crate::model::LABEL,
+            "record",
+            None,
+            json!({ "subject": j2, "name": "late-risk" }),
+        )
+        .unwrap();
+        // a refused request, an attempt the day's counts hold
+        assert!(req(&mut s, "Job", "close", Some(&j1), json!({})).is_err());
+        let page = |name: &str, filter: Option<&str>, params: Json, opted: bool| {
+            let w = s.snapshot().unwrap();
+            let params = params.as_object().cloned();
+            page_as(
+                &w,
+                None,
+                name,
+                &BTreeMap::new(),
+                Some(&[]),
+                None,
+                filter,
+                params.as_ref(),
+                opted,
+            )
+            .unwrap()
+        };
+        let answered = |name: &str, filter: &str, params: Json| {
+            let p = page(name, Some(filter), params, false);
+            assert!(
+                p.refused.is_none(),
+                "{name} {filter}: {:?} {:?}",
+                p.refused,
+                p.reason
+            );
+            rows_of(&p)
+        };
+        let plain = |name: &str, filter: Option<&str>| {
+            let p = page(name, filter, json!({}), false);
+            assert!(
+                p.refused.is_none(),
+                "{name} {filter:?}: {:?} {:?}",
+                p.refused,
+                p.reason
+            );
+            rows_of(&p)
+        };
+        for (name, filter, params, written) in [
+            (
+                "Job.jobs_total",
+                "o.engineer == :e",
+                json!({"e": ana}),
+                Some("o.engineer.login == \"ana\""),
+            ),
+            (
+                "Job.jobs_total",
+                "o.state == :s",
+                json!({"s": "Job.OPEN"}),
+                Some("o.state == Job.OPEN"),
+            ),
+            (
+                "Job.jobs_total",
+                "o.state == :s",
+                json!({"s": "WORKING"}),
+                Some("o.state == Job.WORKING"),
+            ),
+            (
+                "Job.jobs_total",
+                ":t in o.tags",
+                json!({"t": "urgent"}),
+                Some("\"urgent\" in o.tags"),
+            ),
+            (
+                "Job.jobs_total",
+                "o.created_at >= :since",
+                json!({"since": "2025-12-31T00:00:00Z"}),
+                None,
+            ),
+            (
+                "Job.jobs_total",
+                "o.created_at > :since",
+                json!({"since": "2026-01-02T00:00:00Z"}),
+                Some("false"),
+            ),
+            (
+                "Job.jobs_total",
+                "o.engineer in {:a, :b}",
+                json!({"a": ana, "b": bo}),
+                Some("o.engineer is not null"),
+            ),
+            (
+                "Job.transition_counts",
+                "t.to_state == :s",
+                json!({"s": "WORKING"}),
+                Some("t.to_state == Job.WORKING"),
+            ),
+            (
+                "Job.transition_counts",
+                "t.object == :j and t.actor_kind == :k",
+                json!({"j": j2, "k": "human"}),
+                Some("t.object.engineer.login == \"bo\" and t.actor_kind == \"human\""),
+            ),
+            (
+                "Job.jobs_working_by_month",
+                "i.object == :j",
+                json!({"j": j2}),
+                None,
+            ),
+            (
+                "Job.jobs_working_by_month",
+                "i.object == :j",
+                json!({"j": j1}),
+                Some("false"),
+            ),
+            (
+                "Job.labels_total",
+                "l.subject_state == :s",
+                json!({"s": "WORKING"}),
+                Some("l.subject_state == \"WORKING\""),
+            ),
+            (
+                "Job.time_in_state",
+                "i.state == :s",
+                json!({"s": "WORKING"}),
+                Some("i.state == Job.WORKING"),
+            ),
+            (
+                "Job.labels_total",
+                "l.subject == :j",
+                json!({"j": j2}),
+                Some("l.name == \"late-risk\""),
+            ),
+            (
+                "Job.third_of_checks",
+                "r.outcome == :o",
+                json!({"o": "PASS"}),
+                Some("r.outcome == Outcome.PASS"),
+            ),
+            (
+                "Job.refusals",
+                "a.day == :d",
+                json!({"d": "2026-01-01"}),
+                None,
+            ),
+            (
+                "Job.refusals",
+                "a.day == :d",
+                json!({"d": "2026-01-02"}),
+                Some("false"),
+            ),
+        ] {
+            assert_eq!(
+                answered(name, filter, params.clone()),
+                plain(name, written),
+                "{name}: {filter} {params}"
+            );
+        }
+        // the values the page is read with select: each pair above that is
+        // compared with no filter differs from the one compared with `false`
+        assert_ne!(
+            plain("Job.refusals", None),
+            plain("Job.refusals", Some("false"))
+        );
+        assert_ne!(
+            plain("Job.jobs_working_by_month", None),
+            plain("Job.jobs_working_by_month", Some("false"))
+        );
+        // each refusal names the parameter, never its value
+        for (name, filter, params, says) in [
+            (
+                "Job.jobs_total",
+                Some("o.state == :s"),
+                json!({}),
+                "params does not give",
+            ),
+            (
+                "Job.jobs_total",
+                Some("o.state == :s"),
+                json!({"s": "OPEN", "x": 1}),
+                ":x, which the filter never names",
+            ),
+            (
+                "Job.jobs_total",
+                Some("o.state == :s"),
+                json!({"s": "SECRET-STATE"}),
+                "names no state of Job",
+            ),
+            (
+                "Job.jobs_total",
+                Some("o.created_at >= :t"),
+                json!({"t": "SECRET-DAY"}),
+                "a timestamp",
+            ),
+            (
+                "Job.jobs_total",
+                Some("o.engineer == :e"),
+                json!({"e": 7}),
+                "the id of a User",
+            ),
+            (
+                "Job.transition_counts",
+                Some("t.reason == :r"),
+                json!({"r": "SECRET-WHY"}),
+                "compared with no member",
+            ),
+            (
+                "Job.jobs_total",
+                Some("week(:d) == \"2026-W01\""),
+                json!({"d": "SECRET-DAY"}),
+                "a field of the metric's rows",
+            ),
+            (
+                "Job.jobs_total",
+                Some("o.created_at + :d > now"),
+                json!({"d": "SECRET-SPAN"}),
+                "compared with no member",
+            ),
+            (
+                "Job.jobs_total",
+                None,
+                json!({"s": "SECRET-STATE"}),
+                "no filter to name them",
+            ),
+        ] {
+            let p = page(name, filter, params.clone(), false);
+            assert_eq!(p.refused, Some("malformed_filter"), "{filter:?} {params}");
+            let reason = p.reason.unwrap_or_default();
+            assert!(reason.contains(says), "{filter:?} {params}: {reason}");
+            assert!(!reason.contains("SECRET"), "{filter:?}: {reason}");
+        }
+        // a parameter on a personal member is personal, as the member is
+        let memo = page(
+            "Job.jobs_total",
+            Some("o.memo == :m"),
+            json!({"m": "x"}),
+            false,
+        );
+        assert_eq!(memo.refused, Some("personal"));
+        let memo = page(
+            "Job.jobs_total",
+            Some("o.memo == :m"),
+            json!({"m": "x"}),
+            true,
+        );
+        assert!(memo.refused.is_none(), "{:?}", memo.reason);
+    }
+
     /// A metric's filter takes a query filter's bounds: a set of more than
     /// 1,000 members, aggregates nested three deep, more than 256 terms and
     /// a metric called within are each refused `malformed_filter`, where a
@@ -3795,6 +4285,7 @@ metrics:
             Some(&[]),
             None,
             None,
+            None,
             true,
         )
         .unwrap();
@@ -4166,6 +4657,7 @@ metrics:
             keep.as_deref(),
             over,
             filter,
+            None,
             reads_personal,
         )
         .unwrap()
@@ -4226,6 +4718,7 @@ metrics:
                 None,
                 Some(30 * 86_400),
                 None,
+                None,
                 false,
             )
             .unwrap();
@@ -4241,6 +4734,7 @@ metrics:
                 &BTreeMap::new(),
                 None,
                 Some(30 * 86_400),
+                None,
                 None,
                 false,
             )

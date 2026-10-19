@@ -5430,6 +5430,80 @@ fn a_read_by_a_personal_value_is_opted_into() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
+/// A query's and a metric's filters take their values as `params`, an
+/// object by name, at the wire: each bound as the member or the row's field
+/// it meets is typed, a parameter params does not give refused
+/// `malformed_filter` naming it, and `params` that is no object refused
+/// `400` (ADR-0218, ADR-0221), where the service's reading of the key was
+/// tested by no request.
+#[test]
+fn a_reads_parameters_are_taken_at_the_wire() {
+    let file = fresh_store("read-params");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    let desks = "module: desks\ncategories: [live, closed]\ntypes:\n  Booking:\n    description: A desk booked for a day.\n    tracking: record\n    attributes:\n      day: { type: date }\n    states:\n      HELD: { category: live, description: Held. }\n      DONE: { category: closed, final: true, description: Done. }\n    transitions:\n      book: { kind: initial, to: HELD, required_inputs: [day] }\n      end: { kind: external, from: HELD, to: DONE }\n    metrics:\n      booked: { description: Bookings., source: objects, item: b, expression: count() }\n";
+    publish(&s, &json!({"desks": desks}));
+    let op = json!({"id": "operator"});
+    for day in ["2026-11-08", "2026-11-09", "2026-11-10"] {
+        let v = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Booking", "transition": "book", "inputs": {"day": day}}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+    }
+    let between = json!({"from": "2026-11-09", "to": "2026-11-10"});
+    let page = post(
+        &s,
+        "/v1/query",
+        &json!({"actor": op, "type": "Booking", "filter": "day >= :from and day <= :to", "params": between}),
+    );
+    assert_eq!(page["items"].as_array().map(Vec::len), Some(2), "{page}");
+    let metric = post(
+        &s,
+        "/v1/metric",
+        &json!({"actor": op, "name": "Booking.booked", "keep": [],
+                "filter": "b.day >= :from and b.day <= :to", "params": between}),
+    );
+    assert_eq!(metric["rows"][0]["value"], json!(2), "{metric}");
+    // a parameter params does not give, named in the refusal
+    for (path, body) in [
+        (
+            "/v1/query",
+            json!({"actor": op, "type": "Booking", "filter": "day >= :from", "params": {}}),
+        ),
+        (
+            "/v1/metric",
+            json!({"actor": op, "name": "Booking.booked", "filter": "b.day >= :from", "params": {}}),
+        ),
+    ] {
+        let refused = post(&s, path, &body);
+        assert_eq!(refused["refused"], "malformed_filter", "{path}: {refused}");
+        assert!(refused.to_string().contains(":from"), "{path}: {refused}");
+    }
+    // params that is no object
+    for (path, body) in [
+        (
+            "/v1/query",
+            json!({"actor": op, "type": "Booking", "filter": "day >= :from", "params": ["2026-11-09"]}),
+        ),
+        (
+            "/v1/metric",
+            json!({"actor": op, "name": "Booking.booked", "filter": "b.day >= :from", "params": "2026-11-09"}),
+        ),
+    ] {
+        let (status, said) = call(&s, "POST", path, Some(&body));
+        assert_eq!(status, 400, "{path}: {said}");
+    }
+    drop(s);
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
 /// A flow numbering its claims for an accounts system, as the audit's
 /// durability B4 found a restore drawing them again.
 const NUMBERED: &str = "

@@ -1715,6 +1715,7 @@ const TAKES: &[(&str, &[&str])] = &[
             "keep",
             "over",
             "filter",
+            "params",
             "cursor",
             "reads_personal",
         ],
@@ -4316,6 +4317,17 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 ))
             })?),
         };
+        // a filter's parameters, bound as the fields of the metric's rows
+        // they meet are read, as a query's are by its type (ADR-0221)
+        let params = match body.get("params") {
+            None | Some(J::Null) => None,
+            Some(J::Object(p)) => Some(p),
+            Some(_) => {
+                return Err(Fault::Bad(
+                    "params is an object of the filter's parameters, each by its name".to_string(),
+                ));
+            }
+        };
         let (_slot, mut r) = heavy_reading(&shared, &shared.admission, actor_id(&body)?)?;
         let s = r.store()?;
         let world = s.snapshot()?;
@@ -4327,6 +4339,7 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
             keep.as_deref(),
             over,
             text(&body, "filter")?,
+            params,
             opted(&body)?,
         )?;
         let mut out = objectflow_core::metric::page_json(&page);

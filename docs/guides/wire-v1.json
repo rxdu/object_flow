@@ -109,6 +109,7 @@
       "keep",
       "over",
       "filter",
+      "params",
       "cursor",
       "reads_personal"
     ],
