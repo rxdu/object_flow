@@ -2498,8 +2498,9 @@ fn an_endpoint_is_a_deployments() {
 
 /// The releases whose own service made stores kept as fixtures, each with
 /// what it answered of them (`fixtures/make-release-store.py`: 0.1.0's at
-/// commit f6ee6d6, 0.2.0's at 37e8825).
-const FIXTURE_RELEASES: &[&str] = &["0.1.0", "0.2.0"];
+/// commit f6ee6d6, 0.2.0's at 37e8825, 0.3.0's by its published service,
+/// built at 77bf468).
+const FIXTURE_RELEASES: &[&str] = &["0.1.0", "0.2.0", "0.3.0"];
 
 /// A store a release's own service made, and what it answered of it. Each
 /// test copies into a store of its own, `tag` naming it, since tests run at

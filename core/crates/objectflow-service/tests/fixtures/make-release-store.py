@@ -12,8 +12,9 @@ Run it with the release's own service, built at that release's commit:
 
     python3 make-release-store.py <objectflow-service> <module.yaml> <out-dir>
 
-The stores under release-0.1.0/ were made at commit f6ee6d6, the last of release 0.1.0, and those under release-0.2.0/
-at commit 37e8825, the last of release 0.2.0.
+The stores under release-0.1.0/ were made at commit f6ee6d6, the last of release 0.1.0, those under release-0.2.0/
+at commit 37e8825, the last of release 0.2.0, and those under release-0.3.0/ by the service published as v0.3.0, built
+at 77bf468 and checked against its SHA-256, from the modules as 0.3.0 shipped them.
 """
 import json
 import pathlib
