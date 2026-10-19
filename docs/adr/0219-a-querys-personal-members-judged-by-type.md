@@ -3,6 +3,7 @@
 - **Status:** **Decided** 2026-10-18 under the author's direction ("we need to address the issues properly so that they don't have to work around it"), for issue #23, which the operations platform's developer filed; the issue's first proposal.
 - **Date:** 2026-10-18
 - **Refines:** ADR-0206 decision 1 (what a personal member is) and decision 2 (a query refused `personal` by its filter or order)
+- **Refined by:** ADR-0220 — decision 4's guards of a transition's answer judged by type, and its claim about the reference runner retracted
 - **Relates to:** ADR-0203 decision 1 (a copy of an identity is the identity); ADR-0218 (a filter's parameters); issue #23
 
 ## Context
@@ -14,7 +15,7 @@ ADR-0206 makes a query that filters or orders by a personal member refused `pers
 1. **A query judges each member as the type it belongs to declares it.** A bare member, or one read through `this`, is the queried type's; a path through single references, `host.name`, is the type the path reaches; a name an aggregate binds, `g` in `count(g in guests where g.name == …)` or `c` in `count(c in Contact where …)`, ranges over the collection's element type, a set of references' target or the type scanned.
 2. **A member is personal on its type** where the type marks it `personal`, where it is a derived attribute reading a personal member its expression reaches, judged the same way to a fixpoint, and, where an actor type marks its identity personal, where it is of type `identity` (ADR-0206 decision 1, unchanged).
 3. **Only a member whose type the filter does not tell is judged by its name in any type**, as every member was: a path through something not a single reference, or a binding over a collection whose elements are not objects of a known type. The guard still runs before anything is evaluated, from the flow's declarations alone.
-4. **The guards of a transition's answer** (`available`, `check`, `availability`) are judged as before, by name; judging them by type is a change to both backends, recorded in `TODO.md`.
+4. **The guards of a transition's answer** (`available`, `check`, `availability`) are judged as before, by name; judging them by type is a change to both backends, recorded in `TODO.md`. *(Retracted 2026-10-19: "a change to both backends" was written without being checked, and is wrong. The reference runner has no guard on these three reads, as ADR-0206's consequences say, so the change is the core's alone. ADR-0220 makes it.)*
 
 ## Alternatives rejected
 

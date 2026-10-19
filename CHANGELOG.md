@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Fixed
+
+- `available`, `availability` and `check` judge the guards and invariants deciding them as a query judges its filter, each member as the type it belongs to declares it, and an input as its own transition declares it, where a name personal in any type or transition refused them to every caller without `reads_personal`: a guard on a room's own `name` once a contact's was personal, or on a room's own input `name` once a contact's `add` took a personal one (ADR-0220).
+
 ## 0.4.0, 2026-10-19
 
 A release before 1.0.0, as 0.3.0 was (ADR-0214), with the five issues the operations platform's developer filed against 0.3.0 fixed (#22 to #26) and a read on PostgreSQL held to its deadline by a database that stops answering. A store of 0.3.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that changes nothing in it but its release; a service started on one serves the upgrade alone until it runs (`operate.md`, Upgrading the engine). One change may refuse what 0.3.0 accepted, a sandbox's load of a flow the checker finds wrong, listed under its own heading.

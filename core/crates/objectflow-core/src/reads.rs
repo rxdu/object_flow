@@ -1100,6 +1100,9 @@ struct Personal<'l> {
     derived: BTreeSet<(String, String)>,
     identities: bool,
     anywhere: BTreeSet<String>,
+    /// The transition whose guards are judged, and its type, whose inputs
+    /// `inputs.<name>` reads: none for a query, whose filter has none.
+    inputs: Option<(&'l Type, &'l Transition)>,
 }
 
 /// The names an expression binds, each to the type its objects are of,
@@ -1113,6 +1116,7 @@ impl<'l> Personal<'l> {
             derived: BTreeSet::new(),
             identities: crate::eval::identities_personal(lib),
             anywhere: personal_members(lib),
+            inputs: None,
         };
         loop {
             let mut grew = false;
@@ -1141,6 +1145,21 @@ impl<'l> Personal<'l> {
             }
             None => self.derived.contains(&(t.name.clone(), m.to_string())),
         }
+    }
+
+    /// Whether an input of the transition judged is personal: marked so,
+    /// written or passed into a personal attribute, or of type `identity`
+    /// where an actor type marks its identity personal (ADR-0206 decision
+    /// 1), judged by the transition's own declaration (ADR-0220).
+    fn input(&self, m: &str) -> bool {
+        let Some((t, x)) = self.inputs else {
+            return self.anywhere.contains(m);
+        };
+        crate::request::input_personal(self.lib, t, x, m)
+            || (self.identities
+                && x.inputs.iter().any(|(n, i)| {
+                    n == m && matches!(&i.declared, Declared::Scalar(ty) if ty == "identity")
+                }))
     }
 
     /// The type of the objects an expression names, where it tells: `this`,
@@ -1196,6 +1215,13 @@ impl<'l> Personal<'l> {
     fn reads(&self, t: &'l Type, e: &Expr, bound: &Bound) -> bool {
         match e {
             Expr::Name(n) => !bound.contains_key(n) && self.member(t, n),
+            // a transition's input, as its own declaration holds it
+            Expr::Path(b, m)
+                if self.inputs.is_some()
+                    && matches!(&**b, Expr::Name(n) if n == "inputs" && !bound.contains_key(n)) =>
+            {
+                self.input(m)
+            }
             Expr::Path(b, m) => {
                 self.reads(t, b, bound)
                     || match self.type_of(t, b, bound) {
@@ -1273,25 +1299,30 @@ pub fn query_reads_personal(
 /// `availability` and `available` then opt into or are refused
 /// `personal`, where an agent's `available` listed the people a salary
 /// guard passed (the audit's personal data R5, R15, R17; ADR-0206
-/// decision 2).
+/// decision 2). Each member is judged as a query's is, by the type it
+/// belongs to, and an input by the transition's own declaration, where a
+/// name personal in any type or transition made a guard on a room's own
+/// `name`, or on an input named like another transition's personal one,
+/// refused to every caller without the opt-in (ADR-0220).
 pub fn transition_reads_personal(lib: &Library, type_: &str, transition: &str) -> bool {
     let Some(t) = lib.type_(type_) else {
         return false;
     };
-    let personal = personal_members(lib);
-    let guards = t
-        .transition(transition)
+    let x = t.transition(transition);
+    let mut personal = Personal::of(lib);
+    personal.inputs = x.map(|x| (t, x));
+    let guards = x
         .map(|x| x.guards.iter().map(|(g, _)| g.clone()).collect::<Vec<_>>())
         .unwrap_or_default();
     let by_guard = t
         .conditions
         .iter()
         .filter(|(n, _)| guards.contains(n))
-        .any(|(_, c)| crate::eval::reads_any(&c.expression, &personal));
+        .any(|(_, c)| personal.reads(t, &c.expression, &Bound::new()));
     let by_invariant = t
         .invariants
         .iter()
-        .any(|(_, i)| crate::eval::reads_any(i, &personal));
+        .any(|(_, i)| personal.reads(t, i, &Bound::new()));
     by_guard || by_invariant
 }
 
@@ -2319,6 +2350,98 @@ types:
         ));
         assert!(personal("Room", Some("hosted_by == \"Ana\""), &[]));
         assert!(personal("Room", None, &["hosted_by"]));
+    }
+
+    /// A transition's answer is decided by a personal member as its guards
+    /// and its type's invariants read it, each member judged as the type it
+    /// belongs to declares it and an input as its own transition declares
+    /// it (ADR-0220): a guard on a room's own `name`, or on the room's own
+    /// input `name`, is not personal because a contact's `name` and the
+    /// input that writes it are, where both were refused to every caller
+    /// without the opt-in; a contact's name read through a reference, a
+    /// derived attribute or an aggregate's binding is personal still, and
+    /// so is an input marked personal or of type `identity` where an
+    /// actor's identity is personal, and an invariant reading what is.
+    #[test]
+    fn a_transitions_guards_are_personal_as_their_own_types_declare() {
+        const OFFICE: &str = r#"
+module: office
+categories: [live, closed]
+types:
+  Contact:
+    attributes:
+      name: { type: string, personal: true, optional: true }
+    states:
+      KNOWN: { category: live }
+    transitions:
+      add: { kind: initial, to: KNOWN, optional_inputs: [name] }
+  Room:
+    attributes:
+      name: { type: string }
+      host: { reference: Contact, optional: true }
+    derived_attributes:
+      hosted_by: { type: string, expression: host.name }
+    conditions:
+      named: { expression: name != "" }
+      given_a_name: { expression: inputs.name != "" }
+      hosted_by_ana: { expression: host.name == "Ana" }
+      host_named: { expression: hosted_by == "Ana" }
+      noted: { expression: inputs.note != "" }
+      no_namesake: { expression: "count(c in Contact where c.name == inputs.name) == 0" }
+      admitted: { expression: inputs.who != "" }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [name], optional_inputs: [host], guards: { given_a_name: deny } }
+      tidy: { kind: internal, from: OPEN, guards: { named: deny } }
+      greet: { kind: internal, from: OPEN, guards: { hosted_by_ana: deny } }
+      welcome: { kind: internal, from: OPEN, guards: { host_named: deny } }
+      note: { kind: internal, from: OPEN, inputs: { note: { type: string, personal: true } }, guards: { noted: deny } }
+      dedupe: { kind: internal, from: OPEN, inputs: { name: { type: string } }, guards: { no_namesake: deny } }
+      admit: { kind: internal, from: OPEN, inputs: { who: { type: identity } }, guards: { admitted: deny } }
+  Person:
+    attributes:
+      login: { type: identity, actor_kind: human, personal: true }
+    states:
+      ON: { category: live }
+    transitions:
+      join: { kind: initial, to: ON, required_inputs: [login] }
+  Desk:
+    attributes:
+      label: { type: string }
+    invariants:
+      labelled: { expression: label != "" }
+    states:
+      FREE: { category: live }
+    transitions:
+      add: { kind: initial, to: FREE, required_inputs: [label] }
+  Locker:
+    attributes:
+      owner: { reference: Contact }
+    invariants:
+      owned_by_someone_named: { expression: owner.name != "" }
+    states:
+      FREE: { category: live }
+    transitions:
+      add: { kind: initial, to: FREE, required_inputs: [owner] }
+"#;
+        let lib = Library::load(&[("office.yaml".into(), OFFICE.into())]).unwrap();
+        let personal = |ty: &str, x: &str| transition_reads_personal(&lib, ty, x);
+        // the room's own, by its member and by its input
+        assert!(!personal("Room", "tidy"));
+        assert!(!personal("Room", "add"));
+        // the contact's, wherever a guard reaches it
+        assert!(personal("Room", "greet"));
+        assert!(personal("Room", "welcome"));
+        assert!(personal("Room", "dedupe"));
+        assert!(!personal("Contact", "add"));
+        // an input its own transition marks personal, and one of type
+        // identity, which a person's personal login makes personal
+        assert!(personal("Room", "note"));
+        assert!(personal("Room", "admit"));
+        // an invariant of the type, by what it reads
+        assert!(!personal("Desk", "add"));
+        assert!(personal("Locker", "add"));
     }
 
     /// A filter's parameters are stated as data, each read as the member it
