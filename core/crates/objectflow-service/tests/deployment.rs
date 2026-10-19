@@ -1510,7 +1510,9 @@ fn a_submits_dry_run_holds_no_write() {
         let took = began.elapsed();
         stop.store(true, std::sync::atomic::Ordering::SeqCst);
         let slowest = writer.join().expect("the writer");
-        if took > std::time::Duration::from_millis(500) || types >= 600 * 27 {
+        // at most 5,400 types, a module of about 1.8 MB, within the 2 MB a
+        // request's body is given, where 16,200 types' 5.2 MB were refused
+        if took > std::time::Duration::from_millis(500) || types >= 600 * 9 {
             break (took, slowest, submitted);
         }
         types *= 3;
@@ -1789,61 +1791,90 @@ fn a_held_writer_is_seen_in_health_and_metrics() {
         "--port",
         "0",
     ]);
-    let mut big = String::from("module: big\ncategories: [live, closed]\ntypes:\n");
-    for i in 0..600 {
-        big.push_str(&format!("  T{i}:\n    description: Type {i}.\n    tracking: record\n    attributes:\n      a: {{ type: string }}\n    states:\n      OPEN: {{ category: live }}\n      DONE: {{ category: closed, final: true }}\n    transitions:\n      make: {{ kind: initial, to: OPEN, required_inputs: [a] }}\n      finish: {{ kind: external, from: OPEN, to: DONE }}\n"));
-    }
     let op = json!({"id": "operator"});
-    let drafted = post(
-        &s,
-        "/v1/request",
-        &json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
-        "inputs": {"source": {"big": big}, "source_ref": "test:big"}}),
-    );
-    let change = drafted["object_id"].as_str().expect("a change").to_string();
-    let submitted = post(
-        &s,
-        "/v1/request",
-        &json!({"actor": op, "object_id": change, "transition": "submit"}),
-    );
-    assert_eq!(submitted["kind"], "satisfied", "{submitted}");
-    // the approval computes its dry run again under the writer
-    let approving = {
-        let (w, change, version) = (at(&s), change.clone(), submitted["version"].clone());
-        std::thread::spawn(move || {
-            post(
-                &w,
-                "/v1/publish",
-                &json!({"actor": {"id": "operator"}, "change": change, "expected_version": version}),
-            )
-        })
+    let scrape = || {
+        let mut stream = TcpStream::connect(&s.addr).expect("a connection");
+        write!(
+            stream,
+            "GET /metrics HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        )
+        .expect("asked");
+        let mut metrics = String::new();
+        stream.read_to_string(&mut metrics).expect("the metrics");
+        metrics
     };
-    std::thread::sleep(std::time::Duration::from_millis(600));
-    let (_, health) = call(&s, "GET", "/health", None);
-    let mut stream = TcpStream::connect(&s.addr).expect("a connection");
-    write!(
-        stream,
-        "GET /metrics HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
-    )
-    .expect("asked");
-    let mut metrics = String::new();
-    stream.read_to_string(&mut metrics).expect("the metrics");
-    let approved = approving.join().expect("the approval");
-    assert_eq!(approved["verdict"]["kind"], "satisfied", "{approved}");
+    let held_in = |metrics: &str| {
+        metrics
+            .lines()
+            .find_map(|l| l.strip_prefix("objectflow_writer_held_seconds "))
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.0)
+    };
+    // the approval watched while it runs, where one look after a fixed
+    // 600 ms found an optimised build's publish of 600 types already done
+    // on the release's runner, and the test failed rather than judge (the
+    // release of 0.4.0); a module three times larger each time the
+    // approval ends before both reads have seen the writer held
+    let mut types = 600;
+    let (health, metrics) = loop {
+        let mut big = String::from("module: big\ncategories: [live, closed]\ntypes:\n");
+        for i in 0..types {
+            big.push_str(&format!("  T{i}:\n    description: Type {i}.\n    tracking: record\n    attributes:\n      a: {{ type: string }}\n    states:\n      OPEN: {{ category: live }}\n      DONE: {{ category: closed, final: true }}\n    transitions:\n      make: {{ kind: initial, to: OPEN, required_inputs: [a] }}\n      finish: {{ kind: external, from: OPEN, to: DONE }}\n"));
+        }
+        let drafted = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
+            "inputs": {"source": {"big": big}, "source_ref": "test:big"}}),
+        );
+        let change = drafted["object_id"].as_str().expect("a change").to_string();
+        let submitted = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "object_id": change, "transition": "submit"}),
+        );
+        assert_eq!(submitted["kind"], "satisfied", "{submitted}");
+        // the approval computes its dry run again under the writer
+        let approving = {
+            let (w, change, version) = (at(&s), change.clone(), submitted["version"].clone());
+            std::thread::spawn(move || {
+                post(
+                    &w,
+                    "/v1/publish",
+                    &json!({"actor": {"id": "operator"}, "change": change, "expected_version": version}),
+                )
+            })
+        };
+        let (mut health, mut metrics) = (None, None);
+        while !approving.is_finished() && (health.is_none() || metrics.is_none()) {
+            let (_, now) = call(&s, "GET", "/health", None);
+            if now["writer_held_seconds"].as_f64().unwrap_or(0.0) > 0.2
+                && now["requests_in_flight"].as_u64().unwrap_or(0) >= 2
+            {
+                health.get_or_insert(now);
+            }
+            let scraped = scrape();
+            if held_in(&scraped) > 0.2 {
+                metrics.get_or_insert(scraped);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let approved = approving.join().expect("the approval");
+        assert_eq!(approved["verdict"]["kind"], "satisfied", "{approved}");
+        match (health, metrics) {
+            (Some(health), Some(metrics)) => break (health, metrics),
+            // at most 5,400 types, within a request body's 2 MB, as above
+            _ if types >= 600 * 9 => {
+                panic!("an approval of {types} types was never seen holding the writer")
+            }
+            _ => types *= 3,
+        }
+    };
     assert!(
         health["writer_held_seconds"].as_f64().unwrap_or(0.0) > 0.2,
         "{health}"
     );
-    assert!(
-        health["requests_in_flight"].as_u64().unwrap_or(0) >= 2,
-        "{health}"
-    );
-    let held = metrics
-        .lines()
-        .find_map(|l| l.strip_prefix("objectflow_writer_held_seconds "))
-        .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(0.0);
-    assert!(held > 0.2, "{metrics}");
+    assert!(held_in(&metrics) > 0.2, "{metrics}");
     assert!(metrics.contains("objectflow_resident_bytes "), "{metrics}");
     let (_, after) = call(&s, "GET", "/health", None);
     assert_eq!(after["writer_held_seconds"].as_f64(), Some(0.0), "{after}");
