@@ -6,6 +6,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Added
 
+- The Flow Studio's runner backend, and the reference runner behind it, read a metric's filter's parameters as the core does, where a metric read carrying `params` was refused `400` there, the studio's key list not holding the key the core's took (ADR-0221).
 - A metric's filter names parameters, `:name`, whose values `/v1/metric`'s `params` gives, each read as the field of the metric's rows it is compared with is typed, as a query's are by its members since 0.4.0: a report of a month's transitions or a day's refusals states its days as data, where it stated them as offsets from the engine's clock (issue #24's rest, ADR-0221).
 
 ### Fixed

@@ -82,6 +82,17 @@ def bases(oid: str, change: str) -> dict:
     }
 
 
+def test_the_studio_takes_the_keys_the_wire_lists():
+    """The studio's server takes each operation's keys as the core's service
+    holds them, `wire-v1.json`'s list, where a key the core added, `params`
+    on a query and a metric, was refused by the runner's backend and no test
+    said so (ADR-0218, ADR-0221)."""
+    from flowstudio.http import TAKES
+    for path, keys in TAKES.items():
+        if path in WIRE:
+            assert sorted(keys) == sorted(WIRE[path]), path
+
+
 @pytest.fixture(scope="module")
 def core():
     c = Core()

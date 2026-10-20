@@ -67,6 +67,31 @@ MINOR_UNITS = {"USD": 2, "EUR": 2, "GBP": 2, "SGD": 2, "AUD": 2, "CAD": 2, "CHF"
 # an expression, the markers `inputs` and `actor`, and an event
 TAGS = {"state", "enum", "category", "typeref", "marker", "event", "file"}
 parsed = functools.lru_cache(maxsize=None)(flowexpr.parse)
+parsed_filter = functools.lru_cache(maxsize=None)(flowexpr.parse_filter)
+
+
+class Lit:
+    """A value a read's parameter is bound to, a node of its filter's tree, ("lit", Lit(v)), that no walker of a tree
+    descends into, since it is no tuple (ADR-0218)."""
+    __slots__ = ("value",)
+
+    def __init__(self, value):
+        self.value = value
+
+    def __repr__(self):
+        return f"Lit({self.value!r})"
+
+
+class Unbound(ValueError):
+    """A read's parameter that cannot be bound, refused malformed_filter, naming the parameter and never its value
+    (ADR-0218 decision 3)."""
+
+
+class SameIds(dict):
+    """The aliases a wire value is read with: an object's id names itself."""
+
+    def __missing__(self, key):
+        return key
 
 
 class NotRunnable(Exception):
@@ -1060,6 +1085,10 @@ class Evaluator:
             if places is None or (v * 10 ** places).denominator != 1:
                 raise NotRunnable(f"an amount in {e[1]} with more places than its minor unit")
             return v
+        if k == "lit":
+            return e[1].value                               # a read's parameter, bound (ADR-0218)
+        if k == "param":
+            raise NotRunnable(f"the parameter :{e[1]}, which nothing bound")
         if k == "name":
             v = self.name(e[1], env)
             return v if e[1] in env else self.note(v)       # a name an aggregate binds is no reference
@@ -1464,7 +1493,7 @@ class Evaluator:
         if window is not None and not f.get("time_dimension") and not split:
             raise NotRunnable("a window on a metric with no time dimension")
         where = parsed(f["filter"]) if f.get("filter") else None
-        theirs = parsed(filt) if filt else None
+        theirs = filt if isinstance(filt, tuple) else parsed(filt) if filt else None
         stamp = parsed(f["time_dimension"]) if window is not None and not split else None
         picked = []
         for r in rows:
@@ -1483,7 +1512,193 @@ class Evaluator:
         return picked, f, item, rowkind, dims, row
 
     # ── a metric, as a reader reads it (library-api.md §5, declaration-syntax.md §6.9) ──────────────
-    def read_page(self, name, bind=None, keep=None, over=None, filt=None):
+    def row_reads(self, owner, source, item, e):
+        """What an operand of a metric's filter reads as, where it says how to read a value compared with it, as the
+        core's `row_reads` (ADR-0221): a field of the metric's rows through its item, as declaration-syntax.md §6.9
+        lists each source's, or a member of an object a field names, through single references. Its spec, an element's
+        where it holds a set, or ("state", type), and whether it holds a set; None for a field with no one type, an
+        override's `.reason`, and for `.held`, which a reader's filter cannot name (D569)."""
+        kinds = self.s.kinds
+
+        def as_(t):
+            return ({"type": t}, False)
+
+        def to(t):
+            return ({"reference": t}, False)
+
+        def member(tn, m):
+            if m == "state":
+                return (("state", tn), False)
+            if m == "id":
+                return as_("string")
+            if m == "created_at":
+                return as_("timestamp")
+            sp = ((kinds.get(tn) or {}).get("attributes") or {}).get(m)
+            if sp is None:
+                return None
+            if str(sp.get("reference", "")).endswith("[]"):
+                return ({"reference": sp["reference"][:-2]}, True)
+            if str(sp.get("type", "")).endswith("[]"):
+                return (dict(sp, type=sp["type"][:-2]), True)
+            return (sp, False)
+
+        def obj(tn, m):
+            return member(tn, m) or {"open": as_("bool"), "created_by_kind": as_("string"),
+                                     "recorded_from": as_("timestamp"), "declaration_version": as_("int")}.get(m)
+
+        def field(f):
+            if f == "declaration_version":
+                return as_("int")       # every source's rows carry it (§6.9)
+            if source == "objects":
+                return obj(owner, f)
+            if source == "transitions":
+                if f in ("from_state", "to_state"):
+                    return (("state", owner), False)
+                return {"object": to(owner), "transition": as_("string"), "actor_id": as_("string"),
+                        "actor_kind": as_("string"), "occurred_at": as_("timestamp"), "recorded_at": as_("timestamp"),
+                        **{b: as_("bool") for b in ("completes", "returns", "asserted", "overrides", "imported",
+                                                     "migrated", "redacted")}}.get(f)
+            if source == "attempts":
+                return {"object": to(owner), "at": as_("timestamp"),
+                        **{t: as_("string") for t in ("transition", "verdict", "clause", "remedy", "actor_id",
+                                                       "actor_kind")},
+                        **{b: as_("bool") for b in ("unknown", "enforced", "flagged")}}.get(f)
+            if source == "attempt_counts":
+                return {"day": as_("date"), "object": to(owner), "count": as_("int"),
+                        **{t: as_("string") for t in ("transition", "verdict", "clause", "remedy", "actor_kind")},
+                        **{b: as_("bool") for b in ("enforced", "flagged")}}.get(f)
+            if source == "labels":
+                # a label's own attributes, its subject's state among them as the text it records; its subject an
+                # object of the metric's type, which a path reads on
+                if f == "subject":
+                    return to(owner)
+                if f == "recorded_by_kind":
+                    return as_("string")
+                return member(LABEL, f)
+            if source == "intervals" or source.startswith("intervals("):
+                tracked = source[len("intervals("):-1] if source.startswith("intervals(") else None
+                if f == "state" and tracked is None:
+                    return (("state", owner), False)
+                if f == "value":
+                    return member(owner, tracked) if tracked else None
+                return {"object": to(owner), "duration": as_("duration"), "entered_by_kind": as_("string"),
+                        "period": as_("string"), "corrected_by": as_("int"),
+                        **{t: as_("timestamp") for t in ("entered_at", "left_at", "piece_start", "piece_end")},
+                        **{b: as_("bool") for b in ("legacy", "migrated")}}.get(f)
+            # an observation kind's rows, each an object of the kind, whose type declares its subject and its times
+            observed = ((kinds.get(owner) or {}).get("observations") or {}).get(source)
+            if observed is None:
+                return None
+            if f == "recorded_by_kind":
+                return as_("string")
+            return member(observed["kind"], f)
+
+        path = []
+
+        def steps(x):
+            if x == ("name", item):
+                return True
+            if isinstance(x, tuple) and x[0] == "path":
+                ok = steps(x[1])
+                path.append(x[2])
+                return ok
+            return False
+        if not isinstance(e, tuple) or not steps(e) or not path:
+            return None
+        now = field(path[0])
+        for m in path[1:]:
+            if now is None or now[1] or not isinstance(now[0], dict) or "reference" not in now[0]:
+                return None
+            now = obj(now[0]["reference"], m)
+        return now
+
+    def param_value(self, n, reads, given):
+        """A parameter's value, read as its operand reads (`row_reads`), as the core's decoder reads a wire value of
+        the type: a state by its name, the type's prefix allowed; any other by the JSON kind its type takes and as a
+        request's input of the type is read, an instant in RFC 3339 alone, never an example's `now`."""
+        how, _many = reads
+        if isinstance(how, tuple):
+            tn = how[1]
+            name = given if isinstance(given, str) else ""
+            name = name[len(tn) + 1:] if name.startswith(tn + ".") else name
+            if name not in ((self.s.kinds.get(tn) or {}).get("states") or {}):
+                raise Unbound(f"the parameter :{n} names no state of {tn}")
+            return ("state", tn, name)
+        typ = str(how.get("type", ""))
+        ref = how.get("reference")
+        wrong = Unbound(f"the parameter :{n} is not a value of its member's type, "
+                        + (f"the id of a {ref}" if ref else f"a {typ}"))
+        enum = typ in self.s.enums
+        takes = ((str,) if ref or enum or typ.startswith("money") or typ in (
+            "timestamp", "date", "duration", "string", "text", "identity", "actor_kind")
+            else (str, int) if typ.startswith("decimal") or typ in ("int", "counter")
+            else (bool,) if typ == "bool" else (dict,) if typ == "file" else ())
+        if not isinstance(given, takes) or (isinstance(given, bool) and bool not in takes):
+            raise wrong
+        if typ == "timestamp" and not TIMESTAMP_TEXT.fullmatch(given):
+            raise wrong
+        if enum and "." not in given:
+            given = f"{typ}.{given}"
+        if input_fault(how, given, self.s.enums, self.s.kinds):
+            raise wrong
+        try:
+            return Runner(self.s.kinds, self.s.enums).value_of(self.s, how, given, SameIds())
+        except (ValueError, KeyError):
+            raise wrong from None
+
+    def bound(self, tree, params, reads):
+        """A read's filter with its parameters bound, as the core's `bound_by` binds them (ADR-0218, ADR-0221): each
+        compared with an operand `reads` says how to read, or among the elements of a set one is compared with, read
+        as it; one `params` does not give, one given and never named, and one anywhere else refused, raising Unbound."""
+        used = set()
+
+        def value(n, how):
+            if n not in params:
+                raise Unbound(f"it names the parameter :{n}, which params does not give")
+            used.add(n)
+            return ("lit", Lit(self.param_value(n, how, params[n])))
+
+        def has_param(x):
+            return isinstance(x, tuple) and (x[:1] == ("param",)
+                                             or any(has_param(p) for p in x[1:] if isinstance(p, tuple))
+                                             or any(has_param(q) for p in x[1:] if isinstance(p, list) for q in p))
+
+        def go(x):
+            k = x[0]
+            if k == "bin" and x[1] in flowexpr.COMPARISONS:
+                a, b = x[2], x[3]
+                a2 = value(a[1], reads(b)) if a[0] == "param" and reads(b) else go(a)
+                b2 = value(b[1], reads(a)) if b[0] == "param" and reads(a) else go(b)
+                return ("bin", x[1], a2, b2)
+            if k == "bin":
+                return ("bin", x[1], go(x[2]), go(x[3]))
+            if k == "in":
+                member, elements = x[1], x[2]
+                if elements[0] == "set" and reads(member):
+                    how = reads(member)
+                    return ("in", member, ("set", [value(i[1], how) if i[0] == "param" else go(i) for i in elements[1]]))
+                if member[0] == "param" and reads(elements) and reads(elements)[1]:
+                    return ("in", value(member[1], reads(elements)), elements)
+                return ("in", go(member), go(elements))
+            if k in ("not", "neg"):
+                return (k, go(x[1]))
+            if k == "isnull":
+                return ("isnull", go(x[1]), x[2])
+            if k == "if":
+                return ("if", go(x[1]), go(x[2]), go(x[3]))
+            if k == "param":
+                raise Unbound(f"the parameter :{x[1]} is compared with no member that says how to read it")
+            if has_param(x):
+                raise Unbound("a parameter is read only compared with a field of the metric's rows, or among a set's "
+                              "elements")
+            return x
+        out = go(tree)
+        unused = next((k for k in params if k not in used), None)
+        if unused is not None:
+            raise Unbound(f"params gives :{unused}, which the filter never names")
+        return out
+
+    def read_page(self, name, bind=None, keep=None, over=None, filt=None, params=None):
         """A reader's read of a metric: its rows those a guard's read would select, narrowed by a filter over its binder,
         grouped by the dimensions kept, every declared one unless `keep` names them, the rest aggregated over, a row per
         group in their order; each declared flag on each declared group; and a refusal, a value, where the read cannot be
@@ -1505,17 +1720,27 @@ class Evaluator:
         if filt is not None and combined:
             return refused("filter_on_combined")
         # a filter reads the rows through the metric's item: a name it does not bind is a filter the read cannot
-        # apply, refused rather than answered with no rows (D569)
+        # apply, refused rather than answered with no rows (D569); and its parameters are bound as the fields of the
+        # rows they meet are typed, before anything reads it (ADR-0221)
         if filt is not None:
             try:
-                tree = parsed(filt)
+                tree = parsed_filter(filt)
             except flowexpr.ParseError:
                 return refused("malformed_filter")
-            item = formula(s.kinds, s.enums, owner, spec).get("item")
+            f = formula(s.kinds, s.enums, owner, spec)
+            item = f.get("item")
+            try:
+                tree = self.bound(tree, dict(params or {}),
+                                  lambda x: self.row_reads(owner, f["source"], item, x))
+            except Unbound:
+                return refused("malformed_filter")
             if not reads_only_its_rows(tree, {item}, s.kinds, s.enums):
                 return refused("malformed_filter")
+            filt = tree
         if over is not None and not self.windowed(owner, spec, module):
             return refused("no_window")
+        if filt is None and params:
+            return refused("malformed_filter")      # parameters, and no filter to name them (ADR-0218)
         if filt is not None and self.reads_personal(owner, spec, filt):
             return refused("personal")
         groups, kind = self.grouped(owner, spec, module, bind, keep, over, filt)
@@ -1584,7 +1809,7 @@ class Evaluator:
                     return True
             return any(walk(p) for p in e[1:] if isinstance(p, tuple)) or \
                 any(walk(q) for p in e[1:] if isinstance(p, list) for q in p)
-        return walk(parsed(filt))
+        return walk(filt if isinstance(filt, tuple) else parsed(filt))
 
     def grouped(self, owner, spec, module, bind, keep, over, filt):
         """A metric's exact value on each group of the dimensions kept, with the objects each read from before what their
@@ -5312,6 +5537,62 @@ def metrics_self_test(operator):
     check("a warning guard that would fail is a flag on an available offer, never a refusal",
           # its clause unknown, reading a value nobody has yet, and naming no object (ADR-0179)
           offered(jw)[("finish", None)], ("available", None, [], [("good", "dependent", True, [])]))
+    # a reader's filter states its values as parameters, each read as the field of the rows it meets is typed, so a
+    # page with them answers as the same filter written with the values does, as the core's (ADR-0221)
+    r, s = world()
+    ana, bo = req(r, s, "User", "add", login="ana"), req(r, s, "User", "add", login="bo")
+    j1 = req(r, s, "Job", "open", engineer=ana, tags=["urgent"])
+    j2 = req(r, s, "Job", "open", engineer=bo)
+    req(r, s, "Job", "start", j2)
+    req(r, s, "Job", "open")
+    record(r, s, j1, "PASS", "FAIL", "PASS")
+    req(r, s, LABEL, "record", subject=j2, name="late-risk")
+    req(r, s, "Job", "close", j1)               # refused, an attempt the day's counts hold
+    page = lambda name, **kw: Evaluator(s, None).read_page(name, **kw)
+    on = lambda secs, form: datetime.datetime.fromtimestamp(int(secs), datetime.timezone.utc).strftime(form)
+    today, tomorrow = on(s.now, "%Y-%m-%d"), on(s.now + day, "%Y-%m-%d")
+    since, later = on(s.now - day, "%Y-%m-%dT%H:%M:%SZ"), on(s.now + day, "%Y-%m-%dT%H:%M:%SZ")
+    for name, filt, params, written in [
+            ("Job.jobs_total", "o.engineer == :e", {"e": ana}, 'o.engineer.login == "ana"'),
+            ("Job.jobs_total", "o.state == :s", {"s": "Job.OPEN"}, "o.state == Job.OPEN"),
+            ("Job.jobs_total", "o.state == :s", {"s": "WORKING"}, "o.state == Job.WORKING"),
+            ("Job.jobs_total", ":t in o.tags", {"t": "urgent"}, '"urgent" in o.tags'),
+            ("Job.jobs_total", "o.created_at >= :since", {"since": since}, None),
+            ("Job.jobs_total", "o.created_at > :since", {"since": later}, "false"),
+            ("Job.jobs_total", "o.engineer in {:a, :b}", {"a": ana, "b": bo}, "o.engineer is not null"),
+            ("Job.transition_counts", "t.to_state == :s", {"s": "WORKING"}, "t.to_state == Job.WORKING"),
+            ("Job.transition_counts", "t.object == :j and t.actor_kind == :k", {"j": j2, "k": "human"},
+             't.object.engineer.login == "bo" and t.actor_kind == "human"'),
+            ("Job.jobs_working_by_month", "i.object == :j", {"j": j2}, None),
+            ("Job.jobs_working_by_month", "i.object == :j", {"j": j1}, "false"),
+            ("Job.labels_total", "l.subject_state == :s", {"s": "WORKING"}, 'l.subject_state == "WORKING"'),
+            ("Job.time_in_state", "i.state == :s", {"s": "WORKING"}, "i.state == Job.WORKING"),
+            ("Job.labels_total", "l.subject == :j", {"j": j2}, 'l.name == "late-risk"'),
+            ("Job.third_of_checks", "r.outcome == :o", {"o": "PASS"}, "r.outcome == Outcome.PASS"),
+            ("Job.refusals", "a.day == :d", {"d": today}, None),
+            ("Job.refusals", "a.day == :d", {"d": tomorrow}, "false")]:
+        got = page(name, keep=[], filt=filt, params=params)
+        check(f"a parameter read as the field it meets: {name} {filt} answers", got["refused"], None)
+        check(f"a parameter read as the field it meets: {name} {filt}", rows(got),
+              rows(page(name, keep=[], filt=written) if written else page(name, keep=[])))
+    check("the values a page's parameters give select", rows(page("Job.refusals", keep=[])) != rows(page(
+        "Job.refusals", keep=[], filt="false")), True)
+    for name, filt, params in [
+            ("Job.jobs_total", "o.state == :s", {}),
+            ("Job.jobs_total", "o.state == :s", {"s": "OPEN", "x": 1}),
+            ("Job.jobs_total", "o.state == :s", {"s": "SECRET"}),
+            ("Job.jobs_total", "o.created_at >= :t", {"t": "yesterday"}),
+            ("Job.jobs_total", "o.created_at >= :t", {"t": "now - 1 days"}),
+            ("Job.jobs_total", "o.engineer == :e", {"e": 7}),
+            ("Job.transition_counts", "t.reason == :r", {"r": "why"}),
+            ("Job.jobs_total", 'week(:d) == "2026-W01"', {"d": today}),
+            ("Job.jobs_total", "o.created_at + :d > now", {"d": "1 days"}),
+            ("Job.jobs_total", None, {"s": "OPEN"})]:
+        check(f"a parameter that cannot be bound is refused: {filt} {params}",
+              page(name, keep=[], filt=filt, params=params)["refused"], "malformed_filter")
+    check("a parameter on a personal member is personal, as the member is",
+          page("Job.jobs_total", keep=[], filt="o.memo == :m", params={"m": "x"})["refused"], "personal")
     print(f"  metrics: a rate windowed and bound, a combined one, rounding half to even, medians and percentiles, time held "
-          f"by who held the job, counts, set dimensions, and the standard ones, as guards read them: {'yes' if ok else 'NO'}")
+          f"by who held the job, counts, set dimensions, and the standard ones, as guards read them, and a reader's "
+          f"filter's parameters: {'yes' if ok else 'NO'}")
     return ok

@@ -957,6 +957,12 @@ class Sandbox:
         if body.get("cursor") is not None:
             raise Fault(400, "a metric's page holds every group, so it has "
                              "no cursor to continue from")
+        # a filter's parameters, bound as the fields of the metric's rows
+        # they meet are read, as the core binds them (ADR-0221)
+        params = body.get("params")
+        if params is not None and not isinstance(params, dict):
+            raise Fault(400, "params is an object of the filter's "
+                             "parameters, each by its name")
         keep = body.get("keep")
         if keep is not None and not (isinstance(keep, list) and all(
                 isinstance(d, str) for d in keep)):
@@ -977,7 +983,7 @@ class Sandbox:
                                  f"'30 days': {body['over']}")
             page = ev.read_page(name, bind=dict(body.get("bind") or {}),
                                 keep=keep, over=window,
-                                filt=body.get("filter"))
+                                filt=body.get("filter"), params=params)
             if page["refused"]:
                 # the core says why a filter is malformed, in a sentence the
                 # runner does not word (ADR-0191 decision 4)

@@ -89,8 +89,10 @@ def depth(node):
 
 
 class Parser:
-    def __init__(self, text):
+    def __init__(self, text, params=False):
         self.text, self.toks, self.i, self.depth = text, tokenize(text), 0, 0
+        # a read's filter names parameters, `:name`; a flow's expression does not (ADR-0218)
+        self.params = params
 
     def nest(self):
         self.depth += 1
@@ -226,6 +228,9 @@ class Parser:
 
     def primary(self):
         t = self.peek()
+        if self.params and self.at(":") and self.peek(1)[0] == "name":
+            self.take()
+            return ("param", self.take()[1])
         if t[0] == "num":
             self.take()
             nxt = self.peek()
@@ -331,13 +336,14 @@ class Parser:
         return ("call", ("name", fn), self.arguments())
 
 
-def parse(text):
-    """The tree of an expression; a YAML boolean or number stands for its literal (flow-format.md §5)."""
+def parse(text, params=False):
+    """The tree of an expression; a YAML boolean or number stands for its literal (flow-format.md §5). A read's filter
+    is parsed with its parameters, `:name`, each a ("param", name) its read binds (`parse_filter`)."""
     if isinstance(text, bool):
         return ("bool", text)
     if isinstance(text, (int, float)):
         return ("num", text if isinstance(text, int) else str(text))
-    p = Parser(str(text))
+    p = Parser(str(text), params)
     node = p.expr()
     if p.peek()[0] != "end":
         p.fail("the end of the expression")
@@ -345,6 +351,11 @@ def parse(text):
         raise ParseError(p.text, p.peek()[2], f"the expression is deeper than {MAX_DEPTH} levels; a long list of "
                                               f"alternatives is written x in {{a, b, …}}")
     return node
+
+
+def parse_filter(text):
+    """A read's filter, its parameters among it, as the core's `parse_filter` reads one (ADR-0218)."""
+    return parse(text, params=True)
 
 
 def expressions(doc):

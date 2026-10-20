@@ -93,3 +93,70 @@ def test_the_backends_differ_only_where_known(tee):
         first = next(f for f in tee.found if tee.kind(f) == kind)
         print(f"  new: {kind}\n       {first[3]}  <- {first[4]}")
     assert new == [], "the backends differ where no TODO entry accounts for it"
+
+
+BOOKINGS = """module: bookings
+categories: [live, closed]
+types:
+  Booking:
+    description: A desk booked for a day.
+    tracking: record
+    attributes:
+      day: { type: date }
+    states:
+      HELD: { category: live, description: Held. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      book: { kind: initial, to: HELD, required_inputs: [day] }
+      end: { kind: external, from: HELD, to: DONE }
+    metrics:
+      booked: { description: Bookings., source: objects, item: b, expression: count() }
+"""
+
+
+def test_a_metrics_parameters_are_read_alike(tee):
+    """A metric's filter's parameters, bound by the fields of its rows, are
+    answered alike by both backends, each refusal too (ADR-0221): a day, a
+    state, an instant, an attempt count's day, one params does not give,
+    one never named, params without a filter, and params that is no
+    object."""
+    tee.module = "bookings (parameters)"
+    before = len(tee.found)
+    op = {"id": "operator"}
+    tee.post("/sandbox/load",
+             {"files": [{"name": "bookings.yaml", "text": BOOKINGS}]})
+    tee.post("/sandbox/clock", {"set": "2026-11-09T09:00:00Z"})
+    ids = [tee.post("/v1/request",
+                    {"actor": op, "type": "Booking", "transition": "book",
+                     "inputs": {"day": d}})["object_id"]
+           for d in ("2026-11-08", "2026-11-09", "2026-11-10")]
+    end = {"actor": op, "object_id": ids[0], "transition": "end"}
+    tee.post("/v1/request", end)
+    # a refused request, an attempt the day's counts hold
+    tee.post("/v1/request", end)
+    days = {"from": "2026-11-09", "to": "2026-11-10"}
+    reads = [
+        ("Booking.booked", "b.day >= :from and b.day <= :to", days),
+        ("Booking.booked", "b.state == :s", {"s": "DONE"}),
+        ("Booking.booked", "b.created_at >= :at",
+         {"at": "2026-11-09T00:00:00Z"}),
+        ("Booking.transition_counts", "t.to_state == :s and t.object == :b",
+         {"s": "DONE", "b": ids[0]}),
+        ("Booking.refusals", "a.day == :d", {"d": "2026-11-09"}),
+        ("Booking.booked", "b.day >= :from", {}),
+        ("Booking.booked", "b.day >= :from", days),
+        ("Booking.booked", None, {"from": "2026-11-09"}),
+    ]
+    answered = []
+    for name, filt, params in reads:
+        body = {"actor": op, "name": name, "keep": [], "params": params}
+        if filt is not None:
+            body["filter"] = filt
+        answered.append(tee.post("/v1/metric", body)["refused"])
+    assert answered == [None] * 5 + ["malformed_filter"] * 3, answered
+    with pytest.raises(Failed):
+        tee.post("/v1/metric", {"actor": op, "name": "Booking.booked",
+                                "filter": "b.day >= :from",
+                                "params": ["2026-11-09"]})
+    assert tee.found[before:] == [], tee.found[before:]
+
