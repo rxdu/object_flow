@@ -29,6 +29,11 @@ pub struct Told {
     /// What the clause consulted, by rule; none where it is not computed,
     /// an offer's, which consults no evaluator (ADR-0048).
     pub consulted: Option<serde_json::Value>,
+    /// The inputs an unsatisfied clause reads, in the order its transition
+    /// declares them, so a form marks the fields a guard refused, as an
+    /// `invalid_input` names its own; none for a clause reading no input
+    /// (issue #28, ADR-0224).
+    pub inputs: Vec<String>,
 }
 
 /// An invariant that fails, on the object it fails on (ADR-0151).

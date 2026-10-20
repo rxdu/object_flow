@@ -335,6 +335,7 @@ A transition with inputs renders them as properties **of `inputs`**, from their 
       "unknown": false,
       "objects": ["chk_41c0", "chk_41c7"],
       "proposable": false,
+      "inputs": [],
       "consulted": {}
     },
     "inputs": {},

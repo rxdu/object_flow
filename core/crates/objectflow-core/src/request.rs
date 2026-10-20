@@ -6292,7 +6292,8 @@ fn told(lib: &Library, world: &World<'_>, req: &Request, v: &Verdict, r: &Refusa
         v,
         Verdict::Unsatisfied { .. } | Verdict::InvariantViolated { .. }
     ) && requested
-        .and_then(|tn| lib.type_(&tn).and_then(|t| t.transition(&req.transition)))
+        .as_deref()
+        .and_then(|tn| lib.type_(tn).and_then(|t| t.transition(&req.transition)))
         .is_some_and(|x| x.proposable);
     // only objects the store holds: one the refused request was creating
     // does not exist, and a later object may take its id (D581)
@@ -6302,6 +6303,17 @@ fn told(lib: &Library, world: &World<'_>, req: &Request, v: &Verdict, r: &Refusa
         .filter(|id| world.get(id).ok().flatten().is_some())
         .cloned()
         .collect();
+    let inputs = match v {
+        Verdict::Unsatisfied { clause, .. } => requested
+            .as_deref()
+            .and_then(|tn| lib.type_(tn))
+            .and_then(|t| {
+                t.transition(&req.transition)
+                    .map(|x| clause_inputs(t, x, clause))
+            })
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
     Told {
         unknown: r.unknown,
         objects,
@@ -6310,7 +6322,43 @@ fn told(lib: &Library, world: &World<'_>, req: &Request, v: &Verdict, r: &Refusa
             Json::Null => Json::Object(serde_json::Map::new()),
             c => c.clone(),
         }),
+        inputs,
     }
+}
+
+/// The inputs a clause of a transition reads, in the order the transition
+/// declares them, a form's fields to mark (issue #28, ADR-0224): for one of
+/// the transition's own guards, each declared input its condition's
+/// expression reads; for a generated `<attribute>_provided`, its
+/// attribute's input; for any other clause, none, whether the engine's own
+/// over the actor, the object or the store, or a guard of an object the
+/// request reached beyond the one it names, whose inputs are no field of
+/// the caller's. It is the declaration's, the same for every request.
+pub(crate) fn clause_inputs(t: &Type, x: &Transition, clause: &str) -> Vec<String> {
+    let mut read = BTreeSet::new();
+    let condition = x
+        .guards
+        .iter()
+        .any(|(g, _)| g == clause)
+        .then(|| t.conditions.iter().find(|(n, _)| n == clause))
+        .flatten();
+    if let Some((_, c)) = condition {
+        c.expression.inputs_read(&mut read);
+    } else if let Some(a) = clause.strip_suffix("_provided") {
+        read.insert(a.to_string());
+    }
+    let mut out: Vec<String> = Vec::new();
+    for n in x
+        .required_inputs
+        .iter()
+        .chain(&x.optional_inputs)
+        .chain(x.inputs.iter().map(|(n, _)| n))
+    {
+        if read.remove(n) {
+            out.push(n.clone());
+        }
+    }
+    out
 }
 
 /// A request, its verdict and what its caller is told beside it.
@@ -14965,6 +15013,131 @@ types:
             ("Person", true),
             json!({"login": "cy"}),
         ));
+    }
+
+    /// An unsatisfied clause names the inputs it reads, in the order its
+    /// transition declares them, so a form marks the fields a guard refused
+    /// as an `invalid_input` marks its own (issue #28, ADR-0224): a rule over
+    /// two inputs names both, written the other way round in its
+    /// expression; one over one names it; a generated `<attribute>_provided`
+    /// names its attribute's input, where clients mapped the clause's name
+    /// to a field by convention; a rule over the stored object names none,
+    /// and so does a clause the transition does not guard with.
+    #[test]
+    fn an_unsatisfied_clause_names_the_inputs_it_reads() {
+        const DESK: &str = r#"
+module: desk
+categories: [live, closed]
+types:
+  Booking:
+    description: A desk booked for some days.
+    tracking: record
+    attributes:
+      first_day: { type: date }
+      last_day: { type: date }
+      note: { type: string, optional: true }
+    states:
+      BOOKED: { description: Booked., category: live }
+      RELEASED: { description: Released., category: closed, final: true }
+    conditions:
+      days_in_order:
+        description: The booking ends on or after the day it starts.
+        expression: inputs.first_day <= inputs.last_day
+        remedy: self_serviceable
+      later:
+        description: An extension ends later.
+        expression: inputs.last_day > last_day
+        remedy: self_serviceable
+      not_yet:
+        description: Not before it starts.
+        expression: first_day > last_day
+        remedy: dependent
+    transitions:
+      book: { kind: initial, to: BOOKED, required_inputs: [last_day, first_day], guards: { days_in_order: deny } }
+      extend: { kind: internal, from: BOOKED, required_inputs: [last_day], guards: { later: deny } }
+      annotate: { kind: internal, from: BOOKED, required_inputs: [note] }
+      release: { kind: external, from: BOOKED, to: RELEASED, guards: { not_yet: deny } }
+"#;
+        let lib = Library::load(&[("desk.yaml".into(), DESK.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let told = |s: &mut Store, xn: &str, on: (&str, bool), inputs: Json| {
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: (!on.1).then(|| on.0.to_string()),
+                type_: on.1.then(|| on.0.to_string()),
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            request_told(s, &r).unwrap().unwrap()
+        };
+        let clause_and_inputs = |(v, t): (Verdict, Told)| match v {
+            Verdict::Unsatisfied { clause, .. } => (clause, t.inputs),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            clause_and_inputs(told(
+                &mut s,
+                "book",
+                ("Booking", true),
+                json!({"first_day": "2026-11-09", "last_day": "2026-11-02"})
+            )),
+            // in the order the transition declares them, not the order the
+            // expression reads them in nor their names'
+            (
+                "days_in_order".into(),
+                vec!["last_day".into(), "first_day".into()]
+            )
+        );
+        let (v, _) = told(
+            &mut s,
+            "book",
+            ("Booking", true),
+            json!({"first_day": "2026-11-09", "last_day": "2026-11-10"}),
+        );
+        let id = created(&v);
+        assert_eq!(
+            clause_and_inputs(told(
+                &mut s,
+                "extend",
+                (&id, false),
+                json!({"last_day": "2026-11-10"})
+            )),
+            ("later".into(), vec!["last_day".into()])
+        );
+        assert_eq!(
+            clause_and_inputs(told(&mut s, "annotate", (&id, false), json!({}))),
+            ("note_provided".into(), vec!["note".into()])
+        );
+        // a rule over the stored object alone reads no input
+        assert_eq!(
+            clause_and_inputs(told(&mut s, "release", (&id, false), json!({}))),
+            ("not_yet".into(), Vec::<String>::new())
+        );
+        // a clause the transition does not guard with, here another
+        // transition's over an input this one declares too, names none: it
+        // is a refusal of something the request reached, not of its form
+        let t = s.lib.type_("Booking").unwrap();
+        assert_eq!(
+            clause_inputs(t, t.transition("extend").unwrap(), "days_in_order"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            clause_inputs(t, t.transition("extend").unwrap(), "first_day_provided"),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

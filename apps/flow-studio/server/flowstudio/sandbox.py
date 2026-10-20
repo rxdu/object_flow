@@ -1143,6 +1143,25 @@ class Sandbox:
                     if e["from_state"] is flowrun.ABSENT],
                 "replayed": False, "flags": flags}
 
+    def clause_inputs(self, tn, x, clause) -> list[str]:
+        """The inputs a clause of a transition reads, a form's fields to
+        mark, in the order the transition declares them, as the core
+        answers them (ADR-0224): for a guard of its own, each declared input
+        its condition reads; for a generated `<attribute>_provided`, its
+        input; for any other clause, none."""
+        x = x or {}
+        if clause in (x.get("guards") or {}):
+            cond = (((self.runner.kinds.get(tn) or {}).get("conditions")
+                     or {}).get(clause) or {})
+            read = flowrun.inputs_read(cond.get("expression"))
+        elif clause and clause.endswith("_provided"):
+            read = {clause[:-len("_provided")]}
+        else:
+            read = set()
+        declared = [*(x.get("required_inputs") or ()),
+                    *(x.get("optional_inputs") or ()), *(x.get("inputs") or {})]
+        return list(dict.fromkeys(n for n in declared if n in read))
+
     def refusal(self, r, tn, oid, x, xn) -> dict:
         """A refusal as the library's verdict (`library-api.md` §4), its
         shape named by `kind` (ADR-0150)."""
@@ -1155,6 +1174,7 @@ class Sandbox:
             out.update(clause=r.clause, unknown=bool(r.unknown),
                        objects=list(r.objects),
                        proposable=bool((x or {}).get("proposable")),
+                       inputs=self.clause_inputs(tn, x, r.clause),
                        not_computed=["consulted"])
         elif v == "invariant_violated":
             out["failures"] = [

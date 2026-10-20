@@ -4765,6 +4765,82 @@ types:
       close: { kind: external, from: OPEN, to: DONE }
 ";
 
+/// The flow of issue #28: a booking whose days must be in order.
+const DESK: &str = "module: desk
+categories: [live, closed]
+types:
+  Booking:
+    description: A desk booked for some days.
+    tracking: record
+    attributes:
+      first_day: { type: date }
+      last_day: { type: date }
+    states:
+      BOOKED: { description: Booked., category: live }
+      RELEASED: { description: Released., category: closed, final: true }
+    conditions:
+      days_in_order:
+        description: The booking ends on or after the day it starts.
+        expression: inputs.last_day >= inputs.first_day
+        remedy: self_serviceable
+      started:
+        description: Not before its first day is past its last.
+        expression: first_day > last_day
+        remedy: dependent
+    transitions:
+      book: { kind: initial, to: BOOKED, required_inputs: [first_day, last_day], guards: { days_in_order: deny } }
+      release: { kind: external, from: BOOKED, to: RELEASED, guards: { started: deny } }
+";
+
+/// An unsatisfied verdict names the inputs its clause reads, in the order
+/// its transition declares them, on a request and on a check alike, so a
+/// form marks the fields a guard refused as it marks an `invalid_input`'s
+/// (issue #28, ADR-0224); a clause over the stored object names none.
+#[test]
+fn an_unsatisfied_verdict_names_the_inputs_its_clause_reads() {
+    let file = fresh_store("clause-inputs");
+    let path = file.to_str().expect("a path");
+    let s = start(&["--store", path, "--create", "--port", "0"]);
+    publish(&s, &json!({"desk": DESK}));
+    let op = json!({"id": "operator"});
+    let book = |first: &str, last: &str| {
+        json!({"actor": op, "type": "Booking", "transition": "book",
+               "inputs": {"first_day": first, "last_day": last}})
+    };
+    for at in ["/v1/request", "/v1/check"] {
+        let said = post(&s, at, &book("2026-11-09", "2026-11-02"));
+        // a check's verdict beside what it read
+        let said = said.get("verdict").cloned().unwrap_or(said);
+        assert_eq!(
+            (
+                said["kind"].as_str(),
+                said["clause"].as_str(),
+                &said["inputs"]
+            ),
+            (
+                Some("unsatisfied"),
+                Some("days_in_order"),
+                &json!(["first_day", "last_day"])
+            ),
+            "{at}: {said}"
+        );
+    }
+    let booked = post(&s, "/v1/request", &book("2026-11-09", "2026-11-10"));
+    assert_eq!(booked["kind"], "satisfied", "{booked}");
+    let released = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": booked["object_id"], "transition": "release"}),
+    );
+    assert_eq!(
+        (released["clause"].as_str(), &released["inputs"]),
+        (Some("started"), &json!([])),
+        "{released}"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
 /// An erased actor's identity leaves every copy the store holds of it, in
 /// any case of its letters, as identities compare: a set of identities, a
 /// value sent in another case, a proposal's inputs, pending and decided, a

@@ -2374,8 +2374,9 @@ fn verdict_told(v: &Verdict, told: Option<&Told>) -> J {
         }
         Verdict::Unsatisfied { clause, .. } => match told {
             Some(t) => {
+                // and the inputs it reads, a form's fields to mark (ADR-0224)
                 let mut f = json!({"clause": clause, "unknown": t.unknown, "objects": t.objects,
-                                   "proposable": t.proposable});
+                                   "proposable": t.proposable, "inputs": t.inputs});
                 match &t.consulted {
                     Some(c) => f["consulted"] = c.clone(),
                     None => f["not_computed"] = json!(["consulted"]),
@@ -2383,7 +2384,7 @@ fn verdict_told(v: &Verdict, told: Option<&Told>) -> J {
                 f
             }
             None => {
-                json!({"clause": clause, "not_computed": ["unknown", "objects", "proposable", "consulted"]})
+                json!({"clause": clause, "not_computed": ["unknown", "objects", "proposable", "consulted", "inputs"]})
             }
         },
         Verdict::NotFound => json!({}),

@@ -77,7 +77,7 @@ A satisfied request answers its object's id and the positions of the events it w
 
 A refusal is a `200` with a `kind` other than `satisfied`, and a `remedy`. Branch on `kind`, then `remedy` ([every one is listed](errors.md)):
 
-- **`self_serviceable`**: show what to fix. An `invalid_input` names each input and its reason, so a form can mark the field. A required input left out arrives as `invalid_input` with reason `missing`, or, where its attribute is optional elsewhere, as `unsatisfied` with the clause `<attribute>_provided`: map both to the field. A `stale` means re-read the object and decide again.
+- **`self_serviceable`**: show what to fix. An `invalid_input` names each input and its reason, so a form can mark the field. An `unsatisfied` refusal's `inputs` names each input its rule reads, so a form marks those fields too: a rule over two inputs, the days of a booking out of order, marks both. A required input left out arrives as `invalid_input` with reason `missing`, or, where its attribute is optional elsewhere, as `unsatisfied` with the clause `<attribute>_provided`, whose `inputs` names it. A `stale` means re-read the object and decide again.
 - **`delegable`**: someone else must act. Where `proposable` is `true`, the request can be filed as a proposal (`"propose": true`) for someone else to approve.
 - **`temporal`**: retry later.
 - **`dependent`**: another object must change first. `objects` names it, so a screen can link to it.

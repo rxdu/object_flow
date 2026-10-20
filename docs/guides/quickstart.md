@@ -121,7 +121,7 @@ of request '{"actor": {"id": "ana"}, "type": "LeaveRequest", "transition": "open
 ```
 
 ```json
-{"kind": "unsatisfied", "remedy": "self_serviceable", "clause": "reasonable", "unknown": false, "objects": [], "proposable": false, "consulted": {}}
+{"kind": "unsatisfied", "remedy": "self_serviceable", "clause": "reasonable", "unknown": false, "objects": [], "proposable": false, "inputs": ["days"], "consulted": {}}
 ```
 
 **A refusal is an answer, not an error.** It comes back as HTTP `200`. Its `kind` says what happened, `clause` names the rule, and `remedy` says what to do next. Ana asks for 5 days instead, then submits:
@@ -174,7 +174,7 @@ of request '{"actor": {"id": "carl"}, "object_id": "leaverequest-3", "transition
 ```
 
 ```json
-{"kind": "unsatisfied", "remedy": "dependent", "clause": "actor_known", "unknown": false, "objects": [], "proposable": false, "consulted": {}}
+{"kind": "unsatisfied", "remedy": "dependent", "clause": "actor_known", "unknown": false, "objects": [], "proposable": false, "inputs": [], "consulted": {}}
 ```
 
 ## 7. Write safely

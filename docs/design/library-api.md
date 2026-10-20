@@ -177,6 +177,10 @@ class Unsatisfied:
                                           # names, a generated guard's included, in id order
                                           # (ADR-0092, ADR-0122, ADR-0148)
     proposable: bool = False              # whether a proposal would be accepted
+    inputs: Sequence[str] = ()            # each input the clause reads, a form's fields to
+                                          # mark, in the order its transition declares them;
+                                          # none for a clause over no input, the engine's own
+                                          # or another object's (ADR-0224)
     consulted: Mapping[str, Any] = field(default_factory=dict)
                                           # the metric values and evaluator verdicts
                                           # the clause was decided on (ADR-0096)

@@ -1850,11 +1850,14 @@ pub struct Offer {
 /// An offer's refusal told: the objects named, its clause unknown or
 /// false, and whether the transition takes a proposal.
 fn offer_told(objects: Vec<String>, unknown: bool, proposable: bool) -> Told {
+    // an offer decides no guard that reads an input, so its clause reads
+    // none (ADR-0224)
     Told {
         unknown,
         objects,
         proposable,
         consulted: None,
+        inputs: Vec::new(),
     }
 }
 

@@ -44,7 +44,7 @@ Every refusal carries a `remedy`: what the caller can do about it.
 | `kind` | What happened | Fields besides `kind` and `remedy` |
 |---|---|---|
 | `satisfied` | Applied. | `object_id`, `version`, `events` (positions, the request's own first), `replayed` (`true` for an idempotent retry), `flags` (warnings raised) |
-| `unsatisfied` | A guard failed. | `clause` (the rule), `unknown` (`true` if it read a value nobody has yet, rather than finding it false), `objects` (what the remedy points at, by id), `proposable`, `consulted` (the outside answers and metric values it decided on) |
+| `unsatisfied` | A guard failed. | `clause` (the rule), `unknown` (`true` if it read a value nobody has yet, rather than finding it false), `objects` (what the remedy points at, by id), `proposable`, `inputs` (each input the rule reads, in the order the transition declares them, so a form marks their fields; none for a rule over no input), `consulted` (the outside answers and metric values it decided on) |
 | `invariant_violated` | The change would break a rule that must always hold. | `failures` (each `object_id`, `type`, `invariant`, `remedy`; `object_id` is `null` for an object the request was creating), `objects` (the objects in conflict, such as another holder of a unique value), `proposable` |
 | `invalid_input` | An input is wrong before any rule runs. | `inputs` (the names at fault), `reasons` (each one's reason, below) |
 | `unavailable` | The object's state does not allow this transition. | `state` |
@@ -72,7 +72,7 @@ Every refusal carries a `remedy`: what the caller can do about it.
 | `out_of_range` | is past what its type holds: more digits than a decimal or an amount holds, an integer past 64 bits, a string over 64 KiB. |
 | `not_allowed` | is a value of its type the transition does not take here: an assertion's `to` or `admits` it does not list, an observation's `corrects` naming another subject's, a subscription selecting nothing. |
 
-A required input whose attribute is optional elsewhere is refused another way: `unsatisfied` with the clause `<attribute>_provided`. Map both shapes to the same form field.
+A required input whose attribute is optional elsewhere is refused another way: `unsatisfied` with the clause `<attribute>_provided`, whose `inputs` names that input, as an `invalid_input`'s does.
 
 ## Clauses and invariants the engine adds
 
