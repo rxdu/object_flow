@@ -1002,10 +1002,14 @@ fn impact(
             install: None,
         });
     }
+    // the simulation's objects taken out of it, never copied: a copy of
+    // every object, beside the store as read and the simulation, was an
+    // approval's peak in memory, 656 MiB of heap where the simulation held
+    // 472 on the 37k-object store (MEMORY)
     let objects: BTreeMap<String, Object> = sim
-        .in_order()?
+        .into_objects()
         .into_iter()
-        .map(|o| (o.id.clone(), o.clone()))
+        .map(|o| (o.id.clone(), o))
         .collect();
     Ok(Simulated {
         report,

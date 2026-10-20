@@ -6178,6 +6178,14 @@ fn spans(
             p.spans.entry(dimension).or_default().push(span);
         }
     }
+    // each object's spans held at their length, where a vector grown a row
+    // at a time keeps up to half again in capacity, for as long as the
+    // object is held: a publish holds every object of the store (MEMORY)
+    for p in parts.values_mut() {
+        for spans in p.spans.values_mut() {
+            spans.shrink_to_fit();
+        }
+    }
     Ok(())
 }
 
