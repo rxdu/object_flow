@@ -3168,6 +3168,148 @@ fn concurrent_writes_lose_no_update() {
     );
 }
 
+/// The flow of issue #29: a room holds at most one open booking at any
+/// moment, an invariant over every booking of the type, which no backend
+/// compiles into a constraint (`storage-schema.md` §8, ADR-0213 decision 7).
+const ROOMS: &str = "module: rooms
+categories: [live, closed]
+types:
+  Room:
+    description: A meeting room.
+    tracking: record
+    attributes:
+      name: { type: string, unique: true }
+    states:
+      IN_SERVICE: { description: In service., category: live }
+      RETIRED: { description: Retired., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: IN_SERVICE, required_inputs: [name] }
+      retire: { kind: external, from: IN_SERVICE, to: RETIRED }
+  Booking:
+    description: A room booked for a window of time.
+    tracking: record
+    attributes:
+      room: { reference: Room }
+      starts_at: { type: timestamp, indexed: true }
+      ends_at: { type: timestamp, indexed: true }
+    states:
+      BOOKED: { description: Booked., category: live }
+      CANCELLED: { description: Cancelled., category: closed, final: true }
+    invariants:
+      no_overlap:
+        description: A room holds at most one open booking at any moment.
+        expression: none(b in Booking where b.room == room and b.starts_at < ends_at and b.ends_at > starts_at and b.open and open)
+    transitions:
+      book: { kind: initial, to: BOOKED, required_inputs: [room, starts_at, ends_at] }
+      cancel: { kind: external, from: BOOKED, to: CANCELLED }
+";
+
+/// Sixteen bookings of one room for windows that each overlap every other,
+/// sent at once by sixteen callers: one is taken and fifteen are refused
+/// `invariant_violated`, naming the one taken, and none is answered `5xx`;
+/// sixteen of another room for windows apart, sent at once, are each
+/// taken, so what refuses is the invariant, not the contention. The
+/// engine's scan in the writing transaction keeps them apart, no database
+/// constraint (issue #29; `storage-schema.md` §8).
+fn overlapping_bookings_sent_at_once(s: &Service) {
+    publish(s, &json!({"rooms": ROOMS}));
+    let op = json!({"id": "operator"});
+    let room = |name: &str| {
+        let v = post(
+            s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Room", "transition": "add", "inputs": {"name": name}}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        v["object_id"].as_str().expect("the room").to_string()
+    };
+    let at_once = |room: &str, window: fn(usize) -> (String, String)| {
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+        let callers: Vec<_> = (0..16)
+            .map(|i| {
+                let w = at(s);
+                let room = room.to_string();
+                let barrier = std::sync::Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let (starts_at, ends_at) = window(i);
+                    let body = json!({"actor": {"id": "operator"}, "type": "Booking",
+                                      "transition": "book", "inputs": {"room": room,
+                                      "starts_at": starts_at, "ends_at": ends_at}});
+                    barrier.wait();
+                    call(&w, "POST", "/v1/request", Some(&body))
+                })
+            })
+            .collect();
+        callers
+            .into_iter()
+            .map(|c| c.join().expect("a caller"))
+            .collect::<Vec<_>>()
+    };
+    // each window starts a minute after the one before and lasts an hour
+    let overlapping = at_once(&room("Kelvin"), |i| {
+        (
+            format!("2026-11-09T01:{i:02}:00Z"),
+            format!("2026-11-09T02:{i:02}:00Z"),
+        )
+    });
+    let taken: Vec<&Value> = overlapping
+        .iter()
+        .filter(|(_, v)| v["kind"] == "satisfied")
+        .map(|(_, v)| v)
+        .collect();
+    assert_eq!(taken.len(), 1, "{overlapping:?}");
+    let booking = &taken[0]["object_id"];
+    for (status, v) in &overlapping {
+        assert_eq!(*status, 200, "{v}");
+        if v["kind"] != "satisfied" {
+            assert_eq!(v["kind"], "invariant_violated", "{v}");
+            assert_eq!(v["failures"][0]["invariant"], "no_overlap", "{v}");
+            assert_eq!(v["objects"], json!([booking]), "{v}");
+        }
+    }
+    // each window an hour of its own, on the 9th from midnight
+    let apart = at_once(&room("Faraday"), |i| {
+        (
+            format!("2026-11-09T{i:02}:00:00Z"),
+            format!("2026-11-09T{i:02}:59:00Z"),
+        )
+    });
+    for (status, v) in &apart {
+        assert_eq!((*status, &v["kind"]), (200, &json!("satisfied")), "{v}");
+    }
+}
+
+/// Overlapping bookings sent at once, on a file's store.
+#[test]
+fn overlapping_bookings_sent_at_once_take_one() {
+    let file = fresh_store("overlap");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    overlapping_bookings_sent_at_once(&s);
+    drop(s);
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+/// Overlapping bookings sent at once, on a store on PostgreSQL.
+#[test]
+fn overlapping_bookings_sent_at_once_take_one_on_postgresql() {
+    let Some((admin, args, schema)) = served_on_postgresql("overlap") else {
+        return;
+    };
+    let a: Vec<&str> = args.iter().map(String::as_str).collect();
+    let s = start(&a);
+    overlapping_bookings_sent_at_once(&s);
+    drop(s);
+    admin
+        .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+        .expect("the schema dropped");
+}
+
 /// One request sent at once by many callers under one idempotency key, as
 /// a caller retrying while its first send is still in flight, applies once:
 /// a creation makes one object, every answer naming it, and a bump counts
