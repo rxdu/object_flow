@@ -2,7 +2,9 @@
 """A publish's memory, phase by phase (TODO.md, MEMORY): the service started on a copy of a store `build-store.py`
 made, its resident memory sampled every 10 ms from /proc, a change to the reimbursement module drafted, submitted, which
 runs its dry run, and approved, which runs it again and installs it, and each phase's peak and what the process holds
-after it printed. The change adds one optional attribute to Claim, so every claim is mapped through the new version.
+after it printed. The change adds one optional attribute to Claim, which every claim is mapped through and none is
+written by, or with `--change backfill` another optional one a backfill writes on every claim, the most a version of
+this module's claims changes.
 
 With --valgrind the service runs under valgrind's massif instead, its heap written to the file named, which
 `massif-sites.py` reads; nothing is sampled then, the service being some twenty times slower.
@@ -44,15 +46,20 @@ def rss_kib(pid):
     return 0
 
 
-def changed(text):
-    """The module with one optional attribute added to Claim, a change every object of its type is mapped through."""
+def changed(text, change="attribute"):
+    """The module with one optional attribute added to Claim, which writes nothing, or one a backfill writes on every
+    claim."""
     marker = "  Claim:\n"
     i = text.index(marker)
     j = text.index("    attributes:\n", i) + len("    attributes:\n")
-    return text[:j] + "      reviewer_note: { type: string, optional: true, description: A note the reviewer leaves. }\n" + text[j:]
+    if change == "attribute":
+        return text[:j] + "      reviewer_note: { type: string, optional: true, description: A note the reviewer leaves. }\n" + text[j:]
+    return (text[:j] + "      review_note: { type: string, optional: true, description: A note every claim carries. }\n"
+            + text[j:].rstrip("\n")
+            + "\nmigration:\n  description: Every claim's review note, none yet.\n  backfill:\n    Claim: { review_note: '\"none\"' }\n")
 
 
-def run(service, store, massif=None):
+def run(service, store, massif=None, change="attribute"):
     work = pathlib.Path(tempfile.mkdtemp(prefix="pubmem-"))
     copy = work / "store.sqlite"
     shutil.copy(store, copy)
@@ -93,19 +100,23 @@ def run(service, store, massif=None):
         phase[0] = name + " after"
         time.sleep(2.0)             # the trim after a heavy request, which runs once the answer is made
         return out
-    text = changed(FLOW.read_text())
-    drafted = step("draft", "/v1/request", {"actor": OP, "type": "DeclarationChange", "transition": "draft",
-                                            "inputs": {"source": {"reimbursement": text},
-                                                       "source_ref": "profile:reimbursement-changed"}})
-    change = drafted["object_id"]
-    submitted = step("submit", "/v1/request", {"actor": OP, "object_id": change, "transition": "submit"})
-    assert submitted["kind"] == "satisfied", submitted
-    approved = step("approve", "/v1/publish", {"actor": OP, "change": change,
-                                               "expected_version": submitted["version"]})
-    assert approved["verdict"]["kind"] == "satisfied", approved
-    stop[0] = True
-    proc.terminate()
-    proc.wait()
+    # the service stopped whatever happens, so a refused change or a fault never leaves it running, holding the
+    # output it inherited open
+    try:
+        text = changed(FLOW.read_text(), change)
+        drafted = step("draft", "/v1/request", {"actor": OP, "type": "DeclarationChange", "transition": "draft",
+                                                "inputs": {"source": {"reimbursement": text},
+                                                           "source_ref": "profile:reimbursement-changed"}})
+        change_id = drafted["object_id"]
+        submitted = step("submit", "/v1/request", {"actor": OP, "object_id": change_id, "transition": "submit"})
+        assert submitted["kind"] == "satisfied", submitted
+        approved = step("approve", "/v1/publish", {"actor": OP, "change": change_id,
+                                                   "expected_version": submitted["version"]})
+        assert approved["verdict"]["kind"] == "satisfied", approved
+    finally:
+        stop[0] = True
+        proc.terminate()
+        proc.wait()
     shutil.rmtree(work)
     if massif:
         return timed, None
@@ -123,15 +134,16 @@ def main():
     ap.add_argument("store")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--valgrind")
+    ap.add_argument("--change", choices=["attribute", "backfill"], default="attribute")
     a = ap.parse_args()
     if a.valgrind:
-        timed, _ = run(a.service, a.store, massif=a.valgrind)
+        timed, _ = run(a.service, a.store, massif=a.valgrind, change=a.change)
         print("under massif:", {k: round(v, 1) for k, v in timed.items()})
         return
     load = pathlib.Path("/proc/loadavg").read_text().split()[0]
-    print(f"{pathlib.Path(a.store).name}, load average at the start {load}")
+    print(f"{pathlib.Path(a.store).name}, the change: {a.change}, load average at the start {load}")
     for i in range(a.runs):
-        timed, out = run(a.service, a.store)
+        timed, out = run(a.service, a.store, change=a.change)
         print(f"run {i + 1}: " + ", ".join(f"{k} {v:.1f} s" for k, v in timed.items()))
         for name, (peak, last) in out.items():
             print(f"  {name:14} peak {peak:8.1f} MiB   last {last:8.1f} MiB")

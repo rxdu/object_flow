@@ -165,9 +165,13 @@ const CHUNKS: usize = 48;
 /// Slots that only grow, each written once: the k-th chunk holds 2^k of
 /// them, so the n-th is found in constant time, and one written never
 /// moves, so a read through a shared reference can add an object and hand
-/// out references to it that live as long as the world.
+/// out references to it that live as long as the world. Each value is held
+/// behind an `Rc`, so another world may hold the same one, and a change
+/// through [`Slots::get_mut`] copies a value only while it is shared: a
+/// publish's simulation holds the objects its version leaves as they were
+/// without a copy of each (MEMORY, ADR-0222).
 /// A chunk of [`Slots`], each slot written at most once.
-type Chunk<T> = Box<[std::cell::OnceCell<Box<T>>]>;
+type Chunk<T> = Box<[std::cell::OnceCell<std::rc::Rc<T>>]>;
 
 #[derive(Clone, Debug)]
 struct Slots<T> {
@@ -192,20 +196,25 @@ impl<T> Slots<T> {
         Some((usize::try_from(k).ok()?, one - 1usize.checked_shl(k)?))
     }
 
-    /// Every value written, taken out, in the order of their slots.
-    fn into_values(self) -> Vec<T> {
+    /// Every value written, taken out, in the order of their slots, each
+    /// still shared where another holds it.
+    fn into_shared(self) -> Vec<std::rc::Rc<T>> {
         self.chunks
             .into_iter()
             .filter_map(std::cell::OnceCell::into_inner)
             .flat_map(|chunk| chunk.into_vec())
             .filter_map(std::cell::OnceCell::into_inner)
-            .map(|b| *b)
             .collect()
     }
 
     /// A slot written with the value given, and its number; none past the
     /// last chunk.
     fn push(&self, value: T) -> Option<usize> {
+        self.push_shared(std::rc::Rc::new(value))
+    }
+
+    /// A slot written with a value another may hold too, and its number.
+    fn push_shared(&self, value: std::rc::Rc<T>) -> Option<usize> {
         let n = self.len.get();
         let (k, at) = Self::place(n)?;
         let size = 1usize.checked_shl(u32::try_from(k).ok()?)?;
@@ -213,29 +222,54 @@ impl<T> Slots<T> {
             .chunks
             .get(k)?
             .get_or_init(|| (0..size).map(|_| std::cell::OnceCell::new()).collect());
-        chunk.get(at)?.set(Box::new(value)).ok()?;
+        chunk.get(at)?.set(value).ok()?;
         self.len.set(n + 1);
         Some(n)
     }
 
     fn get(&self, n: usize) -> Option<&T> {
-        let (k, at) = Self::place(n)?;
-        self.chunks.get(k)?.get()?.get(at)?.get().map(|b| &**b)
+        self.get_shared(n).map(|r| &**r)
     }
 
+    /// The n-th value, to hold in another world as well.
+    fn get_shared(&self, n: usize) -> Option<&std::rc::Rc<T>> {
+        let (k, at) = Self::place(n)?;
+        self.chunks.get(k)?.get()?.get(at)?.get()
+    }
+
+    /// The n-th slot itself, to write another value into.
+    fn slot_mut(&mut self, n: usize) -> Option<&mut std::rc::Rc<T>> {
+        let (k, at) = Self::place(n)?;
+        self.chunks.get_mut(k)?.get_mut()?.get_mut(at)?.get_mut()
+    }
+}
+
+impl<T: Clone> Slots<T> {
+    /// Every value written, taken out, in the order of their slots, one
+    /// another still holds copied.
+    fn into_values(self) -> Vec<T> {
+        self.into_shared()
+            .into_iter()
+            .map(std::rc::Rc::unwrap_or_clone)
+            .collect()
+    }
+
+    /// The n-th value, to change: copied first where another holds it, so
+    /// a change here is never seen there.
     fn get_mut(&mut self, n: usize) -> Option<&mut T> {
-        let (k, at) = Self::place(n)?;
-        self.chunks
-            .get_mut(k)?
-            .get_mut()?
-            .get_mut(at)?
-            .get_mut()
-            .map(|b| &mut **b)
+        self.slot_mut(n).map(std::rc::Rc::make_mut)
     }
+}
 
+impl<T> Slots<T> {
     fn iter(&self) -> impl Iterator<Item = &T> + '_ {
         (0..self.len.get()).filter_map(|n| self.get(n))
     }
+}
+
+/// What a world says when it can hold no more objects.
+fn too_many() -> crate::eval::NotRun {
+    crate::eval::NotRun::Unsupported("more objects than an operation can hold".into())
 }
 
 /// The objects an operation reads and makes: each fetched from the store
@@ -1362,9 +1396,12 @@ impl<'l> World<'l> {
 
     /// An object held in a new slot, which is not yet known by its id.
     fn hold(&self, o: Object) -> Result<usize, crate::eval::NotRun> {
-        self.held.slots.push(o).ok_or_else(|| {
-            crate::eval::NotRun::Unsupported("more objects than an operation can hold".into())
-        })
+        self.held.slots.push(o).ok_or_else(too_many)
+    }
+
+    /// [`World::hold`] of an object another world may hold too.
+    fn hold_shared(&self, o: std::rc::Rc<Object>) -> Result<usize, crate::eval::NotRun> {
+        self.held.slots.push_shared(o).ok_or_else(too_many)
     }
 
     /// Every object of a concrete type the store holds, fetched in one read
@@ -1452,9 +1489,24 @@ impl<'l> World<'l> {
         Some(out)
     }
 
-    /// Every object the world holds, taken out of it, never copied.
+    /// Every object the world holds, taken out of it, copied only where
+    /// another world holds it too.
     pub fn into_objects(self) -> Vec<Object> {
         self.held.slots.into_values()
+    }
+
+    /// Every object the world holds, taken out of it, each still shared
+    /// with any other world that holds it, never copied (ADR-0222).
+    pub fn into_shared(self) -> Vec<std::rc::Rc<Object>> {
+        self.held.slots.into_shared()
+    }
+
+    /// An object this world holds, to hold in another as well without a
+    /// copy, which a change there copies first (ADR-0222); none where it
+    /// holds none of the id.
+    pub fn shared(&self, id: &str) -> Option<std::rc::Rc<Object>> {
+        let n = self.held.by_id.borrow().get(id).copied().flatten()?;
+        self.held.slots.get_shared(n).cloned()
     }
 
     /// How many objects the operation holds, which a read of one object's
@@ -2020,6 +2072,12 @@ impl<'l> World<'l> {
     /// is given: refused where the rest of its record was not read, which a
     /// write would replace with what it holds (ADR-0165).
     pub fn insert(&mut self, o: Object) -> Result<(), crate::eval::NotRun> {
+        self.insert_shared(std::rc::Rc::new(o))
+    }
+
+    /// [`World::insert`] of an object another world may hold too, held
+    /// without a copy until a change here makes one (ADR-0222).
+    pub fn insert_shared(&mut self, o: std::rc::Rc<Object>) -> Result<(), crate::eval::NotRun> {
         o.held_parts()?;
         self.held.written.insert(o.id.clone());
         let held = self.held.by_id.get_mut().get(&o.id).copied().flatten();
@@ -2033,11 +2091,11 @@ impl<'l> World<'l> {
         if let Some(n) = held {
             self.held.changed.get_mut().push(n);
         }
-        match held.and_then(|n| self.held.slots.get_mut(n)) {
+        match held.and_then(|n| self.held.slots.slot_mut(n)) {
             Some(slot) => *slot = o,
             None => {
                 let id = o.id.clone();
-                let n = self.hold(o)?;
+                let n = self.hold_shared(o)?;
                 self.held.by_id.get_mut().insert(id, Some(n));
             }
         }

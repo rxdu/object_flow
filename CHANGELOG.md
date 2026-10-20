@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Changed
+
+- A publish holds about a third less memory at its peak: on a store of 36.6k objects its approval peaked at 338 MiB resident where it peaked at 833 MiB, the install's objects moved out of the simulation rather than copied, each object's spans held at their length, and an object the version leaves as it was held once, shared, rather than copied for the simulation (ADR-0222); a dry run likewise, 600 to 339 MiB. `operate.md` sizes a publish from these measurements.
+
 ### Added
 
 - The Flow Studio's runner backend, and the reference runner behind it, read a metric's filter's parameters as the core does, where a metric read carrying `params` was refused `400` there, the studio's key list not holding the key the core's took (ADR-0221).

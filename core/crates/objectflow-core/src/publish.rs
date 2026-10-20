@@ -5,6 +5,7 @@
 //! §2, ADR-0155).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 use crate::eval::{Evaluator, NotRun, truth};
 use crate::model::{Declared, Enforce, Kind, Library, PROPOSAL, Type};
@@ -304,7 +305,9 @@ pub fn dry_run(world: &World<'_>, draft: &Draft<'_>) -> Result<PublishReport, No
 #[derive(Debug)]
 pub struct Simulated {
     pub report: PublishReport,
-    pub install: Option<(Library, BTreeMap<String, Object>)>,
+    /// Each object shared with the store as read where the version leaves
+    /// it as it was (ADR-0222).
+    pub install: Option<(Library, BTreeMap<String, Rc<Object>>)>,
 }
 
 pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRun> {
@@ -608,35 +611,49 @@ fn impact(
         }
     }
     let m = new.migration.clone();
-    // the objects as the mappings leave them, read under the new version
-    let mut mapped: BTreeMap<String, Object> = BTreeMap::new();
+    // the objects as the mappings leave them, read under the new version:
+    // each the store's own, shared with the world it was read in, until a
+    // mapping writes it, which copies it then, where every object was
+    // copied, the version's own changes or none, a copy of the store beside
+    // the store as read (MEMORY, ADR-0222)
+    let mut mapped: BTreeMap<String, Rc<Object>> = BTreeMap::new();
     // every object whole, the version carrying each record over
     let all = world.in_order()?;
     world.with_parts(&all)?;
     for o in all {
+        let Some(mut x) = world.shared(&o.id) else {
+            return Err(NotRun::Unsupported(format!(
+                "{}, which the world read and does not hold",
+                o.id
+            )));
+        };
         if builtin(&o.type_) {
             // no change touches a built-in type, whose objects, the actors
             // among them, stand as they are
-            mapped.insert(o.id.clone(), o.clone());
+            mapped.insert(o.id.clone(), x);
             continue;
         }
         let Some(nt) = new.type_(&o.type_).filter(|t| !t.retired) else {
             // a retired type's objects are read for nothing
-            mapped.insert(o.id.clone(), o.clone());
+            mapped.insert(o.id.clone(), x);
             continue;
         };
-        let mut x = o.clone();
         // renames first, which write nothing of their own
         for (tn, from, to) in &m.renamed_attributes {
             if new.is_a(&o.type_, tn) {
-                if let Some(v) = x.attrs.remove(from) {
-                    x.attrs.insert(to.clone(), v);
+                if x.attrs.contains_key(from) {
+                    let w = Rc::make_mut(&mut x);
+                    if let Some(v) = w.attrs.remove(from) {
+                        w.attrs.insert(to.clone(), v);
+                    }
                 }
                 // a rename carries the attribute's history, its intervals
                 // included (publish-and-import.md §3)
-                let parts = x.parts_mut()?;
-                if let Some(spans) = parts.spans.remove(from) {
-                    parts.spans.insert(to.clone(), spans);
+                if x.held_parts()?.spans.contains_key(from) {
+                    let parts = Rc::make_mut(&mut x).parts_mut()?;
+                    if let Some(spans) = parts.spans.remove(from) {
+                        parts.spans.insert(to.clone(), spans);
+                    }
                 }
             }
         }
@@ -647,9 +664,11 @@ fn impact(
                 if nt
                     .attribute(a)
                     .is_some_and(|na| na.declared != spec.declared || na.many != spec.many)
+                    && (x.attrs.contains_key(a) || x.held_parts()?.spans.contains_key(a))
                 {
-                    x.attrs.remove(a);
-                    x.parts_mut()?.spans.remove(a);
+                    let w = Rc::make_mut(&mut x);
+                    w.attrs.remove(a);
+                    w.parts_mut()?.spans.remove(a);
                 }
             }
         }
@@ -680,11 +699,13 @@ fn impact(
                                 out.push(i);
                             }
                         }
-                        x.attrs.insert(a.clone(), Value::Set(out));
+                        Rc::make_mut(&mut x)
+                            .attrs
+                            .insert(a.clone(), Value::Set(out));
                         changed = true;
                     }
                     Some(v) if is(&v) => {
-                        x.attrs.insert(a.clone(), target.clone());
+                        Rc::make_mut(&mut x).attrs.insert(a.clone(), target.clone());
                         changed = true;
                     }
                     _ => {}
@@ -714,7 +735,7 @@ fn impact(
                         format!("objects in {}.{} move to {to}", o.type_, o.state),
                         Some(&o.id),
                     );
-                    x.state = to.clone();
+                    Rc::make_mut(&mut x).state = to.clone();
                 }
                 None => found.add(
                     Severity::Fatal,
@@ -731,7 +752,7 @@ fn impact(
     }
     let mut sim = simulating(&new, world);
     for o in mapped.into_values() {
-        sim.insert(o)?;
+        sim.insert_shared(o)?;
     }
     // then backfills, in the order written, each reading the object as the
     // mappings before it left it, an erased object's personal values skipped
@@ -1005,9 +1026,10 @@ fn impact(
     // the simulation's objects taken out of it, never copied: a copy of
     // every object, beside the store as read and the simulation, was an
     // approval's peak in memory, 656 MiB of heap where the simulation held
-    // 472 on the 37k-object store (MEMORY)
-    let objects: BTreeMap<String, Object> = sim
-        .into_objects()
+    // 472 on the 37k-object store (MEMORY); one the version leaves as it
+    // was is still the store's own, shared (ADR-0222)
+    let objects: BTreeMap<String, Rc<Object>> = sim
+        .into_shared()
         .into_iter()
         .map(|o| (o.id.clone(), o))
         .collect();

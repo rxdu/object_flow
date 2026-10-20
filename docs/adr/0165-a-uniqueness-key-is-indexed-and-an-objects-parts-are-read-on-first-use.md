@@ -3,6 +3,7 @@
 - **Status:** Decided by the author, 2026-10-07 ("go with your recommendations on 1 and 2"), on recommendations stated with the questions, after building ADR-0162's step 3.
 - **Date:** 2026-10-07
 - **Refines:** ADR-0162 (reads by what rules reach), ADR-0164 decision 3 (step 3's order)
+- **Refined by:** ADR-0222 — an object's record, read once, is held shared by every world that holds the object until one writes it
 - **Relates to:** `design/storage-schema.md` §3, §5, §8; `design/scoped-reads.md` §7; ADR-0041 (compilation is an optimisation), ADR-0074 (no constraint where an admission may stand)
 
 ## Context

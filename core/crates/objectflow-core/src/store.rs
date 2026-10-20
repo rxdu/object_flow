@@ -4274,8 +4274,10 @@ impl Store {
             let all = at.in_order()?;
             at.with_parts(&all)?;
         }
-        let old_objects: BTreeMap<String, Object> = at
-            .into_objects()
+        // each still shared with the install's where the version left it as
+        // it was (ADR-0222)
+        let old_objects: BTreeMap<String, std::rc::Rc<Object>> = at
+            .into_shared()
             .into_iter()
             .map(|o| (o.id.clone(), o))
             .collect();
@@ -4314,8 +4316,8 @@ impl Store {
     fn install(
         &mut self,
         new: &Library,
-        objects: &BTreeMap<String, Object>,
-        old_objects: &BTreeMap<String, Object>,
+        objects: &BTreeMap<String, std::rc::Rc<Object>>,
+        old_objects: &BTreeMap<String, std::rc::Rc<Object>>,
         report: &PublishReport,
         change: &Object,
         who: &crate::eval::Who,
@@ -4521,7 +4523,7 @@ impl Store {
                 .filter_map(|(code, _)| code.rsplit_once('.').map(|(_, n)| n.to_string()))
                 .collect()
         };
-        let mut in_order: Vec<&Object> = objects.values().collect();
+        let mut in_order: Vec<&Object> = objects.values().map(|o| &**o).collect();
         in_order.sort_by_key(|o| o.order);
         // each erased object's newly personal attributes, redacted after
         // every migration (publish-and-import.md §1 step 5)
@@ -4724,9 +4726,11 @@ impl Store {
                     sp.value = Value::Absent;
                 }
             }
+            // every object held as the install holds it, shared, where each
+            // was copied for each erased object (ADR-0222)
             let mut after = World::new(new, now);
             for o in objects.values() {
-                after.insert(o.clone())?;
+                after.insert_shared(o.clone())?;
             }
             after.insert(x.clone())?;
             for n in failing_invariants(&after, &x).map_err(StoreError::from)? {
@@ -4773,7 +4777,7 @@ impl Store {
                 let Some(o) = old_objects.get(id) else {
                     continue;
                 };
-                let mut x = o.clone();
+                let mut x = Object::clone(o);
                 let before = Some(vec![(
                     "state".to_string(),
                     Value::State {

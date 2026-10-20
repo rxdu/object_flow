@@ -222,4 +222,5 @@
 | [0219](0219-a-querys-personal-members-judged-by-type.md) | A query's personal members judged by their types | Decided under the author's direction |
 | [0220](0220-a-transitions-guards-judged-personal-by-type.md) | A transition's guards judged personal by type | Decided under the author's direction |
 | [0221](0221-a-metrics-filter-takes-parameters.md) | A metric's filter takes parameters | Decided under the author's direction |
+| [0222](0222-a-world-shares-an-object-until-it-is-written.md) | A world shares an object until it is written | Decided under the author's direction |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |
