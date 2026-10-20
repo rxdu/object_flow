@@ -2722,6 +2722,52 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
     }
 }
 
+/// A dry run of an upgrade, then the upgrade, on one service, as
+/// `operate.md`'s steps 4 and 5 have it, on a file store with its
+/// write-ahead log beside it, as a service of the release before leaves it
+/// at its stop: the dry run's connection, the only one open on a store due
+/// an upgrade, removed the log as it closed, and the upgrade was refused
+/// `503 store_replaced`, telling the operator to restore a store nothing
+/// had harmed (issue #27). Each fixture is kept with no log beside it, so
+/// the upgrade's test above, which runs the dry run first too, never met
+/// one.
+#[test]
+fn an_upgrade_after_its_dry_run_runs_on_the_same_service() {
+    let (path, _) = release_fixture("0.3.0", "reimbursement", "dry-then-up");
+    // the store in WAL mode, and its log beside it, empty and held by no
+    // one, as a service of the release before leaves it at its stop, its
+    // checkpoint having truncated it
+    {
+        let conn = rusqlite::Connection::open(&path).expect("the store");
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))
+            .expect("its log");
+        assert_eq!(mode, "wal");
+    }
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    std::fs::write(&wal, b"").expect("an empty log beside it");
+    let s = start(&["--store", path.to_str().expect("a path"), "--port", "0"]);
+    let op = json!({"id": "operator"});
+    let dry = post(&s, "/v1/upgrade", &json!({"actor": op, "dry_run": true}));
+    assert_eq!(dry["upgraded"], json!(false), "{dry}");
+    let (status, done) = call(&s, "POST", "/v1/upgrade", Some(&json!({"actor": op})));
+    assert_eq!(status, 200, "{done}");
+    assert_eq!(done["upgraded"], json!(true), "{done}");
+    // and the service serves the upgraded store, writes among it
+    let (status, health) = call(&s, "GET", "/health", None);
+    assert_eq!(status, 200, "{health}");
+    let v = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "label", "transition": "record",
+                "inputs": {"subject": "operator", "name": "upgraded"}}),
+    );
+    assert_eq!(v["kind"], "satisfied", "{v}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(path.parent().expect("its directory"));
+}
+
 /// A store's own tables, `of_*`, each with its columns as `table_info`
 /// gives them, and its own indexes by name, to compare an upgraded store
 /// with one created.

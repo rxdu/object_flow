@@ -4,6 +4,11 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Fixed
+
+- On a file store, an upgrade after its dry run on the same service, as `operate.md`'s steps 4 and 5 have it, upgrades the store, where it was refused `503 store_replaced` and the service then served nothing until a restart, telling the operator to restore a store nothing had harmed: the dry run's connection, the only one open on a store due an upgrade, removed the write-ahead log as it closed, which the service then took for one replaced under it (issue #27).
+- `available`, `availability` and `check` judge the guards and invariants deciding them as a query judges its filter, each member as the type it belongs to declares it, and an input as its own transition declares it, where a name personal in any type or transition refused them to every caller without `reads_personal`: a guard on a room's own `name` once a contact's was personal, or on a room's own input `name` once a contact's `add` took a personal one (ADR-0220).
+
 ### Changed
 
 - A publish holds far less memory at its peak: on a store of 36.6k objects its approval peaked at 305 MiB resident where it peaked at 833 MiB, the install's objects moved out of the simulation rather than copied, each object's spans held at their length, an object the version leaves as it was held once, shared, rather than copied for the simulation (ADR-0222), and the names an object's spans and write index repeat held once for every object a read gives (ADR-0223); a dry run likewise, 600 to 303 MiB, and faster, 3.8 s to 3.4 s. `operate.md` sizes a publish from these measurements.
@@ -12,10 +17,6 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 - The Flow Studio's runner backend, and the reference runner behind it, read a metric's filter's parameters as the core does, where a metric read carrying `params` was refused `400` there, the studio's key list not holding the key the core's took (ADR-0221).
 - A metric's filter names parameters, `:name`, whose values `/v1/metric`'s `params` gives, each read as the field of the metric's rows it is compared with is typed, as a query's are by its members since 0.4.0: a report of a month's transitions or a day's refusals states its days as data, where it stated them as offsets from the engine's clock (issue #24's rest, ADR-0221).
-
-### Fixed
-
-- `available`, `availability` and `check` judge the guards and invariants deciding them as a query judges its filter, each member as the type it belongs to declares it, and an input as its own transition declares it, where a name personal in any type or transition refused them to every caller without `reads_personal`: a guard on a room's own `name` once a contact's was personal, or on a room's own input `name` once a contact's `add` took a personal one (ADR-0220).
 
 ## 0.4.0, 2026-10-19
 

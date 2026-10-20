@@ -4577,10 +4577,19 @@ async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 objectflow_core::release::upgrade_postgres(config, wall_clock(), actor, dry_run)?,
                 format!("{config:?}"),
             ),
-            (None, Some(path)) => (
-                objectflow_core::release::upgrade(path, wall_clock(), actor, dry_run)?,
-                path.display().to_string(),
-            ),
+            (None, Some(path)) => {
+                let upgraded =
+                    objectflow_core::release::upgrade(path, wall_clock(), actor, dry_run);
+                // the upgrade's own connection, the only one open on a store
+                // due an upgrade, removes the write-ahead log as it closes,
+                // whether it ran, rolled back as a dry run does or was
+                // refused: the log noted again, as the service's own act,
+                // where the next write found it gone and latched the store
+                // replaced, telling the operator to restore a store nothing
+                // had harmed (issue #27)
+                note_log(&shared);
+                (upgraded?, path.display().to_string())
+            }
             (None, None) => unreachable!("a deployment's store is a file or a database"),
         };
         let report = match upgraded {
