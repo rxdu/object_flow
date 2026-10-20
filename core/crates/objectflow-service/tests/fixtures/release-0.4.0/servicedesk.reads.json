@@ -1,0 +1,2379 @@
+{
+ "examples": {
+  "a_closed_alert_frees_its_alias": "stopped: Failed: a step is refused as invariant_violated",
+  "a_declined_request_is_declined": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "a_laptop_in_use_is_assigned": "played",
+  "a_negative_receipt_is_refused": "stopped: Failed: its setups stopped",
+  "a_platinum_customer_has_a_shorter_goal": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "a_rating_is_from_one_to_five": "played",
+  "a_repeated_alert_counts_its_occurrences": "stopped: Failed: a step is refused as invariant_violated",
+  "a_reporter_does_not_approve_their_own_request": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "a_request_closed_three_days_on": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "a_request_is_medium_priority_until_told_otherwise": "played",
+  "a_request_resolved_past_its_goal": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "a_request_resolved_within_its_goal": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "a_resolved_incident_is_reviewed": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "a_resolved_request_closes_after_three_days": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "a_standard_change_skips_review": "played",
+  "a_stock_is_withdrawn_only_when_empty": "stopped: Failed: its setups stopped",
+  "a_stock_opens_empty": "played",
+  "an_agent_takes_no_persons_identity": "stopped: Failed: the wire answered 404: no type User is declared",
+  "an_alert_is_snoozed_for_a_week_at_most": "played",
+  "an_alert_starts_unacknowledged": "played",
+  "an_approval_asks_someone": "played",
+  "an_emergency_a_peer_approved_is_expedited": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "an_employee_is_forgotten": "played",
+  "an_incident_is_marked_major": "played",
+  "an_incident_names_the_asset_it_affects": "played",
+  "an_incident_takes_its_services_responders": "played",
+  "asset_keys_follow_the_legacy_register": "played",
+  "assets_share_one_key_sequence": "played",
+  "both_approvals_let_the_request_through": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "every_change_approver_approves": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "no_change_starts_in_a_freeze": "stopped: Failed: its setups stopped",
+  "one_of_two_approvals_is_not_enough": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "one_open_alert_per_alias": "stopped: Failed: a step is refused as invariant_violated",
+  "only_a_standard_change_skips_review": "played",
+  "only_an_emergency_is_expedited": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "reserving_more_than_is_available": "stopped: Failed: its setups stopped",
+  "the_board_approves_a_change": "stopped: Failed: its setups stopped",
+  "the_hr_system_moves_an_employee": "stopped: Failed: the wire answered 404: no operation /sandbox/clock",
+  "using_reserved_parts": "stopped: Failed: a step is refused as invariant_violated",
+  "waiting_for_the_customer_stops_the_clock": "stopped: Failed: the wire answered 404: no operation /sandbox/clock"
+ },
+ "log": [
+  "{\"position\":1,\"object_id\":\"operator\",\"object_seq\":1,\"transition\":\"install\",\"from_state\":null,\"to_state\":\"ACTIVE\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":0,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"wrote\":{\"identity\":\"operator\"}},\"reads\":{},\"context\":\"store-creation:objectflow-core 0.4.0\"}",
+  "{\"position\":2,\"object_id\":\"declarationchange-1\",\"object_seq\":1,\"transition\":\"draft\",\"from_state\":null,\"to_state\":\"DRAFTED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":0,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"source_ref\":\"fixture:servicedesk\",\"source_digest\":\"sha256:0fb64a39f0b07794145ce6fcd6efb347cc7c765ef914e63a5e1319d9de367b7a\",\"wrote\":{\"base_version\":0,\"drafted_by\":\"operator\",\"drafted_by_kind\":\"human\",\"source\":\"{\\\"servicedesk\\\":\\\"# yaml-language-server: $schema=../flow.schema.json\\\\n# Service desk: Jira Service Management's IT service management flows, written in\\\\n# this format to check how much of them it can express (case-study-tickets.md \u00a77).\\\\n# Statuses are those Atlassian lists as Jira Service Management's defaults.\\\\nmodule: servicedesk\\\\ncategories: [waiting, active, pending, inactive]\\\\n\\\\nenumerations:\\\\n  Priority: [HIGHEST, HIGH, MEDIUM, LOW, LOWEST]\\\\n  Level: [CRITICAL, HIGH, MEDIUM, LOW]\\\\n  Resolution: [DONE, WONT_DO, DUPLICATE, KNOWN_ERROR, HARDWARE_FAILURE, SOFTWARE_FAILURE]\\\\n  RequestType: [GET_IT_HELP, REQUEST_ACCESS, NEW_HARDWARE]\\\\n  ChangeType: [STANDARD, NORMAL, EMERGENCY]\\\\n  Risk: [LOW, MEDIUM, HIGH]\\\\n  Decision: [APPROVE, DECLINE]\\\\n  ReviewStage: [PEER, CAB]\\\\n  WindowKind: [MAINTENANCE, FREEZE]\\\\n  AlertPriority: [P1, P2, P3, P4, P5]\\\\n  SupportLevel: [STANDARD, PLATINUM]\\\\n\\\\nsequences:\\\\n  asset_key:\\\\n    description: Numbers the configuration items of the asset schema, as IT-42.\\\\n\\\\nmachines:\\\\n  AssetLifecycle:\\\\n    description: An asset's status, active, pending or inactive, from receipt to disposal.\\\\n    requires:\\\\n      attributes:\\\\n        name:    { type: string }\\\\n        service: { reference: RegisteredService, optional: true }\\\\n    states:\\\\n      IN_STOCK: { category: pending }\\\\n      IN_USE:   { category: active }\\\\n      RETIRED:  { category: inactive }\\\\n      DISPOSED: { category: closed, final: true }\\\\n    transitions:\\\\n      receive: { kind: initial, to: IN_STOCK, required_inputs: [name] }\\\\n      deploy:  { kind: external, from: IN_STOCK, to: IN_USE, optional_inputs: [service] }\\\\n      retire:  { kind: external, from: [IN_STOCK, IN_USE], to: RETIRED }\\\\n      dispose: { kind: external, from: RETIRED, to: DISPOSED }\\\\n\\\\ntypes:\\\\n  Organization:\\\\n    description: A group of customers whose requests are shared among its members.\\\\n    tracking: record\\\\n    attributes:\\\\n      name:          { type: string }\\\\n      support_level: { type: SupportLevel }\\\\n      requests:      { reference: \\\\\\\"Request[]\\\\\\\", opposite: organization }\\\\n    states:\\\\n      ACTIVE:   { category: active }\\\\n      ARCHIVED: { category: closed, final: true }\\\\n    transitions:\\\\n      create:  { kind: initial, to: ACTIVE, required_inputs: [name, support_level] }\\\\n      archive: { kind: external, from: ACTIVE, to: ARCHIVED }\\\\n\\\\n  RegisteredService:\\\\n    description: A service in the service registry, with the people who respond to its incidents and approve its changes.\\\\n    tracking: record\\\\n    attributes:\\\\n      name:             { type: string }\\\\n      tier:             { type: int }\\\\n      responders:       { type: \\\\\\\"identity[]\\\\\\\" }\\\\n      change_approvers: { type: \\\\\\\"identity[]\\\\\\\" }\\\\n      incidents:        { reference: \\\\\\\"Incident[]\\\\\\\", opposite: affected_service }\\\\n      changes:          { reference: \\\\\\\"Change[]\\\\\\\", opposite: affected_service }\\\\n      assets:           { reference: \\\\\\\"Asset[]\\\\\\\", opposite: service }\\\\n    states:\\\\n      OPERATIONAL: { category: active }\\\\n      RETIRED:     { category: closed, final: true }\\\\n    transitions:\\\\n      register: { kind: initial, to: OPERATIONAL, required_inputs: [name, tier, responders, change_approvers] }\\\\n      retire:   { kind: external, from: OPERATIONAL, to: RETIRED }\\\\n\\\\n  Request:\\\\n    description: A service request raised by a customer, approved where it needs to be, and measured against its SLA goals.\\\\n    tracking: record\\\\n    attributes:\\\\n      summary:            { type: string }\\\\n      request_type:       { type: RequestType }\\\\n      reporter:           { type: identity, description: The customer who raised it. }\\\\n      organization:       { reference: Organization, optional: true, opposite: requests }\\\\n      participants:       { type: \\\\\\\"identity[]\\\\\\\" }\\\\n      approvers:          { type: \\\\\\\"identity[]\\\\\\\" }\\\\n      approvals_required: { type: int, optional: true, description: How many approvals it needs; all of its approvers when absent. }\\\\n      priority:           { type: Priority, default: Priority.MEDIUM, description: A customer's request is medium until an agent says otherwise. }\\\\n      opened_at:          { type: timestamp }\\\\n      resolution:         { type: Resolution, optional: true }\\\\n      resolved_at:        { type: timestamp, optional: true }\\\\n      sla_met:            { type: bool, optional: true, description: \\\\\\\"Whether the resolution goal was met, fixed when it was resolved.\\\\\\\" }\\\\n    observations:\\\\n      replies:\\\\n        kind: PublicReply\\\\n        description: A comment visible to the customer.\\\\n        attributes:\\\\n          body: { type: string, optional: true, personal: true }\\\\n      notes:\\\\n        kind: InternalNote\\\\n        description: A comment the service team alone sees; who may read it is the application's.\\\\n        attributes:\\\\n          body: { type: string, optional: true, personal: true }\\\\n      approvals:\\\\n        kind: RequestApproval\\\\n        description: One approver's decision on the request.\\\\n        attributes:\\\\n          approver: { type: identity }\\\\n          decision: { type: Decision }\\\\n      ratings:\\\\n        kind: SatisfactionRating\\\\n        description: The customer's rating of how the request was handled.\\\\n        attributes:\\\\n          score: { type: int }\\\\n        invariants:\\\\n          in_range:\\\\n            description: A score is from 1 to 5.\\\\n            expression: score >= 1 and score <= 5\\\\n    states:\\\\n      WAITING_FOR_APPROVAL: { category: pending }\\\\n      WAITING_FOR_SUPPORT:  { category: waiting }\\\\n      IN_PROGRESS:          { category: active }\\\\n      WAITING_FOR_CUSTOMER: { category: pending }\\\\n      PENDING:              { category: pending }\\\\n      ESCALATED:            { category: active }\\\\n      RESOLVED:\\\\n        description: Resolved, and awaiting the customer's verification.\\\\n        category: closed\\\\n        required_attributes: [resolution]\\\\n      DECLINED:  { category: closed }\\\\n      CANCELED:  { category: closed }\\\\n      CLOSED:\\\\n        description: Finished; the resolution is correct.\\\\n        category: closed\\\\n        final: true\\\\n    derived_attributes:\\\\n      approvals_needed:\\\\n        description: The approvals the request needs, a given number or all of its approvers.\\\\n        expression: if approvals_required is not null then approvals_required else count(a in approvers)\\\\n      resolution_goal:\\\\n        description: The time to resolution its SLA allows, by priority, and shorter for a platinum organization.\\\\n        expression: >-\\\\n          if organization is not null and organization.support_level == SupportLevel.PLATINUM then 2 h\\\\n          else if priority == Priority.HIGHEST or priority == Priority.HIGH then 4 h\\\\n          else if priority == Priority.MEDIUM then 8 h else 16 h\\\\n      time_to_resolution:\\\\n        description: Time spent on the request, paused while it waits for the customer or is pending.\\\\n        expression: >-\\\\n          sum(i in this.intervals where i.state != WAITING_FOR_CUSTOMER and i.state != PENDING\\\\n              and i.state != WAITING_FOR_APPROVAL and i.state != RESOLVED and i.state != DECLINED\\\\n              and i.state != CANCELED and i.state != CLOSED: i.duration)\\\\n      resolution_breached:\\\\n        description: The request has taken longer than its goal.\\\\n        expression: time_to_resolution > resolution_goal\\\\n      paused:\\\\n        description: The request's SLA clock is paused.\\\\n        expression: state == WAITING_FOR_CUSTOMER or state == PENDING\\\\n      time_to_first_response:\\\\n        description: From opening to the first comment the customer can see.\\\\n        expression: >-\\\\n          min(r in replies: r.occurred_at) - opened_at\\\\n    summary: [summary, request_type, priority, state]\\\\n    conditions:\\\\n      has_approvers:\\\\n        description: At least one approver is named.\\\\n        expression: count(a in inputs.approvers) >= 1\\\\n        remedy: self_serviceable\\\\n      approved:\\\\n        description: Enough approvers other than the reporter have approved since the request began waiting for approval.\\\\n        expression: >-\\\\n          count(o in approvals where o.decision == Decision.APPROVE and o.approver != reporter\\\\n                and o.occurred_at > entered_at(WAITING_FOR_APPROVAL)) >= approvals_needed\\\\n        remedy: dependent\\\\n      declined:\\\\n        description: An approver has declined since the request began waiting for approval.\\\\n        expression: >-\\\\n          any(o in approvals where o.decision == Decision.DECLINE\\\\n              and o.occurred_at > entered_at(WAITING_FOR_APPROVAL))\\\\n        remedy: dependent\\\\n      resolved_three_days:\\\\n        description: The request has been resolved for three days.\\\\n        expression: entered_at(RESOLVED) + 3 days <= now\\\\n        remedy: temporal\\\\n    transitions:\\\\n      raise:\\\\n        kind: initial\\\\n        to: WAITING_FOR_SUPPORT\\\\n        description: Raises a request that needs no approval.\\\\n        required_inputs: [summary, request_type, reporter]\\\\n        optional_inputs: [organization]\\\\n        effect:\\\\n          - assign: { location: opened_at, expr: now }\\\\n      raise_for_approval:\\\\n        kind: initial\\\\n        to: WAITING_FOR_APPROVAL\\\\n        description: Raises a request that its approvers must approve first.\\\\n        required_inputs: [summary, request_type, reporter, approvers]\\\\n        optional_inputs: [organization, approvals_required]\\\\n        guards:\\\\n          has_approvers: deny\\\\n        effect:\\\\n          - assign: { location: opened_at, expr: now }\\\\n      approve:\\\\n        kind: external\\\\n        from: WAITING_FOR_APPROVAL\\\\n        to: WAITING_FOR_SUPPORT\\\\n        guards:\\\\n          approved: deny\\\\n      decline:\\\\n        kind: external\\\\n        from: WAITING_FOR_APPROVAL\\\\n        to: DECLINED\\\\n        guards:\\\\n          declined: deny\\\\n      start:\\\\n        kind: external\\\\n        from: [WAITING_FOR_SUPPORT, ESCALATED]\\\\n        to: IN_PROGRESS\\\\n      respond_to_customer:\\\\n        kind: external\\\\n        from: [WAITING_FOR_SUPPORT, IN_PROGRESS, ESCALATED]\\\\n        to: WAITING_FOR_CUSTOMER\\\\n      customer_replies:\\\\n        kind: external\\\\n        from: WAITING_FOR_CUSTOMER\\\\n        to: WAITING_FOR_SUPPORT\\\\n        description: The customer answers, and the request waits for the team again.\\\\n      pend:\\\\n        kind: external\\\\n        from: [WAITING_FOR_SUPPORT, IN_PROGRESS]\\\\n        to: PENDING\\\\n      resume:\\\\n        kind: external\\\\n        from: PENDING\\\\n        to: IN_PROGRESS\\\\n      escalate:\\\\n        kind: external\\\\n        from: [WAITING_FOR_SUPPORT, IN_PROGRESS]\\\\n        to: ESCALATED\\\\n      prioritise:\\\\n        kind: internal\\\\n        from: [WAITING_FOR_APPROVAL, WAITING_FOR_SUPPORT, IN_PROGRESS, WAITING_FOR_CUSTOMER, PENDING, ESCALATED]\\\\n        description: Sets the priority an agent judges the request to have.\\\\n        required_inputs: [priority]\\\\n      share:\\\\n        kind: internal\\\\n        from: any\\\\n        description: Shares the request with another customer, who becomes a participant.\\\\n        inputs:\\\\n          with: { type: identity }\\\\n        effect:\\\\n          - add: { location: participants, expr: inputs.with }\\\\n      resolve:\\\\n        kind: external\\\\n        from: [WAITING_FOR_SUPPORT, IN_PROGRESS, ESCALATED, PENDING]\\\\n        to: RESOLVED\\\\n        required_inputs: [resolution]\\\\n        effect:\\\\n          - assign: { location: resolved_at, expr: now }\\\\n          - assign: { location: sla_met, expr: time_to_resolution <= resolution_goal }\\\\n      reopen:\\\\n        kind: external\\\\n        from: RESOLVED\\\\n        to: WAITING_FOR_SUPPORT\\\\n        description: Reopens a resolved request, as a customer's comment on it does.\\\\n        effect:\\\\n          - clear: [resolution, resolved_at, sla_met]\\\\n      cancel:\\\\n        kind: external\\\\n        from: [WAITING_FOR_APPROVAL, WAITING_FOR_SUPPORT, IN_PROGRESS, WAITING_FOR_CUSTOMER, PENDING, ESCALATED]\\\\n        to: CANCELED\\\\n      close:\\\\n        kind: external\\\\n        from: RESOLVED\\\\n        to: CLOSED\\\\n        description: Closes a request resolved three days ago; a schedule in the application requests it.\\\\n        guards:\\\\n          resolved_three_days: deny\\\\n    metrics:\\\\n      sla_success:\\\\n        description: The share of resolved requests that met their resolution goal, by month.\\\\n        source: objects\\\\n        item: r\\\\n        filter: r.sla_met is not null\\\\n        dimensions:\\\\n          month: month(r.resolved_at)\\\\n        time_dimension: r.resolved_at\\\\n        expression: count(where r.sla_met) * 1.000 / count()\\\\n      labels_by_state:\\\\n        description: How often each label is applied to requests, by the state they were in, which shows where the flow and the work disagree.\\\\n        source: labels\\\\n        item: l\\\\n        dimensions:\\\\n          name: l.name\\\\n          state: l.subject_state\\\\n        time_dimension: l.occurred_at\\\\n        expression: count()\\\\n      satisfaction:\\\\n        description: The average satisfaction score, by month.\\\\n        source: ratings\\\\n        item: s\\\\n        dimensions:\\\\n          month: month(s.occurred_at)\\\\n        time_dimension: s.occurred_at\\\\n        expression: avg(s.score)\\\\n\\\\n  Incident:\\\\n    description: An unplanned disruption to a service, prioritised by its impact and urgency.\\\\n    tracking: record\\\\n    attributes:\\\\n      summary:          { type: string }\\\\n      impact:           { type: Level }\\\\n      urgency:          { type: Level }\\\\n      major:            { type: bool }\\\\n      affected_service: { reference: RegisteredService, optional: true, opposite: incidents }\\\\n      asset:            { reference: Asset, optional: true, opposite: incidents }\\\\n      problem:          { reference: Problem, optional: true, opposite: incidents }\\\\n      responders:       { type: \\\\\\\"identity[]\\\\\\\" }\\\\n      opened_at:        { type: timestamp }\\\\n      resolution:       { type: Resolution, optional: true }\\\\n      alerts:           { reference: \\\\\\\"Alert[]\\\\\\\", opposite: incident }\\\\n      reviews:          { reference: \\\\\\\"PostIncidentReview[]\\\\\\\", opposite: primary_incident }\\\\n    observations:\\\\n      timeline:\\\\n        kind: StakeholderUpdate\\\\n        description: An update to the incident's stakeholders, on its timeline.\\\\n        attributes:\\\\n          message: { type: string }\\\\n    states:\\\\n      OPEN:             { category: waiting }\\\\n      WORK_IN_PROGRESS: { category: active }\\\\n      PENDING:          { category: pending }\\\\n      ESCALATED:        { category: active }\\\\n      RESOLVED:\\\\n        category: closed\\\\n        required_attributes: [resolution]\\\\n      CANCELED: { category: closed }\\\\n      CLOSED:   { category: closed, final: true }\\\\n    derived_attributes:\\\\n      priority:\\\\n        description: The priority its impact and urgency give it, by the impact and urgency matrix.\\\\n        expression: >-\\\\n          if impact == Level.CRITICAL and urgency == Level.CRITICAL then Priority.HIGHEST\\\\n          else if impact == Level.CRITICAL or urgency == Level.CRITICAL then Priority.HIGH\\\\n          else if impact == Level.LOW and urgency == Level.LOW then Priority.LOW\\\\n          else Priority.MEDIUM\\\\n      time_to_resolution:\\\\n        description: Time spent on the incident, paused while it is pending.\\\\n        expression: >-\\\\n          sum(i in this.intervals where i.state != PENDING and i.state != RESOLVED\\\\n              and i.state != CANCELED and i.state != CLOSED: i.duration)\\\\n      problem_open:\\\\n        description: The problem that causes the incident is still open, which Jira Service Management reports by automation.\\\\n        expression: problem is not null and problem.state.category != closed\\\\n    conditions:\\\\n      resolved_three_days:\\\\n        description: The incident has been resolved for three days.\\\\n        expression: entered_at(RESOLVED) + 3 days <= now\\\\n        remedy: temporal\\\\n    transitions:\\\\n      open:\\\\n        kind: initial\\\\n        to: OPEN\\\\n        required_inputs: [summary, impact, urgency, major, responders]\\\\n        effect:\\\\n          - assign: { location: opened_at, expr: now }\\\\n      investigate: { kind: external, from: OPEN, to: WORK_IN_PROGRESS }\\\\n      pend:        { kind: external, from: [OPEN, WORK_IN_PROGRESS], to: PENDING }\\\\n      resume:      { kind: external, from: PENDING, to: WORK_IN_PROGRESS }\\\\n      escalate:    { kind: external, from: [OPEN, WORK_IN_PROGRESS], to: ESCALATED }\\\\n      mark_major:\\\\n        kind: internal\\\\n        from: [OPEN, WORK_IN_PROGRESS, PENDING, ESCALATED]\\\\n        effect:\\\\n          - assign: { location: major, expr: \\\\\\\"true\\\\\\\" }\\\\n      set_affected_service:\\\\n        kind: internal\\\\n        from: [OPEN, WORK_IN_PROGRESS, PENDING, ESCALATED]\\\\n        description: Sets the affected service, whose responders join the incident's.\\\\n        required_inputs: [affected_service]\\\\n        effect:\\\\n          - foreach:\\\\n              item: r\\\\n              array: inputs.affected_service.responders\\\\n              limit: 100\\\\n              steps:\\\\n                - add: { location: responders, expr: r }\\\\n      link_problem:\\\\n        kind: internal\\\\n        from: any\\\\n        required_inputs: [problem]\\\\n      link_asset:\\\\n        kind: internal\\\\n        from: any\\\\n        description: Names the asset the incident affects, a configuration item of the asset schema.\\\\n        required_inputs: [asset]\\\\n      resolve:\\\\n        kind: external\\\\n        from: [WORK_IN_PROGRESS, ESCALATED, PENDING]\\\\n        to: RESOLVED\\\\n        required_inputs: [resolution]\\\\n      reopen:\\\\n        kind: external\\\\n        from: RESOLVED\\\\n        to: WORK_IN_PROGRESS\\\\n        effect:\\\\n          - clear: [resolution]\\\\n      cancel: { kind: external, from: [OPEN, WORK_IN_PROGRESS, PENDING, ESCALATED], to: CANCELED }\\\\n      close:\\\\n        kind: external\\\\n        from: RESOLVED\\\\n        to: CLOSED\\\\n        guards:\\\\n          resolved_three_days: deny\\\\n      create_review:\\\\n        kind: internal\\\\n        from: [RESOLVED]\\\\n        description: Creates a post-incident review with this incident as its primary incident.\\\\n        inputs:\\\\n          title: { type: string }\\\\n        effect:\\\\n          - create: { type: PostIncidentReview, transition: draft, inputs: { primary_incident: this, title: inputs.title } }\\\\n    metrics:\\\\n      incidents_opened:\\\\n        description: Incidents opened, by month.\\\\n        source: objects\\\\n        item: i\\\\n        dimensions:\\\\n          month: month(i.created_at)\\\\n        time_dimension: i.created_at\\\\n        expression: count()\\\\n\\\\n  PostIncidentReview:\\\\n    description: A review of why an incident happened and how to prevent it.\\\\n    tracking: record\\\\n    attributes:\\\\n      title:            { type: string }\\\\n      primary_incident: { reference: Incident, opposite: reviews }\\\\n      findings:         { type: string, optional: true }\\\\n    states:\\\\n      DRAFT:     { category: active }\\\\n      PUBLISHED: { category: closed, required_attributes: [findings] }\\\\n      ARCHIVED:  { category: closed, final: true }\\\\n    transitions:\\\\n      draft:   { kind: initial, to: DRAFT, required_inputs: [primary_incident, title] }\\\\n      publish: { kind: external, from: DRAFT, to: PUBLISHED, required_inputs: [findings] }\\\\n      archive: { kind: external, from: [DRAFT, PUBLISHED], to: ARCHIVED }\\\\n\\\\n  Problem:\\\\n    description: The cause, or possible cause, of one or more incidents.\\\\n    tracking: record\\\\n    attributes:\\\\n      summary:    { type: string }\\\\n      root_cause: { type: string, optional: true }\\\\n      workaround: { type: string, optional: true }\\\\n      resolution: { type: Resolution, optional: true }\\\\n      incidents:  { reference: \\\\\\\"Incident[]\\\\\\\", opposite: problem }\\\\n      changes:    { reference: \\\\\\\"Change[]\\\\\\\", opposite: problem }\\\\n    states:\\\\n      OPEN:                { category: waiting }\\\\n      UNDER_INVESTIGATION: { category: active }\\\\n      UNDER_REVIEW:\\\\n        category: active\\\\n        required_attributes: [root_cause]\\\\n      COMPLETED:\\\\n        category: closed\\\\n        required_attributes: [root_cause, resolution]\\\\n      CANCELED: { category: closed }\\\\n      ARCHIVED: { category: closed, final: true }\\\\n    transitions:\\\\n      open:        { kind: initial, to: OPEN, required_inputs: [summary] }\\\\n      investigate: { kind: external, from: OPEN, to: UNDER_INVESTIGATION }\\\\n      review:\\\\n        kind: external\\\\n        from: UNDER_INVESTIGATION\\\\n        to: UNDER_REVIEW\\\\n        required_inputs: [root_cause]\\\\n        optional_inputs: [workaround]\\\\n      complete:\\\\n        kind: external\\\\n        from: UNDER_REVIEW\\\\n        to: COMPLETED\\\\n        description: Completes the problem; a documented workaround makes it a known error.\\\\n        required_inputs: [resolution]\\\\n      cancel:  { kind: external, from: [OPEN, UNDER_INVESTIGATION, UNDER_REVIEW], to: CANCELED }\\\\n      archive: { kind: external, from: [COMPLETED, CANCELED], to: ARCHIVED }\\\\n    metrics:\\\\n      problems_opened:\\\\n        description: Problems opened, by month.\\\\n        source: objects\\\\n        item: p\\\\n        dimensions:\\\\n          month: month(p.created_at)\\\\n        time_dimension: p.created_at\\\\n        expression: count()\\\\n\\\\n  ChangeWindow:\\\\n    description: A maintenance window, or a freeze window in which no change should be implemented.\\\\n    tracking: record\\\\n    attributes:\\\\n      kind:      { type: WindowKind, indexed: true }\\\\n      starts_at: { type: timestamp, indexed: true }\\\\n      ends_at:   { type: timestamp, indexed: true }\\\\n    states:\\\\n      SCHEDULED: { category: active }\\\\n      WITHDRAWN: { category: closed, final: true }\\\\n    transitions:\\\\n      schedule: { kind: initial, to: SCHEDULED, required_inputs: [kind, starts_at, ends_at] }\\\\n      withdraw: { kind: external, from: SCHEDULED, to: WITHDRAWN }\\\\n\\\\n  Change:\\\\n    description: A change to a service, reviewed by a peer and the change advisory board unless it is a standard change.\\\\n    tracking: record\\\\n    attributes:\\\\n      summary:          { type: string }\\\\n      change_type:      { type: ChangeType }\\\\n      risk:             { type: Risk, optional: true }\\\\n      affected_service: { reference: RegisteredService, opposite: changes }\\\\n      problem:          { reference: Problem, optional: true, opposite: changes }\\\\n      planned_start:    { type: timestamp, optional: true }\\\\n      planned_end:      { type: timestamp, optional: true }\\\\n    observations:\\\\n      approvals:\\\\n        kind: ChangeApproval\\\\n        description: One reviewer's decision at a review stage.\\\\n        attributes:\\\\n          stage:    { type: ReviewStage }\\\\n          approver: { type: identity }\\\\n          decision: { type: Decision }\\\\n    states:\\\\n      PEER_REVIEW:             { category: pending }\\\\n      PLANNING:                { category: active }\\\\n      AWAITING_CAB_APPROVAL:   { category: pending, required_attributes: [planned_start, planned_end] }\\\\n      AWAITING_IMPLEMENTATION: { category: waiting }\\\\n      IMPLEMENTING:            { category: active }\\\\n      COMPLETED:               { category: closed }\\\\n      DECLINED:                { category: closed }\\\\n      CANCELED:                { category: closed }\\\\n      ARCHIVED:                { category: closed, final: true }\\\\n    conditions:\\\\n      standard:\\\\n        description: The change is a standard change, pre-authorized and needing no review.\\\\n        expression: inputs.change_type == ChangeType.STANDARD\\\\n        remedy: unreachable_from_here\\\\n      emergency:\\\\n        description: The change is an emergency change, whose authorization is fast-tracked.\\\\n        expression: change_type == ChangeType.EMERGENCY\\\\n        remedy: unreachable_from_here\\\\n      peer_approved:\\\\n        description: A peer or the change manager has approved it since it entered review.\\\\n        expression: >-\\\\n          any(o in approvals where o.stage == ReviewStage.PEER and o.decision == Decision.APPROVE\\\\n              and o.occurred_at > entered_at(PEER_REVIEW))\\\\n        remedy: dependent\\\\n      cab_approved:\\\\n        description: Every change approver of the affected service has approved it since it awaited the board.\\\\n        expression: >-\\\\n          all(a in affected_service.change_approvers: any(o in approvals where o.stage == ReviewStage.CAB\\\\n              and o.approver == a and o.decision == Decision.APPROVE\\\\n              and o.occurred_at > entered_at(AWAITING_CAB_APPROVAL)))\\\\n        remedy: dependent\\\\n      declined:\\\\n        description: A reviewer has declined it.\\\\n        expression: any(o in approvals where o.decision == Decision.DECLINE and o.occurred_at > entered_at(PEER_REVIEW))\\\\n        remedy: dependent\\\\n      outside_freeze:\\\\n        description: Its planned start falls in no freeze window.\\\\n        expression: >-\\\\n          none(w in ChangeWindow where w.kind == WindowKind.FREEZE and w.state == ChangeWindow.SCHEDULED\\\\n               and w.starts_at <= planned_start and planned_start < w.ends_at)\\\\n        remedy: dependent\\\\n    transitions:\\\\n      request:\\\\n        kind: initial\\\\n        to: PEER_REVIEW\\\\n        required_inputs: [summary, change_type, affected_service]\\\\n        optional_inputs: [risk, problem]\\\\n      request_standard:\\\\n        kind: initial\\\\n        to: PLANNING\\\\n        description: Records a standard change, which goes straight to planning, pre-authorized.\\\\n        required_inputs: [summary, change_type, affected_service]\\\\n        optional_inputs: [problem]\\\\n        guards:\\\\n          standard: deny\\\\n      approve_peer:\\\\n        kind: external\\\\n        from: PEER_REVIEW\\\\n        to: PLANNING\\\\n        guards:\\\\n          peer_approved: deny\\\\n      expedite:\\\\n        kind: external\\\\n        from: PEER_REVIEW\\\\n        to: AWAITING_IMPLEMENTATION\\\\n        description: Fast-tracks an emergency change a peer has approved.\\\\n        guards:\\\\n          emergency: deny\\\\n          peer_approved: deny\\\\n      submit_to_cab:\\\\n        kind: external\\\\n        from: PLANNING\\\\n        to: AWAITING_CAB_APPROVAL\\\\n        required_inputs: [planned_start, planned_end]\\\\n      approve_cab:\\\\n        kind: external\\\\n        from: AWAITING_CAB_APPROVAL\\\\n        to: AWAITING_IMPLEMENTATION\\\\n        guards:\\\\n          cab_approved: deny\\\\n          outside_freeze: deny\\\\n      decline:\\\\n        kind: external\\\\n        from: [PEER_REVIEW, AWAITING_CAB_APPROVAL]\\\\n        to: DECLINED\\\\n        guards:\\\\n          declined: deny\\\\n      implement:\\\\n        kind: external\\\\n        from: AWAITING_IMPLEMENTATION\\\\n        to: IMPLEMENTING\\\\n        description: Starts implementing; a deployment pipeline that gates on the change requests it.\\\\n      roll_back:\\\\n        kind: external\\\\n        from: IMPLEMENTING\\\\n        to: AWAITING_IMPLEMENTATION\\\\n        description: Returns a change whose deployment failed or was canceled.\\\\n      complete: { kind: external, from: IMPLEMENTING, to: COMPLETED }\\\\n      cancel:\\\\n        kind: external\\\\n        from: [PEER_REVIEW, PLANNING, AWAITING_CAB_APPROVAL, AWAITING_IMPLEMENTATION]\\\\n        to: CANCELED\\\\n      archive: { kind: external, from: [COMPLETED, DECLINED, CANCELED], to: ARCHIVED }\\\\n\\\\n  Alert:\\\\n    description: An alert from monitoring, deduplicated by its alias while it is open.\\\\n    tracking: record\\\\n    attributes:\\\\n      alias:\\\\n        type: string\\\\n        indexed: true\\\\n        unique: { where: state == OPEN }\\\\n        description: One open alert at a time has an alias; a repeat of it counts on the open one.\\\\n      message:       { type: string }\\\\n      priority:      { type: AlertPriority }\\\\n      occurrences:   { type: int }\\\\n      acknowledged:  { type: bool }\\\\n      snoozed_until: { type: timestamp, optional: true }\\\\n      incident:      { reference: Incident, optional: true, opposite: alerts }\\\\n    states:\\\\n      OPEN:    { category: active }\\\\n      CLOSED:  { category: closed }\\\\n      DELETED: { category: closed, final: true }\\\\n    derived_attributes:\\\\n      needs_escalation:\\\\n        description: The alert has been open and unacknowledged for five minutes, which the application's escalation reads.\\\\n        expression: not acknowledged and entered_at(OPEN) + 5 min <= now\\\\n    conditions:\\\\n      snooze_within_a_week:\\\\n        description: A snooze ends within seven days.\\\\n        expression: inputs.snoozed_until <= now + 7 days\\\\n        remedy: self_serviceable\\\\n    transitions:\\\\n      create:\\\\n        kind: initial\\\\n        to: OPEN\\\\n        required_inputs: [alias, message, priority]\\\\n        effect:\\\\n          - assign: { location: occurrences, expr: \\\\\\\"1\\\\\\\" }\\\\n          - assign: { location: acknowledged, expr: \\\\\\\"false\\\\\\\" }\\\\n      repeat:\\\\n        kind: internal\\\\n        from: OPEN\\\\n        description: Counts a repeat of the alert, which the integration requests when an alert with its alias arrives.\\\\n        effect:\\\\n          - assign: { location: occurrences, expr: occurrences + 1 }\\\\n      acknowledge:\\\\n        kind: internal\\\\n        from: OPEN\\\\n        effect:\\\\n          - assign: { location: acknowledged, expr: \\\\\\\"true\\\\\\\" }\\\\n      unacknowledge:\\\\n        kind: internal\\\\n        from: OPEN\\\\n        effect:\\\\n          - assign: { location: acknowledged, expr: \\\\\\\"false\\\\\\\" }\\\\n      snooze:\\\\n        kind: internal\\\\n        from: OPEN\\\\n        required_inputs: [snoozed_until]\\\\n        guards:\\\\n          snooze_within_a_week: deny\\\\n      link_incident:\\\\n        kind: internal\\\\n        from: [OPEN, CLOSED]\\\\n        required_inputs: [incident]\\\\n      close: { kind: external, from: OPEN, to: CLOSED }\\\\n      reopen:\\\\n        kind: external\\\\n        from: CLOSED\\\\n        to: OPEN\\\\n        description: Reopens the alert, which must be acknowledged again.\\\\n        effect:\\\\n          - assign: { location: acknowledged, expr: \\\\\\\"false\\\\\\\" }\\\\n      delete: { kind: external, from: CLOSED, to: DELETED }\\\\n\\\\n  Asset:\\\\n    description: A configuration item in the asset schema, the base of every kind of asset; it has no objects of its own.\\\\n    abstract: true\\\\n    tracking: serial\\\\n    attributes:\\\\n      key:\\\\n        type: string\\\\n        identifier: { sequence: asset_key, format: \\\\\\\"IT-{n}\\\\\\\" }\\\\n        unique: true\\\\n      name:      { type: string }\\\\n      service:   { reference: RegisteredService, optional: true, opposite: assets }\\\\n      incidents: { reference: \\\\\\\"Incident[]\\\\\\\", opposite: asset }\\\\n\\\\n  Laptop:\\\\n    description: A laptop, assigned to the person who uses it.\\\\n    extends: Asset\\\\n    state_machine: AssetLifecycle\\\\n    attributes:\\\\n      assigned_to: { reference: Employee, optional: true }\\\\n    transitions:\\\\n      assign:\\\\n        kind: internal\\\\n        from: IN_USE\\\\n        required_inputs: [assigned_to]\\\\n\\\\n  Server:\\\\n    description: A server, known on the network by its host name.\\\\n    extends: Asset\\\\n    state_machine: AssetLifecycle\\\\n    attributes:\\\\n      hostname: { type: string, optional: true }\\\\n    transitions:\\\\n      name_host:\\\\n        kind: internal\\\\n        from: [IN_STOCK, IN_USE]\\\\n        required_inputs: [hostname]\\\\n\\\\n  Employee:\\\\n    description: A person employed by the organization, as the HR system records them; the HR system owns the record, and only the import writes it.\\\\n    mirror: true\\\\n    tracking: record\\\\n    attributes:\\\\n      employee_id: { type: string, external: hr, indexed: true }\\\\n      name:        { type: string, optional: true, personal: true }\\\\n      department:  { type: string, optional: true }\\\\n    states:\\\\n      EMPLOYED: { category: active }\\\\n      LEFT:     { category: closed, final: true }\\\\n    transitions:\\\\n      forget:\\\\n        kind: erasure\\\\n        description: Erases this store's copy of the person's name; the HR system erases its own.\\\\n        inputs:\\\\n          reason: { type: string }\\\\n\\\\n  PartStock:\\\\n    description: The stock of one spare part, counted rather than tracked one by one.\\\\n    tracking: quantity\\\\n    attributes:\\\\n      part_number:   { type: string, indexed: true, unique: true }\\\\n      on_hand:       { type: counter, indexed: true }\\\\n      reserved:      { type: counter, indexed: true }\\\\n      reorder_level: { type: int, default: \\\\\\\"5\\\\\\\" }\\\\n    states:\\\\n      STOCKED:   { category: active }\\\\n      WITHDRAWN: { category: closed, final: true }\\\\n    derived_attributes:\\\\n      available:\\\\n        description: The parts on hand and not reserved; a query may filter on it.\\\\n        expression: on_hand - reserved\\\\n        indexed: true\\\\n      below_reorder_level:\\\\n        description: Fewer parts are available than the level at which more are ordered.\\\\n        expression: on_hand - reserved < reorder_level\\\\n    invariants:\\\\n      reserved_bounded:\\\\n        description: No more parts are reserved than are on hand.\\\\n        expression: reserved >= 0 and reserved <= on_hand\\\\n    conditions:\\\\n      enough_available:\\\\n        description: Enough parts are available for the reservation.\\\\n        expression: on_hand - reserved >= inputs.quantity\\\\n        remedy: dependent\\\\n      enough_reserved:\\\\n        description: At least as many parts are reserved as are released or used.\\\\n        expression: reserved >= inputs.quantity\\\\n        remedy: self_serviceable\\\\n      empty:\\\\n        description: None of the part is on hand.\\\\n        expression: on_hand == 0\\\\n        remedy: dependent\\\\n    transitions:\\\\n      open:\\\\n        kind: initial\\\\n        to: STOCKED\\\\n        required_inputs: [part_number]\\\\n      set_reorder_level:\\\\n        kind: internal\\\\n        from: STOCKED\\\\n        required_inputs: [reorder_level]\\\\n      receive:\\\\n        kind: internal\\\\n        from: STOCKED\\\\n        inputs:\\\\n          quantity: { type: int }\\\\n        effect:\\\\n          - assign: { location: on_hand, expr: on_hand + inputs.quantity }\\\\n      reserve:\\\\n        kind: internal\\\\n        from: STOCKED\\\\n        inputs:\\\\n          quantity: { type: int }\\\\n        guards:\\\\n          enough_available: deny\\\\n        effect:\\\\n          - assign: { location: reserved, expr: reserved + inputs.quantity }\\\\n      release:\\\\n        kind: internal\\\\n        from: STOCKED\\\\n        inputs:\\\\n          quantity: { type: int }\\\\n        guards:\\\\n          enough_reserved: deny\\\\n        effect:\\\\n          - assign: { location: reserved, expr: reserved - inputs.quantity }\\\\n      use:\\\\n        kind: internal\\\\n        from: STOCKED\\\\n        description: Takes reserved parts out of stock, as a change or a request that needed them is carried out.\\\\n        inputs:\\\\n          quantity: { type: int }\\\\n        guards:\\\\n          enough_reserved: deny\\\\n        effect:\\\\n          - assign: { location: reserved, expr: reserved - inputs.quantity }\\\\n          - assign: { location: on_hand, expr: on_hand - inputs.quantity }\\\\n      withdraw:\\\\n        kind: external\\\\n        from: STOCKED\\\\n        to: WITHDRAWN\\\\n        guards:\\\\n          empty: deny\\\\n\\\\nmetrics:\\\\n  problems_per_incident:\\\\n    description: Problems opened for each incident opened, by month, which says how much of the incident load is being traced to a cause.\\\\n    input_metrics:\\\\n      problems: Problem.problems_opened\\\\n      incidents: Incident.incidents_opened\\\\n    group_by: [month]\\\\n    expression: problems * 1.000 / incidents\\\\n    flag_when: { few_traced: \\\\\\\"value < 0.1\\\\\\\" }\\\\n\\\\n\\\"}\",\"source_digest\":\"sha256:0fb64a39f0b07794145ce6fcd6efb347cc7c765ef914e63a5e1319d9de367b7a\",\"source_ref\":\"fixture:servicedesk\"}},\"reads\":{},\"context\":null}",
+  "{\"position\":3,\"object_id\":\"declarationchange-1\",\"object_seq\":2,\"transition\":\"submit\",\"from_state\":\"DRAFTED\",\"to_state\":\"SUBMITTED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":0,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"wrote\":{\"report\":\"{\\\"version\\\":1,\\\"accepted\\\":true,\\\"now\\\":\\\"2026-10-20T15:06:16Z\\\",\\\"findings\\\":[],\\\"change_id\\\":\\\"declarationchange-1\\\",\\\"source_ref\\\":\\\"fixture:servicedesk\\\",\\\"source_digest\\\":\\\"sha256:0fb64a39f0b07794145ce6fcd6efb347cc7c765ef914e63a5e1319d9de367b7a\\\",\\\"proposals_invalidated\\\":0,\\\"affected\\\":{},\\\"examples\\\":{},\\\"analysed\\\":{\\\"Alert\\\":[1,1],\\\"Change\\\":[5,7],\\\"ChangeWindow\\\":[0,0],\\\"Employee\\\":[0,0],\\\"Incident\\\":[1,1],\\\"Laptop\\\":[0,0],\\\"Organization\\\":[0,0],\\\"PartStock\\\":[3,4],\\\"PostIncidentReview\\\":[0,0],\\\"Problem\\\":[0,0],\\\"RegisteredService\\\":[0,0],\\\"Request\\\":[2,4],\\\"Server\\\":[0,0]},\\\"person_dimensions\\\":[],\\\"invariant_forms\\\":{\\\"PartStock.reserved_bounded\\\":\\\"local\\\"},\\\"could_violate\\\":{\\\"PartStock.reserved_bounded\\\":[\\\"PartStock.open\\\",\\\"PartStock.receive\\\",\\\"PartStock.release\\\",\\\"PartStock.reserve\\\",\\\"PartStock.use\\\"]},\\\"not_computed\\\":[\\\"invariants\\\",\\\"sweepable\\\",\\\"unsweepable\\\",\\\"queryable_derives\\\",\\\"worst_case_fanout\\\",\\\"observed_fanout\\\",\\\"replaced_creations\\\",\\\"creations_past_first_state\\\",\\\"observing_clauses\\\",\\\"flags\\\"]}\"}},\"reads\":{},\"context\":null}",
+  "{\"position\":4,\"object_id\":\"declarationchange-1\",\"object_seq\":3,\"transition\":\"publish\",\"from_state\":\"SUBMITTED\",\"to_state\":\"PUBLISHED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"version\":1},\"reads\":{},\"context\":null}",
+  "{\"position\":5,\"object_id\":\"request-2\",\"object_seq\":1,\"transition\":\"raise\",\"from_state\":null,\"to_state\":\"WAITING_FOR_SUPPORT\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"reporter\":\"cust-cara\",\"request_type\":\"GET_IT_HELP\",\"summary\":\"My laptop will not boot\"},\"wrote\":{\"approvers\":[],\"opened_at\":\"2026-10-20T15:06:16Z\",\"participants\":[],\"priority\":\"MEDIUM\",\"reporter\":\"cust-cara\",\"request_type\":\"GET_IT_HELP\",\"summary\":\"My laptop will not boot\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":6,\"object_id\":\"request-3\",\"object_seq\":1,\"transition\":\"raise\",\"from_state\":null,\"to_state\":\"WAITING_FOR_SUPPORT\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"reporter\":\"cust-cara\",\"request_type\":\"GET_IT_HELP\",\"summary\":\"My laptop will not boot\"},\"wrote\":{\"approvers\":[],\"opened_at\":\"2026-10-20T15:06:16Z\",\"participants\":[],\"priority\":\"MEDIUM\",\"reporter\":\"cust-cara\",\"request_type\":\"GET_IT_HELP\",\"summary\":\"My laptop will not boot\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":7,\"object_id\":\"organization-4\",\"object_seq\":1,\"transition\":\"create\",\"from_state\":null,\"to_state\":\"ACTIVE\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"name\":\"Acme\",\"support_level\":\"PLATINUM\"},\"wrote\":{\"name\":\"Acme\",\"support_level\":\"PLATINUM\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":8,\"object_id\":\"request-5\",\"object_seq\":1,\"transition\":\"raise\",\"from_state\":null,\"to_state\":\"WAITING_FOR_SUPPORT\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"organization\":\"organization-4\",\"reporter\":\"cust-cara\",\"request_type\":\"GET_IT_HELP\",\"summary\":\"Payroll is down\"},\"wrote\":{\"approvers\":[],\"opened_at\":\"2026-10-20T15:06:16Z\",\"organization\":\"organization-4\",\"participants\":[],\"priority\":\"MEDIUM\",\"reporter\":\"cust-cara\",\"request_type\":\"GET_IT_HELP\",\"summary\":\"Payroll is down\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":9,\"object_id\":\"request-6\",\"object_seq\":1,\"transition\":\"raise_for_approval\",\"from_state\":null,\"to_state\":\"WAITING_FOR_APPROVAL\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"approvers\":[\"mgr-ana\",\"mgr-ben\"],\"reporter\":\"cust-cara\",\"request_type\":\"REQUEST_ACCESS\",\"summary\":\"Access to payroll\"},\"wrote\":{\"approvers\":[\"mgr-ana\",\"mgr-ben\"],\"opened_at\":\"2026-10-20T15:06:16Z\",\"participants\":[],\"priority\":\"MEDIUM\",\"reporter\":\"cust-cara\",\"request_type\":\"REQUEST_ACCESS\",\"summary\":\"Access to payroll\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":10,\"object_id\":\"request-7\",\"object_seq\":1,\"transition\":\"raise_for_approval\",\"from_state\":null,\"to_state\":\"WAITING_FOR_APPROVAL\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"approvals_required\":1,\"approvers\":[\"cust-cara\",\"mgr-ana\"],\"reporter\":\"cust-cara\",\"request_type\":\"NEW_HARDWARE\",\"summary\":\"A second monitor\"},\"wrote\":{\"approvals_required\":1,\"approvers\":[\"cust-cara\",\"mgr-ana\"],\"opened_at\":\"2026-10-20T15:06:16Z\",\"participants\":[],\"priority\":\"MEDIUM\",\"reporter\":\"cust-cara\",\"request_type\":\"NEW_HARDWARE\",\"summary\":\"A second monitor\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":11,\"object_id\":\"registeredservice-8\",\"object_seq\":1,\"transition\":\"register\",\"from_state\":null,\"to_state\":\"OPERATIONAL\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"change_approvers\":[\"cab-1\",\"cab-2\"],\"name\":\"Payments\",\"responders\":[\"oncall-1\",\"oncall-2\"],\"tier\":1},\"wrote\":{\"change_approvers\":[\"cab-1\",\"cab-2\"],\"name\":\"Payments\",\"responders\":[\"oncall-1\",\"oncall-2\"],\"tier\":1}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":12,\"object_id\":\"incident-9\",\"object_seq\":1,\"transition\":\"open\",\"from_state\":null,\"to_state\":\"OPEN\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"impact\":\"HIGH\",\"major\":false,\"responders\":[\"oncall-1\"],\"summary\":\"Card payments fail\",\"urgency\":\"HIGH\"},\"wrote\":{\"impact\":\"HIGH\",\"major\":false,\"opened_at\":\"2026-10-20T15:06:16Z\",\"responders\":[\"oncall-1\"],\"summary\":\"Card payments fail\",\"urgency\":\"HIGH\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":13,\"object_id\":\"incident-9\",\"object_seq\":2,\"transition\":\"investigate\",\"from_state\":\"OPEN\",\"to_state\":\"WORK_IN_PROGRESS\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":14,\"object_id\":\"incident-9\",\"object_seq\":3,\"transition\":\"set_affected_service\",\"from_state\":\"WORK_IN_PROGRESS\",\"to_state\":\"WORK_IN_PROGRESS\",\"changes_state\":false,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"affected_service\":\"registeredservice-8\"},\"wrote\":{\"affected_service\":\"registeredservice-8\",\"responders\":[\"oncall-1\",\"oncall-2\"]}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":15,\"object_id\":\"laptop-10\",\"object_seq\":1,\"transition\":\"receive\",\"from_state\":null,\"to_state\":\"IN_STOCK\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"name\":\"ThinkPad 14\"},\"wrote\":{\"key\":\"IT-1\",\"name\":\"ThinkPad 14\"}},\"reads\":{\"objects\":{},\"scans\":{\"key_unique\":{\"Asset\":[]}},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":16,\"object_id\":\"incident-9\",\"object_seq\":4,\"transition\":\"link_asset\",\"from_state\":\"WORK_IN_PROGRESS\",\"to_state\":\"WORK_IN_PROGRESS\",\"changes_state\":false,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"asset\":\"laptop-10\"},\"wrote\":{\"asset\":\"laptop-10\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":17,\"object_id\":\"incident-9\",\"object_seq\":5,\"transition\":\"mark_major\",\"from_state\":\"WORK_IN_PROGRESS\",\"to_state\":\"WORK_IN_PROGRESS\",\"changes_state\":false,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{},\"wrote\":{\"major\":true}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":18,\"object_id\":\"registeredservice-11\",\"object_seq\":1,\"transition\":\"register\",\"from_state\":null,\"to_state\":\"OPERATIONAL\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"change_approvers\":[\"cab-1\",\"cab-2\"],\"name\":\"Payments\",\"responders\":[\"oncall-1\",\"oncall-2\"],\"tier\":1},\"wrote\":{\"change_approvers\":[\"cab-1\",\"cab-2\"],\"name\":\"Payments\",\"responders\":[\"oncall-1\",\"oncall-2\"],\"tier\":1}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":19,\"object_id\":\"change-12\",\"object_seq\":1,\"transition\":\"request_standard\",\"from_state\":null,\"to_state\":\"PLANNING\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"affected_service\":\"registeredservice-11\",\"change_type\":\"STANDARD\",\"summary\":\"Renew a certificate\"},\"wrote\":{\"affected_service\":\"registeredservice-11\",\"change_type\":\"STANDARD\",\"summary\":\"Renew a certificate\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":20,\"object_id\":\"change-13\",\"object_seq\":1,\"transition\":\"request\",\"from_state\":null,\"to_state\":\"PEER_REVIEW\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"affected_service\":\"registeredservice-11\",\"change_type\":\"NORMAL\",\"summary\":\"Rotate the keys\"},\"wrote\":{\"affected_service\":\"registeredservice-11\",\"change_type\":\"NORMAL\",\"summary\":\"Rotate the keys\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":21,\"object_id\":\"change-14\",\"object_seq\":1,\"transition\":\"request\",\"from_state\":null,\"to_state\":\"PEER_REVIEW\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"affected_service\":\"registeredservice-11\",\"change_type\":\"EMERGENCY\",\"summary\":\"Block a card range\"},\"wrote\":{\"affected_service\":\"registeredservice-11\",\"change_type\":\"EMERGENCY\",\"summary\":\"Block a card range\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":22,\"object_id\":\"registeredservice-15\",\"object_seq\":1,\"transition\":\"register\",\"from_state\":null,\"to_state\":\"OPERATIONAL\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"change_approvers\":[\"cab-1\",\"cab-2\"],\"name\":\"Payments\",\"responders\":[\"oncall-1\",\"oncall-2\"],\"tier\":1},\"wrote\":{\"change_approvers\":[\"cab-1\",\"cab-2\"],\"name\":\"Payments\",\"responders\":[\"oncall-1\",\"oncall-2\"],\"tier\":1}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":23,\"object_id\":\"change-16\",\"object_seq\":1,\"transition\":\"request\",\"from_state\":null,\"to_state\":\"PEER_REVIEW\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"affected_service\":\"registeredservice-15\",\"change_type\":\"NORMAL\",\"summary\":\"Rotate the keys\"},\"wrote\":{\"affected_service\":\"registeredservice-15\",\"change_type\":\"NORMAL\",\"summary\":\"Rotate the keys\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":24,\"object_id\":\"alert-17\",\"object_seq\":1,\"transition\":\"create\",\"from_state\":null,\"to_state\":\"OPEN\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"alias\":\"db-down\",\"message\":\"Database unreachable\",\"priority\":\"P1\"},\"wrote\":{\"acknowledged\":false,\"alias\":\"db-down\",\"message\":\"Database unreachable\",\"occurrences\":1,\"priority\":\"P1\"}},\"reads\":{\"objects\":{},\"scans\":{\"alias_unique\":{\"Alert\":[]}},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":25,\"object_id\":\"alert-18\",\"object_seq\":1,\"transition\":\"create\",\"from_state\":null,\"to_state\":\"OPEN\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"alias\":\"disk-full\",\"message\":\"Disk at 95 percent\",\"priority\":\"P3\"},\"wrote\":{\"acknowledged\":false,\"alias\":\"disk-full\",\"message\":\"Disk at 95 percent\",\"occurrences\":1,\"priority\":\"P3\"}},\"reads\":{\"objects\":{},\"scans\":{\"alias_unique\":{\"Alert\":[]}},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":26,\"object_id\":\"laptop-19\",\"object_seq\":1,\"transition\":\"receive\",\"from_state\":null,\"to_state\":\"IN_STOCK\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:16Z\",\"occurred_at\":\"2026-10-20T15:06:16Z\",\"imported\":false,\"payload\":{\"inputs\":{\"name\":\"ThinkPad 14\"},\"wrote\":{\"key\":\"IT-2\",\"name\":\"ThinkPad 14\"}},\"reads\":{\"objects\":{},\"scans\":{\"key_unique\":{\"Asset\":[]}},\"now\":\"2026-10-20T15:06:16Z\"},\"context\":null}",
+  "{\"position\":27,\"object_id\":\"server-20\",\"object_seq\":1,\"transition\":\"receive\",\"from_state\":null,\"to_state\":\"IN_STOCK\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:17Z\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"imported\":false,\"payload\":{\"inputs\":{\"name\":\"db-01\"},\"wrote\":{\"key\":\"IT-3\",\"name\":\"db-01\"}},\"reads\":{\"objects\":{},\"scans\":{\"key_unique\":{\"Asset\":[]}},\"now\":\"2026-10-20T15:06:17Z\"},\"context\":null}",
+  "{\"position\":28,\"object_id\":\"employee-21\",\"object_seq\":1,\"transition\":\"import\",\"from_state\":null,\"to_state\":\"EMPLOYED\",\"changes_state\":true,\"source\":\"asserted\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:17Z\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"imported\":true,\"payload\":{\"inputs\":{\"department\":\"Finance\",\"employee_id\":\"E-1001\"},\"wrote\":{\"department\":\"Finance\",\"employee_id\":\"E-1001\"}},\"reads\":{},\"context\":null}",
+  "{\"position\":29,\"object_id\":\"laptop-22\",\"object_seq\":1,\"transition\":\"receive\",\"from_state\":null,\"to_state\":\"IN_STOCK\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:17Z\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"imported\":false,\"payload\":{\"inputs\":{\"name\":\"ThinkPad 14\"},\"wrote\":{\"key\":\"IT-42\",\"name\":\"ThinkPad 14\"}},\"reads\":{\"objects\":{},\"scans\":{\"key_unique\":{\"Asset\":[]}},\"now\":\"2026-10-20T15:06:17Z\"},\"context\":null}",
+  "{\"position\":30,\"object_id\":\"laptop-23\",\"object_seq\":1,\"transition\":\"receive\",\"from_state\":null,\"to_state\":\"IN_STOCK\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:17Z\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"imported\":false,\"payload\":{\"inputs\":{\"name\":\"ThinkPad 14\"},\"wrote\":{\"key\":\"IT-43\",\"name\":\"ThinkPad 14\"}},\"reads\":{\"objects\":{},\"scans\":{\"key_unique\":{\"Asset\":[]}},\"now\":\"2026-10-20T15:06:17Z\"},\"context\":null}",
+  "{\"position\":31,\"object_id\":\"laptop-23\",\"object_seq\":2,\"transition\":\"deploy\",\"from_state\":\"IN_STOCK\",\"to_state\":\"IN_USE\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:17Z\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"imported\":false,\"payload\":{\"inputs\":{}},\"reads\":{\"objects\":{},\"scans\":{\"key_unique\":{\"Asset\":[]}},\"now\":\"2026-10-20T15:06:17Z\"},\"context\":null}",
+  "{\"position\":32,\"object_id\":\"laptop-23\",\"object_seq\":3,\"transition\":\"assign\",\"from_state\":\"IN_USE\",\"to_state\":\"IN_USE\",\"changes_state\":false,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:17Z\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"imported\":false,\"payload\":{\"inputs\":{\"assigned_to\":\"employee-21\"},\"wrote\":{\"assigned_to\":\"employee-21\"}},\"reads\":{\"objects\":{},\"scans\":{\"key_unique\":{\"Asset\":[]}},\"now\":\"2026-10-20T15:06:17Z\"},\"context\":null}",
+  "{\"position\":33,\"object_id\":\"employee-21\",\"object_seq\":2,\"transition\":\"import\",\"from_state\":\"EMPLOYED\",\"to_state\":\"LEFT\",\"changes_state\":true,\"source\":\"asserted\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:17Z\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"imported\":true,\"payload\":{\"inputs\":{\"department\":\"Finance\",\"employee_id\":\"E-1001\"}},\"reads\":{},\"context\":null}",
+  "{\"position\":34,\"object_id\":\"employee-21\",\"object_seq\":3,\"transition\":\"forget\",\"from_state\":\"LEFT\",\"to_state\":\"LEFT\",\"changes_state\":false,\"source\":\"erased\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:17Z\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"imported\":false,\"payload\":{\"erased\":[\"name\"],\"wrote\":{}},\"reads\":{\"objects\":{},\"scans\":{\"employee_id_unique\":{\"Employee\":[]}},\"now\":\"2026-10-20T15:06:17Z\"},\"context\":null}",
+  "{\"position\":35,\"object_id\":\"employee-21\",\"object_seq\":4,\"transition\":\"import\",\"from_state\":\"LEFT\",\"to_state\":\"EMPLOYED\",\"changes_state\":true,\"source\":\"asserted\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:17Z\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"imported\":true,\"payload\":{\"inputs\":{\"department\":\"Finance\",\"employee_id\":\"E-1001\"}},\"reads\":{},\"context\":null}",
+  "{\"position\":36,\"object_id\":\"partstock-24\",\"object_seq\":1,\"transition\":\"open\",\"from_state\":null,\"to_state\":\"STOCKED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:17Z\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"imported\":false,\"payload\":{\"inputs\":{\"part_number\":\"PSU-500\"},\"wrote\":{\"on_hand\":0,\"part_number\":\"PSU-500\",\"reorder_level\":5,\"reserved\":0}},\"reads\":{\"objects\":{},\"scans\":{\"part_number_unique\":{\"PartStock\":[]}},\"now\":\"2026-10-20T15:06:17Z\"},\"context\":null}",
+  "{\"position\":37,\"object_id\":\"label-25\",\"object_seq\":1,\"transition\":\"record\",\"from_state\":null,\"to_state\":\"RECORDED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:17Z\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"imported\":false,\"payload\":{\"inputs\":{\"name\":\"fixture\",\"subject\":\"organization-4\"},\"wrote\":{\"name\":\"fixture\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"recorded_at\":\"2026-10-20T15:06:17Z\",\"subject\":\"organization-4\",\"subject_state\":\"ACTIVE\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:17Z\"},\"context\":null}",
+  "{\"position\":38,\"object_id\":\"subscription-26\",\"object_seq\":1,\"transition\":\"subscribe\",\"from_state\":null,\"to_state\":\"ACTIVE\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-20T15:06:17Z\",\"occurred_at\":\"2026-10-20T15:06:17Z\",\"imported\":false,\"payload\":{\"inputs\":{\"target_type\":\"Organization\"},\"wrote\":{\"changes_state_only\":false,\"target_family\":false,\"target_type\":\"Organization\",\"transitions\":[]}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-20T15:06:17Z\"},\"context\":null}"
+ ],
+ "module": "servicedesk.yaml",
+ "objects": {
+  "alert-17": {
+   "attributes": {
+    "acknowledged": false,
+    "alias": "db-down",
+    "incident": null,
+    "message": "Database unreachable",
+    "occurrences": 1,
+    "priority": "P1",
+    "snoozed_until": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "alert-17",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "alias": "db-down",
+        "message": "Database unreachable",
+        "priority": "P1"
+       },
+       "wrote": {
+        "acknowledged": false,
+        "alias": "db-down",
+        "message": "Database unreachable",
+        "occurrences": 1,
+        "priority": "P1"
+       }
+      },
+      "position": 24,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {
+        "alias_unique": {
+         "Alert": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "OPEN",
+      "transition": "create"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "OPEN",
+   "type": "Alert",
+   "version": 1
+  },
+  "alert-18": {
+   "attributes": {
+    "acknowledged": false,
+    "alias": "disk-full",
+    "incident": null,
+    "message": "Disk at 95 percent",
+    "occurrences": 1,
+    "priority": "P3",
+    "snoozed_until": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "alert-18",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "alias": "disk-full",
+        "message": "Disk at 95 percent",
+        "priority": "P3"
+       },
+       "wrote": {
+        "acknowledged": false,
+        "alias": "disk-full",
+        "message": "Disk at 95 percent",
+        "occurrences": 1,
+        "priority": "P3"
+       }
+      },
+      "position": 25,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {
+        "alias_unique": {
+         "Alert": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "OPEN",
+      "transition": "create"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "OPEN",
+   "type": "Alert",
+   "version": 1
+  },
+  "change-12": {
+   "attributes": {
+    "affected_service": "registeredservice-11",
+    "change_type": "STANDARD",
+    "planned_end": null,
+    "planned_start": null,
+    "problem": null,
+    "risk": null,
+    "summary": "Renew a certificate"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "change-12",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "affected_service": "registeredservice-11",
+        "change_type": "STANDARD",
+        "summary": "Renew a certificate"
+       },
+       "wrote": {
+        "affected_service": "registeredservice-11",
+        "change_type": "STANDARD",
+        "summary": "Renew a certificate"
+       }
+      },
+      "position": 19,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "PLANNING",
+      "transition": "request_standard"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "PLANNING",
+   "type": "Change",
+   "version": 1
+  },
+  "change-13": {
+   "attributes": {
+    "affected_service": "registeredservice-11",
+    "change_type": "NORMAL",
+    "planned_end": null,
+    "planned_start": null,
+    "problem": null,
+    "risk": null,
+    "summary": "Rotate the keys"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "change-13",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "affected_service": "registeredservice-11",
+        "change_type": "NORMAL",
+        "summary": "Rotate the keys"
+       },
+       "wrote": {
+        "affected_service": "registeredservice-11",
+        "change_type": "NORMAL",
+        "summary": "Rotate the keys"
+       }
+      },
+      "position": 20,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "PEER_REVIEW",
+      "transition": "request"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "PEER_REVIEW",
+   "type": "Change",
+   "version": 1
+  },
+  "change-14": {
+   "attributes": {
+    "affected_service": "registeredservice-11",
+    "change_type": "EMERGENCY",
+    "planned_end": null,
+    "planned_start": null,
+    "problem": null,
+    "risk": null,
+    "summary": "Block a card range"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "change-14",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "affected_service": "registeredservice-11",
+        "change_type": "EMERGENCY",
+        "summary": "Block a card range"
+       },
+       "wrote": {
+        "affected_service": "registeredservice-11",
+        "change_type": "EMERGENCY",
+        "summary": "Block a card range"
+       }
+      },
+      "position": 21,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "PEER_REVIEW",
+      "transition": "request"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "PEER_REVIEW",
+   "type": "Change",
+   "version": 1
+  },
+  "change-16": {
+   "attributes": {
+    "affected_service": "registeredservice-15",
+    "change_type": "NORMAL",
+    "planned_end": null,
+    "planned_start": null,
+    "problem": null,
+    "risk": null,
+    "summary": "Rotate the keys"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "change-16",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "affected_service": "registeredservice-15",
+        "change_type": "NORMAL",
+        "summary": "Rotate the keys"
+       },
+       "wrote": {
+        "affected_service": "registeredservice-15",
+        "change_type": "NORMAL",
+        "summary": "Rotate the keys"
+       }
+      },
+      "position": 23,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "PEER_REVIEW",
+      "transition": "request"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "PEER_REVIEW",
+   "type": "Change",
+   "version": 1
+  },
+  "declarationchange-1": {
+   "attributes": {
+    "approved_by": "operator",
+    "approved_by_kind": "human",
+    "base_version": 0,
+    "drafted_by": "operator",
+    "drafted_by_kind": "human",
+    "evidence": null,
+    "report": {
+     "accepted": true,
+     "affected": {},
+     "analysed": {
+      "Alert": [
+       1,
+       1
+      ],
+      "Change": [
+       5,
+       7
+      ],
+      "ChangeWindow": [
+       0,
+       0
+      ],
+      "Employee": [
+       0,
+       0
+      ],
+      "Incident": [
+       1,
+       1
+      ],
+      "Laptop": [
+       0,
+       0
+      ],
+      "Organization": [
+       0,
+       0
+      ],
+      "PartStock": [
+       3,
+       4
+      ],
+      "PostIncidentReview": [
+       0,
+       0
+      ],
+      "Problem": [
+       0,
+       0
+      ],
+      "RegisteredService": [
+       0,
+       0
+      ],
+      "Request": [
+       2,
+       4
+      ],
+      "Server": [
+       0,
+       0
+      ]
+     },
+     "change_id": "declarationchange-1",
+     "could_violate": {
+      "PartStock.reserved_bounded": [
+       "PartStock.open",
+       "PartStock.receive",
+       "PartStock.release",
+       "PartStock.reserve",
+       "PartStock.use"
+      ]
+     },
+     "examples": {},
+     "findings": [],
+     "invariant_forms": {
+      "PartStock.reserved_bounded": "local"
+     },
+     "not_computed": [
+      "invariants",
+      "sweepable",
+      "unsweepable",
+      "queryable_derives",
+      "worst_case_fanout",
+      "observed_fanout",
+      "replaced_creations",
+      "creations_past_first_state",
+      "observing_clauses",
+      "flags"
+     ],
+     "now": "2026-10-20T15:06:16Z",
+     "person_dimensions": [],
+     "proposals_invalidated": 0,
+     "source_digest": "sha256:0fb64a39f0b07794145ce6fcd6efb347cc7c765ef914e63a5e1319d9de367b7a",
+     "source_ref": "fixture:servicedesk",
+     "version": 1
+    },
+    "source": {
+     "servicedesk": "# yaml-language-server: $schema=../flow.schema.json\n# Service desk: Jira Service Management's IT service management flows, written in\n# this format to check how much of them it can express (case-study-tickets.md \u00a77).\n# Statuses are those Atlassian lists as Jira Service Management's defaults.\nmodule: servicedesk\ncategories: [waiting, active, pending, inactive]\n\nenumerations:\n  Priority: [HIGHEST, HIGH, MEDIUM, LOW, LOWEST]\n  Level: [CRITICAL, HIGH, MEDIUM, LOW]\n  Resolution: [DONE, WONT_DO, DUPLICATE, KNOWN_ERROR, HARDWARE_FAILURE, SOFTWARE_FAILURE]\n  RequestType: [GET_IT_HELP, REQUEST_ACCESS, NEW_HARDWARE]\n  ChangeType: [STANDARD, NORMAL, EMERGENCY]\n  Risk: [LOW, MEDIUM, HIGH]\n  Decision: [APPROVE, DECLINE]\n  ReviewStage: [PEER, CAB]\n  WindowKind: [MAINTENANCE, FREEZE]\n  AlertPriority: [P1, P2, P3, P4, P5]\n  SupportLevel: [STANDARD, PLATINUM]\n\nsequences:\n  asset_key:\n    description: Numbers the configuration items of the asset schema, as IT-42.\n\nmachines:\n  AssetLifecycle:\n    description: An asset's status, active, pending or inactive, from receipt to disposal.\n    requires:\n      attributes:\n        name:    { type: string }\n        service: { reference: RegisteredService, optional: true }\n    states:\n      IN_STOCK: { category: pending }\n      IN_USE:   { category: active }\n      RETIRED:  { category: inactive }\n      DISPOSED: { category: closed, final: true }\n    transitions:\n      receive: { kind: initial, to: IN_STOCK, required_inputs: [name] }\n      deploy:  { kind: external, from: IN_STOCK, to: IN_USE, optional_inputs: [service] }\n      retire:  { kind: external, from: [IN_STOCK, IN_USE], to: RETIRED }\n      dispose: { kind: external, from: RETIRED, to: DISPOSED }\n\ntypes:\n  Organization:\n    description: A group of customers whose requests are shared among its members.\n    tracking: record\n    attributes:\n      name:          { type: string }\n      support_level: { type: SupportLevel }\n      requests:      { reference: \"Request[]\", opposite: organization }\n    states:\n      ACTIVE:   { category: active }\n      ARCHIVED: { category: closed, final: true }\n    transitions:\n      create:  { kind: initial, to: ACTIVE, required_inputs: [name, support_level] }\n      archive: { kind: external, from: ACTIVE, to: ARCHIVED }\n\n  RegisteredService:\n    description: A service in the service registry, with the people who respond to its incidents and approve its changes.\n    tracking: record\n    attributes:\n      name:             { type: string }\n      tier:             { type: int }\n      responders:       { type: \"identity[]\" }\n      change_approvers: { type: \"identity[]\" }\n      incidents:        { reference: \"Incident[]\", opposite: affected_service }\n      changes:          { reference: \"Change[]\", opposite: affected_service }\n      assets:           { reference: \"Asset[]\", opposite: service }\n    states:\n      OPERATIONAL: { category: active }\n      RETIRED:     { category: closed, final: true }\n    transitions:\n      register: { kind: initial, to: OPERATIONAL, required_inputs: [name, tier, responders, change_approvers] }\n      retire:   { kind: external, from: OPERATIONAL, to: RETIRED }\n\n  Request:\n    description: A service request raised by a customer, approved where it needs to be, and measured against its SLA goals.\n    tracking: record\n    attributes:\n      summary:            { type: string }\n      request_type:       { type: RequestType }\n      reporter:           { type: identity, description: The customer who raised it. }\n      organization:       { reference: Organization, optional: true, opposite: requests }\n      participants:       { type: \"identity[]\" }\n      approvers:          { type: \"identity[]\" }\n      approvals_required: { type: int, optional: true, description: How many approvals it needs; all of its approvers when absent. }\n      priority:           { type: Priority, default: Priority.MEDIUM, description: A customer's request is medium until an agent says otherwise. }\n      opened_at:          { type: timestamp }\n      resolution:         { type: Resolution, optional: true }\n      resolved_at:        { type: timestamp, optional: true }\n      sla_met:            { type: bool, optional: true, description: \"Whether the resolution goal was met, fixed when it was resolved.\" }\n    observations:\n      replies:\n        kind: PublicReply\n        description: A comment visible to the customer.\n        attributes:\n          body: { type: string, optional: true, personal: true }\n      notes:\n        kind: InternalNote\n        description: A comment the service team alone sees; who may read it is the application's.\n        attributes:\n          body: { type: string, optional: true, personal: true }\n      approvals:\n        kind: RequestApproval\n        description: One approver's decision on the request.\n        attributes:\n          approver: { type: identity }\n          decision: { type: Decision }\n      ratings:\n        kind: SatisfactionRating\n        description: The customer's rating of how the request was handled.\n        attributes:\n          score: { type: int }\n        invariants:\n          in_range:\n            description: A score is from 1 to 5.\n            expression: score >= 1 and score <= 5\n    states:\n      WAITING_FOR_APPROVAL: { category: pending }\n      WAITING_FOR_SUPPORT:  { category: waiting }\n      IN_PROGRESS:          { category: active }\n      WAITING_FOR_CUSTOMER: { category: pending }\n      PENDING:              { category: pending }\n      ESCALATED:            { category: active }\n      RESOLVED:\n        description: Resolved, and awaiting the customer's verification.\n        category: closed\n        required_attributes: [resolution]\n      DECLINED:  { category: closed }\n      CANCELED:  { category: closed }\n      CLOSED:\n        description: Finished; the resolution is correct.\n        category: closed\n        final: true\n    derived_attributes:\n      approvals_needed:\n        description: The approvals the request needs, a given number or all of its approvers.\n        expression: if approvals_required is not null then approvals_required else count(a in approvers)\n      resolution_goal:\n        description: The time to resolution its SLA allows, by priority, and shorter for a platinum organization.\n        expression: >-\n          if organization is not null and organization.support_level == SupportLevel.PLATINUM then 2 h\n          else if priority == Priority.HIGHEST or priority == Priority.HIGH then 4 h\n          else if priority == Priority.MEDIUM then 8 h else 16 h\n      time_to_resolution:\n        description: Time spent on the request, paused while it waits for the customer or is pending.\n        expression: >-\n          sum(i in this.intervals where i.state != WAITING_FOR_CUSTOMER and i.state != PENDING\n              and i.state != WAITING_FOR_APPROVAL and i.state != RESOLVED and i.state != DECLINED\n              and i.state != CANCELED and i.state != CLOSED: i.duration)\n      resolution_breached:\n        description: The request has taken longer than its goal.\n        expression: time_to_resolution > resolution_goal\n      paused:\n        description: The request's SLA clock is paused.\n        expression: state == WAITING_FOR_CUSTOMER or state == PENDING\n      time_to_first_response:\n        description: From opening to the first comment the customer can see.\n        expression: >-\n          min(r in replies: r.occurred_at) - opened_at\n    summary: [summary, request_type, priority, state]\n    conditions:\n      has_approvers:\n        description: At least one approver is named.\n        expression: count(a in inputs.approvers) >= 1\n        remedy: self_serviceable\n      approved:\n        description: Enough approvers other than the reporter have approved since the request began waiting for approval.\n        expression: >-\n          count(o in approvals where o.decision == Decision.APPROVE and o.approver != reporter\n                and o.occurred_at > entered_at(WAITING_FOR_APPROVAL)) >= approvals_needed\n        remedy: dependent\n      declined:\n        description: An approver has declined since the request began waiting for approval.\n        expression: >-\n          any(o in approvals where o.decision == Decision.DECLINE\n              and o.occurred_at > entered_at(WAITING_FOR_APPROVAL))\n        remedy: dependent\n      resolved_three_days:\n        description: The request has been resolved for three days.\n        expression: entered_at(RESOLVED) + 3 days <= now\n        remedy: temporal\n    transitions:\n      raise:\n        kind: initial\n        to: WAITING_FOR_SUPPORT\n        description: Raises a request that needs no approval.\n        required_inputs: [summary, request_type, reporter]\n        optional_inputs: [organization]\n        effect:\n          - assign: { location: opened_at, expr: now }\n      raise_for_approval:\n        kind: initial\n        to: WAITING_FOR_APPROVAL\n        description: Raises a request that its approvers must approve first.\n        required_inputs: [summary, request_type, reporter, approvers]\n        optional_inputs: [organization, approvals_required]\n        guards:\n          has_approvers: deny\n        effect:\n          - assign: { location: opened_at, expr: now }\n      approve:\n        kind: external\n        from: WAITING_FOR_APPROVAL\n        to: WAITING_FOR_SUPPORT\n        guards:\n          approved: deny\n      decline:\n        kind: external\n        from: WAITING_FOR_APPROVAL\n        to: DECLINED\n        guards:\n          declined: deny\n      start:\n        kind: external\n        from: [WAITING_FOR_SUPPORT, ESCALATED]\n        to: IN_PROGRESS\n      respond_to_customer:\n        kind: external\n        from: [WAITING_FOR_SUPPORT, IN_PROGRESS, ESCALATED]\n        to: WAITING_FOR_CUSTOMER\n      customer_replies:\n        kind: external\n        from: WAITING_FOR_CUSTOMER\n        to: WAITING_FOR_SUPPORT\n        description: The customer answers, and the request waits for the team again.\n      pend:\n        kind: external\n        from: [WAITING_FOR_SUPPORT, IN_PROGRESS]\n        to: PENDING\n      resume:\n        kind: external\n        from: PENDING\n        to: IN_PROGRESS\n      escalate:\n        kind: external\n        from: [WAITING_FOR_SUPPORT, IN_PROGRESS]\n        to: ESCALATED\n      prioritise:\n        kind: internal\n        from: [WAITING_FOR_APPROVAL, WAITING_FOR_SUPPORT, IN_PROGRESS, WAITING_FOR_CUSTOMER, PENDING, ESCALATED]\n        description: Sets the priority an agent judges the request to have.\n        required_inputs: [priority]\n      share:\n        kind: internal\n        from: any\n        description: Shares the request with another customer, who becomes a participant.\n        inputs:\n          with: { type: identity }\n        effect:\n          - add: { location: participants, expr: inputs.with }\n      resolve:\n        kind: external\n        from: [WAITING_FOR_SUPPORT, IN_PROGRESS, ESCALATED, PENDING]\n        to: RESOLVED\n        required_inputs: [resolution]\n        effect:\n          - assign: { location: resolved_at, expr: now }\n          - assign: { location: sla_met, expr: time_to_resolution <= resolution_goal }\n      reopen:\n        kind: external\n        from: RESOLVED\n        to: WAITING_FOR_SUPPORT\n        description: Reopens a resolved request, as a customer's comment on it does.\n        effect:\n          - clear: [resolution, resolved_at, sla_met]\n      cancel:\n        kind: external\n        from: [WAITING_FOR_APPROVAL, WAITING_FOR_SUPPORT, IN_PROGRESS, WAITING_FOR_CUSTOMER, PENDING, ESCALATED]\n        to: CANCELED\n      close:\n        kind: external\n        from: RESOLVED\n        to: CLOSED\n        description: Closes a request resolved three days ago; a schedule in the application requests it.\n        guards:\n          resolved_three_days: deny\n    metrics:\n      sla_success:\n        description: The share of resolved requests that met their resolution goal, by month.\n        source: objects\n        item: r\n        filter: r.sla_met is not null\n        dimensions:\n          month: month(r.resolved_at)\n        time_dimension: r.resolved_at\n        expression: count(where r.sla_met) * 1.000 / count()\n      labels_by_state:\n        description: How often each label is applied to requests, by the state they were in, which shows where the flow and the work disagree.\n        source: labels\n        item: l\n        dimensions:\n          name: l.name\n          state: l.subject_state\n        time_dimension: l.occurred_at\n        expression: count()\n      satisfaction:\n        description: The average satisfaction score, by month.\n        source: ratings\n        item: s\n        dimensions:\n          month: month(s.occurred_at)\n        time_dimension: s.occurred_at\n        expression: avg(s.score)\n\n  Incident:\n    description: An unplanned disruption to a service, prioritised by its impact and urgency.\n    tracking: record\n    attributes:\n      summary:          { type: string }\n      impact:           { type: Level }\n      urgency:          { type: Level }\n      major:            { type: bool }\n      affected_service: { reference: RegisteredService, optional: true, opposite: incidents }\n      asset:            { reference: Asset, optional: true, opposite: incidents }\n      problem:          { reference: Problem, optional: true, opposite: incidents }\n      responders:       { type: \"identity[]\" }\n      opened_at:        { type: timestamp }\n      resolution:       { type: Resolution, optional: true }\n      alerts:           { reference: \"Alert[]\", opposite: incident }\n      reviews:          { reference: \"PostIncidentReview[]\", opposite: primary_incident }\n    observations:\n      timeline:\n        kind: StakeholderUpdate\n        description: An update to the incident's stakeholders, on its timeline.\n        attributes:\n          message: { type: string }\n    states:\n      OPEN:             { category: waiting }\n      WORK_IN_PROGRESS: { category: active }\n      PENDING:          { category: pending }\n      ESCALATED:        { category: active }\n      RESOLVED:\n        category: closed\n        required_attributes: [resolution]\n      CANCELED: { category: closed }\n      CLOSED:   { category: closed, final: true }\n    derived_attributes:\n      priority:\n        description: The priority its impact and urgency give it, by the impact and urgency matrix.\n        expression: >-\n          if impact == Level.CRITICAL and urgency == Level.CRITICAL then Priority.HIGHEST\n          else if impact == Level.CRITICAL or urgency == Level.CRITICAL then Priority.HIGH\n          else if impact == Level.LOW and urgency == Level.LOW then Priority.LOW\n          else Priority.MEDIUM\n      time_to_resolution:\n        description: Time spent on the incident, paused while it is pending.\n        expression: >-\n          sum(i in this.intervals where i.state != PENDING and i.state != RESOLVED\n              and i.state != CANCELED and i.state != CLOSED: i.duration)\n      problem_open:\n        description: The problem that causes the incident is still open, which Jira Service Management reports by automation.\n        expression: problem is not null and problem.state.category != closed\n    conditions:\n      resolved_three_days:\n        description: The incident has been resolved for three days.\n        expression: entered_at(RESOLVED) + 3 days <= now\n        remedy: temporal\n    transitions:\n      open:\n        kind: initial\n        to: OPEN\n        required_inputs: [summary, impact, urgency, major, responders]\n        effect:\n          - assign: { location: opened_at, expr: now }\n      investigate: { kind: external, from: OPEN, to: WORK_IN_PROGRESS }\n      pend:        { kind: external, from: [OPEN, WORK_IN_PROGRESS], to: PENDING }\n      resume:      { kind: external, from: PENDING, to: WORK_IN_PROGRESS }\n      escalate:    { kind: external, from: [OPEN, WORK_IN_PROGRESS], to: ESCALATED }\n      mark_major:\n        kind: internal\n        from: [OPEN, WORK_IN_PROGRESS, PENDING, ESCALATED]\n        effect:\n          - assign: { location: major, expr: \"true\" }\n      set_affected_service:\n        kind: internal\n        from: [OPEN, WORK_IN_PROGRESS, PENDING, ESCALATED]\n        description: Sets the affected service, whose responders join the incident's.\n        required_inputs: [affected_service]\n        effect:\n          - foreach:\n              item: r\n              array: inputs.affected_service.responders\n              limit: 100\n              steps:\n                - add: { location: responders, expr: r }\n      link_problem:\n        kind: internal\n        from: any\n        required_inputs: [problem]\n      link_asset:\n        kind: internal\n        from: any\n        description: Names the asset the incident affects, a configuration item of the asset schema.\n        required_inputs: [asset]\n      resolve:\n        kind: external\n        from: [WORK_IN_PROGRESS, ESCALATED, PENDING]\n        to: RESOLVED\n        required_inputs: [resolution]\n      reopen:\n        kind: external\n        from: RESOLVED\n        to: WORK_IN_PROGRESS\n        effect:\n          - clear: [resolution]\n      cancel: { kind: external, from: [OPEN, WORK_IN_PROGRESS, PENDING, ESCALATED], to: CANCELED }\n      close:\n        kind: external\n        from: RESOLVED\n        to: CLOSED\n        guards:\n          resolved_three_days: deny\n      create_review:\n        kind: internal\n        from: [RESOLVED]\n        description: Creates a post-incident review with this incident as its primary incident.\n        inputs:\n          title: { type: string }\n        effect:\n          - create: { type: PostIncidentReview, transition: draft, inputs: { primary_incident: this, title: inputs.title } }\n    metrics:\n      incidents_opened:\n        description: Incidents opened, by month.\n        source: objects\n        item: i\n        dimensions:\n          month: month(i.created_at)\n        time_dimension: i.created_at\n        expression: count()\n\n  PostIncidentReview:\n    description: A review of why an incident happened and how to prevent it.\n    tracking: record\n    attributes:\n      title:            { type: string }\n      primary_incident: { reference: Incident, opposite: reviews }\n      findings:         { type: string, optional: true }\n    states:\n      DRAFT:     { category: active }\n      PUBLISHED: { category: closed, required_attributes: [findings] }\n      ARCHIVED:  { category: closed, final: true }\n    transitions:\n      draft:   { kind: initial, to: DRAFT, required_inputs: [primary_incident, title] }\n      publish: { kind: external, from: DRAFT, to: PUBLISHED, required_inputs: [findings] }\n      archive: { kind: external, from: [DRAFT, PUBLISHED], to: ARCHIVED }\n\n  Problem:\n    description: The cause, or possible cause, of one or more incidents.\n    tracking: record\n    attributes:\n      summary:    { type: string }\n      root_cause: { type: string, optional: true }\n      workaround: { type: string, optional: true }\n      resolution: { type: Resolution, optional: true }\n      incidents:  { reference: \"Incident[]\", opposite: problem }\n      changes:    { reference: \"Change[]\", opposite: problem }\n    states:\n      OPEN:                { category: waiting }\n      UNDER_INVESTIGATION: { category: active }\n      UNDER_REVIEW:\n        category: active\n        required_attributes: [root_cause]\n      COMPLETED:\n        category: closed\n        required_attributes: [root_cause, resolution]\n      CANCELED: { category: closed }\n      ARCHIVED: { category: closed, final: true }\n    transitions:\n      open:        { kind: initial, to: OPEN, required_inputs: [summary] }\n      investigate: { kind: external, from: OPEN, to: UNDER_INVESTIGATION }\n      review:\n        kind: external\n        from: UNDER_INVESTIGATION\n        to: UNDER_REVIEW\n        required_inputs: [root_cause]\n        optional_inputs: [workaround]\n      complete:\n        kind: external\n        from: UNDER_REVIEW\n        to: COMPLETED\n        description: Completes the problem; a documented workaround makes it a known error.\n        required_inputs: [resolution]\n      cancel:  { kind: external, from: [OPEN, UNDER_INVESTIGATION, UNDER_REVIEW], to: CANCELED }\n      archive: { kind: external, from: [COMPLETED, CANCELED], to: ARCHIVED }\n    metrics:\n      problems_opened:\n        description: Problems opened, by month.\n        source: objects\n        item: p\n        dimensions:\n          month: month(p.created_at)\n        time_dimension: p.created_at\n        expression: count()\n\n  ChangeWindow:\n    description: A maintenance window, or a freeze window in which no change should be implemented.\n    tracking: record\n    attributes:\n      kind:      { type: WindowKind, indexed: true }\n      starts_at: { type: timestamp, indexed: true }\n      ends_at:   { type: timestamp, indexed: true }\n    states:\n      SCHEDULED: { category: active }\n      WITHDRAWN: { category: closed, final: true }\n    transitions:\n      schedule: { kind: initial, to: SCHEDULED, required_inputs: [kind, starts_at, ends_at] }\n      withdraw: { kind: external, from: SCHEDULED, to: WITHDRAWN }\n\n  Change:\n    description: A change to a service, reviewed by a peer and the change advisory board unless it is a standard change.\n    tracking: record\n    attributes:\n      summary:          { type: string }\n      change_type:      { type: ChangeType }\n      risk:             { type: Risk, optional: true }\n      affected_service: { reference: RegisteredService, opposite: changes }\n      problem:          { reference: Problem, optional: true, opposite: changes }\n      planned_start:    { type: timestamp, optional: true }\n      planned_end:      { type: timestamp, optional: true }\n    observations:\n      approvals:\n        kind: ChangeApproval\n        description: One reviewer's decision at a review stage.\n        attributes:\n          stage:    { type: ReviewStage }\n          approver: { type: identity }\n          decision: { type: Decision }\n    states:\n      PEER_REVIEW:             { category: pending }\n      PLANNING:                { category: active }\n      AWAITING_CAB_APPROVAL:   { category: pending, required_attributes: [planned_start, planned_end] }\n      AWAITING_IMPLEMENTATION: { category: waiting }\n      IMPLEMENTING:            { category: active }\n      COMPLETED:               { category: closed }\n      DECLINED:                { category: closed }\n      CANCELED:                { category: closed }\n      ARCHIVED:                { category: closed, final: true }\n    conditions:\n      standard:\n        description: The change is a standard change, pre-authorized and needing no review.\n        expression: inputs.change_type == ChangeType.STANDARD\n        remedy: unreachable_from_here\n      emergency:\n        description: The change is an emergency change, whose authorization is fast-tracked.\n        expression: change_type == ChangeType.EMERGENCY\n        remedy: unreachable_from_here\n      peer_approved:\n        description: A peer or the change manager has approved it since it entered review.\n        expression: >-\n          any(o in approvals where o.stage == ReviewStage.PEER and o.decision == Decision.APPROVE\n              and o.occurred_at > entered_at(PEER_REVIEW))\n        remedy: dependent\n      cab_approved:\n        description: Every change approver of the affected service has approved it since it awaited the board.\n        expression: >-\n          all(a in affected_service.change_approvers: any(o in approvals where o.stage == ReviewStage.CAB\n              and o.approver == a and o.decision == Decision.APPROVE\n              and o.occurred_at > entered_at(AWAITING_CAB_APPROVAL)))\n        remedy: dependent\n      declined:\n        description: A reviewer has declined it.\n        expression: any(o in approvals where o.decision == Decision.DECLINE and o.occurred_at > entered_at(PEER_REVIEW))\n        remedy: dependent\n      outside_freeze:\n        description: Its planned start falls in no freeze window.\n        expression: >-\n          none(w in ChangeWindow where w.kind == WindowKind.FREEZE and w.state == ChangeWindow.SCHEDULED\n               and w.starts_at <= planned_start and planned_start < w.ends_at)\n        remedy: dependent\n    transitions:\n      request:\n        kind: initial\n        to: PEER_REVIEW\n        required_inputs: [summary, change_type, affected_service]\n        optional_inputs: [risk, problem]\n      request_standard:\n        kind: initial\n        to: PLANNING\n        description: Records a standard change, which goes straight to planning, pre-authorized.\n        required_inputs: [summary, change_type, affected_service]\n        optional_inputs: [problem]\n        guards:\n          standard: deny\n      approve_peer:\n        kind: external\n        from: PEER_REVIEW\n        to: PLANNING\n        guards:\n          peer_approved: deny\n      expedite:\n        kind: external\n        from: PEER_REVIEW\n        to: AWAITING_IMPLEMENTATION\n        description: Fast-tracks an emergency change a peer has approved.\n        guards:\n          emergency: deny\n          peer_approved: deny\n      submit_to_cab:\n        kind: external\n        from: PLANNING\n        to: AWAITING_CAB_APPROVAL\n        required_inputs: [planned_start, planned_end]\n      approve_cab:\n        kind: external\n        from: AWAITING_CAB_APPROVAL\n        to: AWAITING_IMPLEMENTATION\n        guards:\n          cab_approved: deny\n          outside_freeze: deny\n      decline:\n        kind: external\n        from: [PEER_REVIEW, AWAITING_CAB_APPROVAL]\n        to: DECLINED\n        guards:\n          declined: deny\n      implement:\n        kind: external\n        from: AWAITING_IMPLEMENTATION\n        to: IMPLEMENTING\n        description: Starts implementing; a deployment pipeline that gates on the change requests it.\n      roll_back:\n        kind: external\n        from: IMPLEMENTING\n        to: AWAITING_IMPLEMENTATION\n        description: Returns a change whose deployment failed or was canceled.\n      complete: { kind: external, from: IMPLEMENTING, to: COMPLETED }\n      cancel:\n        kind: external\n        from: [PEER_REVIEW, PLANNING, AWAITING_CAB_APPROVAL, AWAITING_IMPLEMENTATION]\n        to: CANCELED\n      archive: { kind: external, from: [COMPLETED, DECLINED, CANCELED], to: ARCHIVED }\n\n  Alert:\n    description: An alert from monitoring, deduplicated by its alias while it is open.\n    tracking: record\n    attributes:\n      alias:\n        type: string\n        indexed: true\n        unique: { where: state == OPEN }\n        description: One open alert at a time has an alias; a repeat of it counts on the open one.\n      message:       { type: string }\n      priority:      { type: AlertPriority }\n      occurrences:   { type: int }\n      acknowledged:  { type: bool }\n      snoozed_until: { type: timestamp, optional: true }\n      incident:      { reference: Incident, optional: true, opposite: alerts }\n    states:\n      OPEN:    { category: active }\n      CLOSED:  { category: closed }\n      DELETED: { category: closed, final: true }\n    derived_attributes:\n      needs_escalation:\n        description: The alert has been open and unacknowledged for five minutes, which the application's escalation reads.\n        expression: not acknowledged and entered_at(OPEN) + 5 min <= now\n    conditions:\n      snooze_within_a_week:\n        description: A snooze ends within seven days.\n        expression: inputs.snoozed_until <= now + 7 days\n        remedy: self_serviceable\n    transitions:\n      create:\n        kind: initial\n        to: OPEN\n        required_inputs: [alias, message, priority]\n        effect:\n          - assign: { location: occurrences, expr: \"1\" }\n          - assign: { location: acknowledged, expr: \"false\" }\n      repeat:\n        kind: internal\n        from: OPEN\n        description: Counts a repeat of the alert, which the integration requests when an alert with its alias arrives.\n        effect:\n          - assign: { location: occurrences, expr: occurrences + 1 }\n      acknowledge:\n        kind: internal\n        from: OPEN\n        effect:\n          - assign: { location: acknowledged, expr: \"true\" }\n      unacknowledge:\n        kind: internal\n        from: OPEN\n        effect:\n          - assign: { location: acknowledged, expr: \"false\" }\n      snooze:\n        kind: internal\n        from: OPEN\n        required_inputs: [snoozed_until]\n        guards:\n          snooze_within_a_week: deny\n      link_incident:\n        kind: internal\n        from: [OPEN, CLOSED]\n        required_inputs: [incident]\n      close: { kind: external, from: OPEN, to: CLOSED }\n      reopen:\n        kind: external\n        from: CLOSED\n        to: OPEN\n        description: Reopens the alert, which must be acknowledged again.\n        effect:\n          - assign: { location: acknowledged, expr: \"false\" }\n      delete: { kind: external, from: CLOSED, to: DELETED }\n\n  Asset:\n    description: A configuration item in the asset schema, the base of every kind of asset; it has no objects of its own.\n    abstract: true\n    tracking: serial\n    attributes:\n      key:\n        type: string\n        identifier: { sequence: asset_key, format: \"IT-{n}\" }\n        unique: true\n      name:      { type: string }\n      service:   { reference: RegisteredService, optional: true, opposite: assets }\n      incidents: { reference: \"Incident[]\", opposite: asset }\n\n  Laptop:\n    description: A laptop, assigned to the person who uses it.\n    extends: Asset\n    state_machine: AssetLifecycle\n    attributes:\n      assigned_to: { reference: Employee, optional: true }\n    transitions:\n      assign:\n        kind: internal\n        from: IN_USE\n        required_inputs: [assigned_to]\n\n  Server:\n    description: A server, known on the network by its host name.\n    extends: Asset\n    state_machine: AssetLifecycle\n    attributes:\n      hostname: { type: string, optional: true }\n    transitions:\n      name_host:\n        kind: internal\n        from: [IN_STOCK, IN_USE]\n        required_inputs: [hostname]\n\n  Employee:\n    description: A person employed by the organization, as the HR system records them; the HR system owns the record, and only the import writes it.\n    mirror: true\n    tracking: record\n    attributes:\n      employee_id: { type: string, external: hr, indexed: true }\n      name:        { type: string, optional: true, personal: true }\n      department:  { type: string, optional: true }\n    states:\n      EMPLOYED: { category: active }\n      LEFT:     { category: closed, final: true }\n    transitions:\n      forget:\n        kind: erasure\n        description: Erases this store's copy of the person's name; the HR system erases its own.\n        inputs:\n          reason: { type: string }\n\n  PartStock:\n    description: The stock of one spare part, counted rather than tracked one by one.\n    tracking: quantity\n    attributes:\n      part_number:   { type: string, indexed: true, unique: true }\n      on_hand:       { type: counter, indexed: true }\n      reserved:      { type: counter, indexed: true }\n      reorder_level: { type: int, default: \"5\" }\n    states:\n      STOCKED:   { category: active }\n      WITHDRAWN: { category: closed, final: true }\n    derived_attributes:\n      available:\n        description: The parts on hand and not reserved; a query may filter on it.\n        expression: on_hand - reserved\n        indexed: true\n      below_reorder_level:\n        description: Fewer parts are available than the level at which more are ordered.\n        expression: on_hand - reserved < reorder_level\n    invariants:\n      reserved_bounded:\n        description: No more parts are reserved than are on hand.\n        expression: reserved >= 0 and reserved <= on_hand\n    conditions:\n      enough_available:\n        description: Enough parts are available for the reservation.\n        expression: on_hand - reserved >= inputs.quantity\n        remedy: dependent\n      enough_reserved:\n        description: At least as many parts are reserved as are released or used.\n        expression: reserved >= inputs.quantity\n        remedy: self_serviceable\n      empty:\n        description: None of the part is on hand.\n        expression: on_hand == 0\n        remedy: dependent\n    transitions:\n      open:\n        kind: initial\n        to: STOCKED\n        required_inputs: [part_number]\n      set_reorder_level:\n        kind: internal\n        from: STOCKED\n        required_inputs: [reorder_level]\n      receive:\n        kind: internal\n        from: STOCKED\n        inputs:\n          quantity: { type: int }\n        effect:\n          - assign: { location: on_hand, expr: on_hand + inputs.quantity }\n      reserve:\n        kind: internal\n        from: STOCKED\n        inputs:\n          quantity: { type: int }\n        guards:\n          enough_available: deny\n        effect:\n          - assign: { location: reserved, expr: reserved + inputs.quantity }\n      release:\n        kind: internal\n        from: STOCKED\n        inputs:\n          quantity: { type: int }\n        guards:\n          enough_reserved: deny\n        effect:\n          - assign: { location: reserved, expr: reserved - inputs.quantity }\n      use:\n        kind: internal\n        from: STOCKED\n        description: Takes reserved parts out of stock, as a change or a request that needed them is carried out.\n        inputs:\n          quantity: { type: int }\n        guards:\n          enough_reserved: deny\n        effect:\n          - assign: { location: reserved, expr: reserved - inputs.quantity }\n          - assign: { location: on_hand, expr: on_hand - inputs.quantity }\n      withdraw:\n        kind: external\n        from: STOCKED\n        to: WITHDRAWN\n        guards:\n          empty: deny\n\nmetrics:\n  problems_per_incident:\n    description: Problems opened for each incident opened, by month, which says how much of the incident load is being traced to a cause.\n    input_metrics:\n      problems: Problem.problems_opened\n      incidents: Incident.incidents_opened\n    group_by: [month]\n    expression: problems * 1.000 / incidents\n    flag_when: { few_traced: \"value < 0.1\" }\n\n"
+    },
+    "source_digest": "sha256:0fb64a39f0b07794145ce6fcd6efb347cc7c765ef914e63a5e1319d9de367b7a",
+    "source_ref": "fixture:servicedesk"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 0,
+      "from_state": null,
+      "imported": false,
+      "object_id": "declarationchange-1",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "source_digest": "sha256:0fb64a39f0b07794145ce6fcd6efb347cc7c765ef914e63a5e1319d9de367b7a",
+       "source_ref": "fixture:servicedesk",
+       "wrote": {
+        "base_version": 0,
+        "drafted_by": "operator",
+        "drafted_by_kind": "human",
+        "source": "{\"servicedesk\":\"# yaml-language-server: $schema=../flow.schema.json\\n# Service desk: Jira Service Management's IT service management flows, written in\\n# this format to check how much of them it can express (case-study-tickets.md \u00a77).\\n# Statuses are those Atlassian lists as Jira Service Management's defaults.\\nmodule: servicedesk\\ncategories: [waiting, active, pending, inactive]\\n\\nenumerations:\\n  Priority: [HIGHEST, HIGH, MEDIUM, LOW, LOWEST]\\n  Level: [CRITICAL, HIGH, MEDIUM, LOW]\\n  Resolution: [DONE, WONT_DO, DUPLICATE, KNOWN_ERROR, HARDWARE_FAILURE, SOFTWARE_FAILURE]\\n  RequestType: [GET_IT_HELP, REQUEST_ACCESS, NEW_HARDWARE]\\n  ChangeType: [STANDARD, NORMAL, EMERGENCY]\\n  Risk: [LOW, MEDIUM, HIGH]\\n  Decision: [APPROVE, DECLINE]\\n  ReviewStage: [PEER, CAB]\\n  WindowKind: [MAINTENANCE, FREEZE]\\n  AlertPriority: [P1, P2, P3, P4, P5]\\n  SupportLevel: [STANDARD, PLATINUM]\\n\\nsequences:\\n  asset_key:\\n    description: Numbers the configuration items of the asset schema, as IT-42.\\n\\nmachines:\\n  AssetLifecycle:\\n    description: An asset's status, active, pending or inactive, from receipt to disposal.\\n    requires:\\n      attributes:\\n        name:    { type: string }\\n        service: { reference: RegisteredService, optional: true }\\n    states:\\n      IN_STOCK: { category: pending }\\n      IN_USE:   { category: active }\\n      RETIRED:  { category: inactive }\\n      DISPOSED: { category: closed, final: true }\\n    transitions:\\n      receive: { kind: initial, to: IN_STOCK, required_inputs: [name] }\\n      deploy:  { kind: external, from: IN_STOCK, to: IN_USE, optional_inputs: [service] }\\n      retire:  { kind: external, from: [IN_STOCK, IN_USE], to: RETIRED }\\n      dispose: { kind: external, from: RETIRED, to: DISPOSED }\\n\\ntypes:\\n  Organization:\\n    description: A group of customers whose requests are shared among its members.\\n    tracking: record\\n    attributes:\\n      name:          { type: string }\\n      support_level: { type: SupportLevel }\\n      requests:      { reference: \\\"Request[]\\\", opposite: organization }\\n    states:\\n      ACTIVE:   { category: active }\\n      ARCHIVED: { category: closed, final: true }\\n    transitions:\\n      create:  { kind: initial, to: ACTIVE, required_inputs: [name, support_level] }\\n      archive: { kind: external, from: ACTIVE, to: ARCHIVED }\\n\\n  RegisteredService:\\n    description: A service in the service registry, with the people who respond to its incidents and approve its changes.\\n    tracking: record\\n    attributes:\\n      name:             { type: string }\\n      tier:             { type: int }\\n      responders:       { type: \\\"identity[]\\\" }\\n      change_approvers: { type: \\\"identity[]\\\" }\\n      incidents:        { reference: \\\"Incident[]\\\", opposite: affected_service }\\n      changes:          { reference: \\\"Change[]\\\", opposite: affected_service }\\n      assets:           { reference: \\\"Asset[]\\\", opposite: service }\\n    states:\\n      OPERATIONAL: { category: active }\\n      RETIRED:     { category: closed, final: true }\\n    transitions:\\n      register: { kind: initial, to: OPERATIONAL, required_inputs: [name, tier, responders, change_approvers] }\\n      retire:   { kind: external, from: OPERATIONAL, to: RETIRED }\\n\\n  Request:\\n    description: A service request raised by a customer, approved where it needs to be, and measured against its SLA goals.\\n    tracking: record\\n    attributes:\\n      summary:            { type: string }\\n      request_type:       { type: RequestType }\\n      reporter:           { type: identity, description: The customer who raised it. }\\n      organization:       { reference: Organization, optional: true, opposite: requests }\\n      participants:       { type: \\\"identity[]\\\" }\\n      approvers:          { type: \\\"identity[]\\\" }\\n      approvals_required: { type: int, optional: true, description: How many approvals it needs; all of its approvers when absent. }\\n      priority:           { type: Priority, default: Priority.MEDIUM, description: A customer's request is medium until an agent says otherwise. }\\n      opened_at:          { type: timestamp }\\n      resolution:         { type: Resolution, optional: true }\\n      resolved_at:        { type: timestamp, optional: true }\\n      sla_met:            { type: bool, optional: true, description: \\\"Whether the resolution goal was met, fixed when it was resolved.\\\" }\\n    observations:\\n      replies:\\n        kind: PublicReply\\n        description: A comment visible to the customer.\\n        attributes:\\n          body: { type: string, optional: true, personal: true }\\n      notes:\\n        kind: InternalNote\\n        description: A comment the service team alone sees; who may read it is the application's.\\n        attributes:\\n          body: { type: string, optional: true, personal: true }\\n      approvals:\\n        kind: RequestApproval\\n        description: One approver's decision on the request.\\n        attributes:\\n          approver: { type: identity }\\n          decision: { type: Decision }\\n      ratings:\\n        kind: SatisfactionRating\\n        description: The customer's rating of how the request was handled.\\n        attributes:\\n          score: { type: int }\\n        invariants:\\n          in_range:\\n            description: A score is from 1 to 5.\\n            expression: score >= 1 and score <= 5\\n    states:\\n      WAITING_FOR_APPROVAL: { category: pending }\\n      WAITING_FOR_SUPPORT:  { category: waiting }\\n      IN_PROGRESS:          { category: active }\\n      WAITING_FOR_CUSTOMER: { category: pending }\\n      PENDING:              { category: pending }\\n      ESCALATED:            { category: active }\\n      RESOLVED:\\n        description: Resolved, and awaiting the customer's verification.\\n        category: closed\\n        required_attributes: [resolution]\\n      DECLINED:  { category: closed }\\n      CANCELED:  { category: closed }\\n      CLOSED:\\n        description: Finished; the resolution is correct.\\n        category: closed\\n        final: true\\n    derived_attributes:\\n      approvals_needed:\\n        description: The approvals the request needs, a given number or all of its approvers.\\n        expression: if approvals_required is not null then approvals_required else count(a in approvers)\\n      resolution_goal:\\n        description: The time to resolution its SLA allows, by priority, and shorter for a platinum organization.\\n        expression: >-\\n          if organization is not null and organization.support_level == SupportLevel.PLATINUM then 2 h\\n          else if priority == Priority.HIGHEST or priority == Priority.HIGH then 4 h\\n          else if priority == Priority.MEDIUM then 8 h else 16 h\\n      time_to_resolution:\\n        description: Time spent on the request, paused while it waits for the customer or is pending.\\n        expression: >-\\n          sum(i in this.intervals where i.state != WAITING_FOR_CUSTOMER and i.state != PENDING\\n              and i.state != WAITING_FOR_APPROVAL and i.state != RESOLVED and i.state != DECLINED\\n              and i.state != CANCELED and i.state != CLOSED: i.duration)\\n      resolution_breached:\\n        description: The request has taken longer than its goal.\\n        expression: time_to_resolution > resolution_goal\\n      paused:\\n        description: The request's SLA clock is paused.\\n        expression: state == WAITING_FOR_CUSTOMER or state == PENDING\\n      time_to_first_response:\\n        description: From opening to the first comment the customer can see.\\n        expression: >-\\n          min(r in replies: r.occurred_at) - opened_at\\n    summary: [summary, request_type, priority, state]\\n    conditions:\\n      has_approvers:\\n        description: At least one approver is named.\\n        expression: count(a in inputs.approvers) >= 1\\n        remedy: self_serviceable\\n      approved:\\n        description: Enough approvers other than the reporter have approved since the request began waiting for approval.\\n        expression: >-\\n          count(o in approvals where o.decision == Decision.APPROVE and o.approver != reporter\\n                and o.occurred_at > entered_at(WAITING_FOR_APPROVAL)) >= approvals_needed\\n        remedy: dependent\\n      declined:\\n        description: An approver has declined since the request began waiting for approval.\\n        expression: >-\\n          any(o in approvals where o.decision == Decision.DECLINE\\n              and o.occurred_at > entered_at(WAITING_FOR_APPROVAL))\\n        remedy: dependent\\n      resolved_three_days:\\n        description: The request has been resolved for three days.\\n        expression: entered_at(RESOLVED) + 3 days <= now\\n        remedy: temporal\\n    transitions:\\n      raise:\\n        kind: initial\\n        to: WAITING_FOR_SUPPORT\\n        description: Raises a request that needs no approval.\\n        required_inputs: [summary, request_type, reporter]\\n        optional_inputs: [organization]\\n        effect:\\n          - assign: { location: opened_at, expr: now }\\n      raise_for_approval:\\n        kind: initial\\n        to: WAITING_FOR_APPROVAL\\n        description: Raises a request that its approvers must approve first.\\n        required_inputs: [summary, request_type, reporter, approvers]\\n        optional_inputs: [organization, approvals_required]\\n        guards:\\n          has_approvers: deny\\n        effect:\\n          - assign: { location: opened_at, expr: now }\\n      approve:\\n        kind: external\\n        from: WAITING_FOR_APPROVAL\\n        to: WAITING_FOR_SUPPORT\\n        guards:\\n          approved: deny\\n      decline:\\n        kind: external\\n        from: WAITING_FOR_APPROVAL\\n        to: DECLINED\\n        guards:\\n          declined: deny\\n      start:\\n        kind: external\\n        from: [WAITING_FOR_SUPPORT, ESCALATED]\\n        to: IN_PROGRESS\\n      respond_to_customer:\\n        kind: external\\n        from: [WAITING_FOR_SUPPORT, IN_PROGRESS, ESCALATED]\\n        to: WAITING_FOR_CUSTOMER\\n      customer_replies:\\n        kind: external\\n        from: WAITING_FOR_CUSTOMER\\n        to: WAITING_FOR_SUPPORT\\n        description: The customer answers, and the request waits for the team again.\\n      pend:\\n        kind: external\\n        from: [WAITING_FOR_SUPPORT, IN_PROGRESS]\\n        to: PENDING\\n      resume:\\n        kind: external\\n        from: PENDING\\n        to: IN_PROGRESS\\n      escalate:\\n        kind: external\\n        from: [WAITING_FOR_SUPPORT, IN_PROGRESS]\\n        to: ESCALATED\\n      prioritise:\\n        kind: internal\\n        from: [WAITING_FOR_APPROVAL, WAITING_FOR_SUPPORT, IN_PROGRESS, WAITING_FOR_CUSTOMER, PENDING, ESCALATED]\\n        description: Sets the priority an agent judges the request to have.\\n        required_inputs: [priority]\\n      share:\\n        kind: internal\\n        from: any\\n        description: Shares the request with another customer, who becomes a participant.\\n        inputs:\\n          with: { type: identity }\\n        effect:\\n          - add: { location: participants, expr: inputs.with }\\n      resolve:\\n        kind: external\\n        from: [WAITING_FOR_SUPPORT, IN_PROGRESS, ESCALATED, PENDING]\\n        to: RESOLVED\\n        required_inputs: [resolution]\\n        effect:\\n          - assign: { location: resolved_at, expr: now }\\n          - assign: { location: sla_met, expr: time_to_resolution <= resolution_goal }\\n      reopen:\\n        kind: external\\n        from: RESOLVED\\n        to: WAITING_FOR_SUPPORT\\n        description: Reopens a resolved request, as a customer's comment on it does.\\n        effect:\\n          - clear: [resolution, resolved_at, sla_met]\\n      cancel:\\n        kind: external\\n        from: [WAITING_FOR_APPROVAL, WAITING_FOR_SUPPORT, IN_PROGRESS, WAITING_FOR_CUSTOMER, PENDING, ESCALATED]\\n        to: CANCELED\\n      close:\\n        kind: external\\n        from: RESOLVED\\n        to: CLOSED\\n        description: Closes a request resolved three days ago; a schedule in the application requests it.\\n        guards:\\n          resolved_three_days: deny\\n    metrics:\\n      sla_success:\\n        description: The share of resolved requests that met their resolution goal, by month.\\n        source: objects\\n        item: r\\n        filter: r.sla_met is not null\\n        dimensions:\\n          month: month(r.resolved_at)\\n        time_dimension: r.resolved_at\\n        expression: count(where r.sla_met) * 1.000 / count()\\n      labels_by_state:\\n        description: How often each label is applied to requests, by the state they were in, which shows where the flow and the work disagree.\\n        source: labels\\n        item: l\\n        dimensions:\\n          name: l.name\\n          state: l.subject_state\\n        time_dimension: l.occurred_at\\n        expression: count()\\n      satisfaction:\\n        description: The average satisfaction score, by month.\\n        source: ratings\\n        item: s\\n        dimensions:\\n          month: month(s.occurred_at)\\n        time_dimension: s.occurred_at\\n        expression: avg(s.score)\\n\\n  Incident:\\n    description: An unplanned disruption to a service, prioritised by its impact and urgency.\\n    tracking: record\\n    attributes:\\n      summary:          { type: string }\\n      impact:           { type: Level }\\n      urgency:          { type: Level }\\n      major:            { type: bool }\\n      affected_service: { reference: RegisteredService, optional: true, opposite: incidents }\\n      asset:            { reference: Asset, optional: true, opposite: incidents }\\n      problem:          { reference: Problem, optional: true, opposite: incidents }\\n      responders:       { type: \\\"identity[]\\\" }\\n      opened_at:        { type: timestamp }\\n      resolution:       { type: Resolution, optional: true }\\n      alerts:           { reference: \\\"Alert[]\\\", opposite: incident }\\n      reviews:          { reference: \\\"PostIncidentReview[]\\\", opposite: primary_incident }\\n    observations:\\n      timeline:\\n        kind: StakeholderUpdate\\n        description: An update to the incident's stakeholders, on its timeline.\\n        attributes:\\n          message: { type: string }\\n    states:\\n      OPEN:             { category: waiting }\\n      WORK_IN_PROGRESS: { category: active }\\n      PENDING:          { category: pending }\\n      ESCALATED:        { category: active }\\n      RESOLVED:\\n        category: closed\\n        required_attributes: [resolution]\\n      CANCELED: { category: closed }\\n      CLOSED:   { category: closed, final: true }\\n    derived_attributes:\\n      priority:\\n        description: The priority its impact and urgency give it, by the impact and urgency matrix.\\n        expression: >-\\n          if impact == Level.CRITICAL and urgency == Level.CRITICAL then Priority.HIGHEST\\n          else if impact == Level.CRITICAL or urgency == Level.CRITICAL then Priority.HIGH\\n          else if impact == Level.LOW and urgency == Level.LOW then Priority.LOW\\n          else Priority.MEDIUM\\n      time_to_resolution:\\n        description: Time spent on the incident, paused while it is pending.\\n        expression: >-\\n          sum(i in this.intervals where i.state != PENDING and i.state != RESOLVED\\n              and i.state != CANCELED and i.state != CLOSED: i.duration)\\n      problem_open:\\n        description: The problem that causes the incident is still open, which Jira Service Management reports by automation.\\n        expression: problem is not null and problem.state.category != closed\\n    conditions:\\n      resolved_three_days:\\n        description: The incident has been resolved for three days.\\n        expression: entered_at(RESOLVED) + 3 days <= now\\n        remedy: temporal\\n    transitions:\\n      open:\\n        kind: initial\\n        to: OPEN\\n        required_inputs: [summary, impact, urgency, major, responders]\\n        effect:\\n          - assign: { location: opened_at, expr: now }\\n      investigate: { kind: external, from: OPEN, to: WORK_IN_PROGRESS }\\n      pend:        { kind: external, from: [OPEN, WORK_IN_PROGRESS], to: PENDING }\\n      resume:      { kind: external, from: PENDING, to: WORK_IN_PROGRESS }\\n      escalate:    { kind: external, from: [OPEN, WORK_IN_PROGRESS], to: ESCALATED }\\n      mark_major:\\n        kind: internal\\n        from: [OPEN, WORK_IN_PROGRESS, PENDING, ESCALATED]\\n        effect:\\n          - assign: { location: major, expr: \\\"true\\\" }\\n      set_affected_service:\\n        kind: internal\\n        from: [OPEN, WORK_IN_PROGRESS, PENDING, ESCALATED]\\n        description: Sets the affected service, whose responders join the incident's.\\n        required_inputs: [affected_service]\\n        effect:\\n          - foreach:\\n              item: r\\n              array: inputs.affected_service.responders\\n              limit: 100\\n              steps:\\n                - add: { location: responders, expr: r }\\n      link_problem:\\n        kind: internal\\n        from: any\\n        required_inputs: [problem]\\n      link_asset:\\n        kind: internal\\n        from: any\\n        description: Names the asset the incident affects, a configuration item of the asset schema.\\n        required_inputs: [asset]\\n      resolve:\\n        kind: external\\n        from: [WORK_IN_PROGRESS, ESCALATED, PENDING]\\n        to: RESOLVED\\n        required_inputs: [resolution]\\n      reopen:\\n        kind: external\\n        from: RESOLVED\\n        to: WORK_IN_PROGRESS\\n        effect:\\n          - clear: [resolution]\\n      cancel: { kind: external, from: [OPEN, WORK_IN_PROGRESS, PENDING, ESCALATED], to: CANCELED }\\n      close:\\n        kind: external\\n        from: RESOLVED\\n        to: CLOSED\\n        guards:\\n          resolved_three_days: deny\\n      create_review:\\n        kind: internal\\n        from: [RESOLVED]\\n        description: Creates a post-incident review with this incident as its primary incident.\\n        inputs:\\n          title: { type: string }\\n        effect:\\n          - create: { type: PostIncidentReview, transition: draft, inputs: { primary_incident: this, title: inputs.title } }\\n    metrics:\\n      incidents_opened:\\n        description: Incidents opened, by month.\\n        source: objects\\n        item: i\\n        dimensions:\\n          month: month(i.created_at)\\n        time_dimension: i.created_at\\n        expression: count()\\n\\n  PostIncidentReview:\\n    description: A review of why an incident happened and how to prevent it.\\n    tracking: record\\n    attributes:\\n      title:            { type: string }\\n      primary_incident: { reference: Incident, opposite: reviews }\\n      findings:         { type: string, optional: true }\\n    states:\\n      DRAFT:     { category: active }\\n      PUBLISHED: { category: closed, required_attributes: [findings] }\\n      ARCHIVED:  { category: closed, final: true }\\n    transitions:\\n      draft:   { kind: initial, to: DRAFT, required_inputs: [primary_incident, title] }\\n      publish: { kind: external, from: DRAFT, to: PUBLISHED, required_inputs: [findings] }\\n      archive: { kind: external, from: [DRAFT, PUBLISHED], to: ARCHIVED }\\n\\n  Problem:\\n    description: The cause, or possible cause, of one or more incidents.\\n    tracking: record\\n    attributes:\\n      summary:    { type: string }\\n      root_cause: { type: string, optional: true }\\n      workaround: { type: string, optional: true }\\n      resolution: { type: Resolution, optional: true }\\n      incidents:  { reference: \\\"Incident[]\\\", opposite: problem }\\n      changes:    { reference: \\\"Change[]\\\", opposite: problem }\\n    states:\\n      OPEN:                { category: waiting }\\n      UNDER_INVESTIGATION: { category: active }\\n      UNDER_REVIEW:\\n        category: active\\n        required_attributes: [root_cause]\\n      COMPLETED:\\n        category: closed\\n        required_attributes: [root_cause, resolution]\\n      CANCELED: { category: closed }\\n      ARCHIVED: { category: closed, final: true }\\n    transitions:\\n      open:        { kind: initial, to: OPEN, required_inputs: [summary] }\\n      investigate: { kind: external, from: OPEN, to: UNDER_INVESTIGATION }\\n      review:\\n        kind: external\\n        from: UNDER_INVESTIGATION\\n        to: UNDER_REVIEW\\n        required_inputs: [root_cause]\\n        optional_inputs: [workaround]\\n      complete:\\n        kind: external\\n        from: UNDER_REVIEW\\n        to: COMPLETED\\n        description: Completes the problem; a documented workaround makes it a known error.\\n        required_inputs: [resolution]\\n      cancel:  { kind: external, from: [OPEN, UNDER_INVESTIGATION, UNDER_REVIEW], to: CANCELED }\\n      archive: { kind: external, from: [COMPLETED, CANCELED], to: ARCHIVED }\\n    metrics:\\n      problems_opened:\\n        description: Problems opened, by month.\\n        source: objects\\n        item: p\\n        dimensions:\\n          month: month(p.created_at)\\n        time_dimension: p.created_at\\n        expression: count()\\n\\n  ChangeWindow:\\n    description: A maintenance window, or a freeze window in which no change should be implemented.\\n    tracking: record\\n    attributes:\\n      kind:      { type: WindowKind, indexed: true }\\n      starts_at: { type: timestamp, indexed: true }\\n      ends_at:   { type: timestamp, indexed: true }\\n    states:\\n      SCHEDULED: { category: active }\\n      WITHDRAWN: { category: closed, final: true }\\n    transitions:\\n      schedule: { kind: initial, to: SCHEDULED, required_inputs: [kind, starts_at, ends_at] }\\n      withdraw: { kind: external, from: SCHEDULED, to: WITHDRAWN }\\n\\n  Change:\\n    description: A change to a service, reviewed by a peer and the change advisory board unless it is a standard change.\\n    tracking: record\\n    attributes:\\n      summary:          { type: string }\\n      change_type:      { type: ChangeType }\\n      risk:             { type: Risk, optional: true }\\n      affected_service: { reference: RegisteredService, opposite: changes }\\n      problem:          { reference: Problem, optional: true, opposite: changes }\\n      planned_start:    { type: timestamp, optional: true }\\n      planned_end:      { type: timestamp, optional: true }\\n    observations:\\n      approvals:\\n        kind: ChangeApproval\\n        description: One reviewer's decision at a review stage.\\n        attributes:\\n          stage:    { type: ReviewStage }\\n          approver: { type: identity }\\n          decision: { type: Decision }\\n    states:\\n      PEER_REVIEW:             { category: pending }\\n      PLANNING:                { category: active }\\n      AWAITING_CAB_APPROVAL:   { category: pending, required_attributes: [planned_start, planned_end] }\\n      AWAITING_IMPLEMENTATION: { category: waiting }\\n      IMPLEMENTING:            { category: active }\\n      COMPLETED:               { category: closed }\\n      DECLINED:                { category: closed }\\n      CANCELED:                { category: closed }\\n      ARCHIVED:                { category: closed, final: true }\\n    conditions:\\n      standard:\\n        description: The change is a standard change, pre-authorized and needing no review.\\n        expression: inputs.change_type == ChangeType.STANDARD\\n        remedy: unreachable_from_here\\n      emergency:\\n        description: The change is an emergency change, whose authorization is fast-tracked.\\n        expression: change_type == ChangeType.EMERGENCY\\n        remedy: unreachable_from_here\\n      peer_approved:\\n        description: A peer or the change manager has approved it since it entered review.\\n        expression: >-\\n          any(o in approvals where o.stage == ReviewStage.PEER and o.decision == Decision.APPROVE\\n              and o.occurred_at > entered_at(PEER_REVIEW))\\n        remedy: dependent\\n      cab_approved:\\n        description: Every change approver of the affected service has approved it since it awaited the board.\\n        expression: >-\\n          all(a in affected_service.change_approvers: any(o in approvals where o.stage == ReviewStage.CAB\\n              and o.approver == a and o.decision == Decision.APPROVE\\n              and o.occurred_at > entered_at(AWAITING_CAB_APPROVAL)))\\n        remedy: dependent\\n      declined:\\n        description: A reviewer has declined it.\\n        expression: any(o in approvals where o.decision == Decision.DECLINE and o.occurred_at > entered_at(PEER_REVIEW))\\n        remedy: dependent\\n      outside_freeze:\\n        description: Its planned start falls in no freeze window.\\n        expression: >-\\n          none(w in ChangeWindow where w.kind == WindowKind.FREEZE and w.state == ChangeWindow.SCHEDULED\\n               and w.starts_at <= planned_start and planned_start < w.ends_at)\\n        remedy: dependent\\n    transitions:\\n      request:\\n        kind: initial\\n        to: PEER_REVIEW\\n        required_inputs: [summary, change_type, affected_service]\\n        optional_inputs: [risk, problem]\\n      request_standard:\\n        kind: initial\\n        to: PLANNING\\n        description: Records a standard change, which goes straight to planning, pre-authorized.\\n        required_inputs: [summary, change_type, affected_service]\\n        optional_inputs: [problem]\\n        guards:\\n          standard: deny\\n      approve_peer:\\n        kind: external\\n        from: PEER_REVIEW\\n        to: PLANNING\\n        guards:\\n          peer_approved: deny\\n      expedite:\\n        kind: external\\n        from: PEER_REVIEW\\n        to: AWAITING_IMPLEMENTATION\\n        description: Fast-tracks an emergency change a peer has approved.\\n        guards:\\n          emergency: deny\\n          peer_approved: deny\\n      submit_to_cab:\\n        kind: external\\n        from: PLANNING\\n        to: AWAITING_CAB_APPROVAL\\n        required_inputs: [planned_start, planned_end]\\n      approve_cab:\\n        kind: external\\n        from: AWAITING_CAB_APPROVAL\\n        to: AWAITING_IMPLEMENTATION\\n        guards:\\n          cab_approved: deny\\n          outside_freeze: deny\\n      decline:\\n        kind: external\\n        from: [PEER_REVIEW, AWAITING_CAB_APPROVAL]\\n        to: DECLINED\\n        guards:\\n          declined: deny\\n      implement:\\n        kind: external\\n        from: AWAITING_IMPLEMENTATION\\n        to: IMPLEMENTING\\n        description: Starts implementing; a deployment pipeline that gates on the change requests it.\\n      roll_back:\\n        kind: external\\n        from: IMPLEMENTING\\n        to: AWAITING_IMPLEMENTATION\\n        description: Returns a change whose deployment failed or was canceled.\\n      complete: { kind: external, from: IMPLEMENTING, to: COMPLETED }\\n      cancel:\\n        kind: external\\n        from: [PEER_REVIEW, PLANNING, AWAITING_CAB_APPROVAL, AWAITING_IMPLEMENTATION]\\n        to: CANCELED\\n      archive: { kind: external, from: [COMPLETED, DECLINED, CANCELED], to: ARCHIVED }\\n\\n  Alert:\\n    description: An alert from monitoring, deduplicated by its alias while it is open.\\n    tracking: record\\n    attributes:\\n      alias:\\n        type: string\\n        indexed: true\\n        unique: { where: state == OPEN }\\n        description: One open alert at a time has an alias; a repeat of it counts on the open one.\\n      message:       { type: string }\\n      priority:      { type: AlertPriority }\\n      occurrences:   { type: int }\\n      acknowledged:  { type: bool }\\n      snoozed_until: { type: timestamp, optional: true }\\n      incident:      { reference: Incident, optional: true, opposite: alerts }\\n    states:\\n      OPEN:    { category: active }\\n      CLOSED:  { category: closed }\\n      DELETED: { category: closed, final: true }\\n    derived_attributes:\\n      needs_escalation:\\n        description: The alert has been open and unacknowledged for five minutes, which the application's escalation reads.\\n        expression: not acknowledged and entered_at(OPEN) + 5 min <= now\\n    conditions:\\n      snooze_within_a_week:\\n        description: A snooze ends within seven days.\\n        expression: inputs.snoozed_until <= now + 7 days\\n        remedy: self_serviceable\\n    transitions:\\n      create:\\n        kind: initial\\n        to: OPEN\\n        required_inputs: [alias, message, priority]\\n        effect:\\n          - assign: { location: occurrences, expr: \\\"1\\\" }\\n          - assign: { location: acknowledged, expr: \\\"false\\\" }\\n      repeat:\\n        kind: internal\\n        from: OPEN\\n        description: Counts a repeat of the alert, which the integration requests when an alert with its alias arrives.\\n        effect:\\n          - assign: { location: occurrences, expr: occurrences + 1 }\\n      acknowledge:\\n        kind: internal\\n        from: OPEN\\n        effect:\\n          - assign: { location: acknowledged, expr: \\\"true\\\" }\\n      unacknowledge:\\n        kind: internal\\n        from: OPEN\\n        effect:\\n          - assign: { location: acknowledged, expr: \\\"false\\\" }\\n      snooze:\\n        kind: internal\\n        from: OPEN\\n        required_inputs: [snoozed_until]\\n        guards:\\n          snooze_within_a_week: deny\\n      link_incident:\\n        kind: internal\\n        from: [OPEN, CLOSED]\\n        required_inputs: [incident]\\n      close: { kind: external, from: OPEN, to: CLOSED }\\n      reopen:\\n        kind: external\\n        from: CLOSED\\n        to: OPEN\\n        description: Reopens the alert, which must be acknowledged again.\\n        effect:\\n          - assign: { location: acknowledged, expr: \\\"false\\\" }\\n      delete: { kind: external, from: CLOSED, to: DELETED }\\n\\n  Asset:\\n    description: A configuration item in the asset schema, the base of every kind of asset; it has no objects of its own.\\n    abstract: true\\n    tracking: serial\\n    attributes:\\n      key:\\n        type: string\\n        identifier: { sequence: asset_key, format: \\\"IT-{n}\\\" }\\n        unique: true\\n      name:      { type: string }\\n      service:   { reference: RegisteredService, optional: true, opposite: assets }\\n      incidents: { reference: \\\"Incident[]\\\", opposite: asset }\\n\\n  Laptop:\\n    description: A laptop, assigned to the person who uses it.\\n    extends: Asset\\n    state_machine: AssetLifecycle\\n    attributes:\\n      assigned_to: { reference: Employee, optional: true }\\n    transitions:\\n      assign:\\n        kind: internal\\n        from: IN_USE\\n        required_inputs: [assigned_to]\\n\\n  Server:\\n    description: A server, known on the network by its host name.\\n    extends: Asset\\n    state_machine: AssetLifecycle\\n    attributes:\\n      hostname: { type: string, optional: true }\\n    transitions:\\n      name_host:\\n        kind: internal\\n        from: [IN_STOCK, IN_USE]\\n        required_inputs: [hostname]\\n\\n  Employee:\\n    description: A person employed by the organization, as the HR system records them; the HR system owns the record, and only the import writes it.\\n    mirror: true\\n    tracking: record\\n    attributes:\\n      employee_id: { type: string, external: hr, indexed: true }\\n      name:        { type: string, optional: true, personal: true }\\n      department:  { type: string, optional: true }\\n    states:\\n      EMPLOYED: { category: active }\\n      LEFT:     { category: closed, final: true }\\n    transitions:\\n      forget:\\n        kind: erasure\\n        description: Erases this store's copy of the person's name; the HR system erases its own.\\n        inputs:\\n          reason: { type: string }\\n\\n  PartStock:\\n    description: The stock of one spare part, counted rather than tracked one by one.\\n    tracking: quantity\\n    attributes:\\n      part_number:   { type: string, indexed: true, unique: true }\\n      on_hand:       { type: counter, indexed: true }\\n      reserved:      { type: counter, indexed: true }\\n      reorder_level: { type: int, default: \\\"5\\\" }\\n    states:\\n      STOCKED:   { category: active }\\n      WITHDRAWN: { category: closed, final: true }\\n    derived_attributes:\\n      available:\\n        description: The parts on hand and not reserved; a query may filter on it.\\n        expression: on_hand - reserved\\n        indexed: true\\n      below_reorder_level:\\n        description: Fewer parts are available than the level at which more are ordered.\\n        expression: on_hand - reserved < reorder_level\\n    invariants:\\n      reserved_bounded:\\n        description: No more parts are reserved than are on hand.\\n        expression: reserved >= 0 and reserved <= on_hand\\n    conditions:\\n      enough_available:\\n        description: Enough parts are available for the reservation.\\n        expression: on_hand - reserved >= inputs.quantity\\n        remedy: dependent\\n      enough_reserved:\\n        description: At least as many parts are reserved as are released or used.\\n        expression: reserved >= inputs.quantity\\n        remedy: self_serviceable\\n      empty:\\n        description: None of the part is on hand.\\n        expression: on_hand == 0\\n        remedy: dependent\\n    transitions:\\n      open:\\n        kind: initial\\n        to: STOCKED\\n        required_inputs: [part_number]\\n      set_reorder_level:\\n        kind: internal\\n        from: STOCKED\\n        required_inputs: [reorder_level]\\n      receive:\\n        kind: internal\\n        from: STOCKED\\n        inputs:\\n          quantity: { type: int }\\n        effect:\\n          - assign: { location: on_hand, expr: on_hand + inputs.quantity }\\n      reserve:\\n        kind: internal\\n        from: STOCKED\\n        inputs:\\n          quantity: { type: int }\\n        guards:\\n          enough_available: deny\\n        effect:\\n          - assign: { location: reserved, expr: reserved + inputs.quantity }\\n      release:\\n        kind: internal\\n        from: STOCKED\\n        inputs:\\n          quantity: { type: int }\\n        guards:\\n          enough_reserved: deny\\n        effect:\\n          - assign: { location: reserved, expr: reserved - inputs.quantity }\\n      use:\\n        kind: internal\\n        from: STOCKED\\n        description: Takes reserved parts out of stock, as a change or a request that needed them is carried out.\\n        inputs:\\n          quantity: { type: int }\\n        guards:\\n          enough_reserved: deny\\n        effect:\\n          - assign: { location: reserved, expr: reserved - inputs.quantity }\\n          - assign: { location: on_hand, expr: on_hand - inputs.quantity }\\n      withdraw:\\n        kind: external\\n        from: STOCKED\\n        to: WITHDRAWN\\n        guards:\\n          empty: deny\\n\\nmetrics:\\n  problems_per_incident:\\n    description: Problems opened for each incident opened, by month, which says how much of the incident load is being traced to a cause.\\n    input_metrics:\\n      problems: Problem.problems_opened\\n      incidents: Incident.incidents_opened\\n    group_by: [month]\\n    expression: problems * 1.000 / incidents\\n    flag_when: { few_traced: \\\"value < 0.1\\\" }\\n\\n\"}",
+        "source_digest": "sha256:0fb64a39f0b07794145ce6fcd6efb347cc7c765ef914e63a5e1319d9de367b7a",
+        "source_ref": "fixture:servicedesk"
+       }
+      },
+      "position": 2,
+      "principal": null,
+      "reads": {},
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "DRAFTED",
+      "transition": "draft"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 0,
+      "from_state": "DRAFTED",
+      "imported": false,
+      "object_id": "declarationchange-1",
+      "object_seq": 2,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "wrote": {
+        "report": "{\"version\":1,\"accepted\":true,\"now\":\"2026-10-20T15:06:16Z\",\"findings\":[],\"change_id\":\"declarationchange-1\",\"source_ref\":\"fixture:servicedesk\",\"source_digest\":\"sha256:0fb64a39f0b07794145ce6fcd6efb347cc7c765ef914e63a5e1319d9de367b7a\",\"proposals_invalidated\":0,\"affected\":{},\"examples\":{},\"analysed\":{\"Alert\":[1,1],\"Change\":[5,7],\"ChangeWindow\":[0,0],\"Employee\":[0,0],\"Incident\":[1,1],\"Laptop\":[0,0],\"Organization\":[0,0],\"PartStock\":[3,4],\"PostIncidentReview\":[0,0],\"Problem\":[0,0],\"RegisteredService\":[0,0],\"Request\":[2,4],\"Server\":[0,0]},\"person_dimensions\":[],\"invariant_forms\":{\"PartStock.reserved_bounded\":\"local\"},\"could_violate\":{\"PartStock.reserved_bounded\":[\"PartStock.open\",\"PartStock.receive\",\"PartStock.release\",\"PartStock.reserve\",\"PartStock.use\"]},\"not_computed\":[\"invariants\",\"sweepable\",\"unsweepable\",\"queryable_derives\",\"worst_case_fanout\",\"observed_fanout\",\"replaced_creations\",\"creations_past_first_state\",\"observing_clauses\",\"flags\"]}"
+       }
+      },
+      "position": 3,
+      "principal": null,
+      "reads": {},
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "SUBMITTED",
+      "transition": "submit"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "SUBMITTED",
+      "imported": false,
+      "object_id": "declarationchange-1",
+      "object_seq": 3,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "version": 1
+      },
+      "position": 4,
+      "principal": null,
+      "reads": {},
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "PUBLISHED",
+      "transition": "publish"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "PUBLISHED",
+   "type": "DeclarationChange",
+   "version": 3
+  },
+  "employee-21": {
+   "attributes": {
+    "department": "Finance",
+    "employee_id": "E-1001",
+    "name": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": true,
+      "object_id": "employee-21",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:17Z",
+      "payload": {
+       "inputs": {
+        "department": "Finance",
+        "employee_id": "E-1001",
+        "name": null
+       },
+       "wrote": {
+        "department": "Finance",
+        "employee_id": "E-1001",
+        "name": null
+       }
+      },
+      "position": 28,
+      "principal": null,
+      "reads": {},
+      "recorded_at": "2026-10-20T15:06:17Z",
+      "retries": 0,
+      "source": "asserted",
+      "to_state": "EMPLOYED",
+      "transition": "import"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "EMPLOYED",
+      "imported": true,
+      "object_id": "employee-21",
+      "object_seq": 2,
+      "occurred_at": "2026-10-20T15:06:17Z",
+      "payload": {
+       "inputs": {
+        "department": "Finance",
+        "employee_id": "E-1001",
+        "name": null
+       }
+      },
+      "position": 33,
+      "principal": null,
+      "reads": {},
+      "recorded_at": "2026-10-20T15:06:17Z",
+      "retries": 0,
+      "source": "asserted",
+      "to_state": "LEFT",
+      "transition": "import"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": false,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "LEFT",
+      "imported": false,
+      "object_id": "employee-21",
+      "object_seq": 3,
+      "occurred_at": "2026-10-20T15:06:17Z",
+      "payload": {
+       "erased": [
+        "name"
+       ],
+       "wrote": {
+        "name": null
+       }
+      },
+      "position": 34,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:17Z",
+       "objects": {},
+       "scans": {
+        "employee_id_unique": {
+         "Employee": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-20T15:06:17Z",
+      "retries": 0,
+      "source": "erased",
+      "to_state": "LEFT",
+      "transition": "forget"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "LEFT",
+      "imported": true,
+      "object_id": "employee-21",
+      "object_seq": 4,
+      "occurred_at": "2026-10-20T15:06:17Z",
+      "payload": {
+       "inputs": {
+        "department": "Finance",
+        "employee_id": "E-1001",
+        "name": "Dana Lee"
+       }
+      },
+      "position": 35,
+      "principal": null,
+      "reads": {},
+      "recorded_at": "2026-10-20T15:06:17Z",
+      "retries": 0,
+      "source": "asserted",
+      "to_state": "EMPLOYED",
+      "transition": "import"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "EMPLOYED",
+   "type": "Employee",
+   "version": 4
+  },
+  "incident-9": {
+   "attributes": {
+    "affected_service": "registeredservice-8",
+    "alerts": [],
+    "asset": "laptop-10",
+    "impact": "HIGH",
+    "major": true,
+    "opened_at": "2026-10-20T15:06:16Z",
+    "problem": null,
+    "resolution": null,
+    "responders": [
+     "oncall-1",
+     "oncall-2"
+    ],
+    "reviews": [],
+    "summary": "Card payments fail",
+    "urgency": "HIGH"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "incident-9",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "impact": "HIGH",
+        "major": false,
+        "responders": [
+         "oncall-1"
+        ],
+        "summary": "Card payments fail",
+        "urgency": "HIGH"
+       },
+       "wrote": {
+        "impact": "HIGH",
+        "major": false,
+        "opened_at": "2026-10-20T15:06:16Z",
+        "responders": [
+         "oncall-1"
+        ],
+        "summary": "Card payments fail",
+        "urgency": "HIGH"
+       }
+      },
+      "position": 12,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "OPEN",
+      "transition": "open"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "OPEN",
+      "imported": false,
+      "object_id": "incident-9",
+      "object_seq": 2,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {}
+      },
+      "position": 13,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "WORK_IN_PROGRESS",
+      "transition": "investigate"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": false,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "WORK_IN_PROGRESS",
+      "imported": false,
+      "object_id": "incident-9",
+      "object_seq": 3,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "affected_service": "registeredservice-8"
+       },
+       "wrote": {
+        "affected_service": "registeredservice-8",
+        "responders": [
+         "oncall-1",
+         "oncall-2"
+        ]
+       }
+      },
+      "position": 14,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "WORK_IN_PROGRESS",
+      "transition": "set_affected_service"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": false,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "WORK_IN_PROGRESS",
+      "imported": false,
+      "object_id": "incident-9",
+      "object_seq": 4,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "asset": "laptop-10"
+       },
+       "wrote": {
+        "asset": "laptop-10"
+       }
+      },
+      "position": 16,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "WORK_IN_PROGRESS",
+      "transition": "link_asset"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": false,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "WORK_IN_PROGRESS",
+      "imported": false,
+      "object_id": "incident-9",
+      "object_seq": 5,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {},
+       "wrote": {
+        "major": true
+       }
+      },
+      "position": 17,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "WORK_IN_PROGRESS",
+      "transition": "mark_major"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "WORK_IN_PROGRESS",
+   "type": "Incident",
+   "version": 5
+  },
+  "label-25": {
+   "attributes": {
+    "corrects": null,
+    "name": "fixture",
+    "note": null,
+    "occurred_at": "2026-10-20T15:06:17Z",
+    "recorded_at": "2026-10-20T15:06:17Z",
+    "subject": "organization-4",
+    "subject_state": "ACTIVE"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "label-25",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:17Z",
+      "payload": {
+       "inputs": {
+        "name": "fixture",
+        "subject": "organization-4"
+       },
+       "wrote": {
+        "name": "fixture",
+        "occurred_at": "2026-10-20T15:06:17Z",
+        "recorded_at": "2026-10-20T15:06:17Z",
+        "subject": "organization-4",
+        "subject_state": "ACTIVE"
+       }
+      },
+      "position": 37,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:17Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:17Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "RECORDED",
+      "transition": "record"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "RECORDED",
+   "type": "label",
+   "version": 1
+  },
+  "laptop-10": {
+   "attributes": {
+    "assigned_to": null,
+    "incidents": [
+     "incident-9"
+    ],
+    "key": "IT-1",
+    "name": "ThinkPad 14",
+    "service": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "laptop-10",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "name": "ThinkPad 14"
+       },
+       "wrote": {
+        "key": "IT-1",
+        "name": "ThinkPad 14"
+       }
+      },
+      "position": 15,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {
+        "key_unique": {
+         "Asset": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "IN_STOCK",
+      "transition": "receive"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "IN_STOCK",
+   "type": "Laptop",
+   "version": 1
+  },
+  "laptop-19": {
+   "attributes": {
+    "assigned_to": null,
+    "incidents": [],
+    "key": "IT-2",
+    "name": "ThinkPad 14",
+    "service": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "laptop-19",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "name": "ThinkPad 14"
+       },
+       "wrote": {
+        "key": "IT-2",
+        "name": "ThinkPad 14"
+       }
+      },
+      "position": 26,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {
+        "key_unique": {
+         "Asset": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "IN_STOCK",
+      "transition": "receive"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "IN_STOCK",
+   "type": "Laptop",
+   "version": 1
+  },
+  "laptop-22": {
+   "attributes": {
+    "assigned_to": null,
+    "incidents": [],
+    "key": "IT-42",
+    "name": "ThinkPad 14",
+    "service": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "laptop-22",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:17Z",
+      "payload": {
+       "inputs": {
+        "name": "ThinkPad 14"
+       },
+       "wrote": {
+        "key": "IT-42",
+        "name": "ThinkPad 14"
+       }
+      },
+      "position": 29,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:17Z",
+       "objects": {},
+       "scans": {
+        "key_unique": {
+         "Asset": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-20T15:06:17Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "IN_STOCK",
+      "transition": "receive"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "IN_STOCK",
+   "type": "Laptop",
+   "version": 1
+  },
+  "laptop-23": {
+   "attributes": {
+    "assigned_to": "employee-21",
+    "incidents": [],
+    "key": "IT-43",
+    "name": "ThinkPad 14",
+    "service": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "laptop-23",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:17Z",
+      "payload": {
+       "inputs": {
+        "name": "ThinkPad 14"
+       },
+       "wrote": {
+        "key": "IT-43",
+        "name": "ThinkPad 14"
+       }
+      },
+      "position": 30,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:17Z",
+       "objects": {},
+       "scans": {
+        "key_unique": {
+         "Asset": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-20T15:06:17Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "IN_STOCK",
+      "transition": "receive"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "IN_STOCK",
+      "imported": false,
+      "object_id": "laptop-23",
+      "object_seq": 2,
+      "occurred_at": "2026-10-20T15:06:17Z",
+      "payload": {
+       "inputs": {}
+      },
+      "position": 31,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:17Z",
+       "objects": {},
+       "scans": {
+        "key_unique": {
+         "Asset": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-20T15:06:17Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "IN_USE",
+      "transition": "deploy"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": false,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "IN_USE",
+      "imported": false,
+      "object_id": "laptop-23",
+      "object_seq": 3,
+      "occurred_at": "2026-10-20T15:06:17Z",
+      "payload": {
+       "inputs": {
+        "assigned_to": "employee-21"
+       },
+       "wrote": {
+        "assigned_to": "employee-21"
+       }
+      },
+      "position": 32,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:17Z",
+       "objects": {},
+       "scans": {
+        "key_unique": {
+         "Asset": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-20T15:06:17Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "IN_USE",
+      "transition": "assign"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "IN_USE",
+   "type": "Laptop",
+   "version": 3
+  },
+  "operator": {
+   "attributes": {
+    "identity": "operator"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": "store-creation:objectflow-core 0.4.0",
+      "declaration_version": 0,
+      "from_state": null,
+      "imported": false,
+      "object_id": "operator",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "wrote": {
+        "identity": "operator"
+       }
+      },
+      "position": 1,
+      "principal": null,
+      "reads": {},
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "ACTIVE",
+      "transition": "install"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "ACTIVE",
+   "type": "Operator",
+   "version": 1
+  },
+  "organization-4": {
+   "attributes": {
+    "name": "Acme",
+    "requests": [
+     "request-5"
+    ],
+    "support_level": "PLATINUM"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "organization-4",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "name": "Acme",
+        "support_level": "PLATINUM"
+       },
+       "wrote": {
+        "name": "Acme",
+        "support_level": "PLATINUM"
+       }
+      },
+      "position": 7,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "ACTIVE",
+      "transition": "create"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "ACTIVE",
+   "type": "Organization",
+   "version": 1
+  },
+  "partstock-24": {
+   "attributes": {
+    "on_hand": 0,
+    "part_number": "PSU-500",
+    "reorder_level": 5,
+    "reserved": 0
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "partstock-24",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:17Z",
+      "payload": {
+       "inputs": {
+        "part_number": "PSU-500"
+       },
+       "wrote": {
+        "on_hand": 0,
+        "part_number": "PSU-500",
+        "reorder_level": 5,
+        "reserved": 0
+       }
+      },
+      "position": 36,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:17Z",
+       "objects": {},
+       "scans": {
+        "part_number_unique": {
+         "PartStock": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-20T15:06:17Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "STOCKED",
+      "transition": "open"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "STOCKED",
+   "type": "PartStock",
+   "version": 1
+  },
+  "registeredservice-11": {
+   "attributes": {
+    "assets": [],
+    "change_approvers": [
+     "cab-1",
+     "cab-2"
+    ],
+    "changes": [
+     "change-12",
+     "change-13",
+     "change-14"
+    ],
+    "incidents": [],
+    "name": "Payments",
+    "responders": [
+     "oncall-1",
+     "oncall-2"
+    ],
+    "tier": 1
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "registeredservice-11",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "change_approvers": [
+         "cab-1",
+         "cab-2"
+        ],
+        "name": "Payments",
+        "responders": [
+         "oncall-1",
+         "oncall-2"
+        ],
+        "tier": 1
+       },
+       "wrote": {
+        "change_approvers": [
+         "cab-1",
+         "cab-2"
+        ],
+        "name": "Payments",
+        "responders": [
+         "oncall-1",
+         "oncall-2"
+        ],
+        "tier": 1
+       }
+      },
+      "position": 18,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "OPERATIONAL",
+      "transition": "register"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "OPERATIONAL",
+   "type": "RegisteredService",
+   "version": 1
+  },
+  "registeredservice-15": {
+   "attributes": {
+    "assets": [],
+    "change_approvers": [
+     "cab-1",
+     "cab-2"
+    ],
+    "changes": [
+     "change-16"
+    ],
+    "incidents": [],
+    "name": "Payments",
+    "responders": [
+     "oncall-1",
+     "oncall-2"
+    ],
+    "tier": 1
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "registeredservice-15",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "change_approvers": [
+         "cab-1",
+         "cab-2"
+        ],
+        "name": "Payments",
+        "responders": [
+         "oncall-1",
+         "oncall-2"
+        ],
+        "tier": 1
+       },
+       "wrote": {
+        "change_approvers": [
+         "cab-1",
+         "cab-2"
+        ],
+        "name": "Payments",
+        "responders": [
+         "oncall-1",
+         "oncall-2"
+        ],
+        "tier": 1
+       }
+      },
+      "position": 22,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "OPERATIONAL",
+      "transition": "register"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "OPERATIONAL",
+   "type": "RegisteredService",
+   "version": 1
+  },
+  "registeredservice-8": {
+   "attributes": {
+    "assets": [],
+    "change_approvers": [
+     "cab-1",
+     "cab-2"
+    ],
+    "changes": [],
+    "incidents": [
+     "incident-9"
+    ],
+    "name": "Payments",
+    "responders": [
+     "oncall-1",
+     "oncall-2"
+    ],
+    "tier": 1
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "registeredservice-8",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "change_approvers": [
+         "cab-1",
+         "cab-2"
+        ],
+        "name": "Payments",
+        "responders": [
+         "oncall-1",
+         "oncall-2"
+        ],
+        "tier": 1
+       },
+       "wrote": {
+        "change_approvers": [
+         "cab-1",
+         "cab-2"
+        ],
+        "name": "Payments",
+        "responders": [
+         "oncall-1",
+         "oncall-2"
+        ],
+        "tier": 1
+       }
+      },
+      "position": 11,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "OPERATIONAL",
+      "transition": "register"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "OPERATIONAL",
+   "type": "RegisteredService",
+   "version": 1
+  },
+  "request-2": {
+   "attributes": {
+    "approvals_required": null,
+    "approvers": [],
+    "opened_at": "2026-10-20T15:06:16Z",
+    "organization": null,
+    "participants": [],
+    "priority": "MEDIUM",
+    "reporter": "cust-cara",
+    "request_type": "GET_IT_HELP",
+    "resolution": null,
+    "resolved_at": null,
+    "sla_met": null,
+    "summary": "My laptop will not boot"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "request-2",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "reporter": "cust-cara",
+        "request_type": "GET_IT_HELP",
+        "summary": "My laptop will not boot"
+       },
+       "wrote": {
+        "approvers": [],
+        "opened_at": "2026-10-20T15:06:16Z",
+        "participants": [],
+        "priority": "MEDIUM",
+        "reporter": "cust-cara",
+        "request_type": "GET_IT_HELP",
+        "summary": "My laptop will not boot"
+       }
+      },
+      "position": 5,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "WAITING_FOR_SUPPORT",
+      "transition": "raise"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "WAITING_FOR_SUPPORT",
+   "type": "Request",
+   "version": 1
+  },
+  "request-3": {
+   "attributes": {
+    "approvals_required": null,
+    "approvers": [],
+    "opened_at": "2026-10-20T15:06:16Z",
+    "organization": null,
+    "participants": [],
+    "priority": "MEDIUM",
+    "reporter": "cust-cara",
+    "request_type": "GET_IT_HELP",
+    "resolution": null,
+    "resolved_at": null,
+    "sla_met": null,
+    "summary": "My laptop will not boot"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "request-3",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "reporter": "cust-cara",
+        "request_type": "GET_IT_HELP",
+        "summary": "My laptop will not boot"
+       },
+       "wrote": {
+        "approvers": [],
+        "opened_at": "2026-10-20T15:06:16Z",
+        "participants": [],
+        "priority": "MEDIUM",
+        "reporter": "cust-cara",
+        "request_type": "GET_IT_HELP",
+        "summary": "My laptop will not boot"
+       }
+      },
+      "position": 6,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "WAITING_FOR_SUPPORT",
+      "transition": "raise"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "WAITING_FOR_SUPPORT",
+   "type": "Request",
+   "version": 1
+  },
+  "request-5": {
+   "attributes": {
+    "approvals_required": null,
+    "approvers": [],
+    "opened_at": "2026-10-20T15:06:16Z",
+    "organization": "organization-4",
+    "participants": [],
+    "priority": "MEDIUM",
+    "reporter": "cust-cara",
+    "request_type": "GET_IT_HELP",
+    "resolution": null,
+    "resolved_at": null,
+    "sla_met": null,
+    "summary": "Payroll is down"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "request-5",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "organization": "organization-4",
+        "reporter": "cust-cara",
+        "request_type": "GET_IT_HELP",
+        "summary": "Payroll is down"
+       },
+       "wrote": {
+        "approvers": [],
+        "opened_at": "2026-10-20T15:06:16Z",
+        "organization": "organization-4",
+        "participants": [],
+        "priority": "MEDIUM",
+        "reporter": "cust-cara",
+        "request_type": "GET_IT_HELP",
+        "summary": "Payroll is down"
+       }
+      },
+      "position": 8,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "WAITING_FOR_SUPPORT",
+      "transition": "raise"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "WAITING_FOR_SUPPORT",
+   "type": "Request",
+   "version": 1
+  },
+  "request-6": {
+   "attributes": {
+    "approvals_required": null,
+    "approvers": [
+     "mgr-ana",
+     "mgr-ben"
+    ],
+    "opened_at": "2026-10-20T15:06:16Z",
+    "organization": null,
+    "participants": [],
+    "priority": "MEDIUM",
+    "reporter": "cust-cara",
+    "request_type": "REQUEST_ACCESS",
+    "resolution": null,
+    "resolved_at": null,
+    "sla_met": null,
+    "summary": "Access to payroll"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "request-6",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "approvers": [
+         "mgr-ana",
+         "mgr-ben"
+        ],
+        "reporter": "cust-cara",
+        "request_type": "REQUEST_ACCESS",
+        "summary": "Access to payroll"
+       },
+       "wrote": {
+        "approvers": [
+         "mgr-ana",
+         "mgr-ben"
+        ],
+        "opened_at": "2026-10-20T15:06:16Z",
+        "participants": [],
+        "priority": "MEDIUM",
+        "reporter": "cust-cara",
+        "request_type": "REQUEST_ACCESS",
+        "summary": "Access to payroll"
+       }
+      },
+      "position": 9,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "WAITING_FOR_APPROVAL",
+      "transition": "raise_for_approval"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "WAITING_FOR_APPROVAL",
+   "type": "Request",
+   "version": 1
+  },
+  "request-7": {
+   "attributes": {
+    "approvals_required": 1,
+    "approvers": [
+     "cust-cara",
+     "mgr-ana"
+    ],
+    "opened_at": "2026-10-20T15:06:16Z",
+    "organization": null,
+    "participants": [],
+    "priority": "MEDIUM",
+    "reporter": "cust-cara",
+    "request_type": "NEW_HARDWARE",
+    "resolution": null,
+    "resolved_at": null,
+    "sla_met": null,
+    "summary": "A second monitor"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "request-7",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:16Z",
+      "payload": {
+       "inputs": {
+        "approvals_required": 1,
+        "approvers": [
+         "cust-cara",
+         "mgr-ana"
+        ],
+        "reporter": "cust-cara",
+        "request_type": "NEW_HARDWARE",
+        "summary": "A second monitor"
+       },
+       "wrote": {
+        "approvals_required": 1,
+        "approvers": [
+         "cust-cara",
+         "mgr-ana"
+        ],
+        "opened_at": "2026-10-20T15:06:16Z",
+        "participants": [],
+        "priority": "MEDIUM",
+        "reporter": "cust-cara",
+        "request_type": "NEW_HARDWARE",
+        "summary": "A second monitor"
+       }
+      },
+      "position": 10,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:16Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:16Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "WAITING_FOR_APPROVAL",
+      "transition": "raise_for_approval"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "WAITING_FOR_APPROVAL",
+   "type": "Request",
+   "version": 1
+  },
+  "server-20": {
+   "attributes": {
+    "hostname": null,
+    "incidents": [],
+    "key": "IT-3",
+    "name": "db-01",
+    "service": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "server-20",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:17Z",
+      "payload": {
+       "inputs": {
+        "name": "db-01"
+       },
+       "wrote": {
+        "key": "IT-3",
+        "name": "db-01"
+       }
+      },
+      "position": 27,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:17Z",
+       "objects": {},
+       "scans": {
+        "key_unique": {
+         "Asset": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-20T15:06:17Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "IN_STOCK",
+      "transition": "receive"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "IN_STOCK",
+   "type": "Server",
+   "version": 1
+  },
+  "subscription-26": {
+   "attributes": {
+    "changes_state_only": false,
+    "dead": false,
+    "dead_after": null,
+    "lag": "0 s",
+    "lagging": false,
+    "lagging_after": null,
+    "target_family": false,
+    "target_type": "Organization",
+    "transitions": []
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "subscription-26",
+      "object_seq": 1,
+      "occurred_at": "2026-10-20T15:06:17Z",
+      "payload": {
+       "inputs": {
+        "target_type": "Organization"
+       },
+       "wrote": {
+        "changes_state_only": false,
+        "target_family": false,
+        "target_type": "Organization",
+        "transitions": []
+       }
+      },
+      "position": 38,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-20T15:06:17Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-20T15:06:17Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "ACTIVE",
+      "transition": "subscribe"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "ACTIVE",
+   "type": "Subscription",
+   "version": 1
+  }
+ },
+ "release": "objectflow-core 0.4.0"
+}
