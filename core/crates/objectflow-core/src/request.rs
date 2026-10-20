@@ -14067,9 +14067,23 @@ types:
     /// answered as none (fourteenth production review N1); a chain within
     /// the bound is read; and an identifier's width past what a number fills
     /// refuses its creation as not run, where it panicked (tenth production
-    /// review).
+    /// review). It runs on a stack as large as the service's request
+    /// threads have, as a request runs, where on the test harness's 2 MiB a
+    /// debug build sat at its edge: 64 hops needed between 1,792 and 2,048
+    /// KiB on either backend, and overflowed it once on PostgreSQL when the
+    /// evaluator's frame grew (2026-10-18; a release build needs under 384
+    /// KiB).
     #[test]
     fn a_recursive_derived_value_and_a_wide_identifier_stop_without_a_crash() {
+        let ran = std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(recursive_derived_value_and_wide_identifier)
+            .unwrap()
+            .join();
+        assert!(ran.is_ok());
+    }
+
+    fn recursive_derived_value_and_wide_identifier() {
         let text = r#"
 module: tree
 categories: [live]
