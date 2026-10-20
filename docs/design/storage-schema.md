@@ -35,7 +35,7 @@ Draft, 2026-09-09, amended 2026-09-23. How a published declaration becomes table
 - the deferred-foreign-key probe of §3, which replaced a premise D191 found false;
 - the transaction-mode probe of §7, which is D204's.
 
-The PostgreSQL column is reasoned from its documentation, except two behaviours probed on PostgreSQL 16 in a throwaway container on 2026-09-23 and recorded in ADR-0089 and ADR-0090: a contended row at serialisable isolation waits and then fails, and reading below the snapshot's `xmin` cannot skip a late commit. The exclusion constraints of §8 remain unexecuted, and are the part most worth running before anyone relies on them.
+The PostgreSQL column is reasoned from its documentation, except two behaviours probed on PostgreSQL 16 in a throwaway container on 2026-09-23 and recorded in ADR-0089 and ADR-0090: a contended row at serialisable isolation waits and then fails, and reading below the snapshot's `xmin` cannot skip a late commit. The exclusion constraints of §8 remain unexecuted, and are the part most worth running before anyone relies on them. *(Corrected 2026-10-21, the PostgreSQL column checked against the backend ADR-0213 built, where this paragraph said the column was reasoned from documentation and probes alone. That backend runs the store's SQL as written for SQLite, translated by `db.rs`'s `to_postgres`: an `INTEGER` as `BIGINT`, a `REAL` as `DOUBLE PRECISION`, a `BLOB` as `BYTEA`, placeholders numbered, `INSERT OR IGNORE` as `ON CONFLICT DO NOTHING`, a stored end's key naming the directory (§3); its schema adds only `of_object`'s `rowid`, an identity column, where SQLite keeps creation order as its own `rowid`. One instance writes, one transaction at a time (decision 4), so a store on PostgreSQL holds the tables, columns and counters a file holds. Where a passage below gave PostgreSQL a mechanism of its own, a correction beside it says what is built; the core's and the service's tests run on both backends (decision 1). No exclusion constraint is built, by decision 7, §8.)*
 
 ## 1. Three layers, and why not fewer
 
@@ -71,7 +71,7 @@ CREATE TABLE of_object (
 -- its payload (ADR-0089).
 CREATE TABLE of_event (
   position            INTEGER PRIMARY KEY,          -- allocated first; see below
-  txn                 INTEGER NOT NULL,             -- the writing transaction: xid8 on PostgreSQL
+  txn                 INTEGER NOT NULL,             -- the writing transaction's number, of_counter's
   object_id           TEXT    NOT NULL REFERENCES of_object(id),
   object_seq          INTEGER NOT NULL,
   transition          TEXT    NOT NULL,
@@ -103,8 +103,8 @@ CREATE INDEX of_event_by_actor ON of_event (actor_id);  -- an erased actor's eve
 CREATE INDEX of_event_imported ON of_event (position) WHERE imported = 1;  -- a legacy span's export cursor, made at open (ADR-0198)
 CREATE INDEX of_event_by_principal ON of_event (actor_principal) WHERE actor_principal IS NOT NULL;
 
--- SQLite only: positions and transaction numbers, allocated by the
--- transaction that holds the write lock from its first statement (§7).
+-- Positions, transaction numbers and objects' numbers, allocated by the
+-- one writer's transaction, on both backends (§7; corrected below).
 CREATE TABLE of_counter (
   name   TEXT    PRIMARY KEY,                         -- 'position', 'txn', 'object'; 'copied' in a backup's copy
   value  INTEGER NOT NULL
@@ -126,9 +126,11 @@ CREATE TABLE of_attribute_write (
 - **On PostgreSQL** the position comes from the log's sequence by `nextval`, and `txn` is `pg_current_xact_id()`, stored as `xid8`, which compares numerically.
 - **On SQLite** both come from `of_counter`, incremented by the request's own transaction. That transaction holds the write lock from its first statement, so no other writer can interleave.
 
+*(Corrected 2026-10-21: the backend ADR-0213 built takes both from `of_counter` on PostgreSQL too, as on SQLite, its one writing instance writing one transaction at a time (decision 4); no sequence, `pg_current_xact_id()` or `xid8` is used, and `of_counter` is not SQLite's alone, as its comment above said.)*
+
 Nothing is inserted early and completed later, so the append-only statement below is true. **`txn` is a number on both backends**, never text, since a settled cursor compares it: as text, `'10'` sorts before `'9'`, and a cursor would skip or reorder events once the counter crossed a power of ten (ADR-0106).
 
-`id` is a **UUIDv7**, stored in its canonical text form on both backends; PostgreSQL may use its `uuid` type. It is time-ordered rather than random because ADR-0038 iterates a cascade in ascending id order, and the harness reduces a failing run by replaying its transcript; both need that order to be creation order. The embedded time is never read back as a fact about the object, which is what `created_at` is for. The store takes its id source, its clock and its connection source as injected dependencies, so a test can make all three deterministic (ADR-0077, ADR-0091).
+`id` is a **UUIDv7**, stored in its canonical text form on both backends; PostgreSQL may use its `uuid` type. *(As built, checked 2026-10-21: an object's id is `<type>-<n>`, its type's name in lower case and a number from `of_counter`'s `object`, text on both backends, and no `uuid` column; ADR-0077 decision 7's UUIDv7 is not what the store mints, a departure brought to the author in `TODO.md`. The store's order by id, `in_id_order`, which orders the objects a refusal names, is each object's creation order, not its id's text.)* It is time-ordered rather than random because ADR-0038 iterates a cascade in ascending id order, and the harness reduces a failing run by replaying its transcript; both need that order to be creation order. The embedded time is never read back as a fact about the object, which is what `created_at` is for. The store takes its id source, its clock and its connection source as injected dependencies, so a test can make all three deterministic (ADR-0077, ADR-0091).
 
 `object_seq` is the per-object order. The unique constraint on `(object_id, object_seq)` is what makes "strictly ordered per object" a property of the schema rather than of the writer. It is also what makes a read set re-evaluable: `reads` records each object a rule read with its version, and a version is a point in that strict order, so no global order is needed (ADR-0088). `cause_position` is the parent event of a cascade, so causal order across objects is reconstructable without a separate table.
 
@@ -174,12 +176,12 @@ A numeric field's declared unit is metadata in `of_declaration`, not a column, s
 | Declared | PostgreSQL | SQLite | Why |
 |---|---|---|---|
 | `string` | `TEXT` | `TEXT` | |
-| `bool` | `BOOLEAN` | `INTEGER` 0/1 | |
+| `bool` | `BIGINT` 0/1 | `INTEGER` 0/1 | |
 | `int` | `BIGINT` | `INTEGER` | |
-| `decimal(p,s)` | `NUMERIC(p,s)` | `INTEGER`, scaled by 10^s | SQLite's numeric affinity stores a decimal as a float, which is not exact; the scale is in the declaration, so the scaling is recoverable |
+| `decimal(p,s)` | `BIGINT`, scaled by 10^s | `INTEGER`, scaled by 10^s | SQLite's numeric affinity stores a decimal as a float, which is not exact; the scale is in the declaration, so the scaling is recoverable |
 | `money(ccy)` | `BIGINT`, minor units | `INTEGER`, minor units | exact, orderable and indexable on both. The currency is fixed by the declaration (ADR-0068) so it is not stored per row |
-| `timestamp` | `TIMESTAMPTZ` | `TEXT`, ISO-8601 UTC | held to the second, the engine reading its clock to the second, so a duration is whole seconds (ADR-0147) |
-| `date` | `DATE` | `TEXT`, ISO-8601 date | a calendar day with no zone, which orders as text as the day does (ADR-0145) |
+| `timestamp` | `TEXT`, ISO-8601 UTC | `TEXT`, ISO-8601 UTC | held to the second, the engine reading its clock to the second, so a duration is whole seconds (ADR-0147) |
+| `date` | `TEXT`, ISO-8601 date | `TEXT`, ISO-8601 date | a calendar day with no zone, which orders as text as the day does (ADR-0145) |
 | `duration` | `BIGINT` seconds | `INTEGER` seconds | the unit set is closed and none is calendar-dependent (ADR-0061) |
 | `identity` | `TEXT` | `TEXT` | |
 | `actor_kind` | `TEXT` + `CHECK` | `TEXT` + `CHECK` | `human`, `agent` or `service`, the kind of actor that acted (ADR-0145) |
@@ -193,6 +195,8 @@ A numeric field's declared unit is metadata in `of_declaration`, not a column, s
 | `derive`, not indexed | **nothing** | **nothing** | evaluated on read |
 | `derive`, indexed | generated column + index | generated column + index | §3.4 |
 | a scalar marked `indexed`, or an external identifier | column + index | column + index | a filter by it, and an external identifier's uniqueness, which every import and publish checks, read through the index, not the table whole (D593, D606); a store opened that lacks one is given it |
+
+*(Corrected 2026-10-21: the PostgreSQL column gave `bool` as `BOOLEAN`, `decimal(p,s)` as `NUMERIC(p,s)`, `timestamp` as `TIMESTAMPTZ` and `date` as `DATE`. The backend ADR-0213 built holds each as SQLite does, an `INTEGER` as `BIGINT` (`store.rs`'s `sql_type`, `db.rs`'s `to_postgres`), so a timestamp is ISO-8601 text on both and orders as text does. The row for an indexed derived attribute is not built on either backend: no generated column is made, which `TODO.md` records to settle.)*
 
 ### 3.2 Worked, from the specification's own types
 
@@ -738,17 +742,19 @@ The sequence is the exception because a decision requires it to be: a monotonic 
 
 `scripts/check-schema-doc.py` runs that scenario on every corpus run, in both journal modes: a second connection to the same file blocks behind an open write transaction, one to a separate file does not, and the value it allocated survives the request's rollback.
 
+*(As built, checked 2026-10-21: on both backends `of_sequence` is a table of the store itself, with no second connection and no second file. A request's draws are read and written in its own transaction where it applies, and written after its rollback in a short transaction of their own where it is refused (`store.rs`, `write_sequences`, since `d2327f9`), so a refused request's numbers are not reused, as ADR-0029 and ADR-0122 decide; one writer writing one transaction at a time (ADR-0178, ADR-0213 decision 4) is what lets the store take them without a second connection. A SQLite store is one file and its log, not two files, and a backup copies it alone, a restore skipping the numbers the live store may have drawn after the copy (`operate.md`, Backups and restore; ADR-0207 decision 3). ADR-0076's second connection and its own file on SQLite are not what is built, a departure brought to the author in `TODO.md`; the probe above still holds of SQLite.)*
+
 ## 7. Concurrency
 
 The transition transaction runs at **serialisable isolation**, which is what makes a guard's reads safe whether or not the objects it read are ones the transition writes (ADR-0039). What each backend does with a contended request differs, and is stated as observed:
 
 - **SQLite: every transition transaction begins `IMMEDIATE`** (ADR-0090). The write lock is taken at the first statement, so a request's guard reads and its writes are serialised with every other writer's, and a contended request waits out the busy timeout. Under a deferred `BEGIN` in WAL mode, a request that read and then wrote after another committed failed with `database is locked`, which no timeout resolves; `scripts/check-schema-doc.py` keeps both halves as a probe. A busy result past the timeout counts as a serialisation failure: retried within the bound, then `stale`. *As built* (ADR-0178): a deployment's service keeps one write connection behind its lock, each write begun `IMMEDIATE`, the busy timeout `--busy-timeout`, 5 s unless given, and three retries, each event recording the retries it took; every read runs on a read connection of its own in one read transaction, so it sees one committed state and is never held behind a write, and reads under the library of the declaration version that state is at, as a write does inside its transaction. A read without its transaction was observed to see half of a move between two accounts: a pair's derived total read 198 to 204 for a constant 200.
-- **PostgreSQL: a contended row waits and then retries** (ADR-0090). Probed on PostgreSQL 16.8: at `SERIALIZABLE`, a request taking `SELECT … FOR UPDATE` on a row another transaction updated waits for it to commit, then fails with `could not serialize access due to concurrent update`. Row locks are taken as objects are reached. They make the loser fail at its first touch of the row rather than after doing its work, and they do not make it queue. The retry is what makes it succeed, and each event records how many it took, so the cost is measured rather than argued (ADR-0083). Deadlock is the database's to detect.
+- **PostgreSQL: a contended row waits and then retries** (ADR-0090). Probed on PostgreSQL 16.8: at `SERIALIZABLE`, a request taking `SELECT … FOR UPDATE` on a row another transaction updated waits for it to commit, then fails with `could not serialize access due to concurrent update`. Row locks are taken as objects are reached. They make the loser fail at its first touch of the row rather than after doing its work, and they do not make it queue. The retry is what makes it succeed, and each event records how many it took, so the cost is measured rather than argued (ADR-0083). Deadlock is the database's to detect. *(As built, checked 2026-10-21: the backend ADR-0213 built writes from one instance, one transaction at a time behind the service's writer, as on SQLite (decision 4); a write begins `ISOLATION LEVEL SERIALIZABLE` and a read `REPEATABLE READ`, no statement takes `FOR UPDATE`, and no two of its writes contend. The probe stands as PostgreSQL's behaviour for the several writing instances decision 4 leaves to later work.)*
 
 What the schema owes that:
 
-- **`of_event.position` is monotonic and is not a promise of commit order.** A `BIGSERIAL` allocates out of order under concurrency, so a lower position can become visible after a higher one. On PostgreSQL, assigning positions from a single counter row inside the transaction would serialise every commit through one row, which ADR-0034 rejected by name. On SQLite, where writers are serial anyway, the counter row costs nothing, and is what the store uses.
-- **The log is read by a settled cursor** (ADR-0089). A reader takes its snapshot's `xmin` and returns only events whose `txn` is below it — every one of them finished — in `(txn, position)` order, handing back the last pair as the cursor. Probed on PostgreSQL 16: while a transaction holding position 1 was in flight and one holding position 2 had committed, the highest visible position was 2, and a reader acknowledging it would never have seen 1. The query below `xmin` returned nothing until both were finished, then both in order. `pull` and `export` return that cursor, and `acknowledge` stores it. On SQLite, where writers are serial, `txn` order is commit order and the cursor is the position.
+- **`of_event.position` is monotonic and is not a promise of commit order.** A `BIGSERIAL` allocates out of order under concurrency, so a lower position can become visible after a higher one. On PostgreSQL, assigning positions from a single counter row inside the transaction would serialise every commit through one row, which ADR-0034 rejected by name. On SQLite, where writers are serial anyway, the counter row costs nothing, and is what the store uses. *(As built, checked 2026-10-21: on PostgreSQL too, its writes serial from one instance (ADR-0213 decision 4), so the counter row costs nothing there either; ADR-0034's objection returns with several writing instances.)*
+- **The log is read by a settled cursor** (ADR-0089). A reader takes its snapshot's `xmin` and returns only events whose `txn` is below it — every one of them finished — in `(txn, position)` order, handing back the last pair as the cursor. Probed on PostgreSQL 16: while a transaction holding position 1 was in flight and one holding position 2 had committed, the highest visible position was 2, and a reader acknowledging it would never have seen 1. The query below `xmin` returned nothing until both were finished, then both in order. `pull` and `export` return that cursor, and `acknowledge` stores it. On SQLite, where writers are serial, `txn` order is commit order and the cursor is the position. *(As built, checked 2026-10-21: on PostgreSQL too the cursor is the position, its writers serial (ADR-0213 decision 4), so `txn` order is commit order there as well (`subscription.rs`); no reader takes `xmin`. The settled read above is for several writing instances.)*
 - **Per-object order survives the cursor's order.** Under serialisable isolation a transaction cannot write an object another committed after its snapshot, which the hot-row probe shows, so a later writer of an object has the higher `txn`. Reasoned from that probe; the harness keeps it tested.
 - **The idempotency row is written in the transition's transaction**, so a replay of a request that committed returns the recorded verdict, and a replay of one that did not is a fresh attempt.
 - **Nothing that a guard reads is written outside the transaction** — the write index, the interval index, the file reference index — or a crash between them would leave a guard reading a stale answer.
@@ -768,6 +774,8 @@ Enforcement is dynamic and correctness comes from serialisable isolation; a cons
 | a traversal or type-scan invariant | none | none |
 | any invariant that an assertion may `admit`, or of which an admission stands, whatever recorded it: a publish's `admit` or an import's `ADMIT`; and every invariant of a mirror, which the import may admit (ADR-0147) | **none, on either** | see below |
 | any invariant that reads a personal attribute, which an erasure admits (`DESIGN.md` §5.6, ADR-0060) | **none, on either** | none |
+
+*(As built, checked 2026-10-21: no backend compiles an invariant into a constraint. A uniqueness key is a plain index, not `UNIQUE`, since an admitted conflict, an import's `ADMIT` or a mirror's invariant would be refused by one (ADR-0165 decision 1, which this table predates); no `CHECK` is compiled from a local invariant or a counter's non-negativity, the only `CHECK`s being a state's, an enumeration's and an event's source; and a publish reports each invariant's form, `invariant_forms`, not a constraint. Every row is dynamic only, on both backends, which ADR-0041 allows, a constraint being an optimisation; the table stands as which shapes could compile, were compilation built.)*
 
 The row on admissions is **ADR-0074**, derived here because this is the first document that had to hold ADR-0041 and ADR-0054 at once. An admission suppresses **one** invariant for **one** object (ADR-0054), and a database constraint cannot yield for one row. So an invariant a type's assertion names in `may admit` must not be compiled, or an admitted violation would be refused by the database after the runtime allowed it. Publishing knows both facts and can decide it; this is the schema's constraint on that decision. *(Added 2026-09-28, D457: an erasure admits every invariant reading an attribute it erased, for the object it erases, so an invariant that reads a personal attribute is not compiled either, or the database would refuse an erasure the engine allows.)*
 
@@ -850,7 +858,7 @@ A removed attribute leaving its column in place is deliberate: the column is how
 
 - **The size of a partition**, the retention window for an idempotency record, and the attempt log's retention; `maintain` applies both retentions (ADR-0101, ADR-0103). These are numbers to measure against a real event rate and a real retry chain, not designs.
 - **Whether one table per type survives many types.** A hundred types is a hundred tables, and the first consumer has perhaps thirty. The case to check is a family with many members: an issue tracker with a type per project reaches hundreds. This is the measurement that could send the whole arrangement back to a shared table.
-- **No exclusion constraint is built** for an overlap invariant (§8, ADR-0213 decision 7); whether one would pay is a measurement of a type scan's contention, to take before building it. *(Corrected 2026-10-20, issue #29: this said the exclusion constraint of §8 was unexecuted, as was the PostgreSQL column apart from §7's two probed behaviours. Whether the rest of the PostgreSQL column describes the backend ADR-0213 built is not yet checked line by line: `TODO.md`.)*
+- **No exclusion constraint is built** for an overlap invariant (§8, ADR-0213 decision 7); whether one would pay is a measurement of a type scan's contention, to take before building it. *(Corrected 2026-10-20, issue #29: this said the exclusion constraint of §8 was unexecuted, as was the PostgreSQL column apart from §7's two probed behaviours. The rest of the PostgreSQL column was checked line by line against the backend ADR-0213 built on 2026-10-21, a correction beside each passage it found wrong: the preamble, §2, §3.1, §6, §7 and §8.)*
 
 ## 12. Installing an engine release
 
