@@ -764,14 +764,14 @@ Enforcement is dynamic and correctness comes from serialisable isolation; a cons
 | `unique where <expr>` | partial `UNIQUE` index | partial `UNIQUE` index |
 | a local invariant over columns of one row | `CHECK` | `CHECK` |
 | non-negativity of a counter | `CHECK` | `CHECK` |
-| overlap of two ranges, per key | `EXCLUDE USING gist` | **none** — dynamic only |
+| overlap of two ranges, per key | **none** — dynamic only (ADR-0213 decision 7) | **none** — dynamic only |
 | a traversal or type-scan invariant | none | none |
 | any invariant that an assertion may `admit`, or of which an admission stands, whatever recorded it: a publish's `admit` or an import's `ADMIT`; and every invariant of a mirror, which the import may admit (ADR-0147) | **none, on either** | see below |
 | any invariant that reads a personal attribute, which an erasure admits (`DESIGN.md` §5.6, ADR-0060) | **none, on either** | none |
 
 The row on admissions is **ADR-0074**, derived here because this is the first document that had to hold ADR-0041 and ADR-0054 at once. An admission suppresses **one** invariant for **one** object (ADR-0054), and a database constraint cannot yield for one row. So an invariant a type's assertion names in `may admit` must not be compiled, or an admitted violation would be refused by the database after the runtime allowed it. Publishing knows both facts and can decide it; this is the schema's constraint on that decision. *(Added 2026-09-28, D457: an erasure admits every invariant reading an attribute it erased, for the object it erases, so an invariant that reads a personal attribute is not compiled either, or the database would refuse an erasure the engine allows.)*
 
-The overlap row is the one that matters and the one not executed here. A booking-overlap invariant compiles to an exclusion constraint on PostgreSQL and has no equivalent in SQLite, so the same declaration is enforced by the database on one backend and by the runtime on the other. That is legitimate under ADR-0041, and it should be measured before it is believed, because a type-scan under serialisable isolation is where contention will actually appear.
+The overlap row is the one most asked about. No backend compiles a constraint for it (ADR-0213 decision 7): a booking-overlap invariant is a type scan, which a publish's report classes `type_scan`, and the engine enforces it the same way on both backends, inside the writing transaction at serialisable isolation (ADR-0041), the database refusing nothing. The core's test `an_invariant_scans_every_other_object` refuses an overlapping booking, naming the one it overlaps, one request after another. The first consumer reports that at 0.3.0 sixteen overlapping reservations of one resource sent at once made one reservation and fifteen refusals on each backend, with no `5xx` (issue #29); that is their measurement, and the project's own test of overlapping requests sent at once is in `TODO.md`. An exclusion constraint on PostgreSQL would be an optimisation under ADR-0041, worth building only where a type scan's contention is measured to need it, and none is planned. *(Corrected 2026-10-20, issue #29: this paragraph said a booking-overlap invariant compiles to an exclusion constraint on PostgreSQL, enforced by the database on one backend and the runtime on the other. ADR-0213 decision 7 decided against it and the core never built one.)*
 
 ## 9. Erasure, and what archival tiering means
 
@@ -850,7 +850,7 @@ A removed attribute leaving its column in place is deliberate: the column is how
 
 - **The size of a partition**, the retention window for an idempotency record, and the attempt log's retention; `maintain` applies both retentions (ADR-0101, ADR-0103). These are numbers to measure against a real event rate and a real retry chain, not designs.
 - **Whether one table per type survives many types.** A hundred types is a hundred tables, and the first consumer has perhaps thirty. The case to check is a family with many members: an issue tracker with a type per project reaches hundreds. This is the measurement that could send the whole arrangement back to a shared table.
-- **The exclusion constraint of §8 is unexecuted**, as is the PostgreSQL column apart from the two probed behaviours of §7.
+- **No exclusion constraint is built** for an overlap invariant (§8, ADR-0213 decision 7); whether one would pay is a measurement of a type scan's contention, to take before building it. *(Corrected 2026-10-20, issue #29: this said the exclusion constraint of §8 was unexecuted, as was the PostgreSQL column apart from §7's two probed behaviours. Whether the rest of the PostgreSQL column describes the backend ADR-0213 built is not yet checked line by line: `TODO.md`.)*
 
 ## 12. Installing an engine release
 

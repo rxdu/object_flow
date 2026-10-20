@@ -6,6 +6,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Fixed
 
+- `storage-schema.md` §8 and §11, and the first consumer's PRD check, say that an overlap invariant is enforced by the engine on both backends, at serialisable isolation, with no exclusion constraint on PostgreSQL, as ADR-0213 decision 7 decided; they said one was compiled (issue #29).
 - On a file store, an upgrade after its dry run on the same service, as `operate.md`'s steps 4 and 5 have it, upgrades the store, where it was refused `503 store_replaced` and the service then served nothing until a restart, telling the operator to restore a store nothing had harmed: the dry run's connection, the only one open on a store due an upgrade, removed the write-ahead log as it closed, which the service then took for one replaced under it (issue #27).
 - `available`, `availability` and `check` judge the guards and invariants deciding them as a query judges its filter, each member as the type it belongs to declares it, and an input as its own transition declares it, where a name personal in any type or transition refused them to every caller without `reads_personal`: a guard on a room's own `name` once a contact's was personal, or on a room's own input `name` once a contact's `add` took a personal one (ADR-0220).
 
