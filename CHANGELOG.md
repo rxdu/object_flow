@@ -6,7 +6,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Changed
 
-- A publish holds about a third less memory at its peak: on a store of 36.6k objects its approval peaked at 338 MiB resident where it peaked at 833 MiB, the install's objects moved out of the simulation rather than copied, each object's spans held at their length, and an object the version leaves as it was held once, shared, rather than copied for the simulation (ADR-0222); a dry run likewise, 600 to 339 MiB. `operate.md` sizes a publish from these measurements.
+- A publish holds far less memory at its peak: on a store of 36.6k objects its approval peaked at 305 MiB resident where it peaked at 833 MiB, the install's objects moved out of the simulation rather than copied, each object's spans held at their length, an object the version leaves as it was held once, shared, rather than copied for the simulation (ADR-0222), and the names an object's spans and write index repeat held once for every object a read gives (ADR-0223); a dry run likewise, 600 to 303 MiB, and faster, 3.8 s to 3.4 s. `operate.md` sizes a publish from these measurements.
 
 ### Added
 

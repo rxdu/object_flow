@@ -39,17 +39,40 @@ pub struct Object {
     pub state_source: Option<String>,
 }
 
+/// A name an object's record repeats, an attribute's, a tracked member's or
+/// an actor's, held once and shared by every object a read of the store
+/// gives it to, where each held a `String` of its own: a million of them
+/// on the two-year profile store (MEMORY). A `&str` finds it in a map.
+pub type Name = std::rc::Rc<str>;
+
+/// The names one read of the store gives its objects, each held once, so
+/// every object of the read shares it (MEMORY).
+#[derive(Default)]
+pub(crate) struct Names(std::collections::HashSet<Name>);
+
+impl Names {
+    /// The name, held once.
+    pub(crate) fn of(&mut self, s: &str) -> Name {
+        if let Some(n) = self.0.get(s) {
+            return n.clone();
+        }
+        let n: Name = s.into();
+        self.0.insert(n.clone());
+        n
+    }
+}
+
 /// The parts of an object's record beyond its row, which a read of the store
 /// gives on first use (ADR-0165).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Parts {
     /// Its flow data: for the state and each tracked member, the spans it
     /// held each value for, in order (`storage-schema.md`, `of_interval`).
-    pub spans: BTreeMap<String, Vec<Span>>,
+    pub spans: BTreeMap<Name, Vec<Span>>,
     /// The attribute write index: for each attribute, part relationship or
     /// collection, the position of the event that last wrote it
     /// (`storage-schema.md`, `of_attribute_write`).
-    pub writes: BTreeMap<String, i64>,
+    pub writes: BTreeMap<Name, i64>,
     /// The invariants whose violation an admission lets stand on it, until
     /// they hold again (ADR-0054, `of_admission`).
     pub admissions: BTreeSet<String>,
@@ -77,8 +100,8 @@ pub struct Span {
     pub left_position: Option<i64>,
     pub entered_at: i64,
     pub left_at: Option<i64>,
-    pub entered_by: Option<String>,
-    pub entered_by_kind: String,
+    pub entered_by: Option<Name>,
+    pub entered_by_kind: Name,
     /// Opened by a publish's migration, for a member newly tracked
     /// (ADR-0146, `of_interval.migrated`).
     pub migrated: bool,

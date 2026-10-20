@@ -540,7 +540,7 @@ pub(crate) fn intervals_as_walked(world: &World<'_>, type_: &str) -> Vec<String>
         let t = world.lib.type_(&o.type_).unwrap();
         for (dimension, spans) in &world.parts(o).unwrap().spans {
             let personal =
-                dimension != "state" && t.attribute(dimension).is_some_and(|a| a.personal);
+                &**dimension != "state" && t.attribute(dimension).is_some_and(|a| a.personal);
             for sp in spans {
                 let cursor = if sp.legacy {
                     imported
@@ -562,7 +562,7 @@ pub(crate) fn intervals_as_walked(world: &World<'_>, type_: &str) -> Vec<String>
                     cursor,
                     object_id: o.id.clone(),
                     type_: o.type_.clone(),
-                    dimension: dimension.clone(),
+                    dimension: dimension.to_string(),
                     span: sp.clone(),
                     transition,
                     order: o.order,
@@ -647,8 +647,8 @@ fn span_row(s: &CursoredSpan, personal: bool) -> Json {
         "entered_position": sp.entered_position,
         "entered_at": timestamp_text(sp.entered_at),
         "left_at": sp.left_at.map(timestamp_text),
-        "entered_by": sp.entered_by,
-        "entered_by_kind": sp.entered_by_kind,
+        "entered_by": sp.entered_by.as_deref(),
+        "entered_by_kind": &*sp.entered_by_kind,
         "transition": if sp.legacy { None } else { s.transition.clone() },
         "declaration_version": sp.declaration_version,
         "legacy": sp.legacy,

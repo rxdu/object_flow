@@ -1583,7 +1583,7 @@ fn take_unwound(
         }
         if changing.iter().any(|m| {
             spans
-                .get(m)
+                .get(m.as_str())
                 .and_then(|s| s.last())
                 .is_some_and(|last| ctx.at < last.entered_at)
         }) {
@@ -2014,7 +2014,7 @@ fn take_unwound(
                 continue;
             }
             let personal = spec.personal
-                || match writes.get(a) {
+                || match writes.get(a.as_str()) {
                     Some(position) => ctx.work.event_at(*position)?.is_some_and(|e| {
                         ctx.work.personal_under(e.declaration_version, &o.type_, a)
                     }),
@@ -2041,7 +2041,7 @@ fn take_unwound(
                     // written by the store, which writes only the spans an
                     // event opens or closes, as the walk down's are
                     ctx.redacted_spans
-                        .push((id.clone(), a.clone(), sp.entered_position));
+                        .push((id.clone(), a.to_string(), sp.entered_position));
                 }
             }
         }
@@ -2343,7 +2343,7 @@ fn take_unwound(
             target
                 .parts_mut()?
                 .writes
-                .insert(attribute.clone(), position);
+                .insert(attribute.as_str().into(), position);
         }
         ctx.index.push((object, attribute, position));
     }
@@ -2562,7 +2562,7 @@ fn walk_down(
                     continue;
                 }
                 next_holding.insert(a.clone());
-                if p.held_parts()?.writes.get(&a) == Some(&f.position) {
+                if p.held_parts()?.writes.get(a.as_str()) == Some(&f.position) {
                     ctx.cleared.push((p.id.clone(), a, f.position));
                 }
             }
@@ -2695,7 +2695,7 @@ fn redact_others(
                     "the record of {id}, which was not read"
                 )));
             };
-            if let Some(spans) = parts.spans.get_mut(a) {
+            if let Some(spans) = parts.spans.get_mut(a.as_str()) {
                 for sp in spans.iter_mut().filter(|sp| sp.entered_position == *flowed) {
                     sp.value = Value::Absent;
                     ctx.redacted_spans.push((id.clone(), a.clone(), *flowed));
@@ -2846,7 +2846,7 @@ fn correct_span(
     position: i64,
     imported: &BTreeSet<i64>,
 ) -> Option<(i64, Option<(i64, i64)>)> {
-    type Rows = BTreeMap<(String, i64, i64), Value>;
+    type Rows = BTreeMap<(crate::world::Name, i64, i64), Value>;
     let held_of = |o: &crate::world::Parts| -> Rows {
         let mut out = Rows::new();
         for (d, spans) in &o.spans {
@@ -2937,7 +2937,7 @@ fn record_spans(
         .into_iter()
         .filter(|(m, v)| {
             let was = before.and_then(|b| b.iter().find(|(n, _)| n == m).map(|(_, w)| w));
-            let spans = parts.spans.get(m).map_or(0, Vec::len);
+            let spans = parts.spans.get(m.as_str()).map_or(0, Vec::len);
             before.is_none() || spans == 0 || was != Some(v)
         })
         .collect();
@@ -2945,7 +2945,7 @@ fn record_spans(
         && changed.iter().any(|(m, _)| {
             parts
                 .spans
-                .get(m)
+                .get(m.as_str())
                 .and_then(|s| s.last())
                 .is_some_and(|last| now < last.entered_at)
         })
@@ -2953,7 +2953,7 @@ fn record_spans(
         return Ok(false);
     }
     for (m, v) in changed {
-        let spans = parts.spans.entry(m).or_default();
+        let spans = parts.spans.entry(m.into()).or_default();
         if let Some(last) = spans.last_mut()
             && last.left_position.is_none()
         {
@@ -2966,8 +2966,8 @@ fn record_spans(
             left_position: None,
             entered_at: now,
             left_at: None,
-            entered_by: Some(who.id.clone()),
-            entered_by_kind: who.kind.clone(),
+            entered_by: Some(who.id.as_str().into()),
+            entered_by_kind: who.kind.as_str().into(),
             migrated: false,
             declaration_version: lib.version,
             legacy: false,
@@ -8009,7 +8009,7 @@ types:
             .unwrap()
             .spans
             .iter()
-            .map(|(m, v)| (m.as_str(), v.len()))
+            .map(|(m, v)| (&**m, v.len()))
             .collect();
         assert_eq!(counts, vec![("engineer", 2), ("priority", 1), ("state", 3)]);
         let t = w.lib.type_("Job");

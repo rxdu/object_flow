@@ -744,9 +744,11 @@ impl<'a> Evaluator<'a> {
                     None => None,
                 };
                 Term::Value(match (writes, since) {
-                    (Some(writes), Value::Int(p)) => {
-                        Value::Bool(names.iter().any(|n| writes.get(n).is_some_and(|w| *w > p)))
-                    }
+                    (Some(writes), Value::Int(p)) => Value::Bool(
+                        names
+                            .iter()
+                            .any(|n| writes.get(n.as_str()).is_some_and(|w| *w > p)),
+                    ),
                     (_, Value::Absent) | (None, _) => Value::Absent,
                     (_, other) => {
                         return not_run(format!("changed_since an event that is {}", other.kind()));
@@ -2066,7 +2068,7 @@ pub(crate) fn interval_rows_from(
                 );
                 row.insert(
                     "entered_by_kind".to_string(),
-                    Value::Text(sp.entered_by_kind.clone()),
+                    Value::Text(sp.entered_by_kind.to_string()),
                 );
                 row.insert(
                     "declaration_version".to_string(),
@@ -2387,7 +2389,7 @@ pub(crate) fn closed_periods(p: &crate::world::Parts, t: &Type, now: i64) -> Vec
 }
 
 /// The spans by dimension an object's flow data holds.
-pub(crate) type Spans = BTreeMap<String, Vec<crate::world::Span>>;
+pub(crate) type Spans = BTreeMap<crate::world::Name, Vec<crate::world::Span>>;
 
 /// [`closed_periods`] over spans by dimension.
 pub(crate) fn closed_periods_of(spans: &Spans, t: &Type, now: i64) -> Vec<(i64, i64)> {
@@ -2413,7 +2415,7 @@ pub(crate) fn held(
 ) -> Value {
     let mut out = BTreeMap::new();
     for m in lib.tracked(t) {
-        let covering = spans.get(&m).into_iter().flatten().find(|sp| {
+        let covering = spans.get(m.as_str()).into_iter().flatten().find(|sp| {
             if after {
                 sp.entered_position <= position && sp.left_position.is_none_or(|l| l > position)
             } else {
@@ -2434,7 +2436,7 @@ pub(crate) fn held_at(lib: &crate::model::Library, t: &Type, spans: &Spans, at: 
     let mut out = BTreeMap::new();
     for m in lib.tracked(t) {
         let covering = spans
-            .get(&m)
+            .get(m.as_str())
             .into_iter()
             .flatten()
             .filter(|sp| sp.entered_at <= at && sp.left_at.is_none_or(|l| l > at))

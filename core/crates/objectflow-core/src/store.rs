@@ -1026,8 +1026,8 @@ fn opened(
         left_position: None,
         entered_at: now,
         left_at: None,
-        entered_by: Some(who.id.clone()),
-        entered_by_kind: who.kind.clone(),
+        entered_by: Some(who.id.as_str().into()),
+        entered_by_kind: who.kind.as_str().into(),
         migrated: true,
         declaration_version: version,
         legacy: false,
@@ -1064,7 +1064,7 @@ fn event_of(
             if *was == v {
                 continue;
             }
-            let spans = o.parts_mut()?.spans.entry(d.clone()).or_default();
+            let spans = o.parts_mut()?.spans.entry(d.as_str().into()).or_default();
             if let Some(last) = spans.last_mut()
                 && last.left_position.is_none()
             {
@@ -1077,8 +1077,8 @@ fn event_of(
                 left_position: None,
                 entered_at: now,
                 left_at: None,
-                entered_by: Some(who.id.clone()),
-                entered_by_kind: who.kind.clone(),
+                entered_by: Some(who.id.as_str().into()),
+                entered_by_kind: who.kind.as_str().into(),
                 migrated: source == "migrated",
                 declaration_version: opened_under,
                 legacy: false,
@@ -1758,8 +1758,10 @@ fn upsert_spans(tx: &Connection, spans: &[(&str, &str, &Span)]) -> Stored<()> {
                 Sql::Text(timestamp_text(sp.entered_at)),
                 sp.left_at
                     .map_or(Sql::Null, |t| Sql::Text(timestamp_text(t))),
-                sp.entered_by.clone().map_or(Sql::Null, Sql::Text),
-                Sql::Text(sp.entered_by_kind.clone()),
+                sp.entered_by
+                    .as_deref()
+                    .map_or(Sql::Null, |b| Sql::Text(b.to_string())),
+                Sql::Text(sp.entered_by_kind.to_string()),
                 Sql::Integer(sp.declaration_version),
                 Sql::Integer(i64::from(sp.migrated)),
                 Sql::Integer(i64::from(sp.legacy)),
@@ -4603,7 +4605,7 @@ impl Store {
             };
             let mut extra = Vec::new();
             for (d, spans) in &mut x.parts_mut()?.spans {
-                if !tracked_now.contains(d)
+                if !tracked_now.iter().any(|t| t.as_str() == &**d)
                     && let Some(last) = spans.last_mut()
                     && last.left_position.is_none()
                 {
@@ -4619,14 +4621,18 @@ impl Store {
                 .iter()
                 .filter_map(|d| {
                     spans_now
-                        .get(d)
+                        .get(d.as_str())
                         .and_then(|s| s.last())
                         .filter(|sp| sp.left_position.is_none())
                         .map(|sp| (d.clone(), sp.value.clone()))
                 })
                 .collect();
             for d in &tracked_now {
-                if x.parts_mut()?.spans.get(d).is_none_or(Vec::is_empty) {
+                if x.parts_mut()?
+                    .spans
+                    .get(d.as_str())
+                    .is_none_or(Vec::is_empty)
+                {
                     let at = if migrates && backfilled(d) {
                         position
                     } else {
@@ -4635,16 +4641,16 @@ impl Store {
                     let sp = opened(&x, d, at, now, who, new.version);
                     x.parts_mut()?
                         .spans
-                        .entry(d.clone())
+                        .entry(d.as_str().into())
                         .or_default()
                         .push(sp.clone());
                     if !migrates || at == publish_position {
-                        extra.push((d.clone(), sp));
+                        extra.push((d.as_str().into(), sp));
                     }
                 }
             }
             for (d, sp) in extra {
-                change_set.spans.push((x.id.clone(), d, sp));
+                change_set.spans.push((x.id.clone(), d.to_string(), sp));
             }
             if migrates {
                 positions.push(position);
@@ -4722,7 +4728,13 @@ impl Store {
             let was = x.attrs.clone();
             for n in &newly {
                 x.attrs.remove(n);
-                for sp in x.parts_mut()?.spans.get_mut(n).into_iter().flatten() {
+                for sp in x
+                    .parts_mut()?
+                    .spans
+                    .get_mut(n.as_str())
+                    .into_iter()
+                    .flatten()
+                {
                     sp.value = Value::Absent;
                 }
             }
@@ -6064,7 +6076,9 @@ fn read_parts(
         .keys()
         .map(|id| (id.clone(), crate::world::Parts::default()))
         .collect();
-    spans(conn, lib, scope, types, &mut parts)?;
+    // each name the parts repeat held once for every object read
+    let mut names = crate::world::Names::default();
+    spans(conn, lib, scope, types, &mut parts, &mut names)?;
     let mut index = conn.prepare(&format!(
         "SELECT object_id, attribute, position FROM of_attribute_write{}",
         scope.on_object("WHERE")
@@ -6079,7 +6093,7 @@ fn read_parts(
     for row in rows {
         let (id, attribute, position) = row?;
         if let Some(p) = parts.get_mut(&id) {
-            p.writes.insert(attribute, position);
+            p.writes.insert(names.of(&attribute), position);
         }
     }
     // an object whose own erasure is recorded: not one an erasure of
@@ -6128,6 +6142,7 @@ pub(crate) fn read_type_spans(
     dimensions: &[&str],
 ) -> Stored<BTreeMap<String, crate::eval::Spans>> {
     let mut out: BTreeMap<String, crate::eval::Spans> = BTreeMap::new();
+    let mut names = crate::world::Names::default();
     if dimensions.is_empty() {
         return Ok(out);
     }
@@ -6143,7 +6158,7 @@ pub(crate) fn read_type_spans(
     for row in rows {
         let raw = row?;
         let id = raw.id.clone();
-        if let Some((dimension, span)) = decoded_span(lib, type_, raw)? {
+        if let Some((dimension, span)) = decoded_span(lib, type_, raw, &mut names)? {
             out.entry(id)
                 .or_default()
                 .entry(dimension)
@@ -6162,6 +6177,7 @@ fn spans(
     scope: &Scope<'_>,
     types: &BTreeMap<String, String>,
     parts: &mut BTreeMap<String, crate::world::Parts>,
+    names: &mut crate::world::Names,
 ) -> Stored<()> {
     let only = scope.bound();
     let mut stmt = conn.prepare(&format!(
@@ -6178,7 +6194,7 @@ fn spans(
                 raw.id
             )));
         };
-        if let Some((dimension, span)) = decoded_span(lib, type_, raw)? {
+        if let Some((dimension, span)) = decoded_span(lib, type_, raw, names)? {
             p.spans.entry(dimension).or_default().push(span);
         }
     }
@@ -6238,7 +6254,12 @@ fn raw_span(r: &crate::db::Row<'_>, at: usize) -> crate::db::Result<RawSpan> {
 /// type declares its dimension; none for a dimension the installed version
 /// no longer declares, whose intervals stay as history and nothing the
 /// version declares reads (§10).
-fn decoded_span(lib: &Library, type_: &str, raw: RawSpan) -> Stored<Option<(String, Span)>> {
+fn decoded_span(
+    lib: &Library,
+    type_: &str,
+    raw: RawSpan,
+    names: &mut crate::world::Names,
+) -> Stored<Option<(crate::world::Name, Span)>> {
     let RawSpan {
         id,
         dimension,
@@ -6277,14 +6298,14 @@ fn decoded_span(lib: &Library, type_: &str, raw: RawSpan) -> Stored<Option<(Stri
         left_position,
         entered_at: at(&entered_at)?,
         left_at: left_at.as_deref().map(at).transpose()?,
-        entered_by: by,
-        entered_by_kind: kind,
+        entered_by: by.map(|b| names.of(&b)),
+        entered_by_kind: names.of(&kind),
         migrated,
         declaration_version,
         legacy,
         corrected_by,
     };
-    Ok(Some((dimension, span)))
+    Ok(Some((names.of(&dimension), span)))
 }
 
 /// A span as a page of `export`'s intervals reads it: by the event that
@@ -6387,6 +6408,7 @@ pub(crate) fn read_interval_page(
         marks.join(", ")
     );
     let mut out = Vec::new();
+    let mut names = crate::world::Names::default();
     for sql in [written, legacy] {
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(crate::db::params_from_iter(&binds), |r| {
@@ -6401,12 +6423,12 @@ pub(crate) fn read_interval_page(
         for row in rows {
             let (cursor, type_, order, transition, raw) = row?;
             let object_id = raw.id.clone();
-            if let Some((dimension, span)) = decoded_span(lib, &type_, raw)? {
+            if let Some((dimension, span)) = decoded_span(lib, &type_, raw, &mut names)? {
                 out.push(CursoredSpan {
                     cursor,
                     object_id,
                     type_,
-                    dimension,
+                    dimension: dimension.to_string(),
                     span,
                     transition,
                     order,

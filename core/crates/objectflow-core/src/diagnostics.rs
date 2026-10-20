@@ -293,7 +293,11 @@ pub fn diagnostics(
     let mut acted: BTreeMap<String, (i64, i64)> = BTreeMap::new();
     if let Some(a) = &assignee {
         for o in &objects {
-            let spans = world.parts(o)?.spans.get(a).map_or(&[][..], Vec::as_slice);
+            let spans = world
+                .parts(o)?
+                .spans
+                .get(a.as_str())
+                .map_or(&[][..], Vec::as_slice);
             for (i, sp) in spans.iter().enumerate() {
                 if within(sp.entered_at)
                     && !sp.value.is_absent()

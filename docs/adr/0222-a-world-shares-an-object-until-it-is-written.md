@@ -4,6 +4,7 @@
 - **Date:** 2026-10-20
 - **Refines:** ADR-0162 step 2 (a world holds the objects an operation reads and makes); ADR-0165 (an object's record beyond its row, read on first use)
 - **Relates to:** ADR-0187 decision 2 (what a heavy request freed is given back); `operate.md`, Memory; `scripts/profile/publish-memory.py`, `massif-sites.py`
+- **Refined by:** ADR-0223 — its alternative of smaller objects, taken up for the names an object's record repeats; and the simulation's 0.3 s given back, a read making a million fewer allocations
 
 ## Context
 

@@ -1649,7 +1649,7 @@ pub fn query_page(
             let v = world
                 .parts(o)?
                 .spans
-                .get(m)
+                .get(m.as_str())
                 .and_then(|s| s.last())
                 .filter(|sp| sp.left_position.is_none())
                 .map_or(Value::Absent, |sp| Value::Timestamp(sp.entered_at));

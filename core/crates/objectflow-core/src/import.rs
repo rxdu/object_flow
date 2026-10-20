@@ -1266,7 +1266,7 @@ fn decide(
             match legacy_spans(lib, t, obj.held_parts()?, o, &resolve) {
                 Ok(spans) => {
                     for (d, sp) in spans {
-                        let row = obj.parts_mut()?.spans.entry(d.clone()).or_default();
+                        let row = obj.parts_mut()?.spans.entry(d.as_str().into()).or_default();
                         let at = row.iter().position(|x| !x.legacy).unwrap_or(row.len());
                         row.insert(at, sp.clone());
                         change.spans.push((obj.id.clone(), d, sp));
@@ -1383,11 +1383,11 @@ fn created(
     let spans = &obj.held_parts()?.spans;
     let entries: Vec<i64> = spans
         .iter()
-        .filter(|(m, _)| tracked.contains(*m))
+        .filter(|(m, _)| tracked.iter().any(|t| t.as_str() == &***m))
         .flat_map(|(m, spans)| {
             spans
                 .iter()
-                .filter(move |sp| m == "state" || sp.legacy || o.entered.contains_key(m))
+                .filter(move |sp| &**m == "state" || sp.legacy || o.entered.contains_key(&**m))
                 .map(|sp| sp.entered_at)
         })
         .collect();
@@ -1514,11 +1514,8 @@ fn legacy_spans(
                     left_position: Some(0),
                     entered_at: l.entered_at,
                     left_at: Some(left),
-                    entered_by: l.entered_by.clone(),
-                    entered_by_kind: l
-                        .entered_by_kind
-                        .clone()
-                        .unwrap_or_else(|| "unknown".into()),
+                    entered_by: l.entered_by.as_deref().map(Into::into),
+                    entered_by_kind: l.entered_by_kind.as_deref().unwrap_or("unknown").into(),
                     migrated: false,
                     declaration_version: lib.version,
                     legacy: true,
@@ -1663,11 +1660,8 @@ fn intermediate_spans(
                 left_position: Some(0),
                 entered_at: l.entered_at,
                 left_at: Some(left),
-                entered_by: l.entered_by.clone(),
-                entered_by_kind: l
-                    .entered_by_kind
-                    .clone()
-                    .unwrap_or_else(|| "unknown".into()),
+                entered_by: l.entered_by.as_deref().map(Into::into),
+                entered_by_kind: l.entered_by_kind.as_deref().unwrap_or("unknown").into(),
                 migrated: false,
                 declaration_version: lib.version,
                 legacy: false,
@@ -1726,7 +1720,7 @@ fn open_spans(
         }
         let entered = o.entered.get(&m);
         let at = entered.map_or(port, |e| e.at);
-        let spans = obj.parts_mut()?.spans.entry(m.clone()).or_default();
+        let spans = obj.parts_mut()?.spans.entry(m.as_str().into()).or_default();
         if let Some(last) = spans.last_mut() {
             let ends = between.first().map_or(at, |sp| sp.entered_at);
             if ends < last.entered_at {
@@ -1751,10 +1745,11 @@ fn open_spans(
             left_position: None,
             entered_at: at,
             left_at: None,
-            entered_by: entered.and_then(|e| e.by.clone()),
+            entered_by: entered.and_then(|e| e.by.as_deref()).map(Into::into),
             entered_by_kind: entered
-                .and_then(|e| e.by_kind.clone())
-                .unwrap_or_else(|| "unknown".into()),
+                .and_then(|e| e.by_kind.as_deref())
+                .unwrap_or("unknown")
+                .into(),
             migrated: false,
             declaration_version: lib.version,
             legacy: false,
@@ -2509,7 +2504,7 @@ types:
             (
                 span.entered_at,
                 span.entered_by.as_deref(),
-                span.entered_by_kind.as_str()
+                &*span.entered_by_kind
             ),
             (at, Some("hr-admin"), "human")
         );
@@ -3172,7 +3167,7 @@ types:
                         sp.value.clone(),
                         sp.entered_at - port,
                         sp.left_at.map(|l| l - port),
-                        sp.entered_by_kind.clone(),
+                        sp.entered_by_kind.to_string(),
                     )
                 })
                 .collect::<Vec<_>>()

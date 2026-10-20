@@ -649,10 +649,10 @@ fn impact(
                 }
                 // a rename carries the attribute's history, its intervals
                 // included (publish-and-import.md §3)
-                if x.held_parts()?.spans.contains_key(from) {
+                if x.held_parts()?.spans.contains_key(from.as_str()) {
                     let parts = Rc::make_mut(&mut x).parts_mut()?;
-                    if let Some(spans) = parts.spans.remove(from) {
-                        parts.spans.insert(to.clone(), spans);
+                    if let Some(spans) = parts.spans.remove(from.as_str()) {
+                        parts.spans.insert(to.as_str().into(), spans);
                     }
                 }
             }
@@ -664,11 +664,11 @@ fn impact(
                 if nt
                     .attribute(a)
                     .is_some_and(|na| na.declared != spec.declared || na.many != spec.many)
-                    && (x.attrs.contains_key(a) || x.held_parts()?.spans.contains_key(a))
+                    && (x.attrs.contains_key(a) || x.held_parts()?.spans.contains_key(a.as_str()))
                 {
                     let w = Rc::make_mut(&mut x);
                     w.attrs.remove(a);
-                    w.parts_mut()?.spans.remove(a);
+                    w.parts_mut()?.spans.remove(a.as_str());
                 }
             }
         }

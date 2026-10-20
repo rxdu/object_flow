@@ -975,7 +975,7 @@ fn tracked_spans_against(
             }
             after.insert(e.position, (value.clone(), value != was));
         }
-        let spans = parts.spans.get(&d).cloned().unwrap_or_default();
+        let spans = parts.spans.get(d.as_str()).cloned().unwrap_or_default();
         for sp in &spans {
             if sp.legacy || sp.migrated {
                 continue;
