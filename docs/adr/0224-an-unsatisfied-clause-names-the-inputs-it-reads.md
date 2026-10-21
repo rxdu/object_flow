@@ -6,7 +6,7 @@
 
 ## Context
 
-The first consumer's developer filed issue #28: a guard's refusal names its `clause` but not the inputs that clause read, while an `invalid_input` names each input at fault, so a form marks a malformed day on its field and a day out of order nowhere. To mark it, a client either parses the condition's expression, re-implementing the flow language outside the engine, or keeps its own table from clause to field, a copy of the flow's rules held beside the flow. The one mapping the guides offered was a naming convention, `<attribute>_provided` read back to its input. The engine already collects each `inputs.<name>` an expression reads (`Expr::inputs_read`), for the taint of what an input writes.
+Issue #28 reported that a guard's refusal names its `clause` but not the inputs that clause read, while an `invalid_input` names each input at fault, so a form marks a malformed day on its field and a day out of order nowhere. To mark it, a client either parses the condition's expression, re-implementing the flow language outside the engine, or keeps its own table from clause to field, a copy of the flow's rules held beside the flow. The one mapping the guides offered was a naming convention, `<attribute>_provided` read back to its input. The engine already collects each `inputs.<name>` an expression reads (`Expr::inputs_read`), for the taint of what an input writes.
 
 ## Decision
 
