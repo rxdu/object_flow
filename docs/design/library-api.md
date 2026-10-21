@@ -98,7 +98,7 @@ class Request:
 # ------------------------------------------- what the store is built from
 
 class IdSource(Protocol):
-    def new_id(self) -> str: ...          # a UUIDv7 in production (ADR-0077)
+    def new_id(self) -> str: ...          # a UUIDv7 in a deployment, numbered by type in a sandbox (ADR-0077, ADR-0226)
 
 
 class Clock(Protocol):

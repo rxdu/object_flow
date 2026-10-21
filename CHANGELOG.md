@@ -4,6 +4,14 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Changed
+
+- A deployment's store, a file or a PostgreSQL database, mints each new object's id as a UUIDv7, `0192f1c4-7b2e-7a3d-9c41-5e8f2a6b0d17`, globally unique and opaque as ADR-0018 decided, where it minted `<type>-<n>`, unique in one store and naming its type; a sandbox's, where examples and tests run, numbers them as before, and a store upgraded keeps every id it holds. An id was never to be parsed (`wire.md`, Basics); a client that read a type or a number from one meets the new form (ADR-0226).
+
+### Fixed
+
+- A store file copied without its log and restored beside a later state's log, an empty database beside a log holding frames, is refused saying to restore the copy alone, as a restored store's other refusals say, where its start advised `--create`, which would take that log in.
+
 ### Security
 
 - Certificate verification is updated past three advisories published on 2026-10-19 and 2026-10-20, a distrusted intermediate or bundled root that could be trusted: `rustls-webpki` 0.103.16 (RUSTSEC-2026-0382), which verifies a PostgreSQL store's TLS connection and an evaluator's HTTPS, and `webpki-roots` 1.0.10 (RUSTSEC-2026-0381), the roots an evaluator's HTTPS trusts; `webpki-root-certs` 1.0.10 (RUSTSEC-2026-0383) too, which the Linux build does not compile in. 0.5.0's binary carries the earlier `rustls-webpki` and `webpki-roots`.

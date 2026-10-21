@@ -226,4 +226,5 @@
 | [0223](0223-an-objects-record-holds-each-name-once.md) | An object's record holds each name it repeats once | Decided under the author's direction |
 | [0224](0224-an-unsatisfied-clause-names-the-inputs-it-reads.md) | An unsatisfied clause names the inputs it reads | Decided under the author's direction |
 | [0225](0225-the-sequence-store-is-the-stores-own-table.md) | The sequence store is the store's own table, written by its one writer | Decided under the author's direction |
+| [0226](0226-a-deployments-object-ids-are-uuid7.md) | A deployment's object ids are UUIDv7s, a sandbox's are numbered | Decided under the author's direction |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

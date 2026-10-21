@@ -6391,6 +6391,17 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
     }
     if !held {
         if !create {
+            // an empty database beside a log holding frames is also what a
+            // file copied without its log and restored beside a later
+            // state's leaves: said as a restore's, where it advised a start
+            // with --create, which would take that log in (found as a
+            // deployment's ids became UUIDv7s, ADR-0226)
+            if empty && std::fs::metadata(&wal).is_ok_and(|m| m.len() > 0) {
+                return Err(refused_start(
+                    path,
+                    &"it holds an empty database and no store, as a start with --create stopped before it made one leaves",
+                ));
+            }
             return Err(std::io::Error::other(if empty {
                 format!(
                     "{} holds an empty database and no store, as a start with --create stopped before it made one leaves; to make one there, start once with --create",

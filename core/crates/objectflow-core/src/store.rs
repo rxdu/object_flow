@@ -2487,10 +2487,62 @@ struct Group {
     applied: usize,
 }
 
+/// How a store mints a new object's id (ADR-0077 decision 7, ADR-0226).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ids {
+    /// Its type and a number, `claim-7`: a sandbox's, and every store
+    /// examples and tests run in, readable and the same on every run.
+    Numbered,
+    /// A UUIDv7, globally unique and opaque (ADR-0018): a deployment's, its
+    /// random bits drawn from the seed and the object's number, the seed
+    /// drawn from the system when the store is opened.
+    Uuid7 { seed: [u8; 16] },
+}
+
+impl Ids {
+    /// A deployment's: a UUIDv7 from a seed the system gives, refused where
+    /// none can be read, since an id made without it might repeat another
+    /// deployment's.
+    pub fn deployment() -> Stored<Ids> {
+        let mut seed = [0u8; 16];
+        std::fs::File::open("/dev/urandom")
+            .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut seed))
+            .map_err(|e| {
+                StoreError(format!(
+                    "/dev/urandom, which a new object's id is drawn from: {e}"
+                ))
+            })?;
+        Ok(Ids::Uuid7 { seed })
+    }
+}
+
+/// A UUIDv7 (RFC 9562 §5.7) in its canonical text: the milliseconds since
+/// 1970 in its first 48 bits, its version and variant, and the rest the
+/// random bits given.
+fn uuid7(millis: u64, random: &[u8; 10]) -> String {
+    let mut b = [0u8; 16];
+    b[..6].copy_from_slice(&millis.to_be_bytes()[2..]);
+    b[6..].copy_from_slice(random);
+    b[6] = 0x70 | (b[6] & 0x0f);
+    b[8] = 0x80 | (b[8] & 0x3f);
+    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..]
+    )
+}
+
 /// A store and the library its rules come from.
 #[derive(Debug)]
 pub struct Store {
     conn: Connection,
+    /// How it mints a new object's id (ADR-0226): numbered in a sandbox, a
+    /// UUIDv7 in a deployment, which a test may set numbered.
+    pub ids: Ids,
     /// The library its rules come from, shared with the reads that run
     /// beside its writes (ADR-0178).
     pub lib: Arc<Library>,
@@ -2734,6 +2786,7 @@ impl Store {
         conn.execute_batch(EXPORT_INDEXES)?;
         let mut store = Store {
             conn,
+            ids: Ids::Numbered,
             lib: Arc::new(lib),
             now,
             answers: BTreeMap::new(),
@@ -2970,6 +3023,7 @@ impl Store {
         let builtins = Library::load(&[]).map_err(|e| StoreError(format!("the built-ins: {e}")))?;
         let mut store = Store {
             conn,
+            ids: Ids::deployment()?,
             lib: Arc::new(builtins),
             now,
             answers: BTreeMap::new(),
@@ -3109,6 +3163,8 @@ impl Store {
         conn.execute_batch(conn.begin_sql(Behavior::Deferred))?;
         let mut store = Store {
             conn,
+            // a read keeps no object it simulates making
+            ids: Ids::Numbered,
             lib,
             now,
             answers,
@@ -3373,6 +3429,7 @@ impl Store {
         };
         Ok(Store {
             conn,
+            ids: self.ids,
             lib: Arc::clone(&self.lib),
             now: self.now,
             answers: self.answers.clone(),
@@ -3844,7 +3901,7 @@ impl Store {
         // where a read connection holds one (ADR-0178), and is undone
         let sp = self.conn.savepoint()?;
         let world = snapshot(&sp, &self.lib, &self.earlier, self.now)?;
-        let mut alloc = Allocator::read(&sp)?;
+        let mut alloc = Allocator::read(&sp, self.ids)?;
         let out = decide(&world, &mut alloc);
         drop(world);
         sp.finish()?;
@@ -3927,7 +3984,7 @@ impl Store {
             reloaded = true;
         };
         let world = snapshot(&tx, &self.lib, &self.earlier, self.now)?;
-        let mut alloc = Allocator::read(&tx)?;
+        let mut alloc = Allocator::read(&tx, self.ids)?;
         let decided = decide(&world, &mut alloc);
         drop(world);
         match decided {
@@ -3969,7 +4026,7 @@ impl Store {
         let retries = self.group.as_ref().map_or(0, |g| g.retries);
         self.conn.execute_batch("SAVEPOINT request")?;
         let world = snapshot(&self.conn, &self.lib, &self.earlier, self.now)?;
-        let mut alloc = Allocator::read(&self.conn)?;
+        let mut alloc = Allocator::read(&self.conn, self.ids)?;
         let decided = decide(&world, &mut alloc);
         drop(world);
         match decided {
@@ -4329,7 +4386,7 @@ impl Store {
         let now = self.now;
         let (tx, _) = begin_write!(self);
         release_held(&tx)?;
-        let mut alloc = Allocator::read(&tx)?;
+        let mut alloc = Allocator::read(&tx, self.ids)?;
         let publish_position = alloc.position();
         alloc.txn();
         // before the mappings: new tables, and each table the version
@@ -5058,6 +5115,8 @@ pub struct Allocator {
     /// which stay drawn though it is refused (`flow-format.md` §4.12).
     sequences: BTreeMap<(String, String), i64>,
     drawn: std::collections::BTreeSet<(String, String)>,
+    /// How a new object's id is minted, its store's (ADR-0226).
+    ids: Ids,
     /// The last number a scope the store holds no row for is taken to have
     /// drawn: past every restore's margin, since the period a restore lost
     /// may have started it, and 0 in a store never restored (ADR-0207
@@ -5066,7 +5125,7 @@ pub struct Allocator {
 }
 
 impl Allocator {
-    fn read(tx: &Connection) -> Stored<Allocator> {
+    fn read(tx: &Connection, ids: Ids) -> Stored<Allocator> {
         // the three counters and the restore's floor in one statement, where
         // each was a statement of its own and, on PostgreSQL, a round trip
         // through the one writer (Gate P on PostgreSQL, ADR-0213)
@@ -5103,6 +5162,7 @@ impl Allocator {
             sequences,
             drawn: std::collections::BTreeSet::new(),
             floor,
+            ids,
         })
     }
 
@@ -5150,10 +5210,28 @@ impl Allocator {
         self.txn
     }
 
-    /// A new object's id: its type and a number, readable in a sandbox.
+    /// A new object's id, as its store mints them (ADR-0226): its type and
+    /// a number, readable in a sandbox; a UUIDv7 in a deployment, its random
+    /// bits the store's seed hashed with the object's number, which no other
+    /// object of the store takes, so two never share them.
     pub fn object_id(&mut self, type_: &str) -> String {
         self.object += 1;
-        format!("{}-{}", type_.to_lowercase(), self.object)
+        match self.ids {
+            Ids::Numbered => format!("{}-{}", type_.to_lowercase(), self.object),
+            Ids::Uuid7 { seed } => {
+                use sha2::Digest;
+                let mut h = sha2::Sha256::new();
+                h.update(seed);
+                h.update(self.object.to_be_bytes());
+                let digest = h.finalize();
+                let mut random = [0u8; 10];
+                random.copy_from_slice(&digest[..10]);
+                let millis = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+                uuid7(millis, &random)
+            }
+        }
     }
 
     fn write(&self, tx: &Connection) -> Stored<()> {
@@ -7349,6 +7427,78 @@ pub(crate) fn assert_log_folds(s: &Store, id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A UUIDv7's text, from its milliseconds and random bits, as RFC 9562's
+    /// own example gives it (appendix A.6), the version and the variant set
+    /// over the bits given (ADR-0226).
+    #[test]
+    fn a_uuid7_is_written_as_rfc_9562_writes_it() {
+        let random = [0xcc, 0xc3, 0x98, 0xc4, 0xdc, 0x0c, 0x0c, 0x07, 0x39, 0x8f];
+        assert_eq!(
+            uuid7(0x017f_22e2_79b0, &random),
+            "017f22e2-79b0-7cc3-98c4-dc0c0c07398f"
+        );
+        // the version and the variant whatever the random bits
+        let id = uuid7(0, &[0xff; 10]);
+        assert_eq!(id, "00000000-0000-7fff-bfff-ffffffffffff");
+    }
+
+    /// A deployment's store mints each object a UUIDv7, opaque and unique,
+    /// two never alike; a sandbox's numbers them by type, as examples and
+    /// tests read them; a deployment's seed is the system's, two stores'
+    /// unlike (ADR-0226, ADR-0018, ADR-0077 decision 7).
+    #[test]
+    fn a_deployment_mints_uuid7_ids_and_a_sandbox_numbers_them() {
+        let text = "\nmodule: notes\ncategories: [live]\ntypes:\n  Note:\n    attributes:\n      text: { type: string }\n    states:\n      ON: { category: live }\n    transitions:\n      write: { kind: initial, to: ON, required_inputs: [text] }\n";
+        let write = |s: &mut Store| {
+            let note = crate::request::Request {
+                transition: "write".into(),
+                actor: crate::model::OPERATOR.into(),
+                object_id: None,
+                type_: Some("Note".into()),
+                inputs: serde_json::from_value(serde_json::json!({"text": "n"})).unwrap(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            match crate::request::request(s, &note).unwrap().unwrap() {
+                crate::verdict::Verdict::Satisfied { object_id, .. } => object_id,
+                v => panic!("{v:?}"),
+            }
+        };
+        let lib = || Library::load(&[("notes.yaml".into(), text.into())]).unwrap();
+        let mut sandbox = Store::sandbox(lib(), 0).unwrap();
+        assert_eq!(sandbox.ids, Ids::Numbered);
+        assert_eq!(write(&mut sandbox), "note-1");
+        let mut deployed = Store::sandbox(lib(), 0).unwrap();
+        deployed.ids = Ids::deployment().unwrap();
+        let shape = regex::Regex::new(
+            "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+        )
+        .unwrap();
+        let ids: Vec<String> = (0..50).map(|_| write(&mut deployed)).collect();
+        for id in &ids {
+            assert!(shape.is_match(id), "{id}");
+            let type_: String = deployed
+                .conn
+                .query_row(
+                    "SELECT type FROM of_object WHERE id = ?1",
+                    params![id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(type_, "Note", "{id}");
+        }
+        let unique: std::collections::BTreeSet<&String> = ids.iter().collect();
+        assert_eq!(unique.len(), ids.len());
+        // two deployments' seeds, and so their ids, unlike
+        assert_ne!(Ids::deployment().unwrap(), Ids::deployment().unwrap());
+    }
 
     /// The SQLite built in keeps a page cache for each connection, so
     /// concurrent reads do not wait on one another's pages; a library built

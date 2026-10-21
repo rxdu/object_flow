@@ -10,6 +10,7 @@ Every operation of the engine's service: what it takes and what it answers. [Bui
 - A fault is a `4xx` or `5xx` whose body is `{"fault": "<reason>", "code": "<code>"}`. Branch on `code`; the reason is text for people and may change.
 - **Unknown keys are refused** `400`, and so is **a key named twice** in one object. `null` is the same as leaving a key out.
 - A flag such as `dry_run` is `true` or `false`, never a string; an id, a filter or a cursor is a string; `expected_version` is an integer.
+- **An object's id is opaque**: keep it whole and never read meaning from it. A deployment mints a UUIDv7, `0192f1c4-7b2e-7a3d-9c41-5e8f2a6b0d17`; a sandbox numbers by type, `claim-7`, so examples read alike on every run; a store upgraded keeps the ids it holds, whichever form, and mints UUIDv7s after (ADR-0226).
 - An object that does not exist reads as `null` from `get`, `history` and `availability`; a request naming it is refused `not_found`.
 - `GET /health` and `GET /metrics` serve operators ([Operate](operate.md)). A sandbox also serves `POST /sandbox/<control>` ([below](#sandbox-controls)).
 

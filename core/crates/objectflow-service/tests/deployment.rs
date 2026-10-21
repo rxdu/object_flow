@@ -3280,6 +3280,16 @@ fn overlapping_bookings_sent_at_once(s: &Service) {
         .collect();
     assert_eq!(taken.len(), 1, "{overlapping:?}");
     let booking = &taken[0]["object_id"];
+    // a deployment's id, on either backend, a UUIDv7 (ADR-0226)
+    let id = booking.as_str().expect("its id");
+    let shaped = id.len() == 36
+        && id.char_indices().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            14 => c == '7',
+            19 => matches!(c, '8' | '9' | 'a' | 'b'),
+            _ => c.is_ascii_hexdigit() && !c.is_ascii_uppercase(),
+        });
+    assert!(shaped, "{id} is no UUIDv7");
     for (status, v) in &overlapping {
         assert_eq!(*status, 200, "{v}");
         if v["kind"] != "satisfied" {
@@ -5815,7 +5825,7 @@ types:
 
 /// A backup taken while the service writes, marked as `operate.md`'s
 /// commands mark it, and restored after the live store went on: the
-/// restored store hands out no object number, claim number or position the
+/// restored store hands out no object id, claim number or position the
 /// live store handed out after the copy, refuses a subscriber's cursor from
 /// that period by `pull`, `export` and `acknowledge` once its log has passed
 /// it, says the restore at its start, and restores it once (the audit's
@@ -5904,7 +5914,10 @@ fn a_restored_copy_hands_out_nothing_its_copy_never_saw() {
     );
     let (id, number) = filed(&s);
     for (was, numbered) in &lost {
-        assert!(tail(&id) > tail(was), "{id} after {was}");
+        // an id the lost period handed out is never handed out again: a
+        // deployment's ids are UUIDv7s, the restored store's seed its own
+        // (ADR-0226), where a numbered id was carried past the margin
+        assert_ne!(&id, was, "the restored store handed out {id} again");
         assert!(tail(&number) > tail(numbered), "{number} after {numbered}");
     }
     // its log now past the kept cursor, which is still none of its own
@@ -5960,8 +5973,10 @@ fn a_restored_copy_hands_out_nothing_its_copy_never_saw() {
     drop(s);
     // restored once: started again, it says nothing of a restore
     let s = start(&["--store", path, "--port", "0"]);
-    let (again, _) = filed(&s);
-    assert_eq!(tail(&again), tail(&id) + 1);
+    let (again, again_numbered) = filed(&s);
+    assert_ne!(again, id);
+    // the claim numbers go on by one, no margin added a second time
+    assert_eq!(tail(&again_numbered), tail(&number) + 1);
     assert!(!s.said().contains("is a restored copy"), "{}", s.said());
 }
 
