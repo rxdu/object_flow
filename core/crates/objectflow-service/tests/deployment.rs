@@ -209,8 +209,66 @@ fn every_tests_directory_is_its_own() {
 fn fresh_store(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("objectflow-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
+    sweep_stale(name);
     std::fs::create_dir_all(&dir).expect("a directory");
     dir.join("store.sqlite")
+}
+
+/// The directories of this name earlier runs left, their process gone,
+/// removed: most tests keep theirs when they pass, and every run of the
+/// suite left one each, twenty thousand in /tmp by 2026-10-21, 23 GB. A
+/// process alive keeps its own, another run's beside this one; where no
+/// `/proc` says which are alive, none is removed.
+fn sweep_stale(name: &str) {
+    let proc = Path::new("/proc");
+    if !proc.join("self").exists() {
+        return;
+    }
+    let prefix = format!("objectflow-{name}-");
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file = entry.file_name();
+        let Some(pid) = file
+            .to_str()
+            .and_then(|f| f.strip_prefix(&prefix))
+            .and_then(|rest| rest.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if pid != std::process::id() && !proc.join(pid.to_string()).exists() {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// A test's directory left by a run whose process is gone is removed when
+/// the test makes its own again, and one a live process holds is kept
+/// (`sweep_stale`).
+#[test]
+fn a_stale_tests_directory_is_swept() {
+    if !Path::new("/proc/self").exists() {
+        eprintln!("skipped where no /proc says which processes are alive");
+        return;
+    }
+    let tmp = std::env::temp_dir();
+    // a process id past any the kernel hands out, and init's, always alive
+    let gone = tmp.join("objectflow-sweeping-4294967295");
+    let alive = tmp.join("objectflow-sweeping-1");
+    let other = tmp.join("objectflow-sweeping-twice-4294967295");
+    for d in [&gone, &alive, &other] {
+        std::fs::create_dir_all(d).expect("a directory");
+        std::fs::write(d.join("store.sqlite"), b"x").expect("a file");
+    }
+    let file = fresh_store("sweeping");
+    assert!(!gone.exists(), "a dead process's directory kept");
+    assert!(alive.exists(), "a live process's directory removed");
+    assert!(other.exists(), "another test's directory removed");
+    for d in [&alive, &other] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
 fn example(name: &str) -> String {

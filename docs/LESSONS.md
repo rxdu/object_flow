@@ -930,3 +930,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Before rewriting a document, search `TODO.md` and the ADRs for items naming it or a phrase in it (`grep -n "README" TODO.md`), and carry every statement an open item reserves to the author into the new text unchanged, saying so in the commit.
 - **Context:** Any document rewrite in a repository whose decisions are tracked in `TODO.md` and ADRs; the README especially, which many items touch.
 
+### A test that keeps its directory when it passes leaks one per run
+- **Pattern:** The deployment tests make each store in `/tmp/objectflow-<test>-<pid>`, and most keep it when they pass, for a failure's files to be read. Every run of the suite, each gate's two among them, left about seventy more: 20,181 directories and 23 GB by 2026-10-21, with the debug build at 120 GiB and the session's scratch at 69 GB, `/home` at 82%, before the author asked that the disk not be filled.
+- **Correction:** A helper that makes a test's directory removes the same test's directories whose process is gone (`fresh_store`'s `sweep_stale`, by `/proc`, a live run's kept), so one per test remains. Clean scratch builds, measurement stores and their databases once their results are recorded, and look at `du -sh core/target` at the end of a release.
+- **Context:** Rust integration tests writing outside `target/`; any long session of gates, profiles and releases on a shared machine.
+
