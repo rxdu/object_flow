@@ -228,7 +228,7 @@ ObjectFlow runs as an internal service beside your applications, one per store, 
 
 | Ready for | Not yet |
 |---|---|
-| Piloting a flow on one machine, on SQLite or PostgreSQL | Several writing instances, or a replica standing by |
+| Piloting a flow on one machine, on SQLite or PostgreSQL | Several writing instances, or a second service standing by |
 | Upgrading a store to a newer release in place | Authentication: whoever reaches the service can act as any actor, by design, so it sits behind your application |
 | Reads answered beside writes, in pages | Recovery of more than the last backup holds |
 | Health and metrics for operators, and backups taken while it serves | The promise a release keeps from 1.0.0 on the API, the flow format and the store's upgrade |
