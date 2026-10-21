@@ -2,7 +2,9 @@
 """A publish's memory, phase by phase (TODO.md, MEMORY): the service started on a copy of a store `build-store.py`
 made, its resident memory sampled every 10 ms from /proc, a change to the reimbursement module drafted, submitted, which
 runs its dry run, and approved, which runs it again and installs it, and each phase's peak and what the process holds
-after it printed. The change adds one optional attribute to Claim, which every claim is mapped through and none is
+after it printed, with the CPU seconds each request took over all the service's threads, in user space and in the
+kernel, and the bytes it had read from and written to storage, which tell a cost growing in computation from one
+growing in I/O. The change adds one optional attribute to Claim, which every claim is mapped through and none is
 written by, or with `--change backfill` another optional one a backfill writes on every claim, the most a version of
 this module's claims changes.
 
@@ -18,6 +20,7 @@ Usage:
 """
 import argparse
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -44,6 +47,16 @@ def rss_kib(pid):
         if line.startswith("VmRSS:"):
             return int(line.split()[1])
     return 0
+
+
+def cpu_and_io(pid):
+    """The process's CPU seconds in user space and in the kernel, over all its threads, and the bytes it has had read
+    from and written to storage."""
+    stat = pathlib.Path(f"/proc/{pid}/stat").read_text()
+    fields = stat[stat.rindex(")") + 2:].split()
+    io = dict(line.split(": ") for line in pathlib.Path(f"/proc/{pid}/io").read_text().splitlines())
+    tick = os.sysconf("SC_CLK_TCK")
+    return int(fields[11]) / tick, int(fields[12]) / tick, int(io["read_bytes"]), int(io["write_bytes"])
 
 
 def changed(text, change="attribute"):
@@ -90,13 +103,14 @@ def run(service, store, massif=None, change="attribute"):
     if not massif:
         threading.Thread(target=sample, daemon=True).start()
     time.sleep(1.0)
-    timed = {}
+    timed, used = {}, {}
 
     def step(name, path, body):
         phase[0] = name
-        began = time.monotonic()
+        began, before = time.monotonic(), cpu_and_io(pid)
         out = post(url, path, body)
         timed[name] = time.monotonic() - began
+        used[name] = tuple(b - a for a, b in zip(before, cpu_and_io(pid)))
         phase[0] = name + " after"
         time.sleep(2.0)             # the trim after a heavy request, which runs once the answer is made
         return out
@@ -119,13 +133,13 @@ def run(service, store, massif=None, change="attribute"):
         proc.wait()
     shutil.rmtree(work)
     if massif:
-        return timed, None
+        return timed, used, None
     out = {}
     for name in ("start", "draft", "draft after", "submit", "submit after", "approve", "approve after"):
         rs = [r for _, p, r in samples if p == name]
         if rs:
             out[name] = (max(rs) / 1024, rs[-1] / 1024)
-    return timed, out
+    return timed, used, out
 
 
 def main():
@@ -137,14 +151,17 @@ def main():
     ap.add_argument("--change", choices=["attribute", "backfill"], default="attribute")
     a = ap.parse_args()
     if a.valgrind:
-        timed, _ = run(a.service, a.store, massif=a.valgrind, change=a.change)
+        timed, _, _ = run(a.service, a.store, massif=a.valgrind, change=a.change)
         print("under massif:", {k: round(v, 1) for k, v in timed.items()})
         return
     load = pathlib.Path("/proc/loadavg").read_text().split()[0]
     print(f"{pathlib.Path(a.store).name}, the change: {a.change}, load average at the start {load}")
     for i in range(a.runs):
-        timed, out = run(a.service, a.store, change=a.change)
+        timed, used, out = run(a.service, a.store, change=a.change)
         print(f"run {i + 1}: " + ", ".join(f"{k} {v:.1f} s" for k, v in timed.items()))
+        for name, (user, system, read, wrote) in used.items():
+            print(f"  {name:14} CPU {user:6.1f} s user {system:6.1f} s system   read {read / 2**20:8.1f} MiB   "
+                  f"wrote {wrote / 2**20:8.1f} MiB")
         for name, (peak, last) in out.items():
             print(f"  {name:14} peak {peak:8.1f} MiB   last {last:8.1f} MiB")
 
