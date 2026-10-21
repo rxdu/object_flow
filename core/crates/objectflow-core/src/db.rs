@@ -1,8 +1,9 @@
 //! The database the store reaches, behind one interface (ADR-0213 decision
 //! 2): the part of `rusqlite`'s the core uses, a connection, its statements
 //! and rows, its transactions and savepoints, written in SQL so each backend
-//! takes them, and the values bound and read. SQLite is its one backend
-//! until PostgreSQL's lands behind it; nothing outside this module names
+//! takes them, and the values bound and read. Its backends are SQLite and
+//! PostgreSQL, the store's SQL written for SQLite and translated for
+//! PostgreSQL by `to_postgres`; nothing outside this module names
 //! `rusqlite`, which `a_store_names_no_database_but_through_db` holds.
 
 use std::collections::BTreeSet;

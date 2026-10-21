@@ -193,7 +193,7 @@ A numeric field's declared unit is metadata in `of_declaration`, not a column, s
 | `ref`/`part`, the derived end | **nothing** | **nothing** | it is a query against the other end's index |
 | `counter` | `BIGINT NOT NULL DEFAULT 0` | `INTEGER NOT NULL DEFAULT 0` | non-negativity is an invariant the type declares, not a property of the column (ADR-0072) |
 | `derive`, not indexed | **nothing** | **nothing** | evaluated on read |
-| `derive`, indexed | generated column + index | generated column + index | §3.4 |
+| `derive`, indexed | generated column + index | generated column + index | §3.4; *as built, none on either backend, a query computing it for each object (§3.4's note)* |
 | a scalar marked `indexed`, or an external identifier | column + index | column + index | a filter by it, and an external identifier's uniqueness, which every import and publish checks, read through the index, not the table whole (D593, D606); a store opened that lacks one is given it |
 
 *(Corrected 2026-10-21: the PostgreSQL column gave `bool` as `BOOLEAN`, `decimal(p,s)` as `NUMERIC(p,s)`, `timestamp` as `TIMESTAMPTZ` and `date` as `DATE`. The backend ADR-0213 built holds each as SQLite does, an `INTEGER` as `BIGINT` (`store.rs`'s `sql_type`, `db.rs`'s `to_postgres`), so a timestamp is ISO-8601 text on both and orders as text does. The row for an indexed derived attribute is not built on either backend: no generated column is made, which `TODO.md` records to settle.)*
@@ -270,6 +270,8 @@ CREATE INDEX t_stock_available_ix ON t_stock (available);
 This is the case ADR-0048 allows: a derivation over stored indexed columns of the same object, with no aggregate and no clock. The database computes it and **refuses to let anyone write it**; attempting to produces `cannot UPDATE generated column`, verified. So "derived attributes are never stored, evaluated on read" stops being a discipline the runtime has to keep, and becomes something the storage layer enforces on it.
 
 A derivation that reads a clock or another object gets no column. That is why a time-dependent predicate is answered by filtering the stored operand it compares against `now` instead (ADR-0048). Where that operand is when a tracked value was entered — `entered_at(unit) + 14 days <= now` — it is `of_interval.entered_at`, stored and indexed, and `query` joins to it (ADR-0084).
+
+*(As built, checked 2026-10-21: neither backend makes a generated column or an index for an indexed derivation, nor rewrites a filter on one to its stored operand. What `indexed` does is checked by both checkers: a rule's type scan may read the attribute (check 7), and the derivation reads only this object's stored, indexed values and no clock (check 46). A query may filter on any derived attribute, indexed or not, computing it for each object it reads, a page at a time; such a query reads its type whole and waits among the analytics, never in a worklist's slot (`reads.rs`, `query_scans`). The generated column and the operand's join stay this section's design, to build when a measured query needs them (`TODO.md`); results are the same either way, only a query's cost differs. A publish's report lists `queryable_derives` among what it does not compute, so which derivations a query reads cheaply is not reported either.)*
 
 ## 4. The event payload
 
