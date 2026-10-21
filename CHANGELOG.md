@@ -12,6 +12,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 - A transition from a state sets what its target state requires by a `deny` guard of its own on `<attribute> is not null` among its condition's top-level `and` terms, where its effect neither clears nor assigns the attribute; both checkers accept it, and the finding names it as a way to meet the rule. A flow they refused may now pass, none they passed is refused (ADR-0227).
 
+### Fixed
+
+- A version whose backfill writes every object of a type is approved in time that grows with the store, where it grew with the square of the objects it wrote: three steps each sought every object's id in a list naming every one, now a lookup. On the six-year profile store, 108,616 objects, such an approval, which holds writes for its whole run, took 16.3 s where it took 32.5 s, and its dry run 10.2 s where it took 13.1 s; a version writing no object is as fast as it was.
+
 ## 0.5.1, 2026-10-21
 
 A patch release of 0.5.0 (ADR-0214): certificate verification updated past three advisories, a deployment's new object ids made UUIDv7s as ADR-0018 and ADR-0077 decided, an id's form being opaque and so no promised outcome (ADR-0180 decision 6), and a restored file's refusal saying to restore the copy alone. A store of 0.5.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that changes nothing in it but its release, every id it holds kept.

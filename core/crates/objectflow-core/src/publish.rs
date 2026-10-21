@@ -231,9 +231,12 @@ pub fn prepare(world: &World<'_>, change: &str, actor: &str) -> Result<Option<Pr
     }))
 }
 
-/// Findings gathered by category, in the order first met.
+/// Findings gathered by category, in the order first met, with the ids each
+/// already names, by its place, so that naming one more is a lookup and not
+/// a search of its list: a backfill names every object of its type under one
+/// finding, which a search made quadratic in them.
 #[derive(Debug, Default)]
-struct Found(Vec<Finding>);
+struct Found(Vec<Finding>, BTreeMap<usize, BTreeSet<String>>);
 
 impl Found {
     fn add(
@@ -244,23 +247,29 @@ impl Found {
         id: Option<&str>,
     ) {
         let message = message.into();
-        let f = match self.0.iter_mut().find(|f| f.code == code) {
-            Some(f) => f,
+        let Found(findings, named) = self;
+        let at = match findings.iter().position(|f| f.code == code) {
+            Some(at) => at,
             None => {
-                self.0.push(Finding {
+                findings.push(Finding {
                     severity,
                     code,
                     message,
                     affected: Vec::new(),
                 });
-                let last = self.0.len() - 1;
-                &mut self.0[last]
+                findings.len() - 1
             }
         };
-        if let Some(id) = id
-            && !f.affected.iter().any(|a| a == id)
-        {
-            f.affected.push(id.to_string());
+        if let Some(id) = id {
+            let f = &mut findings[at];
+            // seeded from the list the first time, for a finding pushed
+            // whole rather than added
+            let named = named
+                .entry(at)
+                .or_insert_with(|| f.affected.iter().cloned().collect());
+            if named.insert(id.to_string()) {
+                f.affected.push(id.to_string());
+            }
         }
     }
 }
@@ -499,7 +508,7 @@ fn simulate_checked(
     match impact(world, draft, found, report.clone(), installing) {
         // a read of the store that failed is not a rule that cannot run
         Err(NotRun::Unsupported(e)) if refused => {
-            let mut found = Found(checked);
+            let mut found = Found(checked, BTreeMap::new());
             found.add(
                 Severity::Notice,
                 "not_computed".into(),
@@ -1501,6 +1510,44 @@ types:
 
     fn ids(r: &PublishReport, code: &str) -> Vec<String> {
         r.affected().get(code).cloned().unwrap_or_default()
+    }
+
+    /// A finding names each object once, in the order first named, whether
+    /// it was added a name at a time or pushed whole with its list: the set
+    /// that makes naming one a lookup keeps the list's order and nothing more.
+    #[test]
+    fn a_finding_names_each_object_once_in_the_order_first_named() {
+        let mut found = Found(
+            vec![Finding {
+                severity: Severity::Notice,
+                code: "pushed".into(),
+                message: "pushed whole".into(),
+                affected: vec!["b".into()],
+            }],
+            BTreeMap::new(),
+        );
+        for id in ["c", "a", "c", "b", "a"] {
+            found.add(Severity::Notice, "added".into(), "added", Some(id));
+            found.add(Severity::Notice, "pushed".into(), "added", Some(id));
+        }
+        found.add(Severity::Notice, "added".into(), "added", None);
+        let named: Vec<(&str, Vec<&str>)> = found
+            .0
+            .iter()
+            .map(|f| {
+                (
+                    f.code.as_str(),
+                    f.affected.iter().map(String::as_str).collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            named,
+            [
+                ("pushed", vec!["b", "c", "a"]),
+                ("added", vec!["c", "a", "b"])
+            ]
+        );
     }
 
     /// A refused approval is a row of the attempt log, its transition

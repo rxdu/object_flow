@@ -4305,11 +4305,14 @@ impl Store {
             if category == "superseded" {
                 continue;
             }
-            let was: Vec<&str> = shown[&category]
+            // a set, each of the impact's ids looked up rather than sought
+            // in the list, which a backfill naming every object made
+            // quadratic in them
+            let was: BTreeSet<&str> = shown[&category]
                 .as_array()
                 .map(|a| a.iter().filter_map(serde_json::Value::as_str).collect())
                 .unwrap_or_default();
-            if ids.iter().any(|id| !was.contains(&id.as_str())) {
+            if ids.iter().any(|id| !was.contains(id.as_str())) {
                 return refused_with("impact_unchanged");
             }
         }
@@ -4540,24 +4543,44 @@ impl Store {
         let mut positions = vec![publish_position];
         change_set.writes.push((change_obj, false, publish_event));
         let affected = report.affected();
+        // each object's findings, in the report's order, gathered once: a
+        // search of every finding's list for each object of the store was
+        // quadratic in them where a backfill named every object of a type;
+        // a finding names an object once (`Found::add`)
+        let mut findings_of: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        for (code, ids) in &affected {
+            for id in ids {
+                findings_of
+                    .entry(id.as_str())
+                    .or_default()
+                    .push(code.as_str());
+            }
+        }
+        let codes_with = |id: &str, prefix: &str| -> Vec<&str> {
+            findings_of
+                .get(id)
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|code| code.starts_with(prefix))
+                .collect()
+        };
         let codes_of = |id: &str| -> Vec<String> {
-            affected
-                .iter()
+            findings_of
+                .get(id)
+                .into_iter()
+                .flatten()
                 // a mapping's, and a type change's setting a value aside, each
                 // recorded on the object's migration (the audit's write path
                 // A-06)
-                .filter(|(code, ids)| {
-                    (code.starts_with("mapping:") || code.starts_with("type_changed:"))
-                        && ids.iter().any(|i| i == id)
-                })
-                .map(|(code, _)| code.clone())
+                .filter(|code| code.starts_with("mapping:") || code.starts_with("type_changed:"))
+                .map(|code| code.to_string())
                 .collect()
         };
         let admitted_of = |id: &str| -> Vec<(String, String)> {
-            affected
-                .iter()
-                .filter(|(code, ids)| code.starts_with("invariant:") && ids.iter().any(|i| i == id))
-                .filter_map(|(code, _)| {
+            codes_with(id, "invariant:")
+                .into_iter()
+                .filter_map(|code| {
                     let inv = code.trim_start_matches("invariant:");
                     let (tn, name) = inv.rsplit_once('.')?;
                     m.admit
@@ -4574,12 +4597,9 @@ impl Store {
         // the standing admissions the version cures, each discharged on its
         // object's migration (D531)
         let discharged_of = |id: &str| -> Vec<String> {
-            affected
-                .iter()
-                .filter(|(code, ids)| {
-                    code.starts_with("discharged:") && ids.iter().any(|i| i == id)
-                })
-                .filter_map(|(code, _)| code.rsplit_once('.').map(|(_, n)| n.to_string()))
+            codes_with(id, "discharged:")
+                .into_iter()
+                .filter_map(|code| code.rsplit_once('.').map(|(_, n)| n.to_string()))
                 .collect()
         };
         let mut in_order: Vec<&Object> = objects.values().map(|o| &**o).collect();
