@@ -915,3 +915,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** A fixture that stands for what operators hold is kept, or set up in the test, as it is left in the field: a store with the files a stopped service leaves beside it, not a normalised copy. Where a fixture is normalised for keeping, the test restores the field's shape before it runs (here, an empty log beside the store, held by no one).
 - **Context:** ObjectFlow's upgrade fixtures (`tests/fixtures/release-*`), and any fixture that stands for a deployment's state on disk.
 
+### A checkpoint's busy answer is a row, not an error
+- **Pattern:** A deployment test folded a store's log into its file with `PRAGMA wal_checkpoint(TRUNCATE)` through `execute_batch`, then wrote zeroes over the file and expected `/health` to find it unreadable. The service under test was due a checkpoint of its own at its start, its predecessor killed with frames in its log; when the two met, the test's checkpoint answered busy in its result row, `execute_batch` discarded the row, and the service's checkpoint then wrote the store's pages, page 1 among them, back over the zeroes. `/health` answered 200 on one run of CI (2026-10-20) and passed in 60 runs here, idle and loaded. Probed: a checkpoint a reader blocks returns `(1, 4, 3)` and raises nothing.
+- **Correction:** Read `wal_checkpoint`'s row, `(busy, log, checkpointed)`, and repeat until it answers `(0, 0, ...)` with a deadline, asserting, wherever a test depends on the log being folded in. Generally: a precondition a test sets up by a statement whose failure is a value, not an error, is checked, not assumed.
+- **Context:** SQLite in WAL mode; any test that writes a store's file behind a running service.
+
+### A tag starts a second check, and a release is watched through it
+- **Pattern:** Releasing 0.5.0, I watched `check.yml` on the commit, tagged it, and watched `release.yml`, which passed. The tag push also started `check.yml` again on the same commit, which failed on a flaky test, and nothing watched it until the author asked why CI fails often (2026-10-21).
+- **Correction:** After pushing a tag, list every run on its commit (`gh run list --commit <sha>`) and watch each to its end; report the release only when all have passed, naming any that did not.
+- **Context:** GitHub Actions, where a workflow with `on: push` runs for a tag as for a branch.
+

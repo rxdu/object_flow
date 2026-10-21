@@ -975,9 +975,30 @@ fn the_ninth_reviews_start_and_health_edges_are_said() {
         "30 days",
     ]);
     assert!(!s.said().contains("no --attempt-retention"), "{}", s.said());
-    rusqlite::Connection::open(&file)
-        .and_then(|c| c.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)"))
-        .expect("the log folded in");
+    // folded in and emptied, waited for: the service's own cut-back is due
+    // at its start, the service before it killed with frames in its log, and
+    // a checkpoint meeting another answers busy in its row, not as an error;
+    // one ignored left the service's to write the store's pages back over
+    // the zeroes below, page 1 among them, and /health found the store whole
+    // (a run of CI, 2026-10-20)
+    let conn = rusqlite::Connection::open(&file).expect("the store");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let (busy, frames): (i64, i64) = conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .expect("a checkpoint");
+        if busy == 0 && frames == 0 {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the log never folded in: busy {busy}, {frames} frame(s)"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    drop(conn);
     {
         use std::io::{Seek, SeekFrom};
         let mut f = std::fs::OpenOptions::new()

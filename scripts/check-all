@@ -47,9 +47,11 @@ run() {
 run "core" env -u OBJECTFLOW_SANDBOX_POSTGRES CARGO="$CARGO" "$ROOT/core/scripts/check"
 if [ -n "${OBJECTFLOW_CHECK_POSTGRES:-}" ]; then
   # the harness one seed of each sample there, its fork a copy of the store's
-  # schema for every request it takes, where SQLite's run holds six
+  # schema for every request it takes, where SQLite's run holds six; each
+  # failing test's header and panic printed before the summary, which alone
+  # was kept, so a failure on CI named no test (2026-10-18)
   run "core on postgres" env OBJECTFLOW_SANDBOX_POSTGRES="$OBJECTFLOW_CHECK_POSTGRES" OBJECTFLOW_HARNESS_SEEDS=1 \
-    bash -c "cd '$ROOT/core' && '$CARGO' test -q --all-features 2>&1 | awk '/^test result/ {p += \$4; f += \$6; l = 0} /^failures:\$/ {l = 1} l && /^    [A-Za-z0-9_:]+\$/ {n = n \" \" \$1} END {print p \" passed, \" f \" failed on PostgreSQL\" (n ? \":\" n : \"\")}'; exit \${PIPESTATUS[0]}"
+    bash -c "cd '$ROOT/core' && out=\$(mktemp) && { '$CARGO' test -q --all-features > \"\$out\" 2>&1; rc=\$?; { grep -E -A6 '^---- ' \"\$out\"; grep -E '^test .* FAILED|^error' \"\$out\"; } | head -80; awk '/^test result/ {p += \$4; f += \$6; l = 0} /^failures:\$/ {l = 1} l && /^    [A-Za-z0-9_:]+\$/ {n = n \" \" \$1} END {print p \" passed, \" f \" failed on PostgreSQL\" (n ? \":\" n : \"\")}' \"\$out\"; rm -f \"\$out\"; exit \$rc; }"
 else
   skipped+=("core on postgres")
 fi
