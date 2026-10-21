@@ -8,7 +8,7 @@
 
 People and agents move business objects only along declared transitions. Every change is checked against the flow's rules, recorded with who made it, and measured from the first request.
 
-> **Status: pre-1.0, ready to pilot.** The engine runs as an HTTP service on one SQLite file or a PostgreSQL database, and is released for piloting a flow on one machine. Until 1.0.0 a release may still change the API and the flow format, each change listed in the [changelog](CHANGELOG.md). See [status and limits](#status-and-limits).
+> **Status: pre-1.0, ready to pilot, not yet for production.** The engine runs as an HTTP service on one SQLite file or a PostgreSQL database, and is released for piloting a flow on one machine. Until 1.0.0 a release may still change the API and the flow format, each change listed in the [changelog](CHANGELOG.md). See [status and limits](#status-and-limits).
 
 ```mermaid
 flowchart LR
@@ -231,6 +231,7 @@ ObjectFlow runs as an internal service beside your applications, one per store, 
 | Piloting a flow on one machine, on SQLite or PostgreSQL | Several writing instances, or a second service standing by |
 | Upgrading a store to a newer release in place | Authentication: whoever reaches the service can act as any actor, by design, so it sits behind your application |
 | Reads answered beside writes, in pages | Recovery of more than the last backup holds |
+| Publishing a flow's next version through review and approval | Writes while an approval runs: it holds them until it ends |
 | Health and metrics for operators, and backups taken while it serves | The promise a release keeps from 1.0.0 on the API, the flow format and the store's upgrade |
 
 The limits a production accepts are in [`SECURITY.md`](SECURITY.md), what a release promises in [ADR-0180](docs/adr/0180-what-a-release-promises.md), and why releases are 0.x until then in [ADR-0214](docs/adr/0214-a-release-before-1-0-0.md). [`TODO.md`](TODO.md) says exactly where the work stands.

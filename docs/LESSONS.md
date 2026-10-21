@@ -925,3 +925,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** After pushing a tag, list every run on its commit (`gh run list --commit <sha>`) and watch each to its end; report the release only when all have passed, naming any that did not.
 - **Context:** GitHub Actions, where a workflow with `on: push` runs for a tag as for a branch.
 
+### A rewrite drops what TODO reserves to the author
+- **Pattern:** Rewriting the README at the author's request (2026-10-21), I replaced its status paragraph and dropped "not yet for production", which `TODO.md` holds open as the author's decision at the release cut. Nothing failed; the item was found the same day while addressing TODO's open items, and the phrase restored. The search below then found a second: one of ADR-0204 §10's four limits, an approval holding writes, which a closed item requires the README to state, dropped from the new limits table and restored.
+- **Correction:** Before rewriting a document, search `TODO.md` and the ADRs for items naming it or a phrase in it (`grep -n "README" TODO.md`), and carry every statement an open item reserves to the author into the new text unchanged, saying so in the commit.
+- **Context:** Any document rewrite in a repository whose decisions are tracked in `TODO.md` and ADRs; the README especially, which many items touch.
+
