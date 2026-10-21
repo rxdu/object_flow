@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — repair of D187 and D188, 2026-09-09; accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-09
-- **Refined by:** ADR-0090 — SQLite transactions begin `IMMEDIATE`; the mint has a pool of its own.
+- **Refined by:** ADR-0090 — SQLite transactions begin `IMMEDIATE`; the mint has a pool of its own. ADR-0225 — decision 1 as built: the sequence store is the store's own table, written by its one writer, the second connection kept for several writing instances.
 - **Refines:** ADR-0023, ADR-0029, ADR-0041
 
 ## Context
