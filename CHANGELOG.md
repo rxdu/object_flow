@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Security
+
+- Certificate verification is updated past three advisories published on 2026-10-19 and 2026-10-20, a distrusted intermediate or bundled root that could be trusted: `rustls-webpki` 0.103.16 (RUSTSEC-2026-0382), which verifies a PostgreSQL store's TLS connection and an evaluator's HTTPS, and `webpki-roots` 1.0.10 (RUSTSEC-2026-0381), the roots an evaluator's HTTPS trusts; `webpki-root-certs` 1.0.10 (RUSTSEC-2026-0383) too, which the Linux build does not compile in. 0.5.0's binary carries the earlier `rustls-webpki` and `webpki-roots`.
+
 ## 0.5.0, 2026-10-21
 
 A release before 1.0.0, as 0.4.0 was (ADR-0214), with the three issues filed since 0.4.0 fixed (#27 to #29), a metric's filter taking parameters, and a publish holding far less memory. A store of 0.4.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that changes nothing in it but its release, and on a file store a dry run and then the upgrade now run on one service, as `operate.md` has them (#27). An `unsatisfied` verdict gains an answer field, `inputs` (#28); nothing 0.4.0 accepted is refused.
