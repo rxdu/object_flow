@@ -59,6 +59,9 @@ export function App() {
   const [load, setLoad] = useState<LoadResult | null>(null);
   const [doc, setDoc] = useState<ExamplesDoc | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
+  // the type a module opens on: the one with the most transitions, its
+  // flow's main type rather than a part or a catalogue it lists first
+  const [main, setMain] = useState<string | null>(null);
   const [example, setExample] = useState<string | null>(null);
   const [diagram, setDiagram] = useState("");
   const [decl, setDecl] = useState<Declaration | null>(null);
@@ -118,8 +121,14 @@ export function App() {
   );
   // the types shown: the installed version's, else the module's
   const types = installed?.types ?? entry?.types ?? [];
-  // the type shown: the one picked, if the version declares it, else its first
-  const type = picked && types.includes(picked) ? picked : (types[0] ?? null);
+  // the type shown: the one picked, if the version declares it, else its
+  // main one, else its first
+  const type =
+    picked && types.includes(picked)
+      ? picked
+      : main && types.includes(main)
+        ? main
+        : (types[0] ?? null);
 
   useEffect(() => {
     if (!chosen) return;
@@ -133,6 +142,23 @@ export function App() {
       if (!live) return;
       setBundle(b);
       setLoad(result);
+      if (result.loaded) {
+        const counted = await Promise.all(
+          result.types.map((t) =>
+            wire
+              .declaration(t)
+              .then(
+                (d) => [t, Object.keys(d.transitions ?? {}).length] as const,
+              ),
+          ),
+        );
+        if (!live) return;
+        const most = counted.reduce<readonly [string, number] | null>(
+          (best, c) => (best === null || c[1] > best[1] ? c : best),
+          null,
+        );
+        setMain(most?.[0] ?? null);
+      }
       const examples = (b.examples?.doc ?? null) as ExamplesDoc | null;
       setDoc(examples);
       setExample(
@@ -185,6 +211,8 @@ export function App() {
     setActor(OPERATOR);
     setLast(null);
     setPlayer(null);
+    setMain(null);
+    setPicked(null);
     setChosen(next);
   };
 
@@ -224,15 +252,16 @@ export function App() {
       <section>
         <h2 className="label">{title}</h2>
         {ms.length === 0 && (
-          <p className="text-xs text-slate-400">
-            Nothing yet: copy a module here to edit it.
+          <p className="px-2 text-xs leading-relaxed text-slate-500">
+            Nothing yet. Open one of the design's modules, then <em>Edit</em>{" "}
+            and <em>Copy to the workspace to edit</em>.
           </p>
         )}
-        <ul>
+        <ul className="space-y-0.5">
           {ms.map((m) => (
             <li key={`${m.source}:${m.file}`}>
               <button
-                className={`w-full rounded px-2 py-1 text-left text-sm ${same(chosen, m) ? "bg-slate-200" : "hover:bg-slate-100"}`}
+                className={`w-full rounded-md border-l-2 px-2 py-1 text-left text-sm transition-colors ${same(chosen, m) ? "border-indigo-600 bg-indigo-50 font-medium text-indigo-900" : "border-transparent text-slate-700 hover:bg-slate-100"}`}
                 onClick={() => choose({ file: m.file, source: m.source })}
               >
                 {m.file}
@@ -248,44 +277,64 @@ export function App() {
   };
 
   return (
-    <div className="min-h-full bg-stone-50 text-slate-900">
-      <header className="flex items-baseline gap-3 border-b border-slate-200 bg-white px-4 py-2">
-        <h1 className="text-lg font-semibold">Flow Studio</h1>
-        <span className="text-sm text-slate-500">
-          ObjectFlow's flows, edited, run and measured
-        </span>
-        {backend && (
-          <span
-            className="ml-auto rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700"
-            title={backend.service ?? "the Python reference runner"}
-            data-testid="backend"
-          >
-            {backend.backend === "core"
-              ? "backend: the Rust core"
-              : "backend: the reference runner"}
+    <div className="flex h-full flex-col bg-slate-50 text-slate-900">
+      <header className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-5 py-3 shadow-sm">
+        <Mark />
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-lg font-semibold tracking-tight">Flow Studio</h1>
+          <span className="hidden text-sm text-slate-500 sm:inline">
+            ObjectFlow's flows, edited, run and measured
           </span>
-        )}
+        </div>
+        <div className="ml-auto flex items-center gap-3">
+          {backend && (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700"
+              title={backend.service ?? "the Python reference runner"}
+              data-testid="backend"
+            >
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              {backend.backend === "core"
+                ? "backend: the Rust core"
+                : "backend: the reference runner"}
+            </span>
+          )}
+          <a
+            className="text-sm text-slate-500 hover:text-indigo-700"
+            href="https://github.com/rxdu/object_flow/tree/main/apps/flow-studio#readme"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Guide
+          </a>
+        </div>
       </header>
       {error && (
-        <p className="m-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800">
+        <p className="mx-5 mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
         </p>
       )}
-      <main className="grid gap-4 p-4 lg:grid-cols-[14rem_minmax(0,1fr)_minmax(0,28rem)]">
-        <nav className="space-y-4">
+      <main className="grid min-h-0 flex-1 gap-5 p-5 lg:grid-cols-[16rem_minmax(0,1fr)_minmax(0,28rem)]">
+        <nav className="space-y-5 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
           {list("workspace", "Your workspace")}
           {list("design", "The design's modules")}
           {doc && (
             <section>
-              <h2 className="label">Examples</h2>
-              <ul className="max-h-96 overflow-y-auto">
+              <h2 className="label">
+                Examples{" "}
+                <span className="font-normal text-slate-400">
+                  {Object.keys(doc.examples ?? {}).length}
+                </span>
+              </h2>
+              <ul className="space-y-0.5">
                 {Object.keys(doc.examples ?? {}).map((name) => (
                   <li key={name}>
                     <button
-                      className={`w-full rounded px-2 py-0.5 text-left font-mono text-xs break-all ${name === example ? "bg-slate-200" : "hover:bg-slate-100"}`}
+                      className={`w-full rounded-md border-l-2 px-2 py-1 text-left text-sm leading-snug transition-colors ${name === example ? "border-indigo-600 bg-indigo-50 text-indigo-900" : "border-transparent text-slate-600 hover:bg-slate-100"}`}
+                      title={name}
                       onClick={() => setExample(name)}
                     >
-                      {name}
+                      {readable(name)}
                     </button>
                   </li>
                 ))}
@@ -294,12 +343,12 @@ export function App() {
           )}
         </nav>
 
-        <section className="min-w-0 space-y-4">
+        <section className="min-w-0 space-y-4 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
           <div className="flex gap-1 border-b border-slate-200">
             {(["view", "edit"] as const).map((t) => (
               <button
                 key={t}
-                className={`-mb-px border-b-2 px-3 py-1 text-sm ${tab === t ? "border-slate-800 font-medium" : "border-transparent text-slate-500"}`}
+                className={`-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors ${tab === t ? "border-indigo-600 font-medium text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-800"}`}
                 onClick={() => setTab(t)}
               >
                 {t === "view" ? "View" : "Edit"}
@@ -327,7 +376,7 @@ export function App() {
               {types.map((t) => (
                 <button
                   key={t}
-                  className={`rounded-full px-3 py-0.5 text-sm ${t === type ? "bg-slate-800 text-white" : "bg-white ring-1 ring-slate-300"}`}
+                  className={`rounded-full px-3 py-1 text-sm transition-colors ${t === type ? "bg-indigo-600 text-white shadow-sm" : "bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50"}`}
                   onClick={() => setPicked(t)}
                 >
                   {t}
@@ -374,18 +423,19 @@ export function App() {
           {tab === "view" && (
             <>
               {diagram && (
-                <div className="rounded border border-slate-200 bg-white p-3">
+                <div className="card">
+                  <h2 className="label">Lifecycle of {type}</h2>
                   <Diagram source={diagram} />
                 </div>
               )}
               {decl && (
-                <div className="rounded border border-slate-200 bg-white p-3">
+                <div className="card">
                   <h2 className="label">Rules of {type}</h2>
                   <RuleSet decl={decl} />
                 </div>
               )}
               {decl && type && load?.loaded && (
-                <div className="rounded border border-slate-200 bg-white p-3">
+                <div className="card">
                   <h2 className="label">
                     Metrics of {type}, over every object
                   </h2>
@@ -402,9 +452,9 @@ export function App() {
           )}
         </section>
 
-        <aside className="min-w-0 space-y-4">
+        <aside className="min-w-0 space-y-4 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
           {doc && example && load?.loaded && (
-            <div className="rounded border border-slate-200 bg-white p-3">
+            <div className="card">
               <h2 className="label">Simulation</h2>
               <Stepper
                 key={`${chosen?.source}:${chosen?.file}/${example}`}
@@ -418,7 +468,7 @@ export function App() {
             </div>
           )}
           {player && load?.loaded && (
-            <div className="rounded border border-slate-200 bg-white p-3">
+            <div className="card">
               <h2 className="label">Free play</h2>
               <p className="mb-3 text-xs text-slate-500">
                 From wherever the sandbox stands: after an example's steps, or
@@ -445,7 +495,7 @@ export function App() {
               />
               {last && (
                 <p
-                  className={`mt-3 rounded px-2 py-1 text-sm ${last.kind === "satisfied" ? "bg-emerald-50" : "bg-amber-50"}`}
+                  className={`mt-3 rounded-md px-3 py-2 text-sm ${last.kind === "satisfied" ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-900"}`}
                 >
                   {explain(last)}
                   {"remedy" in last && last.remedy ? ` · ${last.remedy}` : ""}
@@ -454,7 +504,7 @@ export function App() {
             </div>
           )}
           {player && selected && (
-            <div className="rounded border border-slate-200 bg-white p-3">
+            <div className="card">
               <h2 className="label">What {selected} offers</h2>
               <Offers
                 wire={wire}
@@ -466,7 +516,7 @@ export function App() {
               />
             </div>
           )}
-          <div className="rounded border border-slate-200 bg-white p-3">
+          <div className="card">
             <h2 className="label">Objects</h2>
             <Objects
               wire={wire}
@@ -479,5 +529,35 @@ export function App() {
         </aside>
       </main>
     </div>
+  );
+}
+
+/** An example's name as a sentence, `a_job_opens` as "A job opens"; the
+ * name itself is the button's title. */
+function readable(name: string): string {
+  const words = name.replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The studio's mark: a flow's states joined by its transitions. */
+function Mark() {
+  return (
+    <svg
+      viewBox="0 0 32 32"
+      className="h-7 w-7 shrink-0"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect width="32" height="32" rx="8" className="fill-indigo-600" />
+      <path
+        d="M9 16h6m4 0h4"
+        className="stroke-indigo-200"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <circle cx="8" cy="16" r="3" className="fill-white" />
+      <rect x="14" y="12" width="6" height="8" rx="2" className="fill-white" />
+      <circle cx="24.5" cy="16" r="3" className="fill-emerald-300" />
+    </svg>
   );
 }

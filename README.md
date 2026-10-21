@@ -186,6 +186,12 @@ curl -s $OF/v1/request -H 'Content-Type: application/json' \
 
 The refusal names the rule, what to do about it, and the input to fix. The [quickstart](docs/guides/quickstart.md) goes on from here: actors, history, metrics.
 
+## The Flow Studio
+
+The example application built on the engine: open a flow, step through its examples against a live sandbox, see what every object may do next and why, edit the flow with the checker reading as you type, and dry-run a new version over the objects you made. It reaches the engine only through its HTTP operations, as any application would. See [its guide](apps/flow-studio/README.md).
+
+[![The Flow Studio running an example of the service flow](apps/flow-studio/docs/images/run-an-example.png)](apps/flow-studio/README.md)
+
 ## Where it sits
 
 ```mermaid

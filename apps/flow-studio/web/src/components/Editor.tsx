@@ -234,7 +234,7 @@ export function Editor({
         </ul>
       )}
       {diagram && (
-        <div className="rounded border border-slate-200 bg-white p-3">
+        <div className="card">
           <Diagram source={diagram} />
         </div>
       )}

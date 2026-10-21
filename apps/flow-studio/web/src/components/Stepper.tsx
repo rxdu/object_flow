@@ -49,7 +49,10 @@ export function Stepper({
   // render, where `done` would still be the render's
   const next = useRef(0);
   const [done, setDone] = useState<Done[]>([]);
-  const [outcome, setOutcome] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<{
+    holds: boolean;
+    text: string;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const begin = useCallback(
@@ -102,13 +105,14 @@ export function Stepper({
         const problem = await p.compare(ps.expect, v, ps.step);
         setOutcome(
           problem
-            ? `Does not do what it claims: ${problem}`
-            : "Does what the example claims.",
+            ? { holds: false, text: `Does not do what it claims: ${problem}` }
+            : { holds: true, text: "Does what the example claims." },
         );
       } else if (ps.kind === "step" && d.status === "refused") {
-        setOutcome(
-          "A setup step is refused, so the example cannot be what it claims.",
-        );
+        setOutcome({
+          holds: false,
+          text: "A setup step is refused, so the example cannot be what it claims.",
+        });
       }
     } catch (e) {
       if (e instanceof Waiting) d = { status: "waiting", note: e.message };
@@ -136,7 +140,7 @@ export function Stepper({
 
   return (
     <section className="space-y-3">
-      <p className="text-sm text-slate-700">
+      <p className="text-sm leading-relaxed text-slate-700">
         {doc.examples[example]?.description}
       </p>
       <div className="flex flex-wrap items-center gap-2">
@@ -165,48 +169,98 @@ export function Stepper({
           now {now}
         </span>
       </div>
-      <ol className="space-y-1">
+      <ol className="space-y-1.5">
         {steps.map((ps, i) => {
           const d = done[i];
+          const look = d ? STATUS[d.status] : NEXT;
           return (
             <li
               key={i}
-              className={`rounded px-2 py-1 text-sm ${d ? STATUS[d.status] : "text-slate-400"}`}
+              className={`rounded-md border-l-4 px-3 py-1.5 text-sm ${look.row}`}
             >
-              <div className="flex gap-2">
-                <span className="w-16 shrink-0 text-xs uppercase tracking-wide">
+              <div className="flex items-start gap-2">
+                <span
+                  className={`mt-0.5 inline-flex w-22 shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase ${look.badge}`}
+                >
+                  <span aria-hidden="true">{look.icon}</span>
                   {d?.status ?? "next"}
                 </span>
-                <span>
+                <span className="min-w-0">
                   {ps.label}
                   {ps.kind !== "evaluators" && (
-                    <span className="ml-2 font-mono text-xs">
+                    <span className="ml-2 font-mono text-xs break-words">
                       {summary(ps.step)}
                     </span>
                   )}
                 </span>
               </div>
               {d?.verdict && (
-                <div className="ml-18 text-xs">{explain(d.verdict)}</div>
+                <div className="mt-0.5 ml-24 text-xs">{explain(d.verdict)}</div>
               )}
-              {d?.note && <div className="ml-18 text-xs">{d.note}</div>}
+              {d?.note && <div className="mt-0.5 ml-24 text-xs">{d.note}</div>}
             </li>
           );
         })}
       </ol>
       {outcome && (
-        <p className="rounded bg-slate-100 px-2 py-1 text-sm">{outcome}</p>
+        <p
+          className={`flex items-start gap-2 rounded-md px-3 py-2 text-sm font-medium ${outcome.holds ? "bg-emerald-100 text-emerald-900" : "bg-red-100 text-red-900"}`}
+        >
+          <span aria-hidden="true">{outcome.holds ? "✓" : "✕"}</span>
+          {outcome.text}
+        </p>
       )}
     </section>
   );
 }
 
-const STATUS: Record<Done["status"], string> = {
-  applied: "bg-emerald-50 text-emerald-900",
-  answered: "bg-slate-50 text-slate-700",
-  imported: "bg-emerald-50 text-emerald-900",
-  refused: "bg-amber-50 text-amber-900",
-  waiting: "bg-sky-50 text-sky-900",
-  "not run": "bg-violet-50 text-violet-900",
-  fault: "bg-red-50 text-red-900",
+/** How a step's row and badge look, by what became of it. */
+interface Look {
+  row: string;
+  badge: string;
+  icon: string;
+}
+
+const NEXT: Look = {
+  row: "border-slate-200 bg-white text-slate-500",
+  badge: "bg-slate-100 text-slate-500",
+  icon: "·",
+};
+
+const STATUS: Record<Done["status"], Look> = {
+  applied: {
+    row: "border-emerald-500 bg-emerald-50 text-emerald-950",
+    badge: "bg-emerald-100 text-emerald-800",
+    icon: "✓",
+  },
+  answered: {
+    row: "border-slate-400 bg-slate-50 text-slate-700",
+    badge: "bg-slate-200 text-slate-700",
+    icon: "✓",
+  },
+  imported: {
+    row: "border-emerald-500 bg-emerald-50 text-emerald-950",
+    badge: "bg-emerald-100 text-emerald-800",
+    icon: "↓",
+  },
+  refused: {
+    row: "border-amber-500 bg-amber-50 text-amber-950",
+    badge: "bg-amber-100 text-amber-800",
+    icon: "✕",
+  },
+  waiting: {
+    row: "border-sky-500 bg-sky-50 text-sky-950",
+    badge: "bg-sky-100 text-sky-800",
+    icon: "…",
+  },
+  "not run": {
+    row: "border-violet-500 bg-violet-50 text-violet-950",
+    badge: "bg-violet-100 text-violet-800",
+    icon: "−",
+  },
+  fault: {
+    row: "border-red-500 bg-red-50 text-red-950",
+    badge: "bg-red-100 text-red-800",
+    icon: "!",
+  },
 };

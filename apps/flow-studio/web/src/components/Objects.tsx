@@ -80,19 +80,24 @@ export function Objects({
         : JSON.stringify(v);
 
   if (objects.length === 0)
-    return <p className="text-sm text-slate-500">No object named yet.</p>;
+    return (
+      <p className="text-sm leading-relaxed text-slate-500">
+        No object yet. Run an example's steps, or make one under{" "}
+        <em>Free play</em>.
+      </p>
+    );
   return (
     <div className="space-y-3">
       <ul className="space-y-1">
         {objects.map(([alias, o]) => (
           <li key={o.id}>
             <button
-              className={`w-full rounded px-2 py-1 text-left text-sm ${selected === o.id ? "bg-slate-200" : "hover:bg-slate-100"}`}
+              className={`w-full rounded-md border-l-2 px-2 py-1.5 text-left text-sm transition-colors ${selected === o.id ? "border-indigo-600 bg-indigo-50" : "border-transparent hover:bg-slate-100"}`}
               onClick={() => onSelect(o.id)}
             >
               <span className="font-mono">{alias}</span>{" "}
               <span className="text-slate-500">{o.type}</span>{" "}
-              <span className="rounded bg-slate-700 px-1 text-xs text-white">
+              <span className="rounded-full bg-slate-700 px-2 py-0.5 text-[11px] font-medium tracking-wide text-white">
                 {o.state}
               </span>
               <div className="font-mono text-xs break-all text-slate-600">

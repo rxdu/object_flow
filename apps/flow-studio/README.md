@@ -1,79 +1,124 @@
 # Flow Studio
 
-An editor, viewer and simulator of flows, the first application built on ObjectFlow: the test case that follows the engine's implementation, and a sample of building on it. Its design is [`docs/design/flow-studio.md`](../../docs/design/flow-studio.md); its decisions are ADR-0149 and ADR-0150.
+**Edit, run and measure ObjectFlow flows in the browser.**
 
-It talks to the engine only through the engine's operations, `POST /v1/<operation>`, and a sandbox's controls, `POST /sandbox/<control>`, so the backend behind it can change: the Python reference runner, or the Rust core.
+The Flow Studio is the example application built on the engine. Open a flow, step through its examples against a live sandbox, see what every object may do next and why, edit the flow with the checker reading over your shoulder, and dry-run a new version over the objects you made. It reaches the engine only through the engine's own HTTP operations, so it is also a working sample of building on ObjectFlow.
 
-## Running it
+![The Flow Studio running an example of the service flow: the lifecycle of a service job, and each step of the example applied or refused](docs/images/run-an-example.png)
 
-Once the server's environment and the front end's packages are in place (below):
+## What you can do
+
+### Run an example, step by step
+
+Every flow ships with examples: short scenarios that set objects up, make a request and say what should happen. Choose one and *Step* through it, or *Run to the end*. Each step shows whether the engine applied or refused it and why, and the example ends saying whether the flow does what it claims. Above, a job cannot be reassigned to an engineer who has left: the request is refused by the rule `engineer_active`, with what to do about it, and the example holds.
+
+### See what an object offers
+
+Choose any object and the engine says, for each of its transitions, whether it is available now, available once you give it inputs, or not available and why. *Take* runs it, as whoever *acting as* names; *Propose* files it for someone else to approve where the flow allows. Free play goes on from wherever the sandbox stands, with the clock in your hands.
+
+<p align="center"><img src="docs/images/offers.png" width="440" alt="What a service job offers: each transition available, available with input, or unavailable with the reason"></p>
+
+### Edit a flow, checked as you type
+
+Copy a design module into your workspace and edit it as YAML. The flow checker reads it as you type and marks every finding against its line; a flow it finds wrong cannot be loaded. *Load into the sandbox* starts free play on your version, and a session you played can be saved as a new example, written only once the checker runs it and finds it holds.
+
+![Editing a copy of the service flow: a key the format does not have, underlined, and the checker's finding below the editor](docs/images/edit-a-flow.png)
+
+### Publish a new version, dry run first
+
+Choose a version under *Publish a version* and *Dry run*: the engine reports what the change would do to the objects you have, every notice the checker raises, each invariant the version could break and which transitions could break it, before anything changes. *Publish* then installs it and migrates the objects, each with its migration in its history.
+
+<p align="center"><img src="docs/images/publish-dry-run.png" width="440" alt="A dry run of the service flow's second version: notices, a backfill reaching one object, and the invariants it could break"></p>
+
+## Quick start
+
+You need Python 3.10 or later, Node with corepack, and [rustup](https://rustup.rs), which installs the Rust toolchain the engine pins on the first build. From the repository's root, once:
 
 ```sh
-apps/flow-studio/scripts/dev          # the backend config.json names
-apps/flow-studio/scripts/dev runner   # or name one: runner or core
+python3 -m venv apps/flow-studio/server/.venv
+apps/flow-studio/server/.venv/bin/pip install -r apps/flow-studio/server/requirements-dev.txt
+(cd apps/flow-studio/web && corepack pnpm install)
 ```
 
-It starts the studio's server, waits until it answers, which takes longer the first time the core is built, prints the page's address, `http://127.0.0.1:<web_port>`, and runs the front end's development server. Ctrl-C stops both, and the core's service with them. The page's header says which backend answers.
-
-## Running a module's examples on the core
+Then start it:
 
 ```sh
-apps/flow-studio/scripts/examples-on-core people.yaml service.yaml service.examples.yaml
+apps/flow-studio/scripts/dev
 ```
 
-The core's counterpart of the flow checker's step 6, which runs examples on the reference runner: it builds the core's service, starts it on a free port, plays every example of the examples file given last through it, the modules before it in import order, and prints each that does not pass with why. It needs the server's environment, below, and exits 1 if any example fails.
+The first start builds the engine, which takes a few minutes. The script prints the page's address, `http://127.0.0.1:5711`; Ctrl-C stops everything it started. The page opens on the first module with examples; choose `service.yaml` to follow the tour above.
 
-## Testing it by hand
+## How it fits together
 
-Each walk below was driven in a browser against both backends on 2026-10-09, with no page error, and says what each step should show, so a difference is a finding. Start each from a fresh page, or *Reset* under *Simulation*, which empties the sandbox. Where the backends word a step differently, both are given.
+```mermaid
+flowchart LR
+    page["The page<br/>React and TypeScript"]
+    studio["The studio's server<br/>modules · flow checker · diagrams"]
+    core["The engine<br/>its Rust service, a sandbox"]
+    runner["The reference runner<br/>the engine's Python oracle"]
+    page -->|"/studio"| studio
+    page -->|"/v1 · /sandbox"| studio
+    studio -->|"forwarded unchanged"| core
+    studio -.->|"or, with --backend runner"| runner
+    classDef engine fill:#eef4ff,stroke:#4f46e5,stroke-width:2px,color:#1e1b4b
+    class core engine
+```
 
-1. **An example.** Choose `service.yaml`, then the example `a_job_is_not_given_to_an_engineer_who_left`, and *Run to the end*, or *Step* through it. Each setup step reads APPLIED and *Applied.*; the request under test reads REFUSED, *engineer_active does not hold: supply or correct an input and try again.*; the panel ends *Does what the example claims.* `a_job_opens_for_an_active_engineer` ends the same way with its request APPLIED. The type tabs (`InspectionCheck`, `ServiceJob`) switch the diagram, the rule set and the metrics.
-2. **Free play.** *Reset*; under *Create* choose `User`, give a login and a name, and *Request*: *This session* reads *User.add Applied.* Choose `ServiceJob`, pick the user as its engineer, and *Request*. Choose the job under *Objects*: *What servicejob-2 offers* marks each transition available, available with input, or unavailable, and `finish` reads *Not available in OPEN; it is taken from another state.* *Take* `start`, which applies at once, as it takes no input; then *Take* `finish` and *Request* with the form left empty: refused, *The input signed_off_by is not valid: supply or correct an input and try again.* on the core, *An input is not valid: …* on the runner, which does not work out which input and says so on the wire. On the `ServiceJob` tab the metrics read `null` where a metric has no value yet, such as an average over no time worked. *acting as* chooses who sends each request, and *Advance* moves the sandbox's clock by the duration given: the `now` beside it and the *Simulation* panel's both read the new time, `2 h` taking `2026-01-01T00:00:00Z` to `2026-01-01T02:00:00Z`, and a request sent after it is stamped so in its object's history.
-3. **A proposal.** Choose `delivery.yaml`, then the example `an_approved_delivery_is_handed_over`, and *Step* six times, which applies its setup and leaves its request under test next. Choose the delivery under *Objects*: `complete` offers *Take* and *Propose*. *Propose* files it at once, as it takes no input: `proposal-5 Proposal PENDING` under *Objects*. Choose the proposal, which offers `approve`, `reject` and `withdraw`, and *Take* `approve`: *approve on proposal-5 Applied.*, the delivery DELIVERED and the proposal EXECUTED. A proposal filed before the delivery's checklist is ticked, after `opening_creates_the_checklist`, is refused on approval: *checklist_complete does not hold: another object must change first.*
-4. **An import.** Choose `servicedesk.yaml`; under *Import* choose `Employee`, the one mirror type, which *Create* does not list; give a legacy key, `E-17`, and its `employee_id`, and *Import*: *import Employee as E-17 imported*, and `E-17 Employee EMPLOYED` under *Objects*.
-5. **A publish.** With `service.yaml` loaded, a user created and a job opened for them (walk 2), choose `service-v2.yaml (design)` under *Publish a version* and *Dry run*. The report reads *service-v2.yaml as version 2: it may be approved*, then three notices, `check:migration`, `check:warn` and `mapping:backfill:ServiceJob.site`, the last reaching one object, the job; then the invariant `ServiceJob.photo_when_done · local`, *could be broken by ServiceJob.finish, ServiceJob.open, ServiceJob.start*, and the six metric dimensions naming a person. *Publish* installs it: *Installed; migrated, each with its migration in its history*, listing the job, whose history, on its choice, ends in a `migrate` row from OPEN to OPEN. *Withdraw* instead leaves the sandbox as it was.
-6. **An edit.** Choose `service.yaml` and *Edit*: *the design's module, read-only · the checker finds nothing wrong*. *Copy to the workspace to edit*: `service.yaml` appears under *Your workspace*; choose it there and *Edit*. Change a `from: OPEN` to `from: NOPE`: after a pause the status reads *1 finding*, the line is marked once scrolled into view, and *Load into the sandbox* is disabled. Put it right, then *Save*, *Saved service.yaml to the workspace.*, and *Load into the sandbox*, *Loaded into a fresh sandbox.*
-7. **A session saved as an example.** With the workspace's module loaded (walk 6), create a user in free play; under *Save the session as an example* describe it, *Draft it*, which shows the claim drafted from what the last request did, and *It should: save it*: *Saved to service.examples.yaml: the flow checker ran it, and it holds.*
+The page asks the studio's server for modules, the checker's findings and diagrams, and sends every engine operation, `POST /v1/<operation>` and a sandbox's `POST /sandbox/<control>`, through it to the engine unchanged. The header says which engine answers: the Rust core by default, or the Python reference runner the core is held to. Both answer the same operations, so the studio runs on either.
 
-Walks 6 and 7 write `service.yaml` and `service.examples.yaml` into the workspace, [`flows/`](flows/), which git does not track until they are added; delete them afterwards unless they are to be kept.
+## The flows it opens
 
-## The backends
+The design's modules, in [`docs/design/flow-format/examples/`](../../docs/design/flow-format/examples/), each with its examples:
 
-`backend` in [`config.json`](config.json) names the one the server starts with, and `--backend` overrides it:
+| Module | What it shows |
+|---|---|
+| `service.yaml` | a service job from opening to done: inspections, reassignment between engineers, handoffs measured |
+| `service-v2.yaml` | the same flow's next version, to dry-run and publish over `service.yaml`'s objects |
+| `approvals.yaml` | one approval lifecycle shared by purchase requests and expense claims |
+| `delivery.yaml` | handing a reserved item over to its customer, a checklist and proposals on the way |
+| `reimbursement.yaml` | staff expense claims and their lines: filed, reviewed, approved, recorded and paid, or returned, rejected or withdrawn |
+| `bookings.yaml` | test rigs booked for spans of time, no two bookings of a rig overlapping |
+| `customers.yaml` | personal data corrected and erased, and a customer that cannot close while an order is open |
+| `inventory.yaml`, `inventory-v2.yaml` | a robot held in stock, and a version that tightens its rules |
+| `issues.yaml` | Jira's work items, written in ObjectFlow's format |
+| `servicedesk.yaml` | Jira Service Management's IT service flows: requests, incidents, problems, changes |
+| `people.yaml` | the actors every flow above imports: people, agents and services |
 
-- **`core`**, the Rust core's service. The server builds it with the toolchain `core/rust-toolchain.toml` pins, starts it as its child on a free loopback port, and forwards every `/v1` and `/sandbox` call to it unchanged, but for a load, which the flow checker checks first as it does for the runner; the editor, the checker's findings and the diagrams stay the server's. It needs `~/.cargo/bin/cargo`, from rustup, which installs the toolchain the file pins on first use.
-- **`runner`**, the Python reference runner, the oracle the core is held to (ADR-0132 decision 2).
+The studio never edits these: it copies a module to your workspace, [`flows/`](flows/), to be edited there.
 
-## The server
+## Development
 
-Python's standard library over the repository's reference runner and flow checker, in a virtual environment holding the versions of PyYAML and jsonschema the scripts are pinned to (`scripts/requirements-dev.txt`), and pytest.
+**The backends.** `backend` in [`config.json`](config.json) names the one the server starts with, `core` or `runner`, and `apps/flow-studio/scripts/dev runner` overrides it. With `core`, the server builds the engine's service with the toolchain `core/rust-toolchain.toml` pins, starts it as its child on a free loopback port, and forwards every `/v1` and `/sandbox` call to it unchanged, but for a load, which the flow checker checks first as it does for the runner.
+
+**Ports.** Both are set in [`config.json`](config.json), and neither is a default: the server's, and the page's, which the server allows as the one origin that may call it.
+
+**The server** is Python's standard library over the repository's reference runner and flow checker, in its own virtual environment holding the versions the scripts pin (`scripts/requirements-dev.txt`).
 
 ```sh
 cd apps/flow-studio/server
-python3 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m flowstudio          # listens on 127.0.0.1, port from ../config.json
+.venv/bin/python -m flowstudio          # the server alone, on config.json's port
 .venv/bin/python -m pytest              # the wire's tests, and every example replayed through it
 ```
 
-The replay test plays every example of the design's example modules through the wire, as a caller would, and holds each to the outcome the flow checker gives it, against the runner and against the core. A second test plays them through both backends at once and compares every answer whole; `tests/backend_differences.txt` lists where they are known to differ and why. An example that needs what the interface does not yet offer is reported as waiting, with the reason, never passed (ADR-0150, Consequences).
+The replay test plays every example of the design's modules through the wire, as a caller would, and holds each to the outcome the flow checker gives it, against the runner and against the core. A second test plays them through both backends at once and compares every answer whole; `tests/backend_differences.txt` lists where they are known to differ and why.
 
-## The front end
-
-TypeScript and React, built by Vite; pnpm, at the version `package.json` pins, through Node's corepack.
+**The page** is TypeScript and React, built by Vite and styled with Tailwind; pnpm at the version `package.json` pins, through Node's corepack.
 
 ```sh
 cd apps/flow-studio/web
-corepack pnpm install
 corepack pnpm check                     # typecheck, lint, format and tests
 ```
 
 Its tests play every example, a free session and a session saved as an example through the real server, once with each backend.
 
-## Editing
+**A module's examples on the core**, the counterpart of the flow checker's step 6, which runs them on the reference runner:
 
-The studio edits flows in its workspace, [`flows/`](flows/), and never the design's example modules, which the repository's checkers hold the design to; a design module is copied there to be edited. A session in the sandbox can be saved as an example of a workspace module, written only once the flow checker runs it and finds it holds (`docs/design/flow-studio.md` §3.1, §5).
+```sh
+apps/flow-studio/scripts/examples-on-core people.yaml service.yaml service.examples.yaml
+```
 
-## Ports
+It builds the core's service, starts it on a free port, plays every example of the examples file given last, the modules before it in import order, and prints each that does not pass with why; it exits 1 if any fails.
 
-Both are set in [`config.json`](config.json), and neither is a default: the server's, and the web front end's, which the server allows as the one origin that may call it. The core's service, a child of the server, takes a free loopback port.
+**By hand.** [`TESTING.md`](TESTING.md) has seven walks through the studio, each saying what every step should show.
+
+**Its design** is [`docs/design/flow-studio.md`](../../docs/design/flow-studio.md); its decisions are ADR-0149 and ADR-0150.

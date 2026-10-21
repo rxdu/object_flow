@@ -110,9 +110,11 @@ export function Offers({
   return (
     <ul className="space-y-1">
       {offers.map((o) => (
-        <li key={key(o)} className="rounded border border-slate-200 p-2">
+        <li key={key(o)} className="rounded-lg border border-slate-200 p-2.5">
           <div className="flex items-center gap-2 text-sm">
-            <span className={`rounded px-1.5 text-xs ${BADGE[o.availability]}`}>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${BADGE[o.availability]}`}
+            >
               {o.availability.replace(/_/g, " ")}
             </span>
             <span className="font-mono">
