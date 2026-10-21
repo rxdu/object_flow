@@ -743,7 +743,7 @@ A full description is [`flow-format/examples/inventory.yaml`](flow-format/exampl
 These are open in `authoring-flows.md` §3 and §7, and an answer would change this document:
 1. ~~Whether version numbers are computed at publication~~: *decided 2026-09-28*, they are, and a description carries none (ADR-0131).
 2. Whether the generated guards and invariants should carry written descriptions. *Left open past 1.0.0 (ADR-0182 decision 3): either answer would add, which format 1 allows.*
-3. Whether a transition whose source state does not require an attribute its target requires should be refused, as now, even when the attribute happens to be kept. *Left open past 1.0.0 (ADR-0182 decision 3): accepting more would not break format 1.*
+3. Whether a transition whose source state does not require an attribute its target requires should be refused, as now, even when the attribute happens to be kept. *Left open past 1.0.0 (ADR-0182 decision 3): accepting more would not break format 1.* *ADR-0227 decision 3 (2026-10-21) accepts one case: a `deny` guard of the transition's own requiring the attribute present (§4.5); the rest stays open.*
 4. ~~How two types that reference each other are ordered~~: *decided 2026-09-26*, the types of a module may reference each other in any order (ADR-0117).
 5. ~~The order in which the constructs of Appendix B gain a form~~: *decided 2026-09-26*, the author's order and the placement of the parts outside it, which `TODO.md` records.
 
