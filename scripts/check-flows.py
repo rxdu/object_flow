@@ -2264,6 +2264,35 @@ def present_path(expr, tn, x, library, known, inputs):
     return True
 
 
+def guarded_present(tn, x, library):
+    """Each attribute one of the transition's own `deny` guards requires present, `a is not null` or `this.a is
+    not null` among the condition's top-level `and` terms. The guard is decided before the effect, so where the
+    effect neither clears nor assigns the attribute it has a value as the state is entered (P2-E3, ADR-0227)."""
+    out = set()
+    conditions = ((library or {}).get(tn) or {}).get("conditions") or {}
+    for g, mode in (x.get("guards") or {}).items():
+        text = (conditions.get(g) or {}).get("expression")
+        if mode != "deny" or not isinstance(text, str):
+            continue
+        try:
+            stack = [flowexpr.parse(text)]
+        except flowexpr.ParseError:
+            continue
+        while stack:
+            n = stack.pop()
+            if not isinstance(n, tuple):
+                continue
+            if n[:2] == ("bin", "and"):
+                stack += [n[2], n[3]]
+            elif n[0] == "isnull" and n[2] is True:
+                e = n[1]
+                if e[0] == "name":
+                    out.add(e[1])
+                elif e[0] == "path" and e[1] == ("name", "this"):
+                    out.add(e[2])
+    return out
+
+
 def required_errors(tn, xn, x, required, always, library=None):
     """Every transition into a state sets each attribute the state requires."""
     base = ("types", tn, "transitions", xn)
@@ -2287,7 +2316,11 @@ def required_errors(tn, xn, x, required, always, library=None):
             continue
         if a in assigned and library and present_path(assigned[a], tn, x, library, supplied | kept, required_input_names(x)):
             continue
-        how = f"or require it in state {', '.join(src)}" if src else "since an initial transition starts from no state"
+        # a guard that denies unless it is present, on an object that already holds it (ADR-0227)
+        if src and a not in assigned and a not in cleared(x) and a in guarded_present(tn, x, library):
+            continue
+        how = (f"deny it unless the attribute is present (a `deny` guard on `{a} is not null`), or require it in state "
+               f"{', '.join(src)}" if src else "since an initial transition starts from no state")
         out.append((base + ("to",), "required",
                     f"{tn}.{xn} enters {x['to']} without setting '{a}', which {x['to']} requires: "
                     f"make it a required input, assign it a value that is provably present, {how}"))
@@ -8406,6 +8439,66 @@ def present_path_plants():
     return ok
 
 
+# a requisition ordered once a quote is chosen, the order guarded by the quote's presence (the second procurement
+# review's E3, ADR-0227)
+GUARDED_PRESENCE = (
+    'module: ordering\n'
+    'categories: [live, closed]\n'
+    'types:\n'
+    '  Requisition:\n'
+    '    description: A requisition.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      chosen_quote: { type: string, optional: true }\n'
+    '      supplier:     { type: string, optional: true }\n'
+    '    states:\n'
+    '      DRAFT:   { category: live }\n'
+    '      ORDERED: { category: closed, final: true, required_attributes: [chosen_quote] }\n'
+    '    conditions:\n'
+    '      quote_chosen:\n'
+    '        description: A quote is chosen.\n'
+    '        expression: chosen_quote is not null\n'
+    '        remedy: self_serviceable\n'
+    '    transitions:\n'
+    '      raise:  { kind: initial, to: DRAFT }\n'
+    '      choose: { kind: internal, from: [DRAFT], required_inputs: [chosen_quote, supplier] }\n'
+    '      order:  { kind: external, from: [DRAFT], to: ORDERED, guards: { quote_chosen: deny } }\n'
+)
+
+
+def guarded_presence_plants():
+    """A `deny` guard requiring an attribute present, `a is not null` or `this.a is not null` among its top-level
+    `and` terms, sets what the state it enters requires, its effect neither clearing nor assigning it (ADR-0227);
+    a guard that only warns, a presence under `or`, an effect that clears it or writes it from what may be absent,
+    does not."""
+    ok = True
+    for name, text in (("as the guard's whole condition", GUARDED_PRESENCE),
+                       ("as one of its `and` terms, through `this`", GUARDED_PRESENCE.replace(
+                           "expression: chosen_quote is not null",
+                           "expression: this.chosen_quote is not null and supplier is not null"))):
+        found, _notes = check([("plant.yaml", text)])
+        ok &= not found
+        print(f"  a deny guard's presence {name} sets what the state requires: {'yes' if not found else [x[4][:80] for x in found]}")
+    cases = [
+        ("a guard that only warns", GUARDED_PRESENCE.replace("guards: { quote_chosen: deny }", "guards: { quote_chosen: warn }")),
+        ("a presence under or", GUARDED_PRESENCE.replace(
+            "expression: chosen_quote is not null", "expression: chosen_quote is not null or supplier is not null")),
+        ("an effect clearing it", GUARDED_PRESENCE.replace(
+            "guards: { quote_chosen: deny } }", "guards: { quote_chosen: deny }, effect: [ { clear: [chosen_quote] } ] }")),
+        ("an effect writing it from what may be absent", GUARDED_PRESENCE.replace(
+            "guards: { quote_chosen: deny } }",
+            "guards: { quote_chosen: deny }, effect: [ { assign: { location: chosen_quote, expr: supplier } } ] }")),
+    ]
+    for name, text in cases:
+        found, _notes = check([("plant.yaml", text)])
+        # entering without setting it, whatever else the plant finds of what the state requires
+        hit = [x for x in found if x[3] == "required" and "without setting" in x[4]]
+        caught = bool(hit) and all(x[3] == "required" for x in found)
+        ok &= caught
+        print(f"  planted {name}, counted present: {'caught by required, at ' + str(hit[0][1]) if caught else 'MISSED ' + str(found[:2])}")
+    return ok
+
+
 def held_plants(people):
     """A formula metric reading what a tracked member held over each span, `i.held(<member>)` (declaration-syntax.md
     §6.9), planted in the service example: clean as written, its argument a member of the type and no name of the
@@ -9889,6 +9982,7 @@ def main():
     ok &= split_plants(people)
     ok &= held_plants(people)
     ok &= present_path_plants()
+    ok &= guarded_presence_plants()
     ok &= identity_plants()
     ok &= taken_by_plants()
     ok &= refresh_plants()

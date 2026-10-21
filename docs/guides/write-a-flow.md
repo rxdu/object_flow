@@ -12,6 +12,8 @@ Run everything from the repository's root. Build the checker's Python environmen
 scripts/setup/python-env
 ```
 
+An editor with a YAML language server completes and checks a module's keys from the format's schema: begin the module with `# yaml-language-server: $schema=https://github.com/rxdu/object_flow/releases/latest/download/flow.schema.json`, or, inside this repository, the relative path to `docs/design/flow-format/flow.schema.json`, as the samples do.
+
 To run the examples on the engine's core as well, you need its Rust toolchain (rustup installs the pinned one on the first build) and the Flow Studio's server environment ([`apps/flow-studio/README.md`](../../apps/flow-studio/README.md)).
 
 ## A first module

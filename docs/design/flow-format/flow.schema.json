@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "objectflow-flow-format-1.schema.json",
+  "$id": "https://github.com/rxdu/object_flow/releases/latest/download/flow.schema.json",
   "title": "ObjectFlow flow description (format 1)",
   "description": "The structure of a flow description, the one written form of an ObjectFlow flow (ADR-0116). Normative for structure only: the rules this schema cannot express, and the meaning of every key, are in docs/design/flow-format.md, and scripts/check-flows.py checks them all.",
   "type": "object",

@@ -2777,6 +2777,51 @@ fn present_path(
 }
 
 /// Every transition into a state sets each attribute the state requires.
+/// Each attribute one of the transition's own `deny` guards requires
+/// present, `a is not null` or `this.a is not null` among its condition's
+/// top-level `and` terms. The guard is decided before the effect, so where
+/// the effect neither clears nor assigns the attribute it has a value as the
+/// state is entered (P2-E3, ADR-0227).
+fn guarded_present(tn: &str, x: &Value, library: &Obj) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let Some(t) = library.get(tn) else {
+        return out;
+    };
+    let conditions = obj(t, "conditions");
+    for (g, mode) in obj(x, "guards") {
+        let text = conditions
+            .get(g)
+            .and_then(|c| c.get("expression"))
+            .and_then(Value::as_str);
+        let (true, Some(text)) = (py_str(mode) == "deny", text) else {
+            continue;
+        };
+        let Ok(tree) = parse(&squash(text)) else {
+            continue;
+        };
+        let mut stack = vec![&tree];
+        while let Some(n) = stack.pop() {
+            match n {
+                Expr::Bin(BinOp::And, l, r) => {
+                    stack.push(l);
+                    stack.push(r);
+                }
+                Expr::IsNull(e, true) => match e.as_ref() {
+                    Expr::Name(a) => {
+                        out.insert(a.clone());
+                    }
+                    Expr::Path(b, a) if matches!(b.as_ref(), Expr::Name(this) if this == "this") => {
+                        out.insert(a.clone());
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
 fn required_errors(
     tn: &str,
     xn: &str,
@@ -2831,6 +2876,7 @@ fn required_errors(
     let to = to.unwrap_or_default();
     let mut known = supplied.clone();
     known.extend(kept.iter().cloned());
+    let guarded = guarded_present(tn, x, library);
     for a in required.get(&to).unwrap_or(&none) {
         if supplied.contains(a) || (kept.contains(a) && !cl.contains(a)) {
             continue;
@@ -2847,10 +2893,18 @@ fn required_errors(
         {
             continue;
         }
+        // a guard that denies unless it is present, on an object that
+        // already holds it (ADR-0227)
+        if !src.is_empty() && !assigned.contains_key(a) && !cl.contains(a) && guarded.contains(a) {
+            continue;
+        }
         let how = if src.is_empty() {
             "since an initial transition starts from no state".to_string()
         } else {
-            format!("or require it in state {}", src.join(", "))
+            format!(
+                "deny it unless the attribute is present (a `deny` guard on `{a} is not null`), or require it in state {}",
+                src.join(", ")
+            )
         };
         out.push(finding(
             ext(&base, segs!["to"]),

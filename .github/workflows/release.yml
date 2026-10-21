@@ -84,10 +84,15 @@ jobs:
           tar czf "$name.tar.gz" "$name"
           sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
           cat "$name.tar.gz.sha256"
+          # the flow format's schema, published beside the archive at the
+          # address its $id names (ADR-0227)
+          cp docs/design/flow-format/flow.schema.json flow.schema.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release
-          path: objectflow-service-*.tar.gz*
+          path: |
+            objectflow-service-*.tar.gz*
+            flow.schema.json
           if-no-files-found: error
 
   publish:
@@ -108,4 +113,4 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" \
             --notes "What it changed is in CHANGELOG.md; verify the archive with sha256sum -c." \
-            objectflow-service-*.tar.gz objectflow-service-*.tar.gz.sha256
+            objectflow-service-*.tar.gz objectflow-service-*.tar.gz.sha256 flow.schema.json

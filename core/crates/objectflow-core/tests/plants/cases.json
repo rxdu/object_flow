@@ -9440,7 +9440,7 @@
     116,
     "fatal",
     "required",
-    "InventoryItem.cancel_delivery enters RESERVED without setting 'reserved_until', which RESERVED requires: make it a required input, assign it a value that is provably present, or require it in state SOLD, DEVELOPMENT"
+    "InventoryItem.cancel_delivery enters RESERVED without setting 'reserved_until', which RESERVED requires: make it a required input, assign it a value that is provably present, deny it unless the attribute is present (a `deny` guard on `reserved_until is not null`), or require it in state SOLD, DEVELOPMENT"
    ],
    [
     "inventory.yaml",
@@ -22534,7 +22534,7 @@
     29,
     "fatal",
     "required",
-    "Requisition.approve enters APPROVED without setting 'budget_year', which APPROVED requires: make it a required input, assign it a value that is provably present, or require it in state DRAFT"
+    "Requisition.approve enters APPROVED without setting 'budget_year', which APPROVED requires: make it a required input, assign it a value that is provably present, deny it unless the attribute is present (a `deny` guard on `budget_year is not null`), or require it in state DRAFT"
    ]
   ],
   "analysed": {},
@@ -22577,7 +22577,191 @@
     29,
     "fatal",
     "required",
-    "Requisition.approve enters APPROVED without setting 'budget_year', which APPROVED requires: make it a required input, assign it a value that is provably present, or require it in state DRAFT"
+    "Requisition.approve enters APPROVED without setting 'budget_year', which APPROVED requires: make it a required input, assign it a value that is provably present, deny it unless the attribute is present (a `deny` guard on `budget_year is not null`), or require it in state DRAFT"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "guarded_presence_plants: as the guard's whole condition",
+  "files": [
+   [
+    "plant.yaml",
+    "4f3166906a8cac15"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    21,
+    "notice",
+    "self_serviceable",
+    "quote_chosen's remedy is self_serviceable, 'supply it', and order takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {
+   "Requisition": [
+    1,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "guarded_presence_plants: as one of its `and` terms, through `this`",
+  "files": [
+   [
+    "plant.yaml",
+    "65ed8ffab03cc02e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    21,
+    "notice",
+    "self_serviceable",
+    "quote_chosen's remedy is self_serviceable, 'supply it', and order takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {
+   "Requisition": [
+    1,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "guarded_presence_plants: a guard that only warns",
+  "files": [
+   [
+    "plant.yaml",
+    "482bd84f79ae4285"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    21,
+    "fatal",
+    "required",
+    "Requisition.order enters ORDERED without setting 'chosen_quote', which ORDERED requires: make it a required input, assign it a value that is provably present, deny it unless the attribute is present (a `deny` guard on `chosen_quote is not null`), or require it in state DRAFT"
+   ],
+   [
+    "plant.yaml",
+    21,
+    "notice",
+    "self_serviceable",
+    "quote_chosen's remedy is self_serviceable, 'supply it', and order takes no input a caller could supply"
+   ],
+   [
+    "plant.yaml",
+    21,
+    "notice",
+    "warn",
+    "quote_chosen warns: a failure is reported with the result and refuses nothing"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "guarded_presence_plants: a presence under or",
+  "files": [
+   [
+    "plant.yaml",
+    "9f7fc4a0605e6f07"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    21,
+    "fatal",
+    "required",
+    "Requisition.order enters ORDERED without setting 'chosen_quote', which ORDERED requires: make it a required input, assign it a value that is provably present, deny it unless the attribute is present (a `deny` guard on `chosen_quote is not null`), or require it in state DRAFT"
+   ],
+   [
+    "plant.yaml",
+    21,
+    "notice",
+    "self_serviceable",
+    "quote_chosen's remedy is self_serviceable, 'supply it', and order takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "guarded_presence_plants: an effect clearing it",
+  "files": [
+   [
+    "plant.yaml",
+    "989031a0767f7671"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    21,
+    "fatal",
+    "required",
+    "Requisition.order clears 'chosen_quote', which state ORDERED requires"
+   ],
+   [
+    "plant.yaml",
+    21,
+    "fatal",
+    "required",
+    "Requisition.order enters ORDERED without setting 'chosen_quote', which ORDERED requires: make it a required input, assign it a value that is provably present, deny it unless the attribute is present (a `deny` guard on `chosen_quote is not null`), or require it in state DRAFT"
+   ],
+   [
+    "plant.yaml",
+    21,
+    "notice",
+    "self_serviceable",
+    "quote_chosen's remedy is self_serviceable, 'supply it', and order takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "guarded_presence_plants: an effect writing it from what may be absent",
+  "files": [
+   [
+    "plant.yaml",
+    "270b3ce7fb3ba273"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    21,
+    "fatal",
+    "required",
+    "Requisition.order enters ORDERED without setting 'chosen_quote', which ORDERED requires: make it a required input, assign it a value that is provably present, deny it unless the attribute is present (a `deny` guard on `chosen_quote is not null`), or require it in state DRAFT"
+   ],
+   [
+    "plant.yaml",
+    21,
+    "notice",
+    "self_serviceable",
+    "quote_chosen's remedy is self_serviceable, 'supply it', and order takes no input a caller could supply"
    ]
   ],
   "analysed": {},

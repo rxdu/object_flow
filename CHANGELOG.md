@@ -2,6 +2,16 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Added
+
+- The flow format's schema is published with each release, at `https://github.com/rxdu/object_flow/releases/latest/download/flow.schema.json`, its `$id`, for an editor to complete and check a module outside the repository (ADR-0227).
+
+### Changed
+
+- A transition from a state sets what its target state requires by a `deny` guard of its own on `<attribute> is not null` among its condition's top-level `and` terms, where its effect neither clears nor assigns the attribute; both checkers accept it, and the finding names it as a way to meet the rule. A flow they refused may now pass, none they passed is refused (ADR-0227).
+
 ## 0.5.1, 2026-10-21
 
 A patch release of 0.5.0 (ADR-0214): certificate verification updated past three advisories, a deployment's new object ids made UUIDv7s as ADR-0018 and ADR-0077 decided, an id's form being opaque and so no promised outcome (ADR-0180 decision 6), and a restored file's refusal saying to restore the copy alone. A store of 0.5.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that changes nothing in it but its release, every id it holds kept.

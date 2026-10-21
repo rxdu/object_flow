@@ -1,0 +1,21 @@
+module: ordering
+categories: [live, closed]
+types:
+  Requisition:
+    description: A requisition.
+    tracking: record
+    attributes:
+      chosen_quote: { type: string, optional: true }
+      supplier:     { type: string, optional: true }
+    states:
+      DRAFT:   { category: live }
+      ORDERED: { category: closed, final: true, required_attributes: [chosen_quote] }
+    conditions:
+      quote_chosen:
+        description: A quote is chosen.
+        expression: chosen_quote is not null
+        remedy: self_serviceable
+    transitions:
+      raise:  { kind: initial, to: DRAFT }
+      choose: { kind: internal, from: [DRAFT], required_inputs: [chosen_quote, supplier] }
+      order:  { kind: external, from: [DRAFT], to: ORDERED, guards: { quote_chosen: deny } }
