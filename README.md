@@ -261,6 +261,7 @@ ObjectFlow is designed in the open, every choice written down with what it rejec
 - [**Design**](docs/DESIGN.md): the model, how a request executes, history, the read surface, and the known limits.
 - [**Declaration language**](docs/design/declaration-syntax.md): the language flows are written in, and the checks publishing runs over it.
 - [**Decisions**](docs/adr/): each one with the alternatives it rejected and why.
+- [**Research**](docs/research/): how established platforms solve a problem ObjectFlow faces, each figure checked against its source.
 - [**Traceability**](docs/design/traceability.md): every requirement mapped to what meets it, a checker failing while any is not covered.
 - **Worked examples**: [a unit's journey](docs/design/unit-journey.md), [a returns flow](docs/design/returns-module.md), and [a catalogue of Jira's typical flows](docs/design/jira-flows.md), each a checked module.
 - **Reviews**: cold reviews in which agents new to ObjectFlow built an application on it and recorded what hurt ([procurement](docs/design/procurement-cold-draft.md), [its second round](docs/design/procurement-second-review.md)), and [whether a builder can recover a flow](docs/design/flow-recoverability-review.md) from the specification alone.
