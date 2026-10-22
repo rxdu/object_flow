@@ -96,7 +96,7 @@ The merge is an excerpt of `Contact` in the module of the appendix, which holds 
 
 ## 5. What held without change
 
-Pipelines are named machines bound by per-pipeline types. Stage requirements are transition requiredness. Ownership guards are actor guards. Associations are link objects with a type-level invariant. Merge is an action cascading a supersession and re-points. Rollup counts are derived attributes. Import, idempotency and provenance applied as designed. The availability query changed twice afterwards: only-via transitions are no longer listed (ADR-0041), and the sweep `available(type, transition)` now requires the transition to be sweepable (ADR-0048), which `availability(id)`, listing one object's transitions, does not.
+Pipelines are named machines bound by per-pipeline types. Stage requirements are transition requiredness. Ownership guards are actor guards. Associations are link objects with a type-level invariant. Merge is an action cascading a supersession and re-points. Rollup counts are derived attributes. Import, idempotency and provenance applied as designed. The availability query changed twice afterwards: only-via transitions are no longer listed (ADR-0041), and the sweep `available(type, transition)` now requires the transition to be sweepable (ADR-0048), which `availability(id)`, listing one object's transitions, does not. *(Corrected 2026-10-22: the core builds no sweepability check, and `available` answers for every requestable transition, `DESIGN.md` §10.)*
 
 ## 6. Rare cases, recorded in `edge-cases.md`
 

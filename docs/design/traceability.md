@@ -11,7 +11,7 @@ Every requirement and use case of [`../PRD.md`](../PRD.md), with the parts of th
 
 The checker refuses either of the last two on any row the PRD does not name for it, so neither can be used to park a hard row.
 
-Covered is a claim about the design, not about software: nothing here is implemented, and the adversarial harness (`adversarial-harness.md`) is what will test the claims once it is.
+Covered is a claim about the design, not about the build: this table does not record which mechanisms the core builds, and a design document says where a part is not built. The adversarial harness (`adversarial-harness.md`) tests the built core against the claims. *(Corrected 2026-10-22: this said nothing here is implemented, written before the core was built.)*
 
 **History.**
 - Baseline of 2026-09-23, taken after ADR-0081 to ADR-0086 were accepted: 21 covered, 43 partial, 7 gaps, over 52 requirements and 19 use cases.
@@ -120,11 +120,11 @@ Current: 88 covered, 0 partial, 0 gaps, 0 unverifiable, 0 revision proposed. Goa
 | T7 | DESIGN §5.12, §10; ADR-0114; declaration-syntax.md §6.9; library-api.md §6; publish-and-import.md §2; renderers.md §2 | covered | |
 | N1 | DESIGN §2, §5.12; ADR-0090; storage-schema.md §2, §7; ADR-0106; declaration-syntax.md §6.9; data-driven-engine.md §7 | covered | |
 | N2 | DESIGN §2, §7, §8; ADR-0012, ADR-0091, ADR-0096; library-api.md §1; storage-schema.md §6, §9; ADR-0100; ADR-0103; ADR-0105; data-driven-engine.md §9 | covered |  |
-| N3 | DESIGN §2; ADR-0090; storage-schema.md §7; first-consumer-cutover.md §5 | covered | |
+| N3 | DESIGN §2; ADR-0090; storage-schema.md §7; ADR-0149 | covered | |
 | N4 | DESIGN §13; ADR-0091; adversarial-harness.md §1, §2, §3, §4; ADR-0100; ADR-0105, ADR-0106 | covered |  |
-| N5 | DESIGN §11; ADR-0075, ADR-0077, ADR-0093, ADR-0096; publish-and-import.md §4, §7; first-consumer-cutover.md §4a; ADR-0100; ADR-0101; declaration-syntax.md §3.1; ADR-0103; ADR-0106 | covered | |
+| N5 | DESIGN §11; ADR-0075, ADR-0077, ADR-0093, ADR-0096; publish-and-import.md §4, §7; ADR-0100; ADR-0101; declaration-syntax.md §3.1; ADR-0103; ADR-0106 | covered | |
 | N6 | DESIGN §2, §6, §7, §10, §13; ADR-0012, ADR-0022, ADR-0104, ADR-0105; library-api.md §6 | covered |  |
-| N7 | DESIGN §2, §5.8, §13; ADR-0037, ADR-0110, ADR-0114; library-api.md §3, §7; storage-schema.md §6; declaration-syntax.md §8.1; first-consumer-cutover.md; ADR-0132 | covered | |
+| N7 | DESIGN §2, §5.8, §13; ADR-0037, ADR-0110, ADR-0114; library-api.md §3, §7; storage-schema.md §6; declaration-syntax.md §8.1; ADR-0132 | covered | |
 
 ## Use cases
 

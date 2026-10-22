@@ -18,7 +18,7 @@ Draft, 2026-09-09, amended 2026-09-23. The acceptance test, which PRD N4 names a
 
 **Built, first slice, 2026-10-14** (ADR-0204 §6), as `core/crates/objectflow-harness`, run by `scripts/check-all` through the core's suites:
 - **Fixtures:** the shipped example flows of `flow-format/examples`, each with what it imports: people with service, people with issues, inventory with delivery, reimbursement, servicedesk, customers and approvals. The unit's journey of §3 joined them on 2026-10-16, its two modules assembled from `unit-journey.md` as `scripts/check-flow-docs.py` assembles them, so the document stays their one copy.
-- **Behaviours:** the guesser, sending any transition of any object or type with generated inputs, now and then of the wrong type or missing; the retrier, sending a keyed request again as it was or with another transition; the skipper, naming a version the world has moved past; the backdater, one of the route-tester's routes; an eraser, erasing an object that was given personal values; and the clock and the evaluators' answers changed as a sandbox's caller changes them. The racer, which needs PostgreSQL to find anything (§5), and the route-tester's other routes, are left to a later slice.
+- **Behaviours:** the guesser, sending any transition of any object or type with generated inputs, now and then of the wrong type or missing; the retrier, sending a keyed request again as it was or with another transition; the skipper, naming a version the world has moved past; the backdater, one of the route-tester's routes; an eraser, erasing an object that was given personal values; and the clock and the evaluators' answers changed as a sandbox's caller changes them. The racer, which needs writers running at once to find anything (§5), and the route-tester's other routes, are left to a later slice.
 - **Failure conditions:**
   - from §1: an object in a state no transition of its type reaches, a built-in type's excepted; an invariant false with no admission; a required attribute absent; a stored relationship end its far side disagrees with; a satisfied verdict with no event, or naming one the log has not or another actor made; an export of the log that skips an event or orders it otherwise; an erased object's personal value still held in an object, an interval, the log or an attempt;
   - from ADR-0204 §3: a key that does not replay the request first sent under it, or that refuses a request it never saw.
@@ -151,7 +151,7 @@ And it does not prove anything about an actor with database access, which is the
 - **SQLite** begins every transition transaction `IMMEDIATE` (ADR-0090), so its writers are serial. The racer finds little there beyond the busy timeout, and a green run says little about concurrency.
 - **PostgreSQL** pays for predicate tracking, and is where a serialisation failure, a retry and a lock wait actually happen (ADR-0039, ADR-0090).
 
-PostgreSQL is therefore the reference for the racer. SQLite is the reference for the other four behaviours, being cheap enough to set up and tear down for the thousands of runs they want.
+PostgreSQL is therefore the reference for the racer. SQLite is the reference for the other four behaviours, being cheap enough to set up and tear down for the thousands of runs they want. *(Corrected 2026-10-22: one instance writes a PostgreSQL store, one transaction at a time as on SQLite (ADR-0213 decision 4), so the racer finds as little on either backend; PostgreSQL becomes its reference when several instances write.)*
 
 ## 6. Still open
 

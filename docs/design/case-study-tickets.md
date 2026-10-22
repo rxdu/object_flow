@@ -393,7 +393,7 @@ The author asked next: "how about the flows in jira's service management?" This 
 ### 7.8 Found and fixed by this study
 
 1. A value containing a colon and a space, which every aggregate with a body has, failed to load with only YAML's message; the specification and the message now say how to write it (commit `0c1b952`).
-2. **A guard runs before its transition's writes** (DESIGN.md §6, steps 4 and 5), so a guard that tests a value its own transition supplies reads `inputs.<name>`. `issues.yaml`'s `Document.has_approvers` read the attribute its `submit` writes and would have refused every submission; it now reads `inputs.approvers`, as `servicedesk.yaml` does. A scan of every example found one other such guard, `points_changed`, which compares the input with the old value on purpose. A notice for this is proposed in `TODO.md`.
+2. **A guard runs before its transition's writes** (DESIGN.md §6, steps 4 and 5), so a guard that tests a value its own transition supplies reads `inputs.<name>`. `issues.yaml`'s `Document.has_approvers` read the attribute its `submit` writes and would have refused every submission; it now reads `inputs.approvers`, as `servicedesk.yaml` does. A scan of every example found one other such guard, `points_changed`, which compares the input with the old value on purpose. The flow checker reports such a guard as the notice `before` (`flow-format.md` §7). *(Corrected 2026-10-22: this said the notice is proposed in `TODO.md`; it was built on 2026-09-29.)*
 3. Writing the module, step 3's `required` check found that `Problem.complete` could not show its root cause was present; the module now requires it under review.
 
 ### 7.9 The answer

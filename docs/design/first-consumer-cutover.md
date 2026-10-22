@@ -1,5 +1,7 @@
 # The first consumer's cutover
 
+**Deferred by ADR-0149 decision 1** (marked 2026-10-22): no switch-over of the first consumer is planned, and this plan is not maintained. The staging rules any deployment follows, and a worked go-live, are [`publish-and-import.md`](publish-and-import.md) §7.
+
 Draft, 2026-09-09, amended 2026-09-23. The stage order for `~/RduWs/wr_inventory_management`, extracted from its schema. ADR-0075 decided that cutover is staged by object type and that a type migrates only after every type referencing it has; this is that order for this system, and what it depends on.
 
 **How it was obtained.** The SQLAlchemy metadata was imported and walked programmatically rather than read: 45 tables, 67 declared foreign keys, verified by asserting set equality between the extraction and a hand-typed list. Cross-checked against the Alembic chain, which is linear with a single head. **The live database was not reachable**, so everything here comes from source and a reflection of the running schema is the right check before anyone commits to an order.

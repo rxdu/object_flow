@@ -107,8 +107,10 @@ class Clock(Protocol):
 
 class ConnectionSource(Protocol):
     """Where the store gets its database connections (ADR-0091). Production
-    passes a pool; the harness passes connections whose every statement waits
-    at a barrier it controls, which is how it interleaves requests."""
+    passes a pool. The harness's racer, not built, is to pass connections
+    whose every statement waits at a barrier it controls, which is how it
+    would interleave requests (adversarial-harness.md §4). Corrected
+    2026-10-22: this said the harness passes them."""
 
     def connect(self) -> Any: ...
 
@@ -679,7 +681,7 @@ class ExportPage:
 
 An `Event` carries what the log stores and no more: the actor's id, kind and principal rather than a descriptor; the declaration and taint versions in force; its writing transaction; its read set; and, per evaluator or metric guard, the verdict or value it was given and that value's as-of time (ADR-0049, ADR-0088, ADR-0089, ADR-0095). No rule reads the actor, so `reads` holds no answer about one (ADR-0114).
 
-`EventPage.settled` is a **settled cursor**, not a position: the last (transaction, position) pair the reader returned, drawn only from transactions that had finished when its snapshot was taken, so a later commit can never sort before it (ADR-0089). A reader acknowledges exactly that.
+`EventPage.settled` is a **settled cursor**: the last position the reader returned, drawn only from transactions that had finished when its snapshot was taken, so a later commit can never sort before it (ADR-0089). One writer writes one transaction at a time on both backends, so position order is commit order and the cursor is the position (`DESIGN.md` §7). A reader acknowledges exactly that. *(Corrected 2026-10-22: this said the cursor is not a position but a (transaction, position) pair, the design for several writing instances, ADR-0213 decision 4.)*
 
 `TransitionOffer.unevaluated` is what makes the read surface honest about external evaluators: `availability`, `available` and `check` never call one, and each says which guards it therefore did not evaluate (ADR-0048, ADR-0049). A caller that treats an offer as a promise is wrong, and the field is there so it cannot claim it was not told.
 
@@ -800,7 +802,7 @@ Three of them are worth reading twice.
 
 **`check` is advice, not a reservation.** It simulates the same sequence internally, takes no locks and has no effect, so the answer can be stale before the caller acts on it. It also costs what the request would cost: simulating a cascade over five hundred parts evaluates five hundred guards. It returns a `Checked`: the verdict, and the external guards it did not evaluate, since `availability`, `available` and `check` call no evaluator (ADR-0054, ADR-0077). It does compute internal metrics.
 
-**`available` requires the transition to be sweepable.** Its guards must decompose into an indexable prefilter plus a residual (ADR-0048). A transition that is not sweepable is refused here rather than scanned, which is a real constraint on how a time-driven guard is written, because this query is how all time-driven work in the system finds its objects.
+**`available` answers for every requestable transition.** It reads the objects in the states the transition is taken from, a family's objects of every state, and evaluates each one's guards, a chunk at a time to the page (ADR-0048, ADR-0179). This query is how all time-driven work in the system finds its objects, so its cost is that of the objects in those states. *(Corrected 2026-10-22: this said `available` requires the transition to be sweepable, its guards decomposing into an indexable prefilter plus a residual, and refuses one that is not; nothing in the core checks sweepability.)*
 
 **`batch` is N transactions, not one.** There is no atomic batch; atomic multi-object semantics are declared cascades. The verdicts come back in request order and any of them may differ from what a single-request caller would have seen, because the requests are independent.
 
@@ -825,5 +827,5 @@ Each followed from a decision the record already carried, or from what the desig
 - **Streaming stays as it is:** an iterator for `history`, a page for everything else. History is the only unbounded result, and a cursor is what a caller can hold across a request boundary while an iterator is not.
 - **The declaration is loaded from the store**, not from a file. `publish` writes it to `of_declaration` and a starting process reads the installed version, which keeps a recorded event's declaration version resolvable and makes a process that disagrees with the store impossible rather than unlikely. The flow descriptions stay in version control as the input to a publish (ADR-0131), and a change is to record the source reference it was drafted from, which is still to be designed (`TODO.md`).
 - **The exception list is closed** at the five of §7.
-- **The core is synchronous** (ADR-0091). The asynchronous question this section once left open is settled: a synchronous core with the engine's HTTP service as its asynchronous layer (ADR-0132), and the connection source injected, which is what the harness needs to interleave requests at statement boundaries.
-- **Cursors are opaque strings.** A settled cursor encodes a (transaction, position) pair on PostgreSQL and a position on SQLite, and a caller never parses it (ADR-0089).
+- **The core is synchronous** (ADR-0091). The asynchronous question this section once left open is settled: a synchronous core with the engine's HTTP service as its asynchronous layer (ADR-0132), and the connection source injected, which is what the harness's racer, not built, needs to interleave requests at statement boundaries (`adversarial-harness.md` §4).
+- **Cursors are opaque strings.** A settled cursor encodes a position on both backends, their writers serial (ADR-0213 decision 4), and a caller never parses it (ADR-0089). *(Corrected 2026-10-22: this said it encodes a (transaction, position) pair on PostgreSQL.)*

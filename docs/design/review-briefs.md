@@ -1,6 +1,6 @@
 # Review briefs
 
-Prepared 2026-10-21 at the author's request, for the reviews `TODO.md` holds open for the author: for each document, what was asked and when, what changed since, what deserves the author's attention now, and a recommendation. The author's own reading is still the review; a brief only says where it is worth spending. Each claim names its evidence; where a brief infers, it says so. The briefs were drafted by three agents reading the documents, their history and the code, and their cited facts sampled and checked before this was written: each contradiction listed under DESIGN.md, the PRD's rows, and the stale lines named.
+Prepared 2026-10-21 at the author's request, for the reviews `TODO.md` holds open for the author: for each document, what was asked and when, what changed since, what deserves the author's attention now, and a recommendation. The author's own reading is still the review; a brief only says where it is worth spending. Each claim names its evidence; where a brief infers, it says so. The briefs were drafted by three agents reading the documents, their history and the code, and their cited facts sampled and checked before this was written: each contradiction listed under DESIGN.md, the PRD's rows, and the stale lines named. The stale lines and contradictions §1 and §4 to §7 name were corrected on 2026-10-22, in place, each with a note saying what it said (`TODO.md`); the PRD's own text, which is the author's, was left. The briefs are as written on 2026-10-21, and their line numbers are of that day.
 
 ## 1. The PRD
 
