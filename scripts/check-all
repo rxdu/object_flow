@@ -8,6 +8,8 @@
 # The core's tests run on SQLite, and again on PostgreSQL where
 # OBJECTFLOW_CHECK_POSTGRES names a database made with LC_COLLATE 'C'
 # (ADR-0213); without one that gate is not run, which the last line says.
+# scripts/setup/postgres-check-db starts one on this machine and prints the
+# value to give it.
 #
 # Usage: scripts/check-all
 # CI sets RUSTFLAGS="-D warnings" for the whole job, so a compiler warning

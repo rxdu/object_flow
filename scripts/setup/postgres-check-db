@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Start the PostgreSQL that scripts/check-all's PostgreSQL step runs the core's
+# tests on, on this machine: the image CI's service pins, by the same digest,
+# made with the C collation the store needs (ADR-0213), listening on 127.0.0.1
+# alone. It flushes nothing to disk (`fsync = off`, one of PostgreSQL's
+# non-durable settings), since a gate's database is thrown away: on a drive
+# whose flush takes milliseconds the step outran its 30-minute bound (TODO,
+# 2026-10-23). CI's database keeps PostgreSQL's defaults. Run again, it starts
+# the database afresh.
+#
+# Usage: scripts/setup/postgres-check-db [port]    (default 5432; needs Docker)
+#   then OBJECTFLOW_CHECK_POSTGRES="<the line it prints>" scripts/check-all,
+#   and docker stop objectflow-check-db, which removes it.
+set -euo pipefail
+port="${1:-5432}"
+name=objectflow-check-db
+# the digest .github/workflows/check.yml pins, read from it so the two cannot
+# drift apart
+workflow="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.github/workflows/check.yml"
+image=$(sed -n 's/.*image: \(postgres@sha256:[0-9a-f]*\).*/\1/p' "$workflow")
+if [ -z "$image" ]; then
+  echo "postgres-check-db: no pinned postgres image in $workflow" >&2
+  exit 1
+fi
+docker rm -f "$name" >/dev/null 2>&1 || true
+docker run -d --rm --name "$name" \
+  -e POSTGRES_USER=objectflow -e POSTGRES_PASSWORD=objectflow -e POSTGRES_DB=objectflow \
+  -e POSTGRES_INITDB_ARGS="--locale=C --encoding=UTF8" \
+  -p "127.0.0.1:$port:5432" "$image" -c fsync=off >/dev/null
+# ready on TCP only once initialisation's own server, on its socket alone, has
+# stopped and the database's has started
+for _ in $(seq 1 60); do
+  if docker exec "$name" pg_isready -U objectflow -h localhost >/dev/null 2>&1; then
+    echo "host=localhost port=$port user=objectflow password=objectflow dbname=objectflow"
+    exit 0
+  fi
+  sleep 1
+done
+echo "postgres-check-db: $name not ready after 60 s" >&2
+exit 1
