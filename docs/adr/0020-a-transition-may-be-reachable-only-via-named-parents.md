@@ -32,5 +32,5 @@ Leave `sell` requestable and trust callers not to call it. Rejected: the mediate
 ## Consequences
 
 - The readable rule set for a type states, per state, "entered only via …" — an authority statement, inspectable at runtime (ADR-0010).
-- The reachability test the first consumer had to write (`wr:tests/unit/test_transition_reachability.py`) is subsumed: a transition is either requestable, or only-via named parents, and the declaration says which.
+- The reachability test the first consumer had to write is subsumed: a transition is either requestable, or only-via named parents, and the declaration says which.
 - Only-via is a property of the transition, not of the state: a state may be entered by one requestable transition and one only-via transition (`AVAILABLE` by `inventorize` and by `release`).

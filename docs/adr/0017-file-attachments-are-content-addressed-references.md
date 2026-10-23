@@ -6,7 +6,7 @@
 
 ## Context
 
-The first consumer stores photos (robot, delivery, service and intake-confirmation photos), packing-list PDFs and label templates, and they are not decoration. Intake photos are the labelling-evidence trail; a per-model flag `label_photo_required` makes "every item whose model requires a photo has at least one" a guard on the intake batch's `LABELS_PRINTED → LABELLING_CONFIRMED` transition (`wr:docs/design/state-transition-system.md`). Pre-delivery check records carry optional photo evidence. The files are production data, and ADR-0015 requires them preserved.
+The first consumer stores photos (robot, delivery, service and intake-confirmation photos), packing-list PDFs and label templates, and they are not decoration. Intake photos are the labelling-evidence trail; a per-model flag `label_photo_required` makes "every item whose model requires a photo has at least one" a guard on the intake batch's `LABELS_PRINTED → LABELLING_CONFIRMED` transition. Pre-delivery check records carry optional photo evidence. The files are production data, and ADR-0015 requires them preserved.
 
 The author's stated preference is links to file objects in an S3-like store or on a filesystem. The open question is where ObjectFlow's responsibility ends.
 

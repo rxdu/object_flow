@@ -8,7 +8,7 @@ Status: **worked example**, 2026-09-24, read against the first consumer's produc
 
 A unit is **requested**, **shipped**, **received**, **inventorised**, **reserved**, and **delivered**: sold to a customer, or delivered to ourselves into the company-owned pool. After delivery it is **serviced**, and a pooled unit is **loaned** out and comes back, many times over.
 
-The first four stages and delivery are one lifecycle: what the unit is to the business. Servicing and lending are not further states of it. Production's ADR-0002 (`wr:docs/adr/0002-unit-engagement-and-leasing-model.md`, "The three axes") separates three questions, and this module keeps them apart:
+The first four stages and delivery are one lifecycle: what the unit is to the business. Servicing and lending are not further states of it. Production's ADR-0002 separates three questions, and this module keeps them apart:
 
 | Question | Where it lives | States |
 |---|---|---|
@@ -41,7 +41,7 @@ beside it:  Engagement  SCHEDULED ─dispatch─▶ OUT ─start_return─▶ RE
 
 The module is written in the flow description format (`flow-format.md`, ADR-0116), in blocks that each continue it, with the reasoning between them. It is in the format's order: the vocabulary, the lifecycle every unit shares, then the types, each with the metrics that read its rows (ADR-0118), and last the one metric that combines two of them.
 
-**What the journey shares.** The people, the agents, the services, the customers and two vocabularies the journey takes from the rest of the operations platform are a module of their own, which the journey imports. *(Added 2026-09-27: the `Agent` type, as `declaration-syntax.md` §6.10 declares it. Without a type whose identity marks an agent, no agent could act on the store, since every request names an actor the store holds and takes its kind from that actor's type (PRD T6); writing the metric scenarios found it (D445).)* *(Added 2026-09-27: the `Service` type, as the format's example `people.yaml` declares it, for the third kind of actor PRD F3 and T6 name. A telemetry service records the daily battery summary UC-7 asks for (ADR-0081 §4), and without a type whose identity marks a service it could not act (D448).)* *(Corrected 2026-09-27: the journey imported them from the specification's `inventory` module, which declares a `Robot`, a `UnitLifecycle` and a `unit_serial` of its own, so the two modules could not be published in one closure (D410).)* A user leaves without a guard here, since a guard reading the journey's service jobs would make the two modules import each other. *(Added 2026-09-28: production's rule that a user with active services has them reassigned before being removed (`wr:app/models/users.py:34`, PRD UC-18) is kept as an invariant of the journey's `ServiceJob`, `engineer_active`, which reads the engineer and imports nothing back. A request moving a user to `LEFT` writes the user, and step 7 checks every invariant that write could violate, so leaving with an open job is refused naming each job (`DESIGN.md` §6, D453).)*
+**What the journey shares.** The people, the agents, the services, the customers and two vocabularies the journey takes from the rest of the operations platform are a module of their own, which the journey imports. *(Added 2026-09-27: the `Agent` type, as `declaration-syntax.md` §6.10 declares it. Without a type whose identity marks an agent, no agent could act on the store, since every request names an actor the store holds and takes its kind from that actor's type (PRD T6); writing the metric scenarios found it (D445).)* *(Added 2026-09-27: the `Service` type, as the format's example `people.yaml` declares it, for the third kind of actor PRD F3 and T6 name. A telemetry service records the daily battery summary UC-7 asks for (ADR-0081 §4), and without a type whose identity marks a service it could not act (D448).)* *(Corrected 2026-09-27: the journey imported them from the specification's `inventory` module, which declares a `Robot`, a `UnitLifecycle` and a `unit_serial` of its own, so the two modules could not be published in one closure (D410).)* A user leaves without a guard here, since a guard reading the journey's service jobs would make the two modules import each other. *(Added 2026-09-28: production's rule that a user with active services has them reassigned before being removed (PRD UC-18) is kept as an invariant of the journey's `ServiceJob`, `engineer_active`, which reads the engineer and imports nothing back. A request moving a user to `LEFT` writes the user, and step 7 checks every invariant that write could violate, so leaving with an open job is refused naming each job (`DESIGN.md` §6, D453).)*
 
 ```yaml
 module: operations_shared
@@ -130,7 +130,7 @@ types:
       ARCHIVED: { category: closed }
 ```
 
-The vocabulary. `CancellationReason` loses production's `MISSING_FROM_SHIPMENT`, which becomes a state (§4). Production records a retirement reason as free text and has not settled the vocabulary (`wr:TODO.md:243`), so `RetirementReason` is the specification's placeholder. The module states no rule about requests. *(Corrected 2026-09-26: this paragraph said that the module line states production's request rule, more strictly than production, that an agent sends an expected version and an idempotency key with every request (ADR-0103 §1). ADR-0114 withdrew that line, `requests by`, with everything else that said who may do what, and removed it from the module, but left this sentence; the rule is the upper layer's (ADR-0114 §3).)*
+The vocabulary. `CancellationReason` loses production's `MISSING_FROM_SHIPMENT`, which becomes a state (§4). Production records a retirement reason as free text and has not settled the vocabulary, so `RetirementReason` is the specification's placeholder. The module states no rule about requests. *(Corrected 2026-09-26: this paragraph said that the module line states production's request rule, more strictly than production, that an agent sends an expected version and an idempotency key with every request (ADR-0103 §1). ADR-0114 withdrew that line, `requests by`, with everything else that said who may do what, and removed it from the module, but left this sentence; the rule is the upper layer's (ADR-0114 §3).)*
 
 ```yaml
 module: inventory_journey
@@ -147,7 +147,7 @@ sequences:
     description: Numbers the robots, in one series for the type, as production's serial service does.
 ```
 
-**The lifecycle.** Every transition production registers for a robot (`wr:app/core/state_registry.py:859-993`), and the ones its services perform around the registry, are here; §3 maps each one. Production's permission checks, its roles and each key's permissions, are not here: who may request each transition is the upper layer's (ADR-0114), so the operations platform keeps them at its own edge. *(Corrected 2026-09-25: this module declared production's permissions as capabilities, and `ADMIN` as one, until ADR-0114 withdrew capabilities from the language.)*
+**The lifecycle.** Every transition production registers for a robot, and the ones its services perform around the registry, are here; §3 maps each one. Production's permission checks, its roles and each key's permissions, are not here: who may request each transition is the upper layer's (ADR-0114), so the operations platform keeps them at its own edge. *(Corrected 2026-09-25: this module declared production's permissions as capabilities, and `ADMIN` as one, until ADR-0114 withdrew capabilities from the language.)*
 
 ```yaml
 # inventory_journey, continued
@@ -580,11 +580,11 @@ types:
         expression: percentile(0.8, i.duration)
 ```
 
-**What every unit on offer carries is an invariant, and what intake checks is a guard** (ADR-0109). A unit in `AVAILABLE` carries a recorded label print, and the manufacturer serial its model requires, whichever way it got there. `labelled` and `mfr_serial` are invariants of `Robot`, and the machine requires every binder to declare them, so they bind `inventorize`, `add_opening_stock`, a return, a release from the pool, an override and a ported unit alike, which a guard on one transition cannot. Production states the serial rule the same way, for every unit reaching `AVAILABLE`, at its birth or at the intake gate (`wr:app/services/inventory_item_service.py:277-286`, `:410-416`), and enforces it where a unit is born with the serial in hand, at opening stock (`:287-293`) and at a walk-in intake (`wr:app/services/intake_batch_service.py:398-404`); the label is the module's intent, as §4 says. `inventorize` keeps guards of the same names, since `availability` evaluates guards and not invariants, and its remedy, to print the label first, is the one a caller needs before asking. The photo is different. Production checks it only for an intake batch (`wr:app/services/intake_batch_service.py:816-821`), so `photo` stays a guard of intake alone, and opening stock does not carry it.
+**What every unit on offer carries is an invariant, and what intake checks is a guard** (ADR-0109). A unit in `AVAILABLE` carries a recorded label print, and the manufacturer serial its model requires, whichever way it got there. `labelled` and `mfr_serial` are invariants of `Robot`, and the machine requires every binder to declare them, so they bind `inventorize`, `add_opening_stock`, a return, a release from the pool, an override and a ported unit alike, which a guard on one transition cannot. Production states the serial rule the same way, for every unit reaching `AVAILABLE`, at its birth or at the intake gate, and enforces it where a unit is born with the serial in hand, at opening stock and at a walk-in intake; the label is the module's intent, as §4 says. `inventorize` keeps guards of the same names, since `availability` evaluates guards and not invariants, and its remedy, to print the label first, is the one a caller needs before asking. The photo is different. Production checks it only for an intake batch, so `photo` stays a guard of intake alone, and opening stock does not carry it.
 
 Three consequences:
 - a ported unit on offer with no label print, or without a serial its model requires, is a violation the port reports, and its disposition admits it or cleans it upstream. An admission is discharged when the unit leaves `AVAILABLE`, so a unit that comes back is labelled before it goes on offer again;
-- turning on a model's `manufacturer_serial_required` is refused while a unit of that model is on offer without one, naming the units. `record_manufacturer_serial` records it at any state, as production lets an existing unit's serial be edited (`wr:app/schemas/inventory.py:59-63`);
+- turning on a model's `manufacturer_serial_required` is refused while a unit of that model is on offer without one, naming the units. `record_manufacturer_serial` records it at any state, as production lets an existing unit's serial be edited;
 - `record_manufacturer_serial` and `add_photo` are new. Nothing wrote either after a unit's creation, so a unit ordered through `request` whose model requires a serial or a photo could never have been inventorised (D379).
 
 Publishing reports what each creation skips, and `scripts/check-flow-docs.py` verifies that this is the report the module produces:
@@ -601,7 +601,7 @@ Robot.add_opening_stock -> AVAILABLE
 
 A unit added straight to intake skips a shipment's receipt, which is what that creation is for, and opening stock skips the photo, as production's does. Both are visible where the declaration is reviewed, rather than found later in the data.
 
-**The model catalogue.** The unit's rules read its model — whether a manufacturer serial or a label photo is required, and the maker's code a serial carries — so the model is declared here with the unit. Production's `robot_models` holds a name, a manufacturer, a warranty period and the two flags (`wr:app/models/robot_models.py:25-47`). The reorder point, and the two derivations that read it, are not production's: they are added to test PRD L4 and M7, a threshold that is governed data and a business exception over one object, and production defers reorder logic (`wr:app/models/procurement.py:15`).
+**The model catalogue.** The unit's rules read its model — whether a manufacturer serial or a label photo is required, and the maker's code a serial carries — so the model is declared here with the unit. Production's `robot_models` holds a name, a manufacturer, a warranty period and the two flags. The reorder point, and the two derivations that read it, are not production's: they are added to test PRD L4 and M7, a threshold that is governed data and a business exception over one object, and production defers reorder logic.
 
 **A norm observed in history** (PRD M7, ADR-0113). The model also holds `usual_intake_time`, the time four in five of its units took to leave intake, and `Robot.intake_overrunning` compares a unit in intake with it, so a reader or a metric can select the units overrunning the usual time for their model. `refresh_intake_norm` writes it, and its guard accepts only what `Robot.intake_time_p80` reads now for the model over the last 180 days: the norm is observed, never typed in, and a threshold a person sets is a different attribute, as `reorder_point` is. An upper-layer job requests the refresh on its own schedule, as an actor whose type marks the kind `service`, or a person does after reading the metric. Neither the job nor its schedule is declared, since the engine sends nothing and who may make a request is the upper layer's (ADR-0105, ADR-0114); how old a norm is shows in its refresh events, the rows of `RobotModel.transitions` for `refresh_intake_norm`. A job that read the metric a moment before a unit left intake is refused, and reads it again. Like the reorder point, it is added to test M7; production has no such norm.
 
@@ -675,7 +675,7 @@ A unit added straight to intake skips a shipment's receipt, which is what that c
         to: DISCONTINUED
 ```
 
-**Supply and demand.** A shipment is the receiving batch production reconciles, and a delivery binds units and pegs inbound ones. Production keeps the hard bind and the soft peg as two links (`wr:app/services/allocation.py:50-84,104-150`), and so does this module: `binding` and `peg`.
+**Supply and demand.** A shipment is the receiving batch production reconciles, and a delivery binds units and pegs inbound ones. Production keeps the hard bind and the soft peg as two links, and so does this module: `binding` and `peg`.
 
 ```yaml
 # inventory_journey, continued
@@ -1801,59 +1801,57 @@ examples:
 
 ## 3. Every transition, against production
 
-`sr` is `wr:app/core/state_registry.py`; `sh` is `wr:app/services/shipment_service.py`; `ib` is `wr:app/services/intake_batch_service.py`; `sv` is `wr:app/services/service_service.py`.
-
 | Transition | From → to | Production | Note |
 |---|---|---|---|
-| `request` | → REQUESTED | procurement order creation births units REQUESTED (`wr:app/services/procurement.py:150-162`) | |
-| `add_to_intake` | → INTAKE | manual add (`wr:app/services/inventory_item_service.py:193-221`) | |
-| `add_opening_stock` | → AVAILABLE | the opening-stock fast path, same predicate at creation (`wr:docs/proposals/operations-system-design.md:308`), refusing a unit with no manufacturer serial where its model requires one (`wr:app/services/inventory_item_service.py:277-293`) | a port of existing stock, and who may take it is the upper layer's (ADR-0114). *(Corrected 2026-09-26: this cell said it was gated on `ASSERT`, a capability ADR-0114 withdrew together with the guard that tested it.)* It copies none of intake's guards: the label and the serial are invariants that bind it like every route into `AVAILABLE`, and the photo, which production checks only at intake, is intake's alone; the publish report lists what it skips (D345, ADR-0109) |
-| `ship` | REQUESTED → PROCUREMENT | `sr:861-865`; `sh:165-317` stamps `shipment_id` | only via the shipment |
-| `unship` | PROCUREMENT → REQUESTED | `sr:867-875`, guarded to in-transit shipments in the service | only via `Shipment.remove_unit`, at `IN_TRANSIT` |
-| `receive` | PROCUREMENT → INTAKE | `sr:884-888`; `sh:757-980` | only via `Shipment.receive_unit`, at `ARRIVED`, whose `backdating_limit` is `2 days`, so time in PROCUREMENT ends when the unit arrived (PRD UC-6) |
-| `unreceive` | INTAKE → PROCUREMENT | `sr:890-898` | |
-| `flag_missing` | PROCUREMENT → MISSING | `sh:985-1055`: PROCUREMENT → CANCELLED with reason `MISSING_FROM_SHIPMENT`, peg released | **a state here**, §4 |
-| `restore` | MISSING → PROCUREMENT | `sr:907-915`; `sh:1099` | production leaves a terminal state by an explicit override |
-| `rerequest` | MISSING → REQUESTED | `sr:917-925`; `sh:1153` | |
-| `discard` | MISSING → CANCELLED | `sh:1202-1238`: the reason changes to `DISCARDED` | |
-| `cancel` | REQUESTED, PROCUREMENT, INTAKE → CANCELLED | `sr:877-883,900-905,933-938`, each releasing the peg | one transition with a reason |
-| `peg_to`, `unpeg` | internal | `wr:app/services/allocation.py:104-200` | |
-| `record_label_print` | internal, from any state but a final one | production allows it in any state (`wr:app/services/label_print_service.py:174-197`) | `RETIRED` is `closed` and not terminal, so a retired unit can be relabelled, as in production; only `DELETED` is final (ADR-0103 §8) |
-| `record_manufacturer_serial` | internal, from any state but a final one | editable on an intake item before commit (`ib:470-520`) and on an existing robot (`wr:app/schemas/inventory.py:59-63`) | added, since nothing wrote it after creation (D379) |
-| `add_photo` | internal, at INTAKE | an intake item's confirmation photos, carried onto the unit at commit (`ib:874-880`, `ib:936`) | added, for the same reason (D379) |
-| `inventorize` | INTAKE → AVAILABLE | `sr:926-931`; `ib:635-910`; the peg is released at commit (`ib:912-934`) | production gates on the label only, behind `LABEL_PRINTING_ENABLED`, default off (`sr:695-724`); photos are checked per batch; `labelled` and `mfr_serial` are also invariants of every unit on offer (ADR-0109) |
-| `revert_intake` | AVAILABLE → INTAKE | `sr:940-945`; `ib:1006-1124` | only via `Shipment.revert_commit` |
-| `reserve` | AVAILABLE → RESERVED | `sr:947-951`; `wr:app/services/inventory_helpers.py:40-80` | |
-| `reserve_for_service` | AVAILABLE → RESERVED | `sv:585-600` reserves a part | production's registry names one transition for both |
-| `release` | RESERVED → AVAILABLE | `sr:953-957` | four parents |
-| `sell` | RESERVED → SOLD | `sr:959-963`; delivery completion (`sr:85-131`) | |
-| `deliver_internal` | RESERVED → DEVELOPMENT | `sr:965-969` | |
-| `consume` | RESERVED → SOLD | service completion sells parts (`sr:813-820`; `sv:858-943`) | a separate name, so a metric can tell a sale from a part used |
-| `unconsume` | SOLD → AVAILABLE | cancelling a completed service (`sr:827-836`) | |
-| `unsell`, `recall_internal` | SOLD, DEVELOPMENT → AVAILABLE | cancelling a completed delivery (`sr:782-790`) | refused here if the unit has moved on; production sets AVAILABLE unchecked (`sr:169-187`) |
-| `accept_return` | SOLD → AVAILABLE | `sr:971-977`, admin | |
-| `release_to_stock` | DEVELOPMENT → AVAILABLE | `sr:979-985`, admin | refused while on loan |
+| `request` | → REQUESTED | procurement order creation births units REQUESTED | |
+| `add_to_intake` | → INTAKE | manual add | |
+| `add_opening_stock` | → AVAILABLE | the opening-stock fast path, same predicate at creation, refusing a unit with no manufacturer serial where its model requires one | a port of existing stock, and who may take it is the upper layer's (ADR-0114). *(Corrected 2026-09-26: this cell said it was gated on `ASSERT`, a capability ADR-0114 withdrew together with the guard that tested it.)* It copies none of intake's guards: the label and the serial are invariants that bind it like every route into `AVAILABLE`, and the photo, which production checks only at intake, is intake's alone; the publish report lists what it skips (D345, ADR-0109) |
+| `ship` | REQUESTED → PROCUREMENT | the shipment stamps `shipment_id` | only via the shipment |
+| `unship` | PROCUREMENT → REQUESTED | guarded to in-transit shipments in the service | only via `Shipment.remove_unit`, at `IN_TRANSIT` |
+| `receive` | PROCUREMENT → INTAKE | the same transition | only via `Shipment.receive_unit`, at `ARRIVED`, whose `backdating_limit` is `2 days`, so time in PROCUREMENT ends when the unit arrived (PRD UC-6) |
+| `unreceive` | INTAKE → PROCUREMENT | the same transition | |
+| `flag_missing` | PROCUREMENT → MISSING | PROCUREMENT → CANCELLED with reason `MISSING_FROM_SHIPMENT`, peg released | **a state here**, §4 |
+| `restore` | MISSING → PROCUREMENT | the same transition | production leaves a terminal state by an explicit override |
+| `rerequest` | MISSING → REQUESTED | the same transition | |
+| `discard` | MISSING → CANCELLED | the reason changes to `DISCARDED` | |
+| `cancel` | REQUESTED, PROCUREMENT, INTAKE → CANCELLED | each releasing the peg | one transition with a reason |
+| `peg_to`, `unpeg` | internal | the same transition | |
+| `record_label_print` | internal, from any state but a final one | production allows it in any state | `RETIRED` is `closed` and not terminal, so a retired unit can be relabelled, as in production; only `DELETED` is final (ADR-0103 §8) |
+| `record_manufacturer_serial` | internal, from any state but a final one | editable on an intake item before commit and on an existing robot | added, since nothing wrote it after creation (D379) |
+| `add_photo` | internal, at INTAKE | an intake item's confirmation photos, carried onto the unit at commit | added, for the same reason (D379) |
+| `inventorize` | INTAKE → AVAILABLE | the peg is released at commit | production gates on the label only, behind `LABEL_PRINTING_ENABLED`, default off; photos are checked per batch; `labelled` and `mfr_serial` are also invariants of every unit on offer (ADR-0109) |
+| `revert_intake` | AVAILABLE → INTAKE | the same transition | only via `Shipment.revert_commit` |
+| `reserve` | AVAILABLE → RESERVED | the same transition | |
+| `reserve_for_service` | AVAILABLE → RESERVED | reserves a part | production's registry names one transition for both |
+| `release` | RESERVED → AVAILABLE | the same transition | four parents |
+| `sell` | RESERVED → SOLD | delivery completion | |
+| `deliver_internal` | RESERVED → DEVELOPMENT | the same transition | |
+| `consume` | RESERVED → SOLD | service completion sells parts | a separate name, so a metric can tell a sale from a part used |
+| `unconsume` | SOLD → AVAILABLE | cancelling a completed service | |
+| `unsell`, `recall_internal` | SOLD, DEVELOPMENT → AVAILABLE | cancelling a completed delivery | refused here if the unit has moved on; production sets AVAILABLE unchecked |
+| `accept_return` | SOLD → AVAILABLE | admin-gated | |
+| `release_to_stock` | DEVELOPMENT → AVAILABLE | admin-gated | refused while on loan |
 | `convert_lease` | DEVELOPMENT → SOLD | ADR-0002, "Leasing": guarded on an active lease being converted | not built in production |
-| `retire` | DEVELOPMENT → RETIRED | `sr:987-993`; `wr:app/services/inventory_item_service.py:542-681` | ends an open engagement line, ADR-0002's close-with-reason. `RETIRED` has no exit, as in production, and needs none, being closed |
-| `delete` | AVAILABLE, CANCELLED → DELETED | `sr:1003`, a soft delete | |
-| `correct_state` | assertion | none; production writes status directly or by `force_transition` (`wr:app/core/state_transition.py:577-619`) | the one override, with a declared reason |
+| `retire` | DEVELOPMENT → RETIRED | the same transition | ends an open engagement line, ADR-0002's close-with-reason. `RETIRED` has no exit, as in production, and needs none, being closed |
+| `delete` | AVAILABLE, CANCELLED → DELETED | a soft delete | |
+| `correct_state` | assertion | none; production writes status directly or by `force_transition` | the one override, with a declared reason |
 
 ## 4. Where this module departs from production, and why
 
-- **A missing unit is a state, not a cancelled one.** Production cancels a unit it flags missing and records the reason `MISSING_FROM_SHIPMENT` (`sh:985-1055`), then leaves `CANCELLED` by an explicit rule that overrides its terminal status (`sr:907-925`) when the unit is restored or re-requested. Its own design says a missing unit "stays expected" (`wr:docs/proposals/operations-system-design.md:154`). Here it is `MISSING`, category `inbound`, so it counts as open work, ages in `inbound_dwell` and `missing_units`, and `CANCELLED` means cancelled. The port maps `(CANCELLED, MISSING_FROM_SHIPMENT)` to `MISSING` and `(CANCELLED, DISCARDED)` to `CANCELLED`.
-- **Closed is not terminal.** Production marks states terminal and then leaves them: `CANCELLED` (above), a delivered delivery (`sr:782-790`), a completed service (`sr:827-836`), and a committed intake batch, which revert leaves (`ib:1104`). Each is `closed` and not `terminal` here, with a terminal `DELETED` or `VOIDED` after it where production has one, as the specification's §4.2 advises. Work that is closed stops counting as open, whatever can still happen to it.
-- **A cascade that cannot apply refuses.** Production's delivery revoke sets its units to AVAILABLE whatever they became since (`sr:169-187`); here `unsell` and `recall_internal` refuse, naming the unit, if it is no longer `SOLD` or `DEVELOPMENT`.
+- **A missing unit is a state, not a cancelled one.** Production cancels a unit it flags missing and records the reason `MISSING_FROM_SHIPMENT`, then leaves `CANCELLED` by an explicit rule that overrides its terminal status when the unit is restored or re-requested. Its own design says a missing unit "stays expected". Here it is `MISSING`, category `inbound`, so it counts as open work, ages in `inbound_dwell` and `missing_units`, and `CANCELLED` means cancelled. The port maps `(CANCELLED, MISSING_FROM_SHIPMENT)` to `MISSING` and `(CANCELLED, DISCARDED)` to `CANCELLED`.
+- **Closed is not terminal.** Production marks states terminal and then leaves them: `CANCELLED` (above), a delivered delivery, a completed service, and a committed intake batch, which revert leaves. Each is `closed` and not `terminal` here, with a terminal `DELETED` or `VOIDED` after it where production has one, as the specification's §4.2 advises. Work that is closed stops counting as open, whatever can still happen to it.
+- **A cascade that cannot apply refuses.** Production's delivery revoke sets its units to AVAILABLE whatever they became since; here `unsell` and `recall_internal` refuse, naming the unit, if it is no longer `SOLD` or `DEVELOPMENT`.
 - **Engagements and leases exist.** Production has accepted them and not built them (ADR-0002, "Open questions"). Its open questions stay open here and are listed in §6.
 - **The gates are production's intent, not its switch.** `inventorize` requires the label, the manufacturer serial where the model requires one, and a photo where the model requires one. Production enforces the label only, behind a flag that defaults to off. The equivalent of that flag is an `audit` enforcement of `inventorize`'s guard `labelled` (the model's `observe`), published to enforce once its would-be refusals are counted (ADR-0085), rather than an environment variable. The invariant `labelled` is published with the enforcement, since an invariant is not trialled itself; the trial runs on the guard of the same name (ADR-0109).
-- **A unit records whom it was sold to.** Every route into `SOLD` — a sale, a service's consumption, a lease-to-own conversion — writes `sold_to`, and every route out clears it, and a service job opened on a sold unit checks that the customer is its buyer. Production checks instead that the unit appears on one of the customer's deliveries (`wr:app/services/service_service.py:442-486`), which a unit bought out of a lease never does, so its buyer could not have asked for a repair (D289). `sold_to` is tracked, so who owned a unit and when is in its intervals.
-- **The serial is production's.** One sequence per type, formatted `RBT-{maker}-{NNNNNN}`, the maker's segment dropped where a model has no manufacturer (`wr:app/services/serial_number_service.py:37-41,117-196`). Production derives the maker's code from the manufacturer's name each time; here `RobotModel` holds it as an optional `maker_code`, which the port fills with production's derivation and an operator sets for a new model, since the language has no substring. The import carries the sequence's high-water mark, so the first serial minted after cutover follows production's last (ADR-0103 §4).
-- **Simplifications.** A delivery's slots are not modelled, so `filled` reads the delivery's own units and pegs; a reopened service re-adds its parts, where production keeps part rows and re-reserves them; a reopened delivery is not modelled. Accessories and spare parts bind the same machine in production (`sr:1008-1300`) and would here, as further binders.
+- **A unit records whom it was sold to.** Every route into `SOLD` — a sale, a service's consumption, a lease-to-own conversion — writes `sold_to`, and every route out clears it, and a service job opened on a sold unit checks that the customer is its buyer. Production checks instead that the unit appears on one of the customer's deliveries, which a unit bought out of a lease never does, so its buyer could not have asked for a repair (D289). `sold_to` is tracked, so who owned a unit and when is in its intervals.
+- **The serial is production's.** One sequence per type, formatted `RBT-{maker}-{NNNNNN}`, the maker's segment dropped where a model has no manufacturer. Production derives the maker's code from the manufacturer's name each time; here `RobotModel` holds it as an optional `maker_code`, which the port fills with production's derivation and an operator sets for a new model, since the language has no substring. The import carries the sequence's high-water mark, so the first serial minted after cutover follows production's last (ADR-0103 §4).
+- **Simplifications.** A delivery's slots are not modelled, so `filled` reads the delivery's own units and pegs; a reopened service re-adds its parts, where production keeps part rows and re-reserves them; a reopened delivery is not modelled. Accessories and spare parts bind the same machine in production and would here, as further binders.
 
 ## 5. What changed since the walkthrough
 
 [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) §2.1 and §5 were written against production as it stood on 2026-09-07. Three things have changed since:
 
-1. **Commit no longer fills a peg.** Production retired the commit-time auto-fill: committing a batch releases each unit's peg and the unit joins free stock until an operator assigns it (`wr:docs/design/explicit-delivery-assignment.md`; `ib:912-934`). The walkthrough's second commit loop is gone here.
+1. **Commit no longer fills a peg.** Production retired the commit-time auto-fill: committing a batch releases each unit's peg and the unit joins free stock until an operator assigns it. The walkthrough's second commit loop is gone here.
 2. **A flagged-missing unit leaves `PROCUREMENT`.** The walkthrough has `flag_missing` leave it there; production cancels it, and this module moves it to `MISSING`.
 3. **The bind and the peg are two links.** The walkthrough and the specification store one `binding`; production stores a hard bind and a soft peg separately.
 

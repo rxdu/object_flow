@@ -2,7 +2,7 @@
 
 Status: **check, decided by the author**, 2026-09-25: §3.1 to §3.4 accepted ("yes to all four, go ahead and write them"), as PRD revision 9 and ADR-0111 to ADR-0113; each finding says what was decided. At the author's request, the operations platform's PRD was read in full and set against the engine's PRD, its recent decisions and the flow review's open decisions (`flow-review.md` §7). Nothing here changes a requirement: each finding is a question for the author, and the PRD changes only once the author answers.
 
-**The source.** The operations platform's PRD is a Claude document, "Weston Robot Operations Platform — PRD", revision 17. It says it is drawn from its own repository's `DESIGN.md`, ADRs 0001–0037 and conversations up to 23 September 2026. That repository is not on this machine, so its design documents were not read. Cited below as `ops PRD`, by section and requirement number.
+**The source.** The operations platform's PRD is a Claude document, revision 17. It says it is drawn from its own repository's `DESIGN.md`, ADRs 0001–0037 and conversations up to 23 September 2026. That repository is not on this machine, so its design documents were not read. Cited below as `ops PRD`, by section and requirement number.
 
 **How it is used.** The author intends to build the operations platform on ObjectFlow, and said on 2026-09-25: "objectflow should not be specialized just for operations platform, I'd rather treat it as a case study because it provides real use cases instead of overly simplified mockup ones". So the ops PRD is evidence, not a second specification:
 - its needs are use cases the engine must be able to serve;
@@ -11,11 +11,11 @@ Status: **check, decided by the author**, 2026-09-25: §3.1 to §3.4 accepted ("
 
 *(Corrected 2026-09-25, after the author's framing: this paragraph first said that "where the two disagree, the ops PRD should win". That would have written one deployment's policy into the engine, which is the opposite of the author's intent, and §3's questions were framed the same way. They are rewritten below.)*
 
-**Why it matters.** Until now, the engine's evidence about its first consumer came from two places. One is the production inventory system (`wr_inventory_management`), read at `4109939`. The other is `wr:docs/proposals/operations-system-design.md`, a draft dated 2026-07-19 that says "Nothing here is committed to implementation yet"; the engine PRD cites it four times (§2; D11; M7; UC-12). The ops PRD is two months newer and is the author's reviewed statement of what the first consumer needs.
+**Why it matters.** Until now, the engine's evidence about its first consumer came from two places. One is the production inventory system's code. The other is its operations design proposal, a draft dated 2026-07-19 that says "Nothing here is committed to implementation yet"; the engine PRD cites it four times (§2; D11; M7; UC-12). The ops PRD is two months newer and is the author's reviewed statement of what the first consumer needs.
 
 ## 1. What the first consumer is, in the engine's terms
 
-The ops PRD describes "an operations platform that tells Weston Robot whether it can take work on, at the moment of quoting — and that learns from its own history".
+The ops PRD describes "an operations platform that tells [the company] whether it can take work on, at the moment of quoting — and that learns from its own history".
 - **Work is one model.** A request is made of lines, and a match turns lines into reservations of people and hardware. There are twelve kinds of work.
 - **The inventory system becomes one module**, "the facts about physical items", and its switch-over is the last delivery stage (stage 9).
 - **The first workflow built is reimbursement** (stage 1): "nothing to migrate, no time slots to fight over; proves requests, lines, lifecycles and a verified Xero write".

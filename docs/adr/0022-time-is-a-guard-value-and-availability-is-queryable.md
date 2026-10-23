@@ -6,7 +6,7 @@
 
 ## Context
 
-ADR-0012 places all initiation above ObjectFlow, including time-driven rules, and TODO.md asked whether timing rules could nonetheless live in the declaration so they do not drift from the type they concern. The first consumer has such rules from day one: a warranty contract expires when its end date passes; procurement is overdue past its expected arrival; a lease is overdue past its expected return (`wr:docs/proposals/operations-system-design.md` §6). Walkthrough §4 E; TODO.md challenge 5.
+ADR-0012 places all initiation above ObjectFlow, including time-driven rules, and TODO.md asked whether timing rules could nonetheless live in the declaration so they do not drift from the type they concern. The first consumer has such rules from day one: a warranty contract expires when its end date passes; procurement is overdue past its expected arrival; a lease is overdue past its expected return. Walkthrough §4 E; TODO.md challenge 5.
 
 ## Decision
 

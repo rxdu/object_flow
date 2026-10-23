@@ -24,22 +24,22 @@ This version is the repaired one. The withdrawn rule is among the rejected alter
 
 The five gaps left to the PRD, read against it:
 
-1. **Agents must send a version and an idempotency key** (`wr:app/services/base_service.py:236-251`; `wr:app/core/idempotency.py:149-179`).
+1. **Agents must send a version and an idempotency key**.
    - The PRD states this as what agents need today (§2): "scoped keys, mandatory idempotency keys and optimistic versions".
    - It counts every refusal site as a rule to declare once (§8).
    - T2's actors are fallible, and F3 lets the kind of actor matter "only where a rule says so". No rule could say so, since no guard reads a request field.
-2. **Serials carry the maker's code**, as `{prefix}-{maker}-{NNNNNN}`, drawn from one sequence per type. An empty maker segment is dropped (`wr:app/services/serial_number_service.py:37-41,117-196`).
+2. **Serials carry the maker's code**, as `{prefix}-{maker}-{NNNNNN}`, drawn from one sequence per type. An empty maker segment is dropped.
    - The first release is the first consumer's port (§10).
    - A port whose new serials changed format would change every label production prints. §8 measures success as the first consumer running on the engine.
    - `format` held literal text and `{n}` only.
-3. **Text is bounded and checked for format** (`wr:app/services/inventory_item_service.py:102-114`; `wr:app/services/jira_client.py:38-75`).
+3. **Text is bounded and checked for format**.
    - D12 is a Must: values are "checked against their declared types and bounds when recorded".
    - A number can be bounded by an invariant, but a string could not. The language had no string operation beyond equality and membership (`DESIGN.md` §5.7).
-4. **Only administrators read the audit trail.** At least, that was the audit's reading of `wr:app/core/permissions.py:33-51`. The code says something narrower.
-   - Production shows who acted on a record to anyone who may view it. A delivery's activity feed returns each entry's username under `DELIVERY_VIEW` (`wr:app/api/deliveries.py:966-1035`), which every human role holds (`wr:app/core/permissions.py:23-30`).
-   - Every record carries `created_by` (`wr:app/schemas/base.py:27-36`).
-   - What `AUDIT_VIEW` restricts is the cross-record trail: the global list, its summary, its CSV export, and the per-entity and per-user feeds (`wr:app/api/audit.py:25-290`).
-5. **A derived order status triggers a Jira comment and is filterable in a list** (`wr:app/services/procurement.py:339-375`).
+4. **Only administrators read the audit trail.** At least, that was the audit's reading of its permission code. The code says something narrower.
+   - Production shows who acted on a record to anyone who may view it. A delivery's activity feed returns each entry's username under `DELIVERY_VIEW`, which every human role holds.
+   - Every record carries `created_by`.
+   - What `AUDIT_VIEW` restricts is the cross-record trail: the global list, its summary, its CSV export, and the per-entity and per-user feeds.
+5. **A derived order status triggers a Jira comment and is filterable in a list**.
    - The PRD makes causing effects the consumer's job, which it does by observing events.
    - UC-12 already answers the nearest case: "order ready" is a subscription to the transition that fills the last slot.
    - No requirement asks for a list filter on a status derived from other objects, and a first-release list of a few hundred orders (N3) can be filtered by its reader.
@@ -76,7 +76,7 @@ It does not apply to:
 
 `check` and `availability` do not evaluate the two clauses, which concern the request as sent. `availability`'s input schema lists the fields as required.
 
-The rule is stricter than production. Production requires a key only on an agent's POSTs, and a version only where a service method checks one (`wr:app/core/idempotency.py:153-161`). Here an agent sends both on every request. An agent that already sends both loses nothing, and one that did not is refused naming the missing clause. `first-consumer-audit.md` §5 lists this as a change at cutover.
+The rule is stricter than production. Production requires a key only on an agent's POSTs, and a version only where a service method checks one. Here an agent sends both on every request. An agent that already sends both loses nothing, and one that did not is refused naming the missing clause. `first-consumer-audit.md` §5 lists this as a change at cutover.
 
 ### 2. Who acted is shown as production shows it, and needs no new rule
 
@@ -122,9 +122,9 @@ The first consumer's serial is then declared as production mints it:
 attr serial string identifier from unit_serial format "RBT-[{model.maker_code}-]{n:6}" indexed unique
 ```
 
-The code itself is not computed from the maker's name, because the language has no substring. `RobotModel` holds it as an optional `maker_code`, which the port fills with production's derivation: the name stripped to letters and digits, upper-cased and cut to three characters, unless a curated override applies (`wr:app/services/serial_number_service.py:59-61,178-196`). An operator sets it for a new model.
+The code itself is not computed from the maker's name, because the language has no substring. `RobotModel` holds it as an optional `maker_code`, which the port fills with production's derivation: the name stripped to letters and digits, upper-cased and cut to three characters, unless a curated override applies. An operator sets it for a new model.
 
-**A port does not reuse a sequence value.** An import batch may carry a high-water mark for each sequence it names. The store raises the sequence to it and never lowers it, so the first serial minted after cutover follows the last one production minted (`wr:app/services/serial_number_service.py:88-116`).
+**A port does not reuse a sequence value.** An import batch may carry a high-water mark for each sequence it names. The store raises the sequence to it and never lowers it, so the first serial minted after cutover follows the last one production minted.
 
 ### 5. A quotient of two like quantities is a decimal
 
@@ -143,7 +143,7 @@ In a guard, an invariant, a visibility predicate or a derivation, an aggregate k
 - an element whose filter is `unknown` makes `all`, `any` or `none` unknown, unless another element decides it;
 - it makes `count`, `sum`, `min` and `max` unknown.
 
-So a guard still fails closed, and the separation-of-duties rule of ADR-0047 and D20 holds: `none(a in approvals where a.approver == actor.id)` over an erased approver is unknown, and refuses. Production's rule that a slot with no role never blocks completion (`wr:app/core/state_registry.py:544-545`) is written with a presence test, which Kleene `and` makes definite: *(Since ADR-0114 no guard reads `actor`, check 64, so this example no longer publishes; separation of duties is the upper layer's.)*
+So a guard still fails closed, and the separation-of-duties rule of ADR-0047 and D20 holds: `none(a in approvals where a.approver == actor.id)` over an erased approver is unknown, and refuses. Production's rule that a slot with no role never blocks completion is written with a presence test, which Kleene `and` makes definite: *(Since ADR-0114 no guard reads `actor`, check 64, so this example no longer publishes; separation of duties is the upper layer's.)*
 
 ```text
 require filled: none(s in slots where s.role is not null and s.role == Role.PRIMARY and not s.filled)
@@ -169,7 +169,7 @@ A retired unit can therefore stay `closed` with no way out, as in production, an
 
 ### 9. The record says the first consumer keeps a stock level
 
-It does, for bulk accessories. The service layer counts `Accessory.quantity` down and clamps it at zero (`wr:app/services/service_service.py:751-773`). The design would model a bulk lot as a `tracking quantity` type with a `counter` and a `nonneg` invariant, beside the serial-tracked accessory, so the first consumer would exercise the counter of ADR-0072. Production's clamp would become a refusal naming `nonneg`, rather than a silent zero.
+It does, for bulk accessories. The service layer counts `Accessory.quantity` down and clamps it at zero. The design would model a bulk lot as a `tracking quantity` type with a `counter` and a `nonneg` invariant, beside the serial-tracked accessory, so the first consumer would exercise the counter of ADR-0072. Production's clamp would become a refusal naming `nonneg`, rather than a silent zero.
 
 `edge-cases.md`, the specification's §11 question 10, and every other statement that the first consumer stores no stock level are corrected. The lot type is declared by the table-to-type mapping, not here.
 
@@ -177,7 +177,7 @@ It does, for bulk accessories. The service layer counts `Accessory.quantity` dow
 
 `Shipment.receive_unit` is `backdatable within 2 days`. The unit's own `receive` is `only via` it, so it cannot carry the marking (check 58), and a cascaded transition records its parent's occurred time (ADR-0095). Time in `PROCUREMENT` therefore ends when the unit arrived, as UC-6 requires.
 
-`Shipment.eta` is also `indexed`, and the shipment derives `overdue`, which finds in-transit shipments past their expected arrival with one query. That is not production's "procurement overdue", which is an order past its `expected_arrival` (`wr:app/models/procurement.py:59`; `wr:docs/proposals/operations-system-design.md:251`). It is declared the same way on the procurement order, which the module leaves out.
+`Shipment.eta` is also `indexed`, and the shipment derives `overdue`, which finds in-transit shipments past their expected arrival with one query. That is not production's "procurement overdue", which is an order past its `expected_arrival`. It is declared the same way on the procurement order, which the module leaves out.
 
 ## Alternatives rejected
 

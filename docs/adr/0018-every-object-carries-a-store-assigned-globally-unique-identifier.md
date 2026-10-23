@@ -8,7 +8,7 @@
 
 Objects are referenced from many places at once: from other objects across types, from every event in the log, from idempotency keys and causal lineage, from consumers' URLs and agents' tool calls, and from external systems that hold a link back (Jira, Xero, a printed label). Every imported object arrives with a primary key from the legacy database that must not collide with anything the new store creates (ADR-0015).
 
-The first consumer shows what happens when identity is left to the consumer. Its serial numbers do three jobs at once — identity, business identifier, and label text — and the design of the operations extension had to fix *when* a serial is minted ("serial at birth, label at receipt") so that abandoned drafts would not burn serials. Accessories and spare parts get a generated serial that the receiver may **edit** at intake (`wr:docs/proposals/operations-system-design.md` §4, "Intake capture"). An identifier that can be edited is not an identity.
+The first consumer shows what happens when identity is left to the consumer. Its serial numbers do three jobs at once — identity, business identifier, and label text — and the design of the operations extension had to fix *when* a serial is minted ("serial at birth, label at receipt") so that abandoned drafts would not burn serials. Accessories and spare parts get a generated serial that the receiver may **edit** at intake. An identifier that can be edited is not an identity.
 
 The question raised in the walkthrough (`docs/design/first-consumer-walkthrough.md` §6) was whether ObjectFlow should offer a sequence primitive for minting. The answer chosen is stronger and simpler.
 

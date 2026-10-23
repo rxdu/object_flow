@@ -6,7 +6,7 @@
 
 ## Context
 
-Guards reference actors and roles, DESIGN.md listed permissions and approvals as in scope, and the model block had no actor. The first consumer's shape is concrete: a principal is a human (JWT) or an agent (an API key bound to a user of role `AGENT`); effective permissions are role ∪ per-key allowlist; four roles and 41 permissions named `<RESOURCE>_<ACTION>`; a transition may require a role; an agent may create a Service but may not be its engineer-of-record; revoking a key is instant (`wr:docs/DESIGN.md` §7.1, `wr:docs/agent-operations.md`). Walkthrough §4 H.
+Guards reference actors and roles, DESIGN.md listed permissions and approvals as in scope, and the model block had no actor. The first consumer's shape is concrete: a principal is a human (JWT) or an agent (an API key bound to a user of role `AGENT`); effective permissions are role ∪ per-key allowlist; four roles and 41 permissions named `<RESOURCE>_<ACTION>`; a transition may require a role; an agent may create a Service but may not be its engineer-of-record; revoking a key is instant. Walkthrough §4 H.
 
 ## Decision
 

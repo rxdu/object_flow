@@ -70,7 +70,12 @@ def check_references(nums, maxcheck):
                         findings.append(f"{rel}:{i}  anchor #{want} does not resolve in {m.group(1) or p.name}")
 
 
-CITATION = re.compile(r"`?(wr:(?:[\w.-]+/)*)?([A-Za-z][\w-]*\.md)`? (§\d+(?:\.\d+)*(?:(?:,? and |, | to |–)§\d+(?:\.\d+)*)*)")
+CITATION = re.compile(r"`?([A-Za-z][\w-]*\.md)`? (§\d+(?:\.\d+)*(?:(?:,? and |, | to |–)§\d+(?:\.\d+)*)*)")
+
+# The first consumer's files are never named here: a case it met is described
+# generically or restated on a sample (the author, 2026-10-21). The citation
+# form its documents once used, and the path of its checkout.
+CONSUMER_FILES = re.compile(r"`wr:|RduWs/wr_")
 
 
 def citable(path):
@@ -89,7 +94,7 @@ def citable(path):
 def check_citations():
     """Every citation of another document's section resolves in it (ADR-0148): one rule has one home, and the others
     cite it, so a citation that resolves nowhere leaves a rule with no statement. A decision record, a lesson and a
-    review cite documents as they were then, and the first consumer's repository (`wr:`) is not this one."""
+    review cite documents as they were then."""
     files = {p.name: p for p in list(ROOT.glob("docs/*.md")) + list(ROOT.glob("docs/design/*.md"))}
     cache = {}
     for p in docs():
@@ -98,14 +103,21 @@ def check_citations():
             continue
         for i, line in enumerate(p.read_text().split("\n"), 1):
             for m in CITATION.finditer(line):
-                if m.group(1) or m.group(2) not in files:
+                if m.group(1) not in files:
                     continue
-                target = files[m.group(2)]
+                target = files[m.group(1)]
                 if target not in cache:
                     cache[target] = citable(target)
-                for sec in re.findall(r"§(\d+(?:\.\d+)*)", m.group(3)):
+                for sec in re.findall(r"§(\d+(?:\.\d+)*)", m.group(2)):
                     if sec not in cache[target]:
-                        findings.append(f"{rel}:{i}  cites {m.group(2)} §{sec}, which {m.group(2)} has no section numbered")
+                        findings.append(f"{rel}:{i}  cites {m.group(1)} §{sec}, which {m.group(1)} has no section numbered")
+
+
+def check_consumer_files():
+    for p in docs():
+        for i, line in enumerate(p.read_text().split("\n"), 1):
+            if CONSUMER_FILES.search(line):
+                findings.append(f"{p.relative_to(ROOT)}:{i}  names the first consumer's files; describe the case generically")
 
 
 def check_retired():
@@ -349,6 +361,7 @@ def main():
 
     check_references(nums, maxcheck)
     check_citations()
+    check_consumer_files()
     check_retired()
     check_adr_headers(nums)
     check_amendments()

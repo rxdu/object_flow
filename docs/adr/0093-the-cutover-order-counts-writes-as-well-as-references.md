@@ -9,7 +9,7 @@
 
 PRD N5 requires the first consumer's data and legacy history to be ported and preserved. ADR-0075, the author's choice of a cutover staged by type, rests on "nothing writes a type it does not own", and derived the order from references alone.
 
-D206 found the legacy system's own cross-type writes. Completing a delivery marks its units sold and creates their warranty contracts (`wr:app/core/state_registry.py:771`). So while deliveries stay legacy-owned, so must units and warranty contracts, which the reference-only order had migrated earlier.
+D206 found the legacy system's own cross-type writes. Completing a delivery marks its units sold and creates their warranty contracts. So while deliveries stay legacy-owned, so must units and warranty contracts, which the reference-only order had migrated earlier.
 
 ## Decision
 

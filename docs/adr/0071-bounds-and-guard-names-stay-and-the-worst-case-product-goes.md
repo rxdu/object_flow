@@ -12,7 +12,7 @@ Two deviations were bundled in one question because both cost the author somethi
 
 The evidence against the bounds was that the numbers are invented. A reviewer's clinical-trial model produced a reported worst-case fan-out around thirty-three thousand, from limits they said they made up, so the figure was precise and meaningless.
 
-The evidence for them is that the loops are real. The first consumer raises a procurement order as `for i in 1..inputs.quantity`, repeating over a caller-supplied count, and its production system exposes a batch creation endpoint (`wr:app/api/robots.py:48`). Without a bound a typo creates a hundred thousand objects in one transaction.
+The evidence for them is that the loops are real. The first consumer raises a procurement order as `for i in 1..inputs.quantity`, repeating over a caller-supplied count, and its production system exposes a batch creation endpoint. Without a bound a typo creates a hundred thousand objects in one transaction.
 
 Guard names were never in doubt on evidence: a verdict carries the failing clause's name, which is what the remedy classes, the availability listing and every consumer's error text are built on.
 

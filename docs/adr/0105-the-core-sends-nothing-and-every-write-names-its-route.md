@@ -14,7 +14,7 @@ PRD revision 5 was made to agree with itself first. Five reviewers then read the
 - every use case end to end;
 - the record's coherence as one text.
 
-They reported ninety-one findings. After deduplication, and after each was re-read at its cited lines, sixty-four stand ([`design/defects.md`](../design/defects.md), D290 to D353). Two of the slice-4 findings depended on production's behaviour, and both were confirmed in `~/RduWs/wr_inventory_management` at `4109939`.
+They reported ninety-one findings. After deduplication, and after each was re-read at its cited lines, sixty-four stand ([`design/defects.md`](../design/defects.md), D290 to D353). Two of the slice-4 findings depended on production's behaviour, and both were confirmed in the first consumer's production code.
 
 This decision's first draft was then verified independently, against the PRD, ADR-0104 and the whole working tree. The verification found that its refusal record could not replay an invariant's refusal (D354), that it counted overrides per free-text reason again (D355), that an `admit` could not yield for a compiled invariant (D357), that `not_erased` had no stated scope (D359), and five smaller faults. This version is the repaired one.
 

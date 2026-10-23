@@ -13,7 +13,7 @@
 Evidence from the first consumer:
 
 - **No currency concept exists at all.** Searching its application for "currency" returns two comments about a Jira field it deliberately declines to supply, and nothing else.
-- **Money is vestigial.** Four columns carry an amount, all `Float` (`wr:app/models/inventory.py:45`, `wr:app/models/spare_part.py:36`, `wr:app/models/service.py:66`), never rounded, rendered once with a hardcoded dollar sign. Monetary fields were actively removed from the warranty domain by migration `344e1cb44335`. There is no quote, invoice, purchase order or pricing entity.
+- **Money is vestigial.** Four columns carry an amount, all `Float`, never rounded, rendered once with a hardcoded dollar sign. Monetary fields were actively removed from the warranty domain by migration `344e1cb44335`. There is no quote, invoice, purchase order or pricing entity.
 - Its own design document claims all monetary amounts use `Decimal(10,2)`. None of the columns it names exists, and the ones that do are floating point.
 
 ADR-0032 already placed **currency conversion** outside the store, among the domain formulas a consumer computes and supplies.

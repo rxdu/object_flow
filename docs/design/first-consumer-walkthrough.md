@@ -9,7 +9,7 @@ Status: **worked example**, written 2026-09-07 as a draft and adopted in design 
 > **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
 
 > **Re-expressed 2026-09-08** against the grammar of ADR-0046, the semantics of ADR-0047 and the amendments of ADR-0052, which this re-expression is what found. Declarations here were current with the grammar on that day; the surrounding prose records how the study reached them. *(A review on 2026-09-23 found three places where they differ from the production system's behaviour — `complete_sale` gates on the checklist and inspections where production does not, a unit's `CANCELLED` is terminal where production has transitions out of it, and `reserve` binds a unit only to a delivery where production also reserves for a service. They are listed in `TODO.md` for the table-to-type mapping, which re-derives the declarations from production and is what the harness fixture will be built from.)*
-Source material: `wr:app/core/state_registry.py`, `wr:docs/proposals/operations-system-design.md` §4–§5, `wr:docs/adr/0002-unit-engagement-and-leasing-model.md`, `wr:docs/adr/0003-xero-as-source-of-truth-for-customer-identity.md`. The `wr:` prefix is defined in [`TODO.md`](../../TODO.md).
+Source material: the first consumer's production code, its operations design proposal and two of its decision records.
 
 ## 1. Method
 
@@ -106,7 +106,7 @@ actions in PREPARATION: add_slot, remove_slot, bind(slot, unit), unbind(slot),
                         apply_configuration, set_delivery_date
 ```
 
-Two completion transitions rather than one with a branch. The inventory system's single `if DIRECT_SALE … else …` is the hazard its own ADR-0002 flagged (`wr:app/core/state_registry.py:101-114`): any new delivery type silently falls through to `DEVELOPMENT`. Splitting by guard makes the applicable transition appear in the availability list, and makes a type with no completion visibly stuck rather than silently wrong.
+Two completion transitions rather than one with a branch. The inventory system's single `if DIRECT_SALE … else …` is the hazard its own ADR-0002 flagged: any new delivery type silently falls through to `DEVELOPMENT`. Splitting by guard makes the applicable transition appear in the availability list, and makes a type with no completion visibly stuck rather than silently wrong.
 
 ### 3.2 Parts and references
 

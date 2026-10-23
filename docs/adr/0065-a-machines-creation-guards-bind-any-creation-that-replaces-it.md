@@ -12,7 +12,7 @@ ADR-0064 decided that a binder's own `create` replaces the machine's rather than
 
 The **authority** obligation does not. A guard on the machine's creation — a screening test, a velocity limit, a capability the lifecycle requires of anyone who brings one of these into existence — simply stops applying to a binder that declares its own creation, and nothing says so. A machine can `require` an attribute, a part and a capability of its binders; it could not require that their creations carry a guard.
 
-**This is not hypothetical.** The system being ported has it in production. A warranty contract is creatable through its own endpoint under `WARRANTY_CREATE` (`wr:app/api/warranty_contracts.py:63`), or automatically as a consequence of completing a delivery under `DELIVERY_COMPLETE` (`wr:app/api/deliveries.py:658`, `wr:app/core/state_registry.py:414-440`). A principal holding `DELIVERY_COMPLETE` and no warranty permission whatever creates warranty contracts. Two creation paths, two authorities, and the weaker one is reachable without the stronger one being named.
+**This is not hypothetical.** The system being ported has it in production. A warranty contract is creatable through its own endpoint under `WARRANTY_CREATE`, or automatically as a consequence of completing a delivery under `DELIVERY_COMPLETE`. A principal holding `DELIVERY_COMPLETE` and no warranty permission whatever creates warranty contracts. Two creation paths, two authorities, and the weaker one is reachable without the stronger one being named.
 
 It is also the shape §4.2 rejects by name when it argues against an unlisted authority list: a construct that grants by construction what the model asks to be declared.
 

@@ -9,7 +9,7 @@
 
 The author, 2026-09-23: "assignee change is also important and I'd like to keep track of this kind of data from the beginning." The PRD records it as D10: every change of assignee is captured from the start, with who made it, when, and ported history where the legacy audit trail has it. It adds D11, the same for other data of that kind, and M6, standard assignment metrics. UC-18 is the test.
 
-**The first consumer.** A service job has a required engineer-of-record, `engineer_id` (`wr:app/models/service.py:44`). A reassignment is validated like a creation and audited with before-and-after snapshots (`wr:app/services/service_service.py:357-372`). An agent may not be engineer-of-record (`wr:docs/agent-operations.md` §3). A user with active services must have them reassigned before removal (`wr:app/models/users.py:34`).
+**The first consumer.** A service job has a required engineer-of-record, `engineer_id`. A reassignment is validated like a creation and audited with before-and-after snapshots. An agent may not be engineer-of-record. A user with active services must have them reassigned before removal.
 
 ADR-0083 keeps intervals as an index the log rebuilds, and this decision widens them. `design/data-driven-engine.md` §3.9 evaluates the options.
 

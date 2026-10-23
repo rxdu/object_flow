@@ -1,4 +1,4 @@
-# ADR-0015: The first consumer is the Weston Robot operations platform, rebuilt on ObjectFlow with its production data ported
+# ADR-0015: The first consumer is an operations platform, rebuilt on ObjectFlow with its production data ported
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
@@ -8,16 +8,16 @@
 
 The design documents used Deployment, Site, Robot, Task, UAT and Deal as illustrative names and said so. No document named the actual first consumer, so a reader of this repository could not tell which domain the design was being judged against, and the domain questions in TODO.md were listed as unanswered while several of them had answers in a sibling repository.
 
-The Weston Robot inventory management system (`~/RduWs/wr_inventory_management`; FastAPI, SQLAlchemy, Vue 3, PostgreSQL) is in production. It tracks serialised robots, accessories and spare parts through deliveries, services, warranties, product configurations and staged intake. A proposal in that repository (`docs/proposals/operations-system-design.md`) repositions it as an operations platform: order commitment with available-to-promise, two-strength allocation, procurement with pegging and receiving reconciliation, intake as a unit status, pre-delivery inspection, engagements and leasing (its ADR-0002), and customer identity owned by Xero (its ADR-0003). Parts of that proposal have shipped; leasing, inspection and most of the Jira model have not.
+The first consumer's inventory management system (FastAPI, SQLAlchemy, Vue 3, PostgreSQL) is in production. It tracks serialised robots, accessories and spare parts through deliveries, services, warranties, product configurations and staged intake. A proposal in that repository (`docs/proposals/operations-system-design.md`) repositions it as an operations platform: order commitment with available-to-promise, two-strength allocation, procurement with pegging and receiving reconciliation, intake as a unit status, pre-delivery inspection, engagements and leasing (its ADR-0002), and customer identity owned by Xero (its ADR-0003). Parts of that proposal have shipped; leasing, inspection and most of the Jira model have not.
 
 The existing system already contains a hand-built version of ObjectFlow's concerns:
 
 | Concern | Where it lives today | Size |
 |---|---|---|
-| State machines, guards, side effects | `app/core/state_registry.py`, `app/core/state_transition.py` | 1421 + 787 lines |
-| Cascading soft delete | `app/core/cascade_registry.py`, `app/core/soft_delete_cascade.py` | 359 + 420 lines |
-| Actors and authority | `app/core/permissions.py`; API keys for agents; effective permissions = role ∪ key allowlist | 4 roles, 41 permissions |
-| Idempotency | `app/models/idempotency_key.py`; `Idempotency-Key` required on every agent POST | — |
+| State machines, guards, side effects | a state registry and a transition module | 1421 + 787 lines |
+| Cascading soft delete | a cascade registry and a soft-delete module | 359 + 420 lines |
+| Actors and authority | a permission module; API keys for agents; effective permissions = role ∪ key allowlist | 4 roles, 41 permissions |
+| Idempotency | a key table; `Idempotency-Key` required on every agent POST | — |
 | Concurrency | `version` column on every entity; row locks on reservation | — |
 | History | unified audit log with before/after values, principal, source | — |
 
@@ -27,7 +27,7 @@ Line counts and permission counts were observed on 2026-09-07. The delivery, ser
 
 ## Decision
 
-1. **The first consumer is the extended Weston Robot inventory system** — the operations platform described in that repository's proposal. Its repository is the source of domain evidence for this design, and its object types (Robot, Accessory, SparePart, Delivery, Service, WarrantyContract, ProductConfiguration, IntakeBatch, ProcurementOrder, ShippingRecord, and the planned Engagement and Lease) are the ones the model must carry.
+1. **The first consumer is the extended inventory system** — the operations platform described in that repository's proposal. Its repository is the source of domain evidence for this design, and its object types (Robot, Accessory, SparePart, Delivery, Service, WarrantyContract, ProductConfiguration, IntakeBatch, ProcurementOrder, ShippingRecord, and the planned Engagement and Lease) are the ones the model must carry.
 2. **It is a fresh build on ObjectFlow, not an in-place extension.** ObjectFlow does not need to coexist with the existing SQLAlchemy models, Alembic migrations or live schema.
 3. **The production data is ported and preserved.** Every object, its history and its external identifiers survive the move. Import is therefore a designed path in ObjectFlow, not a one-off script beside it.
 4. **The threat model is mistakes, not malice.** The purpose, in the author's words: data only moves to a different state when the right trigger is emitted and every required condition is met.

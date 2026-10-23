@@ -1554,7 +1554,7 @@ Reported without failing: each creation into a state other than its lifecycle's 
 
 ## 11. Questions the author has answered
 
-All thirteen were ruled on by the author on 2026-09-08, after a survey of the first consumer's production code supplied the evidence. `wr:` citations point into `~/RduWs/wr_inventory_management`.
+All thirteen were ruled on by the author on 2026-09-08, after a survey of the first consumer's production code supplied the evidence.
 
 | # | Question | Answer | Where |
 |---|---|---|---|
@@ -1569,7 +1569,7 @@ All thirteen were ruled on by the author on 2026-09-08, after a survey of the fi
 | 3 | Whether inline `states` and a shared `machine` should look alike | **Changed.** Both spellings, in both places | ADR-0072 |
 | 5 | Whether declaring an inverse should imply an index | **Already answered; closed.** §3.1 says a stored end is always available to a filter and rejects marking it, which is an index | ADR-0072 |
 | 6 | Whether confidentiality should be per-attribute | **Refused.** No need in the first consumer: no field-level access control anywhere, and no cost, margin or salary column to protect | ADR-0072 |
-| 10 | Whether a `counter` should hold `money` and go negative | **Deferred.** Non-negativity does move out of `counter` and into an invariant. *(Corrected 2026-09-24: this answer first said the counter is unexercised by the first consumer, which "stores no stock level". It keeps one for bulk accessories, counted down when a service consumes them (`wr:app/services/service_service.py:751-773`), which the design models as a `tracking quantity` lot with a counter and `nonneg`, so the counter is exercised; whether it should hold money stays deferred, D279, ADR-0103.)* | ADR-0072 |
+| 10 | Whether a `counter` should hold `money` and go negative | **Deferred.** Non-negativity does move out of `counter` and into an invariant. *(Corrected 2026-09-24: this answer first said the counter is unexercised by the first consumer, which "stores no stock level". It keeps one for bulk accessories, counted down when a service consumes them, which the design models as a `tracking quantity` lot with a counter and `nonneg`, so the counter is exercised; whether it should hold money stays deferred, D279, ADR-0103.)* | ADR-0072 |
 | 11 | Whether `only via` needs a form naming a family | **Agreed, not built.** No family in the first consumer needs it; issue tracking does. The family must be named explicitly when it is built | ADR-0072 |
 
 Two answers moved because of the survey rather than the argument. Per-attribute confidentiality looked likely and turned out to have no need at all. The money counter turned out to rest on a mechanism the first consumer was then thought not to use. *(Corrected 2026-09-24: it keeps a stock level for bulk accessories, question 10, D279.)*

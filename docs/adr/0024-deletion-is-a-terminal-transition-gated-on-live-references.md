@@ -6,7 +6,7 @@
 
 ## Context
 
-DESIGN.md never said what deletion is. The first consumer has a soft-delete flag on every entity and a cascade registry beside its state machine whose pre-delete hooks call a `force_transition` that bypasses guards (`wr:docs/design/state-transition-system.md`, "Integration with Cascade System"). Its ADR-0003 found that soft-deleting one redundant customer row would have cancelled 102 deliveries, 43 services and 120 warranty contracts. Every legacy table's soft-deleted rows must also land somewhere on import (ADR-0015). Walkthrough §4 G; TODO.md challenge 6.
+DESIGN.md never said what deletion is. The first consumer has a soft-delete flag on every entity and a cascade registry beside its state machine whose pre-delete hooks call a `force_transition` that bypasses guards. Its ADR-0003 found that soft-deleting one redundant customer row would have cancelled 102 deliveries, 43 services and 120 warranty contracts. Every legacy table's soft-deleted rows must also land somewhere on import (ADR-0015). Walkthrough §4 G; TODO.md challenge 6.
 
 ## Decision
 

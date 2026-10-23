@@ -53,7 +53,7 @@ The engine never initiates (PRD, non-goals). So every rule that should move work
 
 *Risk:* noise. Start with a daily review of the board and tune the thresholds from it.
 
-**2.2 A unit bought for an order forgets the order when it arrives** *(both)*. Committing a shipment releases each unit's earmark (`inventorize` clears `peg`). Production chose this so that scarce stock is assigned by a person, most urgent order first (`wr:docs/design/explicit-delivery-assignment.md`). The cost is that the unit sits in general stock, nothing says which order was waiting for it, and any rep can take it first. The readers disagree on the remedy, and the author must choose:
+**2.2 A unit bought for an order forgets the order when it arrives** *(both)*. Committing a shipment releases each unit's earmark (`inventorize` clears `peg`). Production chose this so that scarce stock is assigned by a person, most urgent order first. The cost is that the unit sits in general stock, nothing says which order was waiting for it, and any rep can take it first. The readers disagree on the remedy, and the author must choose:
 - **keep production's rule, keep the fact** *(context; declared)*. `inventorize` writes `procured_for := peg` before clearing the earmark, and `reserve` clears it. The unit derives `awaiting_assignment`, so the people who assign stock have a worklist, read in order of the delivery's promised date as production's contention rule orders it. `assignment_wait` measures how long units wait. `procured_for` is tracked, so every diversion to another order is in its intervals.
 - **reverse production's rule** *(cold read)*. The earmark becomes a reservation at commit when its order is still open and in date. This is faster, and it restores the auto-fill production retired because it filled the less urgent of two orders first. In the engine it is a declared cascade of `Shipment.commit`, which the author's principle on cascades allows (PRD F8, ADR-0108).
 
@@ -67,7 +67,7 @@ Either way, when a unit goes missing, the operations application should notify t
   - `receive_unit_late`, backdatable within 14 days, with a reason *(cold read; declared)*, which only a supervisor is let request, a rule of the upper layer's since ADR-0114;
   - `recording_lag`, the median of recorded time less occurred time, flagged above a day *(context; declared)*;
   - receipt scanned at the dock, the label printed, applied and scan-checked as one step, and a named person accountable for each receipt *(cold read)*.
-- *Risk:* releasing units one by one loses the whole-shipment check. It moves to the batch's closing step, and the batch revert keeps production's test: every unit the batch put on offer is still untouched (`wr:app/services/intake_batch_service.py:1072-1085`).
+- *Risk:* releasing units one by one loses the whole-shipment check. It moves to the batch's closing step, and the batch revert keeps production's test: every unit the batch put on offer is still untouched.
 
 **2.4 Completing a sale is a chain of three people** *(both)*. In the replay an engineer ticks, then the ops lead approves, then sales ops completes (steps 9 to 13). Any tick voids the approval, so approval is forced last, and the ops agent learns the order by being refused (step 10). This is the specification's example delivery, not production's, which has no approval. But it is the shape the example recommends.
 - *Proposals:*
@@ -101,7 +101,7 @@ Either way, when a unit goes missing, the operations application should notify t
   - `retire` from every state in which we hold the unit, with its reason *(both; declared for stock, returns and the pool)*;
   - no `delete` for a unit that physically existed; a value, and an approval above a threshold; a claim record with a deadline, linked to the missing or rejected unit; disposal recorded, batteries in particular *(cold read)*.
 
-**3.4 No customer date** *(context)*. Production's delivery has a required `delivery_date` (`wr:app/models/delivery.py:31`). The module leaves it out, so nothing can say whether a delivery is late: not UC-8's on-time rate, not UC-12's "delivery date at risk". This is an omission of the module, not of production. The proposal is `promised_on` on the delivery, an `at_risk` flag over it, and the promised date as the order of the assignment worklist.
+**3.4 No customer date** *(context)*. Production's delivery has a required `delivery_date`. The module leaves it out, so nothing can say whether a delivery is late: not UC-8's on-time rate, not UC-12's "delivery date at risk". This is an omission of the module, not of production. The proposal is `promised_on` on the delivery, an `at_risk` flag over it, and the promised date as the order of the assignment worklist.
 
 **3.5 Service has no clock, no waiting and no custody** *(both)*. A repair has no priority, no response or completion target, no warranty decision at opening, and no waiting-for-parts or waiting-for-customer state. So repair time mixes work with waiting. A customer's robot in our workshop is recorded nowhere, because custody tracks only our robots going out. A swapped unit's faulty twin is not tracked home. And voiding a finished job returns a consumed part to stock even though it is installed in a robot.
 - *Proposals:*
@@ -728,7 +728,7 @@ types:
         flag_when: { slow: "value > 3 days" }
 ```
 
-**The model catalogue.** The unit's rules read its model — whether a manufacturer serial or a label photo is required, and the maker's code a serial carries — so the model is declared here with the unit. Production's `robot_models` holds a name, a manufacturer, a warranty period and the two flags (`wr:app/models/robot_models.py:25-47`). The reorder point, and the two derivations that read it, are not production's: they are added to test PRD L4 and M7, a threshold that is governed data and a business exception over one object, and production defers reorder logic (`wr:app/models/procurement.py:15`).
+**The model catalogue.** The unit's rules read its model — whether a manufacturer serial or a label photo is required, and the maker's code a serial carries — so the model is declared here with the unit. Production's `robot_models` holds a name, a manufacturer, a warranty period and the two flags. The reorder point, and the two derivations that read it, are not production's: they are added to test PRD L4 and M7, a threshold that is governed data and a business exception over one object, and production defers reorder logic.
 
 ```yaml
 # inventory_journey, continued

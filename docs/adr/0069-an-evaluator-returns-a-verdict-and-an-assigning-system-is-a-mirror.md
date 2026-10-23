@@ -12,7 +12,7 @@ An external evaluator returns a verdict and never a value. A reviewer observed t
 
 Evidence from the first consumer. Four integrations exist in code and **every one is confirm-only**:
 
-- **Jira** verifies an issue key the operator supplied. Its `create_issue` call exists and is deliberately unused, with a comment saying so (`wr:app/services/procurement_order_service.py:301`), and a Jira outage is logged while the link is accepted.
+- **Jira** verifies an issue key the operator supplied. Its `create_issue` call exists and is deliberately unused, with a comment saying so, and a Jira outage is logged while the link is accepted.
 - The **label print server** returns a status; only a confirmed normal status lets the application stamp its own printed-at from local time.
 - **S3** is passive storage for a key the application generates.
 - **Redis** is infrastructure.

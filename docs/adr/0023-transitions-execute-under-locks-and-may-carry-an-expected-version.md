@@ -6,7 +6,7 @@
 
 ## Context
 
-Double-booking was one of the first consumer's three motivating pains. Its fix was a row lock on reservation and a `version` column on every entity, with a stale write refused (`wr:docs/DESIGN.md` §2.6); its ADR-0002 notes the check-then-act hole a service-layer check leaves. DESIGN.md said nothing about concurrency. Walkthrough §4 F; TODO.md challenge 4.
+Double-booking was one of the first consumer's three motivating pains. Its fix was a row lock on reservation and a `version` column on every entity, with a stale write refused; its ADR-0002 notes the check-then-act hole a service-layer check leaves. DESIGN.md said nothing about concurrency. Walkthrough §4 F; TODO.md challenge 4.
 
 ## Decision
 

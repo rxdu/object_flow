@@ -944,3 +944,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Time a scanning read with a filter that matches nothing as well as with a typical one: the empty answer is its worst case, and the one a worklist that is usually empty hits on every load. Say which one a figure is.
 - **Context:** Query and worklist measurements on the engine (`scripts/profile/query-cost.py` times both by default); 2026-10-21.
 
+
+### A rule stated mid-task is applied to the whole record
+- **Pattern:** The author's rule that the repository never names the first consumer's files was stated on 2026-10-21 during issue work, and applied to that work. Nothing searched the older record: 231 citations into its repository stayed in 43 files, with its company's name and its checkout's path, until a review of stale docs met them on 2026-10-22. The rule itself was kept only in a machine-local memory.
+- **Correction:** When the author states a rule about the record, search the whole tree for what breaks it, in every form a reference takes: a prefix, a bare path, an abbreviation, a line number. Record the rule where the repository enforces it, and bring back what the search finds that needs a decision.
+- **Context:** ObjectFlow's design record; `scripts/check-corpus.py` refuses the citation form since 2026-10-23.

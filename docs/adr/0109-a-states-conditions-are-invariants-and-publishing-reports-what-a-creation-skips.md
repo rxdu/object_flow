@@ -19,9 +19,9 @@ The PRD bears on it in three places:
 The copy on the creation is intake's rule written a second time, and the next route into `AVAILABLE` would need a third.
 
 Production, read at `4109939`, treats the three rules on the way into stock differently:
-- **The manufacturer serial** is stated for every unit reaching `AVAILABLE`, at its birth or at the intake gate (`wr:app/services/inventory_item_service.py:277-286`, `:410-416`). It is enforced where a unit is born with the serial in hand: opening stock (`:287-293`) and a walk-in intake (`wr:app/services/intake_batch_service.py:398-404`).
-- **The confirmation photo** is checked only for an intake batch, when its labelling is confirmed and again at commit (`wr:app/services/intake_batch_service.py:675-706`, `:816-821`).
-- **The label print** is gated in the state registry behind a flag that defaults to off (`wr:app/core/state_registry.py:695-724`). The module enforces it on both routes, as production intends (`unit-journey.md` §4).
+- **The manufacturer serial** is stated for every unit reaching `AVAILABLE`, at its birth or at the intake gate. It is enforced where a unit is born with the serial in hand: opening stock and a walk-in intake.
+- **The confirmation photo** is checked only for an intake batch, when its labelling is confirmed and again at commit.
+- **The label print** is gated in the state registry behind a flag that defaults to off. The module enforces it on both routes, as production intends (`unit-journey.md` §4).
 
 ## Decision
 

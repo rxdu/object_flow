@@ -9,7 +9,7 @@
 
 ADR-0025 gave the descriptor optional `attributes`, "further values the consumer's guards may reference". The language then made them unreadable — a guard reads `.id`, `.kind`, `.principal` and `.has(...)` and nothing else, because an untyped value cannot be checked at publish. ADR-0036 §5 nonetheless rested attenuation on them (`amount <= actor.attributes.approval_limit`), the approvals case study repeated it, ADR-0030's example read `actor.teams`, and `library-api.md`'s `Actor` never had the field. D193: a decision with no spelling, in three documents, three ways.
 
-Evidence from the first consumer. Its authority model is a role plus a per-key permission allowlist (`wr:app/models/api_key.py:56`, `permissions = Column(JSON)`); `wr:app/core/permissions.py` and the key model contain no limit, ceiling or attenuation of any kind. The two transitions where authority differs from capability (ADR-0025) are both capability-shaped. Nothing in the system reads a valued fact about the caller.
+Evidence from the first consumer. Its authority model is a role plus a per-key permission allowlist; its permission code and its key model contain no limit, ceiling or attenuation of any kind. The two transitions where authority differs from capability (ADR-0025) are both capability-shaped. Nothing in the system reads a valued fact about the caller.
 
 ## Decision
 

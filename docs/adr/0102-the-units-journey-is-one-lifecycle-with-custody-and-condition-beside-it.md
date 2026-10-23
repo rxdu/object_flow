@@ -4,14 +4,14 @@
 - **Date:** 2026-09-24
 - **Refined by:** ADR-0114 — no rule reads the actor and no read is filtered by who asks; the passages that assumed either are marked where they stand.
 - **Amended by:** ADR-0103 — written before the review against the PRD; amended in place, being still proposed: a closed `RETIRED`, a backdatable receipt, production's serial format, the module's request rule and a declared utilisation. Three of those needed the language to grow, in ADR-0103. ADR-0109 — the label and the manufacturer serial are invariants of every unit on offer, the opening-stock creation copies none of intake's guards, and two acts record a unit's serial and photos (D379).
-- **Relates to:** ADR-0079 (a role is a capability), ADR-0085 (a trial clause), and the first consumer's own ADR-0002 (`wr:docs/adr/0002-unit-engagement-and-leasing-model.md`)
+- **Relates to:** ADR-0079 (a role is a capability), ADR-0085 (a trial clause), and the first consumer's own ADR-0002
 
 ## Context
 
 The author asked for the unit's transitions to be extended from requested, through shipping, inventorised and reserved, to delivered, and then serviced and loaned, using the production system as the source. [`design/unit-journey.md`](../design/unit-journey.md) writes that journey as a checked module. Writing it required six modelling decisions, and three of them depart from production:
 
 - The request lists servicing and lending as stages after delivery. Production's accepted ADR-0002 keeps them off the unit's lifecycle, as separate axes.
-- Production cancels a unit it flags missing from a shipment, and then leaves `CANCELLED` by an override when the unit turns up (`wr:app/core/state_registry.py:907-925`).
+- Production cancels a unit it flags missing from a shipment, and then leaves `CANCELLED` by an override when the unit turns up.
 - Production marks four states terminal and leaves each of them anyway.
 
 These are decisions about the first consumer's model, not about the engine. As first written, none needed a language change; the review against the PRD then found three that did — a closed state with no exit, `format` placeholders and the quotient of like quantities — which ADR-0103 decided. They are recorded because the harness fixture and the cutover mapping will be built from them.
@@ -47,7 +47,7 @@ Each is followed by a terminal `DELETED` or `VOIDED` where production has one, a
 
 ### 4. The hard bind and the soft peg are two references
 
-A unit has `binding`, the delivery it is reserved for, and `peg`, the delivery an inbound unit is earmarked for. Committing a shipment inventorises its units and releases their pegs. It does not fill them, since production retired the commit-time fill (`wr:docs/design/explicit-delivery-assignment.md`).
+A unit has `binding`, the delivery it is reserved for, and `peg`, the delivery an inbound unit is earmarked for. Committing a shipment inventorises its units and releases their pegs. It does not fill them, since production retired the commit-time fill.
 
 ### 5. A unit consumed by a service is `consume`d, not sold
 

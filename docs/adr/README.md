@@ -16,7 +16,7 @@
 | [0012](0012-objectflow-does-not-initiate-transitions.md) | ObjectFlow does not initiate transitions | Accepted — later refined by ADR-0019, ADR-0022, ADR-0100, ADR-0108, ADR-0110 |
 | [0013](0013-events-are-recorded-to-a-durable-log-in-the-transition-transaction.md) | Events are written to a durable ordered log in the transition's own transaction | Accepted — later refined by ADR-0019, ADR-0104, ADR-0105 |
 | [0014](0014-delivery-is-at-least-once-with-idempotency-keys.md) | Delivery is at-least-once; exactly-once effect comes from idempotency keys | Accepted — later refined by ADR-0069, ADR-0080, ADR-0103 |
-| [0015](0015-first-consumer-and-fresh-build-with-ported-data.md) | The first consumer is the Weston Robot operations platform, rebuilt with its production data ported | Accepted — later refined by ADR-0075, ADR-0078, ADR-0100 |
+| [0015](0015-first-consumer-and-fresh-build-with-ported-data.md) | The first consumer is an operations platform, rebuilt with its production data ported | Accepted — later refined by ADR-0075, ADR-0078, ADR-0100 |
 | [0016](0016-actions-are-self-transitions.md) | Actions are self-transitions | Accepted — later refined by ADR-0115 |
 | [0017](0017-file-attachments-are-content-addressed-references.md) | File attachments are content-addressed references; the bytes are out of scope | Accepted (author-confirmed) — later refined by ADR-0087, ADR-0211 |
 | [0018](0018-every-object-carries-a-store-assigned-globally-unique-identifier.md) | Every object carries a store-assigned, globally unique identifier | Accepted — later refined by ADR-0077 |

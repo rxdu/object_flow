@@ -6,7 +6,7 @@
 
 ## Context
 
-The first consumer computes slot state (`UNFILLED` / `FILLED` / `FULFILLED`) from foreign keys and the bound unit's status and deliberately does not store it (`wr:app/models/enums.py`, `SlotState`); its operations design says "demand is derived, not stored". Guards read such values: "no unfilled required slot" gates delivery completion. ADR-0004 rejects derived state, and TODO.md challenge 3 asked whether that rejection covers this. Separately, no document said what guards may express. Walkthrough §2.3 tabulated every guard the first consumer needs. Walkthrough §4 D.
+The first consumer computes slot state (`UNFILLED` / `FILLED` / `FULFILLED`) from foreign keys and the bound unit's status and deliberately does not store it; its operations design says "demand is derived, not stored". Guards read such values: "no unfilled required slot" gates delivery completion. ADR-0004 rejects derived state, and TODO.md challenge 3 asked whether that rejection covers this. Separately, no document said what guards may express. Walkthrough §2.3 tabulated every guard the first consumer needs. Walkthrough §4 D.
 
 ## Decision
 

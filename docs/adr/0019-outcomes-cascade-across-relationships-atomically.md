@@ -37,7 +37,7 @@ Already rejected by ADR-0014: application code inside the write transaction. A c
 
 ### Conditional outcomes
 
-`if type == DIRECT_SALE then unit.sell else unit.deliver_internal`. Rejected: the first consumer's single `else` branch is the hazard its own ADR-0002 recorded — any new delivery type silently fell through to `DEVELOPMENT` (`wr:app/core/state_registry.py:101-114`). Branching in guards makes every case a named, listable transition.
+`if type == DIRECT_SALE then unit.sell else unit.deliver_internal`. Rejected: the first consumer's single `else` branch is the hazard its own ADR-0002 recorded — any new delivery type silently fell through to `DEVELOPMENT`. Branching in guards makes every case a named, listable transition.
 
 ## Consequences
 

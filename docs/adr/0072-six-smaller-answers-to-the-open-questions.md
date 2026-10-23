@@ -16,7 +16,7 @@ Six of the thirteen open questions are answered without a substantial change to 
 
 Not full filtering. An element already carries `.id` and `.state`; it gains `.type`, comparable against a declared type name, which is enough for a deletion guard to treat one referencing type differently.
 
-The case is real. The first consumer's `Note` is polymorphic over `(entity_type, entity_id)` with **no foreign key** (`wr:app/models/note.py:37-38`), sits in no cascade configuration, and is therefore orphaned rather than disposed of when its subject goes. Modelling that correctly here needs a deletion guard that can say "notes do not block, delivery items do".
+The case is real. The first consumer's `Note` is polymorphic over `(entity_type, entity_id)` with **no foreign key**, sits in no cascade configuration, and is therefore orphaned rather than disposed of when its subject goes. Modelling that correctly here needs a deletion guard that can say "notes do not block, delivery items do".
 
 Rejected: heterogeneous member access, which would let a guard read an attribute the element's type may not have.
 
@@ -30,13 +30,13 @@ Rejected: heterogeneous member access, which would let a guard read an attribute
 
 ### 4. Confidentiality stays per-object (question 6)
 
-No per-attribute mechanism. The survey of the first consumer found **no field-level access control anywhere**, and no cost, margin, supplier-terms or salary column to protect: permissions are resource-and-action only (`wr:app/core/permissions.py:23-52`), and every role that may read a row reads all of it, price included (`wr:app/api/spare_parts.py:51`). The only case is a reviewer's trial-blinding model.
+No per-attribute mechanism. The survey of the first consumer found **no field-level access control anywhere**, and no cost, margin, supplier-terms or salary column to protect: permissions are resource-and-action only, and every role that may read a row reads all of it, price included. The only case is a reviewer's trial-blinding model.
 
 The cost is recorded rather than paid: hiding one field from one role costs a separate type with its own lifecycle, its own visibility predicate and a cascade clause per terminal transition of the whole.
 
 ### 5. Counters are deferred, and non-negativity moves to an invariant (question 10)
 
-No money counter, and no signed counter, for now. The survey found the counter mechanism **unexercised by the consumer the design was drawn from**: it stores no stock level at all, computing availability on demand as available units minus allocations plus inbound minus soft pegs (`wr:app/services/atp.py:9`), and its only count-based things have no stock record.
+No money counter, and no signed counter, for now. The survey found the counter mechanism **unexercised by the consumer the design was drawn from**: it stores no stock level at all, computing availability on demand as available units minus allocations plus inbound minus soft pegs, and its only count-based things have no stock record.
 
 One change is made because it costs a line and removes a special case: **non-negativity is not built into `counter`; it is an invariant the type declares.** Non-negativity is a fact about stock, not about counters, and the model already has a mechanism for facts about a type.
 

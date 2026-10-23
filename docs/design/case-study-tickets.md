@@ -15,7 +15,7 @@ Status: design iteration 2, 2026-09-07. Companion to [`first-consumer-walkthroug
 
 Issue tracking differs from the inventory system in ways that stress different parts of the model. Nothing is physical, so no guard reads a photo or a serial. The lifecycle is **user-configured per context**: the same issue type has a different workflow in different projects. Objects are joined by **typed, directional links** that guards read. Objects change kind — a subtask becomes an issue, an issue moves to another project. Workflows are **edited while thousands of issues are live**. And every issue carries a human-readable key that is minted, not supplied.
 
-The Jira vocabulary below is used because the author's first consumer already reflects into a Jira project (`wr:docs/jira-integration.md`); the shapes are the same in Linear, GitHub Issues, YouTrack and service desks.
+The Jira vocabulary below is used because the author's first consumer already reflects into a Jira project; the shapes are the same in Linear, GitHub Issues, YouTrack and service desks.
 
 ## 2. Mapping
 

@@ -9,13 +9,13 @@
 
 ADR-0050 gave every type a mandatory tracking mode, `serial` or `quantity`, on the reasoning that inferring it from an incidental property is the implicit rule the model rejects by name. That reasoning is sound and the two modes are real: capital equipment is serialised because each unit has a history, screws are counted because they do not.
 
-It is the coverage that is wrong, and the evidence is in the first consumer rather than in any reviewer's model. Of the entities in `~/RduWs/wr_inventory_management`:
+It is the coverage that is wrong, and the evidence is in the first consumer rather than in any reviewer's model. Of the entities in the first consumer's production system:
 
-- **three** are serial-identified — robot, accessory, spare part, each with a minted serial (`wr:app/models/inventory.py:28,112`, `wr:app/models/spare_part.py:18`);
+- **three** are serial-identified — robot, accessory, spare part, each with a minted serial;
 - **twelve or more** are not physical things at all — delivery, delivery item, service, service part, procurement order, shipping record, warranty contract, packing list, intake batch, note, audit log, api key;
-- **none** is quantity-tracked with a stored counter. There is no `on_hand` column anywhere; availability is computed on demand (`wr:app/services/atp.py:9`), and the only count-based things are non-inventoried supplies whose quantities live on the lines that reference them.
+- **none** is quantity-tracked with a stored counter. There is no `on_hand` column anywhere; availability is computed on demand, and the only count-based things are non-inventoried supplies whose quantities live on the lines that reference them.
 
-Worse, all three serial types carry a vestigial `quantity` column fixed at one, annotated "Always 1 for individual tracking" (`wr:app/models/spare_part.py:32`). The declaration already says something untrue in the system this design was drawn from, and porting it as written would oblige a delivery, a service and an audit record each to claim it is one physical thing per row.
+Worse, all three serial types carry a vestigial `quantity` column fixed at one, annotated "Always 1 for individual tracking". The declaration already says something untrue in the system this design was drawn from, and porting it as written would oblige a delivery, a service and an audit record each to claim it is one physical thing per row.
 
 ## Decision
 

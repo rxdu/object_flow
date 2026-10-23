@@ -141,7 +141,7 @@ C cannot show UC-2's pattern of one agent repeating the same refused request.
 - **It is pruned.** A deployment keeps it for a retention period, with monthly rollups kept permanently, which is T3's clause for refusal records. *(ADR-0096 and ADR-0100: the rollups are daily, per object and per version, written by `maintain`'s prune in the same transaction, and read by the `<Type>.attempt_counts` source.)*
 - **It is written outside the request's transaction**, the second thing that is after the sequence mint (`storage-schema.md` §6). A crash between the rollback and the write loses one row of evidence and no history.
 
-The first consumer arrived at the same shape on its own: its audit writer uses a separate short session so that a failed operation still leaves a row (`wr:app/core/unified_audit.py:80-110`).
+The first consumer arrived at the same shape on its own: its audit writer uses a separate short session so that a failed operation still leaves a row.
 
 **Time in state.** Computing it on read from state-changing events passes UC-1, but makes current age and work in progress a window function over every event of a type. **Decided:** an **interval** table maintained in the transition's transaction (ADR-0083). Each row holds the object, the state, entry and exit (position and occurred time), the entering transition, its actor's kind, and the declaration version.
 
@@ -316,10 +316,10 @@ Touches M2, L3 and F3; UC-11.
 Touches D10, D11, M6, L3 and N5; UC-18.
 
 **The evidence.**
-- A first-consumer service job has a required engineer-of-record, `engineer_id` (`wr:app/models/service.py:44`).
-- A reassignment is validated like a creation, and recorded in the audit log with before-and-after snapshots (`wr:app/services/service_service.py:357-372`).
-- An agent may not be engineer-of-record (`wr:docs/agent-operations.md` §3).
-- A user with active services must have them reassigned before being removed (`wr:app/models/users.py:34`).
+- A first-consumer service job has a required engineer-of-record, `engineer_id`.
+- A reassignment is validated like a creation, and recorded in the audit log with before-and-after snapshots.
+- An agent may not be engineer-of-record.
+- A user with active services must have them reassigned before being removed.
 
 **What "from the beginning" depends on.** Every singular reference has intervals from its first write, and the log can rebuild them (§3.3). So it does **not** depend on a marking being present from the start: an `assignee` marking added in a later version has metrics back to the first version's events. It depends on the assignee being **written through the store** from the start — a reference that transitions change — rather than living in Jira, in free text, or in someone's head. The question is how to make assignment the obvious thing to model on the first day, and how to make its metrics exist without anyone declaring them.
 
@@ -359,7 +359,7 @@ Touches D10, D11, M6, L3 and N5; UC-18.
 
 Touches M7, C2, C3, L4 and N2; UC-12. The PRD reads the author's word "exceptions" in two senses (PRD §5). This question is the business sense: work deviating from what the flow expects. The engine's own exceptions are §3.3.
 
-**The evidence.** The first consumer's alert catalogue (`wr:docs/proposals/operations-system-design.md` §6) holds six conditions and one notice:
+**The evidence.** The first consumer's alert catalogue holds six conditions and one notice:
 
 | Condition | Grain | What it reads |
 |---|---|---|
