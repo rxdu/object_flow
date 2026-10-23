@@ -6537,8 +6537,71 @@ fn unmade(v: Verdict, world: &World<'_>) -> Verdict {
     }
 }
 
-/// The most requests a batch holds (ADR-0228 decision 9).
-pub const BATCH_MOST: usize = 100;
+/// The faults a test makes happen in a batch (ADR-0228 decision 13): a
+/// store error, a panic, or a hold of up to 60 s for a kill to land in, at
+/// the request of an index or at the batch's commit. Only with the `faults`
+/// feature, which no release build has; set on this thread by a test of the
+/// core, or for the service's process by `OBJECTFLOW_FAULT`, as
+/// `batch_error:<point>`, `batch_panic:<point>` or `batch_hold:<point>`,
+/// the point an index or `commit`.
+#[cfg(feature = "faults")]
+pub mod faults {
+    thread_local! {
+        static AT: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    }
+
+    /// This thread's fault, or none.
+    pub fn set(at: Option<&str>) {
+        AT.with(|a| *a.borrow_mut() = at.map(str::to_string));
+    }
+
+    /// The fault set for a point of a batch, `error` or `panic`.
+    pub(crate) fn at(point: &str) -> Option<&'static str> {
+        let said = AT
+            .with(|a| a.borrow().clone())
+            .or_else(|| std::env::var("OBJECTFLOW_FAULT").ok())?;
+        let (kind, at) = said.split_once(':')?;
+        if at != point {
+            return None;
+        }
+        match kind {
+            "batch_error" => Some("error"),
+            "batch_panic" => Some("panic"),
+            "batch_hold" => Some("hold"),
+            _ => None,
+        }
+    }
+}
+
+/// A fault made to happen at a point of a batch, a test's alone: a store
+/// error answered, the batch rolled back; a panic, which the caller
+/// recovers from as from any; or a hold, said on stderr when it begins, so
+/// a test kills the process there (ADR-0228 decision 13).
+#[cfg(feature = "faults")]
+#[allow(clippy::panic)] // the fault the test asked for: a panic at a chosen point
+fn fault_at(store: &mut crate::store::Store, point: &str) -> Result<(), crate::store::StoreError> {
+    match faults::at(point) {
+        Some("panic") => panic!("a panic made to happen at a batch's {point}"),
+        Some("hold") => {
+            eprintln!("a batch held at its {point}, for a kill");
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            Ok(())
+        }
+        Some(_) => {
+            let _ = store.abort_batch(None);
+            Err(crate::store::StoreError(format!(
+                "a store fault made to happen at a batch's {point}"
+            )))
+        }
+        None => Ok(()),
+    }
+}
+
+/// The most requests a batch holds (ADR-0228 decision 9): measured on the
+/// two-year profile store, a full batch of drafts every second beside the
+/// month-end peak's writes kept a request's p95 within PRD C5's 100 ms at
+/// 50, and not at 100 (`scripts/profile/batch-hold.py`).
+pub const BATCH_MOST: usize = 50;
 
 /// A batch's outcome (ADR-0228): every request applied, in order, with its
 /// verdict and what it tells; or none, the request at `index` refused,
@@ -6693,7 +6756,7 @@ pub fn batch(
         }
         let Some(key) = key else {
             drop(world);
-            return run_batch(store, reqs, None);
+            return run_batch(store, reqs, None, false);
         };
         let (actor, principal) = (&reqs[0].actor, &reqs[0].principal);
         if let Some(index) = reqs
@@ -6733,16 +6796,58 @@ pub fn batch(
             None => None,
         }
     };
-    run_batch(store, reqs, keyed)
+    run_batch(store, reqs, keyed, false)
+}
+
+/// What a batch would answer on the store as it stands, nothing of it
+/// written (ADR-0228 decision 12): the batch run on the writer, in its own
+/// transaction, and rolled back whole, keeping not an event, not the numbers
+/// it drew, not its refused request's row. Its answer is the batch's, the
+/// state each request met the one the ones before it left, so unlike a
+/// request's check it takes the writer, for as long as the batch would. A
+/// satisfied verdict names events and ids the rollback undid, which the
+/// next real write takes.
+pub fn check_batch(
+    store: &mut crate::store::Store,
+    reqs: &[Request],
+) -> Result<Result<Batched, BatchFault>, crate::store::StoreError> {
+    if reqs.is_empty() {
+        return Ok(Err(BatchFault::Empty));
+    }
+    if reqs.len() > BATCH_MOST {
+        return Ok(Err(BatchFault::OverLimit { most: BATCH_MOST }));
+    }
+    {
+        let world = store.snapshot()?;
+        for (index, req) in reqs.iter().enumerate() {
+            let held =
+                unbatchable(&world, req).map_err(|e| crate::store::StoreError(e.to_string()))?;
+            if let Some(why) = held {
+                return Ok(Err(BatchFault::Held { index, why }));
+            }
+        }
+    }
+    run_batch(store, reqs, None, true)
 }
 
 /// The batch run, once nothing refuses it before: its key recorded where
-/// it has one, the actor, the key and the batch's digest.
+/// it has one, the actor, the key and the batch's digest; checking, rolled
+/// back whole however it ends, nothing of it kept.
 fn run_batch(
     store: &mut crate::store::Store,
     reqs: &[Request],
     keyed: Option<(String, String, String)>,
+    checking: bool,
 ) -> Result<Result<Batched, BatchFault>, crate::store::StoreError> {
+    // a check keeps nothing, where a batch keeps a refused request's draws
+    // and its row (ADR-0228 decision 6)
+    let undo = |store: &mut crate::store::Store, refused: Option<usize>| {
+        if checking {
+            store.discard_batch()
+        } else {
+            store.abort_batch(refused)
+        }
+    };
     store.begin_batch()?;
     let mut applied = Vec::with_capacity(reqs.len());
     for (index, req) in reqs.iter().enumerate() {
@@ -6753,33 +6858,35 @@ fn run_batch(
         let held = match store.snapshot() {
             Ok(world) => unbatchable(&world, req),
             Err(e) => {
-                let _ = store.abort_batch(None);
+                let _ = undo(store, None);
                 return Err(e);
             }
         };
         let held = match held {
             Ok(held) => held,
             Err(e) => {
-                let _ = store.abort_batch(None);
+                let _ = undo(store, None);
                 return Err(crate::store::StoreError(e.to_string()));
             }
         };
         if let Some(why) = held {
-            store.abort_batch(None)?;
+            undo(store, None)?;
             return Ok(Err(BatchFault::Held { index, why }));
         }
+        #[cfg(feature = "faults")]
+        fault_at(store, &index.to_string())?;
         let out = match request_told(store, req) {
             Ok(out) => out,
             Err(e) => {
                 // a store error rolls the batch back, nothing of it kept
-                let _ = store.abort_batch(None);
+                let _ = undo(store, None);
                 return Err(e);
             }
         };
         match out {
             Ok((v @ Verdict::Satisfied { .. }, told)) => applied.push((v, told)),
             answer => {
-                store.abort_batch(Some(index))?;
+                undo(store, Some(index))?;
                 // what the rollback left unmade is named by no answer
                 let world = store.snapshot()?;
                 let answer = answer.map(|(v, mut told)| {
@@ -6794,6 +6901,10 @@ fn run_batch(
             }
         }
     }
+    if checking {
+        store.discard_batch()?;
+        return Ok(Ok(Batched::Applied(applied)));
+    }
     // the key recorded in the batch's own transaction, so only a batch that
     // commits replays
     if let Some((actor, key, digest)) = &keyed {
@@ -6801,10 +6912,12 @@ fn run_batch(
             "batch": applied.iter().map(|(v, _)| recorded_verdict(v)).collect::<Vec<_>>(),
         });
         if let Err(e) = store.record_batch_key(actor, key, digest, &verdicts) {
-            let _ = store.abort_batch(None);
+            let _ = undo(store, None);
             return Err(e);
         }
     }
+    #[cfg(feature = "faults")]
+    fault_at(store, "commit")?;
     store.commit_batch()?;
     Ok(Ok(Batched::Applied(applied)))
 }
@@ -10644,6 +10757,19 @@ types:
     /// refused batch writes past its rollback (ADR-0228 decision 6): what a
     /// refused batch leaves as it was, row for row.
     fn rows(s: &Store) -> BTreeMap<String, Vec<String>> {
+        rows_but(
+            s,
+            &[
+                "of_attempt",
+                "of_attempt_rollup",
+                "of_sequence",
+                "of_counter",
+            ],
+        )
+    }
+
+    /// Every row of every table but those skipped.
+    fn rows_but(s: &Store, skipped: &[&str]) -> BTreeMap<String, Vec<String>> {
         use crate::db::ValueRef;
         let c = s.connection();
         let tables: Vec<String> = c
@@ -10655,10 +10781,7 @@ types:
             .unwrap();
         let mut out = BTreeMap::new();
         for table in tables {
-            if matches!(
-                table.as_str(),
-                "of_attempt" | "of_attempt_rollup" | "of_sequence" | "of_counter"
-            ) {
+            if skipped.contains(&table.as_str()) {
                 continue;
             }
             let mut st = c.prepare(&format!("SELECT * FROM \"{table}\"")).unwrap();
@@ -10970,6 +11093,19 @@ types:
         assert_eq!(rows(&s), before, "the customer the batch made was kept");
     }
 
+    /// A batch of the bound's requests applies, and one more is refused
+    /// before any runs (ADR-0228 decision 9).
+    #[test]
+    fn a_batch_at_its_bound_applies() {
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let most: Vec<Request> = (0..BATCH_MOST).map(|_| open(1)).collect();
+        let Batched::Applied(applied) = batch(&mut s, &most, None).unwrap().unwrap() else {
+            panic!("a batch at its bound was refused")
+        };
+        assert_eq!(applied.len(), BATCH_MOST);
+    }
+
     /// A refused batch's attempt row names no object an earlier request of
     /// it made, which the rollback left unmade and a later object takes the
     /// id of (ADR-0228 decision 6, D581).
@@ -11127,6 +11263,19 @@ types:
             Err(NoVerdict::KeyReused { .. })
         ));
         assert_eq!(rows(&s), before, "a reused key wrote");
+        // a refused batch records no key: sent again under it, it is judged
+        // again, and a batch that applies may take the key after
+        let refused = [open(1), open(1), open(9)];
+        for _ in 0..2 {
+            assert!(matches!(
+                batch(&mut s, &refused, Some("r")).unwrap().unwrap(),
+                Batched::Refused { index: 2, .. }
+            ));
+        }
+        assert!(matches!(
+            batch(&mut s, &reqs, Some("r")).unwrap().unwrap(),
+            Batched::Applied(_)
+        ));
     }
 
     /// An erasure of what a batch's later request sent replaces the batch
@@ -11194,6 +11343,86 @@ types:
             Err(BatchFault::KeyReused { key: "k".into() }),
             "the key replayed what an erasure redacted"
         );
+    }
+
+    /// A batch's check answers what the batch then does, applied or refused
+    /// at the same request with the same verdict, and leaves every row of
+    /// every table as it was, the numbers drawn and the attempt log among
+    /// them (ADR-0228 decision 12).
+    #[test]
+    fn a_batchs_check_answers_as_the_batch_does_and_writes_nothing() {
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        let kinds = |out: &Batched| -> (Option<usize>, Vec<String>) {
+            let kind = |v: &Verdict| {
+                format!("{v:?}")
+                    .split([' ', '{', '('])
+                    .next()
+                    .unwrap_or("")
+                    .to_string()
+            };
+            match out {
+                Batched::Applied(vs) => (None, vs.iter().map(|(v, _)| kind(v)).collect()),
+                Batched::Refused { index, answer } => (
+                    Some(*index),
+                    vec![match answer.as_ref() {
+                        Ok((v, _)) => format!("{v:?}"),
+                        Err(e) => format!("{e:?}"),
+                    }],
+                ),
+                Batched::Replayed(_) => panic!("a check replayed"),
+            }
+        };
+        for reqs in [vec![open(1), open(2)], vec![open(1), open(1), open(9)]] {
+            let before = rows_but(&s, &[]);
+            let checked = check_batch(&mut s, &reqs).unwrap().unwrap();
+            assert_eq!(rows_but(&s, &[]), before, "a check wrote: {checked:?}");
+            let ran = batch(&mut s, &reqs, None).unwrap().unwrap();
+            assert_eq!(kinds(&checked), kinds(&ran), "the check answered otherwise");
+        }
+        let held = Request {
+            propose: true,
+            ..open(1)
+        };
+        assert!(matches!(
+            check_batch(&mut s, &[open(1), held]).unwrap(),
+            Err(BatchFault::Held { index: 1, .. })
+        ));
+        assert_eq!(check_batch(&mut s, &[]).unwrap(), Err(BatchFault::Empty));
+    }
+
+    /// A store fault or a panic at any request of a batch, or at its
+    /// commit, leaves none of the batch, a panic once recovered from by
+    /// rolling the batch back, as the service recovers; and the store goes
+    /// on (ADR-0228 decision 13).
+    #[cfg(feature = "faults")]
+    #[test]
+    fn a_fault_or_a_panic_at_any_point_of_a_batch_keeps_none_of_it() {
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        let reqs: Vec<Request> = (0..3).map(|_| open(1)).collect();
+        for point in ["0", "1", "2", "commit"] {
+            for kind in ["batch_error", "batch_panic"] {
+                let before = rows(&s);
+                faults::set(Some(&format!("{kind}:{point}")));
+                let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    batch(&mut s, &reqs, None)
+                }));
+                faults::set(None);
+                match (kind, out) {
+                    ("batch_error", Ok(Err(_))) => {}
+                    ("batch_panic", Err(_)) => s.abort_batch(None).unwrap(),
+                    (kind, other) => panic!("{kind} at {point}: {other:?}"),
+                }
+                assert_eq!(rows(&s), before, "{kind} at {point}: a row changed");
+            }
+        }
+        assert!(matches!(
+            batch(&mut s, &reqs, None).unwrap().unwrap(),
+            Batched::Applied(_)
+        ));
     }
 
     #[test]

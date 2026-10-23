@@ -7,6 +7,11 @@ rust-version.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
+[features]
+# the core's faults, which a test makes happen at a point of a batch through
+# OBJECTFLOW_FAULT (ADR-0228 decision 13); no release build has them
+faults = ["objectflow-core/faults"]
+
 [dependencies]
 objectflow-core.workspace = true
 serde.workspace = true

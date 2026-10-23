@@ -2,6 +2,20 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+A store of 0.5.2, a file or a PostgreSQL database, is upgraded by `/v1/upgrade` to 0.6.0, a step adding two columns, an event's `batch` and an attempt's `batch_index`, which an earlier event and row hold empty.
+
+### Added
+
+- `/v1/batch` applies several requests whole or not at all, in order and in one transaction, each judged as it would be alone against the state the ones before it left (ADR-0228). The first refused ends it: its index and verdict are answered, and nothing of the batch applies but what any refused request keeps, its row in the attempt log and the numbers drawn. A batch holds at most 50 requests, measured against PRD C5, and takes an idempotency key of its own. It holds no change to the flow, no proposal and no request with a key of its own, and one reaching an evaluator applies none of it.
+- `/v1/check_batch` answers what a batch would on the store as it stands: it runs the batch and rolls it back whole, keeping no event, no number drawn and no attempt row, so it holds the writer for as long as the batch would (ADR-0228).
+- An event names the batch its request came in, by the batch's first event's position, `batch` on the wire and in the log's export, and a refused batch's attempt row the refused request's index, `batch_index` (ADR-0228).
+
+### Fixed
+
+- A rollback that fails gives its connection up, on both backends, and a begin on a connection whose transaction was never ended is refused, where a failed rollback's error was ignored: on PostgreSQL the next request's commit could have committed what the failed rollback left with its own writes. A PostgreSQL store given up is opened again at the next write; a file store is refused `store_connection_discarded` until a restart, a failing disk being the likely cause (ADR-0228, `operate.md`).
+
 ## 0.5.2, 2026-10-21
 
 A patch release of 0.5.1 (ADR-0214): a version whose backfill writes every object of a type approved in time that grows with the store, the flow format's schema published with each release, and a transition's own `deny` guard on `<attribute> is not null` accepted by both checkers as setting what its target state requires (ADR-0227), which a description 0.5.1 refused may now use and none it accepted is refused. A store of 0.5.1, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that changes nothing in it but its release.

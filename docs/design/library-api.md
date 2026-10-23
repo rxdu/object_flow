@@ -704,6 +704,13 @@ class Store(Protocol):
         its first verdicts, each replaying."""
         ...
 
+    def check_batch(self, reqs: Sequence[Request]) -> Sequence[Verdict]:
+        """What batch would answer on the store as it stands, nothing written
+        (ADR-0228 decision 12): the batch run and rolled back whole, keeping
+        no event, no number drawn and no attempt row, so it holds the writer
+        for as long as the batch would."""
+        ...
+
     def get(self, actor: Actor, id: str, follow: bool = False) -> Object | None: ...
 
     def query(self, actor: Actor, type: str, filter: str | None = None,

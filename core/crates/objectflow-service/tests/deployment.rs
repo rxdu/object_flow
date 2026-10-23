@@ -623,7 +623,16 @@ fn a_batch_through_the_wire_applies_whole_or_not_at_all() {
     );
     assert_ne!(refused["verdict"]["kind"], "satisfied", "{refused}");
     assert_eq!(alone("cy")["kind"], "satisfied", "a refused batch kept cy");
-    let many: Vec<Value> = (0..=100).map(|i| add(&format!("u{i}"))).collect();
+    // one past the bound, refused before any runs; at the bound, applied
+    let most = objectflow_core::request::BATCH_MOST;
+    let many: Vec<Value> = (0..=most).map(|i| add(&format!("u{i}"))).collect();
+    let full = post(
+        &s,
+        "/v1/batch",
+        &json!({"actor": op, "requests": many[..most].to_vec()}),
+    );
+    assert_eq!(full["applied"], true, "a batch at its bound: {full}");
+    let many: Vec<Value> = (0..=most).map(|i| add(&format!("w{i}"))).collect();
     for (body, says) in [
         (json!({"actor": op, "requests": []}), "at least one"),
         (
@@ -675,6 +684,91 @@ fn a_batch_through_the_wire_applies_whole_or_not_at_all() {
         (409, Some("key_reused")),
         "{said}"
     );
+}
+
+/// A batch's check answers what the batch then answers, applied or
+/// refused at the same request, and writes nothing, not an event nor an
+/// attempt row; a satisfied verdict names nothing its run made, each said
+/// not computed; and it takes no key (ADR-0228 decision 12).
+#[test]
+fn a_batchs_check_through_the_wire_answers_as_the_batch_and_writes_nothing() {
+    let path = fresh_store("check-batch");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish_service(&s);
+    let op = json!({"id": "operator"});
+    let add = |login: &str| json!({"type": "User", "transition": "add", "inputs": {"login": login, "name": login}});
+    let held = |s: &Service| {
+        let attempts = post(
+            s,
+            "/v1/export",
+            &json!({"actor": op, "source": "User.attempts"}),
+        );
+        (exported_log(s), attempts["lines"].clone())
+    };
+    for (requests, applies, refused_at) in [
+        (json!([add("ana"), add("bea")]), true, None),
+        (json!([add("cy"), add("ana")]), false, Some(1)),
+    ] {
+        let before = held(&s);
+        let checked = post(
+            &s,
+            "/v1/check_batch",
+            &json!({"actor": op, "requests": requests}),
+        );
+        assert_eq!(held(&s), before, "a check wrote: {checked}");
+        assert_eq!(checked["applies"], applies, "{checked}");
+        assert_eq!(checked["refused_at"].as_u64(), refused_at, "{checked}");
+        let ran = post(&s, "/v1/batch", &json!({"actor": op, "requests": requests}));
+        assert_eq!(ran["applied"], applies, "{ran}");
+        assert_eq!(ran["refused_at"].as_u64(), refused_at, "{ran}");
+        if applies {
+            let (said, done) = (&checked["verdicts"], &ran["verdicts"]);
+            assert_eq!(said.as_array().map(Vec::len), Some(2), "{checked}");
+            for (v, w) in said
+                .as_array()
+                .into_iter()
+                .flatten()
+                .zip(done.as_array().into_iter().flatten())
+            {
+                assert_eq!(v["kind"], w["kind"], "{checked} / {ran}");
+                assert_eq!(
+                    (&v["object_id"], &v["events"], &v["created"]),
+                    (&Value::Null, &json!([]), &json!([])),
+                    "{v}"
+                );
+                assert_eq!(
+                    v["not_computed"],
+                    json!(["events", "object_id", "created"]),
+                    "{v}"
+                );
+            }
+        } else {
+            assert_eq!(
+                checked["verdict"]["kind"], ran["verdict"]["kind"],
+                "{checked} / {ran}"
+            );
+        }
+    }
+    // cy, which the refused check and batch named, was kept by neither
+    let cy = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "User", "transition": "add", "inputs": {"login": "cy", "name": "cy"}}),
+    );
+    assert_eq!(cy["kind"], "satisfied", "{cy}");
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/check_batch",
+        Some(&json!({"actor": op, "requests": [add("dee")], "idempotency_key": "k"})),
+    );
+    assert_eq!(status, 400, "{said}");
 }
 
 /// An idempotency key holds at most 256 bytes and a request's context 16
@@ -5862,6 +5956,15 @@ fn a_read_by_a_personal_value_is_opted_into() {
                 json!({"actor": actor, "object_id": ana, "transition": "promote"}),
             ),
             (
+                "/v1/check_batch",
+                json!({"actor": actor, "requests": [{"object_id": ana, "transition": "promote"}]}),
+            ),
+            // a target not held yet, judged by every transition of its name
+            (
+                "/v1/check_batch",
+                json!({"actor": actor, "requests": [{"object_id": "person-999", "transition": "promote"}]}),
+            ),
+            (
                 "/v1/metric",
                 json!({"actor": actor, "name": "Person.by_team", "filter": "p.name >= \"A\""}),
             ),
@@ -7043,6 +7146,139 @@ fn killed_imports(on: &str, store: &Trials) {
                 .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
                 .expect("the schema dropped");
         }
+    }
+}
+
+/// A batch killed, failing on its store or panicking at any of its
+/// requests or at its commit keeps none of it after, the service going on
+/// to apply it whole; one killed once its answer came keeps all of it
+/// (ADR-0228 decision 13). Only where the service has the core's faults,
+/// as the gate's `--all-features` builds it.
+#[cfg(feature = "faults")]
+#[test]
+fn a_batch_killed_failing_or_panicking_at_any_point_keeps_all_or_none() {
+    batch_faults("", &|| {
+        let file = fresh_store("batch-faults");
+        let args = [
+            "--store",
+            file.to_str().expect("a path"),
+            "--create",
+            "--port",
+            "0",
+        ];
+        Some((args.map(str::to_string).to_vec(), None))
+    });
+}
+
+/// On PostgreSQL alike, the killed service's session ending its batch's
+/// transaction rolled back.
+#[cfg(feature = "faults")]
+#[test]
+fn a_batch_killed_failing_or_panicking_on_postgresql_keeps_all_or_none() {
+    batch_faults(" on PostgreSQL", &|| {
+        served_on_postgresql("batchfaults")
+            .map(|(admin, args, schema)| (args, Some((admin, schema))))
+    });
+}
+
+/// The service started with a fault made to happen at a point of a batch.
+#[cfg(feature = "faults")]
+fn start_faulted(args: &[&str], fault: &str) -> Service {
+    let mut service = Command::new(env!("CARGO_BIN_EXE_objectflow-service"));
+    service.args(args).env("OBJECTFLOW_FAULT", fault);
+    start_command(service)
+}
+
+#[cfg(feature = "faults")]
+type FaultStore = dyn Fn() -> Option<(
+    Vec<String>,
+    Option<(objectflow_core::db::Connection, String)>,
+)>;
+
+#[cfg(feature = "faults")]
+fn batch_faults(on: &str, store: &FaultStore) {
+    let Some((made, postgres)) = store() else {
+        return;
+    };
+    let made: Vec<&str> = made.iter().map(String::as_str).collect();
+    let again: Vec<&str> = made.iter().copied().filter(|a| *a != "--create").collect();
+    let op = json!({"id": "operator"});
+    let add = |login: &str| json!({"type": "User", "transition": "add", "inputs": {"login": login, "name": "U"}});
+    let body = json!({"actor": op, "requests": [add("ann"), add("bea"), add("cy")]});
+    let users = |s: &Service| -> usize {
+        post(
+            s,
+            "/v1/query",
+            &json!({"actor": op, "type": "User", "limit": 1000}),
+        )["items"]
+            .as_array()
+            .map_or(0, Vec::len)
+    };
+    let mut held = {
+        let s = start(&made);
+        publish_service(&s);
+        users(&s)
+    };
+    for point in ["0", "1", "2", "commit"] {
+        // killed while it holds the writer there
+        {
+            let s = start_faulted(&again, &format!("batch_hold:{point}"));
+            let (addr, sent) = (s.addr.clone(), body.to_string());
+            let sender = std::thread::spawn(move || {
+                if let Ok(mut stream) = TcpStream::connect(&addr) {
+                    let _ = write!(
+                        stream,
+                        "POST /v1/batch HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sent}",
+                        sent.len()
+                    );
+                    let _ = stream.read_to_string(&mut String::new());
+                }
+            });
+            let said = s.said_within("a batch held at its");
+            assert!(
+                said.contains(&format!("a batch held at its {point}, for a kill")),
+                "{said}"
+            );
+            drop(s);
+            let _ = sender.join();
+        }
+        let s = start(&again);
+        assert_eq!(users(&s), held, "killed at {point}, some kept{on}");
+        drop(s);
+        // a store fault, then a panic, there: answered 500, none kept, and
+        // the writer recovered, which a request alone shows
+        for kind in ["batch_error", "batch_panic"] {
+            let s = start_faulted(&again, &format!("{kind}:{point}"));
+            let (status, said) = call(&s, "POST", "/v1/batch", Some(&body));
+            assert_eq!(status, 500, "{kind} at {point}{on}: {said}");
+            assert_eq!(users(&s), held, "{kind} at {point}, some kept{on}");
+            let alone = post(
+                &s,
+                "/v1/request",
+                &json!({"actor": op, "type": "User", "transition": "add",
+                        "inputs": {"login": format!("{kind}-{point}"), "name": "U"}}),
+            );
+            assert_eq!(alone["kind"], "satisfied", "{kind} at {point}{on}: {alone}");
+            held += 1;
+        }
+    }
+    // killed once its answer came: all of it kept
+    {
+        let s = start(&again);
+        let applied = post(&s, "/v1/batch", &body);
+        assert_eq!(applied["applied"], true, "{applied}");
+    }
+    let s = start(&again);
+    assert_eq!(
+        users(&s),
+        held + 3,
+        "killed after the commit, some lost{on}"
+    );
+    drop(s);
+    if let Some((admin, schema)) = postgres {
+        admin
+            .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+            .expect("the schema dropped");
     }
 }
 

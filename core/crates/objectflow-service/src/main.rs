@@ -1678,6 +1678,10 @@ const TAKES: &[(&str, &[&str])] = &[
         ],
     ),
     ("/v1/check", REQUEST_KEYS),
+    (
+        "/v1/check_batch",
+        &["actor", "principal", "requests", "reads_personal"],
+    ),
     ("/v1/get", &["actor", "id", "follow"]),
     (
         "/v1/query",
@@ -2836,18 +2840,7 @@ async fn batch_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
             }
         };
         match outcome {
-            Err(request::BatchFault::Empty) => Err(Fault::Bad(
-                "requests holds no request: a batch holds at least one".to_string(),
-            )),
-            Err(request::BatchFault::OverLimit { most }) => Err(Fault::Bad(format!(
-                "over_limit: a batch holds at most {most} requests"
-            ))),
-            Err(request::BatchFault::Held { index, why }) => Err(Fault::Bad(format!(
-                "request {index} of the batch is {why}, which a batch does not hold"
-            ))),
-            Err(request::BatchFault::KeyReused { key }) => Err(Fault::Conflict(format!(
-                "key_reused: this actor applied the idempotency key {key} to a different batch or request"
-            ))),
+            Err(f) => Err(batch_fault(f)),
             Ok(request::Batched::Replayed(replayed)) => Ok(Json(json!({
                 "applied": true,
                 "replayed": true,
@@ -2872,13 +2865,157 @@ async fn batch_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
                     })))
                 }
                 Err(request::NoVerdict::NotRun(NotRun::Unanswered(c))) => {
-                    Err(Fault::NotRun(format!(
-                        "request {index} of the batch would ask the evaluator {}.{}, which a batch cannot ask mid-batch, so none of it was applied; send that request alone",
-                        c.evaluator, c.function
-                    )))
+                    Err(batch_unanswered(index, &c))
                 }
                 Err(e) => Err(Fault::from(e)),
             },
+        }
+    })
+}
+
+/// A batch refused before any of it ran, as the wire says it.
+fn batch_fault(f: request::BatchFault) -> Fault {
+    match f {
+        request::BatchFault::Empty => {
+            Fault::Bad("requests holds no request: a batch holds at least one".to_string())
+        }
+        request::BatchFault::OverLimit { most } => {
+            Fault::Bad(format!("over_limit: a batch holds at most {most} requests"))
+        }
+        request::BatchFault::Held { index, why } => Fault::Bad(format!(
+            "request {index} of the batch is {why}, which a batch does not hold"
+        )),
+        request::BatchFault::KeyReused { key } => Fault::Conflict(format!(
+            "key_reused: this actor applied the idempotency key {key} to a different batch or request"
+        )),
+    }
+}
+
+/// A batch stopped at a request that would ask an evaluator, which a batch
+/// cannot ask mid-batch (ADR-0228 decision 10).
+fn batch_unanswered(index: usize, c: &objectflow_core::eval::Call) -> Fault {
+    Fault::NotRun(format!(
+        "request {index} of the batch would ask the evaluator {}.{}, which a batch cannot ask mid-batch, so none of it was applied; send that request alone",
+        c.evaluator, c.function
+    ))
+}
+
+/// What a batch would answer, nothing of it written (ADR-0228 decision
+/// 12): the batch run on the writer and rolled back whole, keeping not an
+/// event, a number it drew or its refused request's row, so it takes the
+/// writer alone for as long as the batch would. A satisfied verdict names
+/// no events and no object it created, and a creation's no `object_id`,
+/// each listed in its `not_computed`, as a request's check does; a request
+/// decided by a personal member needs `reads_personal`, as a request's
+/// check does (ADR-0206 decision 2).
+async fn check_batch_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
+    answering(move || {
+        let reqs = batch_of(&body)?;
+        let opted = opted(&body)?;
+        // a check is an oracle that writes nothing, not even an attempt row,
+        // so a request decided by a personal member is opted into; one
+        // whose target the store does not hold yet, which an earlier
+        // request of the batch may make, is judged by every type with a
+        // transition of its name (fail closed)
+        if !opted {
+            let mut r = reading(&shared)?;
+            let s = r.store()?;
+            let world = s.snapshot()?;
+            for (index, req) in reqs.iter().enumerate() {
+                let type_ = match (&req.type_, &req.object_id) {
+                    (Some(t), _) => Some(t.clone()),
+                    (None, Some(id)) => world.get(id)?.map(|o| o.type_.clone()),
+                    _ => None,
+                };
+                let personal =
+                    match type_ {
+                        Some(tn) => reads::transition_reads_personal(&s.lib, &tn, &req.transition),
+                        None => s.lib.types.keys().any(|tn| {
+                            reads::transition_reads_personal(&s.lib, tn, &req.transition)
+                        }),
+                    };
+                if personal {
+                    return Err(personal_refused(&format!(
+                        "request {index} of the batch is decided by a personal member, and the check does not set reads_personal"
+                    )));
+                }
+            }
+        }
+        let outcome = {
+            let mut w = locked(&shared)?;
+            let ran = {
+                let s = store(&mut w)?;
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    request::check_batch(s, &reqs)
+                }))
+            };
+            match ran {
+                Ok(out) => out?,
+                Err(_) => {
+                    // rolled back whole, and the store opened again, as a
+                    // batch panicking is
+                    if let Ok(s) = store(&mut w) {
+                        let _ = s.discard_batch();
+                    }
+                    say!(
+                        "a batch's check panicked holding the writer; {}",
+                        reopened(&mut w)
+                    );
+                    note_log(&shared);
+                    return Err(Fault::Internal(
+                        "a batch's check panicked; the line above says where".to_string(),
+                    ));
+                }
+            }
+        };
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let shown = |req: &Request, v: &Verdict, told: &Told| {
+            let mut out = verdict_told(v, Some(told));
+            // what the check's run drew, the next real write takes
+            if let Verdict::Satisfied { created, .. } = v {
+                out["events"] = json!([]);
+                let mut not = vec!["events"];
+                if req.object_id.is_none() {
+                    out["object_id"] = J::Null;
+                    not.push("object_id");
+                }
+                if !created.is_empty() {
+                    out["created"] = json!([]);
+                    not.push("created");
+                }
+                out["not_computed"] = json!(not);
+            }
+            if opted {
+                out
+            } else {
+                without_holder(&s.lib, out)
+            }
+        };
+        match outcome {
+            Err(f) => Err(batch_fault(f)),
+            Ok(request::Batched::Applied(applied)) => Ok(Json(json!({
+                "applies": true,
+                "verdicts": reqs
+                    .iter()
+                    .zip(&applied)
+                    .map(|(req, (v, t))| shown(req, v, t))
+                    .collect::<Vec<_>>(),
+            }))),
+            Ok(request::Batched::Refused { index, answer }) => match *answer {
+                Ok((v, told)) => Ok(Json(json!({
+                    "applies": false,
+                    "refused_at": index,
+                    "verdict": shown(&reqs[index], &v, &told),
+                }))),
+                Err(request::NoVerdict::NotRun(NotRun::Unanswered(c))) => {
+                    Err(batch_unanswered(index, &c))
+                }
+                Err(e) => Err(Fault::from(e)),
+            },
+            Ok(request::Batched::Replayed(_)) => Err(Fault::Internal(
+                "a batch's check, which takes no key, replayed".to_string(),
+            )),
         }
     })
 }
@@ -4815,6 +4952,7 @@ fn app(shared: Shared, deployment: bool) -> Router {
     let routes = Router::new()
         .route("/v1/request", post(request_op))
         .route("/v1/batch", post(batch_op))
+        .route("/v1/check_batch", post(check_batch_op))
         .route("/v1/get", post(get))
         .route("/v1/history", post(history))
         .route("/v1/events", post(events))

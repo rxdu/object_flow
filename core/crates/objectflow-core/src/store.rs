@@ -4256,6 +4256,21 @@ impl Store {
         self.commit_group().map(|_| ())
     }
 
+    /// The batch rolled back with nothing of it kept, not the numbers it
+    /// drew nor its refused request's row: a batch's check, which writes
+    /// nothing (ADR-0228 decision 12). A rollback that fails gives the
+    /// connection up, as a batch's does.
+    pub fn discard_batch(&mut self) -> Stored<()> {
+        self.batch = None;
+        self.abort_group();
+        if self.conn.is_closed() {
+            return Err(StoreError(
+                "the check's rollback failed, so the store's connection was given up".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// The batch rolled back, every request in it, and what a refused
     /// request keeps written after, each in a transaction of its own: the
     /// numbers its requests drew and the refused request's attempt row

@@ -27,6 +27,10 @@ regex.workspace = true
 # a store, and a copy keeping only some objects (adversarial-harness.md §1);
 # no route of the service reaches them
 harness = []
+# the faults a test makes happen at a chosen point of a batch, a request or
+# its commit: a store error, a panic, or a hold a kill lands in (ADR-0228
+# decision 13); no release build has them
+faults = []
 
 [lints]
 workspace = true

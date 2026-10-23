@@ -222,9 +222,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 
 ### A sentence that cites a check is proven by a probe before it is committed
 
-- **Pattern:** Twice on 2026-09-26 a specification sentence named the step and check that enforce a rule without a probe having shown it. In construct 4, `flow-format.md` §4.10 said a machine's conditions naming an unrequired attribute were refused at step 3, and a probe found no step refused them. In construct 13, §4.19 said step 4 refuses a cycle among supersession targets, and the internal checker's check 26 has no such clause; that one was committed and then corrected in place.
-- **Correction:** For every "(step N, code)" a new or edited sentence carries, run a mutation that breaks the rule and see that code fire, or read the implementing code; where neither shows it, say the rule is unchecked instead of citing a check.
-- **Context:** `flow-format.md` and any document that says which check enforces a rule.
+- **Pattern:** Twice on 2026-09-26 a specification sentence named the step and check that enforce a rule without a probe having shown it. In construct 4, `flow-format.md` §4.10 said a machine's conditions naming an unrequired attribute were refused at step 3, and a probe found no step refused them. In construct 13, §4.19 said step 4 refuses a cycle among supersession targets, and the internal checker's check 26 has no such clause; that one was committed and then corrected in place. On 2026-10-23 an ADR's retraction cited a test as holding the corrected behaviour, and the test sent no such case; its Consequences listed a planted defect as caught that had not been run. Both were run before the commit, the test extended for the first.
+- **Correction:** For every "(step N, code)" a new or edited sentence carries, and every test or planted defect a record cites as holding a claim, run a mutation that breaks the rule and see that code fire, or read the implementing code; where neither shows it, say the rule is unchecked instead of citing a check.
+- **Context:** `flow-format.md` and any document that says which check, test or planted defect enforces a rule, an ADR's Consequences and retractions among them.
 
 
 ### Prose inside an inline YAML mapping is quoted
