@@ -2487,6 +2487,17 @@ struct Group {
     applied: usize,
 }
 
+/// A batch of requests running (ADR-0228): a group that commits whole or
+/// not at all, and what a refusal keeps of it past the rollback, the
+/// numbers every request drew, by sequence and scope the last one, which
+/// are never reused (`flow-format.md` §4.12), and the refused request's
+/// row of the attempt log.
+#[derive(Debug, Default)]
+struct Batch {
+    draws: BTreeMap<(String, String), i64>,
+    attempt: Option<Attempt>,
+}
+
 /// How a store mints a new object's id (ADR-0077 decision 7, ADR-0226).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ids {
@@ -2574,6 +2585,9 @@ pub struct Store {
     /// The group of requests whose transaction is open, each request on a
     /// savepoint of it until the group commits (ADR-0208).
     group: Option<Group>,
+    /// The batch whose group is open, kept apart from a group's requests
+    /// committed together, since a batch's refusal rolls back all of it.
+    batch: Option<Batch>,
     /// A change's dry run prepared on a read for the next request, which
     /// takes it (DRYRUN-LOCK).
     pub prepared: Option<Box<crate::publish::Prepared>>,
@@ -2806,6 +2820,7 @@ impl Store {
             checkpoint_due: false,
             vacuum_horizon: None,
             group: None,
+            batch: None,
             deadline: None,
             stop: None,
             lock_wait: None,
@@ -3043,6 +3058,7 @@ impl Store {
             checkpoint_due: false,
             vacuum_horizon: None,
             group: None,
+            batch: None,
             deadline: None,
             stop: None,
             lock_wait: None,
@@ -3185,6 +3201,7 @@ impl Store {
             checkpoint_due: false,
             vacuum_horizon: None,
             group: None,
+            batch: None,
             deadline: None,
             stop: None,
             lock_wait: None,
@@ -3450,6 +3467,7 @@ impl Store {
             checkpoint_due: false,
             vacuum_horizon: None,
             group: None,
+            batch: None,
             deadline: None,
             stop: None,
             lock_wait: None,
@@ -3850,6 +3868,13 @@ impl Store {
     /// its own after the request's rolled back (`DESIGN.md` §6,
     /// `storage-schema.md` §6).
     pub fn record_attempt(&mut self, a: &Attempt) -> Stored<()> {
+        // in a batch, held until the batch is rolled back, which it is
+        // where a request of it is refused, and written after (ADR-0228
+        // decision 6)
+        if let Some(b) = &mut self.batch {
+            b.attempt = Some(a.clone());
+            return Ok(());
+        }
         // in a group, on a savepoint of its transaction, where it had a
         // transaction of its own after the rollback (ADR-0208 decision 2)
         if self.group.is_some() {
@@ -4044,6 +4069,15 @@ impl Store {
         let mut alloc = Allocator::read(&self.conn, self.ids)?;
         let decided = decide(&world, &mut alloc);
         drop(world);
+        // a batch keeps every number drawn past its rollback, applied or
+        // refused, the last of each sequence and scope (ADR-0228 decision 6)
+        if let Some(b) = &mut self.batch {
+            for key in &alloc.drawn {
+                let drawn = alloc.sequences.get(key).copied().unwrap_or(0);
+                let last = b.draws.entry(key.clone()).or_insert(drawn);
+                *last = (*last).max(drawn);
+            }
+        }
         match decided {
             Ok((answer, Some(mut change))) => {
                 change.retries = retries;
@@ -4161,6 +4195,67 @@ impl Store {
         // with an error after their commit
         let _ = self.after_erasure(false);
         Ok(g.applied)
+    }
+
+    /// A batch of requests begun (ADR-0228 decision 5): one write
+    /// transaction, as a group's, each request then on a savepoint of it,
+    /// until [`Store::commit_batch`] commits all of them or
+    /// [`Store::abort_batch`] rolls all of them back.
+    pub fn begin_batch(&mut self) -> Stored<()> {
+        self.begin_group()?;
+        self.batch = Some(Batch::default());
+        Ok(())
+    }
+
+    /// The batch committed, every request in it at once (ADR-0228
+    /// decision 6); a commit that fails rolls it back and is an error.
+    pub fn commit_batch(&mut self) -> Stored<()> {
+        self.batch = None;
+        self.commit_group().map(|_| ())
+    }
+
+    /// The batch rolled back, every request in it, and what a refused
+    /// request keeps written after, each in a transaction of its own: the
+    /// numbers its requests drew and the refused request's attempt row
+    /// (ADR-0228 decision 6). A rollback that fails gives the connection
+    /// up (ADR-0228 decision 1), and nothing more is written.
+    pub fn abort_batch(&mut self) -> Stored<()> {
+        let kept = self.batch.take();
+        self.abort_group();
+        if self.conn.is_closed() {
+            return Err(StoreError(
+                "the batch's rollback failed, so the store's connection was given up".into(),
+            ));
+        }
+        let Some(kept) = kept else {
+            return Ok(());
+        };
+        if !kept.draws.is_empty() {
+            let (tx, _) = begin_write!(self);
+            for ((name, scope), last) in &kept.draws {
+                tx.execute(
+                    "INSERT INTO of_sequence (name, scope_key, next_value) VALUES (?1, ?2, ?3) \
+                     ON CONFLICT (name, scope_key) DO UPDATE SET next_value = \
+                     CASE WHEN excluded.next_value > of_sequence.next_value \
+                     THEN excluded.next_value ELSE of_sequence.next_value END",
+                    params![name, scope, last + 1],
+                )?;
+            }
+            tx.commit()?;
+        }
+        if let Some(mut a) = kept.attempt {
+            // an object an earlier request of the batch made, which the
+            // rollback left unmade, named by no row, a later object then
+            // taking its id (D581)
+            if let Some(id) = &a.object_id {
+                let held = self.snapshot()?.get(id).ok().flatten().is_some();
+                if !held {
+                    a.object_id = None;
+                }
+            }
+            self.record_attempt(&a)?;
+        }
+        Ok(())
     }
 
     /// The group rolled back, nothing of it kept (ADR-0208 decision 4). A

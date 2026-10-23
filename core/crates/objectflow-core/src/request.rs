@@ -6529,6 +6529,145 @@ fn unmade(v: Verdict, world: &World<'_>) -> Verdict {
     }
 }
 
+/// The most requests a batch holds (ADR-0228 decision 9).
+pub const BATCH_MOST: usize = 100;
+
+/// A batch's outcome (ADR-0228): every request applied, in order, with its
+/// verdict and what it tells; or none, the request at `index` refused,
+/// with its verdict and what it tells, or with why it got none.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Batched {
+    Applied(Vec<(Verdict, Told)>),
+    Refused {
+        index: usize,
+        answer: Box<Result<(Verdict, Told), NoVerdict>>,
+    },
+}
+
+/// A batch refused before any request of it runs (ADR-0228 decisions 9
+/// and 10): one holding no request, more than [`BATCH_MOST`], or a request
+/// whose outcome cannot be decided inside its transaction, named by its
+/// index.
+#[derive(Clone, Debug, PartialEq)]
+pub enum BatchFault {
+    Empty,
+    OverLimit { most: usize },
+    Held { index: usize, why: String },
+}
+
+/// Why a batch cannot hold a request, if it cannot: a proposal, filed and
+/// held rather than applied; a proposal's approval or anything else on a
+/// proposal, whose held request it would run; a change to the flow, which
+/// takes the writer alone (ADR-0208 decision 3); and a request with a key
+/// of its own, since a batch is replayed whole or not at all.
+fn unbatchable(world: &World<'_>, req: &Request) -> Result<Option<String>, NotRun> {
+    if req.propose {
+        return Ok(Some(
+            "a proposal, which is filed and held, not applied".into(),
+        ));
+    }
+    if req.idempotency_key.is_some() {
+        return Ok(Some(
+            "a request with an idempotency key of its own: a batch is applied whole".into(),
+        ));
+    }
+    let type_ = match (&req.object_id, &req.type_) {
+        (Some(id), _) => world.get(id)?.map(|o| o.type_.clone()),
+        (None, Some(t)) => Some(t.clone()),
+        _ => None,
+    };
+    Ok(match type_.as_deref() {
+        Some(crate::model::DECLARATION_CHANGE) => {
+            Some("a change to the flow, which takes the writer alone".into())
+        }
+        Some(crate::model::PROPOSAL) => {
+            Some("a request on a proposal, whose held request it would run".into())
+        }
+        _ => None,
+    })
+}
+
+/// A batch of requests applied whole or not at all (ADR-0228): in order, in
+/// one transaction, each judged as it would be alone against the state the
+/// ones before it left, its guards, every invariant of every object it
+/// writes, and its effect and cascades; the first refused, or reaching an
+/// evaluator, which cannot be asked mid-batch, rolls back every one of them,
+/// what a refused request keeps written after (the numbers drawn, its
+/// attempt row), and its answer names no object the rollback left unmade.
+pub fn batch(
+    store: &mut crate::store::Store,
+    reqs: &[Request],
+) -> Result<Result<Batched, BatchFault>, crate::store::StoreError> {
+    if reqs.is_empty() {
+        return Ok(Err(BatchFault::Empty));
+    }
+    if reqs.len() > BATCH_MOST {
+        return Ok(Err(BatchFault::OverLimit { most: BATCH_MOST }));
+    }
+    {
+        let world = store.snapshot()?;
+        for (index, req) in reqs.iter().enumerate() {
+            let held =
+                unbatchable(&world, req).map_err(|e| crate::store::StoreError(e.to_string()))?;
+            if let Some(why) = held {
+                return Ok(Err(BatchFault::Held { index, why }));
+            }
+        }
+    }
+    store.begin_batch()?;
+    let mut applied = Vec::with_capacity(reqs.len());
+    for (index, req) in reqs.iter().enumerate() {
+        let out = match request_told(store, req) {
+            Ok(out) => out,
+            Err(e) => {
+                // a store error rolls the batch back, nothing of it kept
+                let _ = store.abort_batch();
+                return Err(e);
+            }
+        };
+        match out {
+            Ok((v @ Verdict::Satisfied { .. }, told)) => applied.push((v, told)),
+            answer => {
+                store.abort_batch()?;
+                // what the rollback left unmade is named by no answer
+                let world = store.snapshot()?;
+                let answer = answer.map(|(v, mut told)| {
+                    told.objects
+                        .retain(|id| world.get(id).ok().flatten().is_some());
+                    (unheld(v, &world), told)
+                });
+                return Ok(Ok(Batched::Refused {
+                    index,
+                    answer: Box::new(answer),
+                }));
+            }
+        }
+    }
+    store.commit_batch()?;
+    Ok(Ok(Batched::Applied(applied)))
+}
+
+/// A refusal's objects the store does not hold named by none, at any
+/// depth: a call's target and an invariant's object, which a batch's
+/// rollback may have left unmade, a later object then taking the id (D581).
+fn unheld(v: Verdict, world: &World<'_>) -> Verdict {
+    match unmade(v, world) {
+        Verdict::InvariantViolated { failures, remedy } => Verdict::InvariantViolated {
+            failures: failures
+                .into_iter()
+                .map(|mut f| {
+                    f.object_id = f
+                        .object_id
+                        .filter(|id| world.get(id).ok().flatten().is_some());
+                    f
+                })
+                .collect(),
+            remedy,
+        },
+        other => other,
+    }
+}
+
 /// What `check` answers (`library-api.md` §4): the verdict the request
 /// would receive, and the guards it did not evaluate, so the verdict is
 /// explicitly partial (ADR-0054).
@@ -10335,6 +10474,369 @@ types:
         );
         drop(s);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Every row of every table a store keeps, as text and sorted, but the
+    /// attempt log and its counts, the sequences and the counters, which a
+    /// refused batch writes past its rollback (ADR-0228 decision 6): what a
+    /// refused batch leaves as it was, row for row.
+    fn rows(s: &Store) -> BTreeMap<String, Vec<String>> {
+        use crate::db::ValueRef;
+        let c = s.connection();
+        let tables: Vec<String> = c
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let mut out = BTreeMap::new();
+        for table in tables {
+            if matches!(
+                table.as_str(),
+                "of_attempt" | "of_attempt_rollup" | "of_sequence" | "of_counter"
+            ) {
+                continue;
+            }
+            let mut st = c.prepare(&format!("SELECT * FROM \"{table}\"")).unwrap();
+            let n = st.column_count();
+            let mut held: Vec<String> = st
+                .query_map([], |r| {
+                    (0..n)
+                        .map(|i| {
+                            r.get_ref(i).map(|v| match v {
+                                ValueRef::Null => "null".to_string(),
+                                ValueRef::Integer(x) => x.to_string(),
+                                ValueRef::Real(x) => x.to_string(),
+                                ValueRef::Text(x) => x.to_string(),
+                                ValueRef::Blob(x) => format!("{x:?}"),
+                            })
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                        .map(|v| v.join("|"))
+                })
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            held.sort();
+            out.insert(table, held);
+        }
+        out
+    }
+
+    fn counter(s: &Store, name: &str) -> i64 {
+        s.connection()
+            .query_row(
+                "SELECT value FROM of_counter WHERE name = ?1",
+                crate::db::params![name],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    fn attempts(s: &Store) -> Vec<(Option<String>, String, Option<String>)> {
+        s.connection()
+            .prepare("SELECT transition, verdict, object_id FROM of_attempt ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    fn open(cap: i64) -> Request {
+        Request {
+            transition: "open".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Order".into()),
+            inputs: [("cap".to_string(), json!(cap))].into_iter().collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        }
+    }
+
+    /// A batch applies whole, in order, each request recorded as if sent
+    /// alone, in a transaction of its own (ADR-0228 decisions 5 to 7).
+    #[test]
+    fn a_batch_applies_whole_each_request_as_if_sent_alone() {
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let reqs = vec![open(1), open(2), open(3)];
+        let Batched::Applied(applied) = batch(&mut s, &reqs).unwrap().unwrap() else {
+            panic!("the batch was refused")
+        };
+        assert_eq!(applied.len(), 3);
+        let mut txns = BTreeSet::new();
+        for (i, (v, _)) in applied.iter().enumerate() {
+            let Verdict::Satisfied {
+                object_id, events, ..
+            } = v
+            else {
+                panic!("request {i}: {v:?}")
+            };
+            let o = s
+                .snapshot()
+                .unwrap()
+                .get(object_id)
+                .unwrap()
+                .unwrap()
+                .clone();
+            assert_eq!(
+                o.attrs.get("cap"),
+                Some(&Value::Int(i as i64 + 1)),
+                "request {i}"
+            );
+            for p in events {
+                txns.insert(
+                    s.connection()
+                        .query_row(
+                            "SELECT txn FROM of_event WHERE position = ?1",
+                            crate::db::params![p],
+                            |r| r.get::<_, i64>(0),
+                        )
+                        .unwrap(),
+                );
+            }
+        }
+        assert_eq!(txns.len(), 3, "the requests shared a transaction number");
+        assert!(
+            attempts(&s).is_empty(),
+            "an attempt row for a batch applied"
+        );
+    }
+
+    /// A refusal at any position of a batch leaves every object, event,
+    /// interval and every other row of the store as it was, row for row; the
+    /// refused request is a row of the attempt log, and every number the
+    /// batch drew, the refused request's too, stays drawn, so the next
+    /// order takes the number after them (ADR-0228 decisions 5 and 6, PRD
+    /// F2, `flow-format.md` §4.12).
+    #[test]
+    fn a_batch_refused_at_any_position_leaves_the_store_as_it_was() {
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        let next = |s: &Store| -> i64 {
+            s.connection()
+                .query_row(
+                    "SELECT next_value FROM of_sequence WHERE name = 'order_number'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        for k in 0..4 {
+            let before = rows(&s);
+            let (position, object) = (counter(&s, "position"), counter(&s, "object"));
+            let (logged, drawn) = (attempts(&s).len(), next(&s));
+            let reqs: Vec<Request> = (0..4).map(|i| open(if i == k { 9 } else { 1 })).collect();
+            let Batched::Refused { index, answer } = batch(&mut s, &reqs).unwrap().unwrap() else {
+                panic!("refused at {k}: applied")
+            };
+            assert_eq!(index, k);
+            assert!(
+                matches!(*answer, Ok((Verdict::InvariantViolated { .. }, _))),
+                "refused at {k}: {answer:?}"
+            );
+            assert_eq!(rows(&s), before, "refused at {k}: a row changed");
+            assert_eq!(counter(&s, "position"), position, "refused at {k}");
+            assert_eq!(counter(&s, "object"), object, "refused at {k}");
+            let logged_now = attempts(&s);
+            assert_eq!(
+                logged_now.len(),
+                logged + 1,
+                "refused at {k}: its attempt row"
+            );
+            assert_eq!(
+                logged_now.last().unwrap(),
+                &(Some("open".into()), "invariant_violated".into(), None)
+            );
+            assert_eq!(
+                next(&s),
+                drawn + k as i64 + 1,
+                "refused at {k}: a number drawn reused"
+            );
+        }
+        let after = next(&s);
+        let made = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        let o = s.snapshot().unwrap().get(&made).unwrap().unwrap().clone();
+        assert_eq!(
+            o.attrs.get("number"),
+            Some(&Value::Text(format!("ORD-{after:04}"))),
+            "the next order reused a number a refused batch drew"
+        );
+    }
+
+    /// A batch's request is judged against the state the ones before it
+    /// left: two creations of one login, each passing alone, refuse the
+    /// second, and the first is not kept either (ADR-0228 decision 5).
+    #[test]
+    fn a_batch_judges_each_request_against_the_ones_before_it() {
+        let mut s = store();
+        let add = |login: &str| Request {
+            transition: "add".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("User".into()),
+            inputs: [("login".to_string(), json!(login))].into_iter().collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let before = rows(&s);
+        let Batched::Refused { index, .. } =
+            batch(&mut s, &[add("ann"), add("ann")]).unwrap().unwrap()
+        else {
+            panic!("two users of one login applied")
+        };
+        assert_eq!(index, 1);
+        assert_eq!(rows(&s), before, "the first user was kept");
+        assert!(matches!(
+            batch(&mut s, &[add("ann"), add("bob")]).unwrap().unwrap(),
+            Batched::Applied(_)
+        ));
+    }
+
+    /// A batch holding no request, more than its bound, or a request whose
+    /// outcome cannot be decided inside its transaction is refused before
+    /// any runs, nothing written (ADR-0228 decisions 9 and 10).
+    #[test]
+    fn a_batch_holding_what_it_cannot_is_refused_before_any_runs() {
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let before = rows(&s);
+        assert_eq!(batch(&mut s, &[]).unwrap(), Err(BatchFault::Empty));
+        let many: Vec<Request> = (0..=BATCH_MOST).map(|_| open(1)).collect();
+        assert_eq!(
+            batch(&mut s, &many).unwrap(),
+            Err(BatchFault::OverLimit { most: BATCH_MOST })
+        );
+        let proposed = Request {
+            propose: true,
+            ..open(1)
+        };
+        let keyed = Request {
+            idempotency_key: Some("k".into()),
+            ..open(1)
+        };
+        let drafted = Request {
+            transition: "draft".into(),
+            type_: Some(crate::model::DECLARATION_CHANGE.into()),
+            inputs: BTreeMap::new(),
+            ..open(1)
+        };
+        for (n, held) in [proposed, keyed, drafted].into_iter().enumerate() {
+            assert!(
+                matches!(
+                    batch(&mut s, &[open(1), held]).unwrap(),
+                    Err(BatchFault::Held { index: 1, .. })
+                ),
+                "case {n}"
+            );
+        }
+        assert_eq!(rows(&s), before, "a batch refused before it ran wrote");
+        assert!(attempts(&s).is_empty());
+    }
+
+    /// A request of a batch that would consult an evaluator, which cannot be
+    /// asked mid-batch, refuses the batch, nothing of it applied (ADR-0228
+    /// decision 10).
+    #[test]
+    fn a_batch_reaching_an_evaluator_applies_none_of_it() {
+        let text = "\nmodule: crm\ncategories: [live]\nevaluators:\n  crm:\n    functions:\n      known: { arguments: { email: { type: string } } }\ntypes:\n  Customer:\n    attributes:\n      email: { type: string, personal: true }\n    states:\n      ON: { category: live }\n    conditions:\n      known: { expression: crm.known(email), remedy: dependent }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [email] }\n      check: { kind: internal, from: [ON], guards: { known: deny } }\n";
+        let lib = Library::load(&[("crm.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let c = created(&req(
+            &mut s,
+            "make",
+            OPERATOR,
+            ("Customer", true),
+            json!({"email": "a@example.com"}),
+        ));
+        let make = Request {
+            transition: "make".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Customer".into()),
+            inputs: [("email".to_string(), json!("b@example.com"))]
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let check = Request {
+            transition: "check".into(),
+            object_id: Some(c),
+            type_: None,
+            inputs: BTreeMap::new(),
+            ..make.clone()
+        };
+        let before = rows(&s);
+        let Batched::Refused { index, answer } = batch(&mut s, &[make, check]).unwrap().unwrap()
+        else {
+            panic!("a batch asked an evaluator mid-batch")
+        };
+        assert_eq!(index, 1);
+        assert!(
+            matches!(*answer, Err(NoVerdict::NotRun(NotRun::Unanswered(_)))),
+            "{answer:?}"
+        );
+        assert_eq!(rows(&s), before, "the customer the batch made was kept");
+    }
+
+    /// A refused batch's attempt row names no object an earlier request of
+    /// it made, which the rollback left unmade and a later object takes the
+    /// id of (ADR-0228 decision 6, D581).
+    #[test]
+    fn a_refused_batch_names_no_object_its_rollback_left_unmade() {
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let made = format!("order-{}", counter(&s, "object") + 1);
+        let on_it = Request {
+            transition: "close".into(),
+            object_id: Some(made.clone()),
+            type_: None,
+            inputs: BTreeMap::new(),
+            ..open(1)
+        };
+        let Batched::Refused { index, answer } = batch(&mut s, &[open(1), on_it]).unwrap().unwrap()
+        else {
+            panic!("an unknown transition applied")
+        };
+        assert_eq!(index, 1);
+        assert!(
+            matches!(*answer, Ok((Verdict::UnknownTransition { .. }, _))),
+            "{answer:?}"
+        );
+        assert!(s.snapshot().unwrap().get(&made).unwrap().is_none());
+        assert_eq!(
+            attempts(&s).last().unwrap(),
+            &(Some("close".into()), "unknown_transition".into(), None),
+            "the attempt named an object never made"
+        );
+        // the id goes to the next object, as the row would have misnamed it
+        assert_eq!(
+            created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({}))),
+            made
+        );
     }
 
     #[test]
