@@ -33,8 +33,7 @@ MAP = ROOT / "docs/design/traceability.md"
 DESIGN = ROOT / "docs/DESIGN.md"
 STATUSES = ("covered", "partial", "gap", "unverifiable", "revision proposed")
 OWNERS = ("declaration-syntax.md", "storage-schema.md", "library-api.md",
-          "publish-and-import.md", "renderers.md", "adversarial-harness.md",
-          "first-consumer-cutover.md")
+          "publish-and-import.md", "renderers.md", "adversarial-harness.md")
 
 
 def headings(path):

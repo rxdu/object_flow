@@ -67,7 +67,7 @@ impl Rng {
 }
 
 /// A set of flows a run is driven against: the shipped examples, each with
-/// the modules it imports, the first consumer's types among them
+/// the modules it imports, the unit's journey among them
 /// (`adversarial-harness.md` §3).
 #[derive(Clone, Debug)]
 pub struct Fixture {
@@ -98,8 +98,8 @@ pub fn fixtures(examples: &std::path::Path) -> std::io::Result<Vec<Fixture>> {
             modules,
         });
     }
-    // the unit's journey, the first consumer's lifecycle written from its
-    // production code, which the design names as the fixture (§3)
+    // the unit's journey, the sample lifecycle the design names as a
+    // fixture (§3)
     let doc = std::fs::read_to_string(examples.join("../../unit-journey.md"))?;
     out.push(Fixture {
         name: "unit journey".to_string(),

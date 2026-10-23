@@ -71,6 +71,6 @@ A service job reserves its parts with `reserve_for_service`. `finish` consumes t
 - `first-consumer-walkthrough.md` §2.1 and §5 point to it (`design/defects.md` D280).
 - The specification's own `UnitLifecycle` stays the smaller fixture its mutations are written against.
 - The table-to-type mapping in `TODO.md` takes this module as its unit slice.
-- Production's ADR-0002 open questions are unchanged and listed in `unit-journey.md` §6. Each is a publish when decided.
+- Production's ADR-0002 open questions are unchanged and listed in `unit-journey.md` §5. Each is a publish when decided.
 - Writing the module found D275 (a utilisation ratio cannot be declared) and D281 (two checker false positives).
 - Reading it against the PRD found that the unit's receipt, being `only via` the shipment, could not be backdated, so UC-6 failed (D282). `Shipment.receive_unit` is backdatable instead, and the unit's `receive` records its parent's occurred time (ADR-0103 §10).

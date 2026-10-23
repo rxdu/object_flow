@@ -8,7 +8,7 @@
 
 ## Context
 
-An audit of the first consumer's production code ([`design/first-consumer-audit.md`](../design/first-consumer-audit.md)) set every business rule it enforces beside the design. It found eleven gaps after deduplication:
+An audit of the first consumer's production code (`design/first-consumer-audit.md`) set every business rule it enforces beside the design. It found eleven gaps after deduplication:
 - five were defects of the design, D275 to D279;
 - five were left to be decided against the PRD;
 - the eleventh, a keyed map, is better remodelled as a part per key.

@@ -100,11 +100,11 @@ Five behaviours, because they are the ways real callers actually break things.
 
 None of them is clever. Cleverness is the malice model, and this is not it.
 
-## 3. The fixture is the first consumer's types
+## 3. The fixture is realistic types, not types invented for it
 
-Not a synthetic type set. The first consumer's declaration is the fixture, because a harness against types invented for it tests the harness. The unit's whole journey is the checked module of `unit-journey.md` (ADR-0102), written from production's code, which supersedes the walkthrough's unit; the rest of the walkthrough's declarations are current with the grammar, three of them differ from production's behaviour, and the fixture is built from the table-to-type mapping, which re-derives them from production (`TODO.md`).
+Not a synthetic type set, because a harness against types invented for it tests the harness. The fixtures are the design's sample modules in `flow-format/examples/`, each with the modules it imports, and a unit's whole journey, the checked module of `unit-journey.md` (ADR-0102).
 
-That gives, from the unit's journey, the walkthrough and the syntax document:
+That gives, from the samples, the unit's journey and the syntax document:
 - a unit with an eleven-state lifecycle, custody and condition beside it, and an `only via` sale;
 - a delivery with parts and cascades, and an approval invalidated by `changed_since`;
 - an engagement with a one-open-per-unit invariant;

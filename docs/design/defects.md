@@ -2290,7 +2290,7 @@ Four of the five reviewers checked their own findings against the repairs, and w
 
 ## Found by auditing production against the design, 2026-09-24
 
-Four read-only audits of the first consumer's production code, one per slice, compared every rule they found with the design ([`first-consumer-audit.md`](first-consumer-audit.md)); writing the unit's full lifecycle as a module ([`unit-journey.md`](unit-journey.md)) found the rest. Each entry below was re-verified against both repositories before it was recorded.
+Four read-only audits of the first consumer's production code, one per slice, compared every rule they found with the design (`first-consumer-audit.md`); writing the unit's full lifecycle as a module ([`unit-journey.md`](unit-journey.md)) found the rest. Each entry below was re-verified against both repositories before it was recorded.
 
 ### D275
 **A duration cannot be divided by a duration, so a utilisation cannot be declared.** The first consumer's leasing decision asks first how much the pool was used. Both halves are declarable as metrics — the time units spent on loan and the time they spent in the pool (`unit-journey.md` §2) — but not their ratio: `declaration-syntax.md` §8.3 allows `/` only with a scalar on the right and names no conversion from a duration to a number, and a combined metric's value is arithmetic over its parts. Every share of time — utilisation, the fraction of a job's life spent waiting, on-time share by duration — meets the same wall.
@@ -2371,7 +2371,7 @@ An independent reader checked the first draft against the PRD, the rest of the r
 ## Found by an operations review of the worked example, 2026-09-24
 
 ### D289
-**A unit bought out of a lease could not be serviced for its buyer.** `ServiceJob.open` in `unit-journey.md` accepted a sold unit only if `robot.binding.customer` was the job's customer. A lease-to-own conversion leaves the unit bound to the internal delivery that put it in the pool, so the buyer of a converted unit would have been refused, `theirs`, when asking for a repair on their own robot. Found by a reader with no context, briefed as an operations manager, who asked whether a lease buyer could get a warranty repair ([`flow-review.md`](flow-review.md)).
+**A unit bought out of a lease could not be serviced for its buyer.** `ServiceJob.open` in `unit-journey.md` accepted a sold unit only if `robot.binding.customer` was the job's customer. A lease-to-own conversion leaves the unit bound to the internal delivery that put it in the pool, so the buyer of a converted unit would have been refused, `theirs`, when asking for a repair on their own robot. Found by a reader with no context, briefed as an operations manager, who asked whether a lease buyer could get a warranty repair (`flow-review.md`).
 
 **Resolved in place**, 2026-09-24: the unit records its buyer in `sold_to` on every route into `SOLD` and clears it on every route out, and `theirs` compares against it.
 

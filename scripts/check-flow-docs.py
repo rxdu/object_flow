@@ -44,8 +44,7 @@ FILE_NAME = re.compile(r"^# [\w.-]+\.yaml\s*$")
 
 # A module declared in more than one document names its home here, as
 # check-syntax-doc.py's MODULE_HOMES does for the text notation.
-# The flow review's appendix re-declares inventory_journey as a proposed variant of it.
-MODULE_HOMES = {"inventory_journey": "unit-journey.md"}
+MODULE_HOMES = {}
 
 
 def script(name):

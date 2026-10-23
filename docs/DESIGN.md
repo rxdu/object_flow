@@ -34,14 +34,13 @@ Seven further documents carry the parts an implementation needs, each owning wha
 | [`design/renderers.md`](design/renderers.md) | the rule set, agent tool schemas and form hints |
 | [`design/adversarial-harness.md`](design/adversarial-harness.md) | the acceptance test, and what would falsify the guarantee |
 
-**Amended for ADR-0081 to ADR-0106.** Those decisions changed the six documents the table lists after the flow description format, which came later (ADR-0116), and the first consumer's cutover plan; each has been amended and says so in its header:
+**Amended for ADR-0081 to ADR-0106.** Those decisions changed the six documents the table lists after the flow description format, which came later (ADR-0116); each has been amended and says so in its header:
 - **the syntax:** seven constructs, checks 54 to 61, the request rule, `length` and formatted serials;
 - **the schema:** the attempt log, the interval index, the observation and label tables, the file reference index, the settled cursor and each object's `recorded_from`;
 - **the API:** `metric`, `diagnostics` and `export`, and a remedy class on every verdict;
 - **the renderers:** the observation and metric tools;
 - **publish and import:** the `DeclarationChange`, checked mappings with `admit`, and imported entry times;
 - **the harness:** its checks on intervals, read sets, refusals and erasure, and the barrier that interleaves requests;
-- **the cutover plan:** a stage order that counts the legacy system's writes (ADR-0093), and a time-driven transition backdated to when it fell due (ADR-0105).
 
 Where a rule appears in both, this document states what it means and the syntax document states it for the model; how it is written is `flow-format.md`'s. That division exists because it failed twice: the outcome grammar was restated here and had gone stale in three of six lines, and a later audit found thirty-two rules stated in both documents of which six had drifted to the superseded version. When the two disagree, the syntax document is the one with a checker.
 
@@ -126,9 +125,8 @@ The first consumer is an extended version of a company's inventory management sy
 
 The model was tested against five further shapes, each recorded with what it forced: issue tracking, customer records, orders at volume, approvals with bookings, and a payments ledger, in [`design/`](design/). The ledger is the one written after the model rather than before it, and it is the only case that is high-volume, short-lived and money-carrying; four of the thirteen language questions the author ruled on (ADR-0065 to ADR-0072) came from it.
 
-The first consumer's own flows are written in three places:
-- **The unit's whole journey**, from request to service and loan, is a checked module in [`design/unit-journey.md`](design/unit-journey.md) (ADR-0102). It supersedes the unit lifecycle of the earlier walkthrough, and [`design/flow-review.md`](design/flow-review.md) reads it as an operations manager would.
-- **The rest of the first consumer's lifecycles**, as first worked, are in [`design/first-consumer-walkthrough.md`](design/first-consumer-walkthrough.md), in the text notation, which the unit's journey superseded and which is kept as the rationale of ADR-0019 to ADR-0025, not kept current (ADR-0121).
+Two worked examples are checked modules:
+- **A unit's whole journey**, from request to service and loan, is a sample module in [`design/unit-journey.md`](design/unit-journey.md) (ADR-0102).
 - **A returns flow that starts with no rules**, published twice — first bare, then with a label promoted to a state, a rule that reads a metric and a derived value over other objects — is a checked module in [`design/returns-module.md`](design/returns-module.md). It holds what the worked example's cases need beyond the unit's journey.
 
 All of these exist to test the design, not to specify the first consumer: each is judged by the mechanisms and requirements it puts under load, and by the defects it finds.
@@ -686,7 +684,7 @@ The mediated property is an operational commitment. Every write has an operation
 
 Concrete cases the model does not cover, or covers with a caveat, are catalogued in [`design/edge-cases.md`](design/edge-cases.md). They include in-place type change, gapless sequences, hot-row throughput, multi-region stock, acyclicity of self-referential hierarchies, unmerge, local-time rules, and the several things a declaration is refused at publish for.
 
-Three things the first consumer does stay with it (ADR-0103, [`design/first-consumer-audit.md`](design/first-consumer-audit.md)):
+Three things the first consumer does stay with it (ADR-0103):
 - **Checking that text matches a pattern**, such as a Jira key or a link's scheme, which its schema does at the edge. This is by decision.
 - **Filtering a list on a status derived from other objects**, which a derivation that reads other objects cannot be indexed for. A query's filter reads it (ADR-0182 decision 7), answered over the type's objects, so a large type pays a scan for every page; where the status gates a transition, `available` answers it in one query. None of the questions PRD N6 and UC-20 name needs it; the **gap in the core** ADR-0104 §4 counted, a scan an upper layer made, is the core's own scan now, and an index that serves it is what `TODO.md` keeps.
 - **Reacting to such a status changing**, which an upper-layer application pulling the transitions that change it does, as UC-12's order-ready notice does.

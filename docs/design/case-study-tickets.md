@@ -1,6 +1,6 @@
 # Case study: issue tracking (Jira-shaped)
 
-Status: design iteration 2, 2026-09-07. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md). Decisions taken here are ADR-0026 to ADR-0029 and an amendment to ADR-0021, accepted by the author on 2026-09-28.
+Status: design iteration 2, 2026-09-07. Decisions taken here are ADR-0026 to ADR-0029 and an amendment to ADR-0021, accepted by the author on 2026-09-28.
 
 > **Revisited 2026-09-26 against Jira's documentation and the flow format** (§6 for Jira's software and business spaces, §7 for Jira Service Management), at the author's request. §1 to §5 were written from general knowledge of Jira and against the text language; §6 and §7 check every workflow feature Atlassian documents against the format, and are the current answer.
 

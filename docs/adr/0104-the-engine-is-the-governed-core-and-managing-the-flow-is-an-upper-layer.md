@@ -7,7 +7,7 @@
 
 ## Context
 
-An operations review of the worked example ([`design/flow-review.md`](../design/flow-review.md)) found that the largest gap between the design and a smooth operation lies around the lifecycle, not in it. Nothing owns the queues. Nothing asks what is due or overdue, chases it, assigns it or tells anyone. Its first recommendation was to design a scheduler and operations agent next.
+An operations review of the worked example (`design/flow-review.md`) found that the largest gap between the design and a smooth operation lies around the lifecycle, not in it. Nothing owns the queues. Nothing asks what is due or overdue, chases it, assigns it or tells anyone. Its first recommendation was to design a scheduler and operations agent next.
 
 Built inside the engine, that layer would make ObjectFlow a platform: flows, scheduled jobs, notifications, worklists and screens. That is the category of full metadata-driven stacks. [ObjectStack](https://objectstack.ai/docs/getting-started), for instance, documents record-triggered and scheduled flows, before and after hooks, approvals, scheduled jobs, webhooks and a UI renderer, all derived from one metadata definition ([its automation documentation](https://objectstack.ai/docs/automation)).
 

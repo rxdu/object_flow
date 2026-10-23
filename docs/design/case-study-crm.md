@@ -1,6 +1,6 @@
 # Case study: customer records (HubSpot-shaped)
 
-Status: design iteration 3, 2026-09-08. Companion to [`first-consumer-walkthrough.md`](first-consumer-walkthrough.md) and [`case-study-tickets.md`](case-study-tickets.md). Decisions taken here are ADR-0030 and ADR-0031 plus three clarifications, accepted by the author on 2026-09-28, ADR-0030 as superseded by ADR-0114.
+Status: design iteration 3, 2026-09-08. Companion to [`case-study-tickets.md`](case-study-tickets.md). Decisions taken here are ADR-0030 and ADR-0031 plus three clarifications, accepted by the author on 2026-09-28, ADR-0030 as superseded by ADR-0114.
 
 > **Amended 2026-09-25 for ADR-0114.** ObjectFlow records who acted and never evaluates it. The declarations below lost every clause that read who is asking or declared who may do or see something — capabilities, actor guards, visibility — which the upper layer now decides; their mapping rows say so. The narrative records the model as the study found it, before ADR-0114.
 
