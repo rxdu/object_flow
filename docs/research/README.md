@@ -21,3 +21,4 @@ How established systems solve a problem ObjectFlow faces, kept so that a design 
 ## Documents
 
 - [`write-throughput.md`](write-throughput.md): how Jira and Temporal scale writes, and ObjectFlow's one writer beside them (2026-10-22).
+- [`atomic-batches.md`](atomic-batches.md): whether a caller may send several requests that apply together or not at all, as DynamoDB, Salesforce and JSON:API allow and domain-driven design advises against (2026-10-23).
