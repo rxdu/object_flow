@@ -3079,7 +3079,8 @@ impl Store {
                 Ok(store.conn.execute_batch("COMMIT")?)
             })();
             if let Err(e) = made {
-                let _ = store.conn.execute_batch("ROLLBACK");
+                // one that fails gives the connection up (`roll_back`)
+                let _ = store.conn.roll_back("ROLLBACK");
                 return Err(e);
             }
             Arc::make_mut(&mut store.lib).version = 0;
@@ -3510,7 +3511,9 @@ impl Store {
 
     /// A read's connection back, its transaction ended, for the next read.
     pub fn into_connection(self) -> Connection {
-        let _ = self.conn.execute_batch("ROLLBACK");
+        // one that fails gives the connection up (`roll_back`), and the
+        // pool drops a connection that says it is lost
+        let _ = self.conn.roll_back("ROLLBACK");
         self.conn
     }
 
@@ -4057,7 +4060,7 @@ impl Store {
                 // a refused request writes nothing but the numbers it drew,
                 // which are not reused (flow-format.md §4.12)
                 self.conn
-                    .execute_batch("ROLLBACK TO request; RELEASE request")?;
+                    .roll_back("ROLLBACK TO request; RELEASE request")?;
                 if !alloc.drawn.is_empty() {
                     self.conn.execute_batch("SAVEPOINT drawn")?;
                     alloc.write_sequences(&self.conn)?;
@@ -4067,7 +4070,7 @@ impl Store {
             }
             Err(e) => {
                 self.conn
-                    .execute_batch("ROLLBACK TO request; RELEASE request")?;
+                    .roll_back("ROLLBACK TO request; RELEASE request")?;
                 Ok(Err(e))
             }
         }
@@ -4127,7 +4130,7 @@ impl Store {
             Ok(())
         })();
         if let Err(e) = reloaded {
-            let _ = self.conn.execute_batch("ROLLBACK");
+            let _ = self.conn.roll_back("ROLLBACK");
             return Err(e);
         }
         self.group = Some(Group {
@@ -4147,7 +4150,9 @@ impl Store {
             return Ok(0);
         };
         if let Err(e) = self.conn.execute_batch("COMMIT") {
-            let _ = self.conn.execute_batch("ROLLBACK");
+            // a commit that fails may leave the transaction open (SQLite's
+            // busy commit does): rolled back, or the connection given up
+            let _ = self.conn.roll_back("ROLLBACK");
             return Err(StoreError::from(e));
         }
         GROUPS.with(|n| n.set(n.get() + 1));
@@ -4158,10 +4163,15 @@ impl Store {
         Ok(g.applied)
     }
 
-    /// The group rolled back, nothing of it kept (ADR-0208 decision 4).
+    /// The group rolled back, nothing of it kept (ADR-0208 decision 4). A
+    /// rollback that fails gives the connection up (`Connection::roll_back`),
+    /// so no request after runs in the transaction it leaves open, where on
+    /// PostgreSQL its begin only warned and its commit committed the
+    /// group's writes with its own; the store is then opened again, as for
+    /// a lost connection, or on SQLite served no more until a restart.
     pub fn abort_group(&mut self) {
         if self.group.take().is_some() && !self.conn.is_autocommit() {
-            let _ = self.conn.execute_batch("ROLLBACK");
+            let _ = self.conn.roll_back("ROLLBACK");
         }
     }
 
@@ -4172,7 +4182,8 @@ impl Store {
     }
 
     /// Whether the store's connection to its database is lost, which a
-    /// statement that met the loss tells; never on SQLite.
+    /// statement that met the loss tells, or given up after a rollback that
+    /// failed (`Connection::discard`), the one way on SQLite.
     pub fn connection_lost(&self) -> bool {
         self.conn.is_closed()
     }

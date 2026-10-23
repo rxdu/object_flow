@@ -2147,6 +2147,19 @@ fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
     if let Some(replaced) = store_lost(shared) {
         return Err(Fault::Unavailable(replaced));
     }
+    // a deployment's store on SQLite whose connection was given up, a
+    // rollback having failed, so it may hold a transaction it could not
+    // end: served no more until a restart, the failsafe of a disk that
+    // fails, where opening it again could hide one
+    if guard.deployment
+        && guard.postgres.is_none()
+        && guard.store.as_ref().is_some_and(Store::connection_lost)
+    {
+        return Err(Fault::Unavailable(latch(
+            shared,
+            "store_connection_discarded: a rollback on the store failed, so its connection was given up with what it held uncommitted; stop the service, check the store's disk, and start it again".into(),
+        )));
+    }
     // a deployment's store on PostgreSQL whose connection a statement
     // found lost, to the database's restart, a terminated session or an
     // idle timeout: opened again before this write, its lock taken again,

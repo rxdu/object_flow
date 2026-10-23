@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 6 (2026-09-08); accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand. Its limit, no projection beyond the declared indexes and the interval index, is accepted with theme 1 of the triage, a known gap of the core (`DESIGN.md` §13).
 - **Date:** 2026-09-08
+- **Superseded in part by:** ADR-0228 — its rejection of an atomic batch and its `batch` row: several requests may apply whole or not at all.
 - **Refined by:** ADR-0048 and ADR-0054, per their Refines lines; ADR-0077 — `check` returns its verdict with the guards it did not evaluate, `pull` returns the settled position, and `history` yields legacy entries beside events. ADR-0083 — the store also keeps an interval index no declaration names, so the rule is no projection the log cannot rebuild. ADR-0084 — `metric` joins the read surface. ADR-0085 — `diagnostics` joins it. ADR-0089 — `pull` returns a settled cursor rather than a position. ADR-0094 — `export` joins it. ADR-0110 — the deployment is an internal service exposing this surface one-to-one; no caller embeds the core. ADR-0144 — `get(id, follow)` returns the last member of the chain, the one not superseded.
 
 ## Context

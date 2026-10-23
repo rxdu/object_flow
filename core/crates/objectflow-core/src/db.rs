@@ -101,6 +101,11 @@ enum Fault {
     /// A statement on PostgreSQL stopped at the deadline set on its
     /// connection, which is closed (ADR-0215), naming what it was doing.
     DeadlinePassed(String),
+    /// A statement on a connection given up, since it may still hold a
+    /// transaction it could not end: a rollback that failed, or a begin
+    /// that found one never ended. Nothing runs on it again, so no write
+    /// joins that transaction and no read sees what it never committed.
+    Discarded(String),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -172,6 +177,12 @@ impl Error {
     /// A statement stopped at its connection's deadline (ADR-0215).
     pub fn is_deadline_passed(&self) -> bool {
         matches!(self.fault(), Fault::DeadlinePassed(_))
+    }
+
+    /// A statement refused on a connection given up after a rollback that
+    /// failed, or a begin that found a transaction never ended.
+    pub fn is_discarded(&self) -> bool {
+        matches!(self.fault(), Fault::Discarded(_))
     }
 
     pub fn is_connection_lost(&self) -> bool {
@@ -259,6 +270,10 @@ fn show(fault: &Fault, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             }
             Fault::Undecodable { index, why } => write!(f, "the value at column {index} is {why}"),
             Fault::RolledBack(why) => write!(f, "rolled back: {why}"),
+            Fault::Discarded(why) => write!(
+                f,
+                "the store's connection was given up, {why}, so it may still hold a transaction it could not end: nothing runs on it again, and the store must be opened again"
+            ),
             Fault::DeadlinePassed(what) => write!(
                 f,
                 "{what} passed its deadline, the database not answering in time; its connection was closed"
@@ -1924,6 +1939,24 @@ fn tls() -> Result<tokio_postgres_rustls::MakeRustlsConnect> {
 /// A connection to the database.
 pub struct Connection {
     inner: Inner,
+    /// Given up, and why: set where a rollback failed or a begin found a
+    /// transaction never ended, after which no statement runs on it.
+    discarded: std::cell::RefCell<Option<String>>,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many of this thread's next rollbacks fail, without running, as
+    /// one meeting a lost connection or a failing disk would: what a test
+    /// of a rollback that fails sets.
+    static ROLLBACKS_TO_FAIL: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// This thread's next `n` rollbacks made to fail, for a test of a rollback
+/// that fails.
+#[cfg(test)]
+pub(crate) fn fail_rollbacks(n: u32) {
+    ROLLBACKS_TO_FAIL.with(|c| c.set(n));
 }
 
 enum Inner {
@@ -1945,6 +1978,7 @@ impl Connection {
     pub fn open_in_memory() -> Result<Connection> {
         Ok(Connection {
             inner: Inner::Sqlite(rusqlite::Connection::open_in_memory()?),
+            discarded: std::cell::RefCell::new(None),
         })
     }
 
@@ -1952,6 +1986,7 @@ impl Connection {
     pub fn open(path: impl AsRef<Path>) -> Result<Connection> {
         Ok(Connection {
             inner: Inner::Sqlite(rusqlite::Connection::open(path)?),
+            discarded: std::cell::RefCell::new(None),
         })
     }
 
@@ -1969,6 +2004,7 @@ impl Connection {
         f |= F::SQLITE_OPEN_URI;
         Ok(Connection {
             inner: Inner::Sqlite(rusqlite::Connection::open_with_flags(path, f)?),
+            discarded: std::cell::RefCell::new(None),
         })
     }
 
@@ -2149,6 +2185,7 @@ impl Connection {
                 aborted: std::cell::Cell::new(false),
                 origin: std::cell::RefCell::new(None),
             })),
+            discarded: std::cell::RefCell::new(None),
         })
     }
 
@@ -2195,13 +2232,74 @@ impl Connection {
     }
 
     pub fn execute_batch(&self, sql: &str) -> Result<()> {
+        self.usable()?;
+        // a begin on a connection whose transaction was never ended, which
+        // SQLite refuses and PostgreSQL only warns of, running what follows
+        // in the transaction left open, so a commit after would commit it:
+        // refused on both, and the connection given up
+        let head = sql.trim_start().to_ascii_uppercase();
+        if (head.starts_with("BEGIN") || head.starts_with("START TRANSACTION"))
+            && !self.is_autocommit()
+        {
+            let why = "a begin found a transaction never ended";
+            self.discard(why);
+            return Err(Error(Fault::Discarded(why.into())));
+        }
         match &self.inner {
             Inner::Sqlite(c) => Ok(c.execute_batch(sql)?),
             Inner::Postgres(pg) => pg.batch(sql),
         }
     }
 
+    /// Refused where the connection was given up (`discard`).
+    fn usable(&self) -> Result<()> {
+        match self.discarded.borrow().as_ref() {
+            Some(why) => Err(Error(Fault::Discarded(why.clone()))),
+            None => Ok(()),
+        }
+    }
+
+    /// The connection given up, since it may still hold a transaction it
+    /// could not end: no statement runs on it again, so nothing joins that
+    /// transaction and nothing reads what it never committed; on
+    /// PostgreSQL its socket closed now, so the server ends the transaction
+    /// rolled back. The store is opened again, as for a lost connection.
+    pub fn discard(&self, why: &str) {
+        self.discarded
+            .borrow_mut()
+            .get_or_insert_with(|| why.to_string());
+        if let Inner::Postgres(pg) = &self.inner
+            && let Ok(client) = pg.client.try_borrow()
+            && let Some(client) = client.as_ref()
+        {
+            client.close();
+        }
+    }
+
+    /// A rollback, `ROLLBACK` or `ROLLBACK TO` with what releases it, run:
+    /// one that fails gives the connection up (`discard`), since the
+    /// transaction it was to end may still be open on it, and says why.
+    pub fn roll_back(&self, sql: &str) -> Result<()> {
+        #[cfg(test)]
+        let ran = if ROLLBACKS_TO_FAIL.with(|c| {
+            let n = c.get();
+            c.set(n.saturating_sub(1));
+            n > 0
+        }) {
+            Err(Error(Fault::Unsupported("a rollback made to fail".into())))
+        } else {
+            self.execute_batch(sql)
+        };
+        #[cfg(not(test))]
+        let ran = self.execute_batch(sql);
+        if let Err(e) = &ran {
+            self.discard(&format!("a rollback failed ({e})"));
+        }
+        ran
+    }
+
     pub fn prepare(&self, sql: &str) -> Result<Statement<'_>> {
+        self.usable()?;
         Ok(Statement {
             inner: match &self.inner {
                 Inner::Sqlite(c) => StatementInner::Sqlite(c.prepare(sql)?),
@@ -2212,6 +2310,7 @@ impl Connection {
 
     /// A statement kept prepared for the connection's next use of it.
     pub fn prepare_cached(&self, sql: &str) -> Result<CachedStatement<'_>> {
+        self.usable()?;
         Ok(Statement {
             inner: match &self.inner {
                 Inner::Sqlite(c) => StatementInner::SqliteCached(c.prepare_cached(sql)?),
@@ -2313,8 +2412,11 @@ impl Connection {
 
     /// Whether the connection is lost, which a statement that met its loss
     /// tells: a store's connection to PostgreSQL closed by the server or its
-    /// socket; never on SQLite.
+    /// socket, or a connection given up on either backend (`discard`).
     pub fn is_closed(&self) -> bool {
+        if self.discarded.borrow().is_some() {
+            return true;
+        }
         match &self.inner {
             Inner::Sqlite(_) => false,
             Inner::Postgres(pg) => pg
@@ -2434,7 +2536,7 @@ impl<'c> Transaction<'c> {
 
     pub fn rollback(mut self) -> Result<()> {
         self.done = true;
-        self.conn.execute_batch("ROLLBACK")
+        self.conn.roll_back("ROLLBACK")
     }
 
     /// Ended as it would be dropped: rolled back.
@@ -2453,9 +2555,9 @@ impl std::ops::Deref for Transaction<'_> {
 impl Drop for Transaction<'_> {
     fn drop(&mut self) {
         if !self.done && !self.conn.is_autocommit() {
-            // a rollback that fails leaves the connection's next begin to
-            // fail, which says so
-            let _ = self.conn.execute_batch("ROLLBACK");
+            // a rollback that fails gives the connection up, so nothing
+            // runs in the transaction it leaves open
+            let _ = self.conn.roll_back("ROLLBACK");
         }
     }
 }
@@ -2480,16 +2582,16 @@ impl Savepoint<'_> {
     }
 
     pub fn rollback(&mut self) -> Result<()> {
-        self.conn.execute_batch("ROLLBACK TO objectflow_savepoint")
+        self.conn.roll_back("ROLLBACK TO objectflow_savepoint")
     }
 
     /// Ended as it would be dropped: what it wrote undone, and released.
     pub fn finish(mut self) -> Result<()> {
         self.done = true;
         self.conn
-            .execute_batch("ROLLBACK TO objectflow_savepoint; RELEASE objectflow_savepoint")?;
+            .roll_back("ROLLBACK TO objectflow_savepoint; RELEASE objectflow_savepoint")?;
         if self.own {
-            self.conn.execute_batch("ROLLBACK")?;
+            self.conn.roll_back("ROLLBACK")?;
         }
         Ok(())
     }
@@ -2505,11 +2607,12 @@ impl std::ops::Deref for Savepoint<'_> {
 impl Drop for Savepoint<'_> {
     fn drop(&mut self) {
         if !self.done {
+            // a rollback that fails gives the connection up (`roll_back`)
             let _ = self
                 .conn
-                .execute_batch("ROLLBACK TO objectflow_savepoint; RELEASE objectflow_savepoint");
+                .roll_back("ROLLBACK TO objectflow_savepoint; RELEASE objectflow_savepoint");
             if self.own {
-                let _ = self.conn.execute_batch("ROLLBACK");
+                let _ = self.conn.roll_back("ROLLBACK");
             }
         }
     }
@@ -2578,6 +2681,162 @@ impl<F> fmt::Debug for MappedRows<'_, F> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Where a test of a transaction left open writes: a PostgreSQL database
+    /// of its own where the environment names a server, else a SQLite file
+    /// in WAL mode, as a store's; each `open` a connection of its own to
+    /// it, and the whole removed with this.
+    struct Scratch {
+        pg: Option<(Connection, String, String)>,
+        file: std::path::PathBuf,
+    }
+
+    impl Scratch {
+        fn new(tag: &str) -> Scratch {
+            let file = std::env::temp_dir()
+                .join(format!("objectflow-{tag}-{}.sqlite", std::process::id()));
+            remove_files(&file);
+            let base = std::env::var(crate::store::SANDBOX_POSTGRES).unwrap_or_default();
+            let pg = (!base.trim().is_empty()).then(|| {
+                let admin = Connection::postgres(&base).unwrap();
+                let name = format!("objectflow_{tag}_{}", std::process::id());
+                admin
+                    .execute_batch(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+                    .unwrap();
+                admin
+                    .execute_batch(&format!(
+                        "CREATE DATABASE {name} TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER libc LC_COLLATE 'C' LC_CTYPE 'C'"
+                    ))
+                    .unwrap();
+                let config = format!("{base} dbname={name}");
+                (admin, name, config)
+            });
+            Scratch { pg, file }
+        }
+
+        fn open(&self) -> Connection {
+            match &self.pg {
+                Some((_, _, config)) => Connection::postgres(config).unwrap(),
+                None => {
+                    let c = Connection::open(&self.file).unwrap();
+                    c.execute_batch("PRAGMA journal_mode = WAL").unwrap();
+                    c
+                }
+            }
+        }
+    }
+
+    /// A SQLite file removed with its log and shared memory.
+    fn remove_files(file: &std::path::Path) {
+        for end in ["", "-wal", "-shm"] {
+            let mut p = file.as_os_str().to_owned();
+            p.push(end);
+            let _ = std::fs::remove_file(p);
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            if let Some((admin, name, _)) = &self.pg {
+                let _ =
+                    admin.execute_batch(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"));
+            }
+            remove_files(&self.file);
+        }
+    }
+
+    fn count(c: &Connection) -> i64 {
+        c.query_row("SELECT count(*) FROM t", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    /// A begin on a connection whose transaction was never ended is refused
+    /// on both backends, where PostgreSQL only warned and ran what followed
+    /// in the transaction left open, so the next commit committed it with
+    /// its own writes (probed 2026-10-23): the connection is given up, no
+    /// write joins that transaction, no read sees it, and none of it is
+    /// kept (PRD F2).
+    #[test]
+    fn a_begin_finding_a_transaction_never_ended_is_refused_and_gives_its_connection_up() {
+        let at = Scratch::new("unended");
+        let w = at.open();
+        w.execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+            .unwrap();
+        w.execute_batch(w.begin_sql(Behavior::Immediate)).unwrap();
+        w.execute_batch("INSERT INTO t VALUES (1, 'never ended')")
+            .unwrap();
+        let refused = w
+            .execute_batch(w.begin_sql(Behavior::Immediate))
+            .unwrap_err();
+        assert!(refused.is_discarded(), "{refused}");
+        let joined = w
+            .execute_batch("INSERT INTO t VALUES (2, 'joined')")
+            .unwrap_err();
+        assert!(joined.is_discarded(), "a write ran after: {joined}");
+        let read = w
+            .query_row("SELECT count(*) FROM t", [], |r| r.get::<_, i64>(0))
+            .unwrap_err();
+        assert!(read.is_discarded(), "a read ran after: {read}");
+        assert!(w.is_closed(), "the connection said open");
+        drop(w);
+        assert_eq!(count(&at.open()), 0, "a write never committed was kept");
+    }
+
+    /// A rollback that fails, as one meeting a lost connection or a failing
+    /// disk would, gives its connection up on both backends, whether it is
+    /// a transaction's own, its drop's or a savepoint's: what it left open
+    /// is never committed by what comes after, and none of it is kept (PRD
+    /// F2). A rollback that runs leaves the connection as it was.
+    #[test]
+    fn a_rollback_that_fails_gives_its_connection_up() {
+        let at = Scratch::new("rollback");
+        at.open()
+            .execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+            .unwrap();
+        for (n, how) in ["rollback", "drop", "savepoint"].into_iter().enumerate() {
+            let mut w = at.open();
+            let insert = format!("INSERT INTO t VALUES ({n}, 'rolled back')");
+            match how {
+                "rollback" => {
+                    let tx = w.transaction_with_behavior(Behavior::Immediate).unwrap();
+                    tx.execute_batch(&insert).unwrap();
+                    fail_rollbacks(1);
+                    assert!(tx.rollback().is_err(), "the failed rollback said nothing");
+                }
+                "drop" => {
+                    let tx = w.transaction_with_behavior(Behavior::Immediate).unwrap();
+                    tx.execute_batch(&insert).unwrap();
+                    fail_rollbacks(1);
+                    drop(tx);
+                }
+                _ => {
+                    let sp = w.savepoint().unwrap();
+                    sp.execute_batch(&insert).unwrap();
+                    fail_rollbacks(1);
+                    assert!(sp.finish().is_err(), "the failed rollback said nothing");
+                }
+            }
+            fail_rollbacks(0);
+            assert!(
+                w.is_closed(),
+                "{how}: the connection kept after its rollback failed"
+            );
+            let after = w
+                .execute_batch(w.begin_sql(Behavior::Immediate))
+                .unwrap_err();
+            assert!(after.is_discarded(), "{how}: {after}");
+            drop(w);
+            assert_eq!(count(&at.open()), 0, "{how}: a write rolled back was kept");
+        }
+        // one that runs gives nothing up
+        let mut w = at.open();
+        let tx = w.transaction_with_behavior(Behavior::Immediate).unwrap();
+        tx.execute_batch("INSERT INTO t VALUES (9, 'rolled back')")
+            .unwrap();
+        tx.rollback().unwrap();
+        assert!(!w.is_closed());
+        assert_eq!(count(&w), 0);
+    }
 
     /// Nothing outside this module names the database's crate, so a second
     /// backend arrives behind it without the store's code changing

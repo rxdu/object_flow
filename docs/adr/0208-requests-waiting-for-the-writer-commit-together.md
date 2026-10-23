@@ -3,6 +3,7 @@
 - **Status:** **Decided** 2026-10-14 on the author's standing instruction ("go with your recommendations"), the reduction ADR-0205 decision 17 asked for
 - **Date:** 2026-10-14
 - **Refines:** ADR-0205 decision 17; `DESIGN.md` §6 step 8 and the attempt log's "own short transaction"
+- **Refined by:** ADR-0228 — decisions 1 and 3, of this record's decision 4: a group's rollback that fails gives the store's connection up, so no request after it runs in the transaction it may leave open
 - **Relates to:** ADR-0204 §1 (the profile and its month-end peak) and the durability promise of its criteria; ADR-0178 (one writer, reads beside it); `design/audit/cost.md` A1; `guides/operate.md` (metrics)
 
 ## Context

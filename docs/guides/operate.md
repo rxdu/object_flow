@@ -227,6 +227,7 @@ It answers `503` with a `code` when an operator must act:
 | `disk_low` | Under 64 MiB free on the store's volume, the space a checkpoint needs. The log says it once as free space falls below, and once as it recovers. | Free space. |
 | `store_replaced` | The store's file was moved, removed or replaced under the running service. Writes are refused too. | Restart the service on the right file. |
 | `store_unreadable` | The store's file cannot be read as a store, as after one written over in place while the service ran. | Stop the service and restore the store. |
+| `store_connection_discarded` | A rollback on the store failed, so the service gave up the store's connection with what it held uncommitted, rather than run anything more on it. Reads and writes are refused too. On PostgreSQL the next write opens the store again instead, as for a lost connection. | Stop the service, check the store's disk, and start it again. |
 | `disk_full` | The last write failed for a full volume, though its free space may not show it (a quota or a reserve), and none has committed since. | Free space; it clears with the next write that commits. |
 | `log_blocked` | A log line has waited over 5 s to be written: nothing is reading the service's standard error. | Fix the log reader. journald does this for you. |
 | `writes_stalled` | A write is waiting for another process's lock on the store, from its first retry; or the last write was refused after its retries, and none has committed since, within the minute. | Find the other process holding the store. |

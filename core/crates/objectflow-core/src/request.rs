@@ -10244,6 +10244,99 @@ types:
         assert_eq!(marked(&s), Some(0), "the vacuum due at the stop never ran");
     }
 
+    /// A group whose rollback fails keeps none of its requests, and no
+    /// request after it runs in the transaction it left open, where on
+    /// PostgreSQL its begin only warned and its commit committed the
+    /// group's writes with its own (ADR-0208 decision 4, PRD F2): the
+    /// store's connection is given up, the next request refused, and the
+    /// store opened again holds only what was committed before the group,
+    /// on both backends.
+    #[test]
+    fn a_group_whose_rollback_fails_keeps_none_of_it() {
+        // the module the vacuum's tests publish
+        const STAFF: &str = "module: staff\ncategories: [live, closed]\ntypes:\n  Employee:\n    description: A person.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n      name: { type: string, personal: true, optional: true }\n    states:\n      ACTIVE: { category: live, description: Here. }\n      LEFT: { category: closed, final: true, description: Gone. }\n    transitions:\n      join: { kind: initial, to: ACTIVE, required_inputs: [login], optional_inputs: [name] }\n      leave: { kind: external, from: ACTIVE, to: LEFT }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+        let base = std::env::var(crate::store::SANDBOX_POSTGRES).unwrap_or_default();
+        let dir =
+            std::env::temp_dir().join(format!("objectflow-group-rollback-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("store.sqlite");
+        let db = (!base.trim().is_empty()).then(|| OwnDatabase::new(&base, "group_rollback"));
+        let open = |create: bool| -> Store {
+            match &db {
+                Some(db) => Store::open_postgres(
+                    &crate::db::PgConfig::parse(&db.config, None).unwrap(),
+                    1_767_225_600,
+                    create,
+                )
+                .unwrap(),
+                None => Store::open(&path, 1_767_225_600).unwrap(),
+            }
+        };
+        let employees = |s: &Store| -> i64 {
+            s.connection()
+                .query_row("SELECT count(*) FROM t_employee", [], |r| r.get(0))
+                .unwrap()
+        };
+        let join = |login: &str| Request {
+            transition: "join".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Employee".into()),
+            inputs: [("login".to_string(), json!(login))].into_iter().collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        {
+            let mut s = open(true);
+            let change = created(&req(
+                &mut s,
+                "draft",
+                OPERATOR,
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"staff": STAFF}, "source_ref": "test:staff"}),
+            ));
+            let submitted = req(&mut s, "submit", OPERATOR, (&change, false), json!({}));
+            let Verdict::Satisfied { version, .. } = submitted else {
+                panic!("the change not submitted: {submitted:?}")
+            };
+            assert!(matches!(
+                s.publish(OPERATOR, &change, version).unwrap().unwrap().0,
+                Verdict::Satisfied { .. }
+            ));
+            created(&request(&mut s, &join("ann")).unwrap().unwrap());
+            assert_eq!(employees(&s), 1);
+            // a group of two applied, then its rollback made to fail
+            s.begin_group().unwrap();
+            created(&request(&mut s, &join("bob")).unwrap().unwrap());
+            created(&request(&mut s, &join("cy")).unwrap().unwrap());
+            crate::db::fail_rollbacks(1);
+            s.abort_group();
+            crate::db::fail_rollbacks(0);
+            assert!(
+                s.connection_lost(),
+                "the connection kept after its rollback failed"
+            );
+            // the next request refused, never run in the transaction left open
+            let after = request(&mut s, &join("dee")).unwrap_err();
+            assert!(after.0.contains("given up"), "{after}");
+        }
+        let s = open(false);
+        assert_eq!(
+            employees(&s),
+            1,
+            "a request of the group, or one after it, was kept"
+        );
+        drop(s);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_file_is_referenced_until_its_last_copy_is_erased() {
         const PICS: &str = r#"
