@@ -1669,7 +1669,13 @@ const TAKES: &[(&str, &[&str])] = &[
     ("/v1/request", REQUEST_KEYS),
     (
         "/v1/batch",
-        &["actor", "principal", "requests", "reads_personal"],
+        &[
+            "actor",
+            "principal",
+            "requests",
+            "reads_personal",
+            "idempotency_key",
+        ],
     ),
     ("/v1/check", REQUEST_KEYS),
     ("/v1/get", &["actor", "id", "follow"]),
@@ -2506,6 +2512,8 @@ fn event(e: &Event) -> J {
         "consulted": consulted, "as_of": as_of,
         // the serialisation retries its request took (ADR-0178 decision 2)
         "retries": e.retries,
+        // the batch its request came in, by its first event (ADR-0228)
+        "batch": e.batch,
     })
 }
 
@@ -2789,11 +2797,16 @@ fn batch_of(body: &J) -> Result<Vec<Request>, Fault> {
 async fn batch_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answering(move || {
         let reqs = batch_of(&body)?;
+        // the batch's key, its actor's, read as a request's is (ADR-0228
+        // decision 8)
+        let key = idempotency_key_of(&body)?;
         let outcome = {
             let mut w = locked(&shared)?;
             let ran = {
                 let s = store(&mut w)?;
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| request::batch(s, &reqs)))
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    request::batch(s, &reqs, key.as_deref())
+                }))
             };
             match ran {
                 Ok(out) => out?,
@@ -2801,7 +2814,7 @@ async fn batch_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
                     // rolled back whole, and the store opened again, as a
                     // request panicking in a group (POISON)
                     if let Ok(s) = store(&mut w) {
-                        let _ = s.abort_batch();
+                        let _ = s.abort_batch(None);
                     }
                     say!("a batch panicked holding the writer; {}", reopened(&mut w));
                     note_log(&shared);
@@ -2832,6 +2845,14 @@ async fn batch_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
             Err(request::BatchFault::Held { index, why }) => Err(Fault::Bad(format!(
                 "request {index} of the batch is {why}, which a batch does not hold"
             ))),
+            Err(request::BatchFault::KeyReused { key }) => Err(Fault::Conflict(format!(
+                "key_reused: this actor applied the idempotency key {key} to a different batch or request"
+            ))),
+            Ok(request::Batched::Replayed(replayed)) => Ok(Json(json!({
+                "applied": true,
+                "replayed": true,
+                "verdicts": replayed.iter().map(|(v, t)| shown(v, t)).collect::<Vec<_>>(),
+            }))),
             Ok(request::Batched::Applied(applied)) => {
                 for (v, _) in &applied {
                     shared.watch.note(v);
@@ -3278,24 +3299,25 @@ fn principal_of(body: &J) -> Result<Option<String>, Fault> {
 const KEY_BYTES: usize = 256;
 const CONTEXT_BYTES: usize = 16 * 1024;
 
-fn request_of(body: &J) -> Result<Request, Fault> {
-    // the key that makes a retry safe, scoped to the actor (library-api.md §3)
-    let idempotency_key = match body.get("idempotency_key") {
-        None | Some(J::Null) => None,
+/// The key that makes a retry safe, scoped to the actor (library-api.md
+/// §3): a request's, or a batch's (ADR-0228 decision 8).
+fn idempotency_key_of(body: &J) -> Result<Option<String>, Fault> {
+    match body.get("idempotency_key") {
+        None | Some(J::Null) => Ok(None),
         // a key is a retry's handle, kept per actor: one of a megabyte was
         // stored as given (third production review, minor)
-        Some(J::String(k)) if k.len() > KEY_BYTES => {
-            return Err(Fault::Bad(format!(
-                "idempotency_key takes at most {KEY_BYTES} bytes"
-            )));
-        }
-        Some(J::String(k)) if !k.is_empty() => Some(k.clone()),
-        Some(_) => {
-            return Err(Fault::Bad(
-                "idempotency_key takes a non-empty string".to_string(),
-            ));
-        }
-    };
+        Some(J::String(k)) if k.len() > KEY_BYTES => Err(Fault::Bad(format!(
+            "idempotency_key takes at most {KEY_BYTES} bytes"
+        ))),
+        Some(J::String(k)) if !k.is_empty() => Ok(Some(k.clone())),
+        Some(_) => Err(Fault::Bad(
+            "idempotency_key takes a non-empty string".to_string(),
+        )),
+    }
+}
+
+fn request_of(body: &J) -> Result<Request, Fault> {
+    let idempotency_key = idempotency_key_of(body)?;
     // the version of its object the caller read (library-api.md §3)
     let expected_version = match body.get("expected_version") {
         None | Some(J::Null) => None,

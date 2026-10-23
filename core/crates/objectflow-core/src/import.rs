@@ -1302,6 +1302,7 @@ fn decide(
         let event = Event {
             position,
             retries: 0,
+            batch: None,
             object_id: obj.id.clone(),
             object_seq: obj.version,
             transition: "import".into(),

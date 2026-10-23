@@ -467,6 +467,9 @@ pub struct Event {
     /// The serialisation retries its request took (`DESIGN.md` §6 step 8,
     /// ADR-0178 decision 2); none but a write's that met a busy lock.
     pub retries: i64,
+    /// The batch its request came in, by the position of the batch's first
+    /// event; none for a request sent alone (ADR-0228 decision 7).
+    pub batch: Option<i64>,
 }
 
 /// What a request writes: the objects it created or changed, each with its
@@ -581,6 +584,9 @@ pub struct Attempt {
     /// For an approval its held request refused, the proposal it would have
     /// executed, whose `last_verdict` the row is (ADR-0157); none otherwise.
     pub proposal: Option<String>,
+    /// For a request of a batch, its index there, the batch refused at it
+    /// and none of it applied (ADR-0228 decision 6); none otherwise.
+    pub batch_index: Option<i64>,
 }
 
 fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
@@ -589,8 +595,8 @@ fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
         &format!(
             "INSERT INTO of_attempt (at, actor_id, actor_kind, txn, type, object_id, transition, verdict, clause, remedy, \
              unknown, enforced, flagged, applied_position, request_values, declaration_version, actor_principal, \
-             reads, consulted, call, context, proposal) \
-             VALUES (?1, ?2, ?3, {txn}, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)"
+             reads, consulted, call, context, proposal, batch_index) \
+             VALUES (?1, ?2, ?3, {txn}, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)"
         ),
         params![
             timestamp_text(a.at),
@@ -614,6 +620,7 @@ fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
             (!a.call.is_null()).then(|| a.call.to_string()),
             a.context,
             a.proposal,
+            a.batch_index,
         ],
     )?;
     Ok(())
@@ -653,6 +660,7 @@ fn attempt_row(r: &crate::db::Row<'_>) -> crate::db::Result<Attempt> {
         call: json_column(r, 19, "an attempt's call")?,
         context: r.get(20)?,
         proposal: r.get(21)?,
+        batch_index: r.get(22)?,
     })
 }
 
@@ -1090,6 +1098,7 @@ fn event_of(
     Ok(Event {
         position,
         retries: 0,
+        batch: None,
         object_id: o.id.clone(),
         object_seq: o.version,
         transition: transition.to_string(),
@@ -1268,7 +1277,7 @@ pub(crate) fn read_attempts(conn: &Connection) -> crate::db::Result<Vec<Attempt>
     let mut attempts = conn.prepare(
         "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
          flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn, call, context, \
-         proposal FROM of_attempt ORDER BY id",
+         proposal, batch_index FROM of_attempt ORDER BY id",
     )?;
     let rows = attempts.query_map([], attempt_row)?;
     rows.collect()
@@ -1284,7 +1293,7 @@ pub(crate) fn read_attempts_where(
     let mut attempts = conn.prepare(&format!(
         "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
          flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn, call, context, \
-         proposal FROM of_attempt WHERE {clause} ORDER BY id"
+         proposal, batch_index FROM of_attempt WHERE {clause} ORDER BY id"
     ))?;
     let rows = attempts.query_map([value], attempt_row)?;
     rows.collect()
@@ -1367,13 +1376,13 @@ pub(crate) fn read_attempts_after(
     let mut attempts = conn.prepare(&format!(
         "SELECT at, actor_id, actor_kind, type, object_id, transition, verdict, clause, remedy, unknown, enforced, \
          flagged, applied_position, request_values, declaration_version, actor_principal, reads, consulted, txn, call, context, \
-         proposal, id FROM of_attempt \
+         proposal, batch_index, id FROM of_attempt \
          WHERE (txn > ?1 OR (txn = ?1 AND id > ?2)) AND txn <= ?3 AND type IN ({}) \
          ORDER BY txn, id LIMIT ?4",
         marks.join(", ")
     ))?;
     let rows = attempts.query_map(crate::db::params_from_iter(binds), |r| {
-        Ok((r.get::<_, i64>(22)?, attempt_row(r)?))
+        Ok((r.get::<_, i64>(23)?, attempt_row(r)?))
     })?;
     rows.collect()
 }
@@ -2067,6 +2076,7 @@ CREATE TABLE of_event (
   retries             INTEGER NOT NULL DEFAULT 0,
   payload             TEXT    NOT NULL,
   reads               TEXT    NOT NULL,
+  batch               INTEGER,
   CONSTRAINT of_event_per_object UNIQUE (object_id, object_seq),
   CONSTRAINT of_event_source CHECK (source IN
     ('observed','asserted','migrated','corrected','erased'))
@@ -2128,7 +2138,8 @@ CREATE TABLE of_attempt (
   reads               TEXT,
   consulted           TEXT,
   request_values      TEXT,
-  declaration_version INTEGER NOT NULL
+  declaration_version INTEGER NOT NULL,
+  batch_index         INTEGER
 );
 CREATE INDEX of_attempt_by_rule ON of_attempt (type, transition, clause, at);
 CREATE INDEX of_attempt_by_actor ON of_attempt (actor_id, at);
@@ -2496,6 +2507,9 @@ struct Group {
 struct Batch {
     draws: BTreeMap<(String, String), i64>,
     attempt: Option<Attempt>,
+    /// The position of the batch's first event, which every event of its
+    /// requests names (ADR-0228 decision 7).
+    first: Option<i64>,
 }
 
 /// How a store mints a new object's id (ADR-0077 decision 7, ADR-0226).
@@ -4081,6 +4095,16 @@ impl Store {
         match decided {
             Ok((answer, Some(mut change))) => {
                 change.retries = retries;
+                // each event of a batch's request names the batch, by its
+                // first event's position (ADR-0228 decision 7)
+                if let Some(b) = &mut self.batch
+                    && let Some(own) = change.writes.iter().map(|(_, _, e)| e.position).min()
+                {
+                    let first = *b.first.get_or_insert(own);
+                    for (_, _, e) in &mut change.writes {
+                        e.batch = Some(first);
+                    }
+                }
                 alloc.write(&self.conn)?;
                 alloc.write_sequences(&self.conn)?;
                 write(&self.conn, &self.lib, &self.earlier, &change)?;
@@ -4207,6 +4231,24 @@ impl Store {
         Ok(())
     }
 
+    /// A batch's key recorded in its open transaction, beside its first
+    /// event, with every verdict it answered (ADR-0228 decision 8).
+    pub fn record_batch_key(
+        &mut self,
+        actor: &str,
+        key: &str,
+        digest: &str,
+        verdicts: &serde_json::Value,
+    ) -> Stored<()> {
+        let first = self.batch.as_ref().and_then(|b| b.first);
+        self.conn.execute(
+            "INSERT INTO of_idempotency (actor_id, key, request_digest, first_position, verdict, applied_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![actor, key, digest, first, verdicts.to_string(), timestamp_text(self.now)],
+        )?;
+        Ok(())
+    }
+
     /// The batch committed, every request in it at once (ADR-0228
     /// decision 6); a commit that fails rolls it back and is an error.
     pub fn commit_batch(&mut self) -> Stored<()> {
@@ -4219,7 +4261,7 @@ impl Store {
     /// numbers its requests drew and the refused request's attempt row
     /// (ADR-0228 decision 6). A rollback that fails gives the connection
     /// up (ADR-0228 decision 1), and nothing more is written.
-    pub fn abort_batch(&mut self) -> Stored<()> {
+    pub fn abort_batch(&mut self, refused: Option<usize>) -> Stored<()> {
         let kept = self.batch.take();
         self.abort_group();
         if self.conn.is_closed() {
@@ -4244,6 +4286,7 @@ impl Store {
             tx.commit()?;
         }
         if let Some(mut a) = kept.attempt {
+            a.batch_index = refused.and_then(|i| i64::try_from(i).ok());
             // an object an earlier request of the batch made, which the
             // rollback left unmade, named by no row, a later object then
             // taking its id (D581)
@@ -5403,7 +5446,7 @@ fn next(tx: &Connection, name: &str) -> Stored<i64> {
 
 const EVENT_SELECT: &str = "SELECT position, object_id, object_seq, transition, from_state, to_state, changes_state, \
     source, actor_id, actor_kind, declaration_version, recorded_at, occurred_at, imported, payload, actor_principal, \
-    cause_position, reads, context, retries FROM of_event";
+    cause_position, reads, context, retries, batch FROM of_event";
 
 fn event_row(r: &crate::db::Row<'_>) -> crate::db::Result<Event> {
     let position: i64 = r.get(0)?;
@@ -5438,6 +5481,7 @@ fn event_row(r: &crate::db::Row<'_>) -> crate::db::Result<Event> {
         ),
         context: r.get(18)?,
         retries: r.get(19)?,
+        batch: r.get(20)?,
     })
 }
 
@@ -6859,8 +6903,8 @@ fn write(
         tx.execute(
             "INSERT INTO of_event (position, txn, object_id, object_seq, transition, from_state, to_state, changes_state, \
              source, actor_id, actor_kind, declaration_version, taint_version, recorded_at, occurred_at, payload, reads, imported, \
-             actor_principal, cause_position, context, retries) \
-             VALUES (?1, (SELECT value FROM of_counter WHERE name = 'txn'), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13, ?14, ?18, ?15, ?16, ?17, ?19, ?20)",
+             actor_principal, cause_position, context, retries, batch) \
+             VALUES (?1, (SELECT value FROM of_counter WHERE name = 'txn'), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13, ?14, ?18, ?15, ?16, ?17, ?19, ?20, ?21)",
             params![
                 event.position,
                 event.object_id,
@@ -6882,6 +6926,7 @@ fn write(
                 event.reads.to_string(),
                 event.context,
                 change.retries,
+                event.batch,
             ],
         )?;
         let name = table(&o.type_);
@@ -7467,7 +7512,8 @@ fn write(
         // nothing erased and stays (fourteenth production review N2)
         tx.execute(
             "UPDATE of_idempotency SET request_digest = ?2 WHERE first_position = \
-             (SELECT MIN(position) FROM of_event WHERE txn = (SELECT txn FROM of_event WHERE position = ?1)) \
+             COALESCE((SELECT batch FROM of_event WHERE position = ?1), \
+             (SELECT MIN(position) FROM of_event WHERE txn = (SELECT txn FROM of_event WHERE position = ?1))) \
              AND substr(request_digest, 1, length(?3)) != ?3",
             params![position, ERASED_DIGEST, MASKED_DIGEST],
         )?;
@@ -7476,7 +7522,8 @@ fn write(
         tx.execute(
             "UPDATE of_idempotency SET request_digest = substr(request_digest, 1, instr(request_digest, '/')) || ?2 \
              WHERE first_position = \
-             (SELECT MIN(position) FROM of_event WHERE txn = (SELECT txn FROM of_event WHERE position = ?1)) \
+             COALESCE((SELECT batch FROM of_event WHERE position = ?1), \
+             (SELECT MIN(position) FROM of_event WHERE txn = (SELECT txn FROM of_event WHERE position = ?1))) \
              AND instr(request_digest, '/') > 0",
             params![position, ERASED_DIGEST],
         )?;

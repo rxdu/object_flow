@@ -390,6 +390,7 @@ class Event:
     recorded_at: datetime
     occurred_at: datetime | None          # when a backdated change happened (ADR-0083)
     retries: int                          # serialisation retries its request took
+    batch: int | None                     # the first event of the batch its request came in (ADR-0228)
     imported: bool                        # written by import_batch (ADR-0100)
     payload: Mapping[str, Any]            # inputs, what the request sent; wrote, each attribute it changed, its value
                                           # after, None where cleared, which folded give the row (ADR-0209)
@@ -511,6 +512,7 @@ class Attempt:
                                           # of the request; a replay re-evaluates it (ADR-0105)
     withheld_inputs: Sequence[str]        # personal inputs it read, by name only
     declaration_version: int
+    batch_index: int | None               # for a batch's request, its index, the batch refused there (ADR-0228)
 
 
 @dataclass(frozen=True)
@@ -695,10 +697,11 @@ class Store(Protocol):
 
     def request(self, req: Request) -> Verdict: ...
 
-    def batch(self, reqs: Sequence[Request]) -> Sequence[Verdict]:
+    def batch(self, reqs: Sequence[Request], idempotency_key: str | None = None) -> Sequence[Verdict]:
         """Applied whole or not at all, in one transaction (ADR-0228): on a
         refusal the verdicts end at the refused request's, and nothing of
-        the batch is applied. Not yet built."""
+        the batch is applied. Under a key its actor applied it under before,
+        its first verdicts, each replaying."""
         ...
 
     def get(self, actor: Actor, id: str, follow: bool = False) -> Object | None: ...

@@ -434,6 +434,7 @@ fn event_row(world: &World<'_>, e: &Event) -> Result<Json, NotRun> {
         "payload": payload,
         "reads": e.reads,
         "context": e.context,
+        "batch": e.batch,
     }))
 }
 
@@ -747,6 +748,7 @@ fn attempt_row(a: &Attempt) -> Json {
         "applied_position": a.applied_position,
         "call": a.call,
         "proposal": a.proposal,
+        "batch_index": a.batch_index,
         "consulted": a.consulted,
         "request_values": a.request_values,
         "withheld_inputs": a.withheld,

@@ -94,7 +94,27 @@ pub const RELEASES: &[Release] = &[
         builtins_changed: false,
         migrate: |_, _| Ok(()),
     },
+    Release {
+        name: "objectflow-core 0.6.0",
+        from: &["objectflow-core 0.5.2"],
+        fingerprint: "sha256:0503a5d115eadbfbe1726334f900c1242587309468d58799cb084abd20d8143a",
+        changes: "each event names the batch its request came in, by the batch's first event, and each attempt row of a refused batch's request its index there (ADR-0228)",
+        builtins_changed: false,
+        migrate: batch_columns,
+    },
 ];
+
+/// 0.5.2 to 0.6.0: the batch an event's request came in, none for every
+/// event before, since no batch ran before this release; and a refused
+/// batch's request's index on its attempt row, none before (ADR-0228
+/// decisions 6 and 7).
+fn batch_columns(tx: &Transaction<'_>, _now: i64) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "ALTER TABLE of_event ADD COLUMN batch INTEGER; \
+         ALTER TABLE of_attempt ADD COLUMN batch_index INTEGER;",
+    )?;
+    Ok(())
+}
 
 /// 0.2.0 to 0.3.0: the restore table, empty, since no store of 0.2.0 was
 /// restored by this release (ADR-0207); the interval retractions, empty,

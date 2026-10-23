@@ -1930,6 +1930,7 @@ fn take_unwound(
             txn: 0,
             call: Json::Null,
             proposal: None,
+            batch_index: None,
         });
     }
     alloc.txn();
@@ -2375,6 +2376,7 @@ fn take_unwound(
     let event = Event {
         position,
         retries: 0,
+        batch: None,
         object_id: id.clone(),
         object_seq: o.version,
         transition: xn.to_string(),
@@ -3023,6 +3025,7 @@ fn invalidate_proposals(
         let invalidated = Event {
             position,
             retries: 0,
+            batch: None,
             object_id: id.clone(),
             object_seq: p.version,
             transition: "invalidate".into(),
@@ -3107,6 +3110,7 @@ fn invalidate_proposals(
         let redacted = Event {
             position,
             retries: 0,
+            batch: None,
             object_id: id.clone(),
             object_seq: p.version,
             transition: "redact".into(),
@@ -3340,6 +3344,7 @@ fn file(
     let event = Event {
         position,
         retries: 0,
+        batch: None,
         object_id: id.clone(),
         object_seq: 1,
         transition: "propose".into(),
@@ -3407,6 +3412,7 @@ fn store_event(
     Ok(Event {
         position,
         retries: 0,
+        batch: None,
         object_id: o.id.clone(),
         object_seq: o.version,
         transition: transition.to_string(),
@@ -4010,6 +4016,7 @@ fn decide_proposal(
     let event = Event {
         position,
         retries: 0,
+        batch: None,
         object_id: p.id.clone(),
         object_seq: decided.version,
         transition: req.transition.clone(),
@@ -4227,6 +4234,7 @@ fn redact_event(ctx: &Ctx<'_>, o: &Object, position: i64, payload: Json) -> Even
     Event {
         position,
         retries: 0,
+        batch: None,
         object_id: o.id.clone(),
         object_seq: o.version,
         transition: "redact".into(),
@@ -6538,6 +6546,9 @@ pub const BATCH_MOST: usize = 100;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Batched {
     Applied(Vec<(Verdict, Told)>),
+    /// A batch its actor applied before under its key, its verdicts as they
+    /// were answered, each saying it replays (ADR-0228 decision 8).
+    Replayed(Vec<(Verdict, Told)>),
     Refused {
         index: usize,
         answer: Box<Result<(Verdict, Told), NoVerdict>>,
@@ -6551,8 +6562,71 @@ pub enum Batched {
 #[derive(Clone, Debug, PartialEq)]
 pub enum BatchFault {
     Empty,
-    OverLimit { most: usize },
-    Held { index: usize, why: String },
+    OverLimit {
+        most: usize,
+    },
+    Held {
+        index: usize,
+        why: String,
+    },
+    /// A key its actor applied to a different batch, or to a request.
+    KeyReused {
+        key: String,
+    },
+}
+
+/// A batch's digest, over each of its requests' digests in order, its
+/// actor and principal resolved, and marked as a batch's, so a request and a
+/// batch under one key never replay each other (ADR-0228 decision 8). An
+/// erasure of what any of them sent replaces it whole, so its key replays
+/// nothing after (ADR-0205 decision 3).
+fn batch_digest(lib: &Library, reqs: &[Request], actor: &str, principal: Option<&str>) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    for r in reqs {
+        h.update(request_digest(lib, r, Some(actor), principal).as_bytes());
+        h.update(b"\n");
+    }
+    let hex: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    format!("batch:{hex}")
+}
+
+/// A recorded batch's verdicts as they were answered, each replaying, what
+/// each created read from its events; none where the record is not a
+/// batch's of these requests.
+fn replayed_batch(
+    world: &World<'_>,
+    reqs: &[Request],
+    recorded: &Json,
+) -> Result<Option<Vec<(Verdict, Told)>>, NotRun> {
+    let Some(list) = recorded["batch"]
+        .as_array()
+        .filter(|l| l.len() == reqs.len())
+    else {
+        return Ok(None);
+    };
+    let mut out = Vec::with_capacity(list.len());
+    for (rec, req) in list.iter().zip(reqs) {
+        let v = replayed_verdict(rec)?;
+        let made = match &v {
+            Verdict::Satisfied { events, .. } => {
+                let mut made = Vec::new();
+                for p in events {
+                    if let Some(e) = world.event_at(*p)?
+                        && e.object_seq == 1
+                    {
+                        made.push(e.object_id);
+                    }
+                }
+                Some(made)
+            }
+            _ => None,
+        };
+        let v = with_created(v, made);
+        let t = told(world.lib, world, req, &v, &Refusal::default());
+        out.push((v, t));
+    }
+    Ok(Some(out))
 }
 
 /// Why a batch cannot hold a request, if it cannot: a proposal, filed and
@@ -6597,6 +6671,7 @@ fn unbatchable(world: &World<'_>, req: &Request) -> Result<Option<String>, NotRu
 pub fn batch(
     store: &mut crate::store::Store,
     reqs: &[Request],
+    key: Option<&str>,
 ) -> Result<Result<Batched, BatchFault>, crate::store::StoreError> {
     if reqs.is_empty() {
         return Ok(Err(BatchFault::Empty));
@@ -6604,16 +6679,70 @@ pub fn batch(
     if reqs.len() > BATCH_MOST {
         return Ok(Err(BatchFault::OverLimit { most: BATCH_MOST }));
     }
-    {
+    let unread = |e: NotRun| crate::store::StoreError(e.to_string());
+    // the batch's key, its actor's: one the actor applied before replays
+    // that batch, and a different one under it is a fault (ADR-0228
+    // decision 8); an actor the store does not know has applied nothing,
+    // and its requests are refused next
+    let keyed = {
         let world = store.snapshot()?;
         for (index, req) in reqs.iter().enumerate() {
-            let held =
-                unbatchable(&world, req).map_err(|e| crate::store::StoreError(e.to_string()))?;
-            if let Some(why) = held {
+            if let Some(why) = unbatchable(&world, req).map_err(unread)? {
                 return Ok(Err(BatchFault::Held { index, why }));
             }
         }
-    }
+        let Some(key) = key else {
+            drop(world);
+            return run_batch(store, reqs, None);
+        };
+        let (actor, principal) = (&reqs[0].actor, &reqs[0].principal);
+        if let Some(index) = reqs
+            .iter()
+            .position(|r| r.actor != *actor || r.principal != *principal)
+        {
+            return Ok(Err(BatchFault::Held {
+                index,
+                why: "a request of another actor or principal than the batch's, whose key is one actor's"
+                    .into(),
+            }));
+        }
+        match resolve_actor(&world, actor).map_err(unread)? {
+            Some(who) => {
+                let principal = match principal {
+                    Some(p) => resolve_actor(&world, p).map_err(unread)?.map(|w| w.id),
+                    None => None,
+                };
+                let digest = batch_digest(world.lib, reqs, &who.id, principal.as_deref());
+                if let Some((applied, recorded)) =
+                    world.idempotency_of(&who.id, key).map_err(unread)?
+                {
+                    let replayed = if replays(&applied, &digest) {
+                        replayed_batch(&world, reqs, &recorded).map_err(unread)?
+                    } else {
+                        None
+                    };
+                    return Ok(match replayed {
+                        Some(out) => Ok(Batched::Replayed(out)),
+                        None => Err(BatchFault::KeyReused {
+                            key: key.to_string(),
+                        }),
+                    });
+                }
+                Some((who.id, key.to_string(), digest))
+            }
+            None => None,
+        }
+    };
+    run_batch(store, reqs, keyed)
+}
+
+/// The batch run, once nothing refuses it before: its key recorded where
+/// it has one, the actor, the key and the batch's digest.
+fn run_batch(
+    store: &mut crate::store::Store,
+    reqs: &[Request],
+    keyed: Option<(String, String, String)>,
+) -> Result<Result<Batched, BatchFault>, crate::store::StoreError> {
     store.begin_batch()?;
     let mut applied = Vec::with_capacity(reqs.len());
     for (index, req) in reqs.iter().enumerate() {
@@ -6624,33 +6753,33 @@ pub fn batch(
         let held = match store.snapshot() {
             Ok(world) => unbatchable(&world, req),
             Err(e) => {
-                let _ = store.abort_batch();
+                let _ = store.abort_batch(None);
                 return Err(e);
             }
         };
         let held = match held {
             Ok(held) => held,
             Err(e) => {
-                let _ = store.abort_batch();
+                let _ = store.abort_batch(None);
                 return Err(crate::store::StoreError(e.to_string()));
             }
         };
         if let Some(why) = held {
-            store.abort_batch()?;
+            store.abort_batch(None)?;
             return Ok(Err(BatchFault::Held { index, why }));
         }
         let out = match request_told(store, req) {
             Ok(out) => out,
             Err(e) => {
                 // a store error rolls the batch back, nothing of it kept
-                let _ = store.abort_batch();
+                let _ = store.abort_batch(None);
                 return Err(e);
             }
         };
         match out {
             Ok((v @ Verdict::Satisfied { .. }, told)) => applied.push((v, told)),
             answer => {
-                store.abort_batch()?;
+                store.abort_batch(Some(index))?;
                 // what the rollback left unmade is named by no answer
                 let world = store.snapshot()?;
                 let answer = answer.map(|(v, mut told)| {
@@ -6663,6 +6792,17 @@ pub fn batch(
                     answer: Box::new(answer),
                 }));
             }
+        }
+    }
+    // the key recorded in the batch's own transaction, so only a batch that
+    // commits replays
+    if let Some((actor, key, digest)) = &keyed {
+        let verdicts = json!({
+            "batch": applied.iter().map(|(v, _)| recorded_verdict(v)).collect::<Vec<_>>(),
+        });
+        if let Err(e) = store.record_batch_key(actor, key, digest, &verdicts) {
+            let _ = store.abort_batch(None);
+            return Err(e);
         }
     }
     store.commit_batch()?;
@@ -6854,6 +6994,7 @@ pub(crate) fn refused_attempt(
         applied_position: None,
         context: req.context.clone(),
         proposal,
+        batch_index: None,
         request_values,
         withheld,
         declaration_version: lib.version,
@@ -10591,7 +10732,7 @@ types:
         let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
         let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
         let reqs = vec![open(1), open(2), open(3)];
-        let Batched::Applied(applied) = batch(&mut s, &reqs).unwrap().unwrap() else {
+        let Batched::Applied(applied) = batch(&mut s, &reqs, None).unwrap().unwrap() else {
             panic!("the batch was refused")
         };
         assert_eq!(applied.len(), 3);
@@ -10659,7 +10800,8 @@ types:
             let (position, object) = (counter(&s, "position"), counter(&s, "object"));
             let (logged, drawn) = (attempts(&s).len(), next(&s));
             let reqs: Vec<Request> = (0..4).map(|i| open(if i == k { 9 } else { 1 })).collect();
-            let Batched::Refused { index, answer } = batch(&mut s, &reqs).unwrap().unwrap() else {
+            let Batched::Refused { index, answer } = batch(&mut s, &reqs, None).unwrap().unwrap()
+            else {
                 panic!("refused at {k}: applied")
             };
             assert_eq!(index, k);
@@ -10718,15 +10860,18 @@ types:
             context: None,
         };
         let before = rows(&s);
-        let Batched::Refused { index, .. } =
-            batch(&mut s, &[add("ann"), add("ann")]).unwrap().unwrap()
+        let Batched::Refused { index, .. } = batch(&mut s, &[add("ann"), add("ann")], None)
+            .unwrap()
+            .unwrap()
         else {
             panic!("two users of one login applied")
         };
         assert_eq!(index, 1);
         assert_eq!(rows(&s), before, "the first user was kept");
         assert!(matches!(
-            batch(&mut s, &[add("ann"), add("bob")]).unwrap().unwrap(),
+            batch(&mut s, &[add("ann"), add("bob")], None)
+                .unwrap()
+                .unwrap(),
             Batched::Applied(_)
         ));
     }
@@ -10739,10 +10884,10 @@ types:
         let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
         let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
         let before = rows(&s);
-        assert_eq!(batch(&mut s, &[]).unwrap(), Err(BatchFault::Empty));
+        assert_eq!(batch(&mut s, &[], None).unwrap(), Err(BatchFault::Empty));
         let many: Vec<Request> = (0..=BATCH_MOST).map(|_| open(1)).collect();
         assert_eq!(
-            batch(&mut s, &many).unwrap(),
+            batch(&mut s, &many, None).unwrap(),
             Err(BatchFault::OverLimit { most: BATCH_MOST })
         );
         let proposed = Request {
@@ -10762,7 +10907,7 @@ types:
         for (n, held) in [proposed, keyed, drafted].into_iter().enumerate() {
             assert!(
                 matches!(
-                    batch(&mut s, &[open(1), held]).unwrap(),
+                    batch(&mut s, &[open(1), held], None).unwrap(),
                     Err(BatchFault::Held { index: 1, .. })
                 ),
                 "case {n}"
@@ -10812,7 +10957,8 @@ types:
             ..make.clone()
         };
         let before = rows(&s);
-        let Batched::Refused { index, answer } = batch(&mut s, &[make, check]).unwrap().unwrap()
+        let Batched::Refused { index, answer } =
+            batch(&mut s, &[make, check], None).unwrap().unwrap()
         else {
             panic!("a batch asked an evaluator mid-batch")
         };
@@ -10839,7 +10985,8 @@ types:
             inputs: BTreeMap::new(),
             ..open(1)
         };
-        let Batched::Refused { index, answer } = batch(&mut s, &[open(1), on_it]).unwrap().unwrap()
+        let Batched::Refused { index, answer } =
+            batch(&mut s, &[open(1), on_it], None).unwrap().unwrap()
         else {
             panic!("an unknown transition applied")
         };
@@ -10858,6 +11005,194 @@ types:
         assert_eq!(
             created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({}))),
             made
+        );
+    }
+
+    /// Each event of a batch names the batch by its first event's position,
+    /// and a request sent alone names none (ADR-0228 decision 7); a refused
+    /// batch's attempt row names the refused request's index (decision 6).
+    #[test]
+    fn a_batchs_events_name_it_and_its_refused_attempt_its_index() {
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let alone = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        let named = |s: &Store, where_: &str| -> Vec<Option<i64>> {
+            s.connection()
+                .prepare(&format!(
+                    "SELECT batch FROM of_event WHERE {where_} ORDER BY position"
+                ))
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(named(&s, &format!("object_id = '{alone}'")), vec![None]);
+        let Batched::Applied(applied) = batch(&mut s, &[open(1), open(2)], None).unwrap().unwrap()
+        else {
+            panic!("refused")
+        };
+        let positions: Vec<i64> = applied
+            .iter()
+            .flat_map(|(v, _)| match v {
+                Verdict::Satisfied { events, .. } => events.clone(),
+                _ => Vec::new(),
+            })
+            .collect();
+        let first = *positions.iter().min().unwrap();
+        let list = positions
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        assert_eq!(
+            named(&s, &format!("position IN ({list})")),
+            vec![Some(first); positions.len()],
+            "an event of the batch named another or none"
+        );
+        let index = |s: &Store| -> Option<i64> {
+            s.connection()
+                .query_row(
+                    "SELECT batch_index FROM of_attempt ORDER BY id DESC LIMIT 1",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        let Batched::Refused { .. } = batch(&mut s, &[open(1), open(1), open(9)], None)
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("applied")
+        };
+        assert_eq!(index(&s), Some(2), "the refused request's index");
+        // a request refused alone names no batch
+        req(&mut s, "open", OPERATOR, ("Order", true), json!({"cap": 9}));
+        assert_eq!(index(&s), None);
+    }
+
+    /// A batch's key replays it whole, every verdict as it was answered and
+    /// saying so, writing nothing; a different batch, or a request, under it
+    /// is refused as a reused key (ADR-0228 decision 8).
+    #[test]
+    fn a_batchs_key_replays_it_whole_and_refuses_another_under_it() {
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let reqs = [open(1), open(2)];
+        let Batched::Applied(first) = batch(&mut s, &reqs, Some("k")).unwrap().unwrap() else {
+            panic!("refused")
+        };
+        let before = rows(&s);
+        let Batched::Replayed(again) = batch(&mut s, &reqs, Some("k")).unwrap().unwrap() else {
+            panic!("the batch ran again under its key")
+        };
+        assert_eq!(rows(&s), before, "a replay wrote");
+        assert_eq!(again.len(), 2);
+        for ((v, _), (w, _)) in first.iter().zip(&again) {
+            let (
+                Verdict::Satisfied {
+                    object_id: a,
+                    events: e,
+                    created: c,
+                    ..
+                },
+                Verdict::Satisfied {
+                    object_id: b,
+                    events: f,
+                    created: d,
+                    replayed,
+                    ..
+                },
+            ) = (v, w)
+            else {
+                panic!("{v:?} / {w:?}")
+            };
+            assert_eq!((a, e, c), (b, f, d));
+            assert!(replayed, "a replay not said");
+        }
+        assert_eq!(
+            batch(&mut s, &[open(1), open(3)], Some("k")).unwrap(),
+            Err(BatchFault::KeyReused { key: "k".into() })
+        );
+        assert_eq!(
+            batch(&mut s, &reqs[..1], Some("k")).unwrap(),
+            Err(BatchFault::KeyReused { key: "k".into() })
+        );
+        let alone = Request {
+            idempotency_key: Some("k".into()),
+            ..open(1)
+        };
+        assert!(matches!(
+            request(&mut s, &alone).unwrap(),
+            Err(NoVerdict::KeyReused { .. })
+        ));
+        assert_eq!(rows(&s), before, "a reused key wrote");
+    }
+
+    /// An erasure of what a batch's later request sent replaces the batch
+    /// key's digest, found by its events' batch where a request's is found
+    /// by its transaction, so the key replays nothing and confirms no guess
+    /// of what was erased (ADR-0228 decision 8, ADR-0205 decision 3).
+    #[test]
+    fn an_erasure_of_what_a_batch_sent_leaves_its_key_replaying_nothing() {
+        const STAFF: &str = "module: staff\ncategories: [live, closed]\ntypes:\n  Employee:\n    description: A person.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n      name: { type: string, personal: true, optional: true }\n    states:\n      ACTIVE: { category: live, description: Here. }\n      LEFT: { category: closed, final: true, description: Gone. }\n    transitions:\n      join: { kind: initial, to: ACTIVE, required_inputs: [login], optional_inputs: [name] }\n      leave: { kind: external, from: ACTIVE, to: LEFT }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+        let lib = Library::load(&[("staff.yaml".into(), STAFF.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let join = |login: &str, name: &str| Request {
+            transition: "join".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Employee".into()),
+            inputs: [
+                ("login".to_string(), json!(login)),
+                ("name".to_string(), json!(name)),
+            ]
+            .into_iter()
+            .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let reqs = [join("ann", "Ann"), join("bob", "Bob Secret")];
+        let Batched::Applied(applied) = batch(&mut s, &reqs, Some("k")).unwrap().unwrap() else {
+            panic!("refused")
+        };
+        let Verdict::Satisfied { object_id: bob, .. } = &applied[1].0 else {
+            panic!("{applied:?}")
+        };
+        assert!(matches!(
+            batch(&mut s, &reqs, Some("k")).unwrap().unwrap(),
+            Batched::Replayed(_)
+        ));
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (bob, false),
+            json!({"reason": "asked"}),
+        ));
+        let digest: String = s
+            .connection()
+            .query_row(
+                "SELECT request_digest FROM of_idempotency WHERE key = 'k'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            digest,
+            crate::store::ERASED_DIGEST,
+            "the batch's digest kept"
+        );
+        assert_eq!(
+            batch(&mut s, &reqs, Some("k")).unwrap(),
+            Err(BatchFault::KeyReused { key: "k".into() }),
+            "the key replayed what an erasure redacted"
         );
     }
 

@@ -37,7 +37,8 @@
       "actor",
       "principal",
       "requests",
-      "reads_personal"
+      "reads_personal",
+      "idempotency_key"
     ],
     "/v1/check": [
       "transition",

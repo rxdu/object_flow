@@ -92,6 +92,8 @@ CREATE TABLE of_event (
   retries             INTEGER NOT NULL DEFAULT 0,   -- serialisation retries its request took
   payload             TEXT    NOT NULL,
   reads               TEXT    NOT NULL,             -- the read set, as JSON (ADR-0088)
+  batch               INTEGER,                      -- the first event of the batch its request came in;
+                                                    -- null for a request sent alone (ADR-0228)
   CONSTRAINT of_event_per_object UNIQUE (object_id, object_seq),
   CONSTRAINT of_event_source CHECK (source IN
     ('observed','asserted','migrated','corrected','erased'))
@@ -697,7 +699,8 @@ CREATE TABLE of_attempt (
   consulted           TEXT,                 -- its metric values and evaluator verdicts (ADR-0096)
   request_values      TEXT,                 -- every non-personal input and the occurred time of the
                                             -- request; personal ones by name, withheld (ADR-0105)
-  declaration_version INTEGER NOT NULL
+  declaration_version INTEGER NOT NULL,
+  batch_index         INTEGER               -- a batch's request's index, the batch refused there (ADR-0228)
 );
 CREATE INDEX of_attempt_by_rule ON of_attempt (type, transition, clause, at);
 CREATE INDEX of_attempt_by_actor ON of_attempt (actor_id, at);

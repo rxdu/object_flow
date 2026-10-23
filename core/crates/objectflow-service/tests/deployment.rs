@@ -631,10 +631,6 @@ fn a_batch_through_the_wire_applies_whole_or_not_at_all() {
                     "inputs": {"login": "eve"}, "propose": true}]}),
             "request 1 of the batch takes no key propose",
         ),
-        (
-            json!({"actor": op, "requests": [add("dee")], "idempotency_key": "k"}),
-            "takes no key idempotency_key",
-        ),
         (json!({"actor": op, "requests": many}), "over_limit"),
     ] {
         let (status, said) = call(&s, "POST", "/v1/batch", Some(&body));
@@ -648,6 +644,36 @@ fn a_batch_through_the_wire_applies_whole_or_not_at_all() {
         alone("dee")["kind"],
         "satisfied",
         "a batch refused 400 wrote"
+    );
+    // each event of a batch names it, by its first event's position
+    let first = verdicts[0]["events"][0].clone();
+    for v in verdicts {
+        for p in v["events"].as_array().expect("its events") {
+            let read = post(&s, "/v1/events", &json!({"positions": [p]}));
+            assert_eq!(read["events"][0]["batch"], first, "{read}");
+        }
+    }
+    // a batch's key replays it, and a different batch under it is refused
+    let keyed = json!({"actor": op, "requests": [add("fay")], "idempotency_key": "batch-1"});
+    let applied = post(&s, "/v1/batch", &keyed);
+    assert_eq!(applied["applied"], true, "{applied}");
+    let again = post(&s, "/v1/batch", &keyed);
+    assert_eq!(again["replayed"], true, "{again}");
+    assert_eq!(
+        again["verdicts"][0]["object_id"], applied["verdicts"][0]["object_id"],
+        "{again}"
+    );
+    assert_eq!(again["verdicts"][0]["replayed"], true, "{again}");
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/batch",
+        Some(&json!({"actor": op, "requests": [add("gil")], "idempotency_key": "batch-1"})),
+    );
+    assert_eq!(
+        (status, said["code"].as_str()),
+        (409, Some("key_reused")),
+        "{said}"
     );
 }
 
@@ -2855,8 +2881,15 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
         }
         let log = exported_log(&s);
         let was = recorded["log"].as_array().expect("its log");
+        // each line read as the JSON it is, so a key a later release adds
+        // beside the ones it held, as an event's `batch` (ADR-0228), is
+        // alike, as in every other answer
+        let line = |v: &Value| match v {
+            Value::String(text) => serde_json::from_str(text).unwrap_or_else(|_| v.clone()),
+            other => other.clone(),
+        };
         for (was, is) in was.iter().zip(&log) {
-            assert_answers_alike(was, is, &format!("{name} log"));
+            assert_answers_alike(&line(was), &line(is), &format!("{name} log"));
         }
         assert_eq!(log.len(), was.len() + steps, "{name}");
         // a second upgrade has nothing to do
@@ -8019,13 +8052,15 @@ fn a_store_on_postgresql_at_an_earlier_release_is_upgraded() {
         );
         ann["object_id"].as_str().expect("a person").to_string()
     };
-    // taken back to the shape a store 0.2.0 made has: what the step from
-    // 0.2.0 adds, undone, and its release named
+    // taken back to the shape a store 0.2.0 made has: what the steps from
+    // 0.2.0 add, undone, the batch's columns 0.6.0 adds among them, and its
+    // release named
     admin
         .execute_batch(&format!(
             "SET search_path TO {schema}; DROP TABLE of_restore; DROP TABLE of_interval_retraction; \
              ALTER TABLE of_interval DROP COLUMN moved_position; \
              ALTER TABLE of_engine_release DROP COLUMN commit_id; \
+             ALTER TABLE of_event DROP COLUMN batch; ALTER TABLE of_attempt DROP COLUMN batch_index; \
              UPDATE of_engine_release SET release = 'objectflow-core 0.2.0'; RESET search_path"
         ))
         .expect("the store taken back to 0.2.0");
