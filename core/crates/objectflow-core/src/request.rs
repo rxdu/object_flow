@@ -6788,6 +6788,47 @@ types:
         }
     }
 
+    /// A database of its own on the server `base` names, dropped with this,
+    /// for a test of an erasure's vacuum: the snapshots that hold it and the
+    /// files it clears are the whole database's, so in the database every
+    /// test shares, another test's open transaction kept it due past the
+    /// test's wait (2026-10-23).
+    struct OwnDatabase {
+        admin: crate::db::Connection,
+        name: String,
+        config: String,
+    }
+
+    impl OwnDatabase {
+        fn new(base: &str, tag: &str) -> OwnDatabase {
+            let admin = crate::db::Connection::postgres(base).unwrap();
+            let name = format!("objectflow_{tag}_{}", std::process::id());
+            admin
+                .execute_batch(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+                .unwrap();
+            admin
+                .execute_batch(&format!(
+                    "CREATE DATABASE {name} TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER libc LC_COLLATE 'C' LC_CTYPE 'C'"
+                ))
+                .unwrap();
+            let config = format!("{base} dbname={name}");
+            OwnDatabase {
+                admin,
+                name,
+                config,
+            }
+        }
+    }
+
+    impl Drop for OwnDatabase {
+        fn drop(&mut self) {
+            let _ = self.admin.execute_batch(&format!(
+                "DROP DATABASE IF EXISTS {} WITH (FORCE)",
+                self.name
+            ));
+        }
+    }
+
     /// An invariant failing on a part the request creates names its remedy as
     /// one on the requested object does (D547): `delegable` where the
     /// creation writes the actor to a value the invariant reads, since another
@@ -9944,7 +9985,8 @@ types:
       forget: { kind: erasure, inputs: { reason: { type: string } } }
 "#;
         let lib = Library::load(&[("notes.yaml".into(), NOTES.into())]).unwrap();
-        let mut s = Store::sandbox(lib, 0).unwrap();
+        let db = OwnDatabase::new(&config, "vacuum_held");
+        let mut s = Store::sandbox_in(lib, 0, Some(&db.config)).unwrap();
         for n in 0..20 {
             created(&req(
                 &mut s,
@@ -9981,7 +10023,7 @@ types:
         );
         // a read open before the erasure can still see what it rewrites, so
         // the vacuum stays due while it is open (ADR-0213 decision 8)
-        let other = crate::db::Connection::postgres(&config).unwrap();
+        let other = crate::db::Connection::postgres(&db.config).unwrap();
         other
             .execute_batch("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT 1")
             .unwrap();
@@ -9996,8 +10038,7 @@ types:
             s.checkpoint_due(),
             "a snapshot older than the erasure keeps its vacuum due"
         );
-        // ended, it holds nothing; the next write's retry clears it once
-        // no other test's transaction holds a snapshot either
+        // ended, it holds nothing, and the next write's retry clears it
         other.execute_batch("COMMIT").unwrap();
         drop(other);
         let mut done = false;
@@ -10042,7 +10083,8 @@ types:
         }
         const STAFF: &str = "module: staff\ncategories: [live, closed]\ntypes:\n  Employee:\n    description: A person.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n      name: { type: string, personal: true, optional: true }\n      desk: { type: string, optional: true }\n    states:\n      ACTIVE: { category: live, description: Here. }\n      LEFT: { category: closed, final: true, description: Gone. }\n    transitions:\n      join: { kind: initial, to: ACTIVE, required_inputs: [login], optional_inputs: [name, desk] }\n      rename: { kind: external, from: ACTIVE, to: ACTIVE, optional_inputs: [name] }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
         let lib = Library::load(&[("staff.yaml".into(), STAFF.into())]).unwrap();
-        let mut s = Store::sandbox(lib, 0).unwrap();
+        let db = OwnDatabase::new(&config, "vacuum_files");
+        let mut s = Store::sandbox_in(lib, 0, Some(&db.config)).unwrap();
         for n in 0..20 {
             created(&req(
                 &mut s,
@@ -10132,16 +10174,8 @@ types:
             return;
         }
         const STAFF: &str = "module: staff\ncategories: [live, closed]\ntypes:\n  Employee:\n    description: A person.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n      name: { type: string, personal: true, optional: true }\n    states:\n      ACTIVE: { category: live, description: Here. }\n      LEFT: { category: closed, final: true, description: Gone. }\n    transitions:\n      join: { kind: initial, to: ACTIVE, required_inputs: [login], optional_inputs: [name] }\n      leave: { kind: external, from: ACTIVE, to: LEFT }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
-        let schema = format!("vacuumdue_{}", std::process::id());
-        let admin = crate::db::Connection::postgres(&base).unwrap();
-        admin
-            .execute_batch(&format!(
-                "DROP SCHEMA IF EXISTS {schema} CASCADE; CREATE SCHEMA {schema}"
-            ))
-            .unwrap();
-        let config =
-            crate::db::PgConfig::parse(&format!("{base} options='-c search_path={schema}'"), None)
-                .unwrap();
+        let db = OwnDatabase::new(&base, "vacuum_due");
+        let config = crate::db::PgConfig::parse(&db.config, None).unwrap();
         let marked = |s: &Store| -> Option<i64> {
             s.connection()
                 .query_row(
@@ -10179,7 +10213,7 @@ types:
                 ("Employee", true),
                 json!({"login": "ann", "name": "a secret"}),
             ));
-            let other = crate::db::Connection::postgres(&base).unwrap();
+            let other = crate::db::Connection::postgres(&db.config).unwrap();
             other
                 .execute_batch("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT 1")
                 .unwrap();
@@ -10208,10 +10242,6 @@ types:
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         assert_eq!(marked(&s), Some(0), "the vacuum due at the stop never ran");
-        drop(s);
-        admin
-            .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
-            .unwrap();
     }
 
     #[test]

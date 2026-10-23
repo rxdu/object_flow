@@ -49,8 +49,13 @@ if [ -n "${OBJECTFLOW_CHECK_POSTGRES:-}" ]; then
   # the harness one seed of each sample there, its fork a copy of the store's
   # schema for every request it takes, where SQLite's run holds six; each
   # failing test's header and panic printed before the summary, which alone
-  # was kept, so a failure on CI named no test (2026-10-18)
-  run "core on postgres" env OBJECTFLOW_SANDBOX_POSTGRES="$OBJECTFLOW_CHECK_POSTGRES" OBJECTFLOW_HARNESS_SEEDS=1 \
+  # was kept, so a failure on CI named no test (2026-10-18). Four tests at a
+  # time on any machine: each test's store writes serialisable transactions
+  # on the one server, whose predicate locks a committed one keeps while an
+  # overlapping one runs, so eight at once filled the server's table at its
+  # defaults (`53200 out of shared memory`); four peaked at a sixth of it
+  # (2026-10-23)
+  run "core on postgres" env OBJECTFLOW_SANDBOX_POSTGRES="$OBJECTFLOW_CHECK_POSTGRES" OBJECTFLOW_HARNESS_SEEDS=1 RUST_TEST_THREADS=4 \
     bash -c "cd '$ROOT/core' && out=\$(mktemp) && { '$CARGO' test -q --all-features > \"\$out\" 2>&1; rc=\$?; { grep -E -A6 '^---- ' \"\$out\"; grep -E '^test .* FAILED|^error' \"\$out\"; } | head -80; awk '/^test result/ {p += \$4; f += \$6; l = 0} /^failures:\$/ {l = 1} l && /^    [A-Za-z0-9_:]+\$/ {n = n \" \" \$1} END {print p \" passed, \" f \" failed on PostgreSQL\" (n ? \":\" n : \"\")}' \"\$out\"; rm -f \"\$out\"; exit \$rc; }"
 else
   skipped+=("core on postgres")

@@ -2765,13 +2765,25 @@ impl Store {
         // in memory, or, where `OBJECTFLOW_SANDBOX_POSTGRES` names a
         // PostgreSQL database, in a schema of its own there, dropped with
         // it, so every test runs on either backend (ADR-0213 decision 1)
-        let conn = match std::env::var(SANDBOX_POSTGRES) {
-            Ok(config) if !config.trim().is_empty() => {
+        let config = std::env::var(SANDBOX_POSTGRES).unwrap_or_default();
+        Store::sandbox_in(
+            lib,
+            now,
+            Some(config.as_str()).filter(|c| !c.trim().is_empty()),
+        )
+    }
+
+    /// A sandbox's store as `sandbox` makes it, in a schema of its own in
+    /// the PostgreSQL database `postgres` names, or in memory where it names
+    /// none: a test of what a whole database holds gives it one of its own.
+    pub(crate) fn sandbox_in(lib: Library, now: i64, postgres: Option<&str>) -> Stored<Store> {
+        let conn = match postgres {
+            Some(config) => {
                 static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
                 let n = MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                Connection::postgres_sandbox(&config, &crate::db::sandbox_schema(&n.to_string()))?
+                Connection::postgres_sandbox(config, &crate::db::sandbox_schema(&n.to_string()))?
             }
-            _ => Connection::open_in_memory()?,
+            None => Connection::open_in_memory()?,
         };
         if conn.backend() == crate::db::Backend::Sqlite {
             conn.execute_batch("PRAGMA foreign_keys = ON;")?;
