@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use objectflow_harness::{Counts, fixtures, reduce, run};
+use objectflow_harness::{Counts, Fixture, Outcome, fixtures, reduce, run, run_batched};
 
 fn setting(name: &str, default: u64) -> u64 {
     std::env::var(name)
@@ -17,7 +17,26 @@ fn setting(name: &str, default: u64) -> u64 {
 
 #[test]
 fn no_run_reaches_an_impossible_state() {
-    let seeds = setting("OBJECTFLOW_HARNESS_SEEDS", 6);
+    runs(run, 6);
+}
+
+/// Runs whose actor also sends batches, each batch applied whole or not at
+/// all and leaving no state a request alone could not (ADR-0228 decision
+/// 13); fewer seeds at the gates' budget, which their own setting widens.
+#[test]
+fn no_batched_run_reaches_an_impossible_state() {
+    let total = runs(run_batched, 3);
+    // a run whose batches were all refused, or none, tested little
+    assert!(
+        total.batches_applied > 0 && total.batches_refused > 0,
+        "{total:?}"
+    );
+}
+
+/// Each fixture run from each seed by `runner`, panicking at a failure with
+/// its reduced transcript; what the runs did, summed.
+fn runs(runner: fn(&Fixture, u64, usize) -> Result<Outcome, String>, default_seeds: u64) -> Counts {
+    let seeds = setting("OBJECTFLOW_HARNESS_SEEDS", default_seeds);
     let steps = usize::try_from(setting("OBJECTFLOW_HARNESS_STEPS", 120)).unwrap();
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../docs/design/flow-format/examples");
@@ -25,7 +44,7 @@ fn no_run_reaches_an_impossible_state() {
     for fx in fixtures(&examples).expect("the examples") {
         let mut satisfied = 0;
         for seed in 0..seeds {
-            let out = run(&fx, seed, steps).unwrap_or_else(|e| panic!("{e}"));
+            let out = runner(&fx, seed, steps).unwrap_or_else(|e| panic!("{e}"));
             if let Some(f) = &out.failure {
                 let reduced = reduce(&fx, &out.steps, f).unwrap_or_else(|e| panic!("{e}"));
                 panic!(
@@ -44,6 +63,9 @@ fn no_run_reaches_an_impossible_state() {
             total.key_reused += out.counts.key_reused;
             total.replayed += out.counts.replayed;
             total.erasures += out.counts.erasures;
+            total.batches_applied += out.counts.batches_applied;
+            total.batches_refused += out.counts.batches_refused;
+            total.batches_held += out.counts.batches_held;
             total.not_run_reasons.extend(
                 out.counts
                     .not_run_reasons
@@ -55,6 +77,7 @@ fn no_run_reaches_an_impossible_state() {
         assert!(satisfied > 0, "{}: no request was satisfied", fx.name);
     }
     eprintln!("the harness: {total:?}");
+    total
 }
 
 /// A run is a function of its fixture and its seed, so a reported transcript

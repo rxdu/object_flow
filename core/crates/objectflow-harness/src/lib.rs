@@ -4,9 +4,11 @@
 //! A fallible actor, driven deterministically from a seed, sends the core
 //! the requests a caller could: it guesses transitions and inputs, retries
 //! with and without its keys, acts on a stale version, backdates, erases,
-//! and lets the clock run. After each request the store is checked from its
-//! read surface for what the declaration and ADR-0204 §3 say cannot happen.
-//! A failing run is reduced to the shortest transcript that still fails.
+//! and lets the clock run; in a batched run it also sends several of its
+//! requests as one batch. After each request and each batch the store is
+//! checked from its read surface for what the declaration, ADR-0204 §3 and
+//! ADR-0228 say cannot happen. A failing run is reduced to the shortest
+//! transcript that still fails.
 //!
 //! Its threat model is the design's, mistakes and not malice; and the store
 //! is SQLite, whose writers are serial, so the racer of §2 finds little and
@@ -17,7 +19,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use objectflow_core::eval::Evaluator;
 use objectflow_core::model::{Declared, Kind, Library, OPERATOR, Type};
-use objectflow_core::request::{NoVerdict, Request, request};
+use objectflow_core::request::{Batched, NoVerdict, Request, batch, request};
 use objectflow_core::store::Store;
 use objectflow_core::value::Value;
 use objectflow_core::verdict::Verdict;
@@ -159,6 +161,8 @@ pub enum Step {
     /// `satisfied`, `unsatisfied` or `unanswered`, as a sandbox's caller sets
     /// it (PRD F13).
     Answer(String, String),
+    /// Requests sent as one batch, applied whole or not at all (ADR-0228).
+    Batch(Vec<Request>),
 }
 
 /// A state the declaration or ADR-0204 §3 says cannot happen, the step it
@@ -179,6 +183,11 @@ pub struct Counts {
     pub key_reused: usize,
     pub replayed: usize,
     pub erasures: usize,
+    /// Batches applied whole, refused at a request, and refused before any
+    /// of their requests ran (ADR-0228).
+    pub batches_applied: usize,
+    pub batches_refused: usize,
+    pub batches_held: usize,
     /// What the engine did not run, by its reason: on a flow both checkers
     /// accept, each is a broken K of ADR-0204 §3, for the audit to close.
     pub not_run_reasons: BTreeSet<String>,
@@ -283,6 +292,7 @@ impl Run {
                 self.store.answers.insert(call.clone(), said.clone());
                 None
             }
+            Step::Batch(reqs) => self.batch_taken(reqs, at),
             Step::Request(r) => {
                 let logged = self.attempts_held();
                 // the store as the request finds it, to decide it again over
@@ -465,6 +475,155 @@ impl Run {
             )),
             _ => None,
         }
+    }
+
+    /// A batch taken, and what the checks found after it (ADR-0228). Applied,
+    /// each request is recorded as if sent alone, its events naming the
+    /// batch by the batch's first; refused at a request, or before any ran,
+    /// the store holds what it held, every object, event and interval, the
+    /// refused request's attempt row beside it naming its index. A batch's
+    /// requests are not decided again over their read sets: the store each
+    /// found lived only inside the batch's transaction.
+    fn batch_taken(&mut self, reqs: &[Request], at: usize) -> Option<Failure> {
+        let fail = |condition: &'static str, detail: String| Failure {
+            condition,
+            detail,
+            at,
+        };
+        let logged = self.attempts_held();
+        let held = self.held();
+        let answered = catch_unwind(AssertUnwindSafe(|| batch(&mut self.store, reqs, None)));
+        let ran = match answered {
+            Err(_) => return Some(fail("panic", format!("{reqs:?}"))),
+            Ok(Err(e)) => return Some(fail("store error", format!("{e:?} for {reqs:?}"))),
+            Ok(Ok(ran)) => ran,
+        };
+        match &ran {
+            Ok(Batched::Applied(applied)) => {
+                self.counts.batches_applied += 1;
+                if applied.len() != reqs.len() {
+                    return Some(fail(
+                        "batch",
+                        format!(
+                            "{} of {} requests answered applied",
+                            applied.len(),
+                            reqs.len()
+                        ),
+                    ));
+                }
+                let mut positions = Vec::new();
+                for (r, (v, _)) in reqs.iter().zip(applied) {
+                    let Verdict::Satisfied {
+                        object_id,
+                        events,
+                        replayed: false,
+                        ..
+                    } = v
+                    else {
+                        return Some(fail("batch", format!("applied answering {v:?} for {r:?}")));
+                    };
+                    self.counts.satisfied += 1;
+                    if let Some(f) = self.recorded(r, object_id, events, false) {
+                        return Some(fail("record", f));
+                    }
+                    positions.extend(events.iter().copied());
+                    self.remember(r, object_id);
+                    if self.erasure(r, object_id) {
+                        self.counts.erasures += 1;
+                        self.erased.insert(object_id.clone());
+                        if let Some(f) = self.erased(object_id) {
+                            return Some(fail("erasure", f));
+                        }
+                    }
+                }
+                if let Some(f) = self.batch_named(&positions) {
+                    return Some(fail("batch", f));
+                }
+            }
+            Ok(Batched::Refused { index, answer }) => {
+                self.counts.batches_refused += 1;
+                if self.held() != held {
+                    return Some(fail(
+                        "batch",
+                        format!("refused at request {index}, and the store changed: {reqs:?}"),
+                    ));
+                }
+                if answer.is_ok()
+                    && let Some(f) = self.batch_attempt(*index, logged)
+                {
+                    return Some(fail("attempts", f));
+                }
+            }
+            Ok(Batched::Replayed(_)) => {
+                return Some(fail(
+                    "batch",
+                    format!("a batch with no key replayed: {reqs:?}"),
+                ));
+            }
+            Err(_) => {
+                self.counts.batches_held += 1;
+                if self.held() != held {
+                    return Some(fail(
+                        "batch",
+                        format!("refused before it ran, and the store changed: {ran:?}"),
+                    ));
+                }
+            }
+        }
+        self.check(at)
+    }
+
+    /// Every object, its parts, and the log, as the read surface gives them:
+    /// what a refused batch leaves as it was.
+    fn held(&self) -> Option<String> {
+        let world = self.store.snapshot().ok()?;
+        let mut out = String::new();
+        for o in world.in_order().ok()? {
+            out.push_str(&format!("{o:?} {:?}\n", world.parts(o).ok()?));
+        }
+        for e in world.log().ok()? {
+            out.push_str(&format!("{e:?}\n"));
+        }
+        Some(out)
+    }
+
+    /// Each event of an applied batch names the batch by its first event's
+    /// position (ADR-0228 decision 7).
+    fn batch_named(&self, positions: &[i64]) -> Option<String> {
+        let first = *positions.iter().min()?;
+        let world = self.store.snapshot().ok()?;
+        for p in positions {
+            let e = world.event_at(*p).ok()??;
+            if e.batch != Some(first) {
+                return Some(format!(
+                    "event {p} of a batch first at {first} names the batch {:?}",
+                    e.batch
+                ));
+            }
+        }
+        None
+    }
+
+    /// A batch refused at a request is one row more of the attempt log,
+    /// naming that request's index (ADR-0228 decision 6).
+    fn batch_attempt(&self, index: usize, before: Option<usize>) -> Option<String> {
+        let before = before?;
+        let world = self.store.snapshot().ok()?;
+        let rows = world.attempts().ok()?;
+        if rows.len() != before + 1 {
+            return Some(format!(
+                "a batch refused at {index} left the attempt log {} rows, where it held {before} and owed one more",
+                rows.len()
+            ));
+        }
+        let last = rows.last()?;
+        if last.batch_index != i64::try_from(index).ok() || last.verdict == "satisfied" {
+            return Some(format!(
+                "a batch refused at {index} was logged at {:?}, {}",
+                last.batch_index, last.verdict
+            ));
+        }
+        None
     }
 
     /// How many rows the attempt log holds.
@@ -1059,15 +1218,16 @@ fn civil(days: i64) -> (i64, i64, i64) {
 struct Actor<'r> {
     rng: &'r mut Rng,
     made: usize,
+    /// Whether it sends batches, so a run without them draws as before.
+    batches: bool,
     /// The evaluator functions the fixture's flows call, each answered first
     /// and changed now and then.
     calls: Vec<String>,
 }
 
 impl Actor<'_> {
-    fn next(&mut self, run: &Run, history: &[Step]) -> Option<Step> {
+    fn next(&mut self, run: &mut Run, history: &[Step]) -> Option<Step> {
         let world = run.store.snapshot().ok()?;
-        let lib = world.lib;
         let unanswered = self
             .calls
             .iter()
@@ -1105,6 +1265,54 @@ impl Actor<'_> {
                 return Some(Step::Request(Box::new(again)));
             }
         }
+        // the batcher: two to four of its requests sent as one batch, with
+        // no key and none a proposal, as a batch holds (ADR-0228); those a
+        // check says would apply alone, so a batch applies often enough to
+        // be checked whole, and now and then a guess unchecked among them,
+        // so one is refused at any position
+        if self.batches && self.rng.percent(12) {
+            let n = self.rng.pick(&[2usize, 3, 4]).copied().unwrap_or(2);
+            let guesses: Vec<Request> = (0..4 * n)
+                .filter_map(|_| self.guessed(run, &world))
+                .map(|r| Request {
+                    idempotency_key: None,
+                    propose: false,
+                    ..r
+                })
+                .collect();
+            drop(world);
+            let mut reqs: Vec<Request> = Vec::new();
+            let mut unchecked = Vec::new();
+            for r in guesses {
+                let applies = matches!(
+                    objectflow_core::request::check(&mut run.store, &r),
+                    Ok(Ok(objectflow_core::request::Checked {
+                        verdict: Verdict::Satisfied { .. },
+                        ..
+                    }))
+                );
+                match applies {
+                    true if reqs.len() < n => reqs.push(r),
+                    false if unchecked.is_empty() => unchecked.push(r),
+                    _ => {}
+                }
+            }
+            if (reqs.is_empty() || self.rng.percent(40))
+                && let Some(r) = unchecked.pop()
+            {
+                let at = self.rng.below(reqs.len() + 1);
+                reqs.insert(at, r);
+            }
+            return (!reqs.is_empty()).then_some(Step::Batch(reqs));
+        }
+        self.guessed(run, &world)
+            .map(|r| Step::Request(Box::new(r)))
+    }
+
+    /// A request the actor sends: an erasure now and then, else a guess at
+    /// any transition of any object or type.
+    fn guessed(&mut self, run: &Run, world: &objectflow_core::world::World<'_>) -> Option<Request> {
+        let lib = world.lib;
         let objects = world.in_order().ok()?;
         let actors: Vec<String> = objects
             .iter()
@@ -1147,11 +1355,11 @@ impl Actor<'_> {
                     for (n, i) in &x.inputs {
                         inputs.insert(
                             n.clone(),
-                            self.value(&world, &i.declared, i.many, i.personal),
+                            self.value(world, &i.declared, i.many, i.personal),
                         );
                     }
                 }
-                return Some(Step::Request(Box::new(Request {
+                return Some(Request {
                     transition: (*xn).clone(),
                     actor: OPERATOR.to_string(),
                     object_id: Some((*id).clone()),
@@ -1165,7 +1373,7 @@ impl Actor<'_> {
                     principal: None,
                     idempotency_key: None,
                     context: None,
-                })));
+                });
             }
         }
         let creatable: Vec<&Type> = lib
@@ -1206,7 +1414,7 @@ impl Actor<'_> {
             if let Some(a) = t.attribute(n) {
                 inputs.insert(
                     n.clone(),
-                    self.value(&world, &a.declared, a.many, a.personal),
+                    self.value(world, &a.declared, a.many, a.personal),
                 );
             }
         }
@@ -1216,7 +1424,7 @@ impl Actor<'_> {
             {
                 inputs.insert(
                     n.clone(),
-                    self.value(&world, &a.declared, a.many, a.personal),
+                    self.value(world, &a.declared, a.many, a.personal),
                 );
             }
         }
@@ -1224,7 +1432,7 @@ impl Actor<'_> {
             if (!i.optional || self.rng.percent(50)) && !self.rng.percent(3) {
                 inputs.insert(
                     n.clone(),
-                    self.value(&world, &i.declared, i.many, i.personal),
+                    self.value(world, &i.declared, i.many, i.personal),
                 );
             }
         }
@@ -1251,7 +1459,7 @@ impl Actor<'_> {
             }),
             context: None,
         };
-        Some(Step::Request(Box::new(r)))
+        Some(r)
     }
 
     /// A value of a declared type as the wire carries it; now and then one
@@ -1369,16 +1577,27 @@ fn calls(fx: &Fixture, evaluators: &[String]) -> Vec<String> {
 /// A run of a fixture from a seed, at most `steps` long, stopping at its
 /// first failure.
 pub fn run(fx: &Fixture, seed: u64, steps: usize) -> Result<Outcome, String> {
+    run_with(fx, seed, steps, false)
+}
+
+/// A run whose actor also sends batches (ADR-0228), a function of its
+/// fixture and its seed as a run is.
+pub fn run_batched(fx: &Fixture, seed: u64, steps: usize) -> Result<Outcome, String> {
+    run_with(fx, seed, steps, true)
+}
+
+fn run_with(fx: &Fixture, seed: u64, steps: usize, batches: bool) -> Result<Outcome, String> {
     let mut state = Run::new(fx)?;
     let mut rng = Rng::new(seed);
     let mut actor = Actor {
         rng: &mut rng,
         made: 0,
+        batches,
         calls: calls(fx, &state.store.lib.evaluators),
     };
     let mut transcript = Vec::new();
     for at in 0..steps {
-        let Some(step) = actor.next(&state, &transcript) else {
+        let Some(step) = actor.next(&mut state, &transcript) else {
             break;
         };
         let failure = state.take(&step, at);
