@@ -1249,7 +1249,10 @@ class Sandbox:
                 "imported": e["imported"],
                 # one request at a time: none waits out another's lock
                 # (ADR-0178)
-                "retries": 0}
+                "retries": 0,
+                # every request sent alone: the runner serves no batch
+                # (ADR-0228)
+                "batch": None}
 
 
 def jsonable(v: Any) -> Any:
