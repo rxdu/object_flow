@@ -6617,6 +6617,28 @@ pub fn batch(
     store.begin_batch()?;
     let mut applied = Vec::with_capacity(reqs.len());
     for (index, req) in reqs.iter().enumerate() {
+        // checked again on the state it runs on, the ones before it applied,
+        // in the batch's transaction and with the writer held, so a target
+        // the check before the batch could not resolve, as one an earlier
+        // request makes, is held out by its type all the same (fail closed)
+        let held = match store.snapshot() {
+            Ok(world) => unbatchable(&world, req),
+            Err(e) => {
+                let _ = store.abort_batch();
+                return Err(e);
+            }
+        };
+        let held = match held {
+            Ok(held) => held,
+            Err(e) => {
+                let _ = store.abort_batch();
+                return Err(crate::store::StoreError(e.to_string()));
+            }
+        };
+        if let Some(why) = held {
+            store.abort_batch()?;
+            return Ok(Err(BatchFault::Held { index, why }));
+        }
         let out = match request_told(store, req) {
             Ok(out) => out,
             Err(e) => {
