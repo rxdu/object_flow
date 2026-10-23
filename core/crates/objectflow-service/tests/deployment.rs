@@ -574,6 +574,83 @@ fn a_requests_principal_is_read_checked_and_recorded() {
     assert_eq!(history["events"][0]["principal"], "operator", "{history}");
 }
 
+/// A batch through the wire applies whole or not at all (ADR-0228): every
+/// verdict, in order, where all apply; where one is refused, its index and
+/// its verdict, and nothing of the batch kept; and what a batch cannot hold
+/// refused 400 before any of it runs, nothing written.
+#[test]
+fn a_batch_through_the_wire_applies_whole_or_not_at_all() {
+    let path = fresh_store("batch");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish_service(&s);
+    let op = json!({"id": "operator"});
+    let add = |login: &str| json!({"type": "User", "transition": "add", "inputs": {"login": login, "name": login}});
+    let alone = |login: &str| {
+        post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "User", "transition": "add",
+                    "inputs": {"login": login, "name": login}}),
+        )
+    };
+    let applied = post(
+        &s,
+        "/v1/batch",
+        &json!({"actor": op, "requests": [add("ana"), add("bea")]}),
+    );
+    assert_eq!(applied["applied"], true, "{applied}");
+    let verdicts = applied["verdicts"].as_array().expect("the verdicts");
+    assert_eq!(verdicts.len(), 2, "{applied}");
+    for v in verdicts {
+        assert_eq!(v["kind"], "satisfied", "{v}");
+    }
+    // a login taken: the second refused, and the first not kept either
+    let refused = post(
+        &s,
+        "/v1/batch",
+        &json!({"actor": op, "requests": [add("cy"), add("ana")]}),
+    );
+    assert_eq!(
+        (refused["applied"].as_bool(), refused["refused_at"].as_u64()),
+        (Some(false), Some(1)),
+        "{refused}"
+    );
+    assert_ne!(refused["verdict"]["kind"], "satisfied", "{refused}");
+    assert_eq!(alone("cy")["kind"], "satisfied", "a refused batch kept cy");
+    let many: Vec<Value> = (0..=100).map(|i| add(&format!("u{i}"))).collect();
+    for (body, says) in [
+        (json!({"actor": op, "requests": []}), "at least one"),
+        (
+            json!({"actor": op, "requests": [add("dee"), {"type": "User", "transition": "add",
+                    "inputs": {"login": "eve"}, "propose": true}]}),
+            "request 1 of the batch takes no key propose",
+        ),
+        (
+            json!({"actor": op, "requests": [add("dee")], "idempotency_key": "k"}),
+            "takes no key idempotency_key",
+        ),
+        (json!({"actor": op, "requests": many}), "over_limit"),
+    ] {
+        let (status, said) = call(&s, "POST", "/v1/batch", Some(&body));
+        assert_eq!(status, 400, "{said}");
+        assert!(
+            said["fault"].as_str().unwrap_or_default().contains(says),
+            "{says}: {said}"
+        );
+    }
+    assert_eq!(
+        alone("dee")["kind"],
+        "satisfied",
+        "a batch refused 400 wrote"
+    );
+}
+
 /// An idempotency key holds at most 256 bytes and a request's context 16
 /// KiB, where a megabyte of each was stored as given (third production
 /// review, minor).

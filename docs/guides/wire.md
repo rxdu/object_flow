@@ -53,6 +53,7 @@ In each table, the keys before a `;` are required and those after it optional; a
 |---|---|---|
 | `request` | `actor`, `transition`; `type` to create, or `object_id`, with `type` beside it to require the object be of that type (else `not_found`); `inputs`, `expected_version`, `target_version`, `idempotency_key`, `occurred_at`, `propose`, `expires_at`, `principal`, `context` | a verdict |
 | `check` | the same | `{"verdict": …, "unevaluated": […]}`: the verdict the request would get, nothing written; `unevaluated` names the conditions whose evaluators it did not ask, whose guards may still refuse the request. A satisfied verdict names no `events`, and a creation's no `object_id`, each listed in its `not_computed`: what the request would be given, another request may be given first. A check on an object names that object |
+| `batch` | `actor`, `requests`; `principal`, `reads_personal` | `{"applied": true, "verdicts": […]}`, every request's verdict in order, where all of them applied; `{"applied": false, "refused_at": <index>, "verdict": …}` where one was refused, none of the batch then applied. Each of `requests` is what `request` takes but `actor` and `principal`, which the batch gives all of them, and `idempotency_key`, `propose`, `expires_at`, `target_version` and `reads_personal`. |
 
 ```json
 POST /v1/request
@@ -73,6 +74,8 @@ A satisfied answer names the object requested, or the one a creation made, as `o
 - `expires_at`: when a proposal lapses, with `propose` only.
 - `context`: at most 16 KiB, the caller's reason, kept with the event. It is kept through an erasure, which removes only values marked `personal`: never put personal data in it.
 - `reads_personal`: `true` where the caller may read by a personal value: its refusal by one, a uniqueness or `identity_taken`, then names the object holding it. A read takes it too (Filters and order).
+
+**A batch** (ADR-0228) applies its requests in order, in one transaction, each judged as it would be alone against the state the ones before it left. All of them apply, or none does. Each applied request is recorded as if it had been sent alone. The first request refused ends the batch, and nothing of it is applied. Two things stay, as for any refused request: the numbers its requests drew, and the refused request's row in the attempt log. A batch holds at most 100 requests, or it is answered `400` `over_limit`. It holds no proposal, no request on a `Proposal` or a `DeclarationChange`, and no request with a key of its own: each is answered `400` before any request runs. A request that would ask an evaluator is answered `501`, none of the batch applied, since the writer cannot be left mid-batch; send it alone. A batch takes no `idempotency_key` yet.
 
 ### Verdicts
 

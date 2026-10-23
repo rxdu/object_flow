@@ -33,6 +33,12 @@
       "limit",
       "reads_personal"
     ],
+    "/v1/batch": [
+      "actor",
+      "principal",
+      "requests",
+      "reads_personal"
+    ],
     "/v1/check": [
       "transition",
       "actor",
@@ -169,6 +175,10 @@
     "/v1/request": [
       "actor",
       "transition"
+    ],
+    "/v1/batch": [
+      "actor",
+      "requests"
     ],
     "/v1/check": [
       "actor",

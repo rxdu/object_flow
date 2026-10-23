@@ -556,8 +556,9 @@ const STALLED_MS: i64 = 60_000;
 const WRITES_FAILING: u64 = 3;
 
 /// The routes that write, whose answers `/health`'s `writes_failing` reads.
-const WRITE_ROUTES: [&str; 6] = [
+const WRITE_ROUTES: [&str; 7] = [
     "/v1/request",
+    "/v1/batch",
     "/v1/maintain",
     "/v1/acknowledge",
     "/v1/import_batch",
@@ -1666,6 +1667,10 @@ type Answer = Result<Json<J>, Fault>;
 /// D555).
 const TAKES: &[(&str, &[&str])] = &[
     ("/v1/request", REQUEST_KEYS),
+    (
+        "/v1/batch",
+        &["actor", "principal", "requests", "reads_personal"],
+    ),
     ("/v1/check", REQUEST_KEYS),
     ("/v1/get", &["actor", "id", "follow"]),
     (
@@ -2733,6 +2738,127 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let mut r = reading(&shared)?;
         let s = r.store()?;
         Ok(Json(without_holder(&s.lib, out)))
+    })
+}
+
+/// The keys a request of a batch takes: a request's but the actor and its
+/// principal, which the batch gives for all of them, and those no batch
+/// holds, a proposal's and a key of a request's own (ADR-0228 decisions 4
+/// and 10).
+const BATCH_REQUEST_KEYS: &[&str] = &[
+    "transition",
+    "object_id",
+    "type",
+    "inputs",
+    "occurred_at",
+    "expected_version",
+    "context",
+];
+
+/// A batch's requests, each taking the batch's actor and principal.
+fn batch_of(body: &J) -> Result<Vec<Request>, Fault> {
+    let Some(reqs) = body.get("requests").and_then(J::as_array) else {
+        return Err(Fault::Bad(
+            "requests takes an array of requests".to_string(),
+        ));
+    };
+    reqs.iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let what = format!("request {i} of the batch");
+            if !r.is_object() {
+                return Err(Fault::Bad(format!("{what} takes an object")));
+            }
+            takes_only(r, &what, BATCH_REQUEST_KEYS)?;
+            let mut given = r.clone();
+            for k in ["actor", "principal"] {
+                if let Some(v) = body.get(k) {
+                    given[k] = v.clone();
+                }
+            }
+            request_of(&given)
+        })
+        .collect()
+}
+
+/// Several requests applied whole or not at all, in one transaction, each
+/// judged as it would be alone against the state the ones before it left
+/// (ADR-0228): every verdict where all applied, or the first refused's,
+/// none of the batch then applied. It takes the writer alone, never in a
+/// group with others (ADR-0208), since its refusal rolls back all of it.
+async fn batch_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
+    answering(move || {
+        let reqs = batch_of(&body)?;
+        let outcome = {
+            let mut w = locked(&shared)?;
+            let ran = {
+                let s = store(&mut w)?;
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| request::batch(s, &reqs)))
+            };
+            match ran {
+                Ok(out) => out?,
+                Err(_) => {
+                    // rolled back whole, and the store opened again, as a
+                    // request panicking in a group (POISON)
+                    if let Ok(s) = store(&mut w) {
+                        let _ = s.abort_batch();
+                    }
+                    say!("a batch panicked holding the writer; {}", reopened(&mut w));
+                    note_log(&shared);
+                    return Err(Fault::Internal(
+                        "a batch panicked; the line above says where".to_string(),
+                    ));
+                }
+            }
+        };
+        let opted = opted(&body)?;
+        let mut r = reading(&shared)?;
+        let s = r.store()?;
+        let shown = |v: &Verdict, told: &Told| {
+            let out = verdict_told(v, Some(told));
+            if opted {
+                out
+            } else {
+                without_holder(&s.lib, out)
+            }
+        };
+        match outcome {
+            Err(request::BatchFault::Empty) => Err(Fault::Bad(
+                "requests holds no request: a batch holds at least one".to_string(),
+            )),
+            Err(request::BatchFault::OverLimit { most }) => Err(Fault::Bad(format!(
+                "over_limit: a batch holds at most {most} requests"
+            ))),
+            Err(request::BatchFault::Held { index, why }) => Err(Fault::Bad(format!(
+                "request {index} of the batch is {why}, which a batch does not hold"
+            ))),
+            Ok(request::Batched::Applied(applied)) => {
+                for (v, _) in &applied {
+                    shared.watch.note(v);
+                }
+                Ok(Json(json!({
+                    "applied": true,
+                    "verdicts": applied.iter().map(|(v, t)| shown(v, t)).collect::<Vec<_>>(),
+                })))
+            }
+            Ok(request::Batched::Refused { index, answer }) => match *answer {
+                Ok((v, told)) => {
+                    shared.watch.note(&v);
+                    Ok(Json(json!({
+                        "applied": false,
+                        "refused_at": index,
+                        "verdict": shown(&v, &told),
+                    })))
+                }
+                Err(request::NoVerdict::NotRun(NotRun::Unanswered(c))) => {
+                    Err(Fault::NotRun(format!(
+                        "request {index} of the batch would ask the evaluator {}.{}, which a batch cannot ask mid-batch, so none of it was applied; send that request alone",
+                        c.evaluator, c.function
+                    )))
+                }
+                Err(e) => Err(Fault::from(e)),
+            },
+        }
     })
 }
 
@@ -4666,6 +4792,7 @@ fn restore_said(at: &str, r: &objectflow_core::store::Restore) -> String {
 fn app(shared: Shared, deployment: bool) -> Router {
     let routes = Router::new()
         .route("/v1/request", post(request_op))
+        .route("/v1/batch", post(batch_op))
         .route("/v1/get", post(get))
         .route("/v1/history", post(history))
         .route("/v1/events", post(events))
