@@ -433,7 +433,8 @@ types:
 def shop_v2(rename: bool = True, size: str = "string") -> str:
     """`tier` renamed, or dropped where `level` of its type is added, `size`
     an enumeration no more, `nick` personal and required by an invariant,
-    `band` newly tracked, and `Coupon` dropped. Retyped to an enumeration,
+    `band` newly tracked, and `Coupon` retired on purpose, as a version
+    dropping a type with live objects must say (ADR-0229). Retyped to an enumeration,
     `size` stays tracked, and a metric counts its intervals holding no
     value: the attribute of the new type opens its own at the publish, as a
     newly tracked member does (D528)."""
@@ -467,6 +468,8 @@ types:
       forget: { kind: erasure, inputs: { reason: { type: string } } }
 """ + metric + """migration:
   description: What the new version does to the objects of the old.
+  retired_types:
+    Coupon: Coupons are no longer issued, and those held stay readable.
 """ + ("  renamed_attributes:\n    Customer: { tier: level }\n" if rename
        else "")
 
@@ -860,7 +863,9 @@ def test_a_dropped_types_object_is_erased_alike(tee):
     load(tee, "shop", v1)
     coupon = made(tee, "Coupon", "issue", code="C1", holder="zelda.secret@example.com")
     tee.found.clear()
-    published(tee, v1[:v1.index("  Coupon:")])
+    # a live coupon's type retired on purpose, as a version must say (ADR-0229 decision 1)
+    published(tee, v1[:v1.index("  Coupon:")] + "migration:\n  description: Coupons are dropped.\n"
+              "  retired_types:\n    Coupon: Coupons are no longer issued.\n")
     took(tee, coupon, "forget", reason="asked")
     read = tee.post("/v1/get", {"id": coupon})
     assert read["state"] == "ISSUED" and "zelda" not in json.dumps(read), read

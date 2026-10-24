@@ -1,0 +1,52 @@
+module: grants
+categories: [live, closed]
+enumerations:
+  Level: [READ, WRITE, ADMIN]
+types:
+  AccessGrant:
+    description: A level in a scope a person holds.
+    tracking: record
+    attributes:
+      person: { type: string, indexed: true }
+      scope: { type: string, indexed: true }
+      level: { type: Level }
+    states:
+      HELD: { description: Held., category: live }
+      REVOKED: { description: Revoked., category: closed, final: true }
+    transitions:
+      grant: { kind: initial, to: HELD, required_inputs: [person, scope, level] }
+      revoke: { kind: external, from: HELD, to: REVOKED }
+  AdminGrant:
+    description: An administrator's grant.
+    tracking: serial
+    attributes:
+      person: { type: string, indexed: true }
+    states:
+      ACTIVE: { description: Active., category: live }
+      ENDED: { description: Ended., category: closed, final: true }
+    transitions:
+      grant: { kind: initial, to: ACTIVE, required_inputs: [person] }
+      end: { kind: external, from: ACTIVE, to: ENDED }
+  Review:
+    description: A review of a grant.
+    tracking: record
+    attributes:
+      grant: { reference: AccessGrant, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [grant] }
+      close: { kind: external, from: OPEN, to: DONE }
+migration:
+  description: The second version holds a level in a scope where the first held a role.
+  moved_types:
+    RoleGrant:
+      - to: AccessGrant
+        where: role != "admin"
+        attributes:
+          scope: 'if role == "leave.viewer" then "leave" else "identity"'
+          level: 'if role == "leave.viewer" then Level.READ else Level.WRITE'
+      - to: AdminGrant
+        where: role == "admin"
+        states: { HELD: ACTIVE, REVOKED: ENDED }

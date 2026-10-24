@@ -28,8 +28,9 @@ regex.workspace = true
 # no route of the service reaches them
 harness = []
 # the faults a test makes happen at a chosen point of a batch, a request or
-# its commit: a store error, a panic, or a hold a kill lands in (ADR-0228
-# decision 13); no release build has them
+# its commit, a store error, a panic, or a hold a kill lands in (ADR-0228
+# decision 13), and at a publish's install, a store error (ADR-0229 decision
+# 10); no release build has them
 faults = []
 
 [lints]

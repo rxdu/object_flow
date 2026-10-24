@@ -552,6 +552,272 @@ pub(crate) fn retired(t: &crate::model::Type) -> crate::model::Type {
     r
 }
 
+/// Whether an attribute's change of type is a reference following a moved
+/// type: the version before referenced a type the version moves, and this
+/// one references another, a set or one alike, so its values are carried,
+/// never set aside, and each referent's new type is checked (ADR-0229
+/// decision 5).
+pub(crate) fn follows_move(
+    m: &crate::model::Migration,
+    was: &crate::model::Attribute,
+    now: &crate::model::Attribute,
+) -> bool {
+    was.many == now.many
+        && matches!(
+            (&was.declared, &now.declared),
+            (Declared::Reference(from), Declared::Reference(_)) if m.moved(from).is_some()
+        )
+}
+
+/// Each object of a type the version moves, as its entry leaves it: an
+/// object of the entry's type, its id kept, its attributes given or carried,
+/// its state mapped, with the type it left (ADR-0229 decisions 2 and 3).
+/// Read under the new version, where the old type stands retired, so an
+/// entry's expressions read the old object and the version's enumerations.
+fn moves(
+    world: &World<'_>,
+    new: &Library,
+    m: &crate::model::Migration,
+    all: &[&Object],
+    found: &mut Found,
+) -> Result<BTreeMap<String, (String, Rc<Object>)>, NotRun> {
+    let mut out = BTreeMap::new();
+    // a type no module of the installed version declares, which the checker
+    // run on one module cannot see (ADR-0229 decision 7)
+    let named = m
+        .moved_types
+        .iter()
+        .map(|(tn, _)| tn)
+        .chain(m.retired_types.iter().map(|(tn, _)| tn));
+    for tn in named {
+        if world.lib.type_(tn).is_none() {
+            found.add(
+                Severity::Fatal,
+                format!("moved_type:{tn}"),
+                format!(
+                    "the migration names {tn}, which no module of the installed version declares"
+                ),
+                None,
+            );
+        } else if new.type_(tn).is_some_and(|t| !t.retired) {
+            found.add(
+                Severity::Fatal,
+                format!("moved_type:{tn}"),
+                format!("the migration names {tn}, which the version still declares"),
+                None,
+            );
+        }
+    }
+    if m.moved_types.is_empty() {
+        return Ok(out);
+    }
+    let mut pre = simulating(new, world);
+    for o in all {
+        if let Some(x) = world.shared(&o.id) {
+            pre.insert_shared(x)?;
+        }
+    }
+    for (tn, entries) in &m.moved_types {
+        // the checker refuses a type the version keeps, or one the version
+        // before did not have
+        let Some(ot) = new.type_(tn).filter(|t| t.retired) else {
+            continue;
+        };
+        // no migration reaches an observation (ADR-0101), and an observation
+        // kind is no type a module declares, so the checker cannot refuse it
+        if ot.observation_on.is_some() {
+            found.add(
+                Severity::Fatal,
+                format!("moved_type:{tn}"),
+                format!(
+                    "the migration moves {tn}, an observation kind, which no migration reaches"
+                ),
+                None,
+            );
+            continue;
+        }
+        for o in pre.of_type(tn)?.into_iter().filter(|o| o.type_ == *tn) {
+            let ev = Evaluator::new(&pre, Some(ot), Some(&o.id));
+            let mut takes = Vec::new();
+            for e in entries {
+                let covers = match &e.where_ {
+                    None => true,
+                    Some(w) => truth(&ev.eval(w)?)?.unwrap_or(false),
+                };
+                if covers {
+                    takes.push(e);
+                }
+            }
+            let e = match takes.as_slice() {
+                [e] => *e,
+                [] => {
+                    found.add(
+                        Severity::Fatal,
+                        format!("moved_type:{tn}"),
+                        format!("objects of {tn} that no entry of its moved_types takes"),
+                        Some(&o.id),
+                    );
+                    continue;
+                }
+                _ => {
+                    found.add(
+                        Severity::Fatal,
+                        format!("moved_type_twice:{tn}"),
+                        format!(
+                            "objects of {tn} that more than one entry of its moved_types takes"
+                        ),
+                        Some(&o.id),
+                    );
+                    continue;
+                }
+            };
+            // the checker refuses it first; never an object left behind
+            // unsaid
+            let Some(nt) = new.type_(&e.to).filter(|t| !t.retired) else {
+                found.add(
+                    Severity::Fatal,
+                    format!("moved_type:{tn}"),
+                    format!("objects of {tn} whose entry moves them to {}, which the version does not declare", e.to),
+                    Some(&o.id),
+                );
+                continue;
+            };
+            let state = e
+                .states
+                .iter()
+                .find(|(s, _)| *s == o.state)
+                .map(|(_, to)| to.clone())
+                .or_else(|| nt.state(&o.state).map(|_| o.state.clone()));
+            let Some(state) = state else {
+                found.add(
+                    Severity::Fatal,
+                    format!("moved_state:{tn}.{}", o.state),
+                    format!(
+                        "objects of {tn} are in {}, which their entry maps nowhere and {} does not have",
+                        o.state, e.to
+                    ),
+                    Some(&o.id),
+                );
+                continue;
+            };
+            // each attribute of the target given, else carried from the old
+            // attribute of its name and type, else absent; an erased
+            // object's personal ones left absent, as a backfill skips them
+            let erased = pre.parts(o)?.erased;
+            let mut attrs = BTreeMap::new();
+            for (a, spec) in &nt.attributes {
+                if spec.derived_end() || (erased && spec.personal) {
+                    continue;
+                }
+                let v = match e.attributes.iter().find(|(n, _)| n == a) {
+                    Some((_, x)) => {
+                        match crate::request::fit_value(&spec.declared, spec.many, ev.eval(x)?) {
+                            Ok(v) => v,
+                            Err(why) => {
+                                found.add(
+                                    Severity::Fatal,
+                                    format!("mapping:moved_types:{tn}.{}.{a}", e.to),
+                                    format!(
+                                        "the move of {tn} to {} gives {a} what it cannot hold: {why}",
+                                        e.to
+                                    ),
+                                    Some(&o.id),
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                    None if ot.attribute(a).is_some_and(|oa| {
+                        (oa.declared == spec.declared && oa.many == spec.many)
+                            || follows_move(m, oa, spec)
+                    }) =>
+                    {
+                        o.attr(a)
+                    }
+                    None => Value::Absent,
+                };
+                if !v.is_absent() {
+                    attrs.insert(a.clone(), v);
+                }
+            }
+            let mut x = o.clone();
+            x.type_ = e.to.clone();
+            x.state = state;
+            x.attrs = attrs;
+            // its state's interval read as the target's, so a state that
+            // keeps its name keeps its interval (ADR-0229 decision 4)
+            if let Some(spans) = x.parts_mut()?.spans.get_mut("state") {
+                for sp in spans {
+                    if let Value::State { type_, .. } = &mut sp.value {
+                        type_.clone_from(&e.to);
+                    }
+                }
+            }
+            found.add(
+                Severity::Notice,
+                format!("mapping:moved_types:{tn}.{}", e.to),
+                format!("objects of {tn} move to {}", e.to),
+                Some(&o.id),
+            );
+            out.insert(o.id.clone(), (tn.clone(), Rc::new(x)));
+        }
+    }
+    Ok(out)
+}
+
+/// A type the version removes and does not move: refused while it holds an
+/// object not in a final state, unless the version retires it on purpose,
+/// and its objects named when it is retired (ADR-0229 decision 1). An
+/// observation kind is born final and needs no decision.
+fn removed_types(
+    world: &World<'_>,
+    new: &Library,
+    m: &crate::model::Migration,
+    found: &mut Found,
+) -> Result<(), NotRun> {
+    for (tn, ot) in &world.lib.types {
+        if builtin(tn)
+            || ot.observation_on.is_some()
+            || !new.type_(tn).is_some_and(|t| t.retired)
+            || m.moved(tn).is_some()
+        {
+            continue;
+        }
+        let on_purpose = m.retired_types.iter().any(|(t, _)| t == tn);
+        let objects: Vec<&Object> = world
+            .of_type(tn)?
+            .into_iter()
+            .filter(|o| o.type_ == *tn)
+            .collect();
+        let live: Vec<&&Object> = objects
+            .iter()
+            .filter(|o| ot.state(&o.state).is_some_and(|s| !s.is_final))
+            .collect();
+        if !on_purpose && !live.is_empty() {
+            for o in live {
+                found.add(
+                    Severity::Fatal,
+                    format!("removed_type:{tn}"),
+                    format!(
+                        "objects of {tn}, which the version removes, are not in a final state: move them with moved_types, or retire them with retired_types"
+                    ),
+                    Some(&o.id),
+                );
+            }
+            continue;
+        }
+        for o in objects {
+            found.add(
+                Severity::Notice,
+                format!("retired:{tn}"),
+                format!("objects of {tn}, which the version removes and retires: they stay readable and take no transition but their erasure"),
+                Some(&o.id),
+            );
+        }
+    }
+    Ok(())
+}
+
 fn impact(
     world: &World<'_>,
     draft: &Draft<'_>,
@@ -629,6 +895,10 @@ fn impact(
     // every object whole, the version carrying each record over
     let all = world.in_order()?;
     world.with_parts(&all)?;
+    // moves first, each moved object an object of its target for every
+    // mapping after (ADR-0229)
+    let moving = moves(world, &new, &m, &all, &mut found)?;
+    removed_types(world, &new, &m, &mut found)?;
     for o in all {
         let Some(mut x) = world.shared(&o.id) else {
             return Err(NotRun::Unsupported(format!(
@@ -642,13 +912,21 @@ fn impact(
             mapped.insert(o.id.clone(), x);
             continue;
         }
-        let Some(nt) = new.type_(&o.type_).filter(|t| !t.retired) else {
+        let from = moving.get(&o.id).map(|(from, mv)| {
+            x = mv.clone();
+            from
+        });
+        let Some(nt) = new.type_(&x.type_).filter(|t| !t.retired) else {
             // a retired type's objects are read for nothing
             mapped.insert(o.id.clone(), x);
             continue;
         };
-        // renames first, which write nothing of their own
+        // renames first, which write nothing of their own; a moved object
+        // holds its target's names already
         for (tn, from, to) in &m.renamed_attributes {
+            if moving.contains_key(&o.id) {
+                continue;
+            }
             if new.is_a(&o.type_, tn) {
                 if x.attrs.contains_key(from) {
                     let w = Rc::make_mut(&mut x);
@@ -667,13 +945,14 @@ fn impact(
             }
         }
         // an attribute whose type changed starts absent, its values set aside
-        // with their history (storage-schema.md §10)
-        if let Some(ot) = old.type_(&o.type_) {
+        // with their history (storage-schema.md §10); a moved object's were
+        // given or carried for its target
+        if let Some(ot) = old.type_(&o.type_).filter(|_| from.is_none()) {
             for (a, spec) in &ot.attributes {
-                if nt
-                    .attribute(a)
-                    .is_some_and(|na| na.declared != spec.declared || na.many != spec.many)
-                    && (x.attrs.contains_key(a) || x.held_parts()?.spans.contains_key(a.as_str()))
+                if nt.attribute(a).is_some_and(|na| {
+                    (na.declared != spec.declared || na.many != spec.many)
+                        && !follows_move(&m, spec, na)
+                }) && (x.attrs.contains_key(a) || x.held_parts()?.spans.contains_key(a.as_str()))
                 {
                     let w = Rc::make_mut(&mut x);
                     w.attrs.remove(a);
@@ -730,7 +1009,8 @@ fn impact(
             }
         }
         // then removed states
-        let old_type = old.type_(&o.type_);
+        // a moved object's state was mapped by its entry
+        let old_type = old.type_(&o.type_).filter(|_| from.is_none());
         if old_type.is_some_and(|ot| ot.state(&o.state).is_some()) && nt.state(&o.state).is_none() {
             match m
                 .removed_states
@@ -826,6 +1106,50 @@ fn impact(
                         o.attrs.remove(attr);
                     } else {
                         o.attrs.insert(attr.clone(), v);
+                    }
+                }
+            }
+        }
+    }
+    // a reference to an object that moves holds what it now references,
+    // where its type references a type the object no longer is: a retired
+    // type's, whose declaration stays, among them (ADR-0229 decision 5)
+    if !moving.is_empty() {
+        for o in sim.in_order()? {
+            let Some(t) = new.type_(&o.type_).filter(|_| !builtin(&o.type_)) else {
+                continue;
+            };
+            for (a, spec) in &t.attributes {
+                let Declared::Reference(to) = &spec.declared else {
+                    continue;
+                };
+                if spec.derived_end() {
+                    continue;
+                }
+                let referents: Vec<String> = match o.attr(a) {
+                    Value::Object(r) => vec![r],
+                    Value::Set(items) => items
+                        .into_iter()
+                        .filter_map(|i| match i {
+                            Value::Object(r) => Some(r),
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                for r in referents.iter().filter(|r| moving.contains_key(*r)) {
+                    let landed = sim.get(r)?.map(|x| x.type_.clone());
+                    if landed.is_some_and(|l| !new.is_a(&l, to)) {
+                        found.add(
+                            Severity::Fatal,
+                            format!("moved_reference:{}.{a}", o.type_),
+                            format!(
+                                "objects of {} reference, by {a}, objects the version moves where {a}, a reference to {to}, cannot hold them",
+                                o.type_
+                            ),
+                            Some(&o.id),
+                        );
+                        break;
                     }
                 }
             }
@@ -944,19 +1268,36 @@ fn impact(
         // no longer declares, is discharged (D531)
         let failing = failing_invariants(&sim, o)?;
         let admissions = &sim.parts(o)?.admissions;
-        for n in admissions.iter().filter(|n| !failing.contains(n)) {
-            found.add(
-                Severity::Notice,
-                format!("discharged:{}.{n}", o.type_),
-                format!(
-                    "these objects hold an admitted violation of {}.{n} that the version cures, which the publish discharges",
-                    o.type_
+        // a moved object's admissions admitted its old type's invariants,
+        // each discharged by the move, none covering the target's (ADR-0229
+        // decision 4)
+        let moved_from = moving.get(&o.id).map(|(from, _)| from.as_str());
+        for n in admissions
+            .iter()
+            .filter(|n| moved_from.is_some() || !failing.contains(n))
+        {
+            match moved_from {
+                Some(from) => found.add(
+                    Severity::Notice,
+                    format!("discharged:{from}.{n}"),
+                    format!(
+                        "these objects hold an admitted violation of {from}.{n}, an invariant of the type they move from, which the move discharges"
+                    ),
+                    Some(&o.id),
                 ),
-                Some(&o.id),
-            );
+                None => found.add(
+                    Severity::Notice,
+                    format!("discharged:{}.{n}", o.type_),
+                    format!(
+                        "these objects hold an admitted violation of {}.{n} that the version cures, which the publish discharges",
+                        o.type_
+                    ),
+                    Some(&o.id),
+                ),
+            }
         }
         for n in failing {
-            if admissions.contains(&n) {
+            if moved_from.is_none() && admissions.contains(&n) {
                 continue;
             }
             // a kind's new invariant applies to recordings after the publish,
@@ -1275,6 +1616,9 @@ fn attribute_notices(world: &World<'_>, new: &Library, found: &mut Found) -> Res
         };
         for (a, spec) in &ot.attributes {
             match nt.attribute(a) {
+                // a reference following a moved type keeps its values
+                // (ADR-0229 decision 5)
+                Some(now) if follows_move(&new.migration, spec, now) => {}
                 Some(now) if now.declared != spec.declared || now.many != spec.many => {
                     let code = format!("type_changed:{tn}.{a}");
                     let message =
@@ -3004,7 +3348,7 @@ types:
 "#;
 
     /// `tier` renamed, `size` an enumeration no more, `nick` personal and
-    /// required by an invariant, `band` newly tracked, and `Coupon` dropped.
+    /// required by an invariant, `band` newly tracked, and `Coupon` retired on purpose (ADR-0229 decision 1).
     const SHOP_V2: &str = r#"
 module: shop
 categories: [live, closed]
@@ -3034,6 +3378,8 @@ migration:
   description: What the new version does to the objects of the old.
   renamed_attributes:
     Customer: { tier: level }
+  retired_types:
+    Coupon: Coupons are no longer issued, and those held stay readable.
 "#;
 
     const LAB: &str = r#"
@@ -3880,5 +4226,813 @@ types:
         let builtins = s.library_at(0).unwrap().unwrap();
         assert!(builtins.type_("Robot").is_none() && builtins.type_("Operator").is_some());
         assert!(s.library_at(9).unwrap().is_none());
+    }
+
+    const GRANTS_V1: &str = r#"
+module: grants
+categories: [live, closed]
+types:
+  RoleGrant:
+    description: A role a person holds.
+    tracking: record
+    attributes:
+      person: { type: string, indexed: true }
+      role: { type: string, indexed: true }
+    states:
+      HELD: { description: Held., category: live }
+      REVOKED: { description: Revoked., category: closed, final: true }
+    transitions:
+      grant: { kind: initial, to: HELD, required_inputs: [person, role] }
+      revoke: { kind: external, from: HELD, to: REVOKED, proposable: true }
+  Review:
+    description: A review of the grants a person holds.
+    tracking: record
+    attributes:
+      grant: { reference: RoleGrant, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [grant] }
+      close: { kind: external, from: OPEN, to: DONE }
+"#;
+
+    /// The second version: a level in a scope where the first held a role,
+    /// and an administrator's grant a type of its own, with `migration`
+    /// appended.
+    fn grants_v2(migration: &str) -> String {
+        format!(
+            r#"
+module: grants
+categories: [live, closed]
+enumerations:
+  Level: [READ, WRITE, ADMIN]
+types:
+  AccessGrant:
+    description: A level in a scope a person holds.
+    tracking: record
+    attributes:
+      person: {{ type: string, indexed: true }}
+      scope: {{ type: string, indexed: true }}
+      level: {{ type: Level }}
+    states:
+      HELD: {{ description: Held., category: live }}
+      REVOKED: {{ description: Revoked., category: closed, final: true }}
+    transitions:
+      grant: {{ kind: initial, to: HELD, required_inputs: [person, scope, level] }}
+      revoke: {{ kind: external, from: HELD, to: REVOKED, proposable: true }}
+  AdminGrant:
+    description: An administrator's grant.
+    tracking: record
+    attributes:
+      person: {{ type: string, indexed: true }}
+    states:
+      ACTIVE: {{ description: Active., category: live }}
+      ENDED: {{ description: Ended., category: closed, final: true }}
+    transitions:
+      grant: {{ kind: initial, to: ACTIVE, required_inputs: [person] }}
+      end: {{ kind: external, from: ACTIVE, to: ENDED }}
+  Review:
+    description: A review of the grants a person holds.
+    tracking: record
+    attributes:
+      grant: {{ reference: AccessGrant, optional: true }}
+    states:
+      OPEN: {{ description: Open., category: live }}
+      DONE: {{ description: Done., category: closed, final: true }}
+    transitions:
+      open: {{ kind: initial, to: OPEN, optional_inputs: [grant] }}
+      close: {{ kind: external, from: OPEN, to: DONE }}
+migration:
+  description: The second version holds a level in a scope where the first held a role.
+{migration}"#
+        )
+    }
+
+    const SPLIT: &str = r#"  moved_types:
+    RoleGrant:
+      - to: AccessGrant
+        where: role != "admin"
+        attributes:
+          scope: 'if role == "leave.viewer" then "leave" else "identity"'
+          level: 'if role == "leave.viewer" then Level.READ else Level.WRITE'
+      - to: AdminGrant
+        where: role == "admin"
+        states: { HELD: ACTIVE, REVOKED: ENDED }
+"#;
+
+    /// A store at the first version holding three grants, one revoked.
+    fn grants() -> (Store, [String; 3]) {
+        let lib = Library::load(&[("grants.yaml".into(), GRANTS_V1.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let grant = |s: &mut Store, person: &str, role: &str| {
+            created(&req(
+                s,
+                "grant",
+                ("RoleGrant", true),
+                json!({"person": person, "role": role}),
+            ))
+        };
+        let viewer = grant(&mut s, "ana", "leave.viewer");
+        let admin = grant(&mut s, "ben", "admin");
+        let revoked = grant(&mut s, "cy", "identity.writer");
+        created(&req(&mut s, "revoke", (&revoked, false), json!({})));
+        (s, [viewer, admin, revoked])
+    }
+
+    fn grants_change(s: &mut Store, text: &str) -> (String, i64) {
+        let change = created(&req(
+            s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"grants": text}, "source_ref": "git:grants@1"}),
+        ));
+        created(&req(s, "submit", (&change, false), json!({})));
+        let version = s
+            .snapshot()
+            .unwrap()
+            .whole(&change)
+            .unwrap()
+            .unwrap()
+            .version;
+        (change, version)
+    }
+
+    /// What an object's events, folded in order, give of its row
+    /// (ADR-0209 decision 1).
+    fn folded(s: &Store, id: &str) -> (String, BTreeMap<String, Json>) {
+        let w = s.snapshot().unwrap();
+        let mut state = String::new();
+        let mut attrs = BTreeMap::new();
+        for e in w.events_of(id).unwrap() {
+            state = e.to_state.clone();
+            for (a, v) in e
+                .payload
+                .get("wrote")
+                .and_then(Json::as_object)
+                .into_iter()
+                .flatten()
+            {
+                if v.is_null() {
+                    attrs.remove(a);
+                } else {
+                    attrs.insert(a.clone(), v.clone());
+                }
+            }
+        }
+        (state, attrs)
+    }
+
+    /// A version that splits a type moves each object into the type its
+    /// entry names, its id, history and version kept, its attributes given
+    /// or carried and its state mapped, with one recorded migration naming
+    /// both types, and the moved objects take the target's transitions
+    /// (ADR-0229 decisions 2 and 3).
+    #[test]
+    fn a_moved_type_carries_each_object_into_its_target_with_its_id_and_history() {
+        let (mut s, [viewer, admin, revoked]) = grants();
+        let (change, v) = grants_change(&mut s, &grants_v2(SPLIT));
+        let (verdict, report) = approve(&mut s, &change, v);
+        let Verdict::Satisfied { events, .. } = verdict else {
+            panic!("{verdict:?} {report:#?}")
+        };
+        // the publish, and one migration for each moved grant
+        assert_eq!(events.len(), 4);
+        let report = report.unwrap();
+        assert_eq!(
+            ids(&report, "mapping:moved_types:RoleGrant.AccessGrant"),
+            vec![viewer.clone(), revoked.clone()]
+        );
+        assert_eq!(
+            ids(&report, "mapping:moved_types:RoleGrant.AdminGrant"),
+            vec![admin.clone()]
+        );
+        let w = s.snapshot().unwrap();
+        let o = w.whole(&viewer).unwrap().unwrap();
+        assert_eq!(
+            (o.type_.as_str(), o.state.as_str()),
+            ("AccessGrant", "HELD")
+        );
+        assert_eq!(o.attr("person"), Value::Text("ana".into()));
+        assert_eq!(o.attr("scope"), Value::Text("leave".into()));
+        assert_eq!(
+            o.attr("level"),
+            Value::Member {
+                enumeration: "Level".into(),
+                member: "READ".into()
+            }
+        );
+        assert!(o.attr("role").is_absent());
+        let a = w.whole(&admin).unwrap().unwrap();
+        assert_eq!(
+            (a.type_.as_str(), a.state.as_str()),
+            ("AdminGrant", "ACTIVE")
+        );
+        let r = w.whole(&revoked).unwrap().unwrap();
+        assert_eq!(
+            (r.type_.as_str(), r.state.as_str()),
+            ("AccessGrant", "REVOKED")
+        );
+        assert_eq!(
+            r.attr("level"),
+            Value::Member {
+                enumeration: "Level".into(),
+                member: "WRITE".into()
+            }
+        );
+        // nothing left in the old type's table, read from the table itself
+        assert!(w.of_type("RoleGrant").unwrap().is_empty());
+        let left: i64 = s
+            .conn()
+            .query_row("SELECT count(*) FROM t_rolegrant", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
+        // its history whole, the move recorded on it naming both types, and
+        // its events folded giving its row
+        let history = w.events_of(&viewer).unwrap();
+        let transitions: Vec<&str> = history.iter().map(|e| e.transition.as_str()).collect();
+        assert_eq!(transitions, ["grant", "migrate"]);
+        let mv = &history[1];
+        assert_eq!(mv.source, "migrated");
+        assert_eq!(
+            mv.payload["moved"],
+            json!({"from": "RoleGrant", "to": "AccessGrant"})
+        );
+        assert_eq!(o.version, 2);
+        // a state that keeps its name keeps its interval; one the entry maps
+        // closes at the move and opens its new state there (decision 4)
+        let spans = &w.parts(o).unwrap().spans["state"];
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].entered_position, history[0].position);
+        assert!(spans[0].left_position.is_none());
+        let a_history = w.events_of(&admin).unwrap();
+        let a_spans = &w.parts(a).unwrap().spans["state"];
+        assert_eq!(a_spans.len(), 2);
+        assert_eq!(a_spans[0].left_position, Some(a_history[1].position));
+        assert_eq!(
+            a_spans[1].value,
+            Value::State {
+                type_: "AdminGrant".into(),
+                name: "ACTIVE".into()
+            }
+        );
+        assert_eq!(a_spans[1].entered_position, a_history[1].position);
+        drop(w);
+        for id in [&viewer, &admin, &revoked] {
+            let w = s.snapshot().unwrap();
+            let o = w.whole(id).unwrap().unwrap();
+            let held: BTreeMap<String, Json> = o
+                .attrs
+                .iter()
+                .map(|(a, v)| (a.clone(), crate::wire::encode(v)))
+                .collect();
+            assert_eq!(folded(&s, id), (o.state.clone(), held), "{id}");
+        }
+        // a moved object takes its target's transitions
+        let v = req(&mut s, "revoke", (&viewer, false), json!({}));
+        assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+        let v = req(&mut s, "end", (&admin, false), json!({}));
+        assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+    }
+
+    /// A removed type holding an object not in a final state refuses the
+    /// publish until the version moves it or retires it on purpose, and a
+    /// retired one's objects are named (ADR-0229 decision 1).
+    #[test]
+    fn a_removed_type_holding_live_objects_needs_a_move_or_a_retirement() {
+        let (mut s, [viewer, admin, revoked]) = grants();
+        let text = grants_v2("");
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"grants": &text}, "source_ref": "git:grants@1"}),
+        ));
+        // the submit runs the dry run, which refuses it
+        assert_eq!(
+            req(&mut s, "submit", (&change, false), json!({})),
+            refused("dry_run_clean")
+        );
+        let report = run_on(&s, &change, "grants", &text);
+        assert!(report.fatal());
+        // the live grants, and not the revoked one
+        assert_eq!(
+            ids(&report, "removed_type:RoleGrant"),
+            vec![viewer.clone(), admin.clone()]
+        );
+        let retire =
+            "  retired_types:\n    RoleGrant: The roles are given up, and granted again by hand.\n";
+        let (change, v) = grants_change(&mut s, &grants_v2(retire));
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let report = report.unwrap();
+        assert!(ids(&report, "removed_type:RoleGrant").is_empty());
+        assert_eq!(
+            ids(&report, "retired:RoleGrant"),
+            vec![viewer.clone(), admin, revoked]
+        );
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.whole(&viewer).unwrap().unwrap().type_, "RoleGrant");
+    }
+
+    /// A reference to an object that moves keeps its value where it now
+    /// references the type the object enters, its key naming that type's
+    /// table; one referencing an object that enters a type it cannot hold
+    /// refuses the publish (ADR-0229 decision 5).
+    #[test]
+    fn a_reference_to_a_moved_object_follows_it_or_refuses_the_publish() {
+        let (mut s, [viewer, admin, revoked]) = grants();
+        let review = created(&req(
+            &mut s,
+            "open",
+            ("Review", true),
+            json!({"grant": viewer}),
+        ));
+        let (change, v) = grants_change(&mut s, &grants_v2(SPLIT));
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let w = s.snapshot().unwrap();
+        let r = w.whole(&review).unwrap().unwrap();
+        assert_eq!(r.attr("grant"), Value::Object(viewer.clone()));
+        // the review took no migration: its values did not change
+        assert_eq!(w.events_of(&review).unwrap().len(), 1);
+        drop(w);
+        let v = req(&mut s, "close", (&review, false), json!({}));
+        assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+        // a review of the administrator's grant, which enters a type its
+        // reference cannot hold
+        let (mut s, [_, admin_too, _]) = grants();
+        let held = created(&req(
+            &mut s,
+            "open",
+            ("Review", true),
+            json!({"grant": admin_too}),
+        ));
+        let text = grants_v2(SPLIT);
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"grants": &text}, "source_ref": "git:grants@1"}),
+        ));
+        assert_eq!(
+            req(&mut s, "submit", (&change, false), json!({})),
+            refused("dry_run_clean")
+        );
+        let report = run_on(&s, &change, "grants", &text);
+        assert_eq!(ids(&report, "moved_reference:Review.grant"), vec![held]);
+        let _ = (admin, revoked);
+    }
+
+    /// A pending proposal on an object that moves is invalidated, though its
+    /// target takes a transition of the same name: it was proposed under the
+    /// old type's rules (ADR-0229 decision 4).
+    #[test]
+    fn a_pending_proposal_on_a_moved_object_is_invalidated() {
+        let (mut s, [viewer, _, _]) = grants();
+        let proposal = Request {
+            transition: "revoke".into(),
+            actor: OPERATOR.into(),
+            object_id: Some(viewer.clone()),
+            type_: None,
+            inputs: Default::default(),
+            occurred_at: None,
+            propose: true,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let proposal = created(&request(&mut s, &proposal).unwrap().unwrap());
+        let (change, v) = grants_change(&mut s, &grants_v2(SPLIT));
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        assert_eq!(
+            ids(&report.unwrap(), "proposals_invalidated"),
+            vec![proposal.clone()]
+        );
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.whole(&proposal).unwrap().unwrap().state, "INVALIDATED");
+    }
+
+    /// A moved object's standing admissions admitted its old type's
+    /// invariants and are discharged by the move, and a violation of its
+    /// target's invariant is a decision an `admit` resolves (ADR-0229
+    /// decision 4).
+    #[test]
+    fn a_moved_objects_admissions_are_discharged_and_its_targets_judged_afresh() {
+        let (mut s, [viewer, _, revoked]) = grants();
+        let odd = created(&req(
+            &mut s,
+            "grant",
+            ("RoleGrant", true),
+            json!({"person": "dan", "role": "x"}),
+        ));
+        // a version that admits the odd grant's violation of a new invariant
+        let admitting = GRANTS_V1
+            .replace(
+                "categories: [live, closed]\n",
+                "categories: [live, closed]\nenumerations:\n  Why: [LEGACY]\n",
+            )
+            .replace(
+                "    transitions:\n      grant: { kind: initial, to: HELD, required_inputs: [person, role] }\n",
+                "    invariants:\n      known_role: { description: A role is known., expression: role != \"x\" }\n    transitions:\n      grant: { kind: initial, to: HELD, required_inputs: [person, role] }\n",
+            )
+            + "migration:\n  description: Admits the odd role.\n  admit:\n    - { invariant: RoleGrant.known_role, reason: Why.LEGACY }\n";
+        let (change, v) = grants_change(&mut s, &admitting);
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        {
+            let w = s.snapshot().unwrap();
+            let o = w.whole(&odd).unwrap().unwrap();
+            assert!(w.parts(o).unwrap().admissions.contains("known_role"));
+        }
+        // the move into a target whose own invariant of the same name the
+        // identity grants break, which the version admits: another rule, so
+        // the old admission covers none of it
+        let moving = grants_v2(&format!(
+            "{SPLIT}  admit:\n    - {{ invariant: AccessGrant.known_role, reason: Why.LEGACY }}\n"
+        ))
+        .replace(
+            "enumerations:\n  Level: [READ, WRITE, ADMIN]\n",
+            "enumerations:\n  Level: [READ, WRITE, ADMIN]\n  Why: [LEGACY]\n",
+        )
+        .replace(
+            "    transitions:\n      grant: { kind: initial, to: HELD, required_inputs: [person, scope, level] }\n",
+            "    invariants:\n      known_role: { description: A grant is not of identity., expression: scope != \"identity\" }\n    transitions:\n      grant: { kind: initial, to: HELD, required_inputs: [person, scope, level] }\n",
+        );
+        let (change, v) = grants_change(&mut s, &moving);
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let report = report.unwrap();
+        assert_eq!(
+            ids(&report, "discharged:RoleGrant.known_role"),
+            vec![odd.clone()]
+        );
+        assert_eq!(
+            ids(&report, "invariant:AccessGrant.known_role"),
+            vec![revoked.clone(), odd.clone()]
+        );
+        let w = s.snapshot().unwrap();
+        let o = w.whole(&odd).unwrap().unwrap();
+        let held: Vec<&String> = w.parts(o).unwrap().admissions.iter().collect();
+        assert_eq!(held, ["known_role"]);
+        // and as the store holds them: the old admission discharged, the new
+        // one standing
+        let standing: i64 = s
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM of_admission WHERE object_id = ?1 AND discharged_position IS NULL",
+                [&odd],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(standing, 1);
+        let mv = w.events_of(&odd).unwrap().pop().unwrap();
+        assert_eq!(mv.payload["discharges"], json!(["known_role"]));
+        assert_eq!(mv.payload["admits"], json!(["known_role"]));
+        let v = w.whole(&viewer).unwrap().unwrap();
+        assert!(w.parts(v).unwrap().admissions.is_empty());
+    }
+
+    /// An erased object moves erased: its personal attributes stay absent in
+    /// its target, and a later write of one is refused (ADR-0229 decision 4).
+    #[test]
+    fn an_erased_object_moves_erased() {
+        let personal = |text: &str| {
+            text.replace(
+                "      person: { type: string, indexed: true }\n",
+                "      person: { type: string, indexed: true, personal: true, optional: true }\n",
+            )
+            .replace(
+                "      revoke: { kind: external, from: HELD, to: REVOKED, proposable: true }\n",
+                "      revoke: { kind: external, from: HELD, to: REVOKED, proposable: true }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n",
+            )
+        };
+        // a personal alias the move gives from the role, which is not
+        let v2 = personal(&grants_v2(&SPLIT.replace(
+            "          level: 'if role",
+            "          alias: role\n          level: 'if role",
+        )))
+            .replace(
+                "      level: { type: Level }\n",
+                "      level: { type: Level }\n      alias: { type: string, personal: true, optional: true }\n",
+            )
+            .replace(
+                "      end: { kind: external, from: ACTIVE, to: ENDED }\n",
+                "      end: { kind: external, from: ACTIVE, to: ENDED }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n",
+            );
+        let lib = Library::load(&[("grants.yaml".into(), personal(GRANTS_V1))]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let ana = created(&req(
+            &mut s,
+            "grant",
+            ("RoleGrant", true),
+            json!({"person": "ana", "role": "leave.viewer"}),
+        ));
+        created(&req(
+            &mut s,
+            "forget",
+            (&ana, false),
+            json!({"reason": "asked"}),
+        ));
+        let ben = created(&req(
+            &mut s,
+            "grant",
+            ("RoleGrant", true),
+            json!({"person": "ben", "role": "leave.viewer"}),
+        ));
+        let (change, v) = grants_change(&mut s, &v2);
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let w = s.snapshot().unwrap();
+        let o = w.whole(&ana).unwrap().unwrap();
+        assert_eq!(o.type_, "AccessGrant");
+        assert!(o.attr("person").is_absent());
+        assert!(
+            o.attr("alias").is_absent(),
+            "an erased object's personal value is never given"
+        );
+        assert_eq!(
+            o.attr("level"),
+            Value::Member {
+                enumeration: "Level".into(),
+                member: "READ".into()
+            }
+        );
+        assert!(w.parts(o).unwrap().erased);
+        let b = w.whole(&ben).unwrap().unwrap();
+        assert_eq!(b.attr("alias"), Value::Text("leave.viewer".into()));
+        drop(w);
+        let v = req(&mut s, "forget", (&ana, false), json!({"reason": "again"}));
+        assert!(
+            matches!(v, Verdict::Satisfied { .. }),
+            "an erasure reaches it in its target: {v:?}"
+        );
+    }
+
+    /// An erasure after a move reaches what the object held before it: each
+    /// earlier event judged under the type it was of then, so a personal
+    /// value the move left behind, and a personal input of a transition its
+    /// target lacks, leave the log too (ADR-0229 decisions 3 and 4).
+    #[test]
+    fn an_erasure_after_a_move_reaches_what_the_object_held_before_it() {
+        let v1 = GRANTS_V1
+            .replace(
+                "      person: { type: string, indexed: true }\n      role: { type: string, indexed: true }\n",
+                "      person: { type: string, indexed: true, personal: true, optional: true }\n      role: { type: string, indexed: true }\n      phone: { type: string, personal: true, optional: true }\n",
+            )
+            .replace(
+                "      grant: { kind: initial, to: HELD, required_inputs: [person, role] }\n",
+                "      grant: { kind: initial, to: HELD, required_inputs: [role], optional_inputs: [person, phone] }\n      note: { kind: internal, from: HELD, inputs: { remark: { type: string, personal: true } } }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n",
+            );
+        let v2 = grants_v2(SPLIT)
+            .replace(
+                "      person: { type: string, indexed: true }\n",
+                "      person: { type: string, indexed: true, personal: true, optional: true }\n",
+            )
+            .replace(
+                "      revoke: { kind: external, from: HELD, to: REVOKED, proposable: true }\n",
+                "      revoke: { kind: external, from: HELD, to: REVOKED, proposable: true }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n",
+            )
+            .replace(
+                "      end: { kind: external, from: ACTIVE, to: ENDED }\n",
+                "      end: { kind: external, from: ACTIVE, to: ENDED }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n",
+            );
+        let lib = Library::load(&[("grants.yaml".into(), v1)]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let ana = created(&req(
+            &mut s,
+            "grant",
+            ("RoleGrant", true),
+            json!({"person": "Ana", "role": "leave.viewer", "phone": "555"}),
+        ));
+        created(&req(
+            &mut s,
+            "note",
+            (&ana, false),
+            json!({"remark": "Ana's own words"}),
+        ));
+        let (change, v) = grants_change(&mut s, &v2);
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        created(&req(
+            &mut s,
+            "forget",
+            (&ana, false),
+            json!({"reason": "asked"}),
+        ));
+        let history = s.history(&ana).unwrap();
+        let (granted, noted) = (&history[0], &history[1]);
+        assert_eq!(granted.transition, "grant");
+        for (part, name) in [
+            ("inputs", "person"),
+            ("inputs", "phone"),
+            ("wrote", "person"),
+            ("wrote", "phone"),
+        ] {
+            assert_eq!(
+                granted.payload[part][name],
+                json!(null),
+                "the grant's {part}.{name}"
+            );
+        }
+        assert_eq!(granted.payload["inputs"]["role"], json!("leave.viewer"));
+        assert_eq!(noted.transition, "note");
+        assert_eq!(
+            noted.payload["inputs"]["remark"],
+            json!(null),
+            "the note's remark"
+        );
+    }
+
+    /// A change's dry run over the grants, drafted and never submitted.
+    fn grants_dry(s: &mut Store, text: &str) -> PublishReport {
+        let change = created(&req(
+            s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"grants": text}, "source_ref": "git:grants@1"}),
+        ));
+        run_on(s, &change, "grants", text)
+    }
+
+    /// Every object of a moved type meets exactly one entry, in a state its
+    /// entry places, holding what its target requires: an object no entry
+    /// takes, one two take, one in a state with no place, and a required
+    /// attribute left absent each refuse the publish, naming the objects
+    /// (ADR-0229 decision 2).
+    #[test]
+    fn a_move_refuses_an_object_without_one_entry_a_state_or_a_required_value() {
+        let (mut s, [viewer, admin, revoked]) = grants();
+        let none = grants_dry(
+            &mut s,
+            &grants_v2(&SPLIT.replace("where: role == \"admin\"", "where: role == \"x\"")),
+        );
+        assert!(none.fatal());
+        assert_eq!(ids(&none, "moved_type:RoleGrant"), vec![admin.clone()]);
+        let twice = grants_dry(
+            &mut s,
+            &grants_v2(&SPLIT.replace("where: role != \"admin\"", "where: role != \"x\"")),
+        );
+        assert_eq!(
+            ids(&twice, "moved_type_twice:RoleGrant"),
+            vec![admin.clone()]
+        );
+        let placed = grants_dry(
+            &mut s,
+            &grants_v2(&SPLIT.replace("        states: { HELD: ACTIVE, REVOKED: ENDED }\n", "")),
+        );
+        assert_eq!(
+            ids(&placed, "moved_state:RoleGrant.HELD"),
+            vec![admin.clone()]
+        );
+        let absent = grants_dry(
+            &mut s,
+            &grants_v2(&SPLIT.replace(
+                "          level: 'if role == \"leave.viewer\" then Level.READ else Level.WRITE'\n",
+                "",
+            )),
+        );
+        assert_eq!(
+            ids(&absent, "required_absent:AccessGrant.level"),
+            vec![viewer.clone(), revoked.clone()]
+        );
+        // none of it moved anything
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.whole(&viewer).unwrap().unwrap().type_, "RoleGrant");
+    }
+
+    /// Two removed types merge into one new type, and a removed type merges
+    /// into one the version keeps, whose own objects take no migration
+    /// (ADR-0229 decision 2).
+    #[test]
+    fn a_move_merges_types_into_a_new_one_and_into_one_kept() {
+        let temp = "  TempGrant:\n    description: A role held for a while.\n    tracking: record\n    attributes:\n      person: { type: string, indexed: true }\n    states:\n      HELD: { description: Held., category: live }\n      REVOKED: { description: Revoked., category: closed, final: true }\n    transitions:\n      grant: { kind: initial, to: HELD, required_inputs: [person] }\n";
+        let v1 = format!("{GRANTS_V1}{temp}");
+        let lib = Library::load(&[("grants.yaml".into(), v1)]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let role = created(&req(
+            &mut s,
+            "grant",
+            ("RoleGrant", true),
+            json!({"person": "ana", "role": "leave.viewer"}),
+        ));
+        let held = created(&req(
+            &mut s,
+            "grant",
+            ("TempGrant", true),
+            json!({"person": "ben"}),
+        ));
+        let merge = "  moved_types:\n    RoleGrant:\n      - to: AccessGrant\n        attributes: { scope: '\"leave\"', level: Level.READ }\n    TempGrant:\n      - to: AccessGrant\n        attributes: { scope: '\"temp\"', level: Level.READ }\n";
+        let (change, v) = grants_change(&mut s, &grants_v2(merge));
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let w = s.snapshot().unwrap();
+        for (id, scope) in [(&role, "leave"), (&held, "temp")] {
+            let o = w.whole(id).unwrap().unwrap();
+            assert_eq!(
+                (o.type_.as_str(), o.attr("scope")),
+                ("AccessGrant", Value::Text(scope.into()))
+            );
+        }
+        drop(w);
+        // into a type the version keeps: the first version holds an access
+        // grant of its own beside the role it merges
+        let access = "  AccessGrant:\n    description: A level in a scope a person holds.\n    tracking: record\n    attributes:\n      person: { type: string, indexed: true }\n      scope: { type: string, indexed: true }\n      level: { type: Level }\n    states:\n      HELD: { description: Held., category: live }\n      REVOKED: { description: Revoked., category: closed, final: true }\n    transitions:\n      grant: { kind: initial, to: HELD, required_inputs: [person, scope, level] }\n      revoke: { kind: external, from: HELD, to: REVOKED, proposable: true }\n";
+        let v1 = format!("{GRANTS_V1}{access}").replace(
+            "categories: [live, closed]\n",
+            "categories: [live, closed]\nenumerations:\n  Level: [READ, WRITE, ADMIN]\n",
+        );
+        let lib = Library::load(&[("grants.yaml".into(), v1)]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let role = created(&req(
+            &mut s,
+            "grant",
+            ("RoleGrant", true),
+            json!({"person": "ana", "role": "leave.viewer"}),
+        ));
+        let kept = created(&req(
+            &mut s,
+            "grant",
+            ("AccessGrant", true),
+            json!({"person": "cy", "scope": "identity", "level": "ADMIN"}),
+        ));
+        let into_kept = "  moved_types:\n    RoleGrant:\n      - to: AccessGrant\n        attributes: { scope: '\"leave\"', level: Level.READ }\n";
+        let (change, v) = grants_change(&mut s, &grants_v2(into_kept));
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.whole(&role).unwrap().unwrap().type_, "AccessGrant");
+        assert_eq!(w.of_type("AccessGrant").unwrap().len(), 2);
+        // the kept grant took no migration
+        assert_eq!(w.events_of(&kept).unwrap().len(), 1);
+    }
+
+    /// A publish whose install fails once every object has moved installs
+    /// nothing: each object of the removed type is where it was, and the
+    /// same approval, unfaulted, installs it (ADR-0229 decision 10).
+    #[cfg(feature = "faults")]
+    #[test]
+    fn a_publish_whose_install_fails_moves_nothing() {
+        let (mut s, [viewer, admin, revoked]) = grants();
+        let (change, v) = grants_change(&mut s, &grants_v2(SPLIT));
+        crate::request::faults::set(Some("publish_error:install"));
+        let failed = s.publish(OPERATOR, &change, v);
+        crate::request::faults::set(None);
+        assert!(failed.is_err(), "{failed:?}");
+        assert_eq!(s.lib.version, 1);
+        {
+            let w = s.snapshot().unwrap();
+            for id in [&viewer, &admin, &revoked] {
+                let o = w.whole(id).unwrap().unwrap();
+                assert_eq!(o.type_, "RoleGrant", "{id}");
+                assert!(
+                    w.events_of(id)
+                        .unwrap()
+                        .iter()
+                        .all(|e| e.transition != "migrate")
+                );
+            }
+            assert!(
+                w.of_type("AccessGrant").is_err() || w.of_type("AccessGrant").unwrap().is_empty()
+            );
+        }
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.whole(&viewer).unwrap().unwrap().type_, "AccessGrant");
     }
 }

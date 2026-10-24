@@ -170,7 +170,7 @@ Required: a module's `module`, `categories` and `types`; a type's `description` 
 | `machines` | state machines several types share | 4.10 |
 | `types` | the types, by upper-camel-case name | 4.2 |
 | `metrics` | combined metrics across types: `input_metrics`, `group_by`, `expression`, `flag_when` | 4.9 |
-| `migration` | how a publish of this version moves the objects of the one before: `description`, `removed_states`, `removed_members`, `renamed_attributes`, `backfill`, and `admit`, each an `invariant` with a `reason` | 4.16 |
+| `migration` | how a publish of this version moves the objects of the one before: `description`, `removed_states`, `removed_members`, `renamed_attributes`, `moved_types`, each removed type's entries with a `to` and an optional `where`, `attributes` and `states`, `retired_types`, each removed type's reason, `backfill`, and `admit`, each an `invariant` with a `reason` | 4.16 |
 
 ## A type
 

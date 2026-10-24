@@ -949,3 +949,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** The author's rule that the repository never names the first consumer's files was stated on 2026-10-21 during issue work, and applied to that work. Nothing searched the older record: 231 citations into its repository stayed in 43 files, with its company's name and its checkout's path, until a review of stale docs met them on 2026-10-22. The rule itself was kept only in a machine-local memory.
 - **Correction:** When the author states a rule about the record, search the whole tree for what breaks it, in every form a reference takes: a prefix, a bare path, an abbreviation, a line number. Record the rule where the repository enforces it, and bring back what the search finds that needs a decision.
 - **Context:** ObjectFlow's design record; `scripts/check-corpus.py` refuses the citation form since 2026-10-23.
+
+### A planted defect that survives marks a case no test reaches
+- **Pattern:** On 2026-10-24, building ADR-0229, a planted defect that carried a moved object's old admissions survived every test, and looked equivalent: the test's target had no invariant of the old one's name, so the faulty rule gave the same answer. Given a target invariant of that name, the test failed with no defect planted: the install admitted the target's violation and then discharged it on the same event, leaving a violation nobody admitted.
+- **Correction:** Before judging a surviving planted defect equivalent, write the case in which it would change the outcome, and run that case on the code as it stands.
+- **Context:** Planted defects against any rule of the engine; the core's publish tests (`publish.rs`).
+
+### A new place a personal value is copied to needs every erasure rule
+- **Pattern:** ADR-0209 added `wrote` to each event on 2026-10-16. The erasure nulled it by the installed version's personal attributes alone, so an attribute a later version dropped or retyped kept its value in the event that set it, though the erasure cleared the same event's inputs, which it already judged under the version that wrote them. A probe of the dropped case found it on 2026-10-24.
+- **Correction:** When the record gains a place a value is copied to, test its erasure under a version that unmarked, dropped and retyped the attribute, as the inputs' tests do.
+- **Context:** The core's erasure (`request.rs`), event payloads and the interval index.

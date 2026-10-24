@@ -1,0 +1,26 @@
+module: grants
+categories: [live, closed]
+types:
+  RoleGrant:
+    description: A role a person holds.
+    tracking: record
+    attributes:
+      person: { type: string, indexed: true }
+      role: { type: string, indexed: true, personal: true }
+    states:
+      HELD: { description: Held., category: live }
+      REVOKED: { description: Revoked., category: closed, final: true }
+    transitions:
+      grant: { kind: initial, to: HELD, required_inputs: [person, role] }
+      revoke: { kind: external, from: HELD, to: REVOKED }
+  Review:
+    description: A review of a grant.
+    tracking: record
+    attributes:
+      grant: { reference: RoleGrant, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [grant] }
+      close: { kind: external, from: OPEN, to: DONE }

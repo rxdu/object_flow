@@ -21,6 +21,52 @@ use super::view::{View, types};
 /// A backfill reads the object's own members and literals (§6.6).
 const BACKFILL_READS: &[&str] = &["state", "this"];
 
+/// Whether an attribute's change of type is a reference following a moved
+/// type, which keeps its values (`check-flows.py`'s `follows_move`,
+/// ADR-0229 decision 5).
+fn follows_move(m: &Value, was: &Value, now: &Value) -> bool {
+    let (before, after) = (str_or(was, "reference", ""), str_or(now, "reference", ""));
+    !before.is_empty()
+        && !after.is_empty()
+        && before.ends_with("[]") == after.ends_with("[]")
+        && obj(m, "moved_types").contains_key(before.trim_end_matches(['[', ']']))
+}
+
+/// Why a type does not move, or take moved objects, yet, or none
+/// (`check-flows.py`'s `unmovable`, ADR-0229 decision 6).
+fn unmovable(tn: &str, t: &Value, kinds: &Obj) -> Option<&'static str> {
+    let attrs = obj(t, "attributes");
+    let composite = |sp: &Value| super::doc::text(sp, "aggregation") == Some("composite");
+    if flag(t, "mirror") {
+        return Some("a mirror, which only the import writes");
+    }
+    if flag(t, "abstract") {
+        return Some("an abstract type");
+    }
+    if attrs.values().any(|sp| flag(sp, "actor_kind")) {
+        return Some("an actor's type, whose objects every event names as its actor");
+    }
+    if flag(t, "inherited_parts") || attrs.values().any(composite) {
+        return Some("a whole in a composition, whose parts follow it");
+    }
+    if kinds.values().any(|k| {
+        obj(k, "attributes").values().any(|sp| {
+            composite(sp) && str_or(sp, "reference", "").trim_end_matches(['[', ']']) == tn
+        })
+    }) {
+        return Some("a part in a composition, which follows its whole");
+    }
+    if obj(t, "states").values().any(|st| flag(st, "superseding")) {
+        return Some(
+            "a type with a superseding state, whose objects a supersession chain joins for erasure",
+        );
+    }
+    if flag(t, "observations") {
+        return Some("a type observations are recorded against, whose kinds it declares");
+    }
+    None
+}
+
 static QUALIFIED: LazyLock<Regex> =
     LazyLock::new(|| re(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b"));
 static FAILS_ONLY_IN: LazyLock<Regex> =
@@ -198,6 +244,108 @@ pub fn migration_errors(doc: &Value, v: &Value) -> Found {
                 let (owner, value) = (&c[1], &c[2]);
                 if enums.get(owner).is_some_and(|e| !e.contains(value)) {
                     out.push(finding(here.clone(), "names", format!("the backfill of {tn}.{a} names {owner}.{value}, and {owner} has no {value}")));
+                }
+            }
+        }
+    }
+    let moved = obj(m, "moved_types");
+    let retired = obj(m, "retired_types");
+    let mut both: Vec<&String> = moved
+        .keys()
+        .filter(|tn| retired.contains_key(*tn))
+        .collect();
+    both.sort();
+    for tn in both {
+        out.push(finding(
+            segs!["migration", "retired_types", tn],
+            "names",
+            format!("the migration both moves and retires {tn}; its objects are moved or retired, not both"),
+        ));
+    }
+    for (section, verb, names) in [
+        ("moved_types", "moves", moved),
+        ("retired_types", "retires", retired),
+    ] {
+        for tn in names.keys() {
+            if kinds.contains_key(tn) {
+                out.push(finding(
+                    segs!["migration", section, tn],
+                    "names",
+                    format!("the migration {verb} {tn}, which this version still has; a type it removes is moved or retired (ADR-0229)"),
+                ));
+            }
+        }
+    }
+    for (tn, entries) in moved {
+        let entries = match entries {
+            Value::Array(a) => a.as_slice(),
+            _ => &[],
+        };
+        for (i, e) in entries.iter().enumerate() {
+            let here = segs!["migration", "moved_types", tn, i];
+            let to = str_or(e, "to", "");
+            if entries.len() > 1 && !super::doc::has(e, "where") {
+                out.push(finding(
+                    here.clone(),
+                    "names",
+                    format!("an entry of {tn}'s moves without a where takes every object, so it is its type's only entry (ADR-0229)"),
+                ));
+            }
+            let Some(t) = kinds.get(&to) else {
+                out.push(finding(
+                    ext(&here, segs!["to"]),
+                    "names",
+                    format!("the migration moves {tn} to {to}, which this module does not declare"),
+                ));
+                continue;
+            };
+            if let Some(why) = unmovable(&to, t, &kinds) {
+                out.push(finding(
+                    ext(&here, segs!["to"]),
+                    "names",
+                    format!("the migration moves {tn} to {to}, {why}; such a type takes no moved objects yet (ADR-0229)"),
+                ));
+            }
+            for a in obj(e, "attributes").keys() {
+                if !obj(t, "attributes").contains_key(a) {
+                    out.push(finding(
+                        ext(&here, segs!["attributes", a]),
+                        "names",
+                        format!("the move of {tn} to {to} gives {to}.{a}, which is not a stored attribute of {to}"),
+                    ));
+                }
+            }
+            let states = obj(t, "states");
+            for (old, new) in obj(e, "states") {
+                let new = py_str(new);
+                match states.get(&new) {
+                    None => out.push(finding(
+                        ext(&here, segs!["states", old]),
+                        "names",
+                        format!("the move of {tn} to {to} maps {old} to {new}, which is not a state of {to}"),
+                    )),
+                    Some(st) if flag(st, "superseding") => out.push(finding(
+                        ext(&here, segs!["states", old]),
+                        "names",
+                        format!("the move of {tn} to {to} maps {old} to {new}, a superseding state, which would leave its objects superseded by nothing (ADR-0146)"),
+                    )),
+                    Some(_) => {}
+                }
+            }
+            for expr in e
+                .get("where")
+                .into_iter()
+                .chain(obj(e, "attributes").values())
+            {
+                for c in QUALIFIED.captures_iter(&py_str(expr)) {
+                    let (owner, value) = (&c[1], &c[2]);
+                    if enums.get(owner).is_some_and(|en| !en.contains(value)) {
+                        out.push(finding(
+                            here.clone(),
+                            "names",
+                            format!("the move of {tn} to {to} names {owner}.{value}, and {owner} has no {value}"),
+                        ));
+                    }
                 }
             }
         }
@@ -453,7 +601,7 @@ pub fn migration_pair_errors(prev: &Value, doc: &Value, library: &Obj) -> (Found
             .collect::<BTreeSet<_>>()
         {
             let (now_spec, was_spec) = (&new_attrs[a], &old_attrs[a]);
-            if type_of(now_spec) != type_of(was_spec) {
+            if type_of(now_spec) != type_of(was_spec) && !follows_move(&m, was_spec, now_spec) {
                 notes.push(finding(
                     ext(&here, segs!["attributes", a]),
                     "migration",
@@ -518,6 +666,146 @@ pub fn migration_pair_errors(prev: &Value, doc: &Value, library: &Obj) -> (Found
                         format!("{o}.{fld} is added to an observation kind and is required; an observation is born final, so nothing could fill it"),
                     ));
                 }
+            }
+        }
+    }
+    // a type the version removes: moved, retired, or noticed (ADR-0229)
+    let moved = obj(&m, "moved_types").clone();
+    let retired = obj(&m, "retired_types").clone();
+    let mut gone: Vec<&String> = old
+        .keys()
+        .filter(|tn| !new.contains_key(*tn) && !machines.contains(*tn))
+        .collect();
+    gone.sort();
+    for tn in gone {
+        if !moved.contains_key(tn) && !retired.contains_key(tn) && !flag(&old[tn], "abstract") {
+            notes.push(finding(
+                segs!["types"],
+                "migration",
+                format!("{tn} is gone from this module: unless another module declares it, a publish over its objects not in a final state needs moved_types or retired_types for it (ADR-0229)"),
+            ));
+        }
+    }
+    for (section, names) in [("moved_types", &moved), ("retired_types", &retired)] {
+        for tn in names.keys() {
+            if !old.contains_key(tn) {
+                notes.push(finding(
+                    segs!["migration", section, tn],
+                    "migration",
+                    format!("{tn} is not a type of this module's previous version, so the publish checks it against every module of the version before (ADR-0229)"),
+                ));
+            }
+        }
+    }
+    for (tn, entries) in &moved {
+        let Some(ot) = old.get(tn) else { continue };
+        if let Some(why) = unmovable(tn, ot, &old) {
+            fatal.push(finding(
+                segs!["migration", "moved_types", tn],
+                "names",
+                format!(
+                    "the migration moves {tn}, {why}; such a type does not move yet (ADR-0229)"
+                ),
+            ));
+        }
+        let oattrs = obj(ot, "attributes");
+        let mut members: BTreeSet<String> = oattrs.keys().cloned().collect();
+        members.extend(keys(ot, "derived_attributes"));
+        members.extend(BACKFILL_READS.iter().map(|r| r.to_string()));
+        let personal: BTreeSet<String> = oattrs
+            .iter()
+            .filter(|(_, sp)| flag(sp, "personal"))
+            .map(|(a, _)| a.clone())
+            .collect();
+        let entries = match entries {
+            Value::Array(a) => a.as_slice(),
+            _ => &[],
+        };
+        for (i, e) in entries.iter().enumerate() {
+            let here = segs!["migration", "moved_types", tn, i];
+            let to = str_or(e, "to", "");
+            let given = obj(e, "attributes");
+            for expr in e.get("where").into_iter().chain(given.values()) {
+                for r in super::doc::reads(&py_str(expr)).difference(&members) {
+                    fatal.push(finding(
+                        here.clone(),
+                        "names",
+                        format!("the move of {tn} to {to} reads '{r}'; a move reads the old object's own members and literals"),
+                    ));
+                }
+            }
+            let ostates = obj(ot, "states");
+            let mut unknown: Vec<String> = keys(e, "states")
+                .into_iter()
+                .filter(|st| !ostates.contains_key(st))
+                .collect();
+            unknown.sort();
+            for st in unknown {
+                fatal.push(finding(
+                    ext(&here, segs!["states", &st]),
+                    "names",
+                    format!("the move of {tn} to {to} maps {tn}.{st}, which the previous version did not have"),
+                ));
+            }
+            let Some(t) = new.get(&to) else { continue };
+            let (was, now) = (
+                str_or(ot, "tracking", "None"),
+                str_or(t, "tracking", "None"),
+            );
+            if was != now {
+                fatal.push(finding(
+                    ext(&here, segs!["to"]),
+                    "names",
+                    format!("the migration moves {tn}, tracked by {was}, to {to}, tracked by {now}; a move keeps its tracking (ADR-0229)"),
+                ));
+            }
+            let tattrs = obj(t, "attributes");
+            let mut gives: Vec<(&String, &Value)> = given.iter().collect();
+            gives.sort_by(|x, y| x.0.cmp(y.0));
+            for (a, x) in gives {
+                let leaked: Vec<String> = super::doc::reads(&py_str(x))
+                    .intersection(&personal)
+                    .cloned()
+                    .collect();
+                if !leaked.is_empty() && !tattrs.get(a).is_some_and(|sp| flag(sp, "personal")) {
+                    fatal.push(finding(
+                        ext(&here, segs!["attributes", a]),
+                        "names",
+                        format!("the move of {tn} to {to} gives {to}.{a}, which is not personal, from {}, personal in {tn}; a personal value reaches no attribute that is not (the model's check 10)", leaked.join(", ")),
+                    ));
+                }
+            }
+            let mut targets: Vec<(&String, &Value)> = tattrs.iter().collect();
+            targets.sort_by(|x, y| x.0.cmp(y.0));
+            let pair = |sp: &Value| (sp.get("type").cloned(), sp.get("reference").cloned());
+            for (a, spec) in targets {
+                let Some(was) = oattrs.get(a).filter(|w| super::doc::truthy(Some(w))) else {
+                    continue;
+                };
+                if given.contains_key(a) {
+                    continue;
+                }
+                if pair(was) == pair(spec) && flag(was, "personal") && !flag(spec, "personal") {
+                    fatal.push(finding(
+                        here.clone(),
+                        "names",
+                        format!("the move of {tn} to {to} carries {a}, personal in {tn}, into {to}.{a}, which is not; a personal value reaches no attribute that is not (the model's check 10)"),
+                    ));
+                }
+            }
+            let (tstates, mapped) = (obj(t, "states"), obj(e, "states"));
+            let mut left: Vec<String> = ostates
+                .keys()
+                .filter(|st| !mapped.contains_key(*st) && !tstates.contains_key(*st))
+                .cloned()
+                .collect();
+            left.sort();
+            for st in left {
+                notes.push(finding(
+                    here.clone(),
+                    "migration",
+                    format!("{tn}.{st} has no state of its name in {to}, and the entry maps it nowhere: a publish over objects of {tn} in it is refused"),
+                ));
             }
         }
     }

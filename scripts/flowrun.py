@@ -3210,7 +3210,8 @@ class Runner:
         # name taken back through later renames (storage-schema.md §9 step 1, ADR-0146 decision 2)
         written_under = {e["position"]: e["declaration_version"] for e in work.events if e["object"] == o.id}
         erased |= {a for a in o.attrs if a not in erased and o.writes.get(a) in written_under
-                   and self.personal_under(work, o.type, a, written_under[o.writes[a]])}
+                   and self.personal_under(work, self.type_then(work, o.id, o.type, written_under[o.writes[a]]), a,
+                                           written_under[o.writes[a]])}
         # an actor's identity, which the store keeps beside the actor's object, taken before it is cleared and
         # replaced by the object's id once the request has written its own (ADR-0192 decision 4)
         marked = work.actor_attr(o.type)
@@ -3257,6 +3258,16 @@ class Runner:
                                            sort_keys=True, separators=(",", ":"))
             proposal_event(work, key, "redact", p.state, p.state, ctx.who["id"])
             ctx.erased.setdefault(key, set()).update(personal)
+
+    def type_then(self, store, oid, tn, version):
+        """The type an object was of under a version: its own, or the one a later move took it from, read from its own
+        events, a move's naming the type it left, the version before the move its `declaration_version` (ADR-0229
+        decision 3)."""
+        for e in reversed(store.events):
+            moved = (e.get("payload") or {}).get("moved") if e["object"] == oid else None
+            if moved and version <= e["declaration_version"]:
+                tn = moved["from"]
+        return tn
 
     def personal_under(self, store, tn, a, version):
         """Whether attribute `a` of type `tn`, named as the installed version names it, was personal under a version:
@@ -3361,7 +3372,8 @@ class Runner:
                 now = self.personal_under(work, o.type, d, work.version)
                 for row in rows:
                     if row.get("value", ABSENT) is not ABSENT and (now or self.personal_under(
-                            work, o.type, d, row.get("declaration_version", work.version))):
+                            work, self.type_then(work, o.id, o.type, row.get("declaration_version", work.version)), d,
+                            row.get("declaration_version", work.version))):
                         row["value"] = ABSENT
 
     # ── the erasure's walk down (storage-schema.md §9 step 12, ADR-0160 decision 2) ─────────────────────────────────

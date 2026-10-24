@@ -2010,6 +2010,10 @@ fn take_unwound(
         // indexes, this request's own among them, where it read the whole
         // log under the writer (ADR-0162 step 1, fourth production review)
         let writes = o.held_parts()?.writes.clone();
+        // its own events, each judged under the type it was of then, which
+        // a move changed (ADR-0229 decision 3)
+        let own: Vec<Event> = ctx.work.events_of(&o.id)?;
+        let then = |version: i64| type_then(&own, &o.type_, version);
         for (a, spec) in &t.attributes {
             if !o.attrs.contains_key(a) {
                 continue;
@@ -2017,7 +2021,11 @@ fn take_unwound(
             let personal = spec.personal
                 || match writes.get(a.as_str()) {
                     Some(position) => ctx.work.event_at(*position)?.is_some_and(|e| {
-                        ctx.work.personal_under(e.declaration_version, &o.type_, a)
+                        ctx.work.personal_under(
+                            e.declaration_version,
+                            &then(e.declaration_version),
+                            a,
+                        )
                     }),
                     None => false,
                 };
@@ -2037,7 +2045,13 @@ fn take_unwound(
         for (a, spans) in o.parts_mut()?.spans.iter_mut() {
             let now_personal = t.attribute(a).is_some_and(|spec| spec.personal);
             for sp in spans {
-                if now_personal || ctx.work.personal_under(sp.declaration_version, &type_, a) {
+                if now_personal
+                    || ctx.work.personal_under(
+                        sp.declaration_version,
+                        &type_then(&own, &type_, sp.declaration_version),
+                        a,
+                    )
+                {
                     sp.value = Value::Absent;
                     // written by the store, which writes only the spans an
                     // event opens or closes, as the walk down's are
@@ -2050,16 +2064,16 @@ fn take_unwound(
         let redacted_since = ctx.redacted_inputs.len();
         // what the erased object holds that is personal, the source of
         // every value the walks follow
-        let own: Vec<Event> = ctx.work.events_of(&o.id)?;
         let own_versions: BTreeSet<i64> = own.iter().map(|e| e.declaration_version).collect();
         let holding: BTreeSet<String> = t
             .attributes
             .iter()
             .filter(|(a, spec)| {
                 spec.personal
-                    || own_versions
-                        .iter()
-                        .any(|v| ctx.work.personal_under(*v, &o.type_, a))
+                    || own_versions.iter().any(|v| {
+                        ctx.work
+                            .personal_under(*v, &type_then(&own, &o.type_, *v), a)
+                    })
             })
             .map(|(a, _)| a.clone())
             .collect();
@@ -2069,17 +2083,16 @@ fn take_unwound(
         for e in &own {
             // the transition as the version its event was written under
             // declared it (storage-schema.md §9 step 2, per version)
-            let tv = ctx
-                .work
-                .type_at(e.declaration_version, &o.type_)
-                .unwrap_or(t);
+            let was = type_then(&own, &o.type_, e.declaration_version);
+            let tv = ctx.work.type_at(e.declaration_version, &was).unwrap_or(t);
             // what it wrote that was personal as the version it was written
-            // under declared it, an attribute a later version dropped or
-            // retyped among it, which the erased attributes, the installed
-            // version's, do not name (ADR-0209 decision 2)
+            // under declared it, an attribute a later version dropped,
+            // retyped or left behind in a move among it, which the erased
+            // attributes, the installed version's, do not name (ADR-0209
+            // decision 2)
             if let (Some(wrote), Some(declared)) = (
                 e.payload["wrote"].as_object(),
-                ctx.work.type_at(e.declaration_version, &o.type_),
+                ctx.work.type_at(e.declaration_version, &was),
             ) {
                 for (name, v) in wrote {
                     if !v.is_null()
@@ -2834,6 +2847,22 @@ pub(crate) fn input_personal(lib: &Library, t: &Type, x: &Transition, name: &str
 
 /// Whether an input is personal by its own transition alone: marked so, or
 /// written by its effect into a personal attribute (check 10).
+/// The type an object was of under a version: its own, or the one a later
+/// move took it from, read from its own events, a move's naming the type it
+/// left, the version before the move its `declaration_version` (ADR-0229
+/// decision 3).
+fn type_then(own: &[Event], current: &str, version: i64) -> String {
+    let mut was = current;
+    for e in own.iter().rev() {
+        if version <= e.declaration_version
+            && let Some(from) = e.payload["moved"]["from"].as_str()
+        {
+            was = from;
+        }
+    }
+    was.to_string()
+}
+
 fn personal_by_own(t: &Type, x: &Transition, name: &str) -> bool {
     fn writes(steps: &[Step], t: &Type, name: &str) -> bool {
         steps.iter().any(|st| match st {
@@ -6572,7 +6601,8 @@ pub mod faults {
         AT.with(|a| *a.borrow_mut() = at.map(str::to_string));
     }
 
-    /// The fault set for a point of a batch, `error` or `panic`.
+    /// The fault set for a point of a batch or a publish's install, `error`,
+    /// `panic` or `hold`.
     pub(crate) fn at(point: &str) -> Option<&'static str> {
         let said = AT
             .with(|a| a.borrow().clone())
@@ -6585,6 +6615,7 @@ pub mod faults {
             "batch_error" => Some("error"),
             "batch_panic" => Some("panic"),
             "batch_hold" => Some("hold"),
+            "publish_error" => Some("error"),
             _ => None,
         }
     }

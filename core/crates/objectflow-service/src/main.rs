@@ -4336,6 +4336,14 @@ async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
             return Err(Fault::Missing(format!("no type {name} is declared")));
         };
         let mut out = t.source.clone();
+        // a retired type takes no transition but its erasure, and its
+        // declaration lists only what it still takes, where it listed every
+        // transition the version that last declared it held (ADR-0229)
+        if t.retired
+            && let Some(J::Object(xs)) = out.get_mut("transitions")
+        {
+            xs.retain(|xn, _| t.transition(xn).is_some());
+        }
         // the members of each enumeration the type's attributes and inputs are of
         let mut used = Map::new();
         let decl = t.attributes.iter().map(|(_, a)| &a.declared).chain(

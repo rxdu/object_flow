@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=../examples.schema.json
-# What version 2 of the service flow does to jobs version 1 left, as examples whose `publish` step installs
-# service-v2.yaml over version 1 (flow-format.md §11.3, ADR-0166 decision 3). A publish step reads its files beside the
+# What versions 2 and 3 of the service flow do to what version 1 left, as examples whose `publish` steps install
+# service-v2.yaml over version 1, and service-v3.yaml over that (flow-format.md §11.3, ADR-0166 decision 3). A publish step reads its files beside the
 # examples file, which a change's source has no directory for, so these run where the files are, in the checker and
 # the Flow Studio, and the file is never carried into a change: a publish would refuse each `example_not_run`.
 examples_for: service
@@ -47,5 +47,32 @@ examples:
           actor: ana
           inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
       - publish: { source: [people.yaml, service-v2.yaml], after: 1 h }
+    request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana, completion_photo: done.jpg } }
+    expect: { verdict: applied, state: DONE, values: { site: HQ } }
+
+  a_checklist_entry_from_before_version_3_is_a_checkpoint:
+    description: >-
+      Version 3 renames the checklist's type, and the entry added under version 1 moves into it, keeping its id and
+      its title, and is retired by the checkpoint's own transition (ADR-0229).
+    given: two_engineers
+    steps:
+      - publish: { source: [people.yaml, service-v2.yaml], after: 1 h }
+      - publish: { source: [people.yaml, service-v3.yaml], after: 1 h }
+    request: { object: battery, transition: retire }
+    expect: { verdict: applied, state: RETIRED, values: { title: Battery voltage } }
+
+  a_job_whose_result_names_a_moved_entry_finishes:
+    description: >-
+      A result recorded under version 1 names the checklist entry it checked, which version 3 moves, and the job it
+      was recorded on finishes under version 3 with its photo.
+    given: job_in_progress
+    steps:
+      - request:
+          type: InspectionResult
+          transition: record
+          actor: ana
+          inputs: { subject: job, check: battery, outcome: CheckOutcome.PASS }
+      - publish: { source: [people.yaml, service-v2.yaml], after: 1 h }
+      - publish: { source: [people.yaml, service-v3.yaml], after: 1 h }
     request: { object: job, transition: finish, actor: ana, inputs: { signed_off_by: ana, completion_photo: done.jpg } }
     expect: { verdict: applied, state: DONE, values: { site: HQ } }

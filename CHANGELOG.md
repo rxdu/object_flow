@@ -11,9 +11,15 @@ A store of 0.5.2, a file or a PostgreSQL database, is upgraded by `/v1/upgrade` 
 - `/v1/batch` applies several requests whole or not at all, in order and in one transaction, each judged as it would be alone against the state the ones before it left (ADR-0228). The first refused ends it: its index and verdict are answered, and nothing of the batch applies but what any refused request keeps, its row in the attempt log and the numbers drawn. A batch holds at most 50 requests, measured against PRD C5, and takes an idempotency key of its own. It holds no change to the flow, no proposal and no request with a key of its own, and one reaching an evaluator applies none of it.
 - `/v1/check_batch` answers what a batch would on the store as it stands: it runs the batch and rolls it back whole, keeping no event, no number drawn and no attempt row, so it holds the writer for as long as the batch would (ADR-0228).
 - An event names the batch its request came in, by the batch's first event's position, `batch` on the wire and in the log's export, and a refused batch's attempt row the refused request's index, `batch_index` (ADR-0228).
+- A version moves the objects of a type it removes into types of its own, `migration.moved_types`: a rename, a split by each entry's `where`, or a merge, each object keeping its id, its history and its version, with one recorded `migrate` event naming both types, its attributes given or carried and its state mapped, and every reference to it kept where the reference now names the type it enters (ADR-0229). `migration.retired_types` retires a removed type on purpose, with its reason.
+
+### Changed, and may refuse what 0.5.2 accepted
+
+- A publish removing a type that holds an object not in a final state is refused, `removed_type:<Type>`, naming those objects, unless the version moves them with `moved_types` or retires the type on purpose with `retired_types`, where 0.5.2 retired the type without a finding, its live objects taking no transition again (ADR-0229 decision 1). A retired type's objects are named in the report, `retired:<Type>`.
 
 ### Fixed
 
+- `/v1/declaration` of a type a version retired lists the transitions it still takes, its erasure alone, where it listed every transition of the version that last declared it, each of which a request is refused (ADR-0229).
 - A rollback that fails gives its connection up, on both backends, and a begin on a connection whose transaction was never ended is refused, where a failed rollback's error was ignored: on PostgreSQL the next request's commit could have committed what the failed rollback left with its own writes. A PostgreSQL store given up is opened again at the next write; a file store is refused `store_connection_discarded` until a restart, a failing disk being the likely cause (ADR-0228, `operate.md`).
 - An erasure clears what an object's earlier events wrote that was personal under the version they were written under, where a later version had dropped or retyped the attribute: the event that set it kept its value in `wrote`, though the erasure cleared its column and its inputs (ADR-0209). 0.5.2 has this defect.
 

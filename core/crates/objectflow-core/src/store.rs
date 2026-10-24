@@ -477,6 +477,10 @@ pub struct Event {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Change {
     pub writes: Vec<(Object, bool, Event)>,
+    /// The objects a publish moves into another type, each with the type it
+    /// leaves: its row leaves that type's table for its own, and its
+    /// directory row names its own (ADR-0229 decision 3).
+    pub moved: Vec<(String, String)>,
     /// The serialisation retries its transaction took, which each event it
     /// writes records (`DESIGN.md` §6 step 8, ADR-0178 decision 2).
     pub retries: i64,
@@ -4646,6 +4650,13 @@ impl Store {
                 if na.declared == a.declared && na.many == a.many {
                     continue;
                 }
+                // a reference following a moved type keeps its values, its
+                // key made to name what it now references by the table's
+                // rebuild below; a stored reference is single, a set of them
+                // being derived from its opposite (ADR-0229 decision 5)
+                if crate::publish::follows_move(m, a, na) {
+                    continue;
+                }
                 // its intervals set aside under the name its column takes,
                 // the open one closed at the publish event, and retracted
                 // there, since no export reads a set-aside row, where an
@@ -4907,20 +4918,35 @@ impl Store {
             }
             if migrates {
                 positions.push(position);
-                for (n, reason) in &admits {
-                    x.parts_mut()?.admissions.insert(n.clone());
-                    change_set
-                        .admitted
-                        .push((x.id.clone(), n.clone(), position, reason.clone()));
-                }
+                // discharged before admitted: a moved object's admission of
+                // its old type's invariant is discharged where its target's
+                // invariant of the same name is admitted on the same event,
+                // which must stand (ADR-0229 decision 4)
                 for n in &discharges {
                     x.parts_mut()?.admissions.remove(n);
                     change_set
                         .discharged
                         .push((x.id.clone(), n.clone(), position));
                 }
+                for (n, reason) in &admits {
+                    x.parts_mut()?.admissions.insert(n.clone());
+                    change_set
+                        .admitted
+                        .push((x.id.clone(), n.clone(), position, reason.clone()));
+                }
                 // what its mappings wrote (ADR-0209 decision 1)
                 let wrote = crate::world::wrote_between(&was.attrs, &x.attrs);
+                let mut payload = serde_json::json!({
+                    "mappings": codes,
+                    "admits": admits.iter().map(|(n, _)| n).collect::<Vec<_>>(),
+                    "discharges": discharges,
+                });
+                // a move names the type it leaves and the one it enters, since
+                // an event names none (ADR-0229 decision 3)
+                if was.type_ != x.type_ {
+                    payload["moved"] = serde_json::json!({ "from": was.type_, "to": x.type_ });
+                    change_set.moved.push((x.id.clone(), was.type_.clone()));
+                }
                 let event = event_of(
                     &mut x,
                     Some(&before),
@@ -4932,14 +4958,7 @@ impl Store {
                     "migrated",
                     old.version,
                     new.version,
-                    crate::world::with_wrote(
-                        serde_json::json!({
-                            "mappings": codes,
-                            "admits": admits.iter().map(|(n, _)| n).collect::<Vec<_>>(),
-                            "discharges": discharges,
-                        }),
-                        wrote,
-                    ),
+                    crate::world::with_wrote(payload, wrote),
                 )?;
                 // a migration is caused by the publish's event (DESIGN.md §5.9)
                 let event = Event {
@@ -5090,6 +5109,15 @@ impl Store {
             return Err(StoreError(format!(
                 "the publish left a reference in {table} that names nothing"
             )));
+        }
+        // a fault made to happen once every object has moved and every key is
+        // checked, a test's alone, so a publish whose install fails is seen to
+        // install nothing (ADR-0229 decision 10)
+        #[cfg(feature = "faults")]
+        if crate::request::faults::at("install").is_some() {
+            return Err(StoreError(
+                "a store fault made to happen at a publish's install".to_string(),
+            ));
         }
         let files: serde_json::Map<String, serde_json::Value> = source
             .iter()
@@ -6945,6 +6973,46 @@ fn write(
             ],
         )?;
         let name = table(&o.type_);
+        // a moved object's row leaves its old type's table, its set tables'
+        // rows with it, and its directory row names its new type, the row
+        // then made afresh in its own (ADR-0229 decision 3)
+        let moved_from = change
+            .moved
+            .iter()
+            .find(|(id, _)| *id == o.id)
+            .map(|(_, from)| from.as_str());
+        if let Some(from) = moved_from {
+            let Some(ft) = lib.type_(from) else {
+                return Err(StoreError(format!(
+                    "a move from a type {from} the library lacks"
+                )));
+            };
+            let old_name = table(from);
+            for (n, _) in ft.attributes.iter().filter(|(_, a)| a.stored_set()) {
+                tx.execute(
+                    &format!(
+                        "DELETE FROM {} WHERE object_id = ?1",
+                        quote(&format!("{old_name}__{n}"))
+                    ),
+                    params![o.id],
+                )?;
+            }
+            let gone = tx.execute(
+                &format!("DELETE FROM {old_name} WHERE id = ?1"),
+                params![o.id],
+            )?;
+            let named = tx.execute(
+                "UPDATE of_object SET type = ?2 WHERE id = ?1 AND type = ?3",
+                params![o.id, o.type_, from],
+            )?;
+            if gone != 1 || named != 1 {
+                return Err(StoreError(format!(
+                    "the move of {} from {from} found no row of it to move",
+                    o.id
+                )));
+            }
+        }
+        let made = *created || moved_from.is_some();
         let scalars: Vec<&(String, Attribute)> =
             t.attributes.iter().filter(|(_, a)| !a.many).collect();
         let mut cols = vec![
@@ -6966,8 +7034,13 @@ fn write(
             vals.push(o.superseded_by.clone().map_or(Sql::Null, Sql::Text));
         }
         // the source of the event that last changed the state (§3)
-        // a migration leaves it as it was (§3)
-        if (*created || event.changes_state) && event.source != "migrated" {
+        // a migration leaves it as it was (§3), a moved row's carried
+        if moved_from.is_some() {
+            if let Some(source) = &o.state_source {
+                cols.push("state_source".to_string());
+                vals.push(Sql::Text(source.clone()));
+            }
+        } else if (*created || event.changes_state) && event.source != "migrated" {
             cols.push("state_source".to_string());
             vals.push(Sql::Text(
                 match (event.source.as_str(), event.imported) {
@@ -6982,7 +7055,7 @@ fn write(
             cols.push(quote(&column(n, a)));
             vals.push(to_sql(&o.attr(n))?);
         }
-        if *created {
+        if made {
             let marks: Vec<String> = (1..=vals.len()).map(|i| format!("?{i}")).collect();
             tx.execute(
                 &format!(
@@ -7577,10 +7650,12 @@ fn write(
             params![sequence, scope, next],
         )?;
     }
+    // each admission recorded before the discharging event, never one that
+    // event records itself (ADR-0229 decision 4)
     for (id, invariant, position) in &change.discharged {
         tx.execute(
             "UPDATE of_admission SET discharged_position = ?3 \
-             WHERE object_id = ?1 AND invariant = ?2 AND discharged_position IS NULL",
+             WHERE object_id = ?1 AND invariant = ?2 AND discharged_position IS NULL AND position < ?3",
             params![id, invariant, position],
         )?;
     }

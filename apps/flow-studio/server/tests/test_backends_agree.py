@@ -82,7 +82,7 @@ def test_the_backends_differ_only_where_known(tee):
     bundle["examples"] = {"name": migration.name, "text": migration.read_text()}
     ran = replay(tee, "service.yaml", bundle=bundle, after=read_metrics,
                  read=flows.beside(flows.EXAMPLES))
-    assert [o for o, _ in ran.values()] == ["passed", "passed"], ran
+    assert [o for o, _ in ran.values()] == ["passed"] * 4, ran
     found = tee.kinds()
     known = {line.strip() for line in KNOWN.read_text().splitlines()
              if line.strip() and not line.startswith("#")}

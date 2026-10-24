@@ -1710,6 +1710,64 @@
             }
           }
         },
+        "moved_types": {
+          "type": "object",
+          "description": "For each type the previous version had and this one does not, the types of this version its objects move into, each object keeping its id (ADR-0229).",
+          "propertyNames": {
+            "$ref": "#/definitions/typeName"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["to"],
+              "additionalProperties": false,
+              "properties": {
+                "to": {
+                  "$ref": "#/definitions/typeName",
+                  "description": "The type of this version the entry's objects move into."
+                },
+                "where": {
+                  "$ref": "#/definitions/expression",
+                  "description": "Which objects the entry takes, a condition on the old object; an entry without one is its type's only entry."
+                },
+                "attributes": {
+                  "type": "object",
+                  "minProperties": 1,
+                  "propertyNames": {
+                    "$ref": "#/definitions/memberName"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/definitions/expression"
+                  },
+                  "description": "Each attribute of the target and the expression over the old object that gives it; one not given is carried from the old attribute of its name and type."
+                },
+                "states": {
+                  "type": "object",
+                  "minProperties": 1,
+                  "propertyNames": {
+                    "$ref": "#/definitions/stateName"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/definitions/stateName"
+                  },
+                  "description": "Each state of the old type and the target's state its objects enter; one not given enters the target's state of its name."
+                }
+              }
+            }
+          }
+        },
+        "retired_types": {
+          "type": "object",
+          "description": "For each type the previous version had and this one does not, why its objects are retired rather than moved (ADR-0229).",
+          "propertyNames": {
+            "$ref": "#/definitions/typeName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/description"
+          }
+        },
         "backfill": {
           "type": "object",
           "description": "For each type, each attribute a live object must be given, and the expression over the object's own members and literals that gives it.",

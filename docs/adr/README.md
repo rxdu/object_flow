@@ -228,5 +228,6 @@
 | [0225](0225-the-sequence-store-is-the-stores-own-table.md) | The sequence store is the store's own table, written by its one writer | Decided under the author's direction |
 | [0226](0226-a-deployments-object-ids-are-uuid7.md) | A deployment's object ids are UUIDv7s, a sandbox's are numbered | Decided under the author's direction |
 | [0227](0227-four-open-items-decided-as-recommended.md) | Four open items decided as recommended | Decided under the author's direction |
-| [0228](0228-a-failed-rollback-gives-its-connection-up-and-a-batch-applies-whole-or-not-at-all.md) | A failed rollback gives its connection up, and a batch of requests applies whole or not at all | Decided under the author's direction; decisions 1–3 built |
+| [0228](0228-a-failed-rollback-gives-its-connection-up-and-a-batch-applies-whole-or-not-at-all.md) | A failed rollback gives its connection up, and a batch of requests applies whole or not at all | Decided under the author's direction; built |
+| [0229](0229-a-removed-types-objects-are-moved-into-another-type-or-retired-on-purpose.md) | A removed type's objects are moved into another type or retired on purpose | Decided under the author's direction; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

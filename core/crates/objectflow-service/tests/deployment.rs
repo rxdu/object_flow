@@ -5500,13 +5500,15 @@ fn a_dropped_types_objects_stay_readable_and_erasable() {
         .as_str()
         .expect("the person")
         .to_string();
+    // a live person's type retired on purpose, as a version must say
+    // (ADR-0229 decision 1)
     let without = format!(
-        "{}  Desk:\n{}",
+        "{}  Desk:\n{}migration:\n  description: Staff are no longer kept.\n  retired_types:\n    Person: Staff are kept elsewhere from now on.\n",
         &STAFFED[..STAFFED.find("  Person:").expect("Person")],
         &STAFFED[STAFFED.find("  Desk:\n").expect("Desk") + "  Desk:\n".len()..]
     );
     assert!(
-        !without.contains("Person") && without.contains("Desk"),
+        !without.contains("  Person:\n") && without.contains("Desk"),
         "{without}"
     );
     publish(&s, &json!({"staffed": without}));

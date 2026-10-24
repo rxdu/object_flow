@@ -286,13 +286,16 @@ class Version:
         self.source = dict(files)
         # the mappings each module carries, from the version before it (flow-format.md §4.16)
         self.migration = {"renamed_attributes": {}, "removed_members": {}, "removed_states": {}, "backfill": {},
-                          "admit": []}
+                          "admit": [], "moved_types": {}, "retired_types": {}}
         for m in modules.values():
             mig = m.get("migration") or {}
             for k in ("renamed_attributes", "removed_members", "removed_states", "backfill"):
                 for owner, maps in (mig.get(k) or {}).items():
                     self.migration[k].setdefault(owner, {}).update(maps or {})
             self.migration["admit"] += list(mig.get("admit") or [])
+            # a removed type's moves and retirement, each named in one module (ADR-0229)
+            self.migration["moved_types"].update(mig.get("moved_types") or {})
+            self.migration["retired_types"].update(mig.get("retired_types") or {})
 
 
 def import_order(flows, files):
@@ -441,6 +444,116 @@ def is_a(kinds, tn, want):
     return False
 
 
+def derived_end(spec):
+    """Whether a reference end holds no value of its own: a set of references computed from its opposite (§4.3)."""
+    spec = spec or {}
+    return str(spec.get("reference", "")).endswith("[]") and bool(spec.get("opposite"))
+
+
+def follows_move(m, was, now):
+    """Whether an attribute's change of type is a reference following a moved type, a set or one alike, which keeps
+    its values, each referent's new type checked (ADR-0229 decision 5), as the core's `follows_move`."""
+    before, after = str((was or {}).get("reference", "")), str((now or {}).get("reference", ""))
+    return bool(before and after) and before.endswith("[]") == after.endswith("[]") \
+        and before.removesuffix("[]") in m["moved_types"]
+
+
+def moves(store, sim, kinds, retired, m, found):
+    """Each object of a type the version moves, put into the simulation as its entry leaves it: an object of the
+    entry's type, its id kept, its attributes given or carried, its state mapped (ADR-0229 decisions 2 and 3). Read
+    under the new version, where the old type stands retired, so an entry's expressions read the old object and the
+    version's enumerations, as the core's `moves`. Returns each moved object's id with the type it left."""
+    import copy
+
+    import flowrun
+    moved, out = m["moved_types"], {}
+    for tn in list(moved) + list(m["retired_types"]):
+        # a type no module of the installed version declares, or one the version keeps, which the checker run on one
+        # module cannot see (ADR-0229 decision 7)
+        if tn not in store.kinds:
+            found.add("fatal", f"moved_type:{tn}", f"the migration names {tn}, which no module of the installed version declares")
+        elif tn not in retired:
+            found.add("fatal", f"moved_type:{tn}", f"the migration names {tn}, which the version still declares")
+    for tn, entries in moved.items():
+        if tn not in retired:
+            continue
+        if (store.kinds.get(tn) or {}).get("_observation_on"):
+            found.add("fatal", f"moved_type:{tn}", f"the migration moves {tn}, an observation kind, which no migration reaches")
+            continue
+        ot = kinds[tn]
+        for oid, o in sorted(sim.objects.items(), key=lambda kv: kv[1].id_order):
+            if o.type != tn:
+                continue
+            ev = flowrun.Evaluator(sim, tn, oid)
+            takes = [e for e in entries if "where" not in e or ev.value(flowrun.parsed(str(e["where"])), {}) is True]
+            if not takes:
+                found.add("fatal", f"moved_type:{tn}", f"objects of {tn} that no entry of its moved_types takes", oid)
+                continue
+            if len(takes) > 1:
+                found.add("fatal", f"moved_type_twice:{tn}", f"objects of {tn} that more than one entry of its moved_types takes",
+                          oid)
+                continue
+            e = takes[0]
+            to = e["to"]
+            nt = kinds.get(to)
+            if nt is None or to in retired:
+                found.add("fatal", f"moved_type:{tn}", f"objects of {tn} whose entry moves them to {to}, which the version does "
+                                                       "not declare", oid)
+                continue
+            state = (e.get("states") or {}).get(o.state) or (o.state if o.state in (nt.get("states") or {}) else None)
+            if state is None:
+                found.add("fatal", f"moved_state:{tn}.{o.state}", f"objects of {tn} are in {o.state}, which their entry maps "
+                                                                  f"nowhere and {to} does not have", oid)
+                continue
+            # each attribute of the target given, else carried from the old attribute of its name and type, else absent;
+            # an erased object's personal ones left absent, as a backfill skips them
+            given, attrs = e.get("attributes") or {}, {}
+            for a, spec in (nt.get("attributes") or {}).items():
+                spec = spec or {}
+                if derived_end(spec) or (o.erased and spec.get("personal")):
+                    continue
+                was = (ot.get("attributes") or {}).get(a)
+                if a in given:
+                    v = ev.value(flowrun.parsed(str(given[a])), {})
+                elif was is not None and (declared_as(was) == declared_as(spec) or follows_move(m, was, spec)):
+                    v = o.attrs.get(a, flowrun.ABSENT)
+                else:
+                    v = flowrun.ABSENT
+                if v is not flowrun.ABSENT:
+                    attrs[a] = v
+            x = copy.deepcopy(o)
+            x.type, x.state, x.attrs = to, state, attrs
+            # its state's intervals read as the target's, so a state that keeps its name keeps its interval
+            for row in x.spans.get("state", ()):
+                held = row.get("state")
+                if isinstance(held, tuple) and len(held) == 3:
+                    row["state"] = ("state", to, held[2])
+            found.add("notice", f"mapping:moved_types:{tn}.{to}", f"objects of {tn} move to {to}", oid)
+            sim.objects[oid] = x
+            out[oid] = tn
+    return out
+
+
+def removed_types(store, retired, m, found):
+    """A type the version removes and does not move: refused while it holds an object not in a final state, unless the
+    version retires it on purpose, and its objects named when it is retired (ADR-0229 decision 1); an observation kind
+    is born final and needs no decision."""
+    for tn, ot in sorted(store.kinds.items()):
+        if tn in BUILT_IN or tn not in retired or (ot or {}).get("_observation_on") or tn in m["moved_types"]:
+            continue
+        objects = [oid for oid, o in sorted(store.objects.items(), key=lambda kv: kv[1].id_order) if o.type == tn]
+        live = [oid for oid in objects if (st := ((ot or {}).get("states") or {}).get(store.objects[oid].state)) is not None
+                and not st.get("final")]
+        if tn not in m["retired_types"] and live:
+            for oid in live:
+                found.add("fatal", f"removed_type:{tn}", f"objects of {tn}, which the version removes, are not in a final state: "
+                                                         "move them with moved_types, or retire them with retired_types", oid)
+            continue
+        for oid in objects:
+            found.add("notice", f"retired:{tn}", f"objects of {tn}, which the version removes and retires: they stay readable "
+                                                 "and take no transition but their erasure", oid)
+
+
 def declared_as(spec):
     """What an attribute holds, for comparing two versions of it: its type or its target, and whether it is a set."""
     spec = spec or {}
@@ -486,14 +599,18 @@ def impact(store, new, found, actor, change_id):
     runner = flowrun.Runner(kinds, new.enums)
     m = new.migration
     old_enums = store.enums
+    # moves first, each moved object an object of its target for every mapping after (ADR-0229)
+    moving = moves(store, sim, kinds, retired, m, found)
+    removed_types(store, retired, m, found)
     for oid, o in sim.objects.items():
         if o.type in BUILT_IN or o.type in retired or o.type not in kinds:
             continue
         before = store.objects[oid]
-        nt, ot = kinds[o.type], old_kinds.get(o.type) or {}
+        # a moved object holds its target's names, values and state already
+        nt, ot = kinds[o.type], (old_kinds.get(o.type) or {}) if oid not in moving else {}
         # renames first, which write nothing of their own and carry the attribute's history
         for tn, maps in m["renamed_attributes"].items():
-            if is_a(kinds, o.type, tn):
+            if is_a(kinds, o.type, tn) and oid not in moving:
                 for frm, to in maps.items():
                     if frm in o.attrs:
                         o.attrs[to] = o.attrs.pop(frm)
@@ -501,10 +618,11 @@ def impact(store, new, found, actor, change_id):
                         o.spans[to] = o.spans.pop(frm)
                     if frm in o.writes:
                         o.writes[to] = o.writes.pop(frm)     # the write index follows, which an erasure reads
-        # an attribute whose type changed starts absent, its values set aside with their history
+        # an attribute whose type changed starts absent, its values set aside with their history; a reference following
+        # a moved type keeps its values (ADR-0229 decision 5)
         for a, spec in (ot.get("attributes") or {}).items():
             now = (nt.get("attributes") or {}).get(a)
-            if now is not None and declared_as(now) != declared_as(spec):
+            if now is not None and declared_as(now) != declared_as(spec) and not follows_move(m, spec, now):
                 o.attrs.pop(a, None)
                 o.spans.pop(a, None)
         # an observation is born final, and no migration reaches one
@@ -560,6 +678,24 @@ def impact(store, new, found, actor, change_id):
                         o.attrs.pop(attr, None)
                     else:
                         o.attrs[attr] = v
+    # a reference to an object that moves holds what it now references, where its type references a type the object
+    # no longer is: a retired type's, whose declaration stays, among them (ADR-0229 decision 5)
+    if moving:
+        for oid, o in sorted(sim.objects.items(), key=lambda kv: kv[1].id_order):
+            if o.type in BUILT_IN or o.type not in kinds:
+                continue
+            for a, spec in (kinds[o.type].get("attributes") or {}).items():
+                spec = spec or {}
+                if "reference" not in spec or derived_end(spec):
+                    continue
+                target = str(spec["reference"]).removesuffix("[]")
+                v = o.attrs.get(a, flowrun.ABSENT)
+                for r in (v if flowrun.is_set(v) else (v,) if isinstance(v, str) else ()):
+                    if r in moving and not is_a(kinds, sim.objects[r].type, target):
+                        found.add("fatal", f"moved_reference:{o.type}.{a}",
+                                  f"objects of {o.type} reference, by {a}, objects the version moves where {a}, a reference "
+                                  f"to {target}, cannot hold them", oid)
+                        break
     removed = [(en, mem) for en, members in old_enums.items() for mem in members
                if mem not in (new.enums.get(en) or [])]
     for oid, o in sim.objects.items():
@@ -598,12 +734,19 @@ def impact(store, new, found, actor, change_id):
         # every invariant, once, after the mappings: a violation no standing admission covers is a decision, and a
         # standing admission whose invariant holds, or which the version no longer declares, is discharged (D531)
         failing = runner.failing_invariants(sim, o)
+        # a moved object's admissions admitted its old type's invariants, each discharged by the move, none covering
+        # the target's (ADR-0229 decision 4)
+        moved_from = moving.get(oid)
         for n in sorted(o.admissions):
-            if n not in failing:
+            if moved_from is not None:
+                found.add("notice", f"discharged:{moved_from}.{n}",
+                          f"these objects hold an admitted violation of {moved_from}.{n}, an invariant of the type they "
+                          "move from, which the move discharges", oid)
+            elif n not in failing:
                 found.add("notice", f"discharged:{o.type}.{n}",
                           f"these objects hold an admitted violation of {o.type}.{n} that the version cures", oid)
         for n in failing:
-            if n in o.admissions:
+            if n in o.admissions and moved_from is None:
                 continue
             if o.type in new.observations:
                 # a kind's new invariant applies to later recordings, and nothing can change these (ADR-0146)
@@ -749,6 +892,8 @@ def attribute_notices(old, new, retired, m, found, store=None):
         nattrs, oattrs = nt.get("attributes") or {}, ot.get("attributes") or {}
         for a, spec in oattrs.items():
             now = nattrs.get(a)
+            if now is not None and follows_move(m, spec, now):
+                continue            # a reference following a moved type keeps its values (ADR-0229 decision 5)
             if now is not None and declared_as(now) != declared_as(spec):
                 code = f"type_changed:{tn}.{a}"
                 message = f"{tn}.{a} changes its type, a drop and an add of the same name"
@@ -883,12 +1028,24 @@ def install(store, installed, report, change_id, identity, kind):
                 open_span["left_at"] = store.now
                 spans.append(flowrun.span_row(position, opened(x, d, value(d), store.now, kind, new_version)))
         if migrates:
-            for n in admits:
-                x.admissions.add(n)
+            # discharged before admitted: a moved object's admission of its old type's invariant is discharged where its
+            # target's invariant of the same name is admitted on the same event, which must stand (ADR-0229 decision 4)
             for n in discharges:
                 x.admissions.discard(n)
-            event(oid, x.type, "migrate", was.state, x.state, old_version,
-                  {"mappings": codes, "admits": admits, "discharges": discharges}, publish)
+            for n in admits:
+                x.admissions.add(n)
+            payload = {"mappings": codes, "admits": admits, "discharges": discharges}
+            if x.type != was.type:
+                # a move names the type it leaves and the one it enters; its earlier events' states read as its new
+                # type's, as the core reads an event's states under its object's type (ADR-0229 decisions 3 and 8)
+                payload["moved"] = {"from": was.type, "to": x.type}
+                for e in store.events:
+                    if e["object"] == oid:
+                        for k in ("from_state", "to_state"):
+                            held = e.get(k)
+                            if isinstance(held, tuple) and len(held) == 3:
+                                e[k] = ("state", x.type, held[2])
+            event(oid, x.type, "migrate", was.state, x.state, old_version, payload, publish)
             x.version += 1
         store.objects[oid] = x
     # on each object already erased, what the version newly marks personal redacted, the absence admitting every

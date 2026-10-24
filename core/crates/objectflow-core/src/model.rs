@@ -1170,6 +1170,12 @@ pub struct Migration {
     pub removed_members: Vec<(String, String, String)>,
     /// A type, an attribute's old name, and its new one.
     pub renamed_attributes: Vec<(String, String, String)>,
+    /// A type the version removes, and the entries that move its objects
+    /// into types of the version, in the order written (ADR-0229).
+    pub moved_types: Vec<(String, Vec<MovedTo>)>,
+    /// A type the version removes and retires on purpose, and why
+    /// (ADR-0229 decision 1).
+    pub retired_types: Vec<(String, String)>,
     /// A type, an attribute, and the value written to it, in the order
     /// written.
     pub backfill: Vec<(String, String, Expr)>,
@@ -1183,6 +1189,8 @@ impl Migration {
         self.removed_states.extend(other.removed_states);
         self.removed_members.extend(other.removed_members);
         self.renamed_attributes.extend(other.renamed_attributes);
+        self.moved_types.extend(other.moved_types);
+        self.retired_types.extend(other.retired_types);
         self.backfill.extend(other.backfill);
         self.admit.extend(other.admit);
     }
@@ -1190,6 +1198,27 @@ impl Migration {
     pub fn is_empty(&self) -> bool {
         *self == Migration::default()
     }
+
+    /// The entries that move a type's objects, where the version moves it.
+    pub fn moved(&self, type_: &str) -> Option<&[MovedTo]> {
+        self.moved_types
+            .iter()
+            .find(|(t, _)| t == type_)
+            .map(|(_, entries)| entries.as_slice())
+    }
+}
+
+/// One entry of a removed type's `moved_types`: the type its objects move
+/// into, which of them, and what they hold there (ADR-0229 decision 2).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MovedTo {
+    pub to: String,
+    /// A condition on the old object; none takes every object.
+    pub where_: Option<Expr>,
+    /// Each attribute of the target and the expression giving it.
+    pub attributes: Vec<(String, Expr)>,
+    /// Each old state and the target's state its objects enter.
+    pub states: Vec<(String, String)>,
 }
 
 impl Reader<'_> {
@@ -1217,6 +1246,42 @@ impl Reader<'_> {
         m.removed_states = pairs("removed_states");
         m.removed_members = pairs("removed_members");
         m.renamed_attributes = pairs("renamed_attributes");
+        for (tn, entries) in node
+            .get("moved_types")
+            .map(Node::entries)
+            .unwrap_or_default()
+        {
+            let mut out = Vec::new();
+            for e in entries.items() {
+                let Some(to) = e.get("to").and_then(Node::text) else {
+                    return self.error(e, "a moved type's entry names the type it moves to");
+                };
+                let mut attributes = Vec::new();
+                for (a, x) in e.get("attributes").map(Node::entries).unwrap_or_default() {
+                    attributes.push((a.clone(), self.expression(x)?));
+                }
+                out.push(MovedTo {
+                    to: to.to_string(),
+                    where_: e.get("where").map(|w| self.expression(w)).transpose()?,
+                    attributes,
+                    states: e
+                        .get("states")
+                        .map(Node::entries)
+                        .unwrap_or_default()
+                        .iter()
+                        .filter_map(|(old, new)| new.text().map(|n| (old.clone(), n.to_string())))
+                        .collect(),
+                });
+            }
+            m.moved_types.push((tn.clone(), out));
+        }
+        m.retired_types = node
+            .get("retired_types")
+            .map(Node::entries)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|(tn, why)| why.text().map(|w| (tn.clone(), w.to_string())))
+            .collect();
         for (tn, map) in node.get("backfill").map(Node::entries).unwrap_or_default() {
             for (a, e) in map.entries() {
                 m.backfill

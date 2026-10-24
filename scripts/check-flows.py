@@ -1582,6 +1582,35 @@ def family_errors(doc, library):
 BACKFILL_READS = {"state", "this"}   # a backfill reads the object's own members and literals (§6.6)
 
 
+def follows_move(m, was, now):
+    """Whether an attribute's change of type is a reference following a moved type, which keeps its values (ADR-0229
+    decision 5)."""
+    before, after = str(was.get("reference", "")), str(now.get("reference", ""))
+    return bool(before and after) and before.endswith("[]") == after.endswith("[]") \
+        and before.rstrip("[]") in (m.get("moved_types") or {})
+
+
+def unmovable(tn, t, kinds):
+    """Why a type does not move, or take moved objects, yet, or None (ADR-0229 decision 6)."""
+    attrs = (t.get("attributes") or {}).values()
+    if t.get("mirror"):
+        return "a mirror, which only the import writes"
+    if t.get("abstract"):
+        return "an abstract type"
+    if any((sp or {}).get("actor_kind") for sp in attrs):
+        return "an actor's type, whose objects every event names as its actor"
+    if t.get("inherited_parts") or any((sp or {}).get("aggregation") == "composite" for sp in attrs):
+        return "a whole in a composition, whose parts follow it"
+    if any((sp or {}).get("aggregation") == "composite" and str(sp.get("reference", "")).rstrip("[]") == tn
+           for k in kinds.values() for sp in (k.get("attributes") or {}).values()):
+        return "a part in a composition, which follows its whole"
+    if any((st or {}).get("superseding") for st in (t.get("states") or {}).values()):
+        return "a type with a superseding state, whose objects a supersession chain joins for erasure"
+    if t.get("observations"):
+        return "a type observations are recorded against, whose kinds it declares"
+    return None
+
+
 def migration_errors(doc, v):
     """What a migration maps is checked against this version: a mapping names a
     state, member or attribute this version no longer has and one it has, a
@@ -1644,6 +1673,40 @@ def migration_errors(doc, v):
             for owner, value in re.findall(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b", str(expr)):
                 if owner in enums and value not in enums[owner]:
                     out.append((where + (a,), "names", f"the backfill of {tn}.{a} names {owner}.{value}, and {owner} has no {value}"))
+    moved, retired = m.get("moved_types") or {}, m.get("retired_types") or {}
+    for tn in sorted(set(moved) & set(retired)):
+        out.append((("migration", "retired_types", tn), "names", f"the migration both moves and retires {tn}; its objects are moved or retired, not both"))
+    for section, verb, names in (("moved_types", "moves", moved), ("retired_types", "retires", retired)):
+        for tn in names:
+            if tn in kinds:
+                out.append((("migration", section, tn), "names", f"the migration {verb} {tn}, which this version still has; a type it removes is moved or retired (ADR-0229)"))
+    for tn, entries in moved.items():
+        for i, e in enumerate(entries):
+            here = ("migration", "moved_types", tn, i)
+            to = e["to"]
+            if len(entries) > 1 and "where" not in e:
+                out.append((here, "names", f"an entry of {tn}'s moves without a where takes every object, so it is its type's only entry (ADR-0229)"))
+            if to not in kinds:
+                out.append((here + ("to",), "names", f"the migration moves {tn} to {to}, which this module does not declare"))
+                continue
+            t = kinds[to]
+            why = unmovable(to, t, kinds)
+            if why:
+                out.append((here + ("to",), "names", f"the migration moves {tn} to {to}, {why}; such a type takes no moved objects yet (ADR-0229)"))
+            for a in (e.get("attributes") or {}):
+                if a not in (t.get("attributes") or {}):
+                    out.append((here + ("attributes", a), "names", f"the move of {tn} to {to} gives {to}.{a}, which is not a stored attribute of {to}"))
+            states = t.get("states") or {}
+            for old, new in (e.get("states") or {}).items():
+                if new not in states:
+                    out.append((here + ("states", old), "names", f"the move of {tn} to {to} maps {old} to {new}, which is not a state of {to}"))
+                elif (states.get(new) or {}).get("superseding"):
+                    out.append((here + ("states", old), "names", f"the move of {tn} to {to} maps {old} to {new}, a superseding state, which would "
+                                                                 "leave its objects superseded by nothing (ADR-0146)"))
+            for expr in [e.get("where")] + list((e.get("attributes") or {}).values()):
+                for owner, value in re.findall(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b", str(expr) if expr is not None else ""):
+                    if owner in enums and value not in enums[owner]:
+                        out.append((here, "names", f"the move of {tn} to {to} names {owner}.{value}, and {owner} has no {value}"))
     observed = {ob["kind"] for _tn, t in types(v) for ob in (t.get("observations") or {}).values()}
     admitted = set()
     for i, adm in enumerate(m.get("admit") or []):
@@ -1733,7 +1796,8 @@ def migration_pair_errors(prev, doc, library):
                 notes.append((here + ("attributes", a), "migration", f"{tn}.{a} is new and required: a publish over live objects of {tn} needs a backfill for it"))
         for a in sorted(set(t.get("attributes") or {}) & set(ot.get("attributes") or {})):
             now_spec, was_spec = t["attributes"][a] or {}, ot["attributes"][a] or {}
-            if str(now_spec.get("type", now_spec.get("reference"))) != str(was_spec.get("type", was_spec.get("reference"))):
+            if str(now_spec.get("type", now_spec.get("reference"))) != str(was_spec.get("type", was_spec.get("reference"))) \
+                    and not follows_move(m, was_spec, now_spec):
                 notes.append((here + ("attributes", a), "migration", f"{tn}.{a} changed its type: that is a drop and an add of the "
                                                                     "same name, every object's value starting absent (ADR-0147)"))
             elif optional(was_spec) and not optional(now_spec) and a not in filled and not str(now_spec.get("reference", "")).endswith("[]"):
@@ -1757,6 +1821,60 @@ def migration_pair_errors(prev, doc, library):
                 if fld not in before and not optional(spec):
                     fatal.append((here + ("observations", o, "attributes", fld), "names",
                                   f"{o}.{fld} is added to an observation kind and is required; an observation is born final, so nothing could fill it"))
+    # a type the version removes: moved, retired, or noticed (ADR-0229)
+    moved, retired = m.get("moved_types") or {}, m.get("retired_types") or {}
+    for tn in sorted(set(old) - set(new) - machines):
+        if tn not in moved and tn not in retired and not old[tn].get("abstract"):
+            notes.append((("types",), "migration", f"{tn} is gone from this module: unless another module declares it, a publish over "
+                                                   "its objects not in a final state needs moved_types or retired_types for it (ADR-0229)"))
+    for section, names in (("moved_types", moved), ("retired_types", retired)):
+        for tn in names:
+            if tn not in old:
+                notes.append((("migration", section, tn), "migration", f"{tn} is not a type of this module's previous version, so the "
+                                                                       "publish checks it against every module of the version before (ADR-0229)"))
+    for tn, entries in moved.items():
+        ot = old.get(tn)
+        if ot is None:
+            continue
+        why = unmovable(tn, ot, old)
+        if why:
+            fatal.append((("migration", "moved_types", tn), "names", f"the migration moves {tn}, {why}; such a type does not move yet (ADR-0229)"))
+        oattrs = ot.get("attributes") or {}
+        members = set(oattrs) | set(ot.get("derived_attributes") or {}) | BACKFILL_READS
+        personal = {a for a, sp in oattrs.items() if (sp or {}).get("personal")}
+        for i, e in enumerate(entries):
+            here = ("migration", "moved_types", tn, i)
+            to = e["to"]
+            given = e.get("attributes") or {}
+            for expr in ([e["where"]] if "where" in e else []) + list(given.values()):
+                for r in sorted(reads(expr) - members):
+                    fatal.append((here, "names", f"the move of {tn} to {to} reads '{r}'; a move reads the old object's own members and literals"))
+            for st in sorted(set(e.get("states") or {}) - set(ot.get("states") or {})):
+                fatal.append((here + ("states", st), "names", f"the move of {tn} to {to} maps {tn}.{st}, which the previous version did not have"))
+            t = new.get(to)
+            if t is None:
+                continue
+            if str(ot.get("tracking")) != str(t.get("tracking")):
+                fatal.append((here + ("to",), "names", f"the migration moves {tn}, tracked by {ot.get('tracking')}, to {to}, tracked by "
+                                                       f"{t.get('tracking')}; a move keeps its tracking (ADR-0229)"))
+            tattrs = t.get("attributes") or {}
+            for a, x in sorted(given.items()):
+                leaked = sorted(reads(x) & personal)
+                if leaked and not (tattrs.get(a) or {}).get("personal"):
+                    fatal.append((here + ("attributes", a), "names", f"the move of {tn} to {to} gives {to}.{a}, which is not personal, from "
+                                                                     f"{', '.join(leaked)}, personal in {tn}; a personal value reaches no "
+                                                                     "attribute that is not (the model's check 10)"))
+            for a, spec in sorted(tattrs.items()):
+                was, spec = oattrs.get(a), spec or {}
+                if a in given or not was:
+                    continue
+                if (was.get("type"), was.get("reference")) == (spec.get("type"), spec.get("reference")) and was.get("personal") \
+                        and not spec.get("personal"):
+                    fatal.append((here, "names", f"the move of {tn} to {to} carries {a}, personal in {tn}, into {to}.{a}, which is not; "
+                                                 "a personal value reaches no attribute that is not (the model's check 10)"))
+            for st in sorted(set(ot.get("states") or {}) - set(e.get("states") or {}) - set(t.get("states") or {})):
+                notes.append((here, "migration", f"{tn}.{st} has no state of its name in {to}, and the entry maps it nowhere: a publish "
+                                                 f"over objects of {tn} in it is refused"))
     # a declared metric over transitions whose filter names a state this version reroutes (ADR-0129)
     def route(tv, tn, field, st):
         """The transitions a filter comparing `field` to `st` can match: those entering it, or those leaving it."""
@@ -6029,6 +6147,9 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     def plant(text, old, new):
         assert text.count(old) >= 1, old
         return text.replace(old, new, 1)
+    # the second service version with its checklist's type renamed, its objects moved (ADR-0229)
+    renamed_v2 = plant(service_v2.replace("InspectionCheck", "Checkpoint"), "  renamed_attributes:\n",
+                       "  moved_types:\n    InspectionCheck:\n      - to: Checkpoint\n  renamed_attributes:\n")
     reads_actor = ("      no_unresolved_failure:\n",
                    "      assigned_engineer_only:\n        description: Only the assigned engineer finishes the job.\n"
                    "        expression: engineer.login == actor.id\n        remedy: delegable\n      no_unresolved_failure:\n")
@@ -6154,6 +6275,19 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
          plant(service_v2, "invariant: ServiceJob.photo_when_done,", "invariant: ServiceJob.photo_required,")),
         ("a required field added to an observation kind", "names", "service-v2.yaml",
          plant(service_v2, "          note:    { type: string, optional: true }\n", "          note:    { type: string, optional: true }\n          probe:   { type: string }\n")),
+        # a type renamed, its objects moved (ADR-0229)
+        ("a removed type whose objects move to a type the version does not declare", "names", "service-v2.yaml",
+         plant(renamed_v2, "      - to: Checkpoint\n", "      - to: Nowhere\n")),
+        ("a move that reads the clock", "names", "service-v2.yaml",
+         plant(renamed_v2, "      - to: Checkpoint\n", "      - to: Checkpoint\n        where: now > now\n")),
+        ("a move into a state the target does not have", "names", "service-v2.yaml",
+         plant(renamed_v2, "      - to: Checkpoint\n", "      - to: Checkpoint\n        states: { ACTIVE: LIVE }\n")),
+        ("a type both moved and retired", "names", "service-v2.yaml",
+         plant(renamed_v2, "  moved_types:\n", "  retired_types:\n    InspectionCheck: The checklist is kept elsewhere.\n  moved_types:\n")),
+        ("a removed type no decision covers", "migration", "service-v2.yaml",
+         service_v2.replace("InspectionCheck", "Checkpoint")),
+        ("a move of a type the version still has", "names", "service-v2.yaml",
+         plant(service_v2, "  renamed_attributes:\n", "  moved_types:\n    ServiceJob:\n      - to: InspectionCheck\n  renamed_attributes:\n")),
         ("a metric that reads a label's personal note", "names", "servicedesk.yaml",
          plant(servicedesk, "          name: l.name\n", "          name: l.note\n")),
         ("a guard that reads labels", "names", "servicedesk.yaml",
@@ -9807,6 +9941,142 @@ def recording(check):
     return recorded
 
 
+GRANTS_V1 = """module: grants
+categories: [live, closed]
+types:
+  RoleGrant:
+    description: A role a person holds.
+    tracking: record
+    attributes:
+      person: { type: string, indexed: true }
+      role: { type: string, indexed: true }
+    states:
+      HELD: { description: Held., category: live }
+      REVOKED: { description: Revoked., category: closed, final: true }
+    transitions:
+      grant: { kind: initial, to: HELD, required_inputs: [person, role] }
+      revoke: { kind: external, from: HELD, to: REVOKED }
+  Review:
+    description: A review of a grant.
+    tracking: record
+    attributes:
+      grant: { reference: RoleGrant, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [grant] }
+      close: { kind: external, from: OPEN, to: DONE }
+"""
+
+GRANTS_V2 = """module: grants
+categories: [live, closed]
+enumerations:
+  Level: [READ, WRITE, ADMIN]
+types:
+  AccessGrant:
+    description: A level in a scope a person holds.
+    tracking: record
+    attributes:
+      person: { type: string, indexed: true }
+      scope: { type: string, indexed: true }
+      level: { type: Level }
+    states:
+      HELD: { description: Held., category: live }
+      REVOKED: { description: Revoked., category: closed, final: true }
+    transitions:
+      grant: { kind: initial, to: HELD, required_inputs: [person, scope, level] }
+      revoke: { kind: external, from: HELD, to: REVOKED }
+  AdminGrant:
+    description: An administrator's grant.
+    tracking: record
+    attributes:
+      person: { type: string, indexed: true }
+    states:
+      ACTIVE: { description: Active., category: live }
+      ENDED: { description: Ended., category: closed, final: true }
+    transitions:
+      grant: { kind: initial, to: ACTIVE, required_inputs: [person] }
+      end: { kind: external, from: ACTIVE, to: ENDED }
+  Review:
+    description: A review of a grant.
+    tracking: record
+    attributes:
+      grant: { reference: AccessGrant, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [grant] }
+      close: { kind: external, from: OPEN, to: DONE }
+migration:
+  description: The second version holds a level in a scope where the first held a role.
+  moved_types:
+    RoleGrant:
+      - to: AccessGrant
+        where: role != "admin"
+        attributes:
+          scope: 'if role == "leave.viewer" then "leave" else "identity"'
+          level: 'if role == "leave.viewer" then Level.READ else Level.WRITE'
+      - to: AdminGrant
+        where: role == "admin"
+        states: { HELD: ACTIVE, REVOKED: ENDED }
+"""
+
+
+def moved_type_plants(people):
+    """A version that moves a type's objects, checked against the one before (ADR-0229): the split clean, its
+    reference following the move; a personal value carried or given into an attribute that is not; a move between
+    tracking kinds; a type that does not move yet; and an old state no entry places, noticed."""
+    def p(text, old, new):
+        assert old in text, old
+        return text.replace(old, new, 1)
+    personal = p(GRANTS_V1, "      person: { type: string, indexed: true }\n", "      person: { type: string, indexed: true, personal: true }\n")
+    cases = [
+        ("a split whose reference follows it", GRANTS_V1, GRANTS_V2, []),
+        ("a personal value carried into an attribute that is not", personal, GRANTS_V2,
+         ["the move of RoleGrant to AccessGrant carries person, personal in RoleGrant, into AccessGrant.person, which is not; "
+          "a personal value reaches no attribute that is not (the model's check 10)",
+          "the move of RoleGrant to AdminGrant carries person, personal in RoleGrant, into AdminGrant.person, which is not; "
+          "a personal value reaches no attribute that is not (the model's check 10)"]),
+        ("a personal value given to an attribute that is not",
+         p(GRANTS_V1, "      role: { type: string, indexed: true }\n", "      role: { type: string, indexed: true, personal: true }\n"), GRANTS_V2,
+         ["the move of RoleGrant to AccessGrant gives AccessGrant.level, which is not personal, from role, personal in "
+          "RoleGrant; a personal value reaches no attribute that is not (the model's check 10)",
+          "the move of RoleGrant to AccessGrant gives AccessGrant.scope, which is not personal, from role, personal in "
+          "RoleGrant; a personal value reaches no attribute that is not (the model's check 10)"]),
+        ("a move between tracking kinds", GRANTS_V1, p(GRANTS_V2, "    description: An administrator's grant.\n    tracking: record\n",
+                                                      "    description: An administrator's grant.\n    tracking: serial\n"),
+         ["the migration moves RoleGrant, tracked by record, to AdminGrant, tracked by serial; a move keeps its tracking (ADR-0229)"]),
+        ("a type with a superseding state",
+         p(GRANTS_V1, "      REVOKED: { description: Revoked., category: closed, final: true }\n",
+           "      REVOKED: { description: Revoked., category: closed, final: true }\n"
+           "      MERGED: { description: Merged., category: closed, final: true, superseding: true }\n"), GRANTS_V2,
+         ["the migration moves RoleGrant, a type with a superseding state, whose objects a supersession chain joins for "
+          "erasure; such a type does not move yet (ADR-0229)",
+          "RoleGrant.MERGED has no state of its name in AccessGrant, and the entry maps it nowhere: a publish over objects "
+          "of RoleGrant in it is refused",
+          "RoleGrant.MERGED has no state of its name in AdminGrant, and the entry maps it nowhere: a publish over objects "
+          "of RoleGrant in it is refused"]),
+        ("an old state no entry places",
+         p(GRANTS_V1, "      REVOKED: { description: Revoked., category: closed, final: true }\n",
+           "      REVOKED: { description: Revoked., category: closed, final: true }\n      SUSPENDED: { description: Suspended., category: live }\n"),
+         GRANTS_V2,
+         ["RoleGrant.SUSPENDED has no state of its name in AccessGrant, and the entry maps it nowhere: a publish over objects "
+          "of RoleGrant in it is refused",
+          "RoleGrant.SUSPENDED has no state of its name in AdminGrant, and the entry maps it nowhere: a publish over objects "
+          "of RoleGrant in it is refused"]),
+    ]
+    ok = True
+    for name, before, after, want in cases:
+        found, notes = check([("grants.yaml", after)], {"grants.yaml": before})
+        got = sorted(x[4] for x in found + notes)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a moved type, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def this_checker():
     """This module, as the checker a `publish` step's dry run calls back into, however it was loaded: run as a script,
     imported, or loaded by path under a name `sys.modules` does not hold, as the studio loads it; its `check` the one in
@@ -9932,8 +10202,10 @@ def main():
     people = (EXAMPLES / "people.yaml").read_text()
     clean = True
     needs = {"delivery.yaml": ["inventory.yaml"]}
-    versions_of = {"inventory-v2.yaml": "inventory.yaml", "service-v2.yaml": "service.yaml"}   # each checked against the one before
-    for version in ("people.yaml", "inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml", "delivery.yaml", "approvals.yaml", "bookings.yaml",
+    versions_of = {"inventory-v2.yaml": "inventory.yaml", "service-v2.yaml": "service.yaml",
+                   "service-v3.yaml": "service-v2.yaml"}   # each checked against the one before
+    for version in ("people.yaml", "inventory.yaml", "inventory-v2.yaml", "service.yaml", "service-v2.yaml", "service-v3.yaml",
+                    "delivery.yaml", "approvals.yaml", "bookings.yaml",
                     "customers.yaml", "issues.yaml", "servicedesk.yaml", "reimbursement.yaml"):
         before = [(n, (EXAMPLES / n).read_text()) for n in needs.get(version, [])]
         files = [("people.yaml", people)] + before + ([(version, (EXAMPLES / version).read_text())] if version != "people.yaml" else [])
@@ -9999,6 +10271,7 @@ def main():
     ok &= binder_plant(people)
     ok &= abstract_summary_plant(people)
     ok &= migration_plants(people)
+    ok &= moved_type_plants(people)
     ok &= metric_plants(people)
     ok &= range_plant(people)
     ok &= erasure_plants(people)
