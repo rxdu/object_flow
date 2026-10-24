@@ -22,3 +22,4 @@ How established systems solve a problem ObjectFlow faces, kept so that a design 
 
 - [`write-throughput.md`](write-throughput.md): how Jira and Temporal scale writes, and ObjectFlow's one writer beside them (2026-10-22).
 - [`atomic-batches.md`](atomic-batches.md): whether a caller may send several requests that apply together or not at all, as DynamoDB, Salesforce and JSON:API allow and domain-driven design advises against (2026-10-23).
+- [`moving-objects-between-types.md`](moving-objects-between-types.md): how a renamed, split or merged type's records follow it, as ServiceNow, Camunda and Jira move them in place and an event store splits a stream (2026-10-24).
