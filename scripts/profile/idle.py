@@ -7,7 +7,8 @@ The audit's Gate I (`docs/design/audit/cost.md` §3) ran each operation idle on 
 and the slowest. A read whose median passes PRD C5's target, 1 s for a metric and 100 ms for one object, is named
 FAILED, and the script exits 1.
 
-Measurement conditions, said with the result: the machine's load at the start and the store.
+Measurement conditions, said with the result: the machine's load at the start and the store. A release's gate measures a
+PostgreSQL store on the database `scripts/setup/postgres-gate-db` starts, reached at the address it prints.
 
 Usage:
 

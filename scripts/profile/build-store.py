@@ -23,7 +23,8 @@ Usage:
     build-store.py <objectflow-service> <out.sqlite | postgresql> [--claims 12000] [--employees 600] [--seed 7] [--writers 8]
 
 A PostgreSQL store is built in an empty database the connection string or `postgresql://` URL names, its password in
-`OBJECTFLOW_STORE_PASSWORD` (ADR-0213).
+`OBJECTFLOW_STORE_PASSWORD` (ADR-0213); for a release's gate, one on the database `scripts/setup/postgres-gate-db`
+starts.
 """
 import argparse
 import hashlib

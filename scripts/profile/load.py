@@ -25,8 +25,10 @@ It fails, exiting 1, where any of these holds, as the audit set them:
 - the service's resident memory passes `--memory-max`, `operate.md`'s MemoryMax for the store.
 
 Measurement conditions, said with the result: the machine and its load, the store, the duration. A shared machine
-gives higher numbers than a quiet one. The profile's other parts, retries after timeouts, a restart, a publish, an
-erasure batch, a backup and a prune, belong to the soak (ADR-0204 §7) and are not played here.
+gives higher numbers than a quiet one. A release's gate measures a PostgreSQL store on the database
+`scripts/setup/postgres-gate-db` starts, reached at the address it prints, never through a published port. The
+profile's other parts, retries after timeouts, a restart, a publish, an erasure batch, a backup and a prune, belong to
+the soak (ADR-0204 §7) and are not played here.
 
 Usage:
 
