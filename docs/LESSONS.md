@@ -925,6 +925,11 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Read `wal_checkpoint`'s row, `(busy, log, checkpointed)`, and repeat until it answers `(0, 0, ...)` with a deadline, asserting, wherever a test depends on the log being folded in. Generally: a precondition a test sets up by a statement whose failure is a value, not an error, is checked, not assumed.
 - **Context:** SQLite in WAL mode; any test that writes a store's file behind a running service.
 
+### A measurement's setup made by hand leaves out the conditions that decide it
+- **Pattern:** Gates P and I on PostgreSQL for 0.4.0 to 0.5.2 ran against a container started by hand with its data on tmpfs and reached through Docker's userland port proxy, and each record said only "PostgreSQL 16.8 in Docker beside the service". Measuring 0.5.3 on a database set up again by hand, its data on the disk, the writes missed in every run, and so did the published 0.5.2's. It took a day's investigation, and the old commands in a session's transcript, to find that the proxy alone made the miss: reached directly, both releases passed with 40 ms to spare (2026-10-24).
+- **Correction:** A measurement records every condition a reader would need to repeat it: where the database's data lives, how the service reaches it, its settings, and the store it ran on. Better, the setup is a script the gate names, so the next run starts from the same conditions. When a measured figure moves between runs of the same binary, take the setup's factors out one at a time before suspecting the code.
+- **Context:** ObjectFlow's Gates P and I, any performance gate on infrastructure set up by hand; Docker's published ports on the loopback address.
+
 ### A tag starts a second check, and a release is watched through it
 - **Pattern:** Releasing 0.5.0, I watched `check.yml` on the commit, tagged it, and watched `release.yml`, which passed. The tag push also started `check.yml` again on the same commit, which failed on a flaky test, and nothing watched it until the author asked why CI fails often (2026-10-21).
 - **Correction:** After pushing a tag, list every run on its commit (`gh run list --commit <sha>`) and watch each to its end; report the release only when all have passed, naming any that did not.
