@@ -26,6 +26,11 @@ updates:
     directory: /apps/flow-studio/web
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    groups:
+      # one pull request for both: react-dom refuses to load beside a react of another version, which a bump of one
+      # alone gave (#38, 2026-10-24), and test/react.test.ts fails it
+      react:
+        patterns: ["react", "react-dom"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
