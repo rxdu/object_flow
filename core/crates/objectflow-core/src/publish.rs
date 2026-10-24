@@ -3248,6 +3248,15 @@ types:
                 "{what}: the join event"
             );
             assert_eq!(joined.payload["inputs"]["nick"], json!("a"), "{what}");
+            // and what it wrote, personal under the version it was written
+            // under, where it was left in the log once a later version
+            // dropped or retyped the attribute (ADR-0209 decision 2)
+            assert_eq!(
+                joined.payload["wrote"]["name"],
+                json!(null),
+                "{what}: the join event's write"
+            );
+            assert_eq!(joined.payload["wrote"]["nick"], json!("a"), "{what}");
             if what == "unmarked" {
                 // a name given under the version that unmarked it was never
                 // personal, and an erasure leaves it

@@ -2073,6 +2073,23 @@ fn take_unwound(
                 .work
                 .type_at(e.declaration_version, &o.type_)
                 .unwrap_or(t);
+            // what it wrote that was personal as the version it was written
+            // under declared it, an attribute a later version dropped or
+            // retyped among it, which the erased attributes, the installed
+            // version's, do not name (ADR-0209 decision 2)
+            if let (Some(wrote), Some(declared)) = (
+                e.payload["wrote"].as_object(),
+                ctx.work.type_at(e.declaration_version, &o.type_),
+            ) {
+                for (name, v) in wrote {
+                    if !v.is_null()
+                        && !erased.contains(name)
+                        && declared.attribute(name).is_some_and(|a| a.personal)
+                    {
+                        ctx.redacted_writes.push((e.position, name.clone()));
+                    }
+                }
+            }
             let Some(ex) = tv
                 .transition(&e.transition)
                 .or_else(|| t.transition(&e.transition))

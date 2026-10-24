@@ -15,6 +15,7 @@ A store of 0.5.2, a file or a PostgreSQL database, is upgraded by `/v1/upgrade` 
 ### Fixed
 
 - A rollback that fails gives its connection up, on both backends, and a begin on a connection whose transaction was never ended is refused, where a failed rollback's error was ignored: on PostgreSQL the next request's commit could have committed what the failed rollback left with its own writes. A PostgreSQL store given up is opened again at the next write; a file store is refused `store_connection_discarded` until a restart, a failing disk being the likely cause (ADR-0228, `operate.md`).
+- An erasure clears what an object's earlier events wrote that was personal under the version they were written under, where a later version had dropped or retyped the attribute: the event that set it kept its value in `wrote`, though the erasure cleared its column and its inputs (ADR-0209). 0.5.2 has this defect.
 
 ### Security
 
