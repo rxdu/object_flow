@@ -95,8 +95,16 @@ pub const RELEASES: &[Release] = &[
         migrate: |_, _| Ok(()),
     },
     Release {
-        name: "objectflow-core 0.6.0",
+        name: "objectflow-core 0.5.3",
         from: &["objectflow-core 0.5.2"],
+        fingerprint: "sha256:6cf9647018a3ca76cdbe5728aca806b5d0c532d54f797a01e585b130683d94a2",
+        changes: "nothing in the store's own tables or its built-ins, which are 0.5.2's: the step records the release alone",
+        builtins_changed: false,
+        migrate: |_, _| Ok(()),
+    },
+    Release {
+        name: "objectflow-core 0.6.0",
+        from: &["objectflow-core 0.5.3"],
         fingerprint: "sha256:0503a5d115eadbfbe1726334f900c1242587309468d58799cb084abd20d8143a",
         changes: "each event names the batch its request came in, by the batch's first event, and each attempt row of a refused batch's request its index there (ADR-0228)",
         builtins_changed: false,
@@ -104,7 +112,7 @@ pub const RELEASES: &[Release] = &[
     },
 ];
 
-/// 0.5.2 to 0.6.0: the batch an event's request came in, none for every
+/// 0.5.3 to 0.6.0: the batch an event's request came in, none for every
 /// event before, since no batch ran before this release; and a refused
 /// batch's request's index on its attempt row, none before (ADR-0228
 /// decisions 6 and 7).

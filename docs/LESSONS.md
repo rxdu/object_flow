@@ -866,6 +866,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Twice in one day a 45-minute `scripts/check-all` ran on Rust I had edited with scripted replacements and not formatted; its `core` check stops at `cargo fmt --check`, so the run ended with the core's lints and SQLite tests never run, and the gate had to be taken again.
 - **Correction:** Run `cargo fmt` and `cargo clippy --all-targets --all-features -- -D warnings` in `core/` as the last step of every change, before freezing a snapshot or starting the gate; a scripted edit never produces rustfmt's layout.
 - **Context:** ObjectFlow's core, edits made by script; 2026-10-17.
+- **Recurred 2026-10-24**, cutting 0.5.3: the release commit's one-line edit to `deployment.rs`'s fixture list, made by a script after the code's own changes were formatted, pushed the line past rustfmt's width, and the release branch's 35-minute gate ended with the core's lints and SQLite tests never run. The correction holds for every edit, a release commit's included, however small: `cargo fmt` runs after the last edit, not after the last edit of code.
 
 ### A snapshot made with git diff leaves new files out
 - **Pattern:** To gate a change on a worktree while working on, I froze it with `git diff HEAD > patch` and applied that; `git diff` shows no untracked file, so a new ADR was missing from the snapshot, and `check-corpus` reported every reference to it as broken. Committing the same patch with `git apply --cached` would have left the ADR out of the commit too.
