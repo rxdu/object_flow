@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Fixed
+
+- An erasure clears what an object's earlier events wrote that was personal under the version they were written under, where a later version had dropped or retyped the attribute: the event that set it kept its value in `wrote`, though the erasure cleared its column and its inputs (ADR-0209). 0.5.2 has this defect.
+
 ### Security
 
 - Constant-time comparison is updated past an advisory published on 2026-10-23, a comparison that could branch on a secret value and so leak it through timing: `ctutils` 0.4.5 (RUSTSEC-2026-0385), through which a PostgreSQL store's SCRAM sign-in checks the server's signature. 0.5.2's binary carries the earlier `ctutils`.
