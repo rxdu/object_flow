@@ -618,6 +618,8 @@ def impact(store, new, found, actor, change_id):
                         o.spans[to] = o.spans.pop(frm)
                     if frm in o.writes:
                         o.writes[to] = o.writes.pop(frm)     # the write index follows, which an erasure reads
+                    if frm in o.migrated:
+                        o.migrated[to] = o.migrated.pop(frm)
         # an attribute whose type changed starts absent, its values set aside with their history; a reference following
         # a moved type keeps its values (ADR-0229 decision 5)
         for a, spec in (ot.get("attributes") or {}).items():
@@ -1045,6 +1047,13 @@ def install(store, installed, report, change_id, identity, kind):
                             held = e.get(k)
                             if isinstance(held, tuple) and len(held) == 3:
                                 e[k] = ("state", x.type, held[2])
+            # each value it wrote, judged by an erasure under the version it installed: one differing from what the
+            # object held, a rename carrying a value writing none
+            source = {to: frm for tn, maps in new.migration["renamed_attributes"].items()
+                      if is_a(kinds, x.type, tn) and x.type == was.type for frm, to in (maps or {}).items()}
+            for a, v in x.attrs.items():
+                if v != was.attrs.get(source.get(a, a), ABSENT):
+                    x.migrated[a] = (position, new_version)
             event(oid, x.type, "migrate", was.state, x.state, old_version, payload, publish)
             x.version += 1
         store.objects[oid] = x

@@ -1431,6 +1431,158 @@ def test_an_erasure_follows_a_personal_name_through_its_renames(tee):
     alike(tee)
 
 
+ALIAS = "      alias: { type: string, optional: true, personal: true }\n"
+
+
+def with_alias(text: str) -> str:
+    return text.replace("      nick: { type: string, optional: true }\n",
+                        "      nick: { type: string, optional: true }\n"
+                        + ALIAS)
+
+
+def without_alias(text: str, what: str) -> str:
+    """`alias` unmarked, dropped, retyped, or renamed `handle` and unmarked
+    at once."""
+    return {"unmarked": text.replace(
+                "alias: { type: string, optional: true, personal: true }",
+                "alias: { type: string, optional: true }"),
+            "dropped": text.replace(ALIAS, ""),
+            "retyped": text.replace(
+                "alias: { type: string, optional: true, personal: true }",
+                "alias: { type: int, optional: true }"),
+            "renamed": text.replace(
+                "alias: { type: string, optional: true, personal: true }",
+                "handle: { type: string, optional: true }")
+            + "migration:\n  description: The alias is a handle.\n"
+            "  renamed_attributes:\n    Customer: { alias: handle }\n"}[what]
+
+
+@pytest.mark.parametrize("what", ["unmarked", "dropped", "retyped",
+                                  "renamed"])
+def test_an_erasure_reaches_a_value_a_migration_wrote_while_personal(
+        tee, what):
+    """`alias`, personal and backfilled by one version, then unmarked,
+    dropped, retyped or renamed by the next, is cleared by an erasure, judged
+    under the version the migration installed, though its event names the
+    one before."""
+    v2 = with_alias(SHOP_V1)
+    load(tee, "shop", SHOP_V1)
+    ana = made(tee, "Customer", "join", name="Ana")
+    tee.found.clear()
+    published(tee, v2 + "migration:\n  description: An alias for each "
+              "customer.\n  backfill:\n    Customer: { alias: name }\n")
+    published(tee, without_alias(v2, what), "git:shop@3")
+    took(tee, ana, "forget", reason="asked")
+    held = tee.post("/v1/get", {"id": ana})["attributes"]
+    assert (held.get("alias"), held.get("handle")) == (None, None)
+    tee.post("/v1/history", {"id": ana})
+    alike(tee)
+
+
+@pytest.mark.parametrize("what", ["unmarked", "dropped"])
+def test_an_erasure_reaches_a_value_a_move_wrote_while_personal(tee, what):
+    """`alias`, personal in the type a customer moves into and given by the
+    move, then unmarked or dropped by the next version, is cleared by an
+    erasure (ADR-0229 decision 3)."""
+    client = with_alias(SHOP_V1).replace(
+        "  Customer:\n    description: A customer.\n",
+        "  Client:\n    description: A client.\n")
+    load(tee, "shop", SHOP_V1)
+    ana = made(tee, "Customer", "join", name="Ana")
+    tee.found.clear()
+    published(tee, client + "migration:\n  description: Customers are "
+              "clients.\n  moved_types:\n    Customer: [ { to: Client, "
+              "attributes: { alias: name } } ]\n")
+    published(tee, without_alias(client, what), "git:shop@3")
+    took(tee, ana, "forget", reason="asked")
+    assert tee.post("/v1/get", {"id": ana})["attributes"].get("alias") is None
+    tee.post("/v1/history", {"id": ana})
+    alike(tee)
+
+
+GREETED = """module: shop
+categories: [live, closed]
+types:
+  Customer:
+    description: A customer, and the cards greeting them.
+    tracking: record
+    attributes:
+      name: { type: string, optional: true }
+      cards: { reference: "Card[]", opposite: customer }
+    states:
+      ACTIVE: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ACTIVE, optional_inputs: [name] }
+      leave: { kind: external, from: [ACTIVE], to: GONE }
+      greet: { kind: internal, from: [ACTIVE], required_inputs: [name], effect: [ { create: { type: Card, transition: make, inputs: { customer: this, text: inputs.name } } } ] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Card:
+    description: A card naming its customer.
+    tracking: record
+    attributes:
+      customer: { reference: Customer, opposite: cards }
+      text: { type: string, optional: true, personal: true }
+    states:
+      SENT: { category: live }
+      READ: { category: closed, final: true }
+    transitions:
+      make: { kind: initial, to: SENT, required_inputs: [customer, text], only_via: [Customer.greet] }
+      read: { kind: external, from: [SENT], to: READ }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"""
+
+
+def test_an_erasure_follows_a_value_renamed_into_a_personal_attribute(tee):
+    """`name`, not personal when a greeting passed it into a card, and renamed
+    `alias`, personal, by the next version: an erasure of the customer
+    follows the greeting's input into the card, as it follows one never
+    renamed (`storage-schema.md` §9 step 12)."""
+    load(tee, "shop", GREETED)
+    ana = made(tee, "Customer", "join")
+    took(tee, ana, "greet", name="Ana")
+    card = tee.post("/v1/get", {"id": ana})["attributes"]["cards"][0]
+    tee.found.clear()
+    published(tee, GREETED.replace(
+        "name: { type: string, optional: true }",
+        "alias: { type: string, optional: true, personal: true }").replace(
+        "optional_inputs: [name]", "optional_inputs: [alias]").replace(
+        "required_inputs: [name]", "required_inputs: [alias]").replace(
+        "text: inputs.name", "text: inputs.alias")
+        + "migration:\n  description: The name is an alias.\n"
+        "  renamed_attributes:\n    Customer: { name: alias }\n")
+    took(tee, ana, "forget", reason="asked")
+    assert tee.post("/v1/get", {"id": card})["attributes"].get("text") is None
+    tee.post("/v1/history", {"id": card})
+    tee.post("/v1/history", {"id": ana})
+    alike(tee)
+
+
+def test_a_rename_beside_a_backfill_writes_no_value_alike(tee):
+    """`name`, written while not personal and renamed `alias`, personal,
+    beside a backfill of `nick`, is kept by an erasure once a later version
+    unmarks it: the migration they share writes no value of it."""
+    v1 = SHOP_V1.replace(
+        "name: { type: string, optional: true, personal: true }",
+        "name: { type: string, optional: true }")
+    renamed = SHOP_V1.replace(
+        "name: { type: string, optional: true, personal: true }",
+        ALIAS.strip()).replace(
+        "optional_inputs: [name, nick, tier, size]",
+        "optional_inputs: [alias, nick, tier, size]")
+    load(tee, "shop", v1)
+    ana = made(tee, "Customer", "join", name="Ana")
+    tee.found.clear()
+    published(tee, renamed + "migration:\n  description: The name is an "
+              "alias.\n  renamed_attributes:\n    Customer: { name: alias }\n"
+              "  backfill:\n    Customer: { nick: '\"n\"' }\n")
+    published(tee, without_alias(renamed, "unmarked"), "git:shop@3")
+    took(tee, ana, "forget", reason="asked")
+    assert tee.post("/v1/get", {"id": ana})["attributes"]["alias"] == "Ana"
+    tee.post("/v1/history", {"id": ana})
+    alike(tee)
+
+
 @pytest.mark.parametrize("erased_first", [False, True])
 def test_a_tier_newly_personal_is_cleared_erased_before_or_after(tee,
                                                                  erased_first):

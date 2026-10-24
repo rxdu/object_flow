@@ -779,6 +779,16 @@ impl<'l> World<'l> {
     /// name taken back through each later version's renames first, so a
     /// value written before a rename is judged as the attribute it was.
     pub fn personal_under(&self, version: i64, type_: &str, attribute: &str) -> bool {
+        let name = self.named_under(version, type_, attribute);
+        self.type_at(version, type_)
+            .and_then(|t| t.attribute(&name))
+            .is_some_and(|a| a.personal)
+    }
+
+    /// An attribute of a type, named as the installed version names it, as
+    /// the version given named it: taken back through each later version's
+    /// renames.
+    pub fn named_under(&self, version: i64, type_: &str, attribute: &str) -> String {
         let mut name = attribute.to_string();
         for k in (version + 1..=self.lib.version).rev() {
             let lib = if k == self.lib.version {
@@ -795,9 +805,7 @@ impl<'l> World<'l> {
                 name.clone_from(from);
             }
         }
-        self.type_at(version, type_)
-            .and_then(|t| t.attribute(&name))
-            .is_some_and(|a| a.personal)
+        name
     }
 
     /// A world that reads its log and its objects through the connection

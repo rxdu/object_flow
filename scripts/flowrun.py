@@ -608,7 +608,10 @@ class Obj:
         self.admissions = set()                 # invariants whose violation an admission lets stand (ADR-0054)
         self.spans = {}                         # tracked member -> its spans, each a Row (DESIGN.md §7)
         self.writes = {}                        # attribute or part relationship -> the event that last wrote it
-        self.erased = False                     # its own erasure is recorded (DESIGN.md §8)
+        # attribute -> the event of the migration that last wrote it and the version it installed, which `writes`
+        # does not record, since `changed_since` reads it
+        self.migrated = {}
+        self.erased = False                    # its own erasure is recorded (DESIGN.md §8)
         self.created_by_kind = "human"          # the kind of actor that created it; the operator's, until a request sets it
 
 
@@ -3209,9 +3212,16 @@ class Runner:
         # and a current value a later version no longer marks personal, judged by the event that last wrote it, its
         # name taken back through later renames (storage-schema.md §9 step 1, ADR-0146 decision 2)
         written_under = {e["position"]: e["declaration_version"] for e in work.events if e["object"] == o.id}
-        erased |= {a for a in o.attrs if a not in erased and o.writes.get(a) in written_under
-                   and self.personal_under(work, self.type_then(work, o.id, o.type, written_under[o.writes[a]]), a,
-                                           written_under[o.writes[a]])}
+
+        def declared_under(a):
+            """The version that declared what the object holds of `a`: that of the migration that last wrote it after
+            the event the write index names, the version it installed; else that event's."""
+            indexed, migrated = o.writes.get(a), o.migrated.get(a)
+            if migrated is not None and (indexed is None or migrated[0] > indexed):
+                return migrated[1]
+            return written_under.get(indexed)
+        erased |= {a for a in o.attrs if a not in erased and (v := declared_under(a)) is not None
+                   and self.personal_under(work, self.type_then(work, o.id, o.type, v), a, v)}
         # an actor's identity, which the store keeps beside the actor's object, taken before it is cleared and
         # replaced by the object's id once the request has written its own (ADR-0192 decision 4)
         marked = work.actor_attr(o.type)
@@ -3277,12 +3287,19 @@ class Runner:
             kinds = self.kinds
         else:
             kinds = (getattr(store, "history", None) or {}).get(version) or {}
-            for u in range(store.version, version, -1):
-                for base, frm, to in (getattr(store, "renames", None) or {}).get(u, ()):
-                    if a == to and store.is_a(tn, base):
-                        a = frm
+            a = self.named_under(store, tn, a, version)
         spec = ((kinds.get(tn) or {}).get("attributes") or {}).get(a)
         return bool((spec or {}).get("personal"))
+
+    @staticmethod
+    def named_under(store, tn, a, version):
+        """Attribute `a` of type `tn`, named as the installed version names it, as a version named it: taken back
+        through each later version's renames."""
+        for u in range(store.version, version, -1):
+            for base, frm, to in (getattr(store, "renames", None) or {}).get(u, ()):
+                if a == to and store.is_a(tn, base):
+                    a = frm
+        return a
 
     def identity_attrs(self, tn):
         """The attributes of type identity a type's objects hold, its bases' among them, where an erased actor's
@@ -3387,7 +3404,13 @@ class Runner:
         redacted, cleared = {}, {}
         for e in [e for e in work.events if e["object"] == o.id]:
             x = (t.get("transitions") or {}).get(e["transition"]) or {}
-            tainted = {n for n in e.get("inputs") or () if input_personal(t, x, n) or n in holding}
+            # and an input named for what the installed version marks personal, as a later rename found it, tainted
+            # by its installed name, which the walk down reads
+            v = e["declaration_version"]
+            renamed = {k: a for a in holding
+                       if (k := self.named_under(work, self.type_then(work, o.id, o.type, v), a, v)) != a}
+            tainted = {renamed.get(n, n) for n in e.get("inputs") or ()
+                       if input_personal(t, x, n) or n in holding or n in renamed}
             self.walk_down(ctx, e, tainted, holding, redacted, cleared)
         for oid in sorted(set(redacted) | set(cleared), key=lambda i: work.objects[i].id_order):
             p = work.objects[oid]

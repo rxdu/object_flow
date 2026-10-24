@@ -7587,6 +7587,17 @@ fn write(
                     nulled |= replaced_at(payload, &[*part, k.as_str()], |_| {
                         Some(serde_json::Value::Null)
                     });
+                    // a correction's record of what it replaced and wrote goes
+                    // with what it wrote, as the erased attributes' pass takes
+                    // it
+                    if *part == "wrote"
+                        && let Some(c) = at_path(payload, &["corrected", k.as_str()])
+                            .and_then(serde_json::Value::as_object_mut)
+                    {
+                        c.insert("replaced".to_string(), serde_json::Value::Null);
+                        c.insert("value".to_string(), serde_json::Value::Null);
+                        nulled = true;
+                    }
                 }
                 nulled
             },
