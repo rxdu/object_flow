@@ -2003,21 +2003,27 @@ fn take_unwound(
             _ => None,
         });
         // personal under the installed version, or under the version of
-        // the event that last wrote it, an attribute a later version no
-        // longer marks keeping what it was written as (ADR-0146 decision 2)
+        // the event or migration that last wrote it, an attribute a later
+        // version no longer marks keeping what it was written as (ADR-0146
+        // decision 2)
         // the events the erasure and its walks read, each by the log's
         // indexes, this request's own among them, where it read the whole
         // log under the writer (ADR-0162 step 1, fourth production review)
         let writes = o.held_parts()?.writes.clone();
+        let own: Vec<Event> = ctx.work.events_of(&o.id)?;
         for (a, spec) in &t.attributes {
             if !o.attrs.contains_key(a) {
                 continue;
             }
             let personal = spec.personal
-                || match writes.get(a.as_str()) {
-                    Some(position) => ctx.work.event_at(*position)?.is_some_and(|e| {
-                        ctx.work.personal_under(e.declaration_version, &o.type_, a)
-                    }),
+                || match declared_under(
+                    &ctx.work,
+                    &own,
+                    writes.get(a.as_str()).copied(),
+                    &o.type_,
+                    a,
+                )? {
+                    Some(version) => ctx.work.personal_under(version, &o.type_, a),
                     None => false,
                 };
             if !personal {
@@ -2049,7 +2055,6 @@ fn take_unwound(
         let redacted_since = ctx.redacted_inputs.len();
         // what the erased object holds that is personal, the source of
         // every value the walks follow
-        let own: Vec<Event> = ctx.work.events_of(&o.id)?;
         let own_versions: BTreeSet<i64> = own.iter().map(|e| e.declaration_version).collect();
         let holding: BTreeSet<String> = t
             .attributes
@@ -2075,18 +2080,43 @@ fn take_unwound(
             // what it wrote that was personal as the version it was written
             // under declared it, an attribute a later version dropped or
             // retyped among it, which the erased attributes, the installed
-            // version's, do not name (ADR-0209 decision 2)
-            if let (Some(wrote), Some(declared)) = (
-                e.payload["wrote"].as_object(),
-                ctx.work.type_at(e.declaration_version, &o.type_),
-            ) {
-                for (name, v) in wrote {
-                    if !v.is_null()
-                        && !erased.contains(name)
-                        && declared.attribute(name).is_some_and(|a| a.personal)
-                    {
-                        ctx.redacted_writes.push((e.position, name.clone()));
-                    }
+            // version's, do not name (ADR-0209 decision 2); a migration's
+            // under the version it installed
+            let under = written_under(e);
+            let declared = ctx.work.type_at(under, &o.type_).unwrap_or(t);
+            // and what the installed version marks personal, named as a
+            // later version's rename found it, which the erased attributes'
+            // installed names do not reach (ADR-0146 decision 2): each such
+            // name, and the installed one, which the walk down reads
+            let renamed: BTreeMap<String, String> = t
+                .attributes
+                .iter()
+                .filter(|(_, spec)| spec.personal)
+                .map(|(a, _)| (ctx.work.named_under(under, &o.type_, a), a.clone()))
+                .filter(|(k, a)| k != a)
+                .collect();
+            // each value it wrote, and each a correction recorded replacing
+            // and writing, which go with it
+            let held: BTreeSet<&String> = e.payload["wrote"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter(|(_, v)| !v.is_null())
+                .map(|(n, _)| n)
+                .chain(
+                    e.payload["corrected"]
+                        .as_object()
+                        .into_iter()
+                        .flatten()
+                        .map(|(n, _)| n),
+                )
+                .collect();
+            for name in held {
+                if !erased.contains(name)
+                    && (renamed.contains_key(name)
+                        || declared.attribute(name).is_some_and(|a| a.personal))
+                {
+                    ctx.redacted_writes.push((e.position, name.clone()));
                 }
             }
             let Some(ex) = tv
@@ -2108,9 +2138,10 @@ fn take_unwound(
                         || tv.attribute(name).is_some_and(|a| a.personal)
                         || personal_by_own(t, ex, name)
                         || t.attribute(name).is_some_and(|a| a.personal)
+                        || renamed.contains_key(name)
                     {
                         ctx.redacted_inputs.push((e.position, name.clone()));
-                        tainted.insert(name.clone());
+                        tainted.insert(renamed.get(name).unwrap_or(name).clone());
                     } else if input_personal(lib, tv, ex, name) || input_personal(lib, t, ex, name)
                     {
                         ctx.redacted_inputs.push((e.position, name.clone()));
@@ -2832,6 +2863,53 @@ pub(crate) fn input_personal(lib: &Library, t: &Type, x: &Transition, name: &str
 
 /// Whether an input is personal by its own transition alone: marked so, or
 /// written by its effect into a personal attribute (check 10).
+/// The version an event's writes were declared by: its own, or a
+/// migration's, whose event names the version before the publish, the one
+/// it installed, a publish installing the version after
+/// (`store.rs::publish_decided`).
+fn written_under(e: &Event) -> i64 {
+    if e.source == "migrated" {
+        e.declaration_version + 1
+    } else {
+        e.declaration_version
+    }
+}
+
+/// The version that declared what an object holds of an attribute, named as
+/// the installed version names it: that of the last migration of its own
+/// events to write a value of it after the event the write index names,
+/// read from the migration's `wrote`, since the index records no migration
+/// (`changed_since` reads it); else that event's; else none. A migration
+/// writes a value where it differs from what the object held before it,
+/// which its earlier events' `wrote` give, so a rename carrying a value,
+/// which `wrote` names to fold the row, writes none.
+fn declared_under(
+    work: &World<'_>,
+    own: &[Event],
+    indexed: Option<i64>,
+    type_: &str,
+    attribute: &str,
+) -> Result<Option<i64>, NotRun> {
+    // the value an event wrote of the attribute, named as its version did
+    fn wrote<'e>(work: &World<'_>, type_: &str, a: &str, e: &'e Event) -> Option<&'e Json> {
+        e.payload["wrote"].get(work.named_under(written_under(e), type_, a))
+    }
+    let wrote = |e| wrote(work, type_, attribute, e);
+    let migrated = own.iter().enumerate().rev().find_map(|(i, e)| {
+        if e.source != "migrated" || indexed.is_some_and(|p| e.position <= p) {
+            return None;
+        }
+        let value = wrote(e).filter(|v| !v.is_null())?;
+        let before = own[..i].iter().rev().find_map(wrote);
+        (before != Some(value)).then(|| written_under(e))
+    });
+    Ok(match (migrated, indexed) {
+        (Some(under), _) => Some(under),
+        (None, Some(position)) => work.event_at(position)?.map(|e| e.declaration_version),
+        (None, None) => None,
+    })
+}
+
 fn personal_by_own(t: &Type, x: &Transition, name: &str) -> bool {
     fn writes(steps: &[Step], t: &Type, name: &str) -> bool {
         steps.iter().any(|st| match st {

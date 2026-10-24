@@ -7,6 +7,9 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Fixed
 
 - An erasure clears what an object's earlier events wrote that was personal under the version they were written under, where a later version had dropped or retyped the attribute: the event that set it kept its value in `wrote`, though the erasure cleared its column and its inputs (ADR-0209). 0.5.2 has this defect.
+- An erasure judges a value a migration wrote under the version the migration installed, where it judged it under the version before, which the migration's event names: a backfill's value, personal when written, was kept in the object's row once a later version unmarked or renamed the attribute, and in the migration's `wrote` once a later version unmarked, dropped, retyped or renamed it. A rename's carried value is not a write, and an erasure judges it as before (`storage-schema.md` §9). 0.5.2 has this defect.
+- An erasure reaches a value renamed into an attribute the installed version marks personal in the events written before the rename, under the name they gave it, what each wrote, sent and corrected, and follows such a value into the objects it was passed to, where the events kept it under the old name though the erasure cleared the attribute (`storage-schema.md` §9). 0.5.2 has this defect.
+- An erasure clears a correction's record of what it replaced and wrote with what the correction wrote, where a value personal under the version it was written under, then unmarked or dropped by a later version, was left in the record (`storage-schema.md` §9). 0.5.2 has this defect.
 
 ### Security
 

@@ -3285,6 +3285,348 @@ types:
         }
     }
 
+    /// What a migration wrote is judged under the version it installed,
+    /// though its event names the version before (`storage-schema.md` §9,
+    /// ADR-0209 decision 2): `alias`, personal and backfilled by the second
+    /// version, then unmarked, dropped, retyped or renamed by the third, is in
+    /// no row or past event of an erased customer, the migration's own
+    /// included.
+    #[test]
+    fn a_value_a_migration_wrote_while_personal_is_erasable() {
+        let v2 = SHOP_V1.replace(
+            "      nick: { type: string, optional: true }\n",
+            "      nick: { type: string, optional: true }\n      alias: { type: string, optional: true, personal: true }\n",
+        );
+        let backfilled = format!(
+            "{v2}migration:\n  description: An alias for each customer.\n  backfill:\n    Customer: {{ alias: name }}\n"
+        );
+        let unmarked = v2.replace(
+            "alias: { type: string, optional: true, personal: true }",
+            "alias: { type: string, optional: true }",
+        );
+        let dropped = v2.replace(
+            "      alias: { type: string, optional: true, personal: true }\n",
+            "",
+        );
+        let retyped = v2.replace(
+            "alias: { type: string, optional: true, personal: true }",
+            "alias: { type: int, optional: true }",
+        );
+        // renamed and unmarked at once, the value named as the migration's
+        // version named it
+        let renamed = format!(
+            "{}migration:\n  description: The alias is a handle.\n  renamed_attributes:\n    Customer: {{ alias: handle }}\n",
+            v2.replace(
+                "alias: { type: string, optional: true, personal: true }",
+                "handle: { type: string, optional: true }",
+            )
+        );
+        for (what, text, column) in [
+            ("unmarked", unmarked, "alias"),
+            ("dropped", dropped, "alias"),
+            ("retyped", retyped, "alias__v2"),
+            ("renamed", renamed, "handle"),
+        ] {
+            let lib = Library::load(&[("shop.yaml".into(), SHOP_V1.into())]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let ana = created(&req(
+                &mut s,
+                "join",
+                ("Customer", true),
+                json!({"name": "Ana", "nick": "a"}),
+            ));
+            for (text, at) in [(&backfilled, "git:shop@2"), (&text, "git:shop@3")] {
+                let change = created(&req(
+                    &mut s,
+                    "draft",
+                    (crate::model::DECLARATION_CHANGE, true),
+                    json!({"source": {"shop": text}, "source_ref": at}),
+                ));
+                created(&req(&mut s, "submit", (&change, false), json!({})));
+                let v = s
+                    .snapshot()
+                    .unwrap()
+                    .whole(&change)
+                    .unwrap()
+                    .unwrap()
+                    .version;
+                let (verdict, report) = approve(&mut s, &change, v);
+                assert!(
+                    matches!(verdict, Verdict::Satisfied { .. }),
+                    "{what} at {at}: {verdict:?} {report:#?}"
+                );
+            }
+            assert_eq!(s.lib.version, 3, "{what}");
+            let migrated = s
+                .history(&ana)
+                .unwrap()
+                .into_iter()
+                .find(|e| e.transition == "migrate")
+                .expect("the backfill's migration");
+            assert_eq!(migrated.declaration_version, 1, "{what}");
+            assert_eq!(migrated.payload["wrote"]["alias"], json!("Ana"), "{what}");
+            created(&req(
+                &mut s,
+                "forget",
+                (&ana, false),
+                json!({"reason": "asked"}),
+            ));
+            let held: Option<String> = s
+                .conn()
+                .query_row(
+                    &format!("SELECT {column} FROM t_customer WHERE id = ?1"),
+                    [&ana],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(held, None, "{what}: the {column} column");
+            let migrated = s
+                .history(&ana)
+                .unwrap()
+                .into_iter()
+                .find(|e| e.transition == "migrate")
+                .unwrap();
+            assert_eq!(
+                migrated.payload["wrote"]["alias"],
+                json!(null),
+                "{what}: the migration's write"
+            );
+        }
+    }
+
+    /// A rename writes no value though the migration it shares with a
+    /// backfill names it in `wrote`: `name`, written while not personal and
+    /// renamed `alias`, personal, beside a backfill of `nick`, is kept by an
+    /// erasure once a later version unmarks it, judged under the version that
+    /// wrote it (ADR-0146 decision 2).
+    #[test]
+    fn a_rename_beside_a_backfill_writes_no_value_an_erasure_judges() {
+        let v1 = SHOP_V1.replace(
+            "name: { type: string, optional: true, personal: true }",
+            "name: { type: string, optional: true }",
+        );
+        let renamed = SHOP_V1
+            .replace(
+                "name: { type: string, optional: true, personal: true }",
+                "alias: { type: string, optional: true, personal: true }",
+            )
+            .replace(
+                "optional_inputs: [name, nick, tier, size]",
+                "optional_inputs: [alias, nick, tier, size]",
+            );
+        let v2 = format!(
+            "{renamed}migration:\n  description: The name is an alias.\n  renamed_attributes:\n    Customer: {{ name: alias }}\n  backfill:\n    Customer: {{ nick: '\"n\"' }}\n"
+        );
+        let v3 = renamed.replace(
+            "alias: { type: string, optional: true, personal: true }",
+            "alias: { type: string, optional: true }",
+        );
+        let lib = Library::load(&[("shop.yaml".into(), v1)]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let ana = created(&req(
+            &mut s,
+            "join",
+            ("Customer", true),
+            json!({"name": "Ana"}),
+        ));
+        for (text, at) in [(&v2, "git:shop@2"), (&v3, "git:shop@3")] {
+            let change = created(&req(
+                &mut s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"shop": text}, "source_ref": at}),
+            ));
+            created(&req(&mut s, "submit", (&change, false), json!({})));
+            let v = s
+                .snapshot()
+                .unwrap()
+                .whole(&change)
+                .unwrap()
+                .unwrap()
+                .version;
+            let (verdict, report) = approve(&mut s, &change, v);
+            assert!(
+                matches!(verdict, Verdict::Satisfied { .. }),
+                "{at}: {verdict:?} {report:#?}"
+            );
+        }
+        let migrated = s
+            .history(&ana)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.transition == "migrate")
+            .expect("the backfill's migration");
+        assert_eq!(migrated.payload["wrote"]["alias"], json!("Ana"));
+        created(&req(
+            &mut s,
+            "forget",
+            (&ana, false),
+            json!({"reason": "asked"}),
+        ));
+        let w = s.snapshot().unwrap();
+        let o = w.whole(&ana).unwrap().unwrap();
+        assert_eq!(o.attr("alias"), Value::Text("Ana".into()));
+    }
+
+    /// `name` with a correction, so the log holds it as written, as sent and
+    /// as a correction's record of what it replaced and wrote.
+    fn shop_corrected(text: &str) -> String {
+        text.replace(
+            "      leave: { kind: external, from: [ACTIVE], to: GONE }\n",
+            "      leave: { kind: external, from: [ACTIVE], to: GONE }\n      fix_name: { kind: internal, from: [ACTIVE], corrects: [name], required_inputs: [name], inputs: { reason: { type: string } } }\n",
+        )
+    }
+
+    /// Publish each text in turn on a store holding `ana`, approved.
+    fn published_in_turn(s: &mut Store, texts: &[&str]) {
+        for (i, text) in texts.iter().enumerate() {
+            let change = created(&req(
+                s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"shop": text}, "source_ref": format!("git:shop@{}", i + 2)}),
+            ));
+            created(&req(s, "submit", (&change, false), json!({})));
+            let v = s
+                .snapshot()
+                .unwrap()
+                .whole(&change)
+                .unwrap()
+                .unwrap()
+                .version;
+            let (verdict, report) = approve(s, &change, v);
+            assert!(
+                matches!(verdict, Verdict::Satisfied { .. }),
+                "{i}: {verdict:?} {report:#?}"
+            );
+        }
+    }
+
+    /// Every copy of `name` an object's events hold, by part.
+    fn copies(s: &Store, id: &str, name: &str) -> Vec<(String, Json)> {
+        let mut out = Vec::new();
+        for e in s.history(id).unwrap() {
+            for part in [["wrote", name], ["inputs", name]] {
+                let v = &e.payload[part[0]][part[1]];
+                if !v.is_null() {
+                    out.push((
+                        format!("{} {}.{}", e.transition, part[0], part[1]),
+                        v.clone(),
+                    ));
+                }
+            }
+            for half in ["replaced", "value"] {
+                let v = &e.payload["corrected"][name][half];
+                if !v.is_null() {
+                    out.push((
+                        format!("{} corrected.{name}.{half}", e.transition),
+                        v.clone(),
+                    ));
+                }
+            }
+        }
+        out
+    }
+
+    /// A value written while not personal, then renamed into an attribute
+    /// the version marks personal, is personal now, and an erasure leaves
+    /// none of it in an event written under its old name, as it leaves none
+    /// in one the rename did not reach (ADR-0146 decision 2).
+    #[test]
+    fn an_erasure_reaches_a_value_renamed_into_a_personal_attribute() {
+        let v1 = shop_corrected(&SHOP_V1.replace(
+            "name: { type: string, optional: true, personal: true }",
+            "name: { type: string, optional: true }",
+        ));
+        let v2 = shop_corrected(SHOP_V1)
+            .replace(
+                "name: { type: string, optional: true, personal: true }",
+                "alias: { type: string, optional: true, personal: true }",
+            )
+            .replace(
+                "optional_inputs: [name, nick, tier, size]",
+                "optional_inputs: [alias, nick, tier, size]",
+            )
+            .replace(
+                "fix_name: { kind: internal, from: [ACTIVE], corrects: [name], required_inputs: [name]",
+                "fix_name: { kind: internal, from: [ACTIVE], corrects: [alias], required_inputs: [alias]",
+            )
+            + "migration:\n  description: The name is an alias.\n  renamed_attributes:\n    Customer: { name: alias }\n";
+        let lib = Library::load(&[("shop.yaml".into(), v1)]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let ana = created(&req(
+            &mut s,
+            "join",
+            ("Customer", true),
+            json!({"name": "Ana"}),
+        ));
+        created(&req(
+            &mut s,
+            "fix_name",
+            (&ana, false),
+            json!({"name": "Anna", "reason": "typo"}),
+        ));
+        published_in_turn(&mut s, &[&v2]);
+        assert!(!copies(&s, &ana, "name").is_empty());
+        created(&req(
+            &mut s,
+            "forget",
+            (&ana, false),
+            json!({"reason": "asked"}),
+        ));
+        assert_eq!(copies(&s, &ana, "name"), vec![]);
+        assert_eq!(copies(&s, &ana, "alias"), vec![]);
+    }
+
+    /// A correction's record of a value personal under the version it was
+    /// written under goes with what the event wrote, once a later version
+    /// unmarked or dropped the attribute (ADR-0209 decision 2).
+    #[test]
+    fn an_erasure_reaches_a_correction_of_a_value_personal_when_written() {
+        let v1 = shop_corrected(SHOP_V1);
+        let unmarked = v1.replace(
+            "name: { type: string, optional: true, personal: true }",
+            "name: { type: string, optional: true }",
+        );
+        let dropped = v1
+            .replace(
+                "      name: { type: string, optional: true, personal: true }\n",
+                "",
+            )
+            .replace(
+                "optional_inputs: [name, nick, tier, size]",
+                "optional_inputs: [nick, tier, size]",
+            )
+            .replace(
+                "      fix_name: { kind: internal, from: [ACTIVE], corrects: [name], required_inputs: [name], inputs: { reason: { type: string } } }\n",
+                "",
+            );
+        for (what, text) in [("unmarked", unmarked), ("dropped", dropped)] {
+            let lib = Library::load(&[("shop.yaml".into(), v1.clone())]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let ana = created(&req(
+                &mut s,
+                "join",
+                ("Customer", true),
+                json!({"name": "Ana"}),
+            ));
+            created(&req(
+                &mut s,
+                "fix_name",
+                (&ana, false),
+                json!({"name": "Anna", "reason": "typo"}),
+            ));
+            published_in_turn(&mut s, &[&text]);
+            created(&req(
+                &mut s,
+                "forget",
+                (&ana, false),
+                json!({"reason": "asked"}),
+            ));
+            assert_eq!(copies(&s, &ana, "name"), vec![], "{what}");
+        }
+    }
+
     /// The interval index too: a tracked personal enumeration's intervals
     /// are cleared by the version they were written under, whether a later
     /// version unmarked it, keeping its intervals, or retyped it, setting
