@@ -94,6 +94,14 @@ pub const RELEASES: &[Release] = &[
         builtins_changed: false,
         migrate: |_, _| Ok(()),
     },
+    Release {
+        name: "objectflow-core 0.5.3",
+        from: &["objectflow-core 0.5.2"],
+        fingerprint: "sha256:6cf9647018a3ca76cdbe5728aca806b5d0c532d54f797a01e585b130683d94a2",
+        changes: "nothing in the store's own tables or its built-ins, which are 0.5.2's: the step records the release alone",
+        builtins_changed: false,
+        migrate: |_, _| Ok(()),
+    },
 ];
 
 /// 0.2.0 to 0.3.0: the restore table, empty, since no store of 0.2.0 was

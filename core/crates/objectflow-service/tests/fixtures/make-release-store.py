@@ -17,8 +17,10 @@ at commit 37e8825, the last of release 0.2.0, those under release-0.3.0/ by the 
 77bf468 and checked against its SHA-256, from the modules as 0.3.0 shipped them, those under release-0.4.0/ by the
 service published as v0.4.0, built at 9c6cd26 and checked against its SHA-256, from the modules as 0.4.0 shipped them,
 those under release-0.5.0/ by the service published as v0.5.0, built at ccc88de and checked against its SHA-256, from
-the modules as 0.5.0 shipped them, and those under release-0.5.1/ by the service published as v0.5.1, built at 4048a90
-and checked against its SHA-256, from the modules as 0.5.1 shipped them, its ids UUIDv7s.
+the modules as 0.5.0 shipped them, those under release-0.5.1/ by the service published as v0.5.1, built at 4048a90
+and checked against its SHA-256, from the modules as 0.5.1 shipped them, its ids UUIDv7s, and those under
+release-0.5.2/ by the service published as v0.5.2, built at a04acbd and checked against its SHA-256, from the modules
+as 0.5.2 shipped them.
 """
 import json
 import pathlib

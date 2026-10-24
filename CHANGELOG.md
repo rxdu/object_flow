@@ -2,7 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.5.3, 2026-10-24
+
+A patch release of 0.5.2 (ADR-0214): four fixes to what an erasure clears of an object's history, each a defect 0.5.2 has, and `ctutils` past RUSTSEC-2026-0385, which a PostgreSQL store's sign-in reaches. It refuses nothing 0.5.2 accepted. A store of 0.5.2, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that changes nothing in it but its release.
 
 ### Fixed
 
