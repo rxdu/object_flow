@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Security
+
+- Constant-time comparison is updated past an advisory published on 2026-10-23, a comparison that could branch on a secret value and so leak it through timing: `ctutils` 0.4.5 (RUSTSEC-2026-0385), through which a PostgreSQL store's SCRAM sign-in checks the server's signature. 0.5.2's binary carries the earlier `ctutils`.
+
 ## 0.5.2, 2026-10-21
 
 A patch release of 0.5.1 (ADR-0214): a version whose backfill writes every object of a type approved in time that grows with the store, the flow format's schema published with each release, and a transition's own `deny` guard on `<attribute> is not null` accepted by both checkers as setting what its target state requires (ADR-0227), which a description 0.5.1 refused may now use and none it accepted is refused. A store of 0.5.1, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that changes nothing in it but its release.
