@@ -1726,6 +1726,75 @@ def test_a_reference_a_mapping_writes_holds_its_type_alike(tee, by):
     assert want in codes, codes
     alike(tee)
 
+LEDGER = """module: ledger
+categories: [live, closed]
+enumerations:
+  Tier: [BRONZE, GOLD]
+types:
+  Account:
+    description: An account.
+    tracking: record
+    attributes:
+      code: { type: string }
+      tier: { type: Tier, optional: true }
+      limit: { type: "decimal(5,2)", optional: true }
+      seats: { type: int, optional: true }
+      note: { type: string, optional: true }
+      amount: { type: money(USD), optional: true }
+      grace: { type: duration, optional: true }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [code] }
+      shut: { kind: external, from: [OPEN], to: SHUT }
+"""
+
+
+@pytest.mark.parametrize("by", ["backfill", "move"])
+@pytest.mark.parametrize("attr,value,holds", [
+    ("tier", '"GOLD"', False), ("tier", "Tier.GOLD", True),
+    ("limit", "12345.678", False), ("limit", "123.455", True),
+    ("seats", "1.5", False), ("seats", "3.0", True),
+    ("note", "7", False), ("note", '"seven"', True),
+    ("amount", "12.345", False), ("amount", "EUR 12.34", False),
+    ("amount", "USD 12.34", True), ("grace", "3", False),
+    ("grace", "2 days", True)])
+def test_a_mapping_writes_only_what_its_attribute_holds_alike(
+        tee, by, attr, value, holds):
+    """A backfill's or a move's given value is fitted to its attribute as a
+    request's is: a member of its own enumeration, a decimal at its scale,
+    rounded half to even, within its digits, an integer only where whole,
+    text only to text, an amount only in its currency, a duration only to a
+    duration; one it cannot hold refuses the publish, and one it
+    holds is installed fitted, alike through both backends (ADR-0205
+    decision 1, ADR-0229 decision 3)."""
+    load(tee, "ledger", LEDGER)
+    account = made(tee, "Account", "open", code="a1")
+    tee.found.clear()
+    if by == "backfill":
+        text = (LEDGER + "migration:\n  description: Every account takes "
+                f"it.\n  backfill:\n    Account: {{ {attr}: '{value}' }}\n")
+        fatal = f"mapping:backfill:Account.{attr}"
+    else:
+        text = (LEDGER.replace("  Account:\n    description: An account.\n",
+                               "  Client:\n    description: A client.\n")
+                + "migration:\n  description: Accounts are clients.\n"
+                "  moved_types:\n    Account: [ { to: Client, attributes: "
+                f"{{ {attr}: '{value}' }} }} ]\n")
+        fatal = f"mapping:moved_types:Account.Client.{attr}"
+    c = change(tee, "draft", source={"ledger": text},
+               source_ref="git:ledger@2")["object_id"]
+    report = tee.post("/v1/publish", {"actor": OP, "change": c,
+                                      "dry_run": True})["report"]
+    fatals = {f["code"] for f in report["findings"]
+              if f["severity"] == "fatal"}
+    assert (fatal in fatals) != holds, (fatal, report["findings"])
+    if holds:
+        approved(tee, c)
+        tee.post("/v1/get", {"id": account})
+    alike(tee)
+
 CLIENTS = """module: clients
 categories: [live, closed]
 types:

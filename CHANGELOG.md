@@ -7,6 +7,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Fixed
 
 - A refused request's row in the attempt log names no object the store does not hold, in its `object_id`, its `reads` and a refused call's `call`. The row's read set named the request's own would-be object where its invariant read it, and a refused batch's row the objects the batch's earlier requests made, which the rollback left unmade; in a sandbox the next object took the id, so the row named another object. `request_values` keeps the inputs as the request sent them (ADR-0181 decision 2, `storage-schema.md` §6). 0.6.0 has this defect, and 0.5.3 has it for a single creation.
+- The Flow Studio's runner backend, and the reference runner behind it, fit a backfill's and a move's given value to its attribute as the core does, and refuse one it cannot hold: a value of another kind, an amount in another currency, a duration or a time that is not one, a decimal past its digits, an integer that is not whole. The runner installed each as it came, where the core refused the publish, and a decimal it did not round left the object unreadable there.
 
 ## 0.6.0, 2026-10-25
 

@@ -12,6 +12,7 @@ import copy
 import hashlib
 import json
 import re
+from fractions import Fraction
 
 from flowrun import ABSENT, DECLARATION_CHANGE, NotRunnable, Obj, Refused, attempt_row
 
@@ -458,6 +459,51 @@ def follows_move(m, was, now):
         and before.removesuffix("[]") in m["moved_types"]
 
 
+def fitted(spec, v, kind=None):
+    """A mapping's value as its attribute holds it, as the core's `fit_value` fits one: its kind and scale as a
+    request's write fits them (`flowrun.at_declared_scale`), a decimal within its digits and the 18 a value holds, an
+    amount at its currency's minor unit within the 18, text within 64 KiB and a time within the calendar. `kind` is
+    the type the core holds the value at (`Evaluator.held_kind`), which an amount, a duration and a time each need,
+    the runner holding all three as numbers. Returns the value and None, or None and why the attribute cannot hold it
+    (the audit's values W1 and W3, ADR-0205 decision 1)."""
+    import flowrun
+    spec = spec or {}
+    typ = str(spec.get("type") or "")
+    if v is flowrun.ABSENT or spec.get("reference") or not typ:
+        return v, None
+    one = typ.removesuffix("[]")
+    held = (kind or ("other",))[0]
+    if held != "other" and not typ.endswith("[]"):
+        if one.startswith("money(") and tuple(kind) != ("money", one[len("money("):-1]):
+            return None, f"a {held} where {typ} is held"
+        if one in ("duration", "timestamp") and held != one:
+            return None, f"a {held} where {typ} is held"
+    try:
+        v = flowrun.at_declared_scale(spec, v)
+    except flowrun.Refused:
+        return None, f"a value of another kind where {typ} is held"
+    out = []
+    for x in v if typ.endswith("[]") else (v,):
+        digits = flowrun.precision_of(one)
+        if digits:
+            units = abs(Fraction(x) * 10 ** int(one.rstrip(")").rsplit(",", 1)[1]))
+            if units > 10 ** digits - 1:
+                return None, f"{x} has more than {digits} digits"
+            if units > flowrun.INPUT_UNITS:
+                return None, f"{x} is past the 18 digits a value holds"
+        elif one.startswith("money("):
+            minor = flowrun.MINOR_UNITS.get(one[len("money("):-1], 2)
+            x = flowrun.half_even(x, minor)
+            if abs(x * 10 ** minor) > flowrun.INPUT_UNITS:
+                return None, f"{x} is past the 18 digits a value holds"
+        elif one in ("string", "text", "identity", "actor_kind") and len(x.encode("utf-8")) > flowrun.TEXT_BYTES:
+            return None, f"a string of {len(x.encode('utf-8'))} bytes, past the {flowrun.TEXT_BYTES} a value holds"
+        elif one == "timestamp" and not flowrun.FIRST_SECOND <= x <= flowrun.LAST_SECOND:
+            return None, "a time past the calendar"
+        out.append(x)
+    return (tuple(out) if typ.endswith("[]") else out[0]), None
+
+
 def moves(store, sim, kinds, retired, m, found):
     """Each object of a type the version moves, put into the simulation as its entry leaves it: an object of the
     entry's type, its id kept, its attributes given or carried, its state mapped (ADR-0229 decisions 2 and 3). Read
@@ -516,7 +562,13 @@ def moves(store, sim, kinds, retired, m, found):
                     continue
                 was = (ot.get("attributes") or {}).get(a)
                 if a in given:
-                    v = ev.value(flowrun.parsed(str(given[a])), {})
+                    # fitted to the target's attribute, one it cannot hold refusing the publish, as the core's
+                    tree = flowrun.parsed(str(given[a]))
+                    v, why = fitted(spec, ev.value(tree, {}), ev.held_kind(tree, ev.kinds_here({}), {}))
+                    if why is not None:
+                        found.add("fatal", f"mapping:moved_types:{tn}.{to}.{a}",
+                                  f"the move of {tn} to {to} gives {a} what it cannot hold: {why}", oid)
+                        continue
                 elif was is not None and (declared_as(was) == declared_as(spec) or follows_move(m, was, spec)):
                     v = o.attrs.get(a, flowrun.ABSENT)
                 else:
@@ -675,7 +727,16 @@ def impact(store, new, found, actor, change_id):
                 spec = (kinds[o.type].get("attributes") or {}).get(attr) or {}
                 if o.erased and spec.get("personal"):
                     continue
-                v = flowrun.Evaluator(sim, o.type, oid).value(flowrun.parsed(str(text)), {})
+                ev, tree = flowrun.Evaluator(sim, o.type, oid), flowrun.parsed(str(text))
+                # what its attribute holds, an integer to a decimal at its scale and an identity well formed, one it
+                # cannot hold refusing the publish, where it was written as it came, as the core's
+                v, why = fitted(spec, ev.value(tree, {}), ev.held_kind(tree, ev.kinds_here({}), {}))
+                if why is None and str(spec.get("type")) == "identity" and isinstance(v, str):
+                    why = flowrun.identity_fault(v, kinds)
+                if why is not None:
+                    found.add("fatal", f"mapping:backfill:{tn}.{attr}",
+                              f"the backfill of {tn}.{attr} writes what it cannot hold: {why}", oid)
+                    continue
                 if o.attrs.get(attr, flowrun.ABSENT) != v:
                     found.add("notice", f"mapping:backfill:{tn}.{attr}", f"the backfill of {tn}.{attr} writes these objects",
                               oid)
