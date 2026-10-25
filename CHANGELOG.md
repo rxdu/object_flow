@@ -2,9 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.6.0, 2026-10-25
 
-A store of 0.5.3, a file or a PostgreSQL database, is upgraded by `/v1/upgrade` to 0.6.0, a step adding two columns, an event's `batch` and an attempt's `batch_index`, which an earlier event and row hold empty. A store of 0.5.2 takes 0.5.3's step first.
+A release before 1.0.0, as 0.5.0 was (ADR-0214), answering the two issues filed since 0.5.2: an atomic batch of requests (#30, ADR-0228) and a version moving a removed type's objects into types of its own (#31, ADR-0229), with the fixes its security review found. A store of 0.5.3, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step adding two columns, an event's `batch` and an attempt's `batch_index`, which an earlier event and row hold empty. A store of 0.5.2 takes 0.5.3's step first. A publish removing a type with live objects, and a backfill giving a reference another type's object, are refused where 0.5.3 accepted them, each listed under its own heading below.
 
 ### Added
 
