@@ -15,6 +15,7 @@ A store of 0.5.3, a file or a PostgreSQL database, is upgraded by `/v1/upgrade` 
 
 ### Changed, and may refuse what 0.5.3 accepted
 
+- A publish whose backfill gives a reference an object of a type it does not reference is refused, `mapping_reference:<Type>.<attribute>`, naming the objects, as a move's attributes are, where 0.5.3 installed the reference on a PostgreSQL store and failed the approval on a file store, the value fitting a reference by its kind alone (`publish-and-import.md` §2). 0.5.3 has this defect.
 - A publish removing a type that holds an object not in a final state is refused, `removed_type:<Type>`, naming those objects, unless the version moves them with `moved_types` or retires the type on purpose with `retired_types`, where 0.5.3 retired the type without a finding, its live objects taking no transition again (ADR-0229 decision 1). A retired type's objects are named in the report, `retired:<Type>`.
 
 ### Fixed

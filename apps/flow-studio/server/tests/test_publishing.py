@@ -1659,6 +1659,73 @@ def test_a_moved_erased_object_has_what_its_target_newly_marks_redacted_alike(
     assert [e["transition"] for e in history["events"]][-1] == "redact", history
     alike(tee)
 
+
+TICKETS = """module: desk
+categories: [live, closed]
+types:
+  Employee:
+    description: An employee.
+    tracking: record
+    attributes:
+      code: { type: string }
+    states:
+      ON: { category: live }
+      OFF: { category: closed, final: true }
+    transitions:
+      hire: { kind: initial, to: ON, required_inputs: [code] }
+      leave: { kind: external, from: [ON], to: OFF }
+  Customer:
+    description: A customer.
+    tracking: record
+    attributes:
+      code: { type: string }
+    states:
+      ON: { category: live }
+      OFF: { category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ON, required_inputs: [code] }
+      leave: { kind: external, from: [ON], to: OFF }
+  Ticket:
+    description: A ticket.
+    tracking: record
+    attributes:
+      customer: { reference: Customer }
+      owner: { reference: Employee, optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [customer], optional_inputs: [owner] }
+      close: { kind: external, from: [OPEN], to: DONE }
+"""
+
+
+@pytest.mark.parametrize("by", ["backfill", "move"])
+def test_a_reference_a_mapping_writes_holds_its_type_alike(tee, by):
+    """A ticket's customer given to `owner`, a reference to an employee, by
+    a backfill or by a move's attributes, refuses the publish, alike
+    through both backends (ADR-0229 decision 5)."""
+    load(tee, "desk", TICKETS)
+    made(tee, "Employee", "hire", code="e1")
+    customer = made(tee, "Customer", "join", code="c1")
+    made(tee, "Ticket", "open", customer=customer)
+    tee.found.clear()
+    head = TICKETS[:TICKETS.index("  Ticket:\n")]
+    case = TICKETS[TICKETS.index("  Ticket:\n"):].replace(
+        "  Ticket:\n    description: A ticket.\n",
+        "  Case:\n    description: A case.\n")
+    text = {"backfill": TICKETS + "migration:\n  description: Each ticket's "
+            "owner is its customer.\n  backfill:\n    Ticket: { owner: "
+            "customer }\n",
+            "move": head + case + "migration:\n  description: Tickets are "
+            "cases.\n  moved_types:\n    Ticket: [ { to: Case, attributes: "
+            "{ owner: customer } } ]\n"}[by]
+    _c, codes = dry_run(tee, {"desk": text})
+    want = {"backfill": "mapping_reference:Ticket.owner",
+            "move": "mapping_reference:Case.owner"}[by]
+    assert want in codes, codes
+    alike(tee)
+
 CLIENTS = """module: clients
 categories: [live, closed]
 types:

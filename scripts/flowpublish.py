@@ -683,24 +683,33 @@ def impact(store, new, found, actor, change_id):
                         o.attrs.pop(attr, None)
                     else:
                         o.attrs[attr] = v
-    # a reference to an object that moves holds what it now references, where its type references a type the object
-    # no longer is: a retired type's, whose declaration stays, among them (ADR-0229 decision 5)
-    if moving:
-        for oid, o in sorted(sim.objects.items(), key=lambda kv: kv[1].id_order):
-            if o.type in BUILT_IN or o.type not in kinds:
+    # a reference holds an object of the type it references: one a mapping wrote, given, carried or backfilled, and
+    # one to an object that moves, where its type references a type the object no longer is, a retired type's, whose
+    # declaration stays, among them (ADR-0229 decision 5), as the core judges it
+    for oid, o in sorted(sim.objects.items(), key=lambda kv: kv[1].id_order):
+        if o.type in BUILT_IN or o.type not in kinds:
+            continue
+        before = store.objects.get(oid)
+        for a, spec in (kinds[o.type].get("attributes") or {}).items():
+            spec = spec or {}
+            if "reference" not in spec or derived_end(spec):
                 continue
-            for a, spec in (kinds[o.type].get("attributes") or {}).items():
-                spec = spec or {}
-                if "reference" not in spec or derived_end(spec):
-                    continue
-                target = str(spec["reference"]).removesuffix("[]")
-                v = o.attrs.get(a, flowrun.ABSENT)
-                for r in (v if flowrun.is_set(v) else (v,) if isinstance(v, str) else ()):
-                    if r in moving and not is_a(kinds, sim.objects[r].type, target):
+            target = str(spec["reference"]).removesuffix("[]")
+            v = o.attrs.get(a, flowrun.ABSENT)
+            written = before is None or before.type != o.type or before.attrs.get(a, flowrun.ABSENT) != v
+            if not written and not moving:
+                continue
+            for r in (v if flowrun.is_set(v) else (v,) if isinstance(v, str) else ()):
+                if (written or r in moving) and r in sim.objects and not is_a(kinds, sim.objects[r].type, target):
+                    if r in moving:
                         found.add("fatal", f"moved_reference:{o.type}.{a}",
                                   f"objects of {o.type} reference, by {a}, objects the version moves where {a}, a reference "
                                   f"to {target}, cannot hold them", oid)
-                        break
+                    else:
+                        found.add("fatal", f"mapping_reference:{o.type}.{a}",
+                                  f"a mapping gives objects of {o.type} by {a}, a reference to {target}, objects it cannot "
+                                  "hold", oid)
+                    break
     removed = [(en, mem) for en, members in old_enums.items() for mem in members
                if mem not in (new.enums.get(en) or [])]
     for oid, o in sim.objects.items():

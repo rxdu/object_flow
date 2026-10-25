@@ -1115,35 +1115,46 @@ fn impact(
             }
         }
     }
-    // a reference to an object that moves holds what it now references,
-    // where its type references a type the object no longer is: a retired
-    // type's, whose declaration stays, among them (ADR-0229 decision 5)
-    if !moving.is_empty() {
-        for o in sim.in_order()? {
-            let Some(t) = new.type_(&o.type_).filter(|_| !builtin(&o.type_)) else {
+    // a reference holds an object of the type it references: one a mapping
+    // wrote, given, carried or backfilled, its value fitted by its kind
+    // alone, and one to an object that moves, where its type references a
+    // type the object no longer is, a retired type's, whose declaration
+    // stays, among them (ADR-0229 decision 5)
+    for o in sim.in_order()? {
+        let Some(t) = new.type_(&o.type_).filter(|_| !builtin(&o.type_)) else {
+            continue;
+        };
+        let before = world.get(&o.id)?;
+        for (a, spec) in &t.attributes {
+            let Declared::Reference(to) = &spec.declared else {
                 continue;
             };
-            for (a, spec) in &t.attributes {
-                let Declared::Reference(to) = &spec.declared else {
-                    continue;
-                };
-                if spec.derived_end() {
-                    continue;
-                }
-                let referents: Vec<String> = match o.attr(a) {
-                    Value::Object(r) => vec![r],
-                    Value::Set(items) => items
-                        .into_iter()
-                        .filter_map(|i| match i {
-                            Value::Object(r) => Some(r),
-                            _ => None,
-                        })
-                        .collect(),
-                    _ => Vec::new(),
-                };
-                for r in referents.iter().filter(|r| moving.contains_key(*r)) {
-                    let landed = sim.get(r)?.map(|x| x.type_.clone());
-                    if landed.is_some_and(|l| !new.is_a(&l, to)) {
+            if spec.derived_end() {
+                continue;
+            }
+            let now = o.attr(a);
+            let written = before.is_none_or(|b| b.type_ != o.type_ || b.attr(a) != now);
+            if !written && moving.is_empty() {
+                continue;
+            }
+            let referents: Vec<String> = match now {
+                Value::Object(r) => vec![r],
+                Value::Set(items) => items
+                    .into_iter()
+                    .filter_map(|i| match i {
+                        Value::Object(r) => Some(r),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            for r in referents
+                .iter()
+                .filter(|r| written || moving.contains_key(*r))
+            {
+                let landed = sim.get(r)?.map(|x| x.type_.clone());
+                if landed.is_some_and(|l| !new.is_a(&l, to)) {
+                    if moving.contains_key(r) {
                         found.add(
                             Severity::Fatal,
                             format!("moved_reference:{}.{a}", o.type_),
@@ -1153,8 +1164,18 @@ fn impact(
                             ),
                             Some(&o.id),
                         );
-                        break;
+                    } else {
+                        found.add(
+                            Severity::Fatal,
+                            format!("mapping_reference:{}.{a}", o.type_),
+                            format!(
+                                "a mapping gives objects of {} by {a}, a reference to {to}, objects it cannot hold",
+                                o.type_
+                            ),
+                            Some(&o.id),
+                        );
                     }
+                    break;
                 }
             }
         }
@@ -5684,6 +5705,99 @@ types:
                 Some("redact"),
                 "{what}"
             );
+        }
+    }
+
+    const DESK: &str = r#"module: desk
+categories: [live, closed]
+types:
+  Employee:
+    description: An employee.
+    tracking: record
+    attributes:
+      code: { type: string }
+    states:
+      ON: { category: live }
+      OFF: { category: closed, final: true }
+    transitions:
+      hire: { kind: initial, to: ON, required_inputs: [code] }
+      leave: { kind: external, from: [ON], to: OFF }
+  Customer:
+    description: A customer.
+    tracking: record
+    attributes:
+      code: { type: string }
+    states:
+      ON: { category: live }
+      OFF: { category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ON, required_inputs: [code] }
+      leave: { kind: external, from: [ON], to: OFF }
+  Ticket:
+    description: A ticket.
+    tracking: record
+    attributes:
+      customer: { reference: Customer }
+      owner: { reference: Employee, optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [customer], optional_inputs: [owner] }
+      close: { kind: external, from: [OPEN], to: DONE }
+"#;
+
+    /// A reference a mapping writes holds an object of the type it
+    /// references: a ticket's customer given to `owner`, a reference to an
+    /// employee, by a backfill or by a move's attributes, refuses the
+    /// publish, the value fitting a reference by its kind alone (ADR-0229
+    /// decision 5).
+    #[test]
+    fn a_reference_a_mapping_writes_holds_the_type_it_references() {
+        let case = DESK[DESK.find("  Ticket:\n").unwrap()..].replace(
+            "  Ticket:\n    description: A ticket.\n",
+            "  Case:\n    description: A case.\n",
+        );
+        let backfilled = format!(
+            "{DESK}migration:\n  description: Each ticket's owner is its customer.\n  backfill:\n    Ticket: {{ owner: customer }}\n"
+        );
+        let moved = format!(
+            "{}{case}migration:\n  description: Tickets are cases.\n  moved_types:\n    Ticket: [ {{ to: Case, attributes: {{ owner: customer }} }} ]\n",
+            &DESK[..DESK.find("  Ticket:\n").unwrap()]
+        );
+        for (what, text, code) in [
+            ("a backfill", backfilled, "mapping_reference:Ticket.owner"),
+            ("a move", moved, "mapping_reference:Case.owner"),
+        ] {
+            let lib = Library::load(&[("desk.yaml".into(), DESK.into())]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            created(&req(
+                &mut s,
+                "hire",
+                ("Employee", true),
+                json!({"code": "e1"}),
+            ));
+            let customer = created(&req(
+                &mut s,
+                "join",
+                ("Customer", true),
+                json!({"code": "c1"}),
+            ));
+            let ticket = created(&req(
+                &mut s,
+                "open",
+                ("Ticket", true),
+                json!({"customer": customer}),
+            ));
+            let change = created(&req(
+                &mut s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"desk": &text}, "source_ref": "git:desk@2"}),
+            ));
+            let report = run_on(&s, &change, "desk", &text);
+            assert!(report.fatal(), "{what}: {report:#?}");
+            assert_eq!(ids(&report, code), vec![ticket.clone()], "{what}");
         }
     }
 
