@@ -1797,9 +1797,10 @@ def migration_pair_errors(prev, doc, library, before=None):
         for a in sorted(set(renamed) - set(ot.get("attributes") or {})):
             fatal.append((("migration", "renamed_attributes", tn, a), "names", f"the migration renames {tn}.{a}, which the previous version did not have"))
         for a, b in sorted(renamed.items()):
-            before, after = (ot.get("attributes") or {}).get(a), (t.get("attributes") or {}).get(b)
-            if before and after and (str(before.get("type", before.get("reference"))), optional(before)) != \
-                    (str(after.get("type", after.get("reference"))), optional(after)):
+            # named apart from `before`, the version before's other modules' types, which the moves read below
+            was, now = (ot.get("attributes") or {}).get(a), (t.get("attributes") or {}).get(b)
+            if was and now and (str(was.get("type", was.get("reference"))), optional(was)) != \
+                    (str(now.get("type", now.get("reference"))), optional(now)):
                 fatal.append((("migration", "renamed_attributes", tn, a), "names",
                               f"the migration renames {tn}.{a} to {b}, which changes its type or whether it is optional; a rename "
                               "carries the values and their history unchanged (ADR-0146)"))
@@ -1835,11 +1836,11 @@ def migration_pair_errors(prev, doc, library, before=None):
                                          "its erasure once it has needed one, so the values written then can be erased "
                                          "(the model's check 60, ADR-0147)"))
         for o, ob in (t.get("observations") or {}).items():
-            before = ((ot.get("observations") or {}).get(o) or {}).get("attributes")
-            if before is None:
+            had = ((ot.get("observations") or {}).get(o) or {}).get("attributes")
+            if had is None:
                 continue
             for fld, spec in (ob.get("attributes") or {}).items():
-                if fld not in before and not optional(spec):
+                if fld not in had and not optional(spec):
                     fatal.append((here + ("observations", o, "attributes", fld), "names",
                                   f"{o}.{fld} is added to an observation kind and is required; an observation is born final, so nothing could fill it"))
     # a type the version removes: moved, retired, or noticed (ADR-0229)
@@ -10074,8 +10075,19 @@ def moved_type_plants(people):
         assert old in text, old
         return text.replace(old, new, 1)
     personal = p(GRANTS_V1, "      person: { type: string, indexed: true }\n", "      person: { type: string, indexed: true, personal: true }\n")
+    noted = p(p(GRANTS_V1, "      grant: { reference: RoleGrant, optional: true }\n",
+                "      grant: { reference: RoleGrant, optional: true }\n      note: { type: string, optional: true }\n"),
+              "      open: { kind: initial, to: OPEN, optional_inputs: [grant] }\n",
+              "      open: { kind: initial, to: OPEN, optional_inputs: [grant, note] }\n")
+    remarked = p(p(p(GRANTS_V2, "      grant: { reference: AccessGrant, optional: true }\n",
+                     "      grant: { reference: AccessGrant, optional: true }\n      remark: { type: string, optional: true }\n"),
+                   "      open: { kind: initial, to: OPEN, optional_inputs: [grant] }\n",
+                   "      open: { kind: initial, to: OPEN, optional_inputs: [grant, remark] }\n"),
+                 "  moved_types:\n", "  renamed_attributes:\n    Review: { note: remark }\n  moved_types:\n")
     cases = [
         ("a split whose reference follows it", GRANTS_V1, GRANTS_V2, []),
+        # a rename's loop once reused the name of the version before's other types, which the move then read
+        ("a split beside a rename", noted, remarked, []),
         ("a personal value carried into an attribute that is not", personal, GRANTS_V2,
          ["the move of RoleGrant to AccessGrant carries person, personal in RoleGrant, into AccessGrant.person, which is not; "
           "a personal value reaches no attribute that is not (the model's check 10)",
