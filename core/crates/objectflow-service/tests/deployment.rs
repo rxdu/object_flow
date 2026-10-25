@@ -2809,7 +2809,7 @@ fn an_endpoint_is_a_deployments() {
 /// 0.5.2's by their published services, built at 77bf468, 9c6cd26, ccc88de,
 /// 4048a90 and a04acbd).
 const FIXTURE_RELEASES: &[&str] = &[
-    "0.1.0", "0.2.0", "0.3.0", "0.4.0", "0.5.0", "0.5.1", "0.5.2",
+    "0.1.0", "0.2.0", "0.3.0", "0.4.0", "0.5.0", "0.5.1", "0.5.2", "0.5.3",
 ];
 
 /// A store a release's own service made, and what it answered of it. Each
