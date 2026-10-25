@@ -52,22 +52,11 @@ The walkthrough of ObjectFlow in use, a claude.ai page of 2026-09-25. **Asked** 
 
 ## 6. DESIGN.md as a whole
 
-[`docs/DESIGN.md`](../DESIGN.md). **Asked** after its rewrite of 2026-09-08. About 6% of today's text survives from that rewrite (771 lines, 25,786 words, from 4,017; an agent's verbatim count), most of the rest restating ADRs the author accepted. Its last change was 2026-10-18, so the corrections of 2026-10-21 to `storage-schema.md` did not reach it.
+[`docs/DESIGN.md`](../DESIGN.md). **Asked** after its rewrite of 2026-09-08. About 6% of today's text survives from that rewrite (771 lines, 25,786 words, from 4,017; an agent's verbatim count), most of the rest restating ADRs the author accepted. The corrections of 2026-10-21 to `storage-schema.md` reached it the next day.
 
-**Worth your attention now.** Where it still contradicts the build, each checked against the line and the code:
+**Worth your attention now.** The ten places this brief found contradicting the build, eight lines and two passages, were corrected in place on 2026-10-22 (`15e7658`), each saying what it said, and checked again on 2026-10-25. What one writer changed in what the design promises is in §2, §5.1, §5.6, §6, §7's cursor and §10.
 
-1. §2 (`:102`): a deployment "lacks PostgreSQL, whose writes would run in parallel"; PostgreSQL is built, written by one service (ADR-0213 decision 4).
-2. §5.1 (`:174`): an id "is a UUIDv7, so ascending id order is creation order"; a sandbox numbers its ids, and order is each object's stored creation order, never the id (ADR-0226).
-3. §5.6 (`:284`) and the glossary (`:749`): a publish reports which invariants the backend can compile; the report gives `invariant_forms` and marks `invariants` and `sweepable` not computed, and no invariant compiles to a constraint (`storage-schema.md` §8).
-4. §5.12 (`:432`) and §10: the store rewrites a clock-reading derivation to a filter on its operand; a query computes it per object (`storage-schema.md` §3.4).
-5. §10 (`:630`): `available` refuses a transition that is not sweepable; nothing in the core checks sweepability.
-6. §6 (`:484`): row locks and PostgreSQL's contended rows; the core takes no `FOR UPDATE`, and one writer writes, its sequences in the request's transaction (ADR-0225).
-7. §7 (`:514`): the settled cursor a (transaction, position) pair read below `xmin` on PostgreSQL; on both backends it is the position (`subscription.rs`).
-8. §2 (`:108`): the harness interleaves requests deterministically; its racer is not built (`TODO.md`, the racer).
-
-Two more, inside the document: erasure deleting a file's content (§8, §10) against §5.2's decision that the upper layer deletes the bytes (ADR-0211 decision 1); and a planned cutover of the first consumer (§2, §11) against ADR-0149.
-
-**Recommendation: close the item as superseded, after the corrections.** Correct the ten places as `storage-schema.md` was corrected (each saying what it said), then read only §2, §5.1, §5.6, §6, §7's cursor and §10, where one writer changed what the design promises.
+**Recommendation: read those six sections, then close the item as superseded.**
 
 ## 7. The implementation documents of 2026-09-09
 
