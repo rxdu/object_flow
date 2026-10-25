@@ -572,9 +572,10 @@ pub struct Attempt {
     pub request_values: serde_json::Value,
     pub withheld: Vec<String>,
     pub declaration_version: i64,
-    /// Everything the request had read when refused, or, for an observing
-    /// clause's row, what the clause read (ADR-0088 §3); and the values the
-    /// failing clause consulted (ADR-0096, ADR-0158). Null where none.
+    /// Everything the request had read when refused, but an object the
+    /// rollback left unmade (`held_named`), or, for an observing clause's
+    /// row, what the clause read (ADR-0088 §3); and the values the failing
+    /// clause consulted (ADR-0096, ADR-0158). Null where none.
     pub reads: serde_json::Value,
     pub consulted: serde_json::Value,
     /// Its writing transaction, by which the attempt export pages (ADR-0100
@@ -591,6 +592,80 @@ pub struct Attempt {
     /// For a request of a batch, its index there, the batch refused at it
     /// and none of it applied (ADR-0228 decision 6); none otherwise.
     pub batch_index: Option<i64>,
+}
+
+/// A refused request's row with every id it names in a field the store
+/// derives, its object, the objects its read set read, each scan's matches
+/// and a refused call's target, that the store does not hold after the
+/// rollback left out: a refusal names no object that does not exist
+/// (ADR-0181 decision 2, D581). The request's own would-be object and one
+/// an earlier request of its batch made are such, unmade by the rollback,
+/// and in a sandbox the next object takes the id. Its inputs stay as the
+/// request sent them, which it replays from.
+fn held_named(conn: &Connection, a: &Attempt) -> Stored<Attempt> {
+    let mut a = a.clone();
+    let mut named: BTreeSet<String> = a.object_id.iter().cloned().collect();
+    if let Some(read) = a
+        .reads
+        .get("objects")
+        .and_then(serde_json::Value::as_object)
+    {
+        named.extend(read.keys().cloned());
+    }
+    let scans = a.reads.get("scans").and_then(serde_json::Value::as_object);
+    for by_type in scans.into_iter().flat_map(|s| s.values()) {
+        for matched in by_type.as_object().into_iter().flat_map(|t| t.values()) {
+            named.extend(
+                matched
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_string),
+            );
+        }
+    }
+    named.extend(
+        a.call
+            .get("object")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+    );
+    if named.is_empty() {
+        return Ok(a);
+    }
+    let held = read_orders(conn, &named.into_iter().collect::<Vec<_>>())?;
+    let unheld = |id: &str| !held.contains_key(id);
+    if a.object_id.as_deref().is_some_and(unheld) {
+        a.object_id = None;
+    }
+    if let Some(read) = a
+        .reads
+        .get_mut("objects")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        read.retain(|id, _| !unheld(id));
+    }
+    let scans = a
+        .reads
+        .get_mut("scans")
+        .and_then(serde_json::Value::as_object_mut);
+    for by_type in scans.into_iter().flat_map(|s| s.values_mut()) {
+        let by_type = by_type.as_object_mut();
+        for matched in by_type.into_iter().flat_map(|t| t.values_mut()) {
+            if let Some(matched) = matched.as_array_mut() {
+                matched.retain(|m| m.as_str().is_none_or(|id| !unheld(id)));
+            }
+        }
+    }
+    if a.call
+        .get("object")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(unheld)
+    {
+        a.call["object"] = serde_json::Value::Null;
+    }
+    Ok(a)
 }
 
 fn insert_attempt(tx: &Connection, a: &Attempt, txn: &str) -> Stored<()> {
@@ -3896,21 +3971,23 @@ impl Store {
         // in a group, on a savepoint of its transaction, where it had a
         // transaction of its own after the rollback (ADR-0208 decision 2)
         if self.group.is_some() {
+            let a = held_named(&self.conn, a)?;
             self.conn.execute_batch("SAVEPOINT attempt")?;
             release_held(&self.conn)?;
             next(&self.conn, "txn")?;
             insert_attempt(
                 &self.conn,
-                a,
+                &a,
                 "(SELECT value FROM of_counter WHERE name = 'txn')",
             )?;
             self.conn.execute_batch("RELEASE attempt")?;
             return Ok(());
         }
         let (tx, _) = begin_write!(self);
+        let a = held_named(&tx, a)?;
         release_held(&tx)?;
         next(&tx, "txn")?;
-        insert_attempt(&tx, a, "(SELECT value FROM of_counter WHERE name = 'txn')")?;
+        insert_attempt(&tx, &a, "(SELECT value FROM of_counter WHERE name = 'txn')")?;
         tx.commit()?;
         Ok(())
     }
@@ -4306,15 +4383,6 @@ impl Store {
         }
         if let Some(mut a) = kept.attempt {
             a.batch_index = refused.and_then(|i| i64::try_from(i).ok());
-            // an object an earlier request of the batch made, which the
-            // rollback left unmade, named by no row, a later object then
-            // taking its id (D581)
-            if let Some(id) = &a.object_id {
-                let held = self.snapshot()?.get(id).ok().flatten().is_some();
-                if !held {
-                    a.object_id = None;
-                }
-            }
             self.record_attempt(&a)?;
         }
         Ok(())

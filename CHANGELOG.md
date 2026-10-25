@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Fixed
+
+- A refused request's row in the attempt log names no object the store does not hold, in its `object_id`, its `reads` and a refused call's `call`. The row's read set named the request's own would-be object where its invariant read it, and a refused batch's row the objects the batch's earlier requests made, which the rollback left unmade; in a sandbox the next object took the id, so the row named another object. `request_values` keeps the inputs as the request sent them (ADR-0181 decision 2, `storage-schema.md` §6). 0.6.0 has this defect, and 0.5.3 has it for a single creation.
+
 ## 0.6.0, 2026-10-25
 
 A release before 1.0.0, as 0.5.0 was (ADR-0214), answering the two issues filed since 0.5.2: an atomic batch of requests (#30, ADR-0228) and a version moving a removed type's objects into types of its own (#31, ADR-0229), with the fixes its security review found. A store of 0.5.3, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step adding two columns, an event's `batch` and an attempt's `batch_index`, which an earlier event and row hold empty. A store of 0.5.2 takes 0.5.3's step first. A publish removing a type with live objects, and a backfill giving a reference another type's object, are refused where 0.5.3 accepted them, each listed under its own heading below.

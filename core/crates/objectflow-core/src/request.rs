@@ -11328,6 +11328,227 @@ types:
         );
     }
 
+    /// Every id the last attempt row names in a field the store derives: its
+    /// object, each object its read set read, each scan's matches, and a
+    /// refused call's target.
+    fn row_names(s: &Store) -> BTreeSet<String> {
+        let (object, reads, call): (Option<String>, Option<String>, Option<String>) = s
+            .connection()
+            .query_row(
+                "SELECT object_id, reads, call FROM of_attempt ORDER BY id DESC LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        let parse = |t: Option<String>| t.map_or(Json::Null, |t| serde_json::from_str(&t).unwrap());
+        let (reads, call) = (parse(reads), parse(call));
+        let mut out: BTreeSet<String> = object.into_iter().collect();
+        if let Some(read) = reads["objects"].as_object() {
+            out.extend(read.keys().cloned());
+        }
+        for by_type in reads["scans"]
+            .as_object()
+            .into_iter()
+            .flat_map(|s| s.values())
+        {
+            for matched in by_type.as_object().into_iter().flat_map(|t| t.values()) {
+                out.extend(
+                    matched
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Json::as_str)
+                        .map(str::to_string),
+                );
+            }
+        }
+        out.extend(call["object"].as_str().map(str::to_string));
+        out
+    }
+
+    /// A creation its own invariant refuses reads its would-be object, whose
+    /// id the next object takes; its attempt row names it nowhere, read set
+    /// among them (ADR-0181 decision 2, D581).
+    #[test]
+    fn a_refused_creations_row_reads_no_object_it_left_unmade() {
+        let lib = Library::load(&[("orders.yaml".into(), ORDERS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let first = created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({})));
+        let would_be = format!("order-{}", counter(&s, "object") + 1);
+        let v = req(&mut s, "open", OPERATOR, ("Order", true), json!({"cap": 9}));
+        assert!(matches!(v, Verdict::InvariantViolated { .. }), "{v:?}");
+        let named = row_names(&s);
+        assert!(
+            !named.contains(&would_be),
+            "the row names {would_be}: {named:?}"
+        );
+        let world = s.snapshot().unwrap();
+        for id in &named {
+            assert!(world.get(id).unwrap().is_some(), "the row names {id}");
+        }
+        drop(world);
+        assert_ne!(first, would_be);
+        assert_eq!(
+            created(&req(&mut s, "open", OPERATOR, ("Order", true), json!({}))),
+            would_be
+        );
+    }
+
+    /// A batch refused at a request whose rule read an object an earlier
+    /// request made, a scan's match and an object read, names neither in its
+    /// row, nor the refused request's own would-be object (ADR-0181 decision
+    /// 2, ADR-0228 decision 6).
+    #[test]
+    fn a_refused_batchs_row_reads_no_object_its_rollback_left_unmade() {
+        let mut s = store();
+        let add = |login: &str| Request {
+            transition: "add".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("User".into()),
+            inputs: [("login".to_string(), json!(login))].into_iter().collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let kept = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "bob"}),
+        ));
+        let next = counter(&s, "object");
+        let unmade = [format!("user-{}", next + 1), format!("user-{}", next + 2)];
+        let Batched::Refused { index, .. } = batch(&mut s, &[add("ann"), add("ann")], None)
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("two users of one login applied")
+        };
+        assert_eq!(index, 1);
+        let named = row_names(&s);
+        for id in &unmade {
+            assert!(!named.contains(id), "the row names {id}: {named:?}");
+        }
+        let world = s.snapshot().unwrap();
+        for id in &named {
+            assert!(world.get(id).unwrap().is_some(), "the row names {id}");
+        }
+        drop(world);
+        assert_eq!(
+            created(&req(
+                &mut s,
+                "add",
+                OPERATOR,
+                ("User", true),
+                json!({"login": "cat"}),
+            )),
+            unmade[0]
+        );
+        assert_ne!(kept, unmade[0]);
+    }
+
+    /// A batch refused at a call to an object an earlier request of it made
+    /// names no target in its row's `call`, which the rollback left unmade;
+    /// a refused call to an object the store holds names it, and the caller
+    /// read (ADR-0159, ADR-0181 decision 2).
+    #[test]
+    fn a_refused_batchs_call_names_no_target_its_rollback_left_unmade() {
+        const SHOP: &str = r#"
+module: shop
+categories: [live, closed]
+types:
+  Line:
+    attributes:
+      qty: { type: int }
+    states:
+      OPEN: { category: live }
+      PACKED: { category: closed, final: true }
+    conditions:
+      small: { expression: qty < 10, remedy: self_serviceable }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [qty] }
+      pack: { kind: external, from: [OPEN], to: PACKED, guards: { small: deny } }
+  Order:
+    attributes:
+      line: { reference: Line }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [line] }
+      ship: { kind: external, from: [OPEN], to: DONE, effect: [ { call: { target: line, transition: pack } } ] }
+"#;
+        let lib = Library::load(&[("shop.yaml".into(), SHOP.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let next = counter(&s, "object");
+        let (line, order) = (format!("line-{}", next + 1), format!("order-{}", next + 2));
+        let asked = |xn: &str, object: Option<&str>, type_: Option<&str>, inputs: Json| Request {
+            transition: xn.into(),
+            actor: OPERATOR.into(),
+            object_id: object.map(str::to_string),
+            type_: type_.map(str::to_string),
+            inputs: serde_json::from_value(inputs).unwrap(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let Batched::Refused { index, answer } = batch(
+            &mut s,
+            &[
+                asked("add", None, Some("Line"), json!({"qty": 20})),
+                asked("open", None, Some("Order"), json!({"line": line})),
+                asked("ship", Some(&order), None, json!({})),
+            ],
+            None,
+        )
+        .unwrap()
+        .unwrap() else {
+            panic!("a large line shipped")
+        };
+        assert_eq!(index, 2);
+        assert!(
+            matches!(*answer, Ok((Verdict::CallRefused { .. }, _))),
+            "{answer:?}"
+        );
+        let named = row_names(&s);
+        for id in [&line, &order] {
+            assert!(!named.contains(id), "the row names {id}: {named:?}");
+        }
+        // the same call refused on objects the store holds names both
+        let held = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Line", true),
+            json!({"qty": 20}),
+        ));
+        let shipping = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Order", true),
+            json!({"line": held}),
+        ));
+        let v = req(&mut s, "ship", OPERATOR, (&shipping, false), json!({}));
+        assert!(matches!(v, Verdict::CallRefused { .. }), "{v:?}");
+        let named = row_names(&s);
+        for id in [&held, &shipping] {
+            assert!(named.contains(id), "the row does not name {id}: {named:?}");
+        }
+    }
+
     /// Each event of a batch names the batch by its first event's position,
     /// and a request sent alone names none (ADR-0228 decision 7); a refused
     /// batch's attempt row names the refused request's index (decision 6).
