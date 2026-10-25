@@ -765,13 +765,19 @@ impl<'l> World<'l> {
         Ok(())
     }
 
+    /// The library as the version given declared it: the installed one, or
+    /// an earlier one where the store holds it.
+    pub fn library_at(&self, version: i64) -> &'l Library {
+        match self.earlier.get(&version) {
+            Some(lib) if version != self.lib.version => lib,
+            _ => self.lib,
+        }
+    }
+
     /// A type as the version given declared it: the installed version's,
     /// or an earlier one's where the store holds it.
     pub fn type_at(&self, version: i64, name: &str) -> Option<&'l Type> {
-        match self.earlier.get(&version) {
-            Some(lib) if version != self.lib.version => lib.type_(name),
-            _ => self.lib.type_(name),
-        }
+        self.library_at(version).type_(name)
     }
 
     /// Whether an attribute of a type, named as the installed version names

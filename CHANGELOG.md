@@ -19,6 +19,7 @@ A store of 0.5.3, a file or a PostgreSQL database, is upgraded by `/v1/upgrade` 
 
 ### Fixed
 
+- An erasure follows a value its object's events passed on, into other objects and up to the callers that passed it in, by each step as the version that ran it declared it, where it read the installed version's: once a later version changed or removed the step, or moved the object's type, the copies the step made kept the value, on the object and in its events (`storage-schema.md` §9 steps 3 and 12). 0.5.3 has this defect.
 - `/v1/declaration` of a type a version retired lists the transitions it still takes, its erasure alone, where it listed every transition of the version that last declared it, each of which a request is refused (ADR-0229).
 - A rollback that fails gives its connection up, on both backends, and a begin on a connection whose transaction was never ended is refused, where a failed rollback's error was ignored: on PostgreSQL the next request's commit could have committed what the failed rollback left with its own writes. A PostgreSQL store given up is opened again at the next write; a file store is refused `store_connection_discarded` until a restart, a failing disk being the likely cause (ADR-0228, `operate.md`).
 

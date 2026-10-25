@@ -3404,14 +3404,16 @@ class Runner:
         redacted, cleared = {}, {}
         for e in [e for e in work.events if e["object"] == o.id]:
             x = (t.get("transitions") or {}).get(e["transition"]) or {}
-            # and an input named for what the installed version marks personal, as a later rename found it, tainted
-            # by its installed name, which the walk down reads
+            # and an input named for what the installed version marks personal, as a later rename found it; the walk
+            # down reads the event's step as its version declared it, so what it holds is named as that version named
+            # it
             v = e["declaration_version"]
             renamed = {k: a for a in holding
                        if (k := self.named_under(work, self.type_then(work, o.id, o.type, v), a, v)) != a}
-            tainted = {renamed.get(n, n) for n in e.get("inputs") or ()
+            tainted = {n for n in e.get("inputs") or ()
                        if input_personal(t, x, n) or n in holding or n in renamed}
-            self.walk_down(ctx, e, tainted, holding, redacted, cleared)
+            held_then = {self.named_under(work, self.type_then(work, o.id, o.type, v), a, v) for a in holding}
+            self.walk_down(ctx, e, tainted, held_then, redacted, cleared)
         for oid in sorted(set(redacted) | set(cleared), key=lambda i: work.objects[i].id_order):
             p = work.objects[oid]
             if oid == o.id or p.erased:
@@ -3439,17 +3441,32 @@ class Runner:
             "migrated": False, "redacted": True, "reason": ABSENT, "declaration_version": work.version, "held": {},
             "cause": ctx.causes[-1] if ctx.causes else None, "inputs": []})
 
+    def kinds_at(self, store, version):
+        """The types as a version declared them: the installed version's, the runner's own, or an earlier one's."""
+        if version >= store.version:
+            return self.kinds
+        return (getattr(store, "history", None) or {}).get(version) or {}
+
     def walk_down(self, ctx, e, tainted, holding, redacted, cleared):
+        """Each event's step read as the version it was written under declared it, of the type its object was then,
+        which its event records, a later version having changed or removed it, or a move left it behind under another
+        name, as the core's `walk_down`."""
         work = ctx.work
-        fx = ((self.kinds.get(e["type"]) or {}).get("transitions") or {}).get(e["transition"]) or {}
+        fx = ((self.kinds_at(work, e["declaration_version"]).get(e["type"]) or {}).get("transitions") or {}).get(
+            e["transition"]) or {}
         for f in [f for f in work.events if f.get("cause") == e["position"] and f["object"] != e["object"]]:
             p = work.objects.get(f["object"])
             if p is None:
                 continue
-            pt = self.kinds.get(p.type) or {}
+            under = f["declaration_version"]
+            pt = self.kinds_at(work, under).get(f["type"]) or {}
             px = (pt.get("transitions") or {}).get(f["transition"]) or {}
-            passed = {n for n, exprs in steps_taking(work, fx.get("effect") or [], f["transition"], p.type)
+            passed = {n for n, exprs in steps_taking(work, fx.get("effect") or [], f["transition"], f["type"])
                       if any(carries(x, tainted, holding) for x in exprs)}
+            # each attribute the installed version declares, by the name `under` gave it, which the object's write
+            # index holds by its installed name
+            installed = {self.named_under(work, p.type, a, under): a
+                         for a in ((self.kinds.get(p.type) or {}).get("attributes") or {})}
             next_holding = set()
             for n in passed:
                 if n in (f.get("inputs") or ()):
@@ -3458,8 +3475,8 @@ class Runner:
                     if not (((pt.get("attributes") or {}).get(a) or {}).get("personal")):
                         continue
                     next_holding.add(a)
-                    if p.writes.get(a) == f["position"]:
-                        cleared.setdefault(p.id, set()).add(a)
+                    if a in installed and p.writes.get(installed[a]) == f["position"]:
+                        cleared.setdefault(p.id, set()).add(installed[a])
             if passed:
                 self.walk_down(ctx, f, passed, next_holding, redacted, cleared)
 

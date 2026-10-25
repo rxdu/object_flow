@@ -1500,6 +1500,115 @@ def test_an_erasure_reaches_a_value_a_move_wrote_while_personal(tee, what):
     alike(tee)
 
 
+
+BADGES = """module: badges
+categories: [live, closed]
+types:
+  Person:
+    description: A person.
+    tracking: record
+    attributes:
+      name: { type: string, optional: true, personal: true }
+    states:
+      ACTIVE: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [name] }
+      leave: { kind: external, from: [ACTIVE], to: GONE }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+      issue_badge:
+        kind: internal
+        from: [ACTIVE]
+        effect:
+          - create: { type: Badge, transition: issue, inputs: { holder_name: name, person: this } }
+  Badge:
+    description: A badge.
+    tracking: record
+    attributes:
+      holder_name: { type: string, optional: true, personal: true }
+      person: { reference: Person }
+    states:
+      ACTIVE: { category: live }
+      VOID: { category: closed, final: true }
+    transitions:
+      issue:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [holder_name, person]
+        effect:
+          - create: { type: Card, transition: print, inputs: { text: inputs.holder_name, badge: this } }
+      void: { kind: external, from: [ACTIVE], to: VOID }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Card:
+    description: A printed card.
+    tracking: record
+    attributes:
+      text: { type: string, optional: true, personal: true }
+      badge: { reference: Badge }
+    states:
+      ACTIVE: { category: live }
+      SHRED: { category: closed, final: true }
+    transitions:
+      print: { kind: initial, to: ACTIVE, required_inputs: [text, badge] }
+      shred: { kind: external, from: [ACTIVE], to: SHRED }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"""
+CARD_STEP = ("        effect:\n          - create: { type: Card, transition: print, "
+             "inputs: { text: inputs.holder_name, badge: this } }\n")
+
+
+def badges_v2(what: str) -> str:
+    """The badges' second version: the step passing a holder's name onto
+    the card removed, the badge moved into a pass whose transition has
+    another name, or the card's text renamed its label."""
+    if what == "removed":
+        return BADGES.replace(CARD_STEP, "")
+    if what == "moved":
+        text = BADGES
+        for old, new in [
+                ("  Badge:\n    description: A badge.\n",
+                 "  Pass:\n    description: A pass.\n"),
+                ("      issue:\n        kind: initial\n",
+                 "      make:\n        kind: initial\n"),
+                ("{ type: Badge, transition: issue,",
+                 "{ type: Pass, transition: make,"),
+                ("      badge: { reference: Badge }\n",
+                 "      badge: { reference: Pass }\n")]:
+            assert text.count(old) == 1, old
+            text = text.replace(old, new)
+        return text + ("migration:\n  description: Badges are passes.\n"
+                       "  moved_types:\n    Badge: [ { to: Pass } ]\n")
+    text = BADGES.replace("      text: { type: string", "      label: { type: string"
+                          ).replace("inputs: { text: inputs.holder_name",
+                                    "inputs: { label: inputs.holder_name"
+                                    ).replace("[text, badge]", "[label, badge]")
+    return text + ("migration:\n  description: A card's text is its label.\n"
+                   "  renamed_attributes:\n    Card: { text: label }\n")
+
+
+@pytest.mark.parametrize("what", ["removed", "moved", "renamed"])
+def test_an_erasure_walks_each_step_as_its_version_declared_it_alike(
+        tee, what):
+    """An erasure's walk reads each event's step as the version it was
+    written under declared it, of the type its object was then, so a step a
+    later version removed, a transition a move left behind under another
+    name, and an attribute renamed still lead it to the card the name
+    reached, alike through both backends (storage-schema.md §9 step 12)."""
+    load(tee, "badges", BADGES)
+    dana = made(tee, "Person", "add", name="Dana Doe")
+    reached = took(tee, dana, "issue_badge")["created"]
+    assert len(reached) == 2, reached
+    tee.found.clear()
+    c = change(tee, "draft", source={"badges": badges_v2(what)},
+               source_ref="git:badges@2")["object_id"]
+    approved(tee, c)
+    took(tee, dana, "forget", reason="asked")
+    for oid in reached:
+        held = tee.post("/v1/get", {"id": oid})
+        assert "Dana" not in json.dumps(held), held
+        tee.post("/v1/history", {"id": oid})
+    alike(tee)
+
 CLIENTS = """module: clients
 categories: [live, closed]
 types:

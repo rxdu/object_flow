@@ -3825,12 +3825,17 @@ types:
 
     /// Publish each text in turn on a store holding `ana`, approved.
     fn published_in_turn(s: &mut Store, texts: &[&str]) {
+        published_as(s, "shop", texts);
+    }
+
+    /// Each version of one module published in turn, as `published_in_turn`.
+    fn published_as(s: &mut Store, module: &str, texts: &[&str]) {
         for (i, text) in texts.iter().enumerate() {
             let change = created(&req(
                 s,
                 "draft",
                 (crate::model::DECLARATION_CHANGE, true),
-                json!({"source": {"shop": text}, "source_ref": format!("git:shop@{}", i + 2)}),
+                json!({"source": {module: text}, "source_ref": format!("git:{module}@{}", i + 2)}),
             ));
             created(&req(s, "submit", (&change, false), json!({})));
             let v = s
@@ -3971,6 +3976,201 @@ types:
             ));
             assert_eq!(copies(&s, &ana, "name"), vec![], "{what}");
         }
+    }
+
+    const BADGES: &str = r#"module: badges
+categories: [live, closed]
+types:
+  Person:
+    description: A person.
+    tracking: record
+    attributes:
+      name: { type: string, optional: true, personal: true }
+    states:
+      ACTIVE: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [name] }
+      leave: { kind: external, from: [ACTIVE], to: GONE }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+      issue_badge:
+        kind: internal
+        from: [ACTIVE]
+        effect:
+          - create: { type: Badge, transition: issue, inputs: { holder_name: name, person: this } }
+  Badge:
+    description: A badge.
+    tracking: record
+    attributes:
+      holder_name: { type: string, optional: true, personal: true }
+      person: { reference: Person }
+    states:
+      ACTIVE: { category: live }
+      VOID: { category: closed, final: true }
+    transitions:
+      issue:
+        kind: initial
+        to: ACTIVE
+        required_inputs: [holder_name, person]
+        effect:
+          - create: { type: Card, transition: print, inputs: { text: inputs.holder_name, badge: this } }
+      void: { kind: external, from: [ACTIVE], to: VOID }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Card:
+    description: A printed card.
+    tracking: record
+    attributes:
+      text: { type: string, optional: true, personal: true }
+      badge: { reference: Badge }
+    states:
+      ACTIVE: { category: live }
+      SHRED: { category: closed, final: true }
+    transitions:
+      print: { kind: initial, to: ACTIVE, required_inputs: [text, badge] }
+      shred: { kind: external, from: [ACTIVE], to: SHRED }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+
+    /// An erasure's walk reads each event's step as the version it was
+    /// written under declared it, of the type its object was then: a step a
+    /// later version removed, or a transition a move left behind under
+    /// another name, still passed the erased value on when it ran, so the
+    /// badge and the card it reached are cleared, each copy its events
+    /// recorded among them, under the name it was written by where a later
+    /// version renamed the attribute (`storage-schema.md` §9 step 12).
+    #[test]
+    fn an_erasure_walks_each_step_as_the_version_it_ran_under_declared_it() {
+        let step = "        effect:\n          - create: { type: Card, transition: print, inputs: { text: inputs.holder_name, badge: this } }\n";
+        let removed = BADGES.replace(step, "");
+        let mut moved = BADGES.to_string();
+        for (old, new) in [
+            (
+                "  Badge:\n    description: A badge.\n",
+                "  Pass:\n    description: A pass.\n",
+            ),
+            (
+                "      issue:\n        kind: initial\n",
+                "      make:\n        kind: initial\n",
+            ),
+            (
+                "{ type: Badge, transition: issue,",
+                "{ type: Pass, transition: make,",
+            ),
+            (
+                "      badge: { reference: Badge }\n",
+                "      badge: { reference: Pass }\n",
+            ),
+        ] {
+            assert_eq!(moved.matches(old).count(), 1, "{old}");
+            moved = moved.replace(old, new);
+        }
+        moved.push_str("migration:\n  description: Badges are passes.\n  moved_types:\n    Badge: [ { to: Pass } ]\n");
+        let mut renamed = BADGES.to_string();
+        for (old, new) in [
+            (
+                "      text: { type: string, optional: true, personal: true }\n",
+                "      label: { type: string, optional: true, personal: true }\n",
+            ),
+            (
+                "inputs: { text: inputs.holder_name, badge: this }",
+                "inputs: { label: inputs.holder_name, badge: this }",
+            ),
+            (
+                "required_inputs: [text, badge]",
+                "required_inputs: [label, badge]",
+            ),
+        ] {
+            assert_eq!(renamed.matches(old).count(), 1, "{old}");
+            renamed = renamed.replace(old, new);
+        }
+        renamed.push_str("migration:\n  description: A card's text is its label.\n  renamed_attributes:\n    Card: { text: label }\n");
+        for (what, text, label) in [
+            ("a step removed", removed, "text"),
+            ("a type moved", moved, "text"),
+            ("an attribute renamed", renamed, "label"),
+        ] {
+            let lib = Library::load(&[("badges.yaml".into(), BADGES.into())]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let dana = created(&req(
+                &mut s,
+                "add",
+                ("Person", true),
+                json!({"name": "Dana Doe"}),
+            ));
+            created(&req(&mut s, "issue_badge", (&dana, false), json!({})));
+            let w = s.snapshot().unwrap();
+            let badge = w.of_type("Badge").unwrap()[0].id.clone();
+            let card = w.of_type("Card").unwrap()[0].id.clone();
+            drop(w);
+            published_as(&mut s, "badges", &[&text]);
+            created(&req(
+                &mut s,
+                "forget",
+                (&dana, false),
+                json!({"reason": "asked"}),
+            ));
+            let w = s.snapshot().unwrap();
+            let b = w.whole(&badge).unwrap().unwrap();
+            assert!(b.attr("holder_name").is_absent(), "{what}: the badge");
+            let c = w.whole(&card).unwrap().unwrap();
+            assert!(c.attr(label).is_absent(), "{what}: the card");
+            drop(w);
+            assert_eq!(copies(&s, &badge, "holder_name"), vec![], "{what}");
+            assert_eq!(copies(&s, &card, "text"), vec![], "{what}");
+            assert_eq!(copies(&s, &card, "label"), vec![], "{what}");
+        }
+    }
+
+    /// An erasure's walk up reads each caller's step as the version its
+    /// event was written under declared it: a desk's input that a later
+    /// version no longer passes into the person's name still passed the
+    /// erased value when the desk enrolled her, so it is redacted on the
+    /// desk's event (`storage-schema.md` §9 step 3).
+    #[test]
+    fn an_erasure_walks_up_each_callers_step_as_its_version_declared_it() {
+        let desk = r#"  Desk:
+    description: A front desk.
+    tracking: record
+    attributes:
+      label: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN }
+      shut: { kind: external, from: [OPEN], to: SHUT }
+      enrol:
+        kind: internal
+        from: [OPEN]
+        inputs: { full_name: { type: string } }
+        effect:
+          - create: { type: Person, transition: add, inputs: { name: inputs.full_name } }
+"#;
+        let v1 = BADGES.replacen("  Badge:\n", &format!("{desk}  Badge:\n"), 1);
+        let step = "inputs: { name: inputs.full_name } }";
+        assert_eq!(v1.matches(step).count(), 1);
+        let v2 = v1.replace(step, "inputs: { name: '\"anonymous\"' } }");
+        let lib = Library::load(&[("badges.yaml".into(), v1)]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let front = created(&req(&mut s, "open", ("Desk", true), json!({})));
+        created(&req(
+            &mut s,
+            "enrol",
+            (&front, false),
+            json!({"full_name": "Dana Doe"}),
+        ));
+        let dana = s.snapshot().unwrap().of_type("Person").unwrap()[0]
+            .id
+            .clone();
+        assert_eq!(copies(&s, &front, "full_name").len(), 1);
+        published_as(&mut s, "badges", &[&v2]);
+        created(&req(
+            &mut s,
+            "forget",
+            (&dana, false),
+            json!({"reason": "asked"}),
+        ));
+        assert_eq!(copies(&s, &front, "full_name"), vec![]);
     }
 
     /// The interval index too: a tracked personal enumeration's intervals

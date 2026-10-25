@@ -2151,15 +2151,21 @@ fn take_unwound(
                         || renamed.contains_key(name)
                     {
                         ctx.redacted_inputs.push((e.position, name.clone()));
-                        tainted.insert(renamed.get(name).unwrap_or(name).clone());
+                        tainted.insert(name.clone());
                     } else if input_personal(lib, tv, ex, name) || input_personal(lib, t, ex, name)
                     {
                         ctx.redacted_inputs.push((e.position, name.clone()));
                     }
                 }
             }
-            // and what flowed down from it into other objects (§9 step 12)
-            walk_down(ctx, e, &tainted, &holding)?;
+            // and what flowed down from it into other objects (§9 step 12),
+            // its step read as its version declared it, so what it holds is
+            // named as that version named it
+            let held_then: BTreeSet<String> = holding
+                .iter()
+                .map(|a| ctx.work.named_under(e.declaration_version, &was, a))
+                .collect();
+            walk_down(ctx, e, &tainted, &held_then)?;
             // and the callers that passed one on (§9 step 3)
             caller_taint(ctx, e, tainted)?;
         }
@@ -2514,14 +2520,13 @@ pub(crate) fn external_text(v: &Value) -> Option<String> {
 /// the caller's event and tainted in turn, until a level passes none on. A
 /// call's step is matched by the transition it takes, its target's type not
 /// inferred, so two calls of one transition name on different types taint
-/// both, which redacts more and never less; the installed version's steps are
-/// read, as for every erasure here (TODO: an earlier version's).
+/// both, which redacts more and never less; each step read as the version
+/// its caller's event was written under declared it.
 fn caller_taint(
     ctx: &mut Ctx<'_>,
     from: &Event,
     mut tainted: BTreeSet<String>,
 ) -> Result<(), NotRun> {
-    let lib = ctx.work.lib;
     let mut callee = from.clone();
     while !tainted.is_empty() {
         let Some(caller) = (match callee.cause {
@@ -2530,15 +2535,21 @@ fn caller_taint(
         }) else {
             break;
         };
-        let Some(cx) = ctx
-            .work
-            .get(&caller.object_id)?
-            .and_then(|o| lib.type_(&o.type_))
+        let Some(co) = ctx.work.get(&caller.object_id)? else {
+            break;
+        };
+        let version = written_under(&caller);
+        let lib = ctx.work.library_at(version);
+        let Some(cx) = lib
+            .type_(&object_type_then(&ctx.work, co, version)?)
             .and_then(|t| t.transition(&caller.transition))
         else {
             break;
         };
-        let callee_type = ctx.work.get(&callee.object_id)?.map(|o| o.type_.clone());
+        let callee_type = match ctx.work.get(&callee.object_id)? {
+            Some(o) => Some(object_type_then(&ctx.work, o, written_under(&callee))?),
+            None => None,
+        };
         let mut passed = BTreeSet::new();
         for (input, exprs) in
             steps_taking(lib, &cx.effect, &callee.transition, callee_type.as_deref())
@@ -2575,11 +2586,17 @@ fn walk_down(
     tainted: &BTreeSet<String>,
     holding: &BTreeSet<String>,
 ) -> Result<(), NotRun> {
-    let lib = ctx.work.lib;
-    let Some(fx) = ctx
-        .work
-        .get(&from.object_id)?
-        .and_then(|o| lib.type_(&o.type_))
+    // the step as the version its event was written under declared it, of
+    // the type its object was then, which a later version may have changed
+    // or removed, or a move left behind under another name; its inputs and
+    // the attributes it read named as that version named them
+    let version = written_under(from);
+    let Some(fo) = ctx.work.get(&from.object_id)? else {
+        return Ok(());
+    };
+    let lib = ctx.work.library_at(version);
+    let Some(fx) = lib
+        .type_(&object_type_then(&ctx.work, fo, version)?)
         .and_then(|t| t.transition(&from.transition))
     else {
         return Ok(());
@@ -2596,18 +2613,31 @@ fn walk_down(
         };
         ctx.work.parts(p)?;
         let p = p.clone();
-        let Some(pt) = lib.type_(&p.type_) else {
+        let under = written_under(&f);
+        let then = object_type_then(&ctx.work, &p, under)?;
+        let Some(pt) = ctx.work.type_at(under, &then) else {
             continue;
         };
         let Some(px) = pt.transition(&f.transition) else {
             continue;
         };
         let mut passed = BTreeSet::new();
-        for (input, exprs) in steps_taking(lib, &fx.effect, &f.transition, Some(&p.type_)) {
+        for (input, exprs) in steps_taking(lib, &fx.effect, &f.transition, Some(&then)) {
             if exprs.iter().any(|e| carries(e, tainted, holding)) {
                 passed.insert(input.clone());
             }
         }
+        // each attribute the installed version declares, by the name `under`
+        // gave it, so the row and the write index, which hold installed
+        // names, are read by what the step wrote
+        let installed: BTreeMap<String, String> = ctx
+            .work
+            .lib
+            .type_(&p.type_)
+            .into_iter()
+            .flat_map(|t| t.attributes.iter())
+            .map(|(a, _)| (ctx.work.named_under(under, &then, a), a.clone()))
+            .collect();
         let recorded = f.payload["inputs"].as_object();
         let mut next_inputs = BTreeSet::new();
         let mut next_holding = BTreeSet::new();
@@ -2620,10 +2650,18 @@ fn walk_down(
                 if !pt.attribute(&a).is_some_and(|s| s.personal) {
                     continue;
                 }
-                next_holding.insert(a.clone());
-                if p.held_parts()?.writes.get(a.as_str()) == Some(&f.position) {
-                    ctx.cleared.push((p.id.clone(), a, f.position));
+                // the copy the event recorded, under the name it wrote,
+                // which a later version may have renamed or dropped
+                // (ADR-0209 decision 2)
+                if f.payload["wrote"].get(&a).is_some_and(|v| !v.is_null()) {
+                    ctx.redacted_writes.push((f.position, a.clone()));
                 }
+                if let Some(now) = installed.get(&a)
+                    && p.held_parts()?.writes.get(now.as_str()) == Some(&f.position)
+                {
+                    ctx.cleared.push((p.id.clone(), now.clone(), f.position));
+                }
+                next_holding.insert(a);
             }
         }
         if !next_inputs.is_empty() {
@@ -2888,6 +2926,23 @@ fn type_then(own: &[Event], current: &str, version: i64) -> String {
         }
     }
     was.to_string()
+}
+
+/// The type an object was of under a version, as `type_then` reads it, its
+/// events read only where some version moved a type into its current one.
+fn object_type_then(work: &World<'_>, o: &Object, version: i64) -> Result<String, NotRun> {
+    let moved_in = std::iter::once(work.lib)
+        .chain(work.earlier.values())
+        .any(|l| {
+            l.migration
+                .moved_types
+                .iter()
+                .any(|(_, entries)| entries.iter().any(|e| e.to == o.type_))
+        });
+    if !moved_in {
+        return Ok(o.type_.clone());
+    }
+    Ok(type_then(&work.events_of(&o.id)?, &o.type_, version))
 }
 
 /// The version an event's writes were declared by: its own, or a
