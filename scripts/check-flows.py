@@ -1749,13 +1749,34 @@ def final_admission_notes(doc, v):
     return out
 
 
-def migration_pair_errors(prev, doc, library):
+def previous_types(previous, file, library):
+    """The types of the version before in every module but `file`'s, as each module's view gave them, its machines
+    left out: a move of a type another module declared is checked against it there (ADR-0229 decision 7)."""
+    out = {}
+    for name, text in sorted(previous.items()):
+        if name == file:
+            continue
+        try:
+            doc = load(text)
+        except Exception:
+            continue
+        if not isinstance(doc, dict) or "module" not in doc or "examples_for" in doc:
+            continue
+        v, _ = view(doc, library)
+        out.update((tn, t) for tn, t in types(v) if tn not in (doc.get("machines") or {}))
+    return out
+
+
+def migration_pair_errors(prev, doc, library, before=None):
     """This version against the one before it: every state it removes from a
     type is mapped, every mapping names what the previous version had, and a
     field added to an observation kind is optional (the model's checks 22 and
     23). What depends on the live objects, which a publish counts, is noticed:
     a new required attribute without a backfill, a removed member without a
-    mapping, an attribute dropped where one of its type is added."""
+    mapping, an attribute dropped where one of its type is added. `before`
+    holds the version before's types in its other modules, where a type this
+    version moves is read when this module's previous text lacks it."""
+    before = before or {}
     pv, _ = view(prev, library)
     v, _ = view(doc, library)
     machines = set(doc.get("machines") or {}) | set(prev.get("machines") or {})
@@ -1829,14 +1850,14 @@ def migration_pair_errors(prev, doc, library):
                                                    "its objects not in a final state needs moved_types or retired_types for it (ADR-0229)"))
     for section, names in (("moved_types", moved), ("retired_types", retired)):
         for tn in names:
-            if tn not in old:
+            if tn not in old and tn not in before:
                 notes.append((("migration", section, tn), "migration", f"{tn} is not a type of this module's previous version, so the "
                                                                        "publish checks it against every module of the version before (ADR-0229)"))
     for tn, entries in moved.items():
-        ot = old.get(tn)
+        ot = old.get(tn) or before.get(tn)
         if ot is None:
             continue
-        why = unmovable(tn, ot, old)
+        why = unmovable(tn, ot, {**before, **old})
         if why:
             fatal.append((("migration", "moved_types", tn), "names", f"the migration moves {tn}, {why}; such a type does not move yet (ADR-0229)"))
         oattrs = ot.get("attributes") or {}
@@ -6040,8 +6061,12 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
         v, back = view(doc, library)
         seen = set()
         pair, pair_notes = [], []
-        if (previous or {}).get(f):
-            pair, pair_notes = migration_pair_errors(load(previous[f]), doc, library)
+        # a type the version moves read in the module of the version before that declared it, this module's own or
+        # another's, so a move is checked alike from any module, a module new in the version among them (ADR-0229)
+        moving = ((doc.get("migration") or {}).get("moved_types") or {}) and previous
+        if (previous or {}).get(f) or moving:
+            before = previous_types(previous, f, library) if moving else {}
+            pair, pair_notes = migration_pair_errors(load(previous[f]) if previous.get(f) else {}, doc, library, before)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
         for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc)
                         + name_errors(v, library, ordered=False) + taken_by_errors(v) + column_errors(v)
@@ -10024,6 +10049,23 @@ migration:
 """
 
 
+GRANTS_KEPT = """module: grants
+categories: [live, closed]
+types:
+  AdminGrant:
+    description: An administrator's grant.
+    tracking: record
+    attributes:
+      person: { type: string, indexed: true }
+    states:
+      ACTIVE: { description: Active., category: live }
+      ENDED: { description: Ended., category: closed, final: true }
+    transitions:
+      grant: { kind: initial, to: ACTIVE, required_inputs: [person] }
+      end: { kind: external, from: ACTIVE, to: ENDED }
+"""
+
+
 def moved_type_plants(people):
     """A version that moves a type's objects, checked against the one before (ADR-0229): the split clean, its
     reference following the move; a personal value carried or given into an attribute that is not; a move between
@@ -10070,6 +10112,55 @@ def moved_type_plants(people):
     ok = True
     for name, before, after, want in cases:
         found, notes = check([("grants.yaml", after)], {"grants.yaml": before})
+        got = sorted(x[4] for x in found + notes)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a moved type, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    # the type moved declared by another module of the version before, which the module moving it reads there, the
+    # module moving it in that version or new in this one (ADR-0229 decision 7)
+    roles = p(GRANTS_V1, "module: grants\n", "module: roles\n").split("  Review:\n")[0]
+    holder = ("module: holders\nimports: { roles: [RoleGrant] }\ncategories: [live, closed]\ntypes:\n  Holder:\n"
+              "    description: Who holds grants.\n    tracking: record\n    attributes:\n"
+              "      grants: { reference: 'RoleGrant[]', aggregation: composite }\n    states:\n"
+              "      ON: { description: On., category: live }\n    transitions:\n      make: { kind: initial, to: ON }\n")
+    carried = ["the move of RoleGrant to AccessGrant carries person, personal in RoleGrant, into AccessGrant.person, which "
+               "is not; a personal value reaches no attribute that is not (the model's check 10)",
+               "the move of RoleGrant to AdminGrant carries person, personal in RoleGrant, into AdminGrant.person, which "
+               "is not; a personal value reaches no attribute that is not (the model's check 10)"]
+    marked = p(roles, "      person: { type: string, indexed: true }\n", "      person: { type: string, indexed: true, personal: true }\n")
+    across = [
+        ("a split of another module's type", {"roles.yaml": roles, "grants.yaml": GRANTS_KEPT}, GRANTS_V2, []),
+        ("another module's personal value carried into an attribute that is not",
+         {"roles.yaml": marked, "grants.yaml": GRANTS_KEPT}, GRANTS_V2, carried),
+        ("another module's personal value given to an attribute that is not",
+         {"roles.yaml": p(roles, "      role: { type: string, indexed: true }\n", "      role: { type: string, indexed: true, personal: true }\n"),
+          "grants.yaml": GRANTS_KEPT}, GRANTS_V2,
+         ["the move of RoleGrant to AccessGrant gives AccessGrant.level, which is not personal, from role, personal in "
+          "RoleGrant; a personal value reaches no attribute that is not (the model's check 10)",
+          "the move of RoleGrant to AccessGrant gives AccessGrant.scope, which is not personal, from role, personal in "
+          "RoleGrant; a personal value reaches no attribute that is not (the model's check 10)"]),
+        ("another module's type moved between tracking kinds",
+         {"roles.yaml": p(roles, "    tracking: record\n", "    tracking: serial\n"), "grants.yaml": GRANTS_KEPT}, GRANTS_V2,
+         ["the migration moves RoleGrant, tracked by serial, to AccessGrant, tracked by record; a move keeps its tracking (ADR-0229)",
+          "the migration moves RoleGrant, tracked by serial, to AdminGrant, tracked by record; a move keeps its tracking (ADR-0229)"]),
+        ("another module's type that does not move yet",
+         {"roles.yaml": p(roles, "      person: { type: string, indexed: true }\n",
+                          "      person: { type: string, indexed: true }\n      login: { type: identity, actor_kind: human }\n"),
+          "grants.yaml": GRANTS_KEPT}, GRANTS_V2,
+         ["the migration moves RoleGrant, an actor's type, whose objects every event names as its actor; such a type does "
+          "not move yet (ADR-0229)"]),
+        ("a part in another module's composition", {"roles.yaml": roles, "holders.yaml": holder, "grants.yaml": GRANTS_KEPT},
+         GRANTS_V2,
+         ["the migration moves RoleGrant, a part in a composition, which follows its whole; such a type does not move yet "
+          "(ADR-0229)"]),
+        ("a split of another module's type by a module new in the version", {"roles.yaml": roles}, GRANTS_V2, []),
+        ("another module's personal value carried by a module new in the version", {"roles.yaml": marked}, GRANTS_V2, carried),
+        ("a type no module of the version before declares", {"grants.yaml": GRANTS_KEPT}, GRANTS_V2,
+         ["RoleGrant is not a type of this module's previous version, so the publish checks it against every module of the "
+          "version before (ADR-0229)"]),
+    ]
+    for name, previous, after, want in across:
+        found, notes = check([("grants.yaml", after)], previous)
         got = sorted(x[4] for x in found + notes)
         hit = got == sorted(want)
         ok &= hit

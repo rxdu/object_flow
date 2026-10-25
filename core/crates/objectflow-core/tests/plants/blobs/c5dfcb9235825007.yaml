@@ -1,0 +1,14 @@
+module: grants
+categories: [live, closed]
+types:
+  AdminGrant:
+    description: An administrator's grant.
+    tracking: record
+    attributes:
+      person: { type: string, indexed: true }
+    states:
+      ACTIVE: { description: Active., category: live }
+      ENDED: { description: Ended., category: closed, final: true }
+    transitions:
+      grant: { kind: initial, to: ACTIVE, required_inputs: [person] }
+      end: { kind: external, from: ACTIVE, to: ENDED }

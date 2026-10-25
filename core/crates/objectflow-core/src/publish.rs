@@ -5300,6 +5300,106 @@ migration:
         }
     }
 
+    /// A version moving a type another module of the installed version
+    /// declared is checked against that module, the module moving it one
+    /// the version before had or one new in the version: a personal value
+    /// carried into an attribute that is not, and a type that does not move
+    /// yet, each refuse the publish as within one module (ADR-0229
+    /// decisions 6 and 7).
+    #[test]
+    fn a_move_of_another_modules_type_is_checked_against_that_module() {
+        let roles = GRANTS_V1
+            .replace("module: grants\n", "module: roles\n")
+            .split("  Review:\n")
+            .next()
+            .unwrap()
+            .to_string();
+        let kept = "
+module: grants
+categories: [live, closed]
+types:
+  AdminGrant:
+    description: An administrator's grant.
+    tracking: record
+    attributes:
+      person: { type: string, indexed: true }
+    states:
+      ACTIVE: { description: Active., category: live }
+      ENDED: { description: Ended., category: closed, final: true }
+    transitions:
+      grant: { kind: initial, to: ACTIVE, required_inputs: [person] }
+      end: { kind: external, from: ACTIVE, to: ENDED }
+";
+        let marked = roles.replace(
+            "person: { type: string, indexed: true }",
+            "person: { type: string, indexed: true, personal: true }",
+        );
+        let actor = roles.replace(
+            "      role: { type: string, indexed: true }\n",
+            "      role: { type: string, indexed: true }\n      login: { type: identity, actor_kind: human, optional: true }\n",
+        );
+        let carried =
+            "carries person, personal in RoleGrant, into AccessGrant.person, which is not";
+        let unmovable = "the migration moves RoleGrant, an actor's type";
+        let text = grants_v2(SPLIT);
+        for (what, installed, want) in [
+            (
+                "a personal value, by a module the version before had",
+                vec![("roles", &marked), ("grants", &kept.to_string())],
+                carried,
+            ),
+            (
+                "a personal value, by a module new in the version",
+                vec![("roles", &marked)],
+                carried,
+            ),
+            (
+                "an actor's type, by a module the version before had",
+                vec![("roles", &actor), ("grants", &kept.to_string())],
+                unmovable,
+            ),
+            (
+                "an actor's type, by a module new in the version",
+                vec![("roles", &actor)],
+                unmovable,
+            ),
+        ] {
+            let files: Vec<(String, String)> = installed
+                .iter()
+                .map(|(m, t)| (m.to_string(), t.to_string()))
+                .collect();
+            let lib = Library::load(&files).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            created(&req(
+                &mut s,
+                "grant",
+                ("RoleGrant", true),
+                json!({"person": "ana", "role": "leave.viewer"}),
+            ));
+            let change = created(&req(
+                &mut s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"grants": &text}, "source_ref": "git:grants@2"}),
+            ));
+            let report = run_on(&s, &change, "grants", &text);
+            assert!(report.fatal(), "{what}: {report:#?}");
+            assert!(
+                report.findings.iter().any(|f| f.severity == Severity::Fatal
+                    && f.code == "check:names"
+                    && f.message.contains(want)),
+                "{what}: {:#?}",
+                report.findings
+            );
+            // the submit runs the dry run, which refuses it
+            assert_eq!(
+                req(&mut s, "submit", (&change, false), json!({})),
+                refused("dry_run_clean"),
+                "{what}"
+            );
+        }
+    }
+
     /// A change's dry run over the grants, drafted and never submitted.
     fn grants_dry(s: &mut Store, text: &str) -> PublishReport {
         let change = created(&req(

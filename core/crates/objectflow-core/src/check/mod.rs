@@ -501,8 +501,27 @@ pub fn checked_reading(
                 message,
             });
         };
+        // a type the version moves read in the module of the version before
+        // that declared it, this module's own or another's, so a move is
+        // checked alike from any module, a module new in the version among
+        // them (ADR-0229)
+        let moving = !previous.is_empty()
+            && !doc::obj(doc.get("migration").unwrap_or(&Value::Null), "moved_types").is_empty();
+        let before = if moving {
+            migration::previous_types(previous, file, &library)
+        } else {
+            doc::Obj::new()
+        };
         let (pair, pair_notes) = match previous.get(file).and_then(|t| crate::yaml::load(t).ok()) {
-            Some(prev) => migration::migration_pair_errors(&schema::typed(&prev), &doc, &library),
+            Some(prev) => {
+                migration::migration_pair_errors(&schema::typed(&prev), &doc, &library, &before)
+            }
+            None if moving => migration::migration_pair_errors(
+                &Value::Object(doc::Obj::new()),
+                &doc,
+                &library,
+                &before,
+            ),
             None => (Vec::new(), Vec::new()),
         };
         for (p, code, message) in pair_notes

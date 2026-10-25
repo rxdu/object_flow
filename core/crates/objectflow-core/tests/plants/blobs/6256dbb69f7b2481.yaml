@@ -1,0 +1,13 @@
+module: holders
+imports: { roles: [RoleGrant] }
+categories: [live, closed]
+types:
+  Holder:
+    description: Who holds grants.
+    tracking: record
+    attributes:
+      grants: { reference: 'RoleGrant[]', aggregation: composite }
+    states:
+      ON: { description: On., category: live }
+    transitions:
+      make: { kind: initial, to: ON }

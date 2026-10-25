@@ -27844,6 +27844,280 @@
   "could_violate": {}
  },
  {
+  "label": "moved_type_plants: a split of another module's type",
+  "files": [
+   [
+    "grants.yaml",
+    "9f0f5621d0ff8a59"
+   ]
+  ],
+  "previous": {
+   "grants.yaml": "c5dfcb9235825007",
+   "roles.yaml": "d652af8b98f68bfe"
+  },
+  "findings": [],
+  "analysed": {
+   "AccessGrant": [
+    0,
+    0
+   ],
+   "AdminGrant": [
+    0,
+    0
+   ],
+   "Review": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_type_plants: another module's personal value carried into an attribute that is not",
+  "files": [
+   [
+    "grants.yaml",
+    "9f0f5621d0ff8a59"
+   ]
+  ],
+  "previous": {
+   "grants.yaml": "c5dfcb9235825007",
+   "roles.yaml": "b94c6c205f716edb"
+  },
+  "findings": [
+   [
+    "grants.yaml",
+    45,
+    "fatal",
+    "names",
+    "the move of RoleGrant to AccessGrant carries person, personal in RoleGrant, into AccessGrant.person, which is not; a personal value reaches no attribute that is not (the model's check 10)"
+   ],
+   [
+    "grants.yaml",
+    50,
+    "fatal",
+    "names",
+    "the move of RoleGrant to AdminGrant carries person, personal in RoleGrant, into AdminGrant.person, which is not; a personal value reaches no attribute that is not (the model's check 10)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_type_plants: another module's personal value given to an attribute that is not",
+  "files": [
+   [
+    "grants.yaml",
+    "9f0f5621d0ff8a59"
+   ]
+  ],
+  "previous": {
+   "grants.yaml": "c5dfcb9235825007",
+   "roles.yaml": "7e0e48b2d5e39a9a"
+  },
+  "findings": [
+   [
+    "grants.yaml",
+    48,
+    "fatal",
+    "names",
+    "the move of RoleGrant to AccessGrant gives AccessGrant.scope, which is not personal, from role, personal in RoleGrant; a personal value reaches no attribute that is not (the model's check 10)"
+   ],
+   [
+    "grants.yaml",
+    49,
+    "fatal",
+    "names",
+    "the move of RoleGrant to AccessGrant gives AccessGrant.level, which is not personal, from role, personal in RoleGrant; a personal value reaches no attribute that is not (the model's check 10)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_type_plants: another module's type moved between tracking kinds",
+  "files": [
+   [
+    "grants.yaml",
+    "9f0f5621d0ff8a59"
+   ]
+  ],
+  "previous": {
+   "grants.yaml": "c5dfcb9235825007",
+   "roles.yaml": "174242684fc44457"
+  },
+  "findings": [
+   [
+    "grants.yaml",
+    45,
+    "fatal",
+    "names",
+    "the migration moves RoleGrant, tracked by serial, to AccessGrant, tracked by record; a move keeps its tracking (ADR-0229)"
+   ],
+   [
+    "grants.yaml",
+    50,
+    "fatal",
+    "names",
+    "the migration moves RoleGrant, tracked by serial, to AdminGrant, tracked by record; a move keeps its tracking (ADR-0229)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_type_plants: another module's type that does not move yet",
+  "files": [
+   [
+    "grants.yaml",
+    "9f0f5621d0ff8a59"
+   ]
+  ],
+  "previous": {
+   "grants.yaml": "c5dfcb9235825007",
+   "roles.yaml": "09d7781676b4a17a"
+  },
+  "findings": [
+   [
+    "grants.yaml",
+    44,
+    "fatal",
+    "names",
+    "the migration moves RoleGrant, an actor's type, whose objects every event names as its actor; such a type does not move yet (ADR-0229)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_type_plants: a part in another module's composition",
+  "files": [
+   [
+    "grants.yaml",
+    "9f0f5621d0ff8a59"
+   ]
+  ],
+  "previous": {
+   "grants.yaml": "c5dfcb9235825007",
+   "holders.yaml": "6256dbb69f7b2481",
+   "roles.yaml": "d652af8b98f68bfe"
+  },
+  "findings": [
+   [
+    "grants.yaml",
+    44,
+    "fatal",
+    "names",
+    "the migration moves RoleGrant, a part in a composition, which follows its whole; such a type does not move yet (ADR-0229)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_type_plants: a split of another module's type by a module new in the version",
+  "files": [
+   [
+    "grants.yaml",
+    "9f0f5621d0ff8a59"
+   ]
+  ],
+  "previous": {
+   "roles.yaml": "d652af8b98f68bfe"
+  },
+  "findings": [],
+  "analysed": {
+   "AccessGrant": [
+    0,
+    0
+   ],
+   "AdminGrant": [
+    0,
+    0
+   ],
+   "Review": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_type_plants: another module's personal value carried by a module new in the version",
+  "files": [
+   [
+    "grants.yaml",
+    "9f0f5621d0ff8a59"
+   ]
+  ],
+  "previous": {
+   "roles.yaml": "b94c6c205f716edb"
+  },
+  "findings": [
+   [
+    "grants.yaml",
+    45,
+    "fatal",
+    "names",
+    "the move of RoleGrant to AccessGrant carries person, personal in RoleGrant, into AccessGrant.person, which is not; a personal value reaches no attribute that is not (the model's check 10)"
+   ],
+   [
+    "grants.yaml",
+    50,
+    "fatal",
+    "names",
+    "the move of RoleGrant to AdminGrant carries person, personal in RoleGrant, into AdminGrant.person, which is not; a personal value reaches no attribute that is not (the model's check 10)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_type_plants: a type no module of the version before declares",
+  "files": [
+   [
+    "grants.yaml",
+    "9f0f5621d0ff8a59"
+   ]
+  ],
+  "previous": {
+   "grants.yaml": "c5dfcb9235825007"
+  },
+  "findings": [
+   [
+    "grants.yaml",
+    44,
+    "notice",
+    "migration",
+    "RoleGrant is not a type of this module's previous version, so the publish checks it against every module of the version before (ADR-0229)"
+   ]
+  ],
+  "analysed": {
+   "AccessGrant": [
+    0,
+    0
+   ],
+   "AdminGrant": [
+    0,
+    0
+   ],
+   "Review": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "metric_plants",
   "files": [
    [

@@ -1,0 +1,16 @@
+module: roles
+categories: [live, closed]
+types:
+  RoleGrant:
+    description: A role a person holds.
+    tracking: record
+    attributes:
+      person: { type: string, indexed: true }
+      login: { type: identity, actor_kind: human }
+      role: { type: string, indexed: true }
+    states:
+      HELD: { description: Held., category: live }
+      REVOKED: { description: Revoked., category: closed, final: true }
+    transitions:
+      grant: { kind: initial, to: HELD, required_inputs: [person, role] }
+      revoke: { kind: external, from: HELD, to: REVOKED }

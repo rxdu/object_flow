@@ -1500,6 +1500,62 @@ def test_an_erasure_reaches_a_value_a_move_wrote_while_personal(tee, what):
     alike(tee)
 
 
+CLIENTS = """module: clients
+categories: [live, closed]
+types:
+  Ledger:
+    description: A ledger.
+    tracking: record
+    attributes:
+      code: { type: string }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [code] }
+      shut: { kind: external, from: [OPEN], to: SHUT }
+"""
+
+
+@pytest.mark.parametrize("before", ["had", "new"])
+def test_a_move_of_another_modules_type_is_checked_against_it_alike(
+        tee, before):
+    """A version moving `Customer`, which the installed `shop` declares,
+    from `clients`, a module the version before had or one new in it, is
+    checked against `shop`: `name`, personal in `Customer`, carried into
+    `Client.name`, which is not, refuses the publish alike through both
+    backends (ADR-0229 decisions 6 and 7)."""
+    files = [{"name": "shop.yaml", "text": SHOP_V1}]
+    if before == "had":
+        files.append({"name": "clients.yaml", "text": CLIENTS})
+    assert tee.post("/sandbox/load", {"files": files})["loaded"]
+    tee.post("/sandbox/reset", {})
+    made(tee, "Customer", "join", name="Ana")
+    tee.found.clear()
+    client = (CLIENTS + "  Client:\n    description: A client.\n"
+              "    tracking: record\n    attributes:\n"
+              "      name: { type: string, optional: true }\n"
+              "    states:\n      ACTIVE: { category: live }\n"
+              "      GONE: { category: closed, final: true }\n"
+              "    transitions:\n"
+              "      join: { kind: initial, to: ACTIVE, optional_inputs: "
+              "[name] }\n"
+              "      leave: { kind: external, from: [ACTIVE], to: GONE }\n"
+              "migration:\n  description: Customers are clients.\n"
+              "  moved_types:\n    Customer: [ { to: Client } ]\n")
+    shop = SHOP_V1[:SHOP_V1.index("  Customer:")] \
+        + SHOP_V1[SHOP_V1.index("  Coupon:"):]
+    c = change(tee, "draft", source={"shop": shop, "clients": client},
+               source_ref="git:case@2")["object_id"]
+    report = tee.post("/v1/publish", {"actor": OP, "change": c,
+                                      "dry_run": True})["report"]
+    carried = [f["message"] for f in report["findings"]
+               if f["code"] == "check:names" and f["severity"] == "fatal"]
+    assert any("carries name, personal in Customer, into Client.name, which "
+               "is not" in m for m in carried), report["findings"]
+    alike(tee)
+
+
 GREETED = """module: shop
 categories: [live, closed]
 types:

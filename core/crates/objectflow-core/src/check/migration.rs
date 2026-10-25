@@ -467,9 +467,44 @@ fn route(kinds: &Obj, tn: &str, field: &str, st: &str) -> BTreeSet<String> {
     out
 }
 
+/// The types of the version before in every module but `file`'s, as each
+/// module's view gave them, its machines left out: a move of a type another
+/// module declared is checked against it there (`check-flows.py`'s
+/// `previous_types`, ADR-0229 decision 7).
+pub fn previous_types(previous: &BTreeMap<String, String>, file: &str, library: &Obj) -> Obj {
+    let mut out = Obj::new();
+    for (name, text) in previous {
+        if name == file {
+            continue;
+        }
+        let Ok(doc) = crate::yaml::load(text) else {
+            continue;
+        };
+        let doc = super::schema::typed(&doc);
+        if doc.get("module").is_none() || doc.get("examples_for").is_some() {
+            continue;
+        }
+        let machines = keys(&doc, "machines");
+        let v = View::new(&doc, library);
+        for (tn, t) in obj(&v.doc, "types") {
+            if !machines.contains(tn) {
+                out.insert(tn.clone(), t.clone());
+            }
+        }
+    }
+    out
+}
+
 /// This version against the one before it (the model's checks 22 and 23),
-/// as fatal findings and notices.
-pub fn migration_pair_errors(prev: &Value, doc: &Value, library: &Obj) -> (Found, Found) {
+/// as fatal findings and notices. `before` holds the version before's types
+/// in its other modules, where a type this version moves is read when this
+/// module's previous text lacks it.
+pub fn migration_pair_errors(
+    prev: &Value,
+    doc: &Value,
+    library: &Obj,
+    before: &Obj,
+) -> (Found, Found) {
     let pv = View::new(prev, library);
     let v = View::new(doc, library);
     let machines: BTreeSet<String> = keys(doc, "machines")
@@ -688,7 +723,7 @@ pub fn migration_pair_errors(prev: &Value, doc: &Value, library: &Obj) -> (Found
     }
     for (section, names) in [("moved_types", &moved), ("retired_types", &retired)] {
         for tn in names.keys() {
-            if !old.contains_key(tn) {
+            if !old.contains_key(tn) && !before.contains_key(tn) {
                 notes.push(finding(
                     segs!["migration", section, tn],
                     "migration",
@@ -697,9 +732,20 @@ pub fn migration_pair_errors(prev: &Value, doc: &Value, library: &Obj) -> (Found
             }
         }
     }
+    let kinds: Obj = if moved.is_empty() {
+        Obj::new()
+    } else {
+        before
+            .iter()
+            .chain(&old)
+            .map(|(k, t)| (k.clone(), t.clone()))
+            .collect()
+    };
     for (tn, entries) in &moved {
-        let Some(ot) = old.get(tn) else { continue };
-        if let Some(why) = unmovable(tn, ot, &old) {
+        let Some(ot) = old.get(tn).or_else(|| before.get(tn)) else {
+            continue;
+        };
+        if let Some(why) = unmovable(tn, ot, &kinds) {
             fatal.push(finding(
                 segs!["migration", "moved_types", tn],
                 "names",
