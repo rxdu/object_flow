@@ -4853,8 +4853,9 @@ impl Store {
             // a member newly tracked opens at the migration where a backfill
             // writes it, and else at the publish event; one no longer tracked
             // closes at the publish event (ADR-0146, ADR-0147). A rename has
-            // carried its spans under the new name already.
-            let old_t = old.type_(&o.type_);
+            // carried its spans under the new name already. A moved object's
+            // is the type it left (ADR-0229 decision 3).
+            let old_t = old.type_(&was.type_);
             let tracked_now = new.tracked(t);
             let backfilled = |d: &str| {
                 codes
@@ -6975,12 +6976,15 @@ fn write(
         let name = table(&o.type_);
         // a moved object's row leaves its old type's table, its set tables'
         // rows with it, and its directory row names its new type, the row
-        // then made afresh in its own (ADR-0229 decision 3)
+        // then made afresh in its own, at the write of the event recording
+        // the move, a later write of the object, a redaction's, updating
+        // the row it made (ADR-0229 decision 3)
         let moved_from = change
             .moved
             .iter()
             .find(|(id, _)| *id == o.id)
-            .map(|(_, from)| from.as_str());
+            .map(|(_, from)| from.as_str())
+            .filter(|_| event.payload.get("moved").is_some());
         if let Some(from) = moved_from {
             let Some(ft) = lib.type_(from) else {
                 return Err(StoreError(format!(

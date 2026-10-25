@@ -590,7 +590,9 @@ fn moves(
         .map(|(tn, _)| tn)
         .chain(m.retired_types.iter().map(|(tn, _)| tn));
     for tn in named {
-        if world.lib.type_(tn).is_none() {
+        // a type an earlier version retired is no module's of the installed
+        // version either, though the library keeps it for its objects
+        if world.lib.type_(tn).is_none_or(|t| t.retired) {
             found.add(
                 Severity::Fatal,
                 format!("moved_type:{tn}"),
@@ -768,7 +770,8 @@ fn moves(
 /// A type the version removes and does not move: refused while it holds an
 /// object not in a final state, unless the version retires it on purpose,
 /// and its objects named when it is retired (ADR-0229 decision 1). An
-/// observation kind is born final and needs no decision.
+/// observation kind is born final and needs no decision, and a type an
+/// earlier version retired is removed already.
 fn removed_types(
     world: &World<'_>,
     new: &Library,
@@ -777,6 +780,7 @@ fn removed_types(
 ) -> Result<(), NotRun> {
     for (tn, ot) in &world.lib.types {
         if builtin(tn)
+            || ot.retired
             || ot.observation_on.is_some()
             || !new.type_(tn).is_some_and(|t| t.retired)
             || m.moved(tn).is_some()
@@ -5078,6 +5082,29 @@ migration:
         );
         let w = s.snapshot().unwrap();
         assert_eq!(w.whole(&viewer).unwrap().unwrap().type_, "RoleGrant");
+        drop(w);
+        // retired once, it is no type the next version removes: a version
+        // that says nothing of it publishes, and one naming it is refused,
+        // no module of the installed version declaring it (decision 7)
+        let next = grants_v2("").replace(
+            "  Review:\n    description: A review of the grants a person holds.\n",
+            "  Review:\n    description: A review of the grants one person holds.\n",
+        );
+        let (change, v) = grants_change(&mut s, &next);
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let report = grants_dry(&mut s, &grants_v2(retire));
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.severity == Severity::Fatal && f.code == "moved_type:RoleGrant"),
+            "{:#?}",
+            report.findings
+        );
     }
 
     /// A reference to an object that moves keeps its value where it now
@@ -5595,6 +5622,66 @@ types:
             assert_eq!(
                 req(&mut s, "submit", (&change, false), json!({})),
                 refused("dry_run_clean"),
+                "{what}"
+            );
+        }
+    }
+
+    /// An object erased before its type moves has what its target newly
+    /// marks personal redacted, judged against the type it left: `nick`,
+    /// not personal in `Customer`, personal in `Client`, a type new in the
+    /// version or one it kept, is in no event of the erased customer after
+    /// the move (publish-and-import.md §1 step 5, D527).
+    #[test]
+    fn a_moved_erased_object_has_what_its_target_newly_marks_personal_redacted() {
+        let customer =
+            &SHOP_V1[SHOP_V1.find("  Customer:\n").unwrap()..SHOP_V1.find("  Coupon:\n").unwrap()];
+        let client = customer
+            .replace(
+                "  Customer:\n    description: A customer.\n",
+                "  Client:\n    description: A client.\n",
+            )
+            .replace(
+                "nick: { type: string, optional: true }",
+                "nick: { type: string, optional: true, personal: true }",
+            );
+        let moved = format!(
+            "{}migration:\n  description: Customers are clients.\n  moved_types:\n    Customer: [ {{ to: Client }} ]\n",
+            SHOP_V1.replace(customer, &client)
+        );
+        let kept = SHOP_V1.replace("  Coupon:\n", &format!("{client}  Coupon:\n"));
+        for (what, v1) in [("a new type", SHOP_V1.to_string()), ("a type kept", kept)] {
+            let lib = Library::load(&[("shop.yaml".into(), v1)]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let ana = created(&req(
+                &mut s,
+                "join",
+                ("Customer", true),
+                json!({"name": "Ana", "nick": "ana-nick"}),
+            ));
+            created(&req(
+                &mut s,
+                "forget",
+                (&ana, false),
+                json!({"reason": "asked"}),
+            ));
+            assert_eq!(copies(&s, &ana, "nick").len(), 2, "{what}: before");
+            published_in_turn(&mut s, &[&moved]);
+            let w = s.snapshot().unwrap();
+            let o = w.whole(&ana).unwrap().unwrap();
+            assert_eq!(o.type_, "Client", "{what}");
+            assert!(o.attr("nick").is_absent(), "{what}");
+            drop(w);
+            assert_eq!(copies(&s, &ana, "nick"), vec![], "{what}");
+            let transitions: Vec<String> = s
+                .history(&ana)
+                .unwrap()
+                .into_iter()
+                .map(|e| e.transition)
+                .collect();
+            assert_eq!(
+                transitions.last().map(String::as_str),
+                Some("redact"),
                 "{what}"
             );
         }

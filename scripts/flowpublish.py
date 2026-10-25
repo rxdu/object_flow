@@ -470,7 +470,9 @@ def moves(store, sim, kinds, retired, m, found):
     for tn in list(moved) + list(m["retired_types"]):
         # a type no module of the installed version declares, or one the version keeps, which the checker run on one
         # module cannot see (ADR-0229 decision 7)
-        if tn not in store.kinds:
+        # a type an earlier version retired is no module's of the installed version either, though the store keeps it
+        # for its objects
+        if tn not in store.kinds or (store.kinds.get(tn) or {}).get("_retired"):
             found.add("fatal", f"moved_type:{tn}", f"the migration names {tn}, which no module of the installed version declares")
         elif tn not in retired:
             found.add("fatal", f"moved_type:{tn}", f"the migration names {tn}, which the version still declares")
@@ -537,9 +539,10 @@ def moves(store, sim, kinds, retired, m, found):
 def removed_types(store, retired, m, found):
     """A type the version removes and does not move: refused while it holds an object not in a final state, unless the
     version retires it on purpose, and its objects named when it is retired (ADR-0229 decision 1); an observation kind
-    is born final and needs no decision."""
+    is born final and needs no decision, and a type an earlier version retired is removed already."""
     for tn, ot in sorted(store.kinds.items()):
-        if tn in BUILT_IN or tn not in retired or (ot or {}).get("_observation_on") or tn in m["moved_types"]:
+        if tn in BUILT_IN or tn not in retired or (ot or {}).get("_observation_on") or (ot or {}).get("_retired") \
+                or tn in m["moved_types"]:
             continue
         objects = [oid for oid, o in sorted(store.objects.items(), key=lambda kv: kv[1].id_order) if o.type == tn]
         live = [oid for oid in objects if (st := ((ot or {}).get("states") or {}).get(store.objects[oid].state)) is not None
@@ -575,7 +578,7 @@ def impact(store, new, found, actor, change_id):
     retired = set()
     for tn, t in old_kinds.items():
         if tn not in kinds and tn not in BUILT_IN:
-            kinds[tn] = {**copy.deepcopy(t), "transitions": {
+            kinds[tn] = {**copy.deepcopy(t), "_retired": True, "transitions": {
                 xn: x for xn, x in (t.get("transitions") or {}).items() if (x or {}).get("kind") == "erasure"}}
             retired.add(tn)
     # a type the version adds names its objects `<type>-<n>`, which an actor's identity of that shape, in any case,
@@ -999,10 +1002,13 @@ def install(store, installed, report, change_id, identity, kind):
     def of(prefix, oid):
         return [code for code, ids in affected.items() if code.startswith(prefix) and oid in ids]
 
+    left = {}       # each moved object's type before the move
     for oid, x in sim.objects.items():
         if oid not in store.objects or x.type in BUILT_IN or x.type in retired or x.type not in kinds:
             continue
         was = store.objects[oid]
+        if x.type != was.type:
+            left[oid] = was.type
         # a mapping's, and a type change's setting a value aside, each recorded on the object's migration (the
         # audit's write path A-06)
         codes = of("mapping:", oid) + of("type_changed:", oid)
@@ -1065,15 +1071,17 @@ def install(store, installed, report, change_id, identity, kind):
     for oid, x in sorted(sim.objects.items(), key=lambda kv: kv[1].id_order):
         if not x.erased or oid not in store.objects or x.type in retired or x.type not in kinds:
             continue
-        old_attrs = (old_kinds.get(x.type) or {}).get("attributes") or {}
+        # judged against the type it was before the publish, a moved object's the type it left, as the core judges
+        # it, whether or not it holds a value now, its events holding what it held (publish-and-import.md §1 step 5)
+        old_attrs = (old_kinds.get(left.get(oid, x.type)) or {}).get("attributes") or {}
         redacted = []
         for a, spec in ((kinds[x.type].get("attributes") or {}).items()):
-            before = old_attrs.get(renamed.get((x.type, a), a)) or {}
-            if (spec or {}).get("personal") and not before.get("personal") and x.attrs.get(a, ABSENT) not in (ABSENT, ()):
+            before = old_attrs.get(a if oid in left else renamed.get((x.type, a), a)) or {}
+            if (spec or {}).get("personal") and not before.get("personal") and before:
                 if flowrun.is_set_attribute(spec):
                     x.attrs[a] = ()     # a personal set is emptied, a set being never absent (ADR-0148)
                 else:
-                    del x.attrs[a]
+                    x.attrs.pop(a, None)
                 for row in x.spans.get(a, ()):
                     row["value"] = ABSENT   # its intervals too, as the erasure it completes clears them (§9 step 9)
                 redacted.append(a)

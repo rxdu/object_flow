@@ -872,6 +872,26 @@ def test_a_dropped_types_object_is_erased_alike(tee):
     alike(tee)
 
 
+
+def test_a_type_retired_once_is_not_removed_again_alike(tee):
+    """A type a version retired holding a live object is removed already:
+    the next version publishes saying nothing of it, and one naming it is
+    refused, no module of the installed version declaring it, alike
+    through both backends (ADR-0229 decisions 1 and 7)."""
+    load(tee, "shop", SHOP_V1)
+    made(tee, "Coupon", "issue", code="C1")
+    tee.found.clear()
+    retire = ("migration:\n  description: Coupons are dropped.\n"
+              "  retired_types:\n    Coupon: Coupons are no longer issued.\n")
+    without = SHOP_V1[:SHOP_V1.index("  Coupon:")]
+    published(tee, without + retire)
+    published(tee, without.replace("description: A customer.",
+                                   "description: A customer of the shop."),
+              "git:shop@3")
+    _c, codes = dry_run(tee, {"shop": without + retire})
+    assert "moved_type:Coupon" in codes, codes
+    alike(tee)
+
 def test_a_type_whose_ids_would_name_an_identity_is_refused_alike(tee):
     """A version adding a type whose ids would name an identity an actor holds, in any case, is refused, naming the
     actor by its object, alike through both backends; an identity of no type's shape is not (D669, ADR-0205
@@ -1607,6 +1627,36 @@ def test_an_erasure_walks_each_step_as_its_version_declared_it_alike(
         held = tee.post("/v1/get", {"id": oid})
         assert "Dana" not in json.dumps(held), held
         tee.post("/v1/history", {"id": oid})
+    alike(tee)
+
+
+@pytest.mark.parametrize("target", ["new", "kept"])
+def test_a_moved_erased_object_has_what_its_target_newly_marks_redacted_alike(
+        tee, target):
+    """A customer erased before its type moves has what the target newly
+    marks personal redacted, judged against the type it left: `nick`, not
+    personal in `Customer`, personal in `Client`, a type new in the version
+    or one it kept, alike through both backends (publish-and-import.md §1
+    step 5, D527)."""
+    customer = SHOP_V1[SHOP_V1.index("  Customer:\n"):SHOP_V1.index("  Coupon:\n")]
+    client = customer.replace(
+        "  Customer:\n    description: A customer.\n",
+        "  Client:\n    description: A client.\n").replace(
+        "nick: { type: string, optional: true }",
+        "nick: { type: string, optional: true, personal: true }")
+    v1 = SHOP_V1 if target == "new" else SHOP_V1.replace(
+        "  Coupon:\n", client + "  Coupon:\n")
+    load(tee, "shop", v1)
+    ana = made(tee, "Customer", "join", name="Ana", nick="ana-nick")
+    took(tee, ana, "forget", reason="asked")
+    tee.found.clear()
+    published(tee, SHOP_V1.replace(customer, client)
+              + "migration:\n  description: Customers are clients.\n"
+              "  moved_types:\n    Customer: [ { to: Client } ]\n")
+    held = tee.post("/v1/get", {"id": ana})
+    assert held["type"] == "Client" and "ana-nick" not in json.dumps(held), held
+    history = tee.post("/v1/history", {"id": ana})
+    assert [e["transition"] for e in history["events"]][-1] == "redact", history
     alike(tee)
 
 CLIENTS = """module: clients
