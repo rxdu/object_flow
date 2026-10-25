@@ -3414,6 +3414,7 @@ class Runner:
                        if input_personal(t, x, n) or n in holding or n in renamed}
             held_then = {self.named_under(work, self.type_then(work, o.id, o.type, v), a, v) for a in holding}
             self.walk_down(ctx, e, tainted, held_then, redacted, cleared)
+            self.walk_up(ctx, e, tainted, redacted)
         for oid in sorted(set(redacted) | set(cleared), key=lambda i: work.objects[i].id_order):
             p = work.objects[oid]
             if oid == o.id or p.erased:
@@ -3424,6 +3425,35 @@ class Runner:
                 else:
                     p.attrs.pop(a, None)
             self.redact_event(ctx, p)
+
+    def walk_up(self, ctx, e, tainted, redacted):
+        """The callers that passed a tainted value on (storage-schema.md §9 step 3): up the event's cause chain, each
+        caller's inputs that the step taking its callee's transition filled a tainted input from, redacted in the
+        caller's event and tainted in turn, until a level passes none on. A call's step is matched by the transition it
+        takes, its target's type not inferred; each step read as the version its caller's event was written under
+        declared it, of the type its object was then, as the core's `caller_taint`."""
+        work = ctx.work
+        callee = e
+        while tainted:
+            caller = next((c for c in work.events if c["position"] == callee.get("cause")), None)
+            if caller is None or caller["object"] not in work.objects:
+                break
+            v = caller["declaration_version"]
+            co = work.objects[caller["object"]]
+            cx = ((self.kinds_at(work, v).get(self.type_then(work, co.id, co.type, v)) or {}).get("transitions")
+                  or {}).get(caller["transition"])
+            if not cx:
+                break
+            to = work.objects.get(callee["object"])
+            callee_type = self.type_then(work, to.id, to.type, callee["declaration_version"]) if to else ""
+            passed = set()
+            for n, exprs in steps_taking(work, cx.get("effect") or [], callee["transition"], callee_type):
+                if n in tainted:
+                    for x in exprs:
+                        passed |= inputs_read(x)
+            for n in passed & set(caller.get("inputs") or ()):
+                redacted.setdefault(co.id, set()).add(n)
+            tainted, callee = passed, caller
 
     @staticmethod
     def redact_event(ctx, p):

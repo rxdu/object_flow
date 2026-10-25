@@ -1630,6 +1630,101 @@ def test_an_erasure_walks_each_step_as_its_version_declared_it_alike(
     alike(tee)
 
 
+CALLERS = """module: callers
+categories: [live, closed]
+types:
+  Person:
+    description: A person.
+    tracking: record
+    attributes:
+      name: { type: string, optional: true, personal: true }
+      note: { type: string, optional: true }
+    states:
+      ACTIVE: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ACTIVE, optional_inputs: [name] }
+      rename: { kind: internal, from: [ACTIVE], required_inputs: [name] }
+      annotate: { kind: internal, from: [ACTIVE], required_inputs: [note] }
+      leave: { kind: external, from: [ACTIVE], to: GONE }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Desk:
+    description: A desk.
+    tracking: record
+    attributes:
+      person: { reference: Person }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [person] }
+      relabel_person:
+        kind: internal
+        from: [OPEN]
+        inputs: { new_name: { type: string }, memo: { type: string } }
+        effect:
+          - call: { target: person, transition: rename, inputs: { name: inputs.new_name } }
+      annotate_person:
+        kind: internal
+        from: [OPEN]
+        inputs: { text: { type: string } }
+        effect:
+          - call: { target: person, transition: annotate, inputs: { note: inputs.text } }
+      shut: { kind: external, from: [OPEN], to: SHUT }
+  Office:
+    description: An office.
+    tracking: record
+    attributes:
+      desk: { reference: Desk }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [desk] }
+      rename_at_desk:
+        kind: internal
+        from: [OPEN]
+        inputs: { who: { type: string }, why: { type: string } }
+        effect:
+          - call: { target: desk, transition: relabel_person, inputs: { new_name: inputs.who, memo: inputs.why } }
+      shut: { kind: external, from: [OPEN], to: SHUT }
+"""
+
+
+def test_an_erasure_redacts_what_callers_passed_in_alike(tee):
+    """An erasure walks up its events' causes: the name an office passed to
+    a desk, and the desk on to the person erased, is redacted in each
+    caller's event, which takes a `redact` event, and what each passed
+    elsewhere stays; a desk that passed the person only what is not
+    personal, and another person's callers, are left as they were, alike
+    through both backends (storage-schema.md §9 step 3)."""
+    load(tee, "callers", CALLERS)
+    callers = {}
+    for who in ("Dana", "Eve"):
+        person = made(tee, "Person", "add", name=who)
+        desk = made(tee, "Desk", "open", person=person)
+        office = made(tee, "Office", "open", desk=desk)
+        took(tee, office, "rename_at_desk", who=f"{who} Doe", why="moved desks")
+        noting = made(tee, "Desk", "open", person=person)
+        took(tee, noting, "annotate_person", text="prefers mornings")
+        callers[who] = (person, desk, office, noting)
+    dana, desk, office, _noting = callers["Dana"]
+    tee.found.clear()
+    took(tee, dana, "forget", reason="asked")
+    for oid in (dana, desk, office):
+        held = tee.post("/v1/history", {"id": oid})
+        assert "Dana" not in json.dumps(held), held
+    for oid in (desk, office):
+        assert "moved desks" in json.dumps(tee.post("/v1/history",
+                                                    {"id": oid}))
+    redacts = {oid: [e["transition"] for e in tee.post(
+        "/v1/history", {"id": oid})["events"]].count("redact")
+        for oid in callers["Dana"][1:] + callers["Eve"]}
+    assert redacts == {desk: 1, office: 1, callers["Dana"][3]: 0,
+                       **{oid: 0 for oid in callers["Eve"]}}, redacts
+    alike(tee)
+
+
 @pytest.mark.parametrize("target", ["new", "kept"])
 def test_a_moved_erased_object_has_what_its_target_newly_marks_redacted_alike(
         tee, target):
