@@ -1900,70 +1900,86 @@ fn an_erasure_beside_a_long_dry_run_leaves_the_files() {
     let note = "module: n\ncategories: [live, closed]\ntypes:\n  Note:\n    description: A note.\n    tracking: record\n    attributes:\n      text: { type: string, personal: true, optional: true }\n    states:\n      OPEN: { category: live, description: Open. }\n      DONE: { category: closed, final: true, description: Done. }\n    transitions:\n      jot: { kind: initial, to: OPEN, optional_inputs: [text] }\n      done: { kind: external, from: OPEN, to: DONE }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
     publish(&s, &json!({ "n": note }));
     let op = json!({"id": "operator"});
-    let marker = format!("ERASE-ME-{}", "Q".repeat(40));
-    let jotted = post(
-        &s,
-        "/v1/request",
-        &json!({"actor": op, "type": "Note", "transition": "jot", "inputs": {"text": marker}}),
-    );
-    let id = jotted["object_id"].as_str().expect("a note").to_string();
-    // a change whose checks take seconds: two thousand types
-    let big: String = std::iter::once(note.to_string())
-        .chain((0..2000).map(|i| {
-            format!(
-                "  T{i}:\n    description: A thing.\n    tracking: record\n    states:\n      ON: {{ category: live, description: On. }}\n      OFF: {{ category: closed, final: true, description: Off. }}\n    transitions:\n      make: {{ kind: initial, to: ON }}\n      stop: {{ kind: external, from: ON, to: OFF }}\n"
-            )
-        }))
-        .collect();
-    let drafted = post(
-        &s,
-        "/v1/request",
-        &json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
-                "inputs": {"source": {"n": big}, "source_ref": "test:big"}}),
-    );
-    let change = drafted["object_id"].as_str().expect("a change").to_string();
     let files = [file.clone(), file.with_extension("sqlite-wal")];
-    let holds = |p: &PathBuf| {
-        std::fs::read(p).is_ok_and(|b| b.windows(marker.len()).any(|w| w == marker.as_bytes()))
-    };
-    std::thread::scope(|scope| {
-        let checking = scope.spawn(|| {
-            let began = Instant::now();
-            let (status, _) = call(
-                &s,
-                "POST",
-                "/v1/check",
-                Some(&json!({"actor": op, "object_id": change, "transition": "submit"})),
-            );
-            (status, began.elapsed())
-        });
-        std::thread::sleep(Duration::from_secs(1));
-        let erased = post(
+    // a change three times larger, and a note erased again, where its
+    // check ends before the files are clean, too soon to tell a check that
+    // held them from one beside them: a reader at the erasure leaves the
+    // log to the next cut, up to 5 s later, and an optimised build ended
+    // two thousand types' check in 1.04 s (the release of 0.6.0, on its
+    // runner); six thousand, 1.76 MB, is the most a request's 2 MiB holds
+    let mut types = 2000;
+    loop {
+        let marker = format!("ERASE-ME-{types}-{}", "Q".repeat(40));
+        let jotted = post(
             &s,
             "/v1/request",
-            &json!({"actor": op, "object_id": id, "transition": "forget", "inputs": {"reason": "asked"}}),
+            &json!({"actor": op, "type": "Note", "transition": "jot", "inputs": {"text": marker}}),
         );
-        assert_eq!(erased["kind"], "satisfied", "{erased}");
-        let at = Instant::now();
-        let mut gone = None;
-        while at.elapsed() < Duration::from_secs(15) {
-            if !files.iter().any(&holds) {
-                gone = Some(at.elapsed());
-                break;
+        let id = jotted["object_id"].as_str().expect("a note").to_string();
+        let big: String = std::iter::once(note.to_string())
+            .chain((0..types).map(|i| {
+                format!(
+                    "  T{i}:\n    description: A thing.\n    tracking: record\n    states:\n      ON: {{ category: live, description: On. }}\n      OFF: {{ category: closed, final: true, description: Off. }}\n    transitions:\n      make: {{ kind: initial, to: ON }}\n      stop: {{ kind: external, from: ON, to: OFF }}\n"
+                )
+            }))
+            .collect();
+        let drafted = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "DeclarationChange", "transition": "draft",
+                    "inputs": {"source": {"n": big}, "source_ref": "test:big"}}),
+        );
+        let change = drafted["object_id"].as_str().expect("a change").to_string();
+        let holds = |p: &PathBuf| {
+            std::fs::read(p).is_ok_and(|b| b.windows(marker.len()).any(|w| w == marker.as_bytes()))
+        };
+        let (still_checking, took, gone) = std::thread::scope(|scope| {
+            let checking = scope.spawn(|| {
+                let began = Instant::now();
+                let (status, _) = call(
+                    &s,
+                    "POST",
+                    "/v1/check",
+                    Some(&json!({"actor": op, "object_id": change, "transition": "submit"})),
+                );
+                (status, began.elapsed())
+            });
+            std::thread::sleep(Duration::from_secs(1));
+            let erased = post(
+                &s,
+                "/v1/request",
+                &json!({"actor": op, "object_id": id, "transition": "forget", "inputs": {"reason": "asked"}}),
+            );
+            assert_eq!(erased["kind"], "satisfied", "{erased}");
+            let at = Instant::now();
+            let mut gone = None;
+            while at.elapsed() < Duration::from_secs(15) {
+                if !files.iter().any(&holds) {
+                    gone = Some(at.elapsed());
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(250));
             }
-            std::thread::sleep(Duration::from_millis(250));
-        }
-        let still_checking = !checking.is_finished();
-        let (status, took) = checking.join().expect("the check");
-        assert_eq!(status, 200);
-        let gone = gone.unwrap_or_else(|| {
-            panic!("the erased value stayed in the store's files 15 s, the check taking {took:?}")
+            let still_checking = !checking.is_finished();
+            let (status, took) = checking.join().expect("the check");
+            assert_eq!(status, 200);
+            let gone = gone.unwrap_or_else(|| {
+                panic!(
+                    "the erased value stayed in the store's files 15 s, the check taking {took:?}"
+                )
+            });
+            (still_checking, took, gone)
         });
-        assert!(
-            still_checking,
-            "inconclusive: the check, {took:?}, ended before the files were clean, {gone:?} after the erasure"
-        );
-    });
+        eprintln!("{types} types: the check {took:?}, the files clean {gone:?} after the erasure");
+        if still_checking || types >= 2000 * 3 {
+            assert!(
+                still_checking,
+                "the check of {types} types, {took:?}, ended before the files were clean, {gone:?} after the erasure: it held them, or was too short to tell"
+            );
+            break;
+        }
+        types *= 3;
+    }
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
