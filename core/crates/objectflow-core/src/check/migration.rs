@@ -498,12 +498,15 @@ pub fn previous_types(previous: &BTreeMap<String, String>, file: &str, library: 
 /// This version against the one before it (the model's checks 22 and 23),
 /// as fatal findings and notices. `before` holds the version before's types
 /// in its other modules, where a type this version moves is read when this
-/// module's previous text lacks it.
+/// module's previous text lacks it. Where `prev` is a store's installed
+/// version, `installed`, a mapping naming a state, a member or an attribute
+/// it lacks is left to the publish, which notices it (ADR-0230 decision 2).
 pub fn migration_pair_errors(
     prev: &Value,
     doc: &Value,
     library: &Obj,
     before: &Obj,
+    installed: bool,
 ) -> (Found, Found) {
     let pv = View::new(prev, library);
     let v = View::new(doc, library);
@@ -541,7 +544,7 @@ pub fn migration_pair_errors(
             }
         }
         for st in mapped.keys() {
-            if !old_states.contains(st) {
+            if !old_states.contains(st) && !installed {
                 fatal.push(finding(
                     segs!["migration", "removed_states", tn, st],
                     "names",
@@ -555,7 +558,7 @@ pub fn migration_pair_errors(
         let old_attrs = obj(ot, "attributes");
         let new_attrs = obj(t, "attributes");
         for a in renamed.keys() {
-            if !old_attrs.contains_key(a) {
+            if !old_attrs.contains_key(a) && !installed {
                 fatal.push(finding(
                     segs!["migration", "renamed_attributes", tn, a],
                     "names",
@@ -916,7 +919,7 @@ pub fn migration_pair_errors(
             }
         }
         for x in mapped.keys() {
-            if !was.contains(x) {
+            if !was.contains(x) && !installed {
                 fatal.push(finding(
                     segs!["migration", "removed_members", en, x],
                     "names",

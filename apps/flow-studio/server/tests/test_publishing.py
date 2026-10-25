@@ -875,9 +875,9 @@ def test_a_dropped_types_object_is_erased_alike(tee):
 
 def test_a_type_retired_once_is_not_removed_again_alike(tee):
     """A type a version retired holding a live object is removed already:
-    the next version publishes saying nothing of it, and one naming it is
-    refused, no module of the installed version declaring it, alike
-    through both backends (ADR-0229 decisions 1 and 7)."""
+    the next version publishes saying nothing of it, and one naming it
+    again names what the installed version holds retired, a notice, alike
+    through both backends (ADR-0229 decision 1, ADR-0230 decision 2)."""
     load(tee, "shop", SHOP_V1)
     made(tee, "Coupon", "issue", code="C1")
     tee.found.clear()
@@ -889,7 +889,125 @@ def test_a_type_retired_once_is_not_removed_again_alike(tee):
                                    "description: A customer of the shop."),
               "git:shop@3")
     _c, codes = dry_run(tee, {"shop": without + retire})
-    assert "moved_type:Coupon" in codes, codes
+    assert "moved_type:Coupon" not in codes, codes
+    assert "migration_not_applicable:retired_types:Coupon" in codes, codes
+    alike(tee)
+
+
+KEPT_V1 = """module: kept
+categories: [live, closed]
+enumerations:
+  Level: [NONE, READ]
+types:
+  Thing:
+    description: A thing.
+    tracking: record
+    attributes:
+      holder: { type: string, optional: true }
+      level: { type: Level, optional: true }
+      count: { type: int, optional: true }
+    states:
+      OLD: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      make: { kind: initial, to: OLD, optional_inputs: [holder, level, count] }
+      shut: { kind: external, from: [OLD], to: DONE }
+  Coupon:
+    description: A coupon.
+    tracking: record
+    attributes:
+      code: { type: string }
+    states:
+      ISSUED: { category: live }
+      USED: { category: closed, final: true }
+    transitions:
+      issue: { kind: initial, to: ISSUED, required_inputs: [code] }
+      redeem: { kind: external, from: [ISSUED], to: USED }
+"""
+
+
+def kept_v2(description: str = "A thing.", fill: str = "count + 1") -> str:
+    """The second version: `holder` renamed `person`, `OLD` gone into
+    `OPEN`, `NONE` into `READ`, `Coupon` moved into `Voucher`, and `count`
+    backfilled by `fill`, the thing described as given."""
+    text = KEPT_V1
+    for old, new in [("description: A thing.", f"description: {description}"),
+                     ("holder: { type", "person: { type"),
+                     ("[holder, level, count]", "[person, level, count]"),
+                     ("Level: [NONE, READ]", "Level: [READ]"),
+                     ("      OLD: { category: live }", "      OPEN: { category: live }"),
+                     ("to: OLD,", "to: OPEN,"), ("from: [OLD]", "from: [OPEN]"),
+                     ("  Coupon:\n    description: A coupon.",
+                      "  Voucher:\n    description: A voucher.")]:
+        assert text.count(old) == 1, old
+        text = text.replace(old, new)
+    return text + (
+        "migration:\n  description: The second version.\n"
+        "  renamed_attributes:\n    Thing: { holder: person }\n"
+        "  removed_states:\n    Thing: { OLD: OPEN }\n"
+        "  removed_members:\n    Level: { NONE: READ }\n"
+        "  moved_types:\n    Coupon: [ { to: Voucher } ]\n"
+        f"  backfill:\n    Thing: {{ count: '{fill}' }}\n")
+
+
+NOT_APPLICABLE = {"migration_not_applicable:renamed_attributes:Thing.holder",
+                  "migration_not_applicable:removed_states:Thing.OLD",
+                  "migration_not_applicable:removed_members:Level.NONE",
+                  "migration_not_applicable:moved_types:Coupon"}
+
+
+@pytest.mark.parametrize("store", ["behind", "kept", "new", "retired"])
+def test_one_source_serves_a_store_behind_kept_or_new_alike(tee, store):
+    """One source carrying a rename, a removed state and member, a move and
+    a backfill publishes over a store at the version before, which each
+    entry acts on; over one that took it, where each names what the store
+    no longer has, a notice, and the backfill runs no more, unchanged, but
+    again once changed; over a store that never held what they name; and
+    over one that retired the moved type, whose objects stay retired, alike
+    through both backends (ADR-0230 decisions 1, 2 and 4)."""
+    if store == "retired":
+        load(tee, "kept", KEPT_V1)
+        coupon = made(tee, "Coupon", "issue", code="C1")
+        tee.found.clear()
+        c, _codes = dry_run(tee, {"kept": kept_v2().replace(
+            "  moved_types:\n    Coupon: [ { to: Voucher } ]\n",
+            "  retired_types:\n    Coupon: Coupons are given up.\n")})
+        approved(tee, c)
+        c, codes = dry_run(tee, {"kept": kept_v2("A thing, kept.")})
+        assert "migration_not_applicable:moved_types:Coupon" in codes, codes
+        approved(tee, c)
+        assert tee.post("/v1/get", {"id": coupon})["type"] == "Coupon"
+        alike(tee)
+        return
+    if store == "new":
+        load(tee, "callers", CALLERS)
+        tee.found.clear()
+        c, codes = dry_run(tee, {"kept": kept_v2()})
+        assert NOT_APPLICABLE <= codes, codes
+        approved(tee, c)
+        alike(tee)
+        return
+    load(tee, "kept", KEPT_V1)
+    thing = made(tee, "Thing", "make", holder="ana", level="NONE", count=10)
+    made(tee, "Coupon", "issue", code="C1")
+    tee.found.clear()
+    c, codes = dry_run(tee, {"kept": kept_v2()})
+    assert not NOT_APPLICABLE & codes, codes
+    approved(tee, c)
+    held = tee.post("/v1/get", {"id": thing})
+    assert (held["state"], held["attributes"]["person"],
+            held["attributes"]["count"]) == ("OPEN", "ana", 11), held
+    if store == "kept":
+        c, codes = dry_run(tee, {"kept": kept_v2("A thing, kept.")})
+        assert NOT_APPLICABLE | {"migration_applied:backfill:Thing.count"} \
+            <= codes, codes
+        approved(tee, c)
+        assert tee.post("/v1/get", {"id": thing})["attributes"]["count"] == 11
+        c, codes = dry_run(tee, {"kept": kept_v2("A thing, changed.",
+                                                 "count + 2")})
+        assert "migration_applied:backfill:Thing.count" not in codes, codes
+        approved(tee, c)
+        assert tee.post("/v1/get", {"id": thing})["attributes"]["count"] == 13
     alike(tee)
 
 def test_a_type_whose_ids_would_name_an_identity_is_refused_alike(tee):

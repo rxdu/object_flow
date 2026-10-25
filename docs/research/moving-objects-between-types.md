@@ -39,9 +39,33 @@ For the author, not decided here:
 - **Refuse a move that leaves an object without a target**, as Camunda refuses an incomplete plan.
 - **Carry a reference to a moved object** where the new version declares the reference to the target type, and refuse a move whose objects a reference could no longer hold. This is the case ServiceNow's identical-identification rule and Camunda's same-kind rule each guard in their own terms.
 
+## 6. A migration a store has nothing for (#41)
+
+**The question.** Issue #41 (filed 2026-10-25) asks that one flow source, its migration kept in it, publish both to a new store and to an older one, where a consumer keeping its flows as code publishes the same source to empty stores and to stores at any earlier version. Should an entry that names what a store does not hold be refused, skipped, or something else?
+
+**Terraform, `moved` blocks** (S9). A refactoring is declared in the configuration, and an instance that never had the old address ignores it: "New instances of the module, which *never* had an `aws_instance.a`, will ignore the `moved` block and propose to create `aws_instance.b[0]` and `aws_instance.b[1]` as normal." The blocks are kept: "Removing a `moved` block is a breaking change because any configurations that refer to the old address will plan to delete the existing object instead of move it. We strongly recommend that you retain all historical `moved` blocks from earlier versions of your modules to preserve the upgrade path for users of any previous version."
+
+**Liquibase, preconditions and the changelog table** (S10, S11). A changeset can be made to depend on the database's state: "Preconditions are tags you add to your changelog or individual changesets to control the execution of an update based on the state of the database." By default a failed precondition stops everything, `HALT`: "Halts the execution of the entire changelog (default)." A changeset may opt out, `MARK_RAN`: "Skips over the changeset but marks it as executed. Continues with the changelog." What ran is recorded: "Liquibase tracks which changesets have been run by using the DATABASECHANGELOG (DBCL) table."
+
+**Flyway, the schema history table and repeatable migrations** (S12, S13). "To keep track of which migrations have already been applied when and by whom, Flyway adds a special schema history table to your schema." A repeatable migration runs again only when it changes: "Instead of being run just once, repeatable migrations are (re-)applied to a database on migrate every time their checksum changes." It serves a definition kept as code: "This is very useful for managing database objects whose definition can then simply be maintained in a single file in version control."
+
+**ObjectFlow beside them.**
+
+- **#41's claims hold, each reproduced on 2026-10-25 against the published v0.6.0**, on a file store made with `--create`: a move or a retirement of a type the installed version lacks is refused `moved_type`, over an empty store and over one that retired the type.
+- **A kept entry is refused again once it applied.** Published a second time, a move is refused `moved_type`, and a rename, a removed state and a removed member each `check:names`, "which the previous version did not have". Over an empty store the last three publish, since the checker compares a module with its installed version only where that version has the type.
+- **A kept backfill runs at every publish.** `if count is null then 1 else count + 1` took a count from 10 to 11, 12 and 13 over three publishes of one source, each recorded as a migration, as F2 requires, and none intended.
+- **The store already records what ran.** The installed version's source holds its migration (`storage-schema.md` §5), as Liquibase's table holds a changeset's id and Flyway's a migration's checksum. *Inferred:* comparing a backfill with the installed version's gives Flyway's rule without a table of its own.
+- **What protects live objects is elsewhere.** A removed type, state or member holding objects needs a mapping whatever the entry says (ADR-0229 decision 1, `flow-format.md` §4.16). *Inferred:* an entry that acts on nothing can become a notice without opening a route to an unrecorded change.
+
+**What it suggests,** decided as ADR-0230:
+
+- **Keep migrations in the source,** as Terraform keeps `moved` blocks, each entry skipped where the store has nothing for it, a notice rather than Liquibase's default halt.
+- **Run a backfill once on a store, and again when it changes,** as Flyway runs a repeatable migration, the installed version's migration standing for the history table.
+- **Keep refusing a name the version before lacks where the checker is told that version,** since there it is a mistake in the source.
+
 ## Sources
 
-Each retrieved 2026-10-24 with `curl -sL`, its markup stripped, and each quotation found in the text. ServiceNow's documentation pages are rendered by JavaScript, so their text was fetched from the site's own content endpoint, which answers each topic's HTML. Salesforce's documentation refused the fetch (HTTP 403), so its lead conversion, a split into new records linked back to the lead, is left out unchecked.
+S1 to S8 were each retrieved 2026-10-24, and S9 to S13 on 2026-10-25, with `curl -sL`, its markup stripped, and each quotation found in the text. ServiceNow's documentation pages are rendered by JavaScript, so their text was fetched from the site's own content endpoint, which answers each topic's HTML. Salesforce's documentation refused the fetch (HTTP 403), so its lead conversion, a split into new records linked back to the lead, is left out unchecked.
 
 | | Source | Version |
 |---|---|---|
@@ -53,3 +77,8 @@ Each retrieved 2026-10-24 with `curl -sL`, its markup stripped, and each quotati
 | S6 | Atlassian, *Migrate between team-managed and company-managed spaces*, Jira Cloud: https://support.atlassian.com/jira-software-cloud/docs/migrate-between-team-managed-and-company-managed-projects/ | the page gives none |
 | S7 | Greg Young, *Versioning in an Event Sourced System*, "Copy and Replace": https://leanpub.com/read/esversioning/leanpub-auto-copy-and-replace | the book read online, "Last updated on 2017-04-09" at https://leanpub.com/esversioning |
 | S8 | Django, *Migration Operations*: https://docs.djangoproject.com/en/6.1/ref/migration-operations/ | 6.1 |
+| S9 | HashiCorp, *Refactoring*, Terraform modules: https://developer.hashicorp.com/terraform/language/modules/develop/refactoring | v1.17.x, the page's latest |
+| S10 | Liquibase, *What are preconditions?*: https://docs.liquibase.com/concepts/changelogs/preconditions.html | 5.1, last updated August 21, 2026 |
+| S11 | Liquibase, *What is the DATABASECHANGELOG table?*: https://docs.liquibase.com/concepts/tracking-tables/databasechangelog-table.html | 5.1, last updated August 22, 2026 |
+| S12 | Redgate, *Flyway schema history table*: https://documentation.red-gate.com/fd/flyway-schema-history-table-273973417.html | page last updated 25 September 2026 |
+| S13 | Redgate, *Repeatable migrations*, Flyway: https://documentation.red-gate.com/fd/repeatable-migrations-273973335.html | page last updated 20 June 2025 |

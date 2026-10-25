@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use objectflow_core::check::{Severity, checked_reading};
+use objectflow_core::check::{Severity, checked_as};
 use serde_json::Value;
 
 /// The codes of the steps the core runs in a module: 1 to 3 (C1), the load,
@@ -170,7 +170,13 @@ fn the_core_finds_what_the_flow_checker_finds() {
         // findings sharing a line are told apart and a message the core words
         // differently is a difference, and counted, so a finding the core
         // makes twice where the flow checker makes it once is one too
-        let checks = checked_reading(&files, &previous, &read);
+        // `previous` a store's installed version where the plant says so, as
+        // a publish checks a change (ADR-0230)
+        let installed = case
+            .get("installed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let checks = checked_as(&files, &previous, &read, installed);
         // each type's count of the guard conditions step 5 decided in full
         let counts: BTreeMap<String, (usize, usize)> = case["analysed"]
             .as_object()

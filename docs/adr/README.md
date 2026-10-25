@@ -121,7 +121,7 @@
 | [0117](0117-types-of-a-module-may-reference-each-other-and-relationships-use-uml-terms.md) | Types of a module may reference each other; relationships use UML's terms | Accepted by the author |
 | [0118](0118-metrics-are-written-under-their-type-in-semantic-layer-terms.md) | Metrics are written under their type, in the terms of semantic layers | Accepted by the author — later refined by ADR-0139 |
 | [0119](0119-assertions-and-erasures-are-transition-kinds-of-their-own.md) | Assertions and erasures are transition kinds of their own | Accepted by the author |
-| [0120](0120-a-migration-is-written-with-the-version-it-publishes.md) | A migration is written with the version it publishes | Accepted by the author |
+| [0120](0120-a-migration-is-written-with-the-version-it-publishes.md) | A migration is written with the version it publishes | Accepted by the author; decision 1's "replaced or removed in the next" superseded by ADR-0230 |
 | [0121](0121-the-designs-yaml-is-checked-where-it-stands.md) | The design's YAML is checked where it stands | Accepted by the author — later refined by ADR-0141 |
 | [0122](0122-a-flow-is-recoverable-from-its-description.md) | A flow is recoverable from its description | Accepted by the author — later refined by ADR-0123, ADR-0124, ADR-0138, ADR-0146, ADR-0147, ADR-0159 |
 | [0123](0123-a-set-dimension-counts-each-value-once-and-an-empty-group-is-reported.md) | A set dimension counts each value once, and a group with no body is reported | Accepted by the author — later refined by ADR-0142 |
@@ -229,5 +229,6 @@
 | [0226](0226-a-deployments-object-ids-are-uuid7.md) | A deployment's object ids are UUIDv7s, a sandbox's are numbered | Decided under the author's direction |
 | [0227](0227-four-open-items-decided-as-recommended.md) | Four open items decided as recommended | Decided under the author's direction |
 | [0228](0228-a-failed-rollback-gives-its-connection-up-and-a-batch-applies-whole-or-not-at-all.md) | A failed rollback gives its connection up, and a batch of requests applies whole or not at all | Decided under the author's direction; built |
-| [0229](0229-a-removed-types-objects-are-moved-into-another-type-or-retired-on-purpose.md) | A removed type's objects are moved into another type or retired on purpose | Decided under the author's direction; built |
+| [0229](0229-a-removed-types-objects-are-moved-into-another-type-or-retired-on-purpose.md) | A removed type's objects are moved into another type or retired on purpose | Decided under the author's direction; built; decision 7 superseded in part by ADR-0230 |
+| [0230](0230-a-migration-entry-with-nothing-to-act-on-is-a-notice-and-a-backfill-runs-once.md) | A migration entry with nothing to act on is a notice, and a backfill runs once on a store | Decided under the author's direction; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

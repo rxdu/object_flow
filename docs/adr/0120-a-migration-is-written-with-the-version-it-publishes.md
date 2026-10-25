@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the author, 2026-09-26: "accept ADR-0119 and ADR-0120". Decided earlier the same day at the author's direction ("go ahead with the rest constructs").
 - **Date:** 2026-09-26
+- **Superseded in part by:** ADR-0230 — decision 1's "replaced or removed in the next": a migration may be kept in later versions.
 - **Refines:** ADR-0116 (the format replaces the text language), ADR-0099 (a publish changes a live object only by a recorded migration)
 - **Relates to:** ADR-0027 (declaration versions and mappings), ADR-0101 (migrations reach terminal objects), ADR-0105 (a migration is checked against every invariant), `declaration-syntax.md` §6.6, `flow-format.md` §4.16
 
@@ -13,7 +14,7 @@ Two facts shape it. A migration belongs to one publish, from the version before 
 
 ## Decision
 
-1. **A migration is a section of the module it publishes**, `migration`, the last in the module's order since it names the types and enumerations above it. It is written with the version it publishes and replaced or removed in the next, as the model writes it at the top level of the declaration published.
+1. **A migration is a section of the module it publishes**, `migration`, the last in the module's order since it names the types and enumerations above it. It is written with the version it publishes and replaced or removed in the next, as the model writes it at the top level of the declaration published. *(Superseded in part by ADR-0230 decision 1, 2026-10-25: a migration may be kept in later versions, an entry with nothing to act on a notice and a backfill run once on a store.)*
 2. **A mapping names its type.** `removed_states` and `renamed_attributes` and `backfill` are grouped by type, `removed_members` by enumeration, since two types may share a state's or an attribute's name. The model's own line names none; that is recorded as a defect of its grammar in `TODO.md`, and the conversion writes the model's line.
 3. **The format checks a migration twice.** Against this version alone, at every run: what a mapping names is gone from this version and what it maps to is here, a backfill writes a stored attribute and reads the object's own members and literals, and an admission names a real invariant and reason. Against the version before, given as `--previous=<file>` and in the examples' version pairs: every removed state is mapped, every mapping names what that version had, and a field added to an observation kind is optional (the static part of checks 22 and 23).
 4. **What only the live objects can decide is a notice**, `migration`: a new required attribute with no backfill, a removed member with no mapping, and an attribute gone where one of its type is new, which may be a rename. The publish, which counts the objects, refuses them where the model says so.

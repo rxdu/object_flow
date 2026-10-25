@@ -1767,7 +1767,7 @@ def previous_types(previous, file, library):
     return out
 
 
-def migration_pair_errors(prev, doc, library, before=None):
+def migration_pair_errors(prev, doc, library, before=None, installed=False):
     """This version against the one before it: every state it removes from a
     type is mapped, every mapping names what the previous version had, and a
     field added to an observation kind is optional (the model's checks 22 and
@@ -1775,7 +1775,10 @@ def migration_pair_errors(prev, doc, library, before=None):
     a new required attribute without a backfill, a removed member without a
     mapping, an attribute dropped where one of its type is added. `before`
     holds the version before's types in its other modules, where a type this
-    version moves is read when this module's previous text lacks it."""
+    version moves is read when this module's previous text lacks it. Where
+    `prev` is a store's installed version, `installed`, a mapping naming a
+    state, a member or an attribute it lacks is left to the publish, which
+    notices it (ADR-0230 decision 2)."""
     before = before or {}
     pv, _ = view(prev, library)
     v, _ = view(doc, library)
@@ -1791,10 +1794,10 @@ def migration_pair_errors(prev, doc, library, before=None):
         mapped = (m.get("removed_states") or {}).get(tn, {})
         for st in sorted(set(ot.get("states") or {}) - set(t.get("states") or {}) - set(mapped)):
             fatal.append((here, "names", f"{tn} no longer has the state {st}, and the migration maps it nowhere; its objects need a state to move to"))
-        for st in sorted(set(mapped) - set(ot.get("states") or {})):
+        for st in sorted(set(mapped) - set(ot.get("states") or {}) if not installed else ()):
             fatal.append((("migration", "removed_states", tn, st), "names", f"the migration maps {tn}.{st}, which the previous version did not have"))
         renamed = (m.get("renamed_attributes") or {}).get(tn, {})
-        for a in sorted(set(renamed) - set(ot.get("attributes") or {})):
+        for a in sorted(set(renamed) - set(ot.get("attributes") or {}) if not installed else ()):
             fatal.append((("migration", "renamed_attributes", tn, a), "names", f"the migration renames {tn}.{a}, which the previous version did not have"))
         for a, b in sorted(renamed.items()):
             # named apart from `before`, the version before's other modules' types, which the moves read below
@@ -1925,7 +1928,7 @@ def migration_pair_errors(prev, doc, library, before=None):
         mapped = (m.get("removed_members") or {}).get(en, {})
         for x in sorted(old_enums[en] - members - set(mapped)):
             notes.append((("enumerations", en), "migration", f"{en}.{x} is gone: a publish needs a mapping for it if live objects hold it, and is refused if an observation does"))
-        for x in sorted(set(mapped) - old_enums[en]):
+        for x in sorted(set(mapped) - old_enums[en] if not installed else ()):
             fatal.append((("migration", "removed_members", en, x), "names", f"the migration maps {en}.{x}, which the previous version did not have"))
     # who may take a transition, or approve a version, named no longer or widened (ADR-0189 decision 1)
     for tn, t in new.items():
@@ -5941,10 +5944,11 @@ def coverage_notices(module, untaken, untested):
     return out
 
 
-def check(files, previous=None, analysed=None, examples=None, read=None, forms=None, violators=None):
+def check(files, previous=None, analysed=None, examples=None, read=None, forms=None, violators=None, installed=False):
     """Findings and notices over modules given in import order, as (file, line,
     severity, code, message); previous maps a file to the text of the version
-    before it, against which its migration is checked. `analysed`, if given, is
+    before it, against which its migration is checked, or, `installed`, to a
+    store's installed version, as a publish checks a change (ADR-0230). `analysed`, if given, is
     filled with each type's count of guard conditions step 5 decided in full,
     against all it read, and `examples` with each transition's, `<Type>.<transition>`,
     examples that request it, both of which the publish report carries
@@ -6067,7 +6071,8 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
         moving = ((doc.get("migration") or {}).get("moved_types") or {}) and previous
         if (previous or {}).get(f) or moving:
             before = previous_types(previous, f, library) if moving else {}
-            pair, pair_notes = migration_pair_errors(load(previous[f]) if previous.get(f) else {}, doc, library, before)
+            pair, pair_notes = migration_pair_errors(load(previous[f]) if previous.get(f) else {}, doc, library, before,
+                                                     installed)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
         for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc)
                         + name_errors(v, library, ordered=False) + taken_by_errors(v) + column_errors(v)
@@ -9945,7 +9950,7 @@ RECORDED = []      # each check the run makes: its label, files, previous versio
 def recording(check):
     """`check`, recording each call with what it found, labelled by its caller and,
     where the caller names it, the plant (ADR-0156 decision 4)."""
-    def recorded(files, previous=None, analysed=None, examples=None, read=None, forms=None, violators=None):
+    def recorded(files, previous=None, analysed=None, examples=None, read=None, forms=None, violators=None, installed=False):
         counts = {} if analysed is None else analysed
         shapes = {} if forms is None else forms
         writers = {} if violators is None else violators
@@ -9957,12 +9962,13 @@ def recording(check):
             if text is not None:
                 reads[name] = text
             return text
-        found, notes = check(files, previous, counts, examples, reading if read is not None else None, shapes, writers)
+        found, notes = check(files, previous, counts, examples, reading if read is not None else None, shapes, writers,
+                             installed)
         caller = sys._getframe(1)
         name = caller.f_locals.get("name")
         label = caller.f_code.co_name + (f": {name}" if isinstance(name, str) else "")
         RECORDED.append((label, list(files), dict(previous or {}), found, notes, dict(counts), reads, dict(shapes),
-                         dict(writers)))
+                         dict(writers), installed))
         return found, notes
     return recorded
 
@@ -10225,7 +10231,7 @@ def plants_export(recorded):
         key = hashlib.sha256(text.encode()).hexdigest()[:16]
         blobs[key] = text
         return key
-    for label, files, previous, found, notes, counts, reads, shapes, writers in recorded:
+    for label, files, previous, found, notes, counts, reads, shapes, writers, installed in recorded:
         cases.append({
             "label": label,
             "files": [[n, blob(t)] for n, t in files],
@@ -10236,6 +10242,8 @@ def plants_export(recorded):
             "could_violate": dict(sorted(writers.items())),
             # the files beside the examples files that their `publish` steps read, which the core reads the same
             **({"reads": {n: blob(t) for n, t in sorted(reads.items())}} if reads else {}),
+            # `previous` a store's installed version, as a publish checks a change (ADR-0230)
+            **({"installed": True} if installed else {}),
         })
     return json.dumps(cases, indent=1, ensure_ascii=False) + "\n", blobs
 

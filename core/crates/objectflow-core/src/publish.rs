@@ -395,7 +395,7 @@ fn checks_by(old: &Library, now: i64, draft: &Draft<'_>) -> Result<Checked, NotR
     // step 1, the checks and the examples (ADR-0156), each module against
     // the installed version of it
     let previous: BTreeMap<String, String> = old.source.iter().cloned().collect();
-    let checks = crate::check::checked(draft.source, &previous);
+    let checks = crate::check::checked_installed(draft.source, &previous);
     // every declared type's marks in the version under publish, read from
     // it whether or not its impact can be (§2, ADR-0114)
     let person_dimensions = match Library::load(draft.source) {
@@ -569,6 +569,54 @@ pub(crate) fn follows_move(
         )
 }
 
+/// Each rename, removed state and removed member naming what the installed
+/// version lacks, a notice: the entry has nothing to act on, and changes
+/// nothing, so one source serves a store without it, a new one or one the
+/// mapping already reached (ADR-0230 decision 2). The checker leaves these
+/// to the publish (`check::checked_installed`); a type the installed
+/// version does not hold is `moves`'s.
+fn not_applicable(old: &Library, m: &crate::model::Migration, found: &mut Found) {
+    let v = old.version;
+    let held = |tn: &str| old.type_(tn).filter(|t| !t.retired);
+    let mut notice = |code: String, message: String| {
+        found.add(Severity::Notice, code, message, None);
+    };
+    for (tn, from, _) in &m.renamed_attributes {
+        if held(tn).is_none_or(|t| t.attribute(from).is_none()) {
+            notice(
+                format!("migration_not_applicable:renamed_attributes:{tn}.{from}"),
+                format!(
+                    "the migration renames {tn}.{from}, which the installed version, {v}, does not have: the entry renames nothing"
+                ),
+            );
+        }
+    }
+    for (tn, st, _) in &m.removed_states {
+        if held(tn).is_none_or(|t| t.state(st).is_none()) {
+            notice(
+                format!("migration_not_applicable:removed_states:{tn}.{st}"),
+                format!(
+                    "the migration maps {tn}.{st}, which the installed version, {v}, does not have: the entry moves nothing"
+                ),
+            );
+        }
+    }
+    for (en, x, _) in &m.removed_members {
+        if old
+            .enumerations
+            .get(en)
+            .is_none_or(|members| !members.contains(x))
+        {
+            notice(
+                format!("migration_not_applicable:removed_members:{en}.{x}"),
+                format!(
+                    "the migration maps {en}.{x}, which the installed version, {v}, does not have: the entry moves nothing"
+                ),
+            );
+        }
+    }
+}
+
 /// Each object of a type the version moves, as its entry leaves it: an
 /// object of the entry's type, its id kept, its attributes given or carried,
 /// its state mapped, with the type it left (ADR-0229 decisions 2 and 3).
@@ -583,24 +631,36 @@ fn moves(
 ) -> Result<BTreeMap<String, (String, Rc<Object>)>, NotRun> {
     let mut out = BTreeMap::new();
     // a type no module of the installed version declares, which the checker
-    // run on one module cannot see (ADR-0229 decision 7)
+    // run on one module cannot see, has nothing to move: the entry moves
+    // nothing, a notice, so one source serves a store without the type, a
+    // new one or one the move already reached (ADR-0230 decision 2)
+    let mut idle = BTreeSet::new();
     let named = m
         .moved_types
         .iter()
-        .map(|(tn, _)| tn)
-        .chain(m.retired_types.iter().map(|(tn, _)| tn));
-    for tn in named {
+        .map(|(tn, _)| ("moved_types", tn))
+        .chain(m.retired_types.iter().map(|(tn, _)| ("retired_types", tn)));
+    for (key, tn) in named {
         // a type an earlier version retired is no module's of the installed
-        // version either, though the library keeps it for its objects
-        if world.lib.type_(tn).is_none_or(|t| t.retired) {
+        // version either, though the library keeps it for its objects, which
+        // stay retired
+        let held = world.lib.type_(tn);
+        if held.is_none_or(|t| t.retired) {
+            let why = if held.is_some() {
+                "holds retired, so its objects stay retired"
+            } else {
+                "does not declare"
+            };
             found.add(
-                Severity::Fatal,
-                format!("moved_type:{tn}"),
+                Severity::Notice,
+                format!("migration_not_applicable:{key}:{tn}"),
                 format!(
-                    "the migration names {tn}, which no module of the installed version declares"
+                    "the migration names {tn}, which the installed version, {}, {why}: the entry moves nothing",
+                    world.lib.version
                 ),
                 None,
             );
+            idle.insert(tn.clone());
         } else if new.type_(tn).is_some_and(|t| !t.retired) {
             found.add(
                 Severity::Fatal,
@@ -620,9 +680,9 @@ fn moves(
         }
     }
     for (tn, entries) in &m.moved_types {
-        // the checker refuses a type the version keeps, or one the version
-        // before did not have
-        let Some(ot) = new.type_(tn).filter(|t| t.retired) else {
+        // the checker refuses a type the version keeps, and one the
+        // installed version lacks or holds retired moves nothing
+        let Some(ot) = new.type_(tn).filter(|t| t.retired && !idle.contains(tn)) else {
             continue;
         };
         // no migration reaches an observation (ADR-0101), and an observation
@@ -890,6 +950,7 @@ fn impact(
         }
     }
     let m = new.migration.clone();
+    not_applicable(old, &m, &mut found);
     // the objects as the mappings leave them, read under the new version:
     // each the store's own, shared with the world it was read in, until a
     // mapping writes it, which copies it then, where every object was
@@ -1048,8 +1109,28 @@ fn impact(
         sim.insert_shared(o)?;
     }
     // then backfills, in the order written, each reading the object as the
-    // mappings before it left it, an erased object's personal values skipped
+    // mappings before it left it, an erased object's personal values
+    // skipped; one the installed version's migration holds, unchanged, ran
+    // at that version's publish, and runs once on a store (ADR-0230
+    // decision 4)
     for (tn, attr, e) in &m.backfill {
+        if old
+            .migration
+            .backfill
+            .iter()
+            .any(|b| (&b.0, &b.1, &b.2) == (tn, attr, e))
+        {
+            found.add(
+                Severity::Notice,
+                format!("migration_applied:backfill:{tn}.{attr}"),
+                format!(
+                    "the installed version, {}, ran this backfill of {tn}.{attr} unchanged, and a backfill runs once on a store: it writes nothing",
+                    old.version
+                ),
+                None,
+            );
+            continue;
+        }
         let ids: Vec<String> = sim.of_type(tn)?.iter().map(|o| o.id.clone()).collect();
         for id in ids {
             let Some(o) = sim.get(&id)? else { continue };
@@ -5105,8 +5186,9 @@ migration:
         assert_eq!(w.whole(&viewer).unwrap().unwrap().type_, "RoleGrant");
         drop(w);
         // retired once, it is no type the next version removes: a version
-        // that says nothing of it publishes, and one naming it is refused,
-        // no module of the installed version declaring it (decision 7)
+        // that says nothing of it publishes, and one naming it again names
+        // what the installed version holds retired, a notice (ADR-0230
+        // decision 2)
         let next = grants_v2("").replace(
             "  Review:\n    description: A review of the grants a person holds.\n",
             "  Review:\n    description: A review of the grants one person holds.\n",
@@ -5118,14 +5200,263 @@ migration:
             "{verdict:?} {report:#?}"
         );
         let report = grants_dry(&mut s, &grants_v2(retire));
+        assert!(!report.fatal(), "{:#?}", report.findings);
         assert!(
-            report
-                .findings
-                .iter()
-                .any(|f| f.severity == Severity::Fatal && f.code == "moved_type:RoleGrant"),
+            notice(&report, "migration_not_applicable:retired_types:RoleGrant"),
             "{:#?}",
             report.findings
         );
+    }
+
+    /// Whether the report holds a notice of the code given.
+    fn notice(r: &PublishReport, code: &str) -> bool {
+        r.findings
+            .iter()
+            .any(|f| f.severity == Severity::Notice && f.code == code)
+    }
+
+    /// A move or a retirement of a type the installed version never
+    /// declared, over a store without it, moves nothing and publishes, a
+    /// notice naming the installed version, so one source serves a new
+    /// store as well as an older one (ADR-0230 decisions 1 and 2).
+    #[test]
+    fn a_move_of_a_type_the_store_never_held_moves_nothing_and_publishes() {
+        for migration in [
+            SPLIT,
+            "  retired_types:\n    RoleGrant: The roles are given up.\n",
+        ] {
+            let lib = Library::load(&[]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let (change, v) = grants_change(&mut s, &grants_v2(migration));
+            let (verdict, report) = approve(&mut s, &change, v);
+            let report = report.unwrap();
+            assert!(
+                matches!(verdict, Verdict::Satisfied { .. }),
+                "{verdict:?} {report:#?}"
+            );
+            let key = if migration == SPLIT {
+                "moved_types"
+            } else {
+                "retired_types"
+            };
+            let code = format!("migration_not_applicable:{key}:RoleGrant");
+            let f = report.findings.iter().find(|f| f.code == code);
+            assert!(
+                f.is_some_and(
+                    |f| f.severity == Severity::Notice && f.message.contains("does not declare")
+                ),
+                "{:#?}",
+                report.findings
+            );
+        }
+    }
+
+    /// A move kept in the source, published again once it applied, finds no
+    /// object of the type it moves and publishes, a notice; and over a store
+    /// that retired the type before, the move leaves its objects retired
+    /// (ADR-0230 decisions 1 and 2).
+    #[test]
+    fn a_kept_move_publishes_again_and_leaves_a_retired_types_objects() {
+        let (mut s, [viewer, ..]) = grants();
+        published_as(&mut s, "grants", &[&grants_v2(SPLIT)]);
+        let again = grants_v2(SPLIT).replace(
+            "  Review:\n    description: A review of the grants a person holds.\n",
+            "  Review:\n    description: A review of the grants one person holds.\n",
+        );
+        let (change, v) = grants_change(&mut s, &again);
+        let (verdict, report) = approve(&mut s, &change, v);
+        let report = report.unwrap();
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        assert!(
+            notice(&report, "migration_not_applicable:moved_types:RoleGrant"),
+            "{:#?}",
+            report.findings
+        );
+        assert_eq!(
+            s.snapshot().unwrap().whole(&viewer).unwrap().unwrap().type_,
+            "AccessGrant"
+        );
+        // retired first, the move names what the store holds retired
+        let (mut s, [viewer, ..]) = grants();
+        let retire = "  retired_types:\n    RoleGrant: The roles are given up.\n";
+        published_as(&mut s, "grants", &[&grants_v2(retire)]);
+        let (change, v) = grants_change(&mut s, &grants_v2(SPLIT));
+        let (verdict, report) = approve(&mut s, &change, v);
+        let report = report.unwrap();
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let f = report
+            .findings
+            .iter()
+            .find(|f| f.code == "migration_not_applicable:moved_types:RoleGrant");
+        assert!(
+            f.is_some_and(|f| f.severity == Severity::Notice && f.message.contains("retired")),
+            "{:#?}",
+            report.findings
+        );
+        assert!(ids(&report, "mapping:moved_types:RoleGrant.AccessGrant").is_empty());
+        let w = s.snapshot().unwrap();
+        let o = w.whole(&viewer).unwrap().unwrap();
+        assert_eq!((o.type_.as_str(), o.state.as_str()), ("RoleGrant", "HELD"));
+    }
+
+    const THINGS_V1: &str = r#"
+module: things
+categories: [live, closed]
+enumerations:
+  Level: [NONE, READ]
+types:
+  Thing:
+    description: A thing.
+    tracking: record
+    attributes:
+      holder: { type: string, optional: true }
+      level: { type: Level, optional: true }
+      count: { type: int, optional: true }
+    states:
+      OLD: { description: Old., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      make: { kind: initial, to: OLD, optional_inputs: [holder, level, count] }
+      shut: { kind: external, from: OLD, to: DONE }
+"#;
+
+    /// The things' second version, its description given, with `migration`
+    /// appended: `holder` renamed `person`, `OLD` gone into `OPEN`, `NONE`
+    /// into `READ`.
+    fn things_v2(description: &str, migration: &str) -> String {
+        format!(
+            r#"
+module: things
+categories: [live, closed]
+enumerations:
+  Level: [READ]
+types:
+  Thing:
+    description: {description}
+    tracking: record
+    attributes:
+      person: {{ type: string, optional: true }}
+      level: {{ type: Level, optional: true }}
+      count: {{ type: int, optional: true }}
+    states:
+      OPEN: {{ description: Open., category: live }}
+      DONE: {{ description: Done., category: closed, final: true }}
+    transitions:
+      make: {{ kind: initial, to: OPEN, optional_inputs: [person, level, count] }}
+      shut: {{ kind: external, from: OPEN, to: DONE }}
+migration:
+  description: The second version.
+{migration}"#
+        )
+    }
+
+    /// A store at the things' first version holding one thing.
+    fn things() -> (Store, String) {
+        let lib = Library::load(&[("things.yaml".into(), THINGS_V1.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let thing = created(&req(
+            &mut s,
+            "make",
+            ("Thing", true),
+            json!({"holder": "ana", "level": "NONE", "count": 10}),
+        ));
+        (s, thing)
+    }
+
+    /// A version of the things published, its report.
+    fn things_published(s: &mut Store, text: &str) -> PublishReport {
+        let change = created(&req(
+            s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"things": text}, "source_ref": "git:things@2"}),
+        ));
+        created(&req(s, "submit", (&change, false), json!({})));
+        let v = s
+            .snapshot()
+            .unwrap()
+            .whole(&change)
+            .unwrap()
+            .unwrap()
+            .version;
+        let (verdict, report) = approve(s, &change, v);
+        let report = report.unwrap();
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        report
+    }
+
+    /// A rename, a removed state and a removed member kept in the source,
+    /// published again once each applied, name what the installed version
+    /// no longer has and publish, a notice each, the thing as the first
+    /// publish left it (ADR-0230 decisions 1 and 2).
+    #[test]
+    fn a_kept_rename_state_and_member_publish_again_and_change_nothing() {
+        let (mut s, thing) = things();
+        let mappings = "  renamed_attributes:\n    Thing: { holder: person }\n  removed_states:\n    Thing: { OLD: OPEN }\n  removed_members:\n    Level: { NONE: READ }\n";
+        things_published(&mut s, &things_v2("A thing.", mappings));
+        let held = |s: &Store| {
+            let w = s.snapshot().unwrap();
+            let o = w.whole(&thing).unwrap().unwrap();
+            (
+                o.state.clone(),
+                crate::wire::encode(&o.attr("person")),
+                crate::wire::encode(&o.attr("level")),
+            )
+        };
+        let first = held(&s);
+        assert_eq!(first, ("OPEN".into(), json!("ana"), json!("READ")));
+        let report = things_published(&mut s, &things_v2("A thing, kept.", mappings));
+        for code in [
+            "migration_not_applicable:renamed_attributes:Thing.holder",
+            "migration_not_applicable:removed_states:Thing.OLD",
+            "migration_not_applicable:removed_members:Level.NONE",
+        ] {
+            assert!(notice(&report, code), "{code}: {:#?}", report.findings);
+        }
+        assert_eq!(held(&s), first);
+    }
+
+    /// A backfill the installed version's migration holds, unchanged, does
+    /// not run again, a notice; changed, it runs (ADR-0230 decision 4).
+    #[test]
+    fn a_kept_backfill_runs_once_on_a_store_and_again_once_changed() {
+        let (mut s, thing) = things();
+        let fill = |e: &str| {
+            format!(
+                "  renamed_attributes:\n    Thing: {{ holder: person }}\n  removed_states:\n    Thing: {{ OLD: OPEN }}\n  removed_members:\n    Level: {{ NONE: READ }}\n  backfill:\n    Thing: {{ count: '{e}' }}\n"
+            )
+        };
+        let count = |s: &Store| {
+            crate::wire::encode(
+                &s.snapshot()
+                    .unwrap()
+                    .whole(&thing)
+                    .unwrap()
+                    .unwrap()
+                    .attr("count"),
+            )
+        };
+        let report = things_published(&mut s, &things_v2("A thing.", &fill("count + 1")));
+        assert!(!notice(&report, "migration_applied:backfill:Thing.count"));
+        assert_eq!(count(&s), json!(11));
+        let report = things_published(&mut s, &things_v2("A thing, kept.", &fill("count + 1")));
+        assert!(
+            notice(&report, "migration_applied:backfill:Thing.count"),
+            "{:#?}",
+            report.findings
+        );
+        assert_eq!(count(&s), json!(11), "a kept backfill ran again");
+        things_published(&mut s, &things_v2("A thing, changed.", &fill("count + 2")));
+        assert_eq!(count(&s), json!(13));
     }
 
     /// A reference to an object that moves keeps its value where it now

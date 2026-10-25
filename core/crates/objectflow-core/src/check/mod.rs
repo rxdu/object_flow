@@ -185,12 +185,35 @@ pub fn checked(files: &[(String, String)], previous: &BTreeMap<String, String>) 
     checked_reading(files, previous, &run::no_files)
 }
 
+/// [`checked`] against a store's installed version as `previous`, as a
+/// publish checks a change: a mapping naming a state, a member or an
+/// attribute the installed version lacks is the publish's to report, an
+/// entry with nothing to act on, where against the version before it is a
+/// mistake (ADR-0230 decisions 2 and 5).
+pub fn checked_installed(
+    files: &[(String, String)],
+    previous: &BTreeMap<String, String>,
+) -> Checked {
+    checked_as(files, previous, &run::no_files, true)
+}
+
 /// [`checked`], an example's `publish` step reading the files it names
 /// through `read`, each beside the examples file (ADR-0166 decision 3).
 pub fn checked_reading(
     files: &[(String, String)],
     previous: &BTreeMap<String, String>,
     read: run::Reader<'_>,
+) -> Checked {
+    checked_as(files, previous, read, false)
+}
+
+/// The checks, `previous` a store's installed version where `installed`
+/// is set and else the version before it.
+pub fn checked_as(
+    files: &[(String, String)],
+    previous: &BTreeMap<String, String>,
+    read: run::Reader<'_>,
+    installed: bool,
 ) -> Checked {
     let mut out = Checked::default();
     let found = &mut out.findings;
@@ -513,14 +536,19 @@ pub fn checked_reading(
             doc::Obj::new()
         };
         let (pair, pair_notes) = match previous.get(file).and_then(|t| crate::yaml::load(t).ok()) {
-            Some(prev) => {
-                migration::migration_pair_errors(&schema::typed(&prev), &doc, &library, &before)
-            }
+            Some(prev) => migration::migration_pair_errors(
+                &schema::typed(&prev),
+                &doc,
+                &library,
+                &before,
+                installed,
+            ),
             None if moving => migration::migration_pair_errors(
                 &Value::Object(doc::Obj::new()),
                 &doc,
                 &library,
                 &before,
+                installed,
             ),
             None => (Vec::new(), Vec::new()),
         };

@@ -366,7 +366,9 @@ def simulate(store, change_id, flows, actor):
     found = Found()
     examples, analysed, forms, violators = {}, {}, {}, {}
     ordered = import_order(flows, files)
-    errs, notes = flows.check(ordered, dict(store.source), analysed, examples, forms=forms, violators=violators)
+    # against the installed version, so a mapping with nothing to act on is the publish's to notice (ADR-0230)
+    errs, notes = flows.check(ordered, dict(store.source), analysed, examples, forms=forms, violators=violators,
+                              installed=True)
     for f, line, _sev, code, message in errs:
         # an example's failure by the name the design gives it (ADR-0136, publish-and-import.md §1 step 1)
         found.own("fatal", "example_failed" if code == "example" else f"check:{code}", f"{f}:{line}: {message}")
@@ -389,7 +391,9 @@ def simulate(store, change_id, flows, actor):
         new = None
     if new is not None:
         try:
-            proposals_invalidated, installed = impact(store, new, found, actor, change_id)
+            # the backfills the installed version ran, each run once on a store (ADR-0230 decision 4)
+            ran = Version(flows, dict(store.source)).migration["backfill"] if store.source else {}
+            proposals_invalidated, installed = impact(store, new, found, actor, change_id, ran)
         except NotRunnable as e:
             if not refused:
                 raise
@@ -504,6 +508,34 @@ def fitted(spec, v, kind=None):
     return (tuple(out) if typ.endswith("[]") else out[0]), None
 
 
+def not_applicable(store, m, found):
+    """Each rename, removed state and removed member naming what the installed version lacks, a notice: the entry has
+    nothing to act on, and changes nothing (ADR-0230 decision 2), as the core's `not_applicable`."""
+    v = store.version
+
+    def held(tn):
+        t = store.kinds.get(tn)
+        return t if t is not None and not t.get("_retired") else {}
+    for tn, maps in m["renamed_attributes"].items():
+        for a in maps or {}:
+            if a not in (held(tn).get("attributes") or {}):
+                found.add("notice", f"migration_not_applicable:renamed_attributes:{tn}.{a}",
+                          f"the migration renames {tn}.{a}, which the installed version, {v}, does not have: the entry "
+                          "renames nothing")
+    for tn, maps in m["removed_states"].items():
+        for st in maps or {}:
+            if st not in (held(tn).get("states") or {}):
+                found.add("notice", f"migration_not_applicable:removed_states:{tn}.{st}",
+                          f"the migration maps {tn}.{st}, which the installed version, {v}, does not have: the entry "
+                          "moves nothing")
+    for en, maps in m["removed_members"].items():
+        for x in maps or {}:
+            if x not in (store.enums.get(en) or ()):
+                found.add("notice", f"migration_not_applicable:removed_members:{en}.{x}",
+                          f"the migration maps {en}.{x}, which the installed version, {v}, does not have: the entry "
+                          "moves nothing")
+
+
 def moves(store, sim, kinds, retired, m, found):
     """Each object of a type the version moves, put into the simulation as its entry leaves it: an object of the
     entry's type, its id kept, its attributes given or carried, its state mapped (ADR-0229 decisions 2 and 3). Read
@@ -512,18 +544,21 @@ def moves(store, sim, kinds, retired, m, found):
     import copy
 
     import flowrun
-    moved, out = m["moved_types"], {}
-    for tn in list(moved) + list(m["retired_types"]):
-        # a type no module of the installed version declares, or one the version keeps, which the checker run on one
-        # module cannot see (ADR-0229 decision 7)
-        # a type an earlier version retired is no module's of the installed version either, though the store keeps it
-        # for its objects
-        if tn not in store.kinds or (store.kinds.get(tn) or {}).get("_retired"):
-            found.add("fatal", f"moved_type:{tn}", f"the migration names {tn}, which no module of the installed version declares")
+    moved, out, idle = m["moved_types"], {}, set()
+    for key, tn in [("moved_types", tn) for tn in moved] + [("retired_types", tn) for tn in m["retired_types"]]:
+        # a type no module of the installed version declares, which the checker run on one module cannot see, has
+        # nothing to move: the entry moves nothing, a notice; a type an earlier version retired is no module's of the
+        # installed version either, though the store keeps it for its objects, which stay retired (ADR-0230 decision 2)
+        held = store.kinds.get(tn)
+        if held is None or held.get("_retired"):
+            why = "holds retired, so its objects stay retired" if held is not None else "does not declare"
+            found.add("notice", f"migration_not_applicable:{key}:{tn}",
+                      f"the migration names {tn}, which the installed version, {store.version}, {why}: the entry moves nothing")
+            idle.add(tn)
         elif tn not in retired:
             found.add("fatal", f"moved_type:{tn}", f"the migration names {tn}, which the version still declares")
     for tn, entries in moved.items():
-        if tn not in retired:
+        if tn not in retired or tn in idle:
             continue
         if (store.kinds.get(tn) or {}).get("_observation_on"):
             found.add("fatal", f"moved_type:{tn}", f"the migration moves {tn}, an observation kind, which no migration reaches")
@@ -616,9 +651,10 @@ def declared_as(spec):
     return t.removesuffix("[]"), t.endswith("[]")
 
 
-def impact(store, new, found, actor, change_id):
+def impact(store, new, found, actor, change_id, ran=None):
     """Steps 2 and 3 (publish-and-import.md §1): every object as the mappings leave it, read under the new version,
-    into the report's categories; returns how many pending proposals the version invalidates."""
+    into the report's categories; returns how many pending proposals the version invalidates. `ran` holds the
+    backfills the installed version ran, by type and attribute."""
     import copy
 
     import flowrun
@@ -654,6 +690,7 @@ def impact(store, new, found, actor, change_id):
     runner = flowrun.Runner(kinds, new.enums)
     m = new.migration
     old_enums = store.enums
+    not_applicable(store, m, found)
     # moves first, each moved object an object of its target for every mapping after (ADR-0229)
     moving = moves(store, sim, kinds, retired, m, found)
     removed_types(store, retired, m, found)
@@ -721,6 +758,14 @@ def impact(store, new, found, actor, change_id):
     # object's personal values skipped
     for tn, maps in m["backfill"].items():
         for attr, text in maps.items():
+            # one the installed version's migration holds, unchanged, ran at that version's publish, and runs once on a
+            # store, as the core's (ADR-0230 decision 4)
+            held = ((ran or {}).get(tn) or {}).get(attr)
+            if held is not None and flowrun.parsed(str(held)) == flowrun.parsed(str(text)):
+                found.add("notice", f"migration_applied:backfill:{tn}.{attr}",
+                          f"the installed version, {store.version}, ran this backfill of {tn}.{attr} unchanged, and a "
+                          "backfill runs once on a store: it writes nothing")
+                continue
             for oid, o in sim.objects.items():
                 if o.type in BUILT_IN or o.type in retired or o.type in new.observations or not is_a(kinds, o.type, tn):
                     continue
