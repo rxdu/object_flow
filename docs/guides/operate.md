@@ -214,7 +214,7 @@ An evaluator served over HTTPS under your own certificate authority is trusted t
 `GET /health` answers `200` while the store serves, opening the store's file to answer:
 
 ```json
-{"release": "objectflow-core 0.6.0", "shape": "deployment", "version": 3, "now": "2026-10-13T01:03:28Z", "store_release": "objectflow-core 0.6.0", "upgrade_due": false, "clock_lead_seconds": 0, "writer_held_seconds": 0.0, "requests_in_flight": 1, "connections_open": 1, "disk_free_bytes": 52428800000}
+{"release": "objectflow-core 0.7.0", "shape": "deployment", "version": 3, "now": "2026-10-13T01:03:28Z", "store_release": "objectflow-core 0.7.0", "upgrade_due": false, "clock_lead_seconds": 0, "writer_held_seconds": 0.0, "requests_in_flight": 1, "connections_open": 1, "disk_free_bytes": 52428800000}
 ```
 
 `release` is the engine's, `store_release` the store's; `version` is the installed flow version and `now` the store's clock; `writer_held_seconds` is seconds with a fraction, `0.0` while no write runs, in a sandbox too; while writes wait for another process's lock, it counts from the first retry, through every write refused since. A health check that answers `200` is not logged.

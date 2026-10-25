@@ -110,6 +110,14 @@ pub const RELEASES: &[Release] = &[
         builtins_changed: false,
         migrate: batch_columns,
     },
+    Release {
+        name: "objectflow-core 0.7.0",
+        from: &["objectflow-core 0.6.0"],
+        fingerprint: "sha256:0503a5d115eadbfbe1726334f900c1242587309468d58799cb084abd20d8143a",
+        changes: "nothing in the store's own tables or its built-ins, which are 0.6.0's: the step records the release alone",
+        builtins_changed: false,
+        migrate: |_, _| Ok(()),
+    },
 ];
 
 /// 0.5.3 to 0.6.0: the batch an event's request came in, none for every

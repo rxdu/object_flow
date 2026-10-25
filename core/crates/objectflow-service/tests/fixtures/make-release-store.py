@@ -20,8 +20,9 @@ those under release-0.5.0/ by the service published as v0.5.0, built at ccc88de 
 the modules as 0.5.0 shipped them, those under release-0.5.1/ by the service published as v0.5.1, built at 4048a90
 and checked against its SHA-256, from the modules as 0.5.1 shipped them, its ids UUIDv7s, those under
 release-0.5.2/ by the service published as v0.5.2, built at a04acbd and checked against its SHA-256, from the modules
-as 0.5.2 shipped them, and those under release-0.5.3/ by the service published as v0.5.3, built at a200294 and checked
-against its SHA-256, from the modules as 0.5.3 shipped them.
+as 0.5.2 shipped them, those under release-0.5.3/ by the service published as v0.5.3, built at a200294 and checked
+against its SHA-256, from the modules as 0.5.3 shipped them, and those under release-0.6.0/ by the service published
+as v0.6.0, built at eff4a6d and checked against its SHA-256, from the modules as 0.6.0 shipped them.
 """
 import json
 import pathlib
