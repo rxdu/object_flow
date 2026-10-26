@@ -3669,13 +3669,16 @@ fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
     };
     let source: Vec<(String, String)> = match req.inputs.get("source") {
         // each file under the name it declares, a module's or its examples',
-        // which the digest is computed over (ADR-0135, ADR-0155); a file that
-        // does not parse is the dry run's to report
+        // which the digest is computed over (ADR-0135, ADR-0155), or a file
+        // its examples read under its file name, at least one of the version's
+        // own (ADR-0232 decision 1); a file that does not parse is the dry
+        // run's to report
         Some(Json::Object(files))
-            if !files.is_empty()
+            if files.keys().any(|n| !crate::source::is_carried(n))
                 && files.iter().all(|(n, t)| {
                     t.as_str().is_some_and(|t| {
-                        crate::source::name_of(t).is_none_or(|declared| declared == *n)
+                        crate::source::is_carried(n)
+                            || crate::source::name_of(t).is_none_or(|declared| declared == *n)
                     })
                 }) =>
         {

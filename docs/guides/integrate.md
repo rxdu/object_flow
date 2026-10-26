@@ -158,7 +158,7 @@ A new version is a `DeclarationChange`:
    {"actor": …, "type": "DeclarationChange", "transition": "draft",
     "inputs": {"source": {"leave": "<leave.yaml>", "leave.examples": "<leave.examples.yaml>"}, "source_ref": "git:4f2c1e9"}}
    ```
-   An examples file with a `publish` step stays out: its step reads files beside it, which a change has none of, so a publish refuses its examples `example_not_run` ([format](../design/flow-format.md) §11.3).
+   An example that starts at the version before, `before`, reads that version's files: carry each beside the modules under its file name, as `"leave-v1.yaml": "<leave-v1.yaml>"`, or the publish refuses the example `example_not_run` ([format](../design/flow-format.md) §11.3). A file carried this way is no part of the version.
 2. **Submit** it. This runs the dry run: every check, every example, and a simulation over the store's real objects. A failing one refuses the submit `dry_run_clean`; read why with a preview, `POST /v1/publish {"actor": …, "change": "<id>", "dry_run": true}`, and `revise` the draft.
 3. **Read the report**: what the version migrates, what it would newly refuse, and the objects each reaches.
 4. **Approve** it: `POST /v1/publish {"actor": …, "change": "<id>", "expected_version": <the change's version you read>}`. This installs the version.

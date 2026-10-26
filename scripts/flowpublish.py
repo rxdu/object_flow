@@ -24,6 +24,8 @@ MOVES = {"draft": ((), "DRAFTED"), "revise": (("DRAFTED",), "DRAFTED"), "reopen"
 INPUTS = ("source", "source_ref", "evidence")
 # a read's duration, as an evidence reference's `over` writes it (ADR-0159)
 DURATION = re.compile(r"^\s*\d+\s+(s|min|h|day|days|week|weeks)\s*$")
+# a file a change's examples read, carried beside the version under its file name, never part of it (ADR-0232)
+CARRIED = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*\.yaml$")
 
 
 def change_declaration():
@@ -96,10 +98,11 @@ def change_source(inputs):
     def why(k):
         return "missing" if inputs.get(k) is None else "malformed"
     files = inputs.get("source")
-    # each file under the name it declares, which the digest is computed over; a file that does not parse is the
-    # dry run's to report
-    if not (isinstance(files, dict) and files and all(
-            isinstance(t, str) and declared_name(t) in (None, n) for n, t in files.items())):
+    # each file under the name it declares, which the digest is computed over, or a file its examples read under its
+    # file name, at least one of the version's own (ADR-0232 decision 1); a file that does not parse is the dry run's
+    # to report
+    if not (isinstance(files, dict) and any(not CARRIED.match(n) for n in files) and all(
+            isinstance(t, str) and (CARRIED.match(n) or declared_name(t) in (None, n)) for n, t in files.items())):
         wrong.append("source")
         reasons.append(why("source"))
     reference = inputs.get("source_ref")
@@ -120,7 +123,7 @@ def installed_approvers(store, flows):
     """The kinds of actor the installed version's modules declare approve its next version, `publishing.taken_by`,
     sorted; none where no module declares them (ADR-0187 decision 1)."""
     for name, text in sorted(store.source.items()):
-        if name.endswith(".examples"):
+        if name.endswith(".examples") or CARRIED.match(name):
             continue
         doc = flows.load(text)
         kinds = (doc.get("publishing") or {}).get("taken_by") if isinstance(doc, dict) else None
@@ -300,9 +303,12 @@ class Version:
 
 
 def import_order(flows, files):
-    """A source's files as the checker reads them: each module after those it imports, then the examples files."""
+    """A source's files as the checker reads them: each module after those it imports, then the examples files; a
+    file its examples read is no part of the version (ADR-0232 decision 1)."""
     docs, examples = {}, []
     for name, text in sorted(files.items()):
+        if CARRIED.match(name):
+            continue
         try:
             doc = flows.load(text)
         except Exception:
@@ -366,9 +372,11 @@ def simulate(store, change_id, flows, actor):
     found = Found()
     examples, analysed, forms, violators = {}, {}, {}, {}
     ordered = import_order(flows, files)
-    # against the installed version, so a mapping with nothing to act on is the publish's to notice (ADR-0230)
-    errs, notes = flows.check(ordered, dict(store.source), analysed, examples, forms=forms, violators=violators,
-                              installed=True)
+    # against the installed version, so a mapping with nothing to act on is the publish's to notice (ADR-0230), the
+    # examples reading the files the change carries beside the version (ADR-0232 decision 1)
+    previous = {n: t for n, t in store.source.items() if not CARRIED.match(n)}
+    errs, notes = flows.check(ordered, previous, analysed, examples, forms=forms, violators=violators, installed=True,
+                              read=lambda name: files.get(name) if CARRIED.match(name) else None)
     for f, line, _sev, code, message in errs:
         # an example's failure by the name the design gives it (ADR-0136, publish-and-import.md §1 step 1)
         found.own("fatal", "example_failed" if code == "example" else f"check:{code}", f"{f}:{line}: {message}")

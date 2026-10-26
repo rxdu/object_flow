@@ -239,9 +239,9 @@ export function App() {
   const beside = useMemo(
     () =>
       examplesName
-        ? besideModule(wire, examplesName, chosen?.source)
+        ? besideModule(wire, examplesName, chosen?.source, bundle?.files)
         : undefined,
-    [wire, examplesName, chosen?.source],
+    [wire, examplesName, chosen?.source, bundle?.files],
   );
   const editable =
     chosen?.source === "workspace" && entry?.editable ? chosen.file : null;

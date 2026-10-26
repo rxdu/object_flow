@@ -3,17 +3,19 @@
 //! `flow-format.md` §11.5).
 //!
 //! Each example runs in an empty in-memory store holding version 0 and the
-//! modules checked, its clock starting where every example's does, and is
+//! modules checked, or the version before it names, which a `publish: {
+//! version: change }` step installs them over (ADR-0232), its clock starting
+//! where every example's does, and is
 //! played as the Flow Studio's replay plays one through the wire
 //! (`apps/flow-studio/server/tests/replay.py`): each step a request, a
 //! decision on a proposal or an import, and each expectation matched against
 //! the verdict, the object and the events, as `flow-format.md` §11.4 states.
 //! This is a port of that matcher, the wire's calls replaced by the core's
 //! own: an outcome is `passed`, `failed` or `not run`, the last where the
-//! core reaches what it does not yet run. A `publish` step reads its files
-//! through the reader its caller gives, each beside the examples file; one
-//! given none, as a change's source is, does not run it (ADR-0166 decision
-//! 3).
+//! core reaches what it does not yet run. A `publish` step and a `before`
+//! read their files through the reader its caller gives, each beside the
+//! examples file or carried in a change; one finding none does not run the
+//! example (ADR-0166 decision 3, ADR-0232 decision 2).
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -111,15 +113,17 @@ pub fn no_files(_name: &str) -> Option<String> {
     None
 }
 
-/// One example's run: the store it runs in, the aliases it has bound, and
-/// where its examples file is, by name and by the reader of the files
-/// beside it.
+/// One example's run: the store it runs in, the aliases it has bound, where
+/// its examples file is, by name and by the reader of the files beside it,
+/// and the modules of the version under publish, which a `publish: {
+/// version: change }` step installs (ADR-0232 decision 3).
 struct Player<'r> {
     store: Store,
     aliases: BTreeMap<String, String>,
     types: BTreeMap<String, String>,
     file: &'r str,
     read: Reader<'r>,
+    change: &'r [(String, String)],
 }
 
 impl Player<'_> {
@@ -376,18 +380,22 @@ impl Player<'_> {
     /// file's, submitted and approved as its actor; a refusal at any of the
     /// three fails the example, and the steps after it run under the
     /// version it installs (`flow-format.md` §11.3, ADR-0166 decision 3).
+    /// `version: change` names the version under publish, its modules alone,
+    /// since its examples are the ones running (ADR-0232 decision 3).
     fn published(&mut self, pb: &Json) -> Played<()> {
         self.advance(pb.get("after"))?;
-        let mut source = serde_json::Map::new();
-        for f in list(pb, "source").iter().map(py_str) {
-            let Some(text) = (self.read)(&f) else {
-                return Err(Stop::NotRun(format!(
-                    "the publish step's file {f}, which no directory beside the examples file gives"
-                )));
-            };
-            let name = crate::source::name_of(&text).unwrap_or_else(|| f.clone());
-            source.insert(name, Json::String(text));
-        }
+        let source: serde_json::Map<String, Json> = if pb.get("version").is_some() {
+            self.change
+                .iter()
+                .filter(|(n, _)| !crate::source::is_examples(n))
+                .map(|(n, t)| (n.clone(), Json::String(t.clone())))
+                .collect()
+        } else {
+            files_of(self.read, pb, "the publish step's")?
+                .into_iter()
+                .map(|(n, t)| (n, Json::String(t)))
+                .collect()
+        };
         let actor = self.alias(&str_or(pb, "actor", OPERATOR))?;
         let mut req = Request {
             transition: "draft".into(),
@@ -959,6 +967,23 @@ fn loose_equal(expected: &Json, got: &Json) -> bool {
     expected == got
 }
 
+/// The files a `publish` step or a `before` names under `source`, read
+/// through `read` and each keyed by the name it declares; one no reader gives
+/// leaves the example not run (ADR-0166 decision 3, ADR-0232 decision 2).
+fn files_of(read: Reader<'_>, node: &Json, whose: &str) -> Played<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    for f in list(node, "source").iter().map(py_str) {
+        let Some(text) = read(&f) else {
+            return Err(Stop::NotRun(format!(
+                "{whose} file {f}, which no directory beside the examples file gives"
+            )));
+        };
+        let name = crate::source::name_of(&text).unwrap_or_else(|| f.clone());
+        out.push((name, text));
+    }
+    Ok(out)
+}
+
 /// The setups an example or a setup is given, the farthest first.
 fn chain<'a>(
     setups: &'a serde_json::Map<String, Json>,
@@ -988,13 +1013,32 @@ fn run_one(
     file: &str,
     read: Reader<'_>,
 ) -> Played<Option<String>> {
-    let store = Store::sandbox(lib.clone(), now)?;
+    // an example starting at the version before holds it as any other holds
+    // the version under publish, its setups and steps run under it until it
+    // publishes the change (ADR-0232 decision 2)
+    let start = match ex.get("before") {
+        Some(before) => {
+            let files = files_of(read, before, "the version before's")?;
+            match Library::load(&files) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    return failed(format!(
+                        "the version before does not load: {}:{}: {}",
+                        e.file, e.line, e.message
+                    ));
+                }
+            }
+        }
+        None => lib.clone(),
+    };
+    let store = Store::sandbox(start, now)?;
     let mut p = Player {
         store,
         aliases: BTreeMap::from([(OPERATOR.to_string(), OPERATOR.to_string())]),
         types: BTreeMap::new(),
         file,
         read,
+        change: &lib.source,
     };
     let mut parts = match ex.get("given") {
         Some(g) => chain(setups, &py_str(g), &mut Vec::new()),

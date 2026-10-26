@@ -23,6 +23,31 @@ pub fn is_examples(name: &str) -> bool {
     name.ends_with(".examples")
 }
 
+/// Whether a source's name is a file its examples read, carried beside the
+/// version and never part of it: a file name as a `publish` step or a
+/// `before` names one, `<name>.yaml`, which no module's or examples file's
+/// name can be (ADR-0232 decision 1).
+pub fn is_carried(name: &str) -> bool {
+    let Some(stem) = name.strip_suffix(".yaml") else {
+        return false;
+    };
+    stem.chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+        && stem
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+}
+
+/// A source's files, each by its name and text.
+pub type Files = Vec<(String, String)>;
+
+/// A source parted into the version's own files, its modules and examples
+/// files, and the files its examples read (ADR-0232 decision 1).
+pub fn parted(files: &[(String, String)]) -> (Files, Files) {
+    files.iter().cloned().partition(|(n, _)| !is_carried(n))
+}
+
 /// The digest a change records beside its source's reference: SHA-256 over
 /// the files in ascending order of their names' UTF-8 bytes, each as its
 /// name, a line feed, its length in bytes in decimal, a line feed and its
@@ -75,5 +100,39 @@ mod tests {
             name_of("examples_for: inventory\n").as_deref(),
             Some("inventory.examples")
         );
+    }
+
+    /// A carried file is named as a publish step names one, and no module's
+    /// or examples file's name is one (ADR-0232 decision 1).
+    #[test]
+    fn a_carried_file_is_named_as_a_publish_step_names_one() {
+        for name in ["identity-v1.yaml", "service_v2.yaml", "a.b.yaml", "9.yaml"] {
+            assert!(is_carried(name), "{name}");
+        }
+        for name in [
+            "identity",
+            "identity.examples",
+            ".yaml",
+            "-x.yaml",
+            "dir/x.yaml",
+            "../x.yaml",
+            "x.yml",
+            "x yaml.yaml",
+        ] {
+            assert!(!is_carried(name), "{name}");
+        }
+        let (version, carried) = parted(&[
+            ("identity".into(), "module: identity\n".into()),
+            (
+                "identity.examples".into(),
+                "examples_for: identity\n".into(),
+            ),
+            ("identity-v1.yaml".into(), "module: identity\n".into()),
+        ]);
+        assert_eq!(
+            version.iter().map(|f| f.0.as_str()).collect::<Vec<_>>(),
+            ["identity", "identity.examples"]
+        );
+        assert_eq!(carried[0].0, "identity-v1.yaml");
     }
 }

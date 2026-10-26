@@ -2,7 +2,7 @@
 
 - **Status:** Accepted, 2026-10-05, by the author ("go with your recommendations on all five"), given five recommendations on how the Rust core takes on the publish checks that ADR-0155 decision 3 sequenced after the approval. Decision 5 was revised the same day while building C1, under the same direction, where its two clauses could not both hold.
 - **Date:** 2026-10-05
-- **Refined by:** ADR-0172 — the core covers the sixty-four and the reference path stays, as its oracle, so the internal form's versions are the reference's alone. ADR-0166 — the reference runner publishes, its step 1 the Python checker this core's checker is held to.
+- **Refined by:** ADR-0172 — the core covers the sixty-four and the reference path stays, as its oracle, so the internal form's versions are the reference's alone. ADR-0166 — the reference runner publishes, its step 1 the Python checker this core's checker is held to. ADR-0232 — the core's checker runs an example starting at the version before, and leaves it and its setups to run time.
 - **Refines:** ADR-0116 decision 2 (the internal form, kept until the checks run on the model), ADR-0131 decision 2 (versions computed by publishing), ADR-0155 decisions 1 and 3 (a deployment's publish waits for the core's checks; the checker's slices)
 - **Relates to:** ADR-0132 (the core in Rust), ADR-0136 (examples), ADR-0137 (the contradiction checker); `design/publish-and-import.md` §1 step 1; `design/declaration-syntax.md` §1, §10; `design/flow-format.md` §7, §11; `DESIGN.md` §5.9
 

@@ -5273,7 +5273,9 @@ pub(crate) fn library_of(conn: &Connection, version: i64) -> Stored<Option<Libra
         .into_iter()
         .map(|(n, t)| (n, t.as_str().unwrap_or_default().to_string()))
         .collect();
-    let mut lib = Library::load(&files)
+    // the version alone, the files its examples read carried beside it
+    // (ADR-0232 decision 1)
+    let mut lib = Library::load(&crate::source::parted(&files).0)
         .map_err(|e| StoreError(format!("version {version}'s source no longer loads: {e}")))?;
     lib.version = version;
     Ok(Some(lib))

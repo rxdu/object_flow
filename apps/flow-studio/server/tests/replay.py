@@ -73,7 +73,7 @@ class Player:
 
     def __init__(self, wire: Wire, now: str,
                  read: Callable[[str], str | None] | None = None,
-                 examples: str = ""):
+                 examples: str = "", change: dict | None = None):
         self.wire, self.now = wire, seconds_of(now)
         # the types the modules declare, which the sandbox's load reports
         self.declared: list[str] = []
@@ -83,6 +83,9 @@ class Player:
         # a file beside the examples file, by name, which a `publish` step
         # names, and the examples file's own name (ADR-0166 decision 3)
         self.read, self.examples = read, examples
+        # the modules of the version under publish, which a `publish: {
+        # version: change }` step installs (ADR-0232 decision 3)
+        self.change = change or {}
 
     # ── reading ─────────────────────────────────────────────────────────
     def decl(self, tn: str) -> dict:
@@ -213,13 +216,14 @@ class Player:
         if p.get("after"):
             self.now = seconds_of(self.wire.post(
                 "/sandbox/clock", {"advance": p["after"]})["now"])
-        source = {}
-        for f in p["source"]:
-            text = self.read(f) if self.read is not None else None
-            if text is None:
-                raise NotRun(f"the publish step's file {f}, which no "
-                             "directory beside the examples file gives")
-            source[flowpublish.declared_name(text) or f] = text
+        if "version" in p:
+            # the version under publish, its modules alone, since its
+            # examples are the ones running (ADR-0232 decision 3)
+            source = dict(self.change)
+        else:
+            source = {flowpublish.declared_name(f["text"]) or f["name"]:
+                      f["text"]
+                      for f in files_of(self.read, p, "the publish step's")}
         actor = {"id": self.alias(p.get("actor", OPERATOR))}
         v = self.wire.post("/v1/request", {
             "type": "DeclarationChange", "transition": "draft",
@@ -533,6 +537,21 @@ def loose_equal(expected: Any, got: Any) -> bool:
     return expected == got
 
 
+def files_of(read: Callable[[str], str | None] | None, node: dict,
+             whose: str) -> list[dict]:
+    """The files a `publish` step or a `before` names under `source`, each
+    read through `read`; one no reader gives is not run (ADR-0166 decision 3,
+    ADR-0232 decision 2)."""
+    out = []
+    for f in node["source"]:
+        text = read(f) if read is not None else None
+        if text is None:
+            raise NotRun(f"{whose} file {f}, which no directory beside the "
+                         "examples file gives")
+        out.append({"name": f, "text": text})
+    return out
+
+
 def chain(setups: dict, name: str) -> list[dict]:
     s = setups[name]
     return (chain(setups, s["given"]) if "given" in s else []) + [s]
@@ -565,18 +584,44 @@ def replay(wire: Wire, module_file: str,
         bundle = wire.get(f"/studio/module?file={module_file}")
         if read is None:
             read = catalogue_reader(wire)
-    loaded = wire.post("/sandbox/load", {"files": bundle["files"]})
-    if not loaded["loaded"]:
-        raise AssertionError(f"{module_file} does not load: {loaded}")
+    def load(files: list[dict]) -> dict:
+        loaded = wire.post("/sandbox/load", {"files": files})
+        if not loaded["loaded"]:
+            raise AssertionError(f"{module_file} does not load: {loaded}")
+        return loaded
+    loaded = load(bundle["files"])
+    # the version under publish, each module by the name it declares, which
+    # a `publish: { version: change }` step installs (ADR-0232 decision 3)
+    change = {}
+    for f in bundle["files"]:
+        declared = flowpublish.declared_name(f["text"]) or f["name"]
+        if not declared.endswith(".examples"):
+            change[declared] = f["text"]
     doc = flows.load(bundle["examples"]["text"])
     setups = doc.get("setups") or {}
     out = {}
+    # whether the sandbox holds another version than the module's
+    elsewhere = False
     for name, ex in (doc.get("examples") or {}).items():
-        now = wire.post("/sandbox/reset", {})["now"]
-        p = Player(wire, now, read, (bundle.get("examples") or {}).get(
-            "name", module_file.replace(".yaml", ".examples.yaml")))
-        p.declared = loaded["types"]
+        if elsewhere:
+            loaded, elsewhere = load(bundle["files"]), False
+        holds = loaded
         try:
+            if "before" in ex:
+                # an example starting at the version before holds it as any
+                # other holds the module's version, until it publishes the
+                # change (ADR-0232 decision 2)
+                holds = wire.post("/sandbox/load", {
+                    "files": files_of(read, ex["before"],
+                                      "the version before's")})
+                elsewhere = True
+                if not holds["loaded"]:
+                    raise Failed(f"the version before does not load: {holds}")
+            now = wire.post("/sandbox/reset", {})["now"]
+            p = Player(wire, now, read, (bundle.get("examples") or {}).get(
+                "name", module_file.replace(".yaml", ".examples.yaml")),
+                change)
+            p.declared = holds["types"]
             parts = (chain(setups, ex["given"]) if "given" in ex else []) \
                 + [ex]
             for part in parts:

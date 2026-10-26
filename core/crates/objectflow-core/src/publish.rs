@@ -393,12 +393,20 @@ fn checks_by(old: &Library, now: i64, draft: &Draft<'_>) -> Result<Checked, NotR
         could_violate: BTreeMap::new(),
     };
     // step 1, the checks and the examples (ADR-0156), each module against
-    // the installed version of it
+    // the installed version of it, the examples reading the files the
+    // change carries beside the version (ADR-0232 decision 1)
     let previous: BTreeMap<String, String> = old.source.iter().cloned().collect();
-    let checks = crate::check::checked_installed(draft.source, &previous);
+    let (version, carried) = crate::source::parted(draft.source);
+    let read = |name: &str| {
+        carried
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, t)| t.clone())
+    };
+    let checks = crate::check::checked_as(&version, &previous, &read, true);
     // every declared type's marks in the version under publish, read from
     // it whether or not its impact can be (§2, ADR-0114)
-    let person_dimensions = match Library::load(draft.source) {
+    let person_dimensions = match Library::load(&version) {
         Ok(lib) => {
             let mut out = Vec::new();
             for (tn, t) in &lib.types {
@@ -890,7 +898,8 @@ fn impact(
     installing: bool,
 ) -> Result<Simulated, NotRun> {
     let old = world.lib;
-    let mut new = match Library::load(draft.source) {
+    // the version alone, never a file its examples read (ADR-0232 decision 1)
+    let mut new = match Library::load(&crate::source::parted(draft.source).0) {
         Ok(lib) => lib,
         Err(e) => {
             found.add(
@@ -5637,6 +5646,217 @@ migration:
                 Value::Text(person.into())
             );
         }
+    }
+
+    /// The grants' examples for the second version: a viewer's role grant
+    /// made under the version before, the change published over it, is a
+    /// grant of leave to read after, and is revoked as one; `state` is the
+    /// state the example expects.
+    fn grants_migrating(state: &str) -> String {
+        format!(
+            r#"
+examples_for: grants
+examples:
+  a_viewers_role_grant_from_before_reads_leave_after:
+    description: A viewer's role grant made under the version before is a grant of leave to read after, and is revoked.
+    before: {{ source: [grants-v1.yaml] }}
+    steps:
+      - request: {{ type: RoleGrant, transition: grant, as: grant, inputs: {{ person: ana, role: leave.viewer }} }}
+      - publish: {{ version: change }}
+    request: {{ object: grant, transition: revoke }}
+    expect: {{ verdict: applied, state: {state}, values: {{ scope: leave }} }}
+"#
+        )
+    }
+
+    /// A dry run of a source given whole, over a store's installed version.
+    fn dry_whole(s: &Store, source: &[(&str, &str)]) -> PublishReport {
+        let source: Vec<(String, String)> = source
+            .iter()
+            .map(|(n, t)| (n.to_string(), t.to_string()))
+            .collect();
+        let w = s.snapshot().unwrap();
+        dry_run(
+            &w,
+            &Draft {
+                change_id: None,
+                source: &source,
+                source_ref: Some("git:grants@2"),
+                source_digest: None,
+                actor: OPERATOR,
+            },
+        )
+        .unwrap()
+    }
+
+    fn fatal_codes(r: &PublishReport) -> Vec<String> {
+        r.findings
+            .iter()
+            .filter(|f| f.severity == Severity::Fatal)
+            .map(|f| format!("{}: {}", f.code, f.message))
+            .collect()
+    }
+
+    /// A change carrying the files its migration example starts from runs
+    /// the example over an empty store: the role grant made under the version
+    /// before is migrated by the change and revoked under it. The example is
+    /// held to its expectation, is not run without the file, and the file is
+    /// stored with the version and never installed as a module of it
+    /// (ADR-0232 decisions 1 to 3).
+    #[test]
+    fn a_migration_example_starts_at_the_version_its_change_carries() {
+        let lib = Library::load(&[]).unwrap();
+        let s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let v2 = grants_v2(SPLIT);
+        let examples = grants_migrating("REVOKED");
+        let source = [
+            ("grants", v2.as_str()),
+            ("grants.examples", examples.as_str()),
+            ("grants-v1.yaml", GRANTS_V1),
+        ];
+        let report = dry_whole(&s, &source);
+        assert!(fatal_codes(&report).is_empty(), "{:#?}", report.findings);
+        let wrong = grants_migrating("HELD");
+        let report = dry_whole(
+            &s,
+            &[
+                ("grants", &v2),
+                ("grants.examples", &wrong),
+                ("grants-v1.yaml", GRANTS_V1),
+            ],
+        );
+        let fatal = fatal_codes(&report);
+        assert!(
+            fatal.len() == 1
+                && fatal[0].starts_with("example_failed: grants.examples:")
+                && fatal[0].contains("a_viewers_role_grant_from_before_reads_leave_after"),
+            "{fatal:#?}"
+        );
+        let report = dry_whole(&s, &[("grants", &v2), ("grants.examples", &examples)]);
+        let fatal = fatal_codes(&report);
+        assert!(
+            fatal.len() == 1
+                && fatal[0].starts_with("example_not_run:")
+                && fatal[0].contains("the version before's file grants-v1.yaml"),
+            "{fatal:#?}"
+        );
+        // drafted, submitted and approved through the requests over a store
+        // holding the version before's grants, the file carried under its
+        // file name, and the grants moved by the version, not the file
+        let (mut s, [viewer, ..]) = grants();
+        let files: serde_json::Map<String, Json> = source
+            .iter()
+            .map(|(n, t)| (n.to_string(), Json::String(t.to_string())))
+            .collect();
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": files, "source_ref": "git:grants@2"}),
+        ));
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let v = s
+            .snapshot()
+            .unwrap()
+            .whole(&change)
+            .unwrap()
+            .unwrap()
+            .version;
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        // the moved type kept retired, as a dropped type is, and never
+        // declared again by the carried file
+        let declared = |lib: &Library| lib.type_("RoleGrant").is_some_and(|t| !t.retired);
+        assert!(!declared(&s.lib), "the carried file was installed");
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.whole(&viewer).unwrap().unwrap().type_, "AccessGrant");
+        drop(w);
+        let installed = s.library_at(s.lib.version).unwrap().unwrap();
+        assert!(installed.type_("AccessGrant").is_some());
+        assert!(!declared(&installed), "the carried file was installed");
+        assert!(
+            installed.source.iter().all(|(n, _)| n != "grants-v1.yaml"),
+            "{:?}",
+            installed.source.iter().map(|f| &f.0).collect::<Vec<_>>()
+        );
+    }
+
+    /// A draft takes a carried file beside the version's own, never alone.
+    #[test]
+    fn a_draft_takes_a_carried_file_beside_the_version_and_not_alone() {
+        let lib = Library::load(&[]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let v = req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"grants-v1.yaml": GRANTS_V1}, "source_ref": "git:grants@2"}),
+        );
+        assert!(
+            matches!(&v, Verdict::InvalidInput { inputs, .. } if inputs == &["source"]),
+            "{v:?}"
+        );
+    }
+
+    /// Only an example starting at the version before publishes the change,
+    /// in one of its own steps (ADR-0232 decision 4).
+    #[test]
+    fn only_an_example_starting_before_publishes_the_change_once() {
+        let lib = Library::load(&[]).unwrap();
+        let s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let v2 = grants_v2(SPLIT);
+        let cases = [
+            (
+                "      - publish: { version: change }\n",
+                "",
+                "publishes the change, which only an example starting at the version before does",
+            ),
+            (
+                "",
+                "    before: { source: [grants-v1.yaml] }\n",
+                "publishes the change in 0 of its steps; it publishes it in one",
+            ),
+            (
+                "      - publish: { version: change }\n      - publish: { version: change }\n",
+                "    before: { source: [grants-v1.yaml] }\n",
+                "publishes the change in 2 of its steps; it publishes it in one",
+            ),
+        ];
+        for (steps, before, said) in cases {
+            let examples = format!(
+                "examples_for: grants\nexamples:\n  a_grant:\n    description: A grant.\n{before}    steps:\n      - request: {{ type: AccessGrant, transition: grant, as: g, inputs: {{ person: ana, scope: leave, level: READ }} }}\n{steps}    request: {{ object: g, transition: revoke }}\n    expect: {{ verdict: applied, state: REVOKED }}\n"
+            );
+            let report = dry_whole(
+                &s,
+                &[
+                    ("grants", &v2),
+                    ("grants.examples", &examples),
+                    ("grants-v1.yaml", GRANTS_V1),
+                ],
+            );
+            assert!(
+                fatal_codes(&report)
+                    .iter()
+                    .any(|f| f.starts_with("check:names") && f.contains(said)),
+                "{said}: {:#?}",
+                fatal_codes(&report)
+            );
+        }
+        let setup = "examples_for: grants\nsetups:\n  granted:\n    description: Granted.\n    steps:\n      - publish: { version: change }\nexamples:\n  a_grant:\n    description: A grant.\n    request: { type: AccessGrant, transition: grant, inputs: { person: ana, scope: leave, level: READ } }\n    expect: { verdict: applied, state: HELD }\n";
+        let report = dry_whole(&s, &[("grants", &v2), ("grants.examples", setup)]);
+        assert!(
+            fatal_codes(&report)
+                .iter()
+                .any(|f| f.starts_with("check:names")
+                    && f.contains(
+                        "which only the steps of an example starting at the version before do"
+                    )),
+            "{:#?}",
+            fatal_codes(&report)
+        );
     }
 
     /// A reference to an object that moves keeps its value where it now

@@ -141,8 +141,14 @@ describe.each(BACKENDS)("against the %s", (backend) => {
         expect(loaded.loaded, m.file).toBe(true);
         const doc = bundle.examples?.doc as ExamplesDoc;
         for (const name of Object.keys(doc.examples)) {
-          // a `publish` step's files beside the examples file (ADR-0166)
-          const beside = besideModule(wire, bundle.examples?.name ?? "");
+          // a `publish` step's files beside the examples file (ADR-0166), and
+          // the module's, which a publish of the change installs (ADR-0232)
+          const beside = besideModule(
+            wire,
+            bundle.examples?.name ?? "",
+            undefined,
+            bundle.files,
+          );
           const { outcome, why } = await runExample(wire, doc, name, beside);
           tally[outcome] += 1;
           // every example runs through the wire since the import did (ADR-0154)

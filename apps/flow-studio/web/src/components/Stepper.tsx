@@ -75,8 +75,12 @@ export function Stepper({
     });
     return () => {
       live = false;
+      // an example starting at the version before leaves the sandbox
+      // holding the version under publish again (ADR-0232)
+      if (doc.examples[example]?.before && beside?.version)
+        void wire.load(beside.version);
     };
-  }, [wire, begin]);
+  }, [wire, begin, doc, example, beside]);
 
   async function reset() {
     begin((await wire.reset()).now);
@@ -96,7 +100,12 @@ export function Stepper({
       const v = await p.perform(ps);
       d =
         v === null
-          ? { status: ps.kind === "evaluators" ? "answered" : "imported" }
+          ? {
+              status:
+                ps.kind === "evaluators" || ps.kind === "before"
+                  ? "answered"
+                  : "imported",
+            }
           : {
               status: v.kind === "satisfied" ? "applied" : "refused",
               verdict: v,
@@ -187,9 +196,14 @@ export function Stepper({
                 </span>
                 <span className="min-w-0">
                   {ps.label}
-                  {ps.kind !== "evaluators" && (
+                  {(ps.kind === "step" || ps.kind === "tested") && (
                     <span className="ml-2 font-mono text-xs break-words">
                       {summary(ps.step)}
+                    </span>
+                  )}
+                  {ps.kind === "before" && (
+                    <span className="ml-2 font-mono text-xs break-words">
+                      {ps.source.join(", ")}
                     </span>
                   )}
                 </span>

@@ -3,7 +3,7 @@
 - **Status:** Decided by the author, 2026-10-07 ("go with your recommendation, option 3"), on three options stated with a recommendation; decisions 2 to 5 are the recommendation's parts, settled as it framed them.
 - **Date:** 2026-10-07
 - **Refines:** ADR-0155 (the core's publishing), ADR-0156 (the core's checker), ADR-0136 (examples), ADR-0153 (the Python reference as the core's oracle)
-- **Refined by:** ADR-0167 — the runner's replay of the metric scenarios stops at the port, which carries legacy history ADR-0154 decision 8 leaves to the core; decision 2 holds the runner to the core by the comparisons, not by the scenarios.
+- **Refined by:** ADR-0167 — the runner's replay of the metric scenarios stops at the port, which carries legacy history ADR-0154 decision 8 leaves to the core; decision 2 holds the runner to the core by the comparisons, not by the scenarios. ADR-0232 — a `publish` step may name the version under publish, `version: change`, in an example starting at the version before, and a change may carry the files a step names.
 - **Relates to:** `design/publish-and-import.md` §1 to §3; `design/flow-format.md` §11.3; `design/flow-studio.md` §4, §6; PRD F7, F13, UC-25
 
 ## Context

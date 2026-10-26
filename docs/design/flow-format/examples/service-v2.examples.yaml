@@ -1,6 +1,7 @@
 # yaml-language-server: $schema=../examples.schema.json
 # The service flow's examples, updated in the same change as version 2, which requires a site to open a job
-# and a completion photo to finish one (flow-format.md §11, ADR-0136).
+# and a completion photo to finish one (flow-format.md §11, ADR-0136), and one of what version 2 does to a job
+# version 1 left, starting at version 1, whose files a change carries (ADR-0232).
 examples_for: service
 
 setups:
@@ -15,6 +16,12 @@ setups:
     given: two_engineers
     steps:
       - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana, site: Tuas depot } }
+      - request: { object: job, transition: start, actor: ana, after: 1 h }
+  job_started_under_version_1:
+    description: A job Ana opened for herself under version 1, which records no site, and started an hour later.
+    given: two_engineers
+    steps:
+      - request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }
       - request: { object: job, transition: start, actor: ana, after: 1 h }
 
 examples:
@@ -63,3 +70,18 @@ examples:
       actor: ana
       inputs: { signed_off_by: ana, completion_photo: finished-job.jpg }
     expect: { verdict: applied, state: DONE, values: { signed_off_by_user: ana } }
+
+  a_job_opened_under_version_1_is_at_hq_once_this_version_is_published:
+    description: >-
+      A job Ana opened under version 1, which recorded no site, is at HQ once this version is published over it, as
+      its migration's backfill gives every job, and is reassigned as any job of this version is.
+    before: { source: [people.yaml, service.yaml] }
+    given: job_started_under_version_1
+    steps:
+      - publish: { version: change, after: 1 h }
+    request:
+      object: job
+      transition: reassign
+      actor: ana
+      inputs: { engineer: ben, reason: ReassignmentReason.WORKLOAD }
+    expect: { verdict: applied, state: WORKING, values: { site: HQ } }

@@ -1109,6 +1109,34 @@ def test_a_backfill_replacing_a_value_a_move_carried_is_a_rewrite_alike(tee):
     alike(tee)
 
 
+def test_a_change_carrying_the_version_before_runs_its_migration_alike(tee):
+    """A change carrying the files its migration example starts from runs
+    the example in its dry run, which migrates a job made under version 1
+    and finds it at HQ; without the files the example is not run, and the
+    version installed holds no carried file as a module, alike through both
+    backends (ADR-0232)."""
+    read = lambda n: (EXAMPLES / n).read_text()
+    tee.post("/sandbox/load", {"files": [
+        {"name": "people.yaml", "text": read("people.yaml")},
+        {"name": "service.yaml", "text": read("service.yaml")}]})
+    tee.post("/sandbox/reset", {})
+    version = {"people": read("people.yaml"), "service": read("service-v2.yaml"),
+               "service.examples": read("service-v2.examples.yaml")}
+    carried = {"people.yaml": read("people.yaml"),
+               "service.yaml": read("service.yaml")}
+    tee.found.clear()
+    c, codes = dry_run(tee, version)
+    assert "example_not_run" in codes, codes
+    c, codes = dry_run(tee, {**version, **carried})
+    assert not {code for code in codes
+                if code in ("example_failed", "example_not_run")}, codes
+    approved(tee, c)
+    # version 2 installed, and no carried file a module of it
+    job = tee.post("/v1/declaration", {"type": "ServiceJob"})
+    assert "site" in job["attributes"], job
+    alike(tee)
+
+
 def test_a_type_whose_ids_would_name_an_identity_is_refused_alike(tee):
     """A version adding a type whose ids would name an identity an actor holds, in any case, is refused, naming the
     actor by its object, alike through both backends; an identity of no type's shape is not (D669, ADR-0205

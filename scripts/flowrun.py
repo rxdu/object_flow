@@ -3979,7 +3979,7 @@ def run_examples(doc, library, modules, file=None, read=None, flows=None, source
         s = setups[name]
         return (chain(s["given"]) if "given" in s else []) + [("setup " + name, s)]
 
-    publishing = (file, read, flows)
+    publishing = (file, read, flows, source)
     for name, ex in (doc.get("examples") or {}).items():
         runner = Runner(kinds, enums)       # each example from the version checked, whatever one before it published
         store = Store(kinds, enums, declared, homes)
@@ -3987,6 +3987,18 @@ def run_examples(doc, library, modules, file=None, read=None, flows=None, source
         aliases = {OPERATOR: OPERATOR}
         stubs = {}
         try:
+            if "before" in ex:
+                # an example starting at the version before holds it as any other holds the version checked, its
+                # setups and steps run under it until it publishes the change (ADR-0232 decision 2)
+                import flowpublish
+                files = files_of(ex["before"], read, "the version before's")
+                try:
+                    v = flowpublish.Version(flows, files)
+                except Exception as e:
+                    raise ExampleError(f"the version before does not load: {e}")
+                runner = Runner(v.kinds, v.enums)
+                store = Store(v.kinds, v.enums, v.declared, v.homes)
+                store.source = dict(v.source)
             parts = (chain(ex["given"]) if "given" in ex else []) + [("example " + name, ex)]
             for label, part in parts:
                 stubs.update(part.get("evaluators") or {})
@@ -4140,7 +4152,7 @@ def refresh_object(runner, store, oid, tn, state, given):
 def step(runner, store, st, aliases, stubs, under_test=False, publishing=None):
     """One step of a setup or the request under test; a setup's refusal propagates, the tested one is returned."""
     if "publish" in st:
-        publish_step(runner, store, st["publish"], aliases, *(publishing or (None, None, None)))
+        publish_step(runner, store, st["publish"], aliases, *(publishing or (None, None, None, None)))
         return None
     if "import" in st:
         im = st["import"]
@@ -4171,19 +4183,31 @@ def step(runner, store, st, aliases, stubs, under_test=False, publishing=None):
     return decide_or_request(runner, store, st, aliases, stubs, under_test)
 
 
-def publish_step(runner, store, p, aliases, file, read, flows):
+def files_of(node, read, whose):
+    """The files a `publish` step or a `before` names under `source`, read through `read`, each keyed by the name it
+    declares; one no reader gives is not run (ADR-0166 decision 3, ADR-0232 decision 2)."""
+    import flowpublish
+    out = {}
+    for f in node["source"]:
+        text = read(f) if read is not None else None
+        if text is None:
+            raise NotRunnable(f"{whose} file {f}, which no directory beside the examples file gives")
+        out[flowpublish.declared_name(text) or f] = text
+    return out
+
+
+def publish_step(runner, store, p, aliases, file, read, flows, change=None):
     """An example's `publish` (flow-format.md §11.3, ADR-0166 decision 3): a change drafted with the files the step
     names, each read beside the examples file and keyed by the name it declares, its source reference the examples
     file's, then submitted, which runs the dry run, and approved as the step's actor, the operator by default; a refusal
     at any of the three fails the example, and the runner then decides every later step under the version installed."""
     import flowpublish
     advance(store, p)
-    source = {}
-    for f in p["source"]:
-        text = read(f) if read is not None else None
-        if text is None:
-            raise NotRunnable(f"the publish step's file {f}, which no directory beside the examples file gives")
-        source[flowpublish.declared_name(text) or f] = text
+    if "version" in p:
+        # the version under publish, its modules alone, since its examples are the ones running (ADR-0232 decision 3)
+        source = {n: t for n, t in (change or {}).items() if not n.endswith(".examples")}
+    else:
+        source = files_of(p, read, "the publish step's")
     actor = aliases.get(p.get("actor", OPERATOR), p.get("actor"))
     try:
         drafted = flowpublish.request(store, "draft", None, actor, {"source": source, "source_ref": f"example:{file}"},

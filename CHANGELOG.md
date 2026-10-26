@@ -6,6 +6,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Added
 
+- A change can test what it does to the objects the version before left, run by the service at every publish (#42, ADR-0232). An example may start at the version before, `before: { source: [<file>, …] }`, and publish the change over it with a step `publish: { version: change }`; its setups and steps run under the version before, the change's dry run migrates the objects they made, and the request under test runs under the change. A change carries the files such an example reads beside its modules, each keyed by its file name, `<name>.yaml`, which is no part of the version: never loaded or installed as a module, and stored with the version's source and counted in its digest. Where a change does not carry them, the publish refuses the example `example_not_run`, as before. The checker reads them beside the examples file.
 - A backfill that replaces a value an object holds names the object under a notice of its own, `backfill_rewrites:<Type>.<attribute>`, beside `mapping:backfill:<Type>.<attribute>`, which still names every object a backfill writes, so a dry run tells a rewrite from a fill of an absent value (#41's comment, ADR-0231). A value a rename or a move carried counts as held, and so does a set, empty or not; an attribute the version adds, or whose type it changes, is filled.
 
 ## 0.7.0, 2026-10-25

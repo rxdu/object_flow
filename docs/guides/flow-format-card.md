@@ -270,12 +270,12 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 |---|---|
 | `examples_for` | the module |
 | `setups` | named starting states: `description`, `given` (a setup it starts from), `evaluators` (each answer, `xero.bill_matches: satisfied`), `steps` |
-| `examples` | each a `description`, `given`, `evaluators`, `steps`, a `request` or an `approve`, and its `expect` |
+| `examples` | each a `description`, `given`, `before` (`source`, the files of the version it starts at), `evaluators`, `steps`, a `request` or an `approve`, and its `expect` |
 | a step | one of `request`, `propose`, `approve`, `reject`, `withdraw`, `import`, `publish` |
 | `request`, `propose` | `type` (to create) or `object` (an alias), `transition`, `as` (the new object's alias), `creates`, `actor`, `after`, `occurred_at`, `inputs`; a proposal's `proposal` alias |
 | `approve`, `reject`, `withdraw` | `proposal`, `actor`, `after` |
 | `import` | a mirror's object as a legacy system held it: `type`, `as`, `state`, `values`, `after`, and `sequences`, each `{ sequence: <name>, last: <n>, scope: <alias> }`, the last number the legacy system minted |
-| `publish` | `source`, a file beside the examples, `actor`, `after` |
+| `publish` | `source`, a file beside the examples, or `version: change`, the version under publish, in an example with `before`; `actor`, `after` |
 | `expect` | `verdict` (`applied` or a refusal), `clause`, `remedy`, `state`, `values`, `cascaded`, `warned`, `occurred_at`, `metrics`, `proposal` |
 
 The clock starts at `2026-01-01T00:00:00Z` and `after` moves it; the actor `operator` acts where none is named.

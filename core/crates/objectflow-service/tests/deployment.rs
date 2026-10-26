@@ -6841,9 +6841,10 @@ fn every_required_key_is_required() {
 /// Each shipped sample set publishes with its examples beside it, as
 /// `integrate.md` drafts a change: drafted, submitted, which runs every
 /// example in the dry run, and approved, a set's later version over its
-/// first. The service's examples carried two whose `publish` step reads a
-/// file no change has, refused `example_not_run`, while the checker passed
-/// them (the guides' audit G-18).
+/// first, each file an example starting at the version before reads carried
+/// under its file name (ADR-0232). The service's examples carried two whose
+/// `publish` step reads a file no change has, refused `example_not_run`,
+/// while the checker passed them (the guides' audit G-18).
 #[test]
 fn every_sample_publishes_with_its_examples() {
     // each file keyed by the name it declares, as a change's source is
@@ -6904,8 +6905,19 @@ fn every_sample_publishes_with_its_examples() {
             "0",
         ]);
         for files in *versions {
-            let source: serde_json::Map<String, Value> =
+            let mut source: serde_json::Map<String, Value> =
                 files.iter().map(|f| declared(f)).collect();
+            for f in files.iter().filter(|f| f.ends_with(".examples.yaml")) {
+                for line in example(f).lines() {
+                    let Some(named) = line.trim().strip_prefix("before: { source: [") else {
+                        continue;
+                    };
+                    for carried in named.trim_end_matches("] }").split(',') {
+                        let carried = carried.trim();
+                        source.insert(carried.to_string(), Value::String(example(carried)));
+                    }
+                }
+            }
             publish(&s, &Value::Object(source));
         }
     }

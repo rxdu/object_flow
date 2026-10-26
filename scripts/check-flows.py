@@ -5754,6 +5754,19 @@ def example_errors(doc, kinds, modules):
                     errs += raise_errors(rs, env, here + ("import", "sequences", j))
         return errs
 
+    # a setup given only to examples starting at the version before runs under that version, and is checked when it
+    # runs, as they are (ADR-0232 decision 4): each setup by whether an example without `before`, or one with it, is
+    # given it, directly or through others
+    reached = {}
+    for ex in (doc.get("examples") or {}).values():
+        walked, at = [], ex.get("given")
+        while at in setups and at not in walked:
+            plain, before = reached.get(at, (False, False))
+            reached[at] = (plain or "before" not in ex, before or "before" in ex)
+            walked.append(at)
+            at = setups[at].get("given")
+    later = {n for n, (plain, before) in reached.items() if before and not plain}
+
     def env_of(name, seen=()):
         """The aliases a setup leaves, built through the setup it is given."""
         if name in envs:
@@ -5771,8 +5784,16 @@ def example_errors(doc, kinds, modules):
                                                                  "a setup is given one declared before it"))
             else:
                 env = dict(env_of(s["given"], seen + (name,)))
-        out.extend(stubs_errors(s.get("evaluators"), ("setups", name, "evaluators")))
-        out.extend(steps_errors(s["steps"], env, ("setups", name, "steps")))
+        # the change is published by an example's own steps, never a setup's (ADR-0232 decision 4)
+        for i, st in enumerate(s["steps"]):
+            if "version" in (st.get("publish") or {}):
+                out.append((("setups", name, "steps", i, "publish", "version"), "names",
+                            "publishes the change, which only the steps of an example starting at the version before do"))
+        if name in later:
+            env[PUBLISHED] = True
+        else:
+            out.extend(stubs_errors(s.get("evaluators"), ("setups", name, "evaluators")))
+            out.extend(steps_errors(s["steps"], env, ("setups", name, "steps")))
         envs[name] = env
         return env
 
@@ -5786,7 +5807,20 @@ def example_errors(doc, kinds, modules):
                 out.append((path + ("given",), "names", f"is given the setup {ex['given']}, which this file does not declare"))
             else:
                 env = dict(envs.get(ex["given"], {}))
-        out += stubs_errors(ex.get("evaluators"), path + ("evaluators",))
+        # an example starting at the version before publishes the change in one of its own steps, and only such an
+        # example does; it runs under the version before until then, and is checked when it runs (ADR-0232 decision 4)
+        changes = [i for i, st in enumerate(ex.get("steps") or []) if "version" in (st.get("publish") or {})]
+        if "before" in ex:
+            if len(changes) != 1:
+                out.append((path + ("before",), "names", f"starts at the version before and publishes the change in "
+                                                         f"{len(changes)} of its steps; it publishes it in one"))
+            env[PUBLISHED] = True
+        elif changes:
+            out.append((path + ("steps", changes[0], "publish", "version"), "names",
+                        "publishes the change, which only an example starting at the version before does: it names "
+                        "`before`"))
+        if "before" not in ex:
+            out += stubs_errors(ex.get("evaluators"), path + ("evaluators",))
         out += steps_errors(ex.get("steps"), env, path + ("steps",))
         if env.get(PUBLISHED):
             continue            # the request runs under the version published, and is checked when it runs (§11.3)
@@ -7686,6 +7720,9 @@ def example_rule_plants():
     ok = True
     read = lambda n: (EXAMPLES / n).read_text()
     service = ["people.yaml", "service.yaml", "service.examples.yaml"]
+    # version 2's examples, one starting at version 1 beside them (ADR-0232)
+    migrating = ["people.yaml", "service-v2.yaml", "service-v2.examples.yaml"]
+    starts_before = "    before: { source: [people.yaml, service.yaml] }\n"
     opens = "    request: { type: ServiceJob, transition: open, as: job, actor: ana, inputs: { engineer: ana } }\n    expect: { verdict: applied, state: OPEN }"
     refused = "    expect: { verdict: unsatisfied, clause: engineer_active, remedy: self_serviceable }"
     leave = "      - request: { object: ben, transition: leave }"
@@ -7773,6 +7810,18 @@ def example_rule_plants():
          [("service.examples.yaml", refused, "    expect: { verdict: call_refused, clause: nothing }")]),
         ("invalid input naming a clause", "names", "names no clause or remedy", service,
          [("service.examples.yaml", refused, "    expect: { verdict: invalid_input, clause: engineer_active }")]),
+        # only an example starting at the version before publishes the change, once, in its own steps (ADR-0232)
+        ("the change published by an example not starting at the version before", "names",
+         "which only an example starting at the version before does", migrating,
+         [("service-v2.examples.yaml", starts_before, "")]),
+        ("an example starting at the version before that publishes no change", "names",
+         "publishes the change in 0 of its steps", migrating,
+         [("service-v2.examples.yaml", "      - publish: { version: change, after: 1 h }\n", leave + "\n")]),
+        ("a setup publishing the change", "names", "which only the steps of an example starting at the version before do",
+         migrating,
+         [("service-v2.examples.yaml", "which records no site, and started an hour later.\n    given: two_engineers\n    steps:\n",
+           "which records no site, and started an hour later.\n    given: two_engineers\n    steps:\n"
+           "      - publish: { version: change }\n")]),
     ]
     for name, code, words, files, edits in plants:
         texts = {f: read(f) for f in files}
@@ -7797,6 +7846,14 @@ def example_rule_plants():
     hit = [x for x in found if x[3] == "example" and "refused at submission" in x[4]]
     ok &= bool(hit)
     print(f"  planted a publish its dry run refuses: {'caught by example, at ' + hit[0][0] + ':' + str(hit[0][1]) if hit else 'MISSED ' + str(found[:2])}")
+    # a migration example the change does not bear out fails, starting at the version beside the examples file
+    # (ADR-0232 decision 2)
+    claims = read("service-v2.examples.yaml").replace("values: { site: HQ } }", "values: { site: Tuas depot } }", 1)
+    found, _notes = check([(f, claims if f == "service-v2.examples.yaml" else read(f)) for f in migrating], None, None,
+                          None, beside(EXAMPLES))
+    hit = [x for x in found if x[3] == "example" and "a_job_opened_under_version_1" in x[4]]
+    ok &= bool(hit)
+    print(f"  planted a migration example the change does not bear out: {'caught by example, at ' + hit[0][0] + ':' + str(hit[0][1]) if hit else 'MISSED ' + str(found[:2])}")
     return ok
 
 

@@ -403,8 +403,10 @@ CREATE TABLE of_declaration (
   version       INTEGER PRIMARY KEY,  -- 0 is the row the store is created with (ADR-0105)
   module        TEXT    NOT NULL,
   source        TEXT    NOT NULL,   -- the source's files as published, a JSON object from each
-                                    -- module's name to its description, and from <module>.examples
-                                    -- to its examples file (ADR-0135, ADR-0136)
+                                    -- module's name to its description, from <module>.examples
+                                    -- to its examples file (ADR-0135, ADR-0136), and from each file
+                                    -- its examples read to that file, by its <name>.yaml, which is
+                                    -- no part of the version (ADR-0232)
   source_ref    TEXT,               -- where the source came from, as the change named it, and
   source_digest TEXT,               -- its digest; neither for version 0 (ADR-0135)
   builtins      TEXT    NOT NULL,   -- the built-in module it was published with: the engine

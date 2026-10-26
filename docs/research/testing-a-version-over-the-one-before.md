@@ -21,6 +21,8 @@
 
 ## 4. What it suggests
 
+Decided as ADR-0232.
+
 - **Carry the version before in the change,** as Terraform's test names the configuration it applies first by a local source, so that a change's verdict stays its source's alone, over an empty store as over one behind. *Inferred:* taking the store's installed version as the version before ties the verdict to the store, and #41's consumer publishes one source to stores at several versions, where an example written for the version just before would run against an older one.
 - **Let an example start at the version before and publish the change over it,** as a `run` block shares one state across two configurations, so a setup made under the version before is migrated by the change and the request under test runs on what it left.
 - **Leave the store's own objects to the dry run,** which reads them as Temporal's replay reads recorded histories, rather than a service operation playing a version's setups into a store.

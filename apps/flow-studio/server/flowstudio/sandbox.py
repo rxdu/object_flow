@@ -640,8 +640,11 @@ class Sandbox:
         # identifiers take, with a last value that leaves a next, as the core
         # refuses one (fourth production review A-15)
         declared, scoped = set(), set()
+        # the version's own modules, never a file its examples read (ADR-0232)
         for name, text in self.store.source.items():
-            doc = flows.load(text) if not name.endswith(".examples") else None
+            module = not (name.endswith(".examples")
+                          or flowpublish.CARRIED.match(name))
+            doc = flows.load(text) if module else None
             if isinstance(doc, dict):
                 declared |= set(doc.get("sequences") or {})
         for spec in kinds.values():

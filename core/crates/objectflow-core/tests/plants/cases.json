@@ -359,6 +359,230 @@
   }
  },
  {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "b11fb2a62f4cf338",
+   "service": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "b11fb2a62f4cf338",
+   "service": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  },
+  "installed": true
+ },
+ {
   "label": "main",
   "files": [
    [
@@ -371,7 +595,7 @@
    ],
    [
     "service-v2.examples.yaml",
-    "1b6e0d85533e07da"
+    "b4721f6fc19e7645"
    ]
   ],
   "previous": {
@@ -380,14 +604,14 @@
   "findings": [
    [
     "service-v2.examples.yaml",
-    20,
+    27,
     "notice",
     "coverage",
     "no example requests 2 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.start"
    ],
    [
     "service-v2.examples.yaml",
-    20,
+    27,
     "notice",
     "coverage",
     "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
@@ -484,6 +708,10 @@
     "User.add",
     "User.rename"
    ]
+  },
+  "reads": {
+   "people.yaml": "b11fb2a62f4cf338",
+   "service.yaml": "9bd716ed3bc7b728"
   }
  },
  {
@@ -22177,60 +22405,53 @@
   }
  },
  {
-  "label": "simulate",
+  "label": "example_rule_plants: the change published by an example not starting at the version before",
   "files": [
    [
-    "people",
+    "people.yaml",
     "b11fb2a62f4cf338"
    ],
    [
-    "service",
-    "53f2b40fda247ff8"
+    "service-v2.yaml",
+    "518220b4397faa50"
+   ],
+   [
+    "service-v2.examples.yaml",
+    "62363854b1514c97"
    ]
   ],
-  "previous": {
-   "people": "b11fb2a62f4cf338",
-   "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
-  },
+  "previous": {},
   "findings": [
    [
-    "service",
+    "service-v2.examples.yaml",
+    24,
+    "fatal",
+    "names",
+    "a setup's step must apply, and it leaves out the required input site"
+   ],
+   [
+    "service-v2.examples.yaml",
+    80,
+    "fatal",
+    "names",
+    "publishes the change, which only an example starting at the version before does: it names `before`"
+   ],
+   [
+    "service-v2.yaml",
     5,
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
    ],
    [
-    "service",
-    36,
-    "notice",
-    "rule_changed",
-    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
-   ],
-   [
-    "service",
-    99,
-    "fatal",
-    "names",
-    "condition 'photo_attached' of ServiceJob is used by no transition"
-   ],
-   [
-    "service",
-    136,
-    "fatal",
-    "names",
-    "ServiceJob.finish guards on 'photo_attachd', which is not a condition of ServiceJob"
-   ],
-   [
-    "service",
+    "service-v2.yaml",
     137,
     "notice",
     "warn",
     "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
    ],
    [
-    "service",
+    "service-v2.yaml",
     184,
     "notice",
     "migration",
@@ -22279,8 +22500,189 @@
     "User.add",
     "User.rename"
    ]
+  }
+ },
+ {
+  "label": "example_rule_plants: an example starting at the version before that publishes no change",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service-v2.yaml",
+    "518220b4397faa50"
+   ],
+   [
+    "service-v2.examples.yaml",
+    "55e1a85b8572784f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service-v2.examples.yaml",
+    78,
+    "fatal",
+    "names",
+    "starts at the version before and publishes the change in 0 of its steps; it publishes it in one"
+   ],
+   [
+    "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
   },
-  "installed": true
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "example_rule_plants: a setup publishing the change",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service-v2.yaml",
+    "518220b4397faa50"
+   ],
+   [
+    "service-v2.examples.yaml",
+    "0e4bea212106bff5"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service-v2.examples.yaml",
+    24,
+    "fatal",
+    "names",
+    "publishes the change, which only the steps of an example starting at the version before do"
+   ],
+   [
+    "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
  },
  {
   "label": "simulate",
@@ -22601,7 +23003,113 @@
   "installed": true
  },
  {
-  "label": "example_rule_plants: invalid input naming a clause",
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service",
+    "53f2b40fda247ff8"
+   ]
+  ],
+  "previous": {
+   "people": "b11fb2a62f4cf338",
+   "service": "9bd716ed3bc7b728",
+   "service.examples": "06bde5c1bb1848b0"
+  },
+  "findings": [
+   [
+    "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
+    99,
+    "fatal",
+    "names",
+    "condition 'photo_attached' of ServiceJob is used by no transition"
+   ],
+   [
+    "service",
+    136,
+    "fatal",
+    "names",
+    "ServiceJob.finish guards on 'photo_attachd', which is not a condition of ServiceJob"
+   ],
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "example_rule_plants: a setup publishing the change",
   "files": [
    [
     "people.yaml",
@@ -22736,6 +23244,360 @@
   "reads": {
    "people.yaml": "b11fb2a62f4cf338",
    "service-v2.yaml": "53f2b40fda247ff8"
+  }
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "b11fb2a62f4cf338",
+   "service": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "people",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service",
+    "518220b4397faa50"
+   ]
+  ],
+  "previous": {
+   "people": "b11fb2a62f4cf338",
+   "service": "9bd716ed3bc7b728"
+  },
+  "findings": [
+   [
+    "service",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service",
+    36,
+    "notice",
+    "rule_changed",
+    "ServiceJob's rules change against the previous version: conditions rewritten: photo_attached; read each before approving (ADR-0191)"
+   ],
+   [
+    "service",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "example_rule_plants: a setup publishing the change",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service-v2.yaml",
+    "518220b4397faa50"
+   ],
+   [
+    "service-v2.examples.yaml",
+    "4417582e73c0a424"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service-v2.examples.yaml",
+    27,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.start"
+   ],
+   [
+    "service-v2.examples.yaml",
+    27,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service-v2.examples.yaml",
+    74,
+    "fatal",
+    "example",
+    "a_job_opened_under_version_1_is_at_hq_once_this_version_is_published: expected site to hold Tuas depot, and it holds HQ"
+   ],
+   [
+    "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  },
+  "reads": {
+   "people.yaml": "b11fb2a62f4cf338",
+   "service.yaml": "9bd716ed3bc7b728"
   }
  },
  {

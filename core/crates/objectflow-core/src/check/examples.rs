@@ -855,6 +855,34 @@ pub fn example_errors(
             ),
         ));
     }
+    // a setup given only to examples starting at the version before runs
+    // under that version, and is checked when it runs, as they are (ADR-0232
+    // decision 4): each setup by whether an example without `before`, or one
+    // with it, is given it, directly or through others
+    let mut reached: BTreeMap<String, (bool, bool)> = BTreeMap::new();
+    for ex in obj(doc, "examples").values() {
+        let before = ex.get("before").is_some();
+        let mut walked: Vec<String> = Vec::new();
+        let mut at = ex.get("given").map(py_str);
+        while let Some(g) = at.take() {
+            if !setups.contains_key(&g) || walked.contains(&g) {
+                break;
+            }
+            let r = reached.entry(g.clone()).or_default();
+            if before {
+                r.1 = true;
+            } else {
+                r.0 = true;
+            }
+            at = setups[&g].get("given").map(py_str);
+            walked.push(g);
+        }
+    }
+    let later: BTreeSet<String> = reached
+        .into_iter()
+        .filter(|(_, (plain, before))| *before && !*plain)
+        .map(|(n, _)| n)
+        .collect();
     let mut envs: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     fn env_of(
         c: &mut Checker,
@@ -863,6 +891,7 @@ pub fn example_errors(
         setups: &Map<String, Value>,
         order: &[String],
         envs: &mut BTreeMap<String, BTreeMap<String, String>>,
+        later: &BTreeSet<String>,
     ) -> BTreeMap<String, String> {
         if let Some(e) = envs.get(name) {
             return e.clone();
@@ -893,19 +922,46 @@ pub fn example_errors(
                 ));
             } else {
                 seen.push(name.to_string());
-                env = env_of(c, &g, seen, setups, order, envs);
+                env = env_of(c, &g, seen, setups, order, envs, later);
                 seen.pop();
             }
         }
-        let stub = c.stubs_errors(s.get("evaluators"), &segs!["setups", name, "evaluators"]);
-        c.out.extend(stub);
-        let errs = c.steps_errors(list(&s, "steps"), &mut env, &segs!["setups", name, "steps"]);
-        c.out.extend(errs);
+        // the change is published by an example's own steps, never a setup's
+        // (ADR-0232 decision 4)
+        for (i, st) in list(&s, "steps").iter().enumerate() {
+            if st
+                .get("publish")
+                .is_some_and(|p| p.get("version").is_some())
+            {
+                c.out.push(finding(
+                    segs!["setups", name, "steps", i, "publish", "version"],
+                    "names",
+                    "publishes the change, which only the steps of an example starting at the version before do"
+                        .to_string(),
+                ));
+            }
+        }
+        if later.contains(name) {
+            env.insert(PUBLISHED.into(), String::new());
+        } else {
+            let stub = c.stubs_errors(s.get("evaluators"), &segs!["setups", name, "evaluators"]);
+            c.out.extend(stub);
+            let errs = c.steps_errors(list(&s, "steps"), &mut env, &segs!["setups", name, "steps"]);
+            c.out.extend(errs);
+        }
         envs.insert(name.to_string(), env.clone());
         env
     }
     for name in &order {
-        env_of(&mut c, name, &mut Vec::new(), &setups, &order, &mut envs);
+        env_of(
+            &mut c,
+            name,
+            &mut Vec::new(),
+            &setups,
+            &order,
+            &mut envs,
+            &later,
+        );
     }
     let mut requested: Requested = BTreeMap::new();
     for (name, ex) in obj(doc, "examples").clone() {
@@ -922,8 +978,43 @@ pub fn example_errors(
                 ));
             }
         }
-        let stub = c.stubs_errors(ex.get("evaluators"), &ext(&at, segs!["evaluators"]));
-        c.out.extend(stub);
+        // an example starting at the version before publishes the change in
+        // one of its own steps, and only such an example does; it runs under
+        // the version before until then, and is checked when it runs (ADR-0232
+        // decision 4)
+        let changes: Vec<usize> = list(&ex, "steps")
+            .iter()
+            .enumerate()
+            .filter(|(_, st)| {
+                st.get("publish")
+                    .is_some_and(|p| p.get("version").is_some())
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if ex.get("before").is_some() {
+            if changes.len() != 1 {
+                c.out.push(finding(
+                    ext(&at, segs!["before"]),
+                    "names",
+                    format!(
+                        "starts at the version before and publishes the change in {} of its steps; it publishes it in one",
+                        changes.len()
+                    ),
+                ));
+            }
+            env.insert(PUBLISHED.into(), String::new());
+        } else if let Some(i) = changes.first() {
+            c.out.push(finding(
+                ext(&at, segs!["steps", *i, "publish", "version"]),
+                "names",
+                "publishes the change, which only an example starting at the version before does: it names `before`"
+                    .to_string(),
+            ));
+        }
+        if ex.get("before").is_none() {
+            let stub = c.stubs_errors(ex.get("evaluators"), &ext(&at, segs!["evaluators"]));
+            c.out.extend(stub);
+        }
         let errs = c.steps_errors(list(&ex, "steps"), &mut env, &ext(&at, segs!["steps"]));
         c.out.extend(errs);
         // the request runs under the version published, and is checked when

@@ -49,9 +49,11 @@ export interface StepRequest {
 }
 
 /** A `publish` step: the files of another version, beside the examples
- * file, its actor and when (flow-format.md §11.3, ADR-0166). */
+ * file, or the version under publish, `version: change`; its actor and when
+ * (flow-format.md §11.3, ADR-0166, ADR-0232). */
 export interface PublishStep {
-  source: string[];
+  source?: string[];
+  version?: "change";
   actor?: string;
   after?: string;
 }
@@ -64,11 +66,15 @@ export type ExampleStep = Partial<
 > & { publish?: PublishStep };
 
 /** Where a `publish` step finds the files it names: each beside the
- * examples file, by name, null where there is none; and the examples file's
- * own name, its change's source reference. */
+ * examples file, by name, null where there is none; the examples file's own
+ * name, its change's source reference; and the files of the version under
+ * publish, which a `publish: { version: change }` step installs and an
+ * example starting at the version before leaves the sandbox holding again
+ * (ADR-0232). */
 export interface Beside {
   read(name: string): Promise<string | null>;
   examples: string;
+  version?: ModuleFile[];
 }
 
 /** The files beside a module's examples file, each read from its module's
@@ -77,12 +83,14 @@ export function besideModule(
   wire: Wire,
   examples: string,
   source?: Source,
+  version?: ModuleFile[],
 ): Beside {
   // in the examples file's own source, and else in the design's, as a
   // module's imports are found
   const sources = [...new Set([source ?? "design", "design"])] as Source[];
   return {
     examples,
+    version,
     read: async (name) => {
       for (const s of sources) {
         try {
@@ -131,6 +139,9 @@ interface Part {
 }
 
 export interface Example extends Part {
+  /** the version the example starts at, its files beside the examples
+   * file (ADR-0232) */
+  before?: { source: string[] };
   request?: StepRequest;
   approve?: StepRequest;
   expect: Expectation;
@@ -145,6 +156,7 @@ export interface ExamplesDoc {
 /** One thing the player does: answer evaluators, take a setup's step, or
  * make the request under test. */
 export type PlanStep =
+  | { kind: "before"; label: string; source: string[] }
   | { kind: "evaluators"; label: string; answers: Record<string, unknown> }
   | { kind: "step"; label: string; step: ExampleStep }
   | { kind: "tested"; label: string; step: ExampleStep; expect: Expectation };
@@ -207,6 +219,14 @@ export function plan(doc: ExamplesDoc, name: string): PlanStep[] {
     [`example ${name}`, ex],
   ];
   const out: PlanStep[] = [];
+  // an example starting at the version before holds it first (ADR-0232)
+  if (ex.before) {
+    out.push({
+      kind: "before",
+      label: `example ${name}: the version before`,
+      source: ex.before.source,
+    });
+  }
   for (const [label, part] of parts) {
     if (part.evaluators) {
       out.push({
@@ -234,7 +254,10 @@ export function plan(doc: ExamplesDoc, name: string): PlanStep[] {
 /** What a step asks for, as a person reads it: `ServiceJob.open as job`. */
 export function summary(step: ExampleStep): string {
   if (step.import) return `import ${step.import.type ?? ""}`;
-  if (step.publish) return `publish ${step.publish.source.join(", ")}`;
+  if (step.publish)
+    return step.publish.version
+      ? "publish the change"
+      : `publish ${(step.publish.source ?? []).join(", ")}`;
   const [verb, r] = verbOf(step);
   if (verb === "approve" || verb === "reject" || verb === "withdraw") {
     return `${verb} ${r.proposal ?? ""}`;
@@ -286,7 +309,21 @@ export class Player {
         (await this.wire.clock({ advance: pb.after })).now,
       );
     const source: Record<string, string> = {};
-    for (const f of pb.source) {
+    if (pb.version) {
+      // the version under publish, its modules alone, since its examples are
+      // the ones running (ADR-0232 decision 3)
+      const files = this.beside?.version;
+      if (!files)
+        throw new NotRun(
+          501,
+          "the version under publish, which the player was not given",
+        );
+      for (const f of files) {
+        const name = declaredName(f.text) ?? f.name;
+        if (!name.endsWith(".examples")) source[name] = f.text;
+      }
+    }
+    for (const f of pb.source ?? []) {
       const text = this.beside ? await this.beside.read(f) : null;
       if (text === null)
         throw new NotRun(
@@ -382,8 +419,13 @@ export class Player {
     return v as WireValue;
   }
 
-  /** Answer the evaluators, or take one step; a verdict for a step taken. */
+  /** Hold the version before, answer the evaluators, or take one step; a
+   * verdict for a step taken. */
   async perform(ps: PlanStep): Promise<Verdict | null> {
+    if (ps.kind === "before") {
+      await this.startBefore(ps.source);
+      return null;
+    }
     if (ps.kind === "evaluators") {
       await this.answer(ps.answers);
       return null;
@@ -391,6 +433,27 @@ export class Player {
     const v = await this.play(ps.step);
     this.trail.push({ kind: "step", step: ps.step, verdict: v });
     return v;
+  }
+
+  /** The version an example starts at: its files, each beside the examples
+   * file, loaded into the sandbox, whose clock then starts again; a file no
+   * reader gives leaves the example not run, and files that do not load fail
+   * it (ADR-0232 decision 2). */
+  async startBefore(source: string[]): Promise<void> {
+    const files: ModuleFile[] = [];
+    for (const f of source) {
+      const text = this.beside ? await this.beside.read(f) : null;
+      if (text === null)
+        throw new NotRun(
+          501,
+          `the version before's file ${f}, which no directory beside the examples file gives`,
+        );
+      files.push({ name: f, text });
+    }
+    if (!(await this.wire.load(files)).loaded)
+      throw new Failed("the version before does not load");
+    this.now = instantSeconds((await this.wire.reset()).now);
+    this.decls.clear();
   }
 
   /** Set what evaluators answer, as an example's `evaluators` does. */
@@ -1029,6 +1092,9 @@ export async function runExample(
 ): Promise<{ outcome: Outcome; why: string }> {
   const { now } = await wire.reset();
   const p = new Player(wire, now, beside);
+  // an example starting at the version before leaves the sandbox holding the
+  // version under publish again (ADR-0232)
+  const restore = doc.examples[name]?.before ? beside?.version : undefined;
   try {
     for (const ps of plan(doc, name)) {
       const v = await p.perform(ps);
@@ -1065,5 +1131,7 @@ export async function runExample(
     if (e instanceof NotRun) return { outcome: "not run", why: e.message };
     if (e instanceof Failed) return { outcome: "failed", why: e.message };
     throw e;
+  } finally {
+    if (restore) await wire.load(restore);
   }
 }
