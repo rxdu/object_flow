@@ -1880,7 +1880,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
+   "service.examples": "e5f0f290d8f45e78"
   },
   "findings": [
    [
@@ -1993,7 +1993,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
+   "service.examples": "e5f0f290d8f45e78"
   },
   "findings": [
    [
@@ -2106,7 +2106,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
+   "service.examples": "e5f0f290d8f45e78"
   },
   "findings": [
    [
@@ -2219,7 +2219,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
+   "service.examples": "e5f0f290d8f45e78"
   },
   "findings": [
    [
@@ -2332,7 +2332,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
+   "service.examples": "e5f0f290d8f45e78"
   },
   "findings": [
    [
@@ -2445,7 +2445,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
+   "service.examples": "e5f0f290d8f45e78"
   },
   "findings": [
    [
@@ -2754,7 +2754,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
+   "service.examples": "e5f0f290d8f45e78"
   },
   "findings": [
    [
@@ -2867,7 +2867,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
+   "service.examples": "e5f0f290d8f45e78"
   },
   "findings": [
    [
@@ -3174,21 +3174,21 @@
    ],
    [
     "service-migration.examples.yaml",
-    "06bde5c1bb1848b0"
+    "e5f0f290d8f45e78"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service-migration.examples.yaml",
-    22,
+    23,
     "notice",
     "coverage",
     "no example requests 3 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.open, ServiceJob.start"
    ],
    [
     "service-migration.examples.yaml",
-    22,
+    23,
     "notice",
     "coverage",
     "no example takes 4 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.finish, ServiceJob.forget, ServiceJob.reassign"
@@ -22699,7 +22699,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
+   "service.examples": "e5f0f290d8f45e78"
   },
   "findings": [
    [
@@ -22805,7 +22805,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
+   "service.examples": "e5f0f290d8f45e78"
   },
   "findings": [
    [
@@ -22911,7 +22911,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
+   "service.examples": "e5f0f290d8f45e78"
   },
   "findings": [
    [
@@ -23017,7 +23017,7 @@
   "previous": {
    "people": "b11fb2a62f4cf338",
    "service": "9bd716ed3bc7b728",
-   "service.examples": "06bde5c1bb1848b0"
+   "service.examples": "e5f0f290d8f45e78"
   },
   "findings": [
    [
@@ -23121,49 +23121,49 @@
    ],
    [
     "service-migration.examples.yaml",
-    "06bde5c1bb1848b0"
+    "e5f0f290d8f45e78"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "service-migration.examples.yaml",
-    22,
+    23,
     "notice",
     "coverage",
     "no example requests 3 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.open, ServiceJob.start"
    ],
    [
     "service-migration.examples.yaml",
-    22,
+    23,
     "notice",
     "coverage",
     "no example takes 4 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.finish, ServiceJob.forget, ServiceJob.reassign"
    ],
    [
     "service-migration.examples.yaml",
-    23,
+    24,
     "fatal",
     "example",
     "a_job_from_before_version_2_needs_its_completion_photo: the publish is refused at submission as unsatisfied dry_run_clean unreachable_from_here"
    ],
    [
     "service-migration.examples.yaml",
-    38,
+    39,
     "fatal",
     "example",
     "a_job_from_before_version_2_finishes_with_its_photo_at_the_site_given: the publish is refused at submission as unsatisfied dry_run_clean unreachable_from_here"
    ],
    [
     "service-migration.examples.yaml",
-    53,
+    54,
     "fatal",
     "example",
     "a_checklist_entry_from_before_version_3_is_a_checkpoint: the publish is refused at submission as unsatisfied dry_run_clean unreachable_from_here"
    ],
    [
     "service-migration.examples.yaml",
-    64,
+    65,
     "fatal",
     "example",
     "a_job_whose_result_names_a_moved_entry_finishes: the publish is refused at submission as unsatisfied dry_run_clean unreachable_from_here"

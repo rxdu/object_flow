@@ -1,8 +1,9 @@
 # yaml-language-server: $schema=../examples.schema.json
 # What versions 2 and 3 of the service flow do to what version 1 left, as examples whose `publish` steps install
 # service-v2.yaml over version 1, and service-v3.yaml over that (flow-format.md §11.3, ADR-0166 decision 3). A publish step reads its files beside the
-# examples file, which a change's source has no directory for, so these run where the files are, in the checker and
-# the Flow Studio, and the file is never carried into a change: a publish would refuse each `example_not_run`.
+# examples file, so these run where the files are, in the checker and the Flow Studio's replay. The file is in no
+# change, since a change publishes its own version and not a later one; a later version's change tests itself over
+# this one by examples starting at the version before (flow-format.md §11.3, ADR-0232).
 examples_for: service
 
 setups:
