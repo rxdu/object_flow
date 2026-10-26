@@ -2,12 +2,18 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.8.0, 2026-10-26
+
+A release before 1.0.0, as 0.7.0 was (ADR-0214), answering issue #42 and a comment on issue #41. A change can test what it does to the objects the version before left (ADR-0232), and a dry run tells a backfill rewriting a held value from a fill (ADR-0231). A store of 0.7.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step recording the release alone; a store of 0.6.0 takes 0.7.0's step first. A draft holding only the files its examples read is refused, where 0.7.0 drafted it and could not publish it, listed under its heading below.
 
 ### Added
 
 - A change can test what it does to the objects the version before left, run by the service at every publish (#42, ADR-0232). An example may start at the version before, `before: { source: [<file>, …] }`, and publish the change over it with a step `publish: { version: change }`; its setups and steps run under the version before, the change's dry run migrates the objects they made, and the request under test runs under the change. A change carries the files such an example reads beside its modules, each keyed by its file name, `<name>.yaml`, which is no part of the version: never loaded or installed as a module, and stored with the version's source and counted in its digest. Where a change does not carry them, the publish refuses the example `example_not_run`, as before. The checker reads them beside the examples file.
 - A backfill that replaces a value an object holds names the object under a notice of its own, `backfill_rewrites:<Type>.<attribute>`, beside `mapping:backfill:<Type>.<attribute>`, which still names every object a backfill writes, so a dry run tells a rewrite from a fill of an absent value (#41's comment, ADR-0231). A value a rename or a move carried counts as held, and so does a set, empty or not; an attribute the version adds, or whose type it changes, is filled.
+
+### Changed, and may refuse what 0.7.0 accepted
+
+- A change's draft whose source holds only files its examples read, each keyed `<name>.yaml`, is refused `invalid_input`, its `source` `malformed` (ADR-0232 decision 1). 0.7.0 drafted it, and its dry run refused it `check:schema`, so a draft refused now is one 0.7.0 could not publish.
 
 ## 0.7.0, 2026-10-25
 
