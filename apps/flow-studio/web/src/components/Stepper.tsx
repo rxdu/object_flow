@@ -1,28 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { NotRun, type Verdict, type Wire, WireFault } from "../api/wire";
+import { type Wire } from "../api/wire";
 import { explain } from "../session/explain";
 import {
   type Beside,
   type ExamplesDoc,
   type PlanStep,
   Player,
-  Waiting,
+  type Taken,
+  goesOn,
   plan,
   summary,
+  take,
 } from "../session/player";
-
-interface Done {
-  status:
-    | "applied"
-    | "refused"
-    | "answered"
-    | "imported"
-    | "waiting"
-    | "not run"
-    | "fault";
-  verdict?: Verdict;
-  note?: string;
-}
 
 /** An example played a step at a time against the sandbox. */
 export function Stepper({
@@ -48,7 +37,7 @@ export function Stepper({
   // the next step's index: a ref, since a run takes several steps within one
   // render, where `done` would still be the render's
   const next = useRef(0);
-  const [done, setDone] = useState<Done[]>([]);
+  const [done, setDone] = useState<Taken[]>([]);
   const [outcome, setOutcome] = useState<{
     holds: boolean;
     text: string;
@@ -86,53 +75,35 @@ export function Stepper({
     begin((await wire.reset()).now);
   }
 
-  const finished =
-    done.length >= steps.length ||
-    done.some((d) => d.status !== "applied" && d.status !== "answered");
+  const finished = done.length >= steps.length || done.some((d) => !goesOn(d));
 
   async function stepOnce(): Promise<boolean> {
     const p = player.current;
     const ps = steps[next.current];
     if (!p || !ps) return false;
     next.current += 1;
-    let d: Done;
-    try {
-      const v = await p.perform(ps);
-      d =
-        v === null
-          ? {
-              status:
-                ps.kind === "evaluators" || ps.kind === "before"
-                  ? "answered"
-                  : "imported",
-            }
-          : {
-              status: v.kind === "satisfied" ? "applied" : "refused",
-              verdict: v,
-            };
-      if (ps.kind === "tested" && v) {
-        const problem = await p.compare(ps.expect, v, ps.step);
-        setOutcome(
-          problem
-            ? { holds: false, text: `Does not do what it claims: ${problem}` }
-            : { holds: true, text: "Does what the example claims." },
-        );
-      } else if (ps.kind === "step" && d.status === "refused") {
-        setOutcome({
-          holds: false,
-          text: "A setup step is refused, so the example cannot be what it claims.",
-        });
-      }
-    } catch (e) {
-      if (e instanceof Waiting) d = { status: "waiting", note: e.message };
-      else if (e instanceof NotRun) d = { status: "not run", note: e.message };
-      else if (e instanceof WireFault)
-        d = { status: "fault", note: `${e.status}: ${e.message}` };
-      else throw e;
+    const d = await take(p, ps);
+    if (ps.kind === "tested" && d.verdict) {
+      const problem = await p.compare(ps.expect, d.verdict, ps.step);
+      setOutcome(
+        problem
+          ? { holds: false, text: `Does not do what it claims: ${problem}` }
+          : { holds: true, text: "Does what the example claims." },
+      );
+    } else if (ps.kind === "step" && d.status === "refused") {
+      setOutcome({
+        holds: false,
+        text: "A setup step is refused, so the example cannot be what it claims.",
+      });
+    } else if (d.status === "failed") {
+      setOutcome({
+        holds: false,
+        text: `Does not do what it claims: ${d.note ?? ""}`,
+      });
     }
     setDone((prev) => [...prev, d]);
     onChange(p);
-    return d.status === "applied" || d.status === "answered";
+    return goesOn(d);
   }
 
   async function run(all: boolean) {
@@ -241,7 +212,7 @@ const NEXT: Look = {
   icon: "·",
 };
 
-const STATUS: Record<Done["status"], Look> = {
+const STATUS: Record<Taken["status"], Look> = {
   applied: {
     row: "border-emerald-500 bg-emerald-50 text-emerald-950",
     badge: "bg-emerald-100 text-emerald-800",
@@ -257,6 +228,11 @@ const STATUS: Record<Done["status"], Look> = {
     badge: "bg-emerald-100 text-emerald-800",
     icon: "↓",
   },
+  published: {
+    row: "border-emerald-500 bg-emerald-50 text-emerald-950",
+    badge: "bg-emerald-100 text-emerald-800",
+    icon: "↑",
+  },
   refused: {
     row: "border-amber-500 bg-amber-50 text-amber-950",
     badge: "bg-amber-100 text-amber-800",
@@ -271,6 +247,11 @@ const STATUS: Record<Done["status"], Look> = {
     row: "border-violet-500 bg-violet-50 text-violet-950",
     badge: "bg-violet-100 text-violet-800",
     icon: "−",
+  },
+  failed: {
+    row: "border-red-500 bg-red-50 text-red-950",
+    badge: "bg-red-100 text-red-800",
+    icon: "✕",
   },
   fault: {
     row: "border-red-500 bg-red-50 text-red-950",

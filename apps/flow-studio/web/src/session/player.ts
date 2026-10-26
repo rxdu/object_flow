@@ -17,6 +17,7 @@ import {
   type Source,
   type Wire,
   type WireValue,
+  WireFault,
   isLegacy,
 } from "../api/wire";
 import {
@@ -1134,4 +1135,51 @@ export async function runExample(
   } finally {
     if (restore) await wire.load(restore);
   }
+}
+
+/** What became of a step the page's stepper took: applied or refused by its
+ * verdict; answered, imported or published, which no verdict answers; or
+ * waiting, not run, failed or a fault where it could not be taken. */
+export interface Taken {
+  status:
+    | "applied"
+    | "refused"
+    | "answered"
+    | "imported"
+    | "published"
+    | "waiting"
+    | "not run"
+    | "failed"
+    | "fault";
+  verdict?: Verdict;
+  note?: string;
+}
+
+/** One step of an example, taken as the page's stepper takes it. */
+export async function take(p: Player, ps: PlanStep): Promise<Taken> {
+  try {
+    const v = await p.perform(ps);
+    if (v)
+      return {
+        status: v.kind === "satisfied" ? "applied" : "refused",
+        verdict: v,
+      };
+    if (ps.kind === "step" && ps.step.import) return { status: "imported" };
+    if (ps.kind === "step" && ps.step.publish) return { status: "published" };
+    return { status: "answered" };
+  } catch (e) {
+    if (e instanceof Waiting) return { status: "waiting", note: e.message };
+    if (e instanceof NotRun) return { status: "not run", note: e.message };
+    if (e instanceof WireFault)
+      return { status: "fault", note: `${e.status}: ${e.message}` };
+    if (e instanceof Failed) return { status: "failed", note: e.message };
+    throw e;
+  }
+}
+
+/** Whether the stepper goes on past a step taken: one applied, or one no
+ * verdict answers, the version before, the evaluators' answers, an import or
+ * a publish. */
+export function goesOn(t: Taken): boolean {
+  return ["applied", "answered", "imported", "published"].includes(t.status);
 }

@@ -8,8 +8,12 @@ import type { Wire } from "../src/api/wire";
 import {
   besideModule,
   type ExamplesDoc,
+  goesOn,
   type Outcome,
+  Player,
+  plan,
   runExample,
+  take,
 } from "../src/session/player";
 import { BACKENDS, startServer } from "./server";
 
@@ -161,5 +165,66 @@ describe.each(BACKENDS)("against the %s", (backend) => {
         `examples through the page's player: ${JSON.stringify(tally)}`,
       );
     }, 120_000);
+  });
+
+  describe("every example, stepped as the page's stepper steps it", () => {
+    it("reaches its request under test", async () => {
+      const stopped: string[] = [];
+      let examples = 0;
+      for (const m of await wire.modules()) {
+        if (!m.examples) continue;
+        const bundle = await wire.module(m.file);
+        expect((await wire.load(bundle.files)).loaded, m.file).toBe(true);
+        const doc = bundle.examples?.doc as ExamplesDoc;
+        for (const name of Object.keys(doc.examples)) {
+          const beside = besideModule(
+            wire,
+            bundle.examples?.name ?? "",
+            undefined,
+            bundle.files,
+          );
+          const steps = plan(doc, name);
+          const p = new Player(wire, (await wire.reset()).now, beside);
+          let reached = 0;
+          for (const ps of steps) {
+            const t = await take(p, ps);
+            reached += 1;
+            if (!goesOn(t)) {
+              if (reached < steps.length)
+                stopped.push(`${m.file} ${name}: ${ps.label} is ${t.status}`);
+              break;
+            }
+          }
+          // the stepper's cleanup, which holds the version under publish
+          // again after an example starting at the version before (ADR-0232)
+          if (doc.examples[name]?.before) await wire.load(bundle.files);
+          examples += 1;
+        }
+      }
+      expect(stopped).toEqual([]);
+      expect(examples).toBeGreaterThan(0);
+    }, 120_000);
+
+    it("fails a step it cannot take, and stops there", async () => {
+      const bundle = await wire.module("service.yaml");
+      expect((await wire.load(bundle.files)).loaded).toBe(true);
+      const doc = structuredClone(bundle.examples?.doc) as ExamplesDoc;
+      const tested = "a_reassignment_is_measured_as_a_handoff";
+      const ex = doc.examples[tested];
+      if (!ex?.request) throw new Error(`no example ${tested}`);
+      ex.request.object = "nobody";
+      const p = new Player(wire, (await wire.reset()).now);
+      const taken = [];
+      for (const ps of plan(doc, tested)) {
+        const t = await take(p, ps);
+        taken.push(t);
+        if (!goesOn(t)) break;
+      }
+      expect(taken.length).toBe(plan(doc, tested).length);
+      expect(taken.at(-1)).toEqual({
+        status: "failed",
+        note: "no object is named nobody",
+      });
+    });
   });
 });
