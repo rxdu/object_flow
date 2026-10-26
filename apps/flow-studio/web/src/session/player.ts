@@ -1106,21 +1106,7 @@ export async function runExample(
         };
       }
       if (ps.kind === "tested" && v) {
-        let problem = await p.compare(ps.expect, v, ps.step);
-        for (const [metric, want] of Object.entries(ps.expect.metrics ?? {})) {
-          problem = problem ?? (await p.metricDiffers(metric, want));
-        }
-        if (
-          problem === null &&
-          ps.expect.proposal !== undefined &&
-          ps.step.approve
-        ) {
-          const prop = await wire.get(p.alias(ps.step.approve.proposal ?? ""));
-          // the format writes the state in lower case (§11.4, D521)
-          if (prop?.state.toLowerCase() !== ps.expect.proposal) {
-            problem = `expected the proposal ${ps.expect.proposal}, and it is ${prop?.state}`;
-          }
-        }
+        const problem = await judged(p, ps, v);
         return problem
           ? { outcome: "failed", why: problem }
           : { outcome: "passed", why: "" };
@@ -1182,4 +1168,35 @@ export async function take(p: Player, ps: PlanStep): Promise<Taken> {
  * a publish. */
 export function goesOn(t: Taken): boolean {
   return ["applied", "answered", "imported", "published"].includes(t.status);
+}
+
+/** Why the request under test does not do what its example claims, or null
+ * where it does: its verdict and what it wrote, each metric the example
+ * expects, and an approved proposal's state; or why it could not be read. */
+export async function judged(
+  p: Player,
+  ps: Extract<PlanStep, { kind: "tested" }>,
+  v: Verdict,
+): Promise<string | null> {
+  try {
+    let problem = await p.compare(ps.expect, v, ps.step);
+    for (const [metric, want] of Object.entries(ps.expect.metrics ?? {})) {
+      problem = problem ?? (await p.metricDiffers(metric, want));
+    }
+    if (
+      problem === null &&
+      ps.expect.proposal !== undefined &&
+      ps.step.approve
+    ) {
+      const prop = await p.wire.get(p.alias(ps.step.approve.proposal ?? ""));
+      // the format writes the state in lower case (§11.4, D521)
+      if (prop?.state.toLowerCase() !== ps.expect.proposal) {
+        problem = `expected the proposal ${ps.expect.proposal}, and it is ${prop?.state}`;
+      }
+    }
+    return problem;
+  } catch (e) {
+    if (e instanceof Failed) return e.message;
+    throw e;
+  }
 }

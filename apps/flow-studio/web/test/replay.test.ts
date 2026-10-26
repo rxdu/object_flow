@@ -9,6 +9,7 @@ import {
   besideModule,
   type ExamplesDoc,
   goesOn,
+  judged,
   type Outcome,
   Player,
   plan,
@@ -127,6 +128,26 @@ describe.each(BACKENDS)("against the %s", (backend) => {
       const { outcome } = await runExample(wire, doc, tested, beside);
       expect(outcome).toBe("failed");
     });
+
+    it.each(wrong)(
+      "is failed by the stepper where %s reads otherwise",
+      async (metric, want) => {
+        const bundle = await wire.module("service.yaml");
+        expect((await wire.load(bundle.files)).loaded).toBe(true);
+        const doc = structuredClone(bundle.examples?.doc) as ExamplesDoc;
+        const ex = doc.examples[tested];
+        if (!ex) throw new Error(`no example ${tested}`);
+        const metrics = { ...(ex.expect.metrics ?? {}) };
+        if (metric === "ServiceJob.transition_count")
+          delete metrics["ServiceJob.transition_counts"];
+        metrics[metric] = want;
+        ex.expect.metrics = metrics;
+        expect(await stepped(wire, doc, tested)).not.toBeNull();
+        expect(
+          await stepped(wire, bundle.examples?.doc as ExamplesDoc, tested),
+        ).toBeNull();
+      },
+    );
   });
 
   describe("every example, played through the wire as the page plays it", () => {
@@ -168,6 +189,21 @@ describe.each(BACKENDS)("against the %s", (backend) => {
   });
 
   describe("every example, stepped as the page's stepper steps it", () => {
+    it("fails an approval whose proposal is not as its example claims", async () => {
+      const bundle = await wire.module("delivery.yaml");
+      expect((await wire.load(bundle.files)).loaded).toBe(true);
+      const right = bundle.examples?.doc as ExamplesDoc;
+      const doc = structuredClone(right);
+      const tested = "an_agents_proposal_is_executed_when_approved";
+      const ex = doc.examples[tested];
+      if (!ex) throw new Error(`no example ${tested}`);
+      ex.expect.proposal = "pending";
+      expect(await stepped(wire, right, tested)).toBeNull();
+      expect(await stepped(wire, doc, tested)).toBe(
+        "expected the proposal pending, and it is EXECUTED",
+      );
+    });
+
     it("reaches its request under test", async () => {
       const stopped: string[] = [];
       let examples = 0;
@@ -228,3 +264,24 @@ describe.each(BACKENDS)("against the %s", (backend) => {
     });
   });
 });
+
+/** An example stepped to its request under test as the page's stepper steps
+ * it, and why it does not do what it claims, or null where it does. */
+async function stepped(
+  wire: Wire,
+  doc: ExamplesDoc,
+  name: string,
+): Promise<string | null> {
+  const p = new Player(wire, (await wire.reset()).now);
+  for (const ps of plan(doc, name)) {
+    const t = await take(p, ps);
+    if (ps.kind === "tested") {
+      if (!t.verdict)
+        throw new Error(`${name}'s request under test is ${t.status}`);
+      return judged(p, ps, t.verdict);
+    }
+    if (!goesOn(t))
+      throw new Error(`${name} stops at ${ps.label}: ${t.status}`);
+  }
+  throw new Error(`${name} has no request under test`);
+}

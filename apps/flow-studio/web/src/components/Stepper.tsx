@@ -8,6 +8,7 @@ import {
   Player,
   type Taken,
   goesOn,
+  judged,
   plan,
   summary,
   take,
@@ -84,7 +85,7 @@ export function Stepper({
     next.current += 1;
     const d = await take(p, ps);
     if (ps.kind === "tested" && d.verdict) {
-      const problem = await p.compare(ps.expect, d.verdict, ps.step);
+      const problem = await judged(p, ps, d.verdict);
       setOutcome(
         problem
           ? { holds: false, text: `Does not do what it claims: ${problem}` }
