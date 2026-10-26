@@ -5964,17 +5964,31 @@ def uncovered(mdoc, kinds, requested, exercised):
             sorted(f"{tn}.{xn}" for tn, xn in left if (tn, xn) in exercised and (tn, xn) not in only_via))
 
 
-def coverage_notices(module, untaken, untested):
-    """The coverage notice's two parts, each where it names a transition (flow-format.md §11.5)."""
+def starting_before(doc):
+    """The examples of a file that start at the version before, by name in order: the coverage notice counts nothing
+    of them, since step 3 does not read them (ADR-0233)."""
+    return sorted(n for n, ex in (doc.get("examples") or {}).items() if "before" in ex)
+
+
+def coverage_notices(module, untaken, untested, unread):
+    """The coverage notice's two parts, each where it names a transition, and each naming the examples it counts
+    nothing of, those starting at the version before (flow-format.md §11.5, ADR-0233)."""
     def n(left):
         return f"{len(left)} transition{'s' if len(left) != 1 else ''} of {module}"
+    if not unread:
+        note = ""
+    elif len(unread) == 1:
+        note = f"; {unread[0]} starts at the version before and counts nothing, since this check does not run it"
+    else:
+        note = (f"; {', '.join(unread)} start at the version before and count nothing, since this check does not run "
+                f"them")
     out = []
     if untaken:
         out.append(f"no example takes {n(untaken)}, by its request, a step, a setup or a cascade it expects: "
-                   f"{', '.join(untaken)}")
+                   f"{', '.join(untaken)}{note}")
     if untested:
         out.append(f"no example requests {n(untested)} as the request under test, which only a setup, a step or an "
-                   f"expected cascade takes: {', '.join(untested)}")
+                   f"expected cascade takes: {', '.join(untested)}{note}")
     return out
 
 
@@ -6165,7 +6179,8 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
             if not errors:
                 untaken, untested = uncovered(modules[doc["examples_for"]], library, requested, exercised)
                 notes += [(f, line_of(idx, ("examples",)), "notice", "coverage", m)
-                          for m in coverage_notices(doc["examples_for"], untaken, untested)]
+                          for m in coverage_notices(doc["examples_for"], untaken, untested,
+                                                    starting_before(doc))]
         found += [(f, line_of(idx, p), "fatal", c, m) for p, c, m in errors]
     if not found and len(loaded) + len(example_files) == len(files):
         converted = [to_text(doc, library) for _f, _t, _i, doc in loaded]
@@ -7854,6 +7869,28 @@ def example_rule_plants():
     hit = [x for x in found if x[3] == "example" and "a_job_opened_under_version_1" in x[4]]
     ok &= bool(hit)
     print(f"  planted a migration example the change does not bear out: {'caught by example, at ' + hit[0][0] + ':' + str(hit[0][1]) if hit else 'MISSED ' + str(found[:2])}")
+    # the coverage notice names the examples it counts nothing of, those starting at the version before, one or
+    # several, and a file with none is noticed as before (flow-format.md §11.5, ADR-0233)
+    one = read("service-v2.examples.yaml")
+    tested = "  a_job_opened_under_version_1_is_at_hq_once_this_version_is_published:\n"
+    two = one + one[one.index(tested):].replace(tested, "  a_second_job_from_version_1_is_at_hq_too:\n", 1)
+    said = {}
+    for label, files in (("one", [(f, read(f)) for f in migrating]),
+                         ("two", [(f, two if f == "service-v2.examples.yaml" else read(f)) for f in migrating]),
+                         ("none", [(f, read(f)) for f in service])):
+        found, notes = check(files)
+        said[label] = [x[4] for x in notes if x[3] == "coverage"] if not found else []
+    held = (bool(said["one"]) and all(m.endswith("; a_job_opened_under_version_1_is_at_hq_once_this_version_is_published "
+                                                 "starts at the version before and counts nothing, since this check "
+                                                 "does not run it") for m in said["one"])
+            and bool(said["two"]) and all(m.endswith("; a_job_opened_under_version_1_is_at_hq_once_this_version_is_"
+                                                     "published, a_second_job_from_version_1_is_at_hq_too start at the "
+                                                     "version before and count nothing, since this check does not run "
+                                                     "them") for m in said["two"])
+            and bool(said["none"]) and not any("version before" in m for m in said["none"]))
+    ok &= held
+    print(f"  the coverage notice over examples starting at the version before: "
+          f"{'names them, one and two, and none where there are none' if held else 'WRONG ' + str(said)[:300]}")
     return ok
 
 

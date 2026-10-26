@@ -607,14 +607,14 @@
     27,
     "notice",
     "coverage",
-    "no example requests 2 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.start"
+    "no example requests 2 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.start; a_job_opened_under_version_1_is_at_hq_once_this_version_is_published starts at the version before and counts nothing, since this check does not run it"
    ],
    [
     "service-v2.examples.yaml",
     27,
     "notice",
     "coverage",
-    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget; a_job_opened_under_version_1_is_at_hq_once_this_version_is_published starts at the version before and counts nothing, since this check does not run it"
    ],
    [
     "service-v2.yaml",
@@ -23493,14 +23493,14 @@
     27,
     "notice",
     "coverage",
-    "no example requests 2 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.start"
+    "no example requests 2 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.start; a_job_opened_under_version_1_is_at_hq_once_this_version_is_published starts at the version before and counts nothing, since this check does not run it"
    ],
    [
     "service-v2.examples.yaml",
     27,
     "notice",
     "coverage",
-    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget; a_job_opened_under_version_1_is_at_hq_once_this_version_is_published starts at the version before and counts nothing, since this check does not run it"
    ],
    [
     "service-v2.examples.yaml",
@@ -23598,6 +23598,371 @@
   "reads": {
    "people.yaml": "b11fb2a62f4cf338",
    "service.yaml": "9bd716ed3bc7b728"
+  }
+ },
+ {
+  "label": "example_rule_plants: a setup publishing the change",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service-v2.yaml",
+    "518220b4397faa50"
+   ],
+   [
+    "service-v2.examples.yaml",
+    "b4721f6fc19e7645"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service-v2.examples.yaml",
+    27,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.start; a_job_opened_under_version_1_is_at_hq_once_this_version_is_published starts at the version before and counts nothing, since this check does not run it"
+   ],
+   [
+    "service-v2.examples.yaml",
+    27,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget; a_job_opened_under_version_1_is_at_hq_once_this_version_is_published starts at the version before and counts nothing, since this check does not run it"
+   ],
+   [
+    "service-v2.examples.yaml",
+    74,
+    "notice",
+    "notrun",
+    "a_job_opened_under_version_1_is_at_hq_once_this_version_is_published is not run: it reaches the version before's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "example_rule_plants: a setup publishing the change",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service-v2.yaml",
+    "518220b4397faa50"
+   ],
+   [
+    "service-v2.examples.yaml",
+    "388bd7bea7b9defe"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service-v2.examples.yaml",
+    27,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add, ServiceJob.start; a_job_opened_under_version_1_is_at_hq_once_this_version_is_published, a_second_job_from_version_1_is_at_hq_too start at the version before and count nothing, since this check does not run them"
+   ],
+   [
+    "service-v2.examples.yaml",
+    27,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget; a_job_opened_under_version_1_is_at_hq_once_this_version_is_published, a_second_job_from_version_1_is_at_hq_too start at the version before and count nothing, since this check does not run them"
+   ],
+   [
+    "service-v2.examples.yaml",
+    74,
+    "notice",
+    "notrun",
+    "a_job_opened_under_version_1_is_at_hq_once_this_version_is_published is not run: it reaches the version before's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "service-v2.examples.yaml",
+    88,
+    "notice",
+    "notrun",
+    "a_second_job_from_version_1_is_at_hq_too is not run: it reaches the version before's file people.yaml, which no directory beside the examples file gives, which the runner does not yet execute"
+   ],
+   [
+    "service-v2.yaml",
+    5,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service-v2.yaml",
+    137,
+    "notice",
+    "warn",
+    "at_least_one_passed warns: a failure is reported with the result and refuses nothing"
+   ],
+   [
+    "service-v2.yaml",
+    184,
+    "notice",
+    "migration",
+    "the migration admits ServiceJob.photo_when_done, which fails only in DONE, a final state no transition leaves: nothing can ever discharge the admission"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    3,
+    5
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "ServiceJob.photo_when_done": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "ServiceJob.photo_when_done": [
+    "ServiceJob.finish",
+    "ServiceJob.open",
+    "ServiceJob.start"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "example_rule_plants: a setup publishing the change",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "service.yaml",
+    "9bd716ed3bc7b728"
+   ],
+   [
+    "service.examples.yaml",
+    "81b14832e4c38354"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 1 transition of service as the request under test, which only a setup, a step or an expected cascade takes: InspectionCheck.add"
+   ],
+   [
+    "service.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of service, by its request, a step, a setup or a cascade it expects: InspectionCheck.retire, ServiceJob.forget"
+   ],
+   [
+    "service.yaml",
+    3,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: InspectionCheck (2), ServiceJob (5), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "service.yaml",
+    123,
+    "notice",
+    "audit",
+    "photo_attached is audited: its failures are recorded and it refuses nothing"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "InspectionCheck": [
+    0,
+    0
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "ServiceJob": [
+    2,
+    4
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
   }
  },
  {

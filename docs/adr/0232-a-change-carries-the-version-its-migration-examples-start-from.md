@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-26 under the author's direction ("go with your recommendations"), after the review of issue #42.
 - **Date:** 2026-10-26
+- **Refined by:** ADR-0233 — the coverage notice names the examples starting at the version before, which decision 4 leaves to run time and the notice counts nothing of
 - **Refines:** ADR-0166 decision 3 (an example may publish); ADR-0136 (examples); ADR-0135 (a change's source and its digest); ADR-0156 (the core's checker)
 - **Relates to:** PRD F7; `docs/research/testing-a-version-over-the-one-before.md`; `publish-and-import.md` §1 step 1; `flow-format.md` §11.3
 

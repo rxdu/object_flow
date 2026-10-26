@@ -1456,24 +1456,53 @@ pub fn uncovered(
     (untaken, untested)
 }
 
-/// The coverage notice's two parts, each where it names a transition
-/// (`flow-format.md` §11.5).
-pub fn coverage_notices(module: &str, untaken: &[String], untested: &[String]) -> Vec<String> {
+/// The examples of a file that start at the version before, by name in
+/// order: the coverage notice counts nothing of them, since step 3 does not
+/// read them (ADR-0233).
+pub fn starting_before(doc: &Value) -> Vec<String> {
+    let mut names: Vec<String> = obj(doc, "examples")
+        .iter()
+        .filter(|(_, ex)| ex.get("before").is_some())
+        .map(|(n, _)| n.clone())
+        .collect();
+    names.sort();
+    names
+}
+
+/// The coverage notice's two parts, each where it names a transition, and
+/// each naming the examples it counts nothing of, those starting at the
+/// version before (`flow-format.md` §11.5, ADR-0233).
+pub fn coverage_notices(
+    module: &str,
+    untaken: &[String],
+    untested: &[String],
+    unread: &[String],
+) -> Vec<String> {
     let n = |left: &[String]| {
         let s = if left.len() == 1 { "" } else { "s" };
         format!("{} transition{s} of {module}", left.len())
     };
+    let unread = match unread {
+        [] => String::new(),
+        [one] => format!(
+            "; {one} starts at the version before and counts nothing, since this check does not run it"
+        ),
+        many => format!(
+            "; {} start at the version before and count nothing, since this check does not run them",
+            many.join(", ")
+        ),
+    };
     let mut out = Vec::new();
     if !untaken.is_empty() {
         out.push(format!(
-            "no example takes {}, by its request, a step, a setup or a cascade it expects: {}",
+            "no example takes {}, by its request, a step, a setup or a cascade it expects: {}{unread}",
             n(untaken),
             untaken.join(", ")
         ));
     }
     if !untested.is_empty() {
         out.push(format!(
-            "no example requests {} as the request under test, which only a setup, a step or an expected cascade takes: {}",
+            "no example requests {} as the request under test, which only a setup, a step or an expected cascade takes: {}{unread}",
             n(untested),
             untested.join(", ")
         ));

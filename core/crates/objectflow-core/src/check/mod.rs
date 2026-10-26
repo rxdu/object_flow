@@ -695,7 +695,8 @@ pub fn checked_as(
                 let module = doc::str_or(doc, "examples_for", "");
                 let (untaken, untested) =
                     examples::uncovered(&by_name[&module], &library, &requested, &exercised);
-                for message in examples::coverage_notices(&module, &untaken, &untested) {
+                let unread = examples::starting_before(doc);
+                for message in examples::coverage_notices(&module, &untaken, &untested, &unread) {
                     found.push(Finding {
                         file: file.clone(),
                         line: node.line_at(&[crate::yaml::Seg::Key("examples".into())]),
