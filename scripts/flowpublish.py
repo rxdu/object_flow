@@ -785,6 +785,11 @@ def impact(store, new, found, actor, change_id, ran=None):
                 if o.attrs.get(attr, flowrun.ABSENT) != v:
                     found.add("notice", f"mapping:backfill:{tn}.{attr}", f"the backfill of {tn}.{attr} writes these objects",
                               oid)
+                    # one replacing a value the object holds, as the mappings before it left it, a set empty or not, is
+                    # a rewrite, named apart from a fill, as the core's (ADR-0231)
+                    if o.attrs.get(attr, flowrun.ABSENT) is not flowrun.ABSENT:
+                        found.add("notice", f"backfill_rewrites:{tn}.{attr}",
+                                  f"the backfill of {tn}.{attr} replaces a value these objects hold", oid)
                     if v is flowrun.ABSENT:
                         o.attrs.pop(attr, None)
                     else:

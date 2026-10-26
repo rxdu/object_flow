@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-25 under the author's direction ("go with your recommendations", twice: first for moves and retirements, then for the scope the kept-entry probes found), after the review of issue #41.
 - **Date:** 2026-10-25
+- **Refined by:** ADR-0231 — a backfill replacing a value an object holds names the object under a notice of its own, refining decision 4's backfill
 - **Supersedes in part:** ADR-0229 decision 7 (a publish refuses a moved or retired type that no module of the installed version declares); ADR-0120 decision 1 (a migration is "replaced or removed in the next" version)
 - **Refines:** ADR-0147 (a backfill and the order of a publish's mappings)
 - **Relates to:** PRD F2 and F5; ADR-0105 (a migration is F2's own route), ADR-0229 decisions 1 to 3 (a removed type's objects moved or retired); `docs/research/moving-objects-between-types.md` §6

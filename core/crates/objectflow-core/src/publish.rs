@@ -1186,6 +1186,17 @@ fn impact(
                     format!("the backfill of {tn}.{attr} writes these objects"),
                     Some(&id),
                 );
+                // one replacing a value the object holds, as the mappings
+                // before it left it, a set empty or not, is a rewrite, named
+                // apart from a fill (ADR-0231)
+                if !o.attr(attr).is_absent() {
+                    found.add(
+                        Severity::Notice,
+                        format!("backfill_rewrites:{tn}.{attr}"),
+                        format!("the backfill of {tn}.{attr} replaces a value these objects hold"),
+                        Some(&id),
+                    );
+                }
                 if let Some(o) = sim.get_mut(&id)? {
                     if v.is_absent() {
                         o.attrs.remove(attr);
@@ -5457,6 +5468,175 @@ migration:
         assert_eq!(count(&s), json!(11), "a kept backfill ran again");
         things_published(&mut s, &things_v2("A thing, changed.", &fill("count + 2")));
         assert_eq!(count(&s), json!(13));
+    }
+
+    /// The things a backfill rewrites, at a version of each kind of
+    /// attribute: `level` held, `tags` a set, `holder` renamed `person`
+    /// below, and `count` an int, which becomes text.
+    const HELD_V1: &str = r#"
+module: things
+categories: [live, closed]
+enumerations:
+  Level: [STAFF, COLLABORATOR]
+types:
+  Thing:
+    description: A thing.
+    tracking: record
+    attributes:
+      level: { type: Level, optional: true }
+      tags: { type: "string[]" }
+      holder: { type: string, optional: true }
+      alias: { type: string, optional: true }
+      count: { type: int, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      make: { kind: initial, to: OPEN, required_inputs: [tags], optional_inputs: [level, holder, count] }
+      shut: { kind: external, from: OPEN, to: DONE }
+"#;
+
+    /// The second version, its description given: `holder` renamed
+    /// `person`, `count` made text, `note` added, and a backfill of each.
+    fn held_v2(description: &str) -> String {
+        format!(
+            r#"
+module: things
+categories: [live, closed]
+enumerations:
+  Level: [STAFF, COLLABORATOR]
+types:
+  Thing:
+    description: {description}
+    tracking: record
+    attributes:
+      level: {{ type: Level, optional: true }}
+      tags: {{ type: "string[]" }}
+      person: {{ type: string, optional: true }}
+      alias: {{ type: string, optional: true }}
+      count: {{ type: string, optional: true }}
+      note: {{ type: string, optional: true }}
+    states:
+      OPEN: {{ description: Open., category: live }}
+      DONE: {{ description: Done., category: closed, final: true }}
+    transitions:
+      make: {{ kind: initial, to: OPEN, required_inputs: [tags], optional_inputs: [level, person, count, note] }}
+      shut: {{ kind: external, from: OPEN, to: DONE }}
+migration:
+  description: The second version.
+  renamed_attributes:
+    Thing: {{ holder: person }}
+  backfill:
+    Thing: {{ level: 'Level.STAFF', tags: '{{"x"}}', person: alias, count: '"c"', note: '"n"' }}
+"#
+        )
+    }
+
+    /// A backfill replacing a value an object holds, as the mappings before
+    /// it left it, names the object under `backfill_rewrites` beside
+    /// `mapping:backfill`, which names every object it writes: a held value
+    /// replaced, an empty set and a held one, and a value a rename carried,
+    /// cleared. A value it leaves as it was is neither; an attribute the
+    /// version adds, or whose type it changes, starts absent, so its
+    /// backfill fills. Published again, the backfill runs no more and
+    /// rewrites nothing (ADR-0231, ADR-0230 decision 4).
+    #[test]
+    fn a_backfill_rewriting_a_held_value_is_named_apart_from_a_fill() {
+        let lib = Library::load(&[("things.yaml".into(), HELD_V1.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let mut make =
+            |inputs: serde_json::Value| created(&req(&mut s, "make", ("Thing", true), inputs));
+        let a = make(json!({"level": "COLLABORATOR", "tags": [], "holder": "ana", "count": 1}));
+        let b = make(json!({"level": "STAFF", "tags": ["x"]}));
+        let c = make(json!({"tags": ["y"], "count": 2}));
+        let report = things_published(&mut s, &held_v2("A thing."));
+        let named = |code: &str| ids(&report, code);
+        for (attr, written, rewritten) in [
+            ("level", vec![&a, &c], vec![&a]),
+            ("tags", vec![&a, &c], vec![&a, &c]),
+            ("person", vec![&a], vec![&a]),
+            ("count", vec![&a, &b, &c], vec![]),
+            ("note", vec![&a, &b, &c], vec![]),
+        ] {
+            assert_eq!(
+                named(&format!("mapping:backfill:Thing.{attr}")),
+                written.into_iter().cloned().collect::<Vec<_>>(),
+                "{attr} written"
+            );
+            assert_eq!(
+                named(&format!("backfill_rewrites:Thing.{attr}")),
+                rewritten.into_iter().cloned().collect::<Vec<_>>(),
+                "{attr} rewritten: {:#?}",
+                report.findings
+            );
+        }
+        assert!(
+            report
+                .findings
+                .iter()
+                .filter(|f| f.code.starts_with("backfill_rewrites:"))
+                .all(|f| f.severity == Severity::Notice)
+        );
+        let w = s.snapshot().unwrap();
+        let held = |id: &str| {
+            let o = w.whole(id).unwrap().unwrap();
+            ["level", "tags", "person", "count", "note"].map(|a| crate::wire::encode(&o.attr(a)))
+        };
+        assert_eq!(
+            held(&a),
+            [
+                json!("STAFF"),
+                json!(["x"]),
+                json!(null),
+                json!("c"),
+                json!("n")
+            ]
+        );
+        assert_eq!(
+            held(&b),
+            [
+                json!("STAFF"),
+                json!(["x"]),
+                json!(null),
+                json!("c"),
+                json!("n")
+            ]
+        );
+        drop(w);
+        let again = things_published(&mut s, &held_v2("A thing, kept."));
+        assert!(
+            !again
+                .findings
+                .iter()
+                .any(|f| f.code.starts_with("backfill_rewrites:")),
+            "{:#?}",
+            again.findings
+        );
+    }
+
+    /// A value a move carried into its target is held there, so a backfill
+    /// of the target replacing it is a rewrite (ADR-0231 decision 1).
+    #[test]
+    fn a_backfill_replacing_a_value_a_move_carried_is_a_rewrite() {
+        let (mut s, [viewer, admin, revoked]) = grants();
+        let migration = format!("{SPLIT}  backfill:\n    AccessGrant: {{ person: '\"zed\"' }}\n");
+        let (change, v) = grants_change(&mut s, &grants_v2(&migration));
+        let (verdict, report) = approve(&mut s, &change, v);
+        let report = report.unwrap();
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let moved = vec![viewer.clone(), revoked.clone()];
+        assert_eq!(ids(&report, "mapping:backfill:AccessGrant.person"), moved);
+        assert_eq!(ids(&report, "backfill_rewrites:AccessGrant.person"), moved);
+        let w = s.snapshot().unwrap();
+        for (id, person) in [(&viewer, "zed"), (&admin, "ben"), (&revoked, "zed")] {
+            assert_eq!(
+                w.whole(id).unwrap().unwrap().attr("person"),
+                Value::Text(person.into())
+            );
+        }
     }
 
     /// A reference to an object that moves keeps its value where it now

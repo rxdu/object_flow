@@ -1010,6 +1010,105 @@ def test_one_source_serves_a_store_behind_kept_or_new_alike(tee, store):
         assert tee.post("/v1/get", {"id": thing})["attributes"]["count"] == 13
     alike(tee)
 
+
+HELD_V1 = """module: held
+categories: [live, closed]
+enumerations:
+  Level: [STAFF, COLLABORATOR]
+types:
+  Thing:
+    description: A thing.
+    tracking: record
+    attributes:
+      level: { type: Level, optional: true }
+      tags: { type: "string[]" }
+      holder: { type: string, optional: true }
+      alias: { type: string, optional: true }
+      count: { type: int, optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      make: { kind: initial, to: OPEN, required_inputs: [tags], optional_inputs: [level, holder, count] }
+      shut: { kind: external, from: [OPEN], to: DONE }
+"""
+
+
+def held_v2(description: str = "A thing.") -> str:
+    """The second version: `holder` renamed `person`, `count` made text,
+    `note` added, and a backfill of each, the thing described as given."""
+    text = HELD_V1
+    for old, new in [("description: A thing.", f"description: {description}"),
+                     ("holder: { type", "person: { type"),
+                     ("count: { type: int, optional: true }\n",
+                      "count: { type: string, optional: true }\n"
+                      "      note: { type: string, optional: true }\n"),
+                     ("[level, holder, count]", "[level, person, count, note]")]:
+        assert text.count(old) == 1, old
+        text = text.replace(old, new)
+    return text + (
+        "migration:\n  description: The second version.\n"
+        "  renamed_attributes:\n    Thing: { holder: person }\n"
+        "  backfill:\n    Thing: { level: 'Level.STAFF', tags: '{\"x\"}', "
+        "person: alias, count: '\"c\"', note: '\"n\"' }\n")
+
+
+def test_a_backfill_rewriting_a_held_value_is_named_apart_alike(tee):
+    """A backfill replacing a value an object holds, as the mappings before it
+    left it, names the object under `backfill_rewrites` beside
+    `mapping:backfill`, which names every object it writes: a held value, an
+    empty set and a held one, and a value a rename carried, cleared. An
+    attribute the version adds, or whose type it changes, is filled; published
+    again, the backfill rewrites nothing, alike through both backends
+    (ADR-0231)."""
+    load(tee, "held", HELD_V1)
+    a = made(tee, "Thing", "make", level="COLLABORATOR", tags=[],
+             holder="ana", count=1)
+    b = made(tee, "Thing", "make", level="STAFF", tags=["x"])
+    c = made(tee, "Thing", "make", tags=["y"], count=2)
+    tee.found.clear()
+    ch = change(tee, "draft", source={"held": held_v2()},
+                source_ref="git:case@2")["object_id"]
+    report = tee.post("/v1/publish", {"actor": OP, "change": ch,
+                                      "dry_run": True})["report"]
+    for attr, written, rewritten in [
+            ("level", [a, c], [a]), ("tags", [a, c], [a, c]),
+            ("person", [a], [a]), ("count", [a, b, c], []),
+            ("note", [a, b, c], [])]:
+        affected = report["affected"]
+        assert affected.get(f"mapping:backfill:Thing.{attr}") == written, attr
+        assert affected.get(f"backfill_rewrites:Thing.{attr}", []) \
+            == rewritten, (attr, report["findings"])
+    approved(tee, ch)
+    held = tee.post("/v1/get", {"id": a})["attributes"]
+    assert (held["level"], held["tags"], held.get("person")) \
+        == ("STAFF", ["x"], None), held
+    ch, codes = dry_run(tee, {"held": held_v2("A thing, kept.")})
+    assert not {code for code in codes
+                if code.startswith("backfill_rewrites:")}, codes
+    approved(tee, ch)
+    alike(tee)
+
+
+def test_a_backfill_replacing_a_value_a_move_carried_is_a_rewrite_alike(tee):
+    """A value a move carried into its target is held there, so a backfill
+    of the target replacing it is a rewrite, alike through both backends
+    (ADR-0231 decision 1)."""
+    load(tee, "kept", KEPT_V1)
+    coupon = made(tee, "Coupon", "issue", code="C1")
+    tee.found.clear()
+    ch = change(tee, "draft",
+                source={"kept": kept_v2() + "    Voucher: { code: '\"V1\"' }\n"},
+                source_ref="git:case@2")["object_id"]
+    report = tee.post("/v1/publish", {"actor": OP, "change": ch,
+                                      "dry_run": True})["report"]
+    for code in ("mapping:backfill:Voucher.code", "backfill_rewrites:Voucher.code"):
+        assert report["affected"].get(code) == [coupon], (code, report["findings"])
+    approved(tee, ch)
+    assert tee.post("/v1/get", {"id": coupon})["attributes"]["code"] == "V1"
+    alike(tee)
+
+
 def test_a_type_whose_ids_would_name_an_identity_is_refused_alike(tee):
     """A version adding a type whose ids would name an identity an actor holds, in any case, is refused, naming the
     actor by its object, alike through both backends; an identity of no type's shape is not (D669, ADR-0205

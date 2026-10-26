@@ -63,9 +63,23 @@ For the author, not decided here:
 - **Run a backfill once on a store, and again when it changes,** as Flyway runs a repeatable migration, the installed version's migration standing for the history table.
 - **Keep refusing a name the version before lacks where the checker is told that version,** since there it is a mistake in the source.
 
+## 7. A backfill rewriting a value an object holds (#41's comment)
+
+**The question.** #41's filer commented the same day that a backfill names every object it writes under one notice, `mapping:backfill:<Type>.<attribute>`, whether the object held no value or one the backfill replaces. A backfill written for stores of the version before an attribute, published over a store already past it, then rewrites held values under the notice a fill gets. Should the report tell the two apart?
+
+**Terraform, the plan** (S14). A change is previewed before it is made: the `terraform plan` command "creates an execution plan, which lets you preview the changes that Terraform plans to make to your infrastructure". The plan marks each kind of change apart: "Resource actions are indicated with the following symbols:", among them `+ create` and `~ update in-place`. Within one resource's in-place update, a key set where there was none is marked `+ "Name" = "api"`; a changed value is shown from old to new, `"ami-02c98622c4c3f017d" -> "ami-0d7d6fe23ca71032d"`, in the page's example a change that forces the resource's replacement. The summary counts them apart: "Plan: 2 to add, 1 to change, 2 to destroy."
+
+**ObjectFlow beside it.**
+
+- **The dry run is the plan.** A publish's report is what the approver reads before the version applies (`publish-and-import.md` §1), as Terraform's plan is read before `apply`.
+- **A fill and a rewrite read alike.** Probed 2026-10-26 on the published v0.7.0, over a store at a version holding `membership` and no backfill of it: the backfill `Level.STAFF` rewrote a held `COLLABORATOR` under `mapping:backfill`, the notice a fill of an absent value gives.
+- **The core already compares.** A backfill writes an object only where the value it gives differs from the one the object holds (`publish.rs`, the backfill loop), so whether the object held a value is known where the notice is given. *Inferred:* telling the two apart costs one comparison, not a second pass.
+
+**What it suggests,** decided as ADR-0231: name a rewrite apart from a fill, as the plan marks `+` apart from `->`, beside the notice that names every write, so that whatever reads `mapping:backfill` for what a backfill writes is unchanged.
+
 ## Sources
 
-S1 to S8 were each retrieved 2026-10-24, and S9 to S13 on 2026-10-25, with `curl -sL`, its markup stripped, and each quotation found in the text. ServiceNow's documentation pages are rendered by JavaScript, so their text was fetched from the site's own content endpoint, which answers each topic's HTML. Salesforce's documentation refused the fetch (HTTP 403), so its lead conversion, a split into new records linked back to the lead, is left out unchecked.
+S1 to S8 were each retrieved 2026-10-24, S9 to S13 on 2026-10-25, and S14 on 2026-10-26, with `curl -sL`, its markup stripped, and each quotation found in the text. ServiceNow's documentation pages are rendered by JavaScript, so their text was fetched from the site's own content endpoint, which answers each topic's HTML. Salesforce's documentation refused the fetch (HTTP 403), so its lead conversion, a split into new records linked back to the lead, is left out unchecked.
 
 | | Source | Version |
 |---|---|---|
@@ -82,3 +96,4 @@ S1 to S8 were each retrieved 2026-10-24, and S9 to S13 on 2026-10-25, with `curl
 | S11 | Liquibase, *What is the DATABASECHANGELOG table?*: https://docs.liquibase.com/concepts/tracking-tables/databasechangelog-table.html | 5.1, last updated August 22, 2026 |
 | S12 | Redgate, *Flyway schema history table*: https://documentation.red-gate.com/fd/flyway-schema-history-table-273973417.html | page last updated 25 September 2026 |
 | S13 | Redgate, *Repeatable migrations*, Flyway: https://documentation.red-gate.com/fd/repeatable-migrations-273973335.html | page last updated 20 June 2025 |
+| S14 | HashiCorp, *terraform plan command*, Terraform CLI: https://developer.hashicorp.com/terraform/cli/commands/plan | v1.17.x, the page's latest |
