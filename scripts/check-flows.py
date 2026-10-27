@@ -4521,13 +4521,16 @@ def metric_errors(tn, t, mn, m):
 
 def unwritten(v, doc):
     """An optional attribute of an owned type that nothing writes, so it is always absent: no transition of the type, a
-    subtype or its machine takes it as an input or sets it in an effect, and no migration backfills it; one with a
-    default, a counter, an identifier, an external identifier or a relationship's end, which its far end writes, is
-    written (D557)."""
+    subtype or its machine takes it as an input or sets it in an effect, and no migration backfills it or renames an
+    attribute into it; one with a default, a counter, an identifier, an external identifier or a relationship's end,
+    which its far end writes, is written (D557)."""
     machines = set(v.get("machines") or {})
     tps = dict(types(v))
-    backfilled = {(tn, a) for tn, given in ((doc.get("migration") or {}).get("backfill") or {}).items()
-                  for a in (given or {})}
+    migration = doc.get("migration") or {}
+    backfilled = {(tn, a) for tn, given in (migration.get("backfill") or {}).items() for a in (given or {})}
+    # a rename carries its values into the attribute, as a backfill writes them
+    backfilled |= {(tn, a) for tn, maps in (migration.get("renamed_attributes") or {}).items()
+                   for a in (maps or {}).values()}
 
     def family(tn):
         out, grew = {tn}, True
@@ -9124,7 +9127,8 @@ def family_mapping_plants():
     """Against the version before, a rename or a backfill keyed by an abstract base reaches every type of its family
     (ADR-0147): a member's attribute the base's rename carries is not noticed as gone, nor one its backfill fills as
     needing one; the base's rename is held to what the previous version had and to the attribute's type, as a type's
-    own is; and a member's rename of an attribute its base's rename reaches already is refused."""
+    own is, the attribute it renames into counting as written; and a member's rename of an attribute its base's rename
+    reaches already is refused."""
     sd = (EXAMPLES / "servicedesk.yaml").read_text()
     name = "      name:      { type: string }\n"
     laptop = "      assigned_to: { reference: Employee, optional: true }\n"
@@ -9141,6 +9145,8 @@ def family_mapping_plants():
     mapping = "\nmigration:\n  description: A planted mapping.\n  renamed_attributes:\n    Asset: { serial_tag: asset_tag }\n"
     found, notes = run(asset(tag) + mapping, v1)
     carried = not found and not any(" is gone and " in n for n in notes)
+    # and an attribute the rename carries values into is not noticed as never written
+    written = not any(n.startswith("Asset.asset_tag is optional and nothing writes it") for n in notes)
     found, _n = run(asset(tag.replace(", optional: true", "")) + mapping, v1)
     typed = "the migration renames Asset.serial_tag to asset_tag, which changes its type or whether it is optional; a " \
             "rename carries the values and their history unchanged (ADR-0146)" in found
@@ -9152,9 +9158,9 @@ def family_mapping_plants():
     found, notes = run(asset("      asset_tag: { type: string, default: '\"none\"' }\n")
                        + "\nmigration:\n  description: A planted mapping.\n  backfill:\n    Asset: { asset_tag: '\"none\"' }\n", sd)
     filled = not found and not any("needs a backfill" in n for n in notes)
-    ok = carried and typed and had and twice and filled
+    ok = carried and written and typed and had and twice and filled
     print(f"  a rename or a backfill keyed by an abstract base reaches its family, and its rename is held as a type's own: "
-          f"{'yes' if ok else 'NO ' + str((carried, typed, had, twice, filled))}")
+          f"{'yes' if ok else 'NO ' + str((carried, written, typed, had, twice, filled))}")
     return ok
 
 

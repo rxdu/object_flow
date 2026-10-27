@@ -297,10 +297,10 @@ pub fn vetoes(doc: &Value, library: &Obj) -> Found {
 
 /// An optional attribute of an owned type that nothing writes, so it is
 /// always absent: no transition of the type, a subtype or its machine takes
-/// it as an input or sets it in an effect, and no migration backfills it;
-/// one with a default, a counter, an identifier, an external identifier or
-/// a relationship's end, which its far end writes, is written (D557,
-/// `check-flows.py`'s `unwritten`).
+/// it as an input or sets it in an effect, and no migration backfills it
+/// or renames an attribute into it; one with a default, a counter, an
+/// identifier, an external identifier or a relationship's end, which its
+/// far end writes, is written (D557, `check-flows.py`'s `unwritten`).
 pub fn unwritten(view: &Value, doc: &Value) -> Found {
     let machines: BTreeSet<String> = keys(view, "machines").into_iter().collect();
     let tps: Vec<(String, &Value)> = types(view);
@@ -310,6 +310,15 @@ pub fn unwritten(view: &Value, doc: &Value) -> Found {
         if let Some(m) = given.as_object() {
             for a in m.keys() {
                 backfilled.insert((tn.clone(), a.clone()));
+            }
+        }
+    }
+    // a rename carries its values into the attribute, as a backfill writes
+    // them
+    for (tn, maps) in obj(&migration, "renamed_attributes") {
+        if let Some(m) = maps.as_object() {
+            for a in m.values().filter_map(Value::as_str) {
+                backfilled.insert((tn.clone(), a.to_string()));
             }
         }
     }

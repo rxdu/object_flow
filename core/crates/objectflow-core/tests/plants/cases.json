@@ -30791,15 +30791,7 @@
   "previous": {
    "servicedesk.yaml": "5cfc4b6ae58c5877"
   },
-  "findings": [
-   [
-    "servicedesk.yaml",
-    716,
-    "notice",
-    "unwritten",
-    "Asset.asset_tag is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
-   ]
-  ],
+  "findings": [],
   "analysed": {
    "Alert": [
     1,
@@ -30915,13 +30907,6 @@
   "findings": [
    [
     "servicedesk.yaml",
-    716,
-    "notice",
-    "unwritten",
-    "Asset.asset_tag is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
-   ],
-   [
-    "servicedesk.yaml",
     864,
     "fatal",
     "names",
@@ -30954,20 +30939,6 @@
    "servicedesk.yaml": "5cfc4b6ae58c5877"
   },
   "findings": [
-   [
-    "servicedesk.yaml",
-    716,
-    "notice",
-    "unwritten",
-    "Asset.asset_tag is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
-   ],
-   [
-    "servicedesk.yaml",
-    726,
-    "notice",
-    "unwritten",
-    "Laptop.laptop_tag is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
-   ],
    [
     "servicedesk.yaml",
     866,
