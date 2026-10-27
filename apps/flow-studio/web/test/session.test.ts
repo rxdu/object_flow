@@ -24,7 +24,7 @@ describe("durations as the model writes them", () => {
 
 describe.each(BACKENDS)("against the %s", (backend) => {
   let wire: Wire;
-  let stop: () => void;
+  let stop: () => Promise<void>;
 
   beforeAll(async () => {
     ({ wire, stop } = await startServer(backend));

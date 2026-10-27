@@ -4,7 +4,7 @@
 // it fails, not skips, without them.
 
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,10 +16,10 @@ const SERVER = fileURLToPath(new URL("../../server", import.meta.url));
 export const BACKENDS: Backend["backend"][] = ["runner", "core"];
 
 /** A server whose workspace is a fresh directory of its own, so no test
- * writes the author's. */
+ * writes the author's, removed once the server has exited. */
 export async function startServer(
   backend: Backend["backend"],
-): Promise<{ wire: Wire; stop: () => void }> {
+): Promise<{ wire: Wire; stop: () => Promise<void>; workspace: string }> {
   const workspace = mkdtempSync(join(tmpdir(), "flow-studio-"));
   const server = spawn(
     ".venv/bin/python",
@@ -37,7 +37,18 @@ export async function startServer(
       cwd: SERVER,
     },
   );
-  const base = await new Promise<string>((resolve, reject) => {
+  // the server ended first, so nothing writes the workspace as it goes
+  const stop = async (): Promise<void> => {
+    if (server.exitCode === null && server.signalCode === null) {
+      const exited = new Promise<void>((resolve) => {
+        server.once("exit", () => resolve());
+      });
+      server.kill();
+      await exited;
+    }
+    rmSync(workspace, { recursive: true, force: true });
+  };
+  const started = new Promise<string>((resolve, reject) => {
     let log = "";
     server.stderr.on("data", (chunk: Buffer) => {
       log += chunk.toString();
@@ -49,13 +60,17 @@ export async function startServer(
     );
     server.on("error", reject);
   });
+  const base = await started.catch(async (e: unknown) => {
+    await stop();
+    throw e;
+  });
   const wire = httpWire(base);
   // the wire answered by the backend asked for, so a test named for the core
   // never passes on the runner
   const answering = (await wire.backend()).backend;
   if (answering !== backend) {
-    server.kill();
+    await stop();
     throw new Error(`asked for the ${backend}, answered by the ${answering}`);
   }
-  return { wire, stop: () => server.kill() };
+  return { wire, stop, workspace };
 }
