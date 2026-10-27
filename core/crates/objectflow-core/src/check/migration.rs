@@ -16,7 +16,7 @@ use super::names::invariant_names;
 use super::notices::{kinds_named, taken_kinds};
 use super::raw::imported;
 use super::steps::sources;
-use super::view::{View, types};
+use super::view::{View, bases, types};
 
 /// A backfill reads the object's own members and literals (§6.6).
 const BACKFILL_READS: &[&str] = &["state", "this"];
@@ -526,32 +526,37 @@ pub fn migration_pair_errors(
             .collect()
     };
     for (tn, t) in &new {
-        if machines.contains(tn) || flag(t, "abstract") {
+        if machines.contains(tn) {
             continue;
         }
         let Some(ot) = old.get(tn) else { continue };
         let here = segs!["types", tn];
-        let mapped = as_map("removed_states", tn);
-        let old_states: BTreeSet<String> = keys(ot, "states").into_iter().collect();
-        let new_states: BTreeSet<String> = keys(t, "states").into_iter().collect();
-        for st in &old_states {
-            if !new_states.contains(st) && !mapped.contains_key(st) {
-                fatal.push(finding(
-                    here.clone(),
-                    "names",
-                    format!("{tn} no longer has the state {st}, and the migration maps it nowhere; its objects need a state to move to"),
-                ));
+        let abstract_ = flag(t, "abstract");
+        // a base has no states (flow-format.md §4.14), and its renames are
+        // checked here, at the base
+        if !abstract_ {
+            let mapped = as_map("removed_states", tn);
+            let old_states: BTreeSet<String> = keys(ot, "states").into_iter().collect();
+            let new_states: BTreeSet<String> = keys(t, "states").into_iter().collect();
+            for st in &old_states {
+                if !new_states.contains(st) && !mapped.contains_key(st) {
+                    fatal.push(finding(
+                        here.clone(),
+                        "names",
+                        format!("{tn} no longer has the state {st}, and the migration maps it nowhere; its objects need a state to move to"),
+                    ));
+                }
             }
-        }
-        for st in mapped.keys() {
-            if !old_states.contains(st) && !installed {
-                fatal.push(finding(
-                    segs!["migration", "removed_states", tn, st],
-                    "names",
-                    format!(
-                        "the migration maps {tn}.{st}, which the previous version did not have"
-                    ),
-                ));
+            for st in mapped.keys() {
+                if !old_states.contains(st) && !installed {
+                    fatal.push(finding(
+                        segs!["migration", "removed_states", tn, st],
+                        "names",
+                        format!(
+                            "the migration maps {tn}.{st}, which the previous version did not have"
+                        ),
+                    ));
+                }
             }
         }
         let renamed = as_map("renamed_attributes", tn);
@@ -592,7 +597,31 @@ pub fn migration_pair_errors(
                 ));
             }
         }
-        let renamed_to: BTreeSet<String> = renamed.values().cloned().collect();
+        if abstract_ {
+            // a base has no objects: each type of its family is noticed for
+            // what the version changes
+            continue;
+        }
+        // a rename or a backfill keyed by an abstract base reaches every
+        // type of its family (ADR-0147)
+        let mut reached = renamed.clone();
+        let mut filled = as_map("backfill", tn);
+        for base in bases(tn, &new) {
+            for (a, b) in as_map("renamed_attributes", &base) {
+                if renamed.contains_key(&a) {
+                    fatal.push(finding(
+                        segs!["migration", "renamed_attributes", tn, &a],
+                        "names",
+                        format!("the migration renames {tn}.{a}, which the rename of {base}.{a} reaches already"),
+                    ));
+                }
+                reached.entry(a).or_insert(b);
+            }
+            for (a, x) in as_map("backfill", &base) {
+                filled.entry(a).or_insert(x);
+            }
+        }
+        let renamed_to: BTreeSet<String> = reached.values().cloned().collect();
         let added: BTreeSet<String> = new_attrs
             .keys()
             .filter(|a| !old_attrs.contains_key(*a) && !renamed_to.contains(*a))
@@ -600,10 +629,9 @@ pub fn migration_pair_errors(
             .collect();
         let dropped: BTreeSet<String> = old_attrs
             .keys()
-            .filter(|a| !new_attrs.contains_key(*a) && !renamed.contains_key(*a))
+            .filter(|a| !new_attrs.contains_key(*a) && !reached.contains_key(*a))
             .cloned()
             .collect();
-        let filled = as_map("backfill", tn);
         for a in &added {
             let spec = &new_attrs[a];
             let k = match spec.get("reference") {

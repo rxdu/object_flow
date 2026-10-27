@@ -1021,7 +1021,8 @@ def attribute_notices(old, new, retired, m, found, store=None):
         ot = old.get(tn)
         if ot is None or tn in BUILT_IN or tn in retired:
             continue
-        renamed = set((m["renamed_attributes"].get(tn) or {}))
+        # a rename keyed by an abstract base renames it in its family (ADR-0147)
+        renamed = {a for base, maps in m["renamed_attributes"].items() if is_a(new, tn, base) for a in (maps or {})}
         nattrs, oattrs = nt.get("attributes") or {}, ot.get("attributes") or {}
         for a, spec in oattrs.items():
             now = nattrs.get(a)

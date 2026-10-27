@@ -30781,6 +30781,295 @@
   }
  },
  {
+  "label": "run",
+  "files": [
+   [
+    "servicedesk.yaml",
+    "2bb4381f0412961e"
+   ]
+  ],
+  "previous": {
+   "servicedesk.yaml": "5cfc4b6ae58c5877"
+  },
+  "findings": [
+   [
+    "servicedesk.yaml",
+    716,
+    "notice",
+    "unwritten",
+    "Asset.asset_tag is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Alert": [
+    1,
+    1
+   ],
+   "Change": [
+    5,
+    7
+   ],
+   "ChangeWindow": [
+    0,
+    0
+   ],
+   "Employee": [
+    0,
+    0
+   ],
+   "Incident": [
+    1,
+    1
+   ],
+   "Laptop": [
+    0,
+    0
+   ],
+   "Organization": [
+    0,
+    0
+   ],
+   "PartStock": [
+    3,
+    4
+   ],
+   "PostIncidentReview": [
+    0,
+    0
+   ],
+   "Problem": [
+    0,
+    0
+   ],
+   "RegisteredService": [
+    0,
+    0
+   ],
+   "Request": [
+    2,
+    4
+   ],
+   "Server": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
+  }
+ },
+ {
+  "label": "run",
+  "files": [
+   [
+    "servicedesk.yaml",
+    "aae966b0778de7e5"
+   ]
+  ],
+  "previous": {
+   "servicedesk.yaml": "5cfc4b6ae58c5877"
+  },
+  "findings": [
+   [
+    "servicedesk.yaml",
+    864,
+    "fatal",
+    "names",
+    "the migration renames Asset.serial_tag to asset_tag, which changes its type or whether it is optional; a rename carries the values and their history unchanged (ADR-0146)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
+  }
+ },
+ {
+  "label": "run",
+  "files": [
+   [
+    "servicedesk.yaml",
+    "a0d54f9a08682642"
+   ]
+  ],
+  "previous": {
+   "servicedesk.yaml": "5cfc4b6ae58c5877"
+  },
+  "findings": [
+   [
+    "servicedesk.yaml",
+    716,
+    "notice",
+    "unwritten",
+    "Asset.asset_tag is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "servicedesk.yaml",
+    864,
+    "fatal",
+    "names",
+    "the migration renames Asset.old_tag, which the previous version did not have"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
+  }
+ },
+ {
+  "label": "run",
+  "files": [
+   [
+    "servicedesk.yaml",
+    "8351bd9e0d0c66a3"
+   ]
+  ],
+  "previous": {
+   "servicedesk.yaml": "5cfc4b6ae58c5877"
+  },
+  "findings": [
+   [
+    "servicedesk.yaml",
+    716,
+    "notice",
+    "unwritten",
+    "Asset.asset_tag is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "servicedesk.yaml",
+    726,
+    "notice",
+    "unwritten",
+    "Laptop.laptop_tag is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "servicedesk.yaml",
+    866,
+    "fatal",
+    "names",
+    "the migration renames Laptop.serial_tag, which the rename of Asset.serial_tag reaches already"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
+  }
+ },
+ {
+  "label": "run",
+  "files": [
+   [
+    "servicedesk.yaml",
+    "56e12ab1dd07f2a7"
+   ]
+  ],
+  "previous": {
+   "servicedesk.yaml": "19a8c571343e553e"
+  },
+  "findings": [],
+  "analysed": {
+   "Alert": [
+    1,
+    1
+   ],
+   "Change": [
+    5,
+    7
+   ],
+   "ChangeWindow": [
+    0,
+    0
+   ],
+   "Employee": [
+    0,
+    0
+   ],
+   "Incident": [
+    1,
+    1
+   ],
+   "Laptop": [
+    0,
+    0
+   ],
+   "Organization": [
+    0,
+    0
+   ],
+   "PartStock": [
+    3,
+    4
+   ],
+   "PostIncidentReview": [
+    0,
+    0
+   ],
+   "Problem": [
+    0,
+    0
+   ],
+   "RegisteredService": [
+    0,
+    0
+   ],
+   "Request": [
+    2,
+    4
+   ],
+   "Server": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "PartStock.reserved_bounded": "local"
+  },
+  "could_violate": {
+   "PartStock.reserved_bounded": [
+    "PartStock.open",
+    "PartStock.receive",
+    "PartStock.release",
+    "PartStock.reserve",
+    "PartStock.use"
+   ]
+  }
+ },
+ {
   "label": "metric_more_plants",
   "files": [
    [

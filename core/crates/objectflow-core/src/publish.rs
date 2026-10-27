@@ -1734,11 +1734,12 @@ fn attribute_notices(world: &World<'_>, new: &Library, found: &mut Found) -> Res
     let old = world.lib;
     for (tn, nt) in &new.types {
         let Some(ot) = old.type_(tn) else { continue };
+        // a rename keyed by an abstract base renames it in its family
         let renamed = |a: &str| {
             new.migration
                 .renamed_attributes
                 .iter()
-                .any(|(t, from, _)| t == tn && from == a)
+                .any(|(t, from, _)| new.is_a(tn, t) && from == a)
         };
         for (a, spec) in &ot.attributes {
             match nt.attribute(a) {
@@ -6697,5 +6698,110 @@ types:
         );
         let w = s.snapshot().unwrap();
         assert_eq!(w.whole(&viewer).unwrap().unwrap().type_, "AccessGrant");
+    }
+
+    /// Assets of two kinds, `tag` declared on their abstract base, each
+    /// kind erasable; `personal` marks the base's `tag`.
+    fn assets(personal: bool) -> String {
+        let mut text = format!(
+            "\nmodule: assets\ncategories: [live, closed]\ntypes:\n  Asset:\n    description: An asset.\n    abstract: true\n    tracking: record\n    attributes:\n      tag: {{ type: string, optional: true{} }}\n",
+            if personal { ", personal: true" } else { "" }
+        );
+        for (t, st) in [("Laptop", "IN_USE"), ("Server", "RACKED")] {
+            text += &format!(
+                "  {t}:\n    description: A {}.\n    extends: Asset\n    states:\n      {st}: {{ category: live }}\n      GONE: {{ category: closed, final: true }}\n    transitions:\n      receive: {{ kind: initial, to: {st}, optional_inputs: [tag] }}\n      dispose: {{ kind: external, from: [{st}], to: GONE }}\n      forget: {{ kind: erasure, inputs: {{ reason: {{ type: string }} }} }}\n",
+                t.to_lowercase()
+            );
+        }
+        text
+    }
+
+    /// `assets` with the base's `tag` renamed `label` by a rename keyed by
+    /// the base.
+    fn assets_relabelled(personal: bool) -> String {
+        assets(personal)
+            .replace("      tag: {", "      label: {")
+            .replace("[tag]", "[label]")
+            + "migration:\n  description: A tag is a label.\n  renamed_attributes:\n    Asset: { tag: label }\n"
+    }
+
+    /// A rename keyed by an abstract base reaches every object of its
+    /// family: each kind's value is carried under the new name, its column
+    /// renamed in its own table, and no kind's attribute is noticed as
+    /// dropped (`publish-and-import.md` §1 step 5, ADR-0147).
+    #[test]
+    fn a_rename_keyed_by_an_abstract_base_reaches_its_family() {
+        let lib = Library::load(&[("assets.yaml".into(), assets(false))]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let laptop = created(&req(
+            &mut s,
+            "receive",
+            ("Laptop", true),
+            json!({"tag": "L-1"}),
+        ));
+        let server = created(&req(
+            &mut s,
+            "receive",
+            ("Server", true),
+            json!({"tag": "S-1"}),
+        ));
+        let v2 = assets_relabelled(false);
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"assets": v2}, "source_ref": "git:assets@2"}),
+        ));
+        let report = run_on(&s, &change, "assets", &v2);
+        let codes: Vec<&str> = report.findings.iter().map(|f| f.code.as_str()).collect();
+        assert!(
+            !codes.iter().any(|c| c.starts_with("possible_rename:")),
+            "{codes:?}"
+        );
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let v = s
+            .snapshot()
+            .unwrap()
+            .whole(&change)
+            .unwrap()
+            .unwrap()
+            .version;
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let w = s.snapshot().unwrap();
+        for (id, want) in [(&laptop, "L-1"), (&server, "S-1")] {
+            let o = w.whole(id).unwrap().unwrap();
+            assert_eq!(o.attr("label"), Value::Text(want.into()), "{}", o.type_);
+            assert!(o.attr("tag").is_absent(), "{}", o.type_);
+        }
+    }
+
+    /// A value written while not personal, then renamed by its abstract
+    /// base into an attribute the version marks personal, leaves no copy in
+    /// an event written under its old name once erased, as a rename keyed
+    /// by the type itself leaves none (ADR-0146 decision 2, ADR-0147).
+    #[test]
+    fn an_erasure_reaches_a_value_its_base_renamed_into_a_personal_attribute() {
+        let lib = Library::load(&[("assets.yaml".into(), assets(false))]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let laptop = created(&req(
+            &mut s,
+            "receive",
+            ("Laptop", true),
+            json!({"tag": "L-1"}),
+        ));
+        published_as(&mut s, "assets", &[&assets_relabelled(true)]);
+        assert!(!copies(&s, &laptop, "tag").is_empty());
+        created(&req(
+            &mut s,
+            "forget",
+            (&laptop, false),
+            json!({"reason": "asked"}),
+        ));
+        assert_eq!(copies(&s, &laptop, "tag"), vec![]);
+        assert_eq!(copies(&s, &laptop, "label"), vec![]);
     }
 }

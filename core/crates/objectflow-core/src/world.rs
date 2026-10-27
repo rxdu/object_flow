@@ -793,7 +793,7 @@ impl<'l> World<'l> {
 
     /// An attribute of a type, named as the installed version names it, as
     /// the version given named it: taken back through each later version's
-    /// renames.
+    /// renames, a base's among them.
     pub fn named_under(&self, version: i64, type_: &str, attribute: &str) -> String {
         let mut name = attribute.to_string();
         for k in (version + 1..=self.lib.version).rev() {
@@ -806,7 +806,7 @@ impl<'l> World<'l> {
                 l.migration
                     .renamed_attributes
                     .iter()
-                    .find(|(t, _, to)| t == type_ && *to == name)
+                    .find(|(t, _, to)| l.is_a(type_, t) && *to == name)
             }) {
                 name.clone_from(from);
             }

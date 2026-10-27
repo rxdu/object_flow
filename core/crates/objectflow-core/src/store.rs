@@ -4660,8 +4660,10 @@ impl Store {
                 continue;
             }
             changed.push(t);
+            // a rename keyed by an abstract base reaches each type of its
+            // family, whose table holds the column (ADR-0147)
             for (owner, from, to) in &m.renamed_attributes {
-                if owner != tn {
+                if !new.is_a(tn, owner) {
                     continue;
                 }
                 match ot.attribute(from) {

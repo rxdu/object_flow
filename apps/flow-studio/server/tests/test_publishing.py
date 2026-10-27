@@ -2274,6 +2274,49 @@ def test_a_rename_beside_a_backfill_writes_no_value_alike(tee):
     alike(tee)
 
 
+ASSETS = """module: assets
+categories: [live, closed]
+types:
+  Asset:
+    description: An asset.
+    abstract: true
+    tracking: record
+    attributes:
+      tag: { type: string, optional: true }
+""" + "".join(f"""  {t}:
+    description: A {t.lower()}.
+    extends: Asset
+    states:
+      {st}: {{ category: live }}
+      GONE: {{ category: closed, final: true }}
+    transitions:
+      receive: {{ kind: initial, to: {st}, optional_inputs: [tag] }}
+      dispose: {{ kind: external, from: [{st}], to: GONE }}
+""" for t, st in (("Laptop", "IN_USE"), ("Server", "RACKED")))
+
+
+def test_a_rename_keyed_by_an_abstract_base_reaches_its_family_alike(tee):
+    """`tag`, declared on the abstract `Asset`, renamed `label` by a rename
+    keyed by the base: each kind's value is carried under the new name, and
+    no kind's attribute is noticed as dropped, alike through both backends,
+    where the core's publish dropped every value (`publish-and-import.md` §1
+    step 5, ADR-0147)."""
+    load(tee, "assets", ASSETS)
+    laptop = made(tee, "Laptop", "receive", tag="L-1")
+    server = made(tee, "Server", "receive", tag="S-1")
+    tee.found.clear()
+    relabelled = ASSETS.replace("      tag: {", "      label: {").replace(
+        "[tag]", "[label]") + ("migration:\n  description: A tag is a label.\n"
+                               "  renamed_attributes:\n    Asset: { tag: label }\n")
+    c, codes = dry_run(tee, {"assets": relabelled})
+    assert not any(code.startswith("possible_rename:") for code in codes), codes
+    approved(tee, c)
+    for oid, want in ((laptop, "L-1"), (server, "S-1")):
+        attributes = tee.post("/v1/get", {"id": oid})["attributes"]
+        assert (attributes.get("label"), attributes.get("tag")) == (want, None), attributes
+    alike(tee)
+
+
 @pytest.mark.parametrize("erased_first", [False, True])
 def test_a_tier_newly_personal_is_cleared_erased_before_or_after(tee,
                                                                  erased_first):

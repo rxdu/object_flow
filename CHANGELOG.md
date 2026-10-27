@@ -8,6 +8,14 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 - The checker's `coverage` notice names, in each of its parts, the examples starting at the version before, which it counts nothing of since it does not run them, so the notice says which examples its lists leave unread (ADR-0233). A file with no such example is noticed as before.
 
+### Changed, and may refuse what 0.8.0 accepted
+
+- A version in which a type renames an attribute that its abstract base's rename reaches already is refused, `names`, since both would rename one column (ADR-0147). 0.8.0 ignored the base's rename and applied the type's own.
+
+### Fixed
+
+- A rename keyed by an abstract base reaches every type of its family, as `publish-and-import.md` §1 step 5 says (ADR-0147). The core's publish renamed the column only in a table of the mapping's own type, which a base has none of, so each member's values were dropped, and noticed only as `possible_rename:<Type>.<attribute>`. An erasure after such a rename now finds the value's copies under its old name too. The checkers count a base's rename and backfill for each member, where they noticed the attribute as gone or as needing a backfill. They check a base's rename against the version before as a type's own.
+
 ## 0.8.0, 2026-10-26
 
 A release before 1.0.0, as 0.7.0 was (ADR-0214), answering issue #42 and a comment on issue #41. A change can test what it does to the objects the version before left (ADR-0232), and a dry run tells a backfill rewriting a held value from a fill (ADR-0231). A store of 0.7.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step recording the release alone; a store of 0.6.0 takes 0.7.0's step first. A draft holding only the files its examples read is refused, where 0.7.0 drafted it and could not publish it, listed under its heading below.

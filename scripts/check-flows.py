@@ -1787,15 +1787,17 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False):
     m = doc.get("migration") or {}
     fatal, notes = [], []
     for tn, t in new.items():
-        if tn in machines or tn not in old or t.get("abstract"):
+        if tn in machines or tn not in old:
             continue
         ot = old[tn]
         here = ("types", tn)
-        mapped = (m.get("removed_states") or {}).get(tn, {})
-        for st in sorted(set(ot.get("states") or {}) - set(t.get("states") or {}) - set(mapped)):
-            fatal.append((here, "names", f"{tn} no longer has the state {st}, and the migration maps it nowhere; its objects need a state to move to"))
-        for st in sorted(set(mapped) - set(ot.get("states") or {}) if not installed else ()):
-            fatal.append((("migration", "removed_states", tn, st), "names", f"the migration maps {tn}.{st}, which the previous version did not have"))
+        # a base has no states (flow-format.md §4.14), and its renames are checked here, at the base
+        if not t.get("abstract"):
+            mapped = (m.get("removed_states") or {}).get(tn, {})
+            for st in sorted(set(ot.get("states") or {}) - set(t.get("states") or {}) - set(mapped)):
+                fatal.append((here, "names", f"{tn} no longer has the state {st}, and the migration maps it nowhere; its objects need a state to move to"))
+            for st in sorted(set(mapped) - set(ot.get("states") or {}) if not installed else ()):
+                fatal.append((("migration", "removed_states", tn, st), "names", f"the migration maps {tn}.{st}, which the previous version did not have"))
         renamed = (m.get("renamed_attributes") or {}).get(tn, {})
         for a in sorted(set(renamed) - set(ot.get("attributes") or {}) if not installed else ()):
             fatal.append((("migration", "renamed_attributes", tn, a), "names", f"the migration renames {tn}.{a}, which the previous version did not have"))
@@ -1807,9 +1809,20 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False):
                 fatal.append((("migration", "renamed_attributes", tn, a), "names",
                               f"the migration renames {tn}.{a} to {b}, which changes its type or whether it is optional; a rename "
                               "carries the values and their history unchanged (ADR-0146)"))
-        added = set(t.get("attributes") or {}) - set(ot.get("attributes") or {}) - set(renamed.values())
-        dropped = set(ot.get("attributes") or {}) - set(t.get("attributes") or {}) - set(renamed)
-        filled = (m.get("backfill") or {}).get(tn, {})
+        if t.get("abstract"):
+            continue            # a base has no objects: each type of its family is noticed for what the version changes
+        # a rename or a backfill keyed by an abstract base reaches every type of its family (ADR-0147)
+        reached, filled = dict(renamed), dict((m.get("backfill") or {}).get(tn, {}))
+        for base in bases(tn, new):
+            for a, b in sorted(((m.get("renamed_attributes") or {}).get(base) or {}).items()):
+                if a in renamed:
+                    fatal.append((("migration", "renamed_attributes", tn, a), "names",
+                                  f"the migration renames {tn}.{a}, which the rename of {base}.{a} reaches already"))
+                reached.setdefault(a, b)
+            for a, x in ((m.get("backfill") or {}).get(base) or {}).items():
+                filled.setdefault(a, x)
+        added = set(t.get("attributes") or {}) - set(ot.get("attributes") or {}) - set(reached.values())
+        dropped = set(ot.get("attributes") or {}) - set(t.get("attributes") or {}) - set(reached)
         for a in sorted(added):
             spec = t["attributes"][a]
             kind = str(spec.get("reference", spec.get("type", "")))
@@ -9107,6 +9120,44 @@ def migration_more_plants(people):
     return ok
 
 
+def family_mapping_plants():
+    """Against the version before, a rename or a backfill keyed by an abstract base reaches every type of its family
+    (ADR-0147): a member's attribute the base's rename carries is not noticed as gone, nor one its backfill fills as
+    needing one; the base's rename is held to what the previous version had and to the attribute's type, as a type's
+    own is; and a member's rename of an attribute its base's rename reaches already is refused."""
+    sd = (EXAMPLES / "servicedesk.yaml").read_text()
+    name = "      name:      { type: string }\n"
+    laptop = "      assigned_to: { reference: Employee, optional: true }\n"
+    assert sd.count(name) == 1 and sd.count(laptop) == 1
+
+    def asset(attr, text=sd):
+        return text.replace(name, name + attr)
+
+    def run(text, prev):
+        found, notes = check([("servicedesk.yaml", text)], {"servicedesk.yaml": prev})
+        return [f[4] for f in found], [n[4] for n in notes]
+    v1 = asset("      serial_tag: { type: string, optional: true }\n")
+    tag = "      asset_tag: { type: string, optional: true }\n"
+    mapping = "\nmigration:\n  description: A planted mapping.\n  renamed_attributes:\n    Asset: { serial_tag: asset_tag }\n"
+    found, notes = run(asset(tag) + mapping, v1)
+    carried = not found and not any(" is gone and " in n for n in notes)
+    found, _n = run(asset(tag.replace(", optional: true", "")) + mapping, v1)
+    typed = "the migration renames Asset.serial_tag to asset_tag, which changes its type or whether it is optional; a " \
+            "rename carries the values and their history unchanged (ADR-0146)" in found
+    found, _n = run(asset(tag) + mapping.replace("serial_tag:", "old_tag:"), v1)
+    had = "the migration renames Asset.old_tag, which the previous version did not have" in found
+    own = asset(tag, sd.replace(laptop, laptop + "      laptop_tag: { type: string, optional: true }\n"))
+    found, _n = run(own + mapping + "    Laptop: { serial_tag: laptop_tag }\n", v1)
+    twice = "the migration renames Laptop.serial_tag, which the rename of Asset.serial_tag reaches already" in found
+    found, notes = run(asset("      asset_tag: { type: string, default: '\"none\"' }\n")
+                       + "\nmigration:\n  description: A planted mapping.\n  backfill:\n    Asset: { asset_tag: '\"none\"' }\n", sd)
+    filled = not found and not any("needs a backfill" in n for n in notes)
+    ok = carried and typed and had and twice and filled
+    print(f"  a rename or a backfill keyed by an abstract base reaches its family, and its rename is held as a type's own: "
+          f"{'yes' if ok else 'NO ' + str((carried, typed, had, twice, filled))}")
+    return ok
+
+
 def metric_more_plants(people):
     """A flag reads only the dimensions its metric declares, a percentile's p is a literal, and one input of a combined
     metric has every dimension it names (ADR-0147): a service flag reading actor_kind, a percentile of an expression, and
@@ -10482,6 +10533,7 @@ def main():
     ok &= erasure_plants(people)
     ok &= binder_more_plants(people)
     ok &= migration_more_plants(people)
+    ok &= family_mapping_plants()
     ok &= metric_more_plants(people)
     ok &= cluster3_plants(people)
     ok &= refusal_order_plant(people)
