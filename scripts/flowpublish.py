@@ -1036,7 +1036,8 @@ def attribute_notices(old, new, retired, m, found, store=None):
                                      key=lambda kv: kv[1].id_order):
                     if o.type == tn and o.attrs.get(a, ABSENT) is not ABSENT:
                         found.add("notice", code, message, oid)
-            elif now is None and a not in renamed and any(
+            # a base has no objects: each type of its family is noticed, as the checker notices it
+            elif now is None and not nt.get("abstract") and a not in renamed and any(
                     n not in oattrs and declared_as(x) == declared_as(spec) for n, x in nattrs.items()):
                 found.add("notice", f"possible_rename:{tn}.{a}",
                           f"{tn}.{a} is dropped where an attribute of its type is added, which may be a rename")

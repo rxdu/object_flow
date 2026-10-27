@@ -1757,7 +1757,10 @@ fn attribute_notices(world: &World<'_>, new: &Library, found: &mut Found) -> Res
                         }
                     }
                 }
-                None if !renamed(a)
+                // a base has no objects: each type of its family is noticed,
+                // as the checker notices it
+                None if !nt.abstract_
+                    && !renamed(a)
                     && nt.attributes.iter().any(|(n, x)| {
                         ot.attribute(n).is_none()
                             && x.declared == spec.declared
@@ -6776,6 +6779,59 @@ types:
             let o = w.whole(id).unwrap().unwrap();
             assert_eq!(o.attr("label"), Value::Text(want.into()), "{}", o.type_);
             assert!(o.attr("tag").is_absent(), "{}", o.type_);
+        }
+    }
+
+    /// A possible rename is noticed on each kind of a family whose value no
+    /// rename carries, never on the abstract base, which holds no objects,
+    /// as the checker notices it: renames keyed by every kind leave none.
+    #[test]
+    fn a_possible_rename_is_noticed_on_each_kind_and_not_on_its_abstract_base() {
+        let lib = Library::load(&[("assets.yaml".into(), assets(false))]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        created(&req(
+            &mut s,
+            "receive",
+            ("Laptop", true),
+            json!({"tag": "L-1"}),
+        ));
+        let labelled = assets(false)
+            .replace("      tag: {", "      label: {")
+            .replace("[tag]", "[label]");
+        let keyed = |renames: &str| {
+            format!(
+                "{labelled}migration:\n  description: A tag is a label.\n  renamed_attributes:\n{renames}"
+            )
+        };
+        for (v2, want) in [
+            (
+                keyed("    Laptop: { tag: label }\n    Server: { tag: label }\n"),
+                vec![],
+            ),
+            (
+                keyed("    Laptop: { tag: label }\n"),
+                vec!["possible_rename:Server.tag"],
+            ),
+            (
+                labelled.clone(),
+                vec!["possible_rename:Laptop.tag", "possible_rename:Server.tag"],
+            ),
+        ] {
+            let change = created(&req(
+                &mut s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"assets": v2}, "source_ref": "git:assets@2"}),
+            ));
+            let report = run_on(&s, &change, "assets", &v2);
+            let mut codes: Vec<&str> = report
+                .findings
+                .iter()
+                .map(|f| f.code.as_str())
+                .filter(|c| c.starts_with("possible_rename:"))
+                .collect();
+            codes.sort_unstable();
+            assert_eq!(codes, want, "{v2}");
         }
     }
 

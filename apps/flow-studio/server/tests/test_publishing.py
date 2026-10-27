@@ -2323,6 +2323,28 @@ def test_a_rename_keyed_by_an_abstract_base_reaches_its_family_alike(tee):
     alike(tee)
 
 
+@pytest.mark.parametrize("renames, want", [
+    ("    Laptop: { tag: label }\n    Server: { tag: label }\n", []),
+    ("    Laptop: { tag: label }\n", ["possible_rename:Server.tag"]),
+    (None, ["possible_rename:Laptop.tag", "possible_rename:Server.tag"]),
+])
+def test_a_possible_rename_is_noticed_on_each_kind_and_not_on_its_abstract_base_alike(tee, renames, want):
+    """`tag`, declared on the abstract `Asset`, dropped where `label` is
+    added: a possible rename is noticed on each kind whose value no rename
+    carries, never on the base, which holds no objects, as the checker
+    notices it, alike through both backends, where both noticed the base
+    under renames keyed by every kind."""
+    load(tee, "assets", ASSETS)
+    made(tee, "Laptop", "receive", tag="L-1")
+    tee.found.clear()
+    source = relabelled().split("migration:")[0]
+    if renames is not None:
+        source += "migration:\n  description: A tag is a label.\n  renamed_attributes:\n" + renames
+    _c, codes = dry_run(tee, {"assets": source})
+    assert sorted(c for c in codes if c.startswith("possible_rename:")) == want, codes
+    alike(tee)
+
+
 @pytest.mark.parametrize("keyed", ["by the type", "by its base"])
 def test_a_value_renamed_into_a_newly_personal_attribute_is_redacted_alike(tee, keyed):
     """An object erased while an attribute was not personal, then a version
