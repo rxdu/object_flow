@@ -169,11 +169,6 @@ impl Error {
             if matches!(f.code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
     }
 
-    /// The connection to the database was lost: closed by the server, its
-    /// restart or an idle timeout among the reasons, or its socket failed.
-    /// The store is opened again for the next write, its lock taken again
-    /// (durability on PostgreSQL, finding 1); SQLite has no connection to
-    /// lose.
     /// A statement stopped at its connection's deadline (ADR-0215).
     pub fn is_deadline_passed(&self) -> bool {
         matches!(self.fault(), Fault::DeadlinePassed(_))
@@ -185,6 +180,13 @@ impl Error {
         matches!(self.fault(), Fault::Discarded(_))
     }
 
+    /// The connection to the database was lost, or not had: closed by the
+    /// server, its restart or an idle timeout among the reasons, its socket
+    /// failed, or a new one refused while the server starts or at its
+    /// connection limit, `53300` (the shared server's measurement,
+    /// 2026-10-27). The store is opened again for the next write, its lock
+    /// taken again (durability on PostgreSQL, finding 1); SQLite has no
+    /// connection to lose.
     pub fn is_connection_lost(&self) -> bool {
         let Fault::Postgres(e) = self.fault() else {
             return false;
@@ -194,7 +196,7 @@ impl Error {
         }
         e.code().is_some_and(|c| {
             let c = c.code();
-            c.starts_with("08") || matches!(c, "57P01" | "57P02" | "57P03" | "57P05")
+            c.starts_with("08") || matches!(c, "53300" | "57P01" | "57P02" | "57P03" | "57P05")
         })
     }
 

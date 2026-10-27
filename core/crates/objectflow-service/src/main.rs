@@ -1347,6 +1347,31 @@ fn reading(shared: &Shared) -> Result<Reading<'_>, Fault> {
     reading_until(shared, std::time::Instant::now() + shared.read_timeout)
 }
 
+/// The library a read is given, as the writer last let it go, from memory:
+/// what a write's answer is shown under once it has committed, so no
+/// connection the database refuses answers an applied write as a fault,
+/// where a read taken for it did (the shared server's measurement,
+/// 2026-10-27); under the lock for a sandbox.
+fn library(shared: &Shared) -> Result<Arc<Library>, Fault> {
+    let none = || Fault::Conflict("no store is open".to_string());
+    let Some(reads) = &shared.reads else {
+        let w = locked(shared)?;
+        return w
+            .store
+            .as_ref()
+            .map(|s| Arc::clone(&s.lib))
+            .ok_or_else(none);
+    };
+    reads
+        .seen
+        .read()
+        .map_err(|_| Fault::Internal("a previous request panicked".to_string()))?
+        .lib
+        .as_ref()
+        .map(|(lib, _)| Arc::clone(lib))
+        .ok_or_else(none)
+}
+
 /// A read, stopped at `until` (ADR-0184 decision 3).
 fn reading_until(shared: &Shared, until: std::time::Instant) -> Result<Reading<'_>, Fault> {
     let Some(reads) = &shared.reads else {
@@ -2695,6 +2720,8 @@ async fn evaluators(State(shared): State<Shared>, Body(body): Body) -> Answer {
 async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answering(move || {
         let req = request_of(&body)?;
+        // read before the write, so nothing after its commit refuses it
+        let opted = opted(&body)?;
         // a change's dry run, which a `submit` or `refresh` records, computed
         // on a read beside the writes, so no write waits for it; the request
         // takes it only where nothing it read has changed (DRYRUN-LOCK)
@@ -2744,12 +2771,11 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         shared.watch.note(&v);
         let out = verdict_told(&v, Some(&told));
-        if opted(&body)? {
+        if opted {
             return Ok(Json(out));
         }
-        let mut r = reading(&shared)?;
-        let s = r.store()?;
-        Ok(Json(without_holder(&s.lib, out)))
+        let lib = library(&shared)?;
+        Ok(Json(without_holder(&lib, out)))
     })
 }
 
@@ -2804,6 +2830,8 @@ async fn batch_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
         // the batch's key, its actor's, read as a request's is (ADR-0228
         // decision 8)
         let key = idempotency_key_of(&body)?;
+        // read before the batch, so nothing after its commit refuses it
+        let opted = opted(&body)?;
         let outcome = {
             let mut w = locked(&shared)?;
             let ran = {
@@ -2828,15 +2856,13 @@ async fn batch_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 }
             }
         };
-        let opted = opted(&body)?;
-        let mut r = reading(&shared)?;
-        let s = r.store()?;
+        let lib = library(&shared)?;
         let shown = |v: &Verdict, told: &Told| {
             let out = verdict_told(v, Some(told));
             if opted {
                 out
             } else {
-                without_holder(&s.lib, out)
+                without_holder(&lib, out)
             }
         };
         match outcome {

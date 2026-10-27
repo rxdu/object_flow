@@ -873,6 +873,48 @@ fn a_value_of_another_type_is_refused_on_every_key() {
     assert_eq!(status, 200, "{said}");
 }
 
+/// A write or a batch whose `reads_personal` is neither true nor false is
+/// refused before it applies, where it applied and was then answered 400,
+/// so a client that fixed the flag and sent it again wrote it twice.
+#[test]
+fn a_write_whose_flag_is_of_another_type_is_refused_before_it_applies() {
+    let path = fresh_store("flag-before-write");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish(&s, &json!({"copies": COPIES}));
+    let op = json!({"id": "operator"});
+    let add =
+        json!({"type": "Person", "transition": "add", "inputs": {"login": "ann@example.com"}});
+    let mut request = add.clone();
+    request["actor"] = op.clone();
+    request["reads_personal"] = json!("yes");
+    let (status, said) = call(&s, "POST", "/v1/request", Some(&request));
+    assert_eq!(status, 400, "{said}");
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/batch",
+        Some(&json!({"actor": op, "requests": [add], "reads_personal": 1})),
+    );
+    assert_eq!(status, 400, "{said}");
+    let (status, people) = call(
+        &s,
+        "POST",
+        "/v1/query",
+        Some(&json!({"actor": op, "type": "Person"})),
+    );
+    assert_eq!(
+        (status, people["items"].as_array().map(Vec::len)),
+        (200, Some(0)),
+        "{people}"
+    );
+}
+
 /// `maintain` names an actor the store knows, as a request does: an actor
 /// it does not know prunes nothing (production review MAINTAIN), and a
 /// known one's prune is refused only by the retention. Who may maintain is
@@ -7635,6 +7677,197 @@ fn a_store_on_postgresql_whose_connection_is_lost_is_opened_again() {
     admin
         .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
         .expect("the schema dropped");
+}
+
+/// A service started on PostgreSQL as a role of its own, as `operate.md`
+/// makes one, held to a connection limit no superuser is: its role, which
+/// names its schema too, what it was started with, and a connection to the
+/// database beside it; none on SQLite, said.
+fn served_as_a_role_on_postgresql(
+    name: &str,
+) -> Option<(objectflow_core::db::Connection, Vec<String>, String)> {
+    let base = std::env::var("OBJECTFLOW_SANDBOX_POSTGRES").unwrap_or_default();
+    if base.trim().is_empty() {
+        eprintln!("skipped on SQLite: a deployment's store on PostgreSQL");
+        return None;
+    }
+    let role = format!("{name}_{}", std::process::id());
+    let admin = objectflow_core::db::Connection::postgres(&base).expect("the database");
+    admin
+        .execute_batch(&format!(
+            "DROP SCHEMA IF EXISTS {role} CASCADE; DROP ROLE IF EXISTS {role}; \
+             CREATE ROLE {role} LOGIN PASSWORD '{role}'; CREATE SCHEMA {role} AUTHORIZATION {role}"
+        ))
+        .expect("a role and its schema");
+    let kept: Vec<&str> = base
+        .split_whitespace()
+        .filter(|p| !p.starts_with("password=") && !p.starts_with("user="))
+        .collect();
+    let url = format!(
+        "{} user={role} options='-c search_path={role}'",
+        kept.join(" ")
+    );
+    let dir = fresh_store(&format!("pg-{name}"))
+        .parent()
+        .expect("a directory")
+        .to_path_buf();
+    let secret = dir.join("password");
+    std::fs::write(&secret, format!("{role}\n")).expect("the password's file");
+    let args = [
+        "--store",
+        &url,
+        "--store-password-file",
+        secret.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]
+    .map(str::to_string)
+    .to_vec();
+    Some((admin, args, role))
+}
+
+/// The role a service runs as held to the one connection it writes on: its
+/// other sessions, its read connections, ended, and no new one let in, as a
+/// server at its `max_connections` lets none in.
+fn held_to_its_writer(admin: &objectflow_core::db::Connection, role: &str) {
+    admin
+        .execute_batch(&format!(
+            "ALTER ROLE {role} CONNECTION LIMIT 1; \
+             SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = '{role}' \
+             AND pid NOT IN (SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND objsubid = 1 \
+             AND objid = (hashtext('objectflow {role}')::bigint & 4294967295)::oid)"
+        ))
+        .expect("the role held to its writer");
+}
+
+/// A write that commits while the store's database lets in no new
+/// connection is answered its verdict, and applied once: its answer took a
+/// read connection after the commit, so the server refusing one answered
+/// the applied write 500, which a client sending no key sends again (the
+/// shared server's measurement, 2026-10-27, eight services filling
+/// `max_connections`).
+#[test]
+fn a_write_committed_while_the_database_lets_in_no_connection_is_answered_its_verdict() {
+    let Some((admin, args, role)) = served_as_a_role_on_postgresql("limit_write") else {
+        return;
+    };
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let s = start(&args);
+    publish(&s, &json!({"copies": COPIES}));
+    let op = json!({"id": "operator"});
+    let add = |login: &str| {
+        call(
+            &s,
+            "POST",
+            "/v1/request",
+            Some(
+                &json!({"actor": op, "type": "Person", "transition": "add", "inputs": {"login": login}}),
+            ),
+        )
+    };
+    let (status, ann) = add("ann@example.com");
+    assert_eq!(
+        (status, ann["kind"].as_str()),
+        (200, Some("satisfied")),
+        "{ann}"
+    );
+    held_to_its_writer(&admin, &role);
+    let (status, bea) = add("bea@example.com");
+    assert_eq!(
+        (status, bea["kind"].as_str()),
+        (200, Some("satisfied")),
+        "the write that committed with no connection to read on: {bea}"
+    );
+    let (status, batch) = call(
+        &s,
+        "POST",
+        "/v1/batch",
+        Some(&json!({"actor": op, "requests": [
+            {"type": "Person", "transition": "add", "inputs": {"login": "cy@example.com"}}]})),
+    );
+    assert_eq!(
+        (status, batch["applied"].as_bool()),
+        (200, Some(true)),
+        "the batch that committed with no connection to read on: {batch}"
+    );
+    admin
+        .execute_batch(&format!("ALTER ROLE {role} CONNECTION LIMIT -1"))
+        .expect("the limit lifted");
+    // each read, past the connections the ended sessions left, until one
+    // answers: the store holds each person once
+    let people = (0..12)
+        .map(|_| {
+            call(
+                &s,
+                "POST",
+                "/v1/query",
+                Some(&json!({"actor": op, "type": "Person", "fields": ["login"], "reads_personal": true})),
+            )
+        })
+        .find(|(status, _)| *status == 200)
+        .map(|(_, people)| people)
+        .expect("a read once the limit is lifted");
+    let logins: Vec<&str> = people["items"]
+        .as_array()
+        .expect("the people")
+        .iter()
+        .filter_map(|p| p["fields"]["login"].as_str())
+        .collect();
+    assert_eq!(
+        logins,
+        ["ann@example.com", "bea@example.com", "cy@example.com"],
+        "{people}"
+    );
+    drop(s);
+    admin
+        .execute_batch(&format!("DROP SCHEMA {role} CASCADE; DROP ROLE {role}"))
+        .expect("the schema and the role dropped");
+}
+
+/// A read that the store's database refuses a connection, at its
+/// `max_connections` or the role's limit, is answered 503, which a client
+/// retries once the server has room, where it was answered 500, the
+/// service's own fault (the shared server's measurement, 2026-10-27).
+#[test]
+fn a_read_the_database_refuses_a_connection_is_answered_unavailable() {
+    let Some((admin, args, role)) = served_as_a_role_on_postgresql("limit_read") else {
+        return;
+    };
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let s = start(&args);
+    publish(&s, &json!({"copies": COPIES}));
+    let op = json!({"id": "operator"});
+    held_to_its_writer(&admin, &role);
+    // past the connections the ended sessions left, each found lost once,
+    // to reads that each ask the database for a connection of their own
+    for k in 0..12 {
+        let (status, read) = call(
+            &s,
+            "POST",
+            "/v1/query",
+            Some(&json!({"actor": op, "type": "Person"})),
+        );
+        assert_eq!(
+            (status, read["code"].as_str()),
+            (503, Some("unavailable")),
+            "read {k} at the limit: {read}"
+        );
+    }
+    admin
+        .execute_batch(&format!("ALTER ROLE {role} CONNECTION LIMIT -1"))
+        .expect("the limit lifted");
+    let (status, read) = call(
+        &s,
+        "POST",
+        "/v1/query",
+        Some(&json!({"actor": op, "type": "Person"})),
+    );
+    assert_eq!(status, 200, "a read once the limit is lifted: {read}");
+    drop(s);
+    admin
+        .execute_batch(&format!("DROP SCHEMA {role} CASCADE; DROP ROLE {role}"))
+        .expect("the schema and the role dropped");
 }
 
 /// A store on PostgreSQL whose database is replaced while it is served, a
