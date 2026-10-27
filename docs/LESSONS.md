@@ -933,7 +933,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 
 ### A tag starts a second check, and a release is watched through it
 - **Pattern:** Releasing 0.5.0, I watched `check.yml` on the commit, tagged it, and watched `release.yml`, which passed. The tag push also started `check.yml` again on the same commit, which failed on a flaky test, and nothing watched it until the author asked why CI fails often (2026-10-21).
-- **Correction:** After pushing a tag, list every run on its commit (`gh run list --commit <sha>`) and watch each to its end; report the release only when all have passed, naming any that did not.
+- **Correction:** After pushing a tag, list every run on its commit (`gh run list --commit <sha>`, the full SHA: a short one matches no run, and a loop waiting for runs waits forever) and watch each to its end; report the release only when all have passed, naming any that did not.
 - **Context:** GitHub Actions, where a workflow with `on: push` runs for a tag as for a branch.
 
 ### A rewrite drops what TODO reserves to the author
