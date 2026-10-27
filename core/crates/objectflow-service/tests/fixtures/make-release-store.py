@@ -22,9 +22,10 @@ and checked against its SHA-256, from the modules as 0.5.1 shipped them, its ids
 release-0.5.2/ by the service published as v0.5.2, built at a04acbd and checked against its SHA-256, from the modules
 as 0.5.2 shipped them, those under release-0.5.3/ by the service published as v0.5.3, built at a200294 and checked
 against its SHA-256, from the modules as 0.5.3 shipped them, those under release-0.6.0/ by the service published as
-v0.6.0, built at eff4a6d and checked against its SHA-256, from the modules as 0.6.0 shipped them, and those under
+v0.6.0, built at eff4a6d and checked against its SHA-256, from the modules as 0.6.0 shipped them, those under
 release-0.7.0/ by the service published as v0.7.0, built at 4f5f169 and checked against its SHA-256, from the modules
-as 0.7.0 shipped them.
+as 0.7.0 shipped them, and those under release-0.8.0/ by the service published as v0.8.0, built at fed391b and checked
+against its SHA-256, from the modules as 0.8.0 shipped them.
 """
 import json
 import pathlib

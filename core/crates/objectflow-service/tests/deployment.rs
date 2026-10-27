@@ -2864,11 +2864,12 @@ fn an_endpoint_is_a_deployments() {
 /// The releases whose own service made stores kept as fixtures, each with
 /// what it answered of them (`fixtures/make-release-store.py`: 0.1.0's at
 /// commit f6ee6d6, 0.2.0's at 37e8825, 0.3.0's, 0.4.0's, 0.5.0's, 0.5.1's,
-/// 0.5.2's, 0.5.3's, 0.6.0's and 0.7.0's by their published services, built
-/// at 77bf468, 9c6cd26, ccc88de, 4048a90, a04acbd, a200294, eff4a6d and
-/// 4f5f169).
+/// 0.5.2's, 0.5.3's, 0.6.0's, 0.7.0's and 0.8.0's by their published
+/// services, built at 77bf468, 9c6cd26, ccc88de, 4048a90, a04acbd, a200294,
+/// eff4a6d, 4f5f169 and fed391b).
 const FIXTURE_RELEASES: &[&str] = &[
     "0.1.0", "0.2.0", "0.3.0", "0.4.0", "0.5.0", "0.5.1", "0.5.2", "0.5.3", "0.6.0", "0.7.0",
+    "0.8.0",
 ];
 
 /// A store a release's own service made, and what it answered of it. Each

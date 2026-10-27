@@ -2,7 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.9.0, 2026-10-27
+
+A release before 1.0.0, as 0.8.0 was (ADR-0214), with the fixes found after 0.8.0. A rename keyed by an abstract base reaches every type of its family (ADR-0147), and a value renamed into a newly personal attribute is redacted on an object already erased. The `coverage` notice names the examples it does not read (ADR-0233). A write that has committed is answered its verdict when the PostgreSQL server then refuses a connection. A store of 0.8.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step recording the release alone; a store of 0.7.0 takes 0.8.0's step first. A version in which a type renames an attribute its abstract base's rename reaches already is refused, listed under its heading below.
 
 ### Added
 

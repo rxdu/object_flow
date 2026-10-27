@@ -232,8 +232,8 @@ A service started on a store an earlier release made answers every operation but
 POST /v1/upgrade
 {"actor": {"id": "operator"}, "dry_run": true}
 
-{"from": "objectflow-core 0.7.0", "to": "objectflow-core 0.8.0", "dry_run": true, "upgraded": false,
- "steps": [{"release": "objectflow-core 0.8.0", "changes": "nothing in the store's own tables or its built-ins, which are 0.7.0's: the step records the release alone"}],
+{"from": "objectflow-core 0.8.0", "to": "objectflow-core 0.9.0", "dry_run": true, "upgraded": false,
+ "steps": [{"release": "objectflow-core 0.9.0", "changes": "nothing in the store's own tables or its built-ins, which are 0.8.0's: the step records the release alone"}],
  "restored": null}
 ```
 

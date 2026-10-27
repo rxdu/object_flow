@@ -1,0 +1,1432 @@
+{
+ "examples": {
+  "a_claim_totals_its_lines": "played",
+  "a_line_dated_a_day_ahead_of_utc_is_accepted": "played",
+  "agent_cannot_confirm_nature": "stopped: Failed: its setups stopped",
+  "agent_suggests_nature": "stopped: Failed: a step is refused as invariant_violated",
+  "an_unanswered_xero_can_be_asked_again": "stopped: Failed: its setups stopped",
+  "approval_with_over_policy_line_is_flagged": "stopped: Failed: a step is refused as invariant_violated",
+  "correct_bill_id_then_verify": "stopped: Failed: its setups stopped",
+  "erase_paid_claim": "stopped: Failed: its setups stopped",
+  "line_within_policy_is_not_flagged": "played",
+  "over_policy_line_is_flagged": "played",
+  "pay_verified_claim": "stopped: Failed: a step is refused as invariant_violated",
+  "person_overrides_agent": "stopped: Failed: its setups stopped",
+  "refuse_amend_under_review": "stopped: Failed: its setups stopped",
+  "refuse_amount_spent_abroad_without_its_currency": "played",
+  "refuse_approval_before_review": "stopped: Failed: its setups stopped",
+  "refuse_empty_submission": "stopped: Failed: its setups stopped",
+  "refuse_line_dated_in_the_future": "played",
+  "refuse_mismatched_xero_record": "stopped: Failed: a step is refused as invariant_violated",
+  "refuse_payment_not_yet_made": "stopped: Failed: its setups stopped",
+  "refuse_review_with_unclassified_line": "stopped: Failed: its setups stopped",
+  "refuse_suggestion_after_confirmation": "stopped: Failed: a step is refused as invariant_violated",
+  "refuse_zero_amount_line": "played",
+  "reject_as_procurement": "stopped: Failed: its setups stopped",
+  "return_amend_resubmit": "stopped: Failed: its setups stopped",
+  "submit_claim": "played",
+  "withdraw_draft": "played"
+ },
+ "log": [
+  "{\"position\":1,\"object_id\":\"operator\",\"object_seq\":1,\"transition\":\"install\",\"from_state\":null,\"to_state\":\"ACTIVE\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":0,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"wrote\":{\"identity\":\"operator\"}},\"reads\":{},\"context\":\"store-creation:objectflow-core 0.8.0\",\"batch\":null}",
+  "{\"position\":2,\"object_id\":\"01a17c2c-9e25-7d2f-bc43-fb81bbc52e45\",\"object_seq\":1,\"transition\":\"draft\",\"from_state\":null,\"to_state\":\"DRAFTED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":0,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"source_ref\":\"fixture:reimbursement\",\"source_digest\":\"sha256:e91f00e6e8b7abb1e55b743ae8efea9baa0cc17d8711c5b81745f3487bd42474\",\"wrote\":{\"base_version\":0,\"drafted_by\":\"operator\",\"drafted_by_kind\":\"human\",\"source\":\"{\\\"reimbursement\\\":\\\"# yaml-language-server: $schema=../flow.schema.json\\\\n# Staff reimbursement, the first consumer's first workflow, drafted on 2026-09-30 by an agent that had read only\\\\n# flow-format.md and the sections it cites, as authoring-flows.md \u00a76 prescribes; kept as that agent wrote it, and\\\\n# judged by the defects it found (reimbursement-cold-draft.md), except where ADR-0145 answered what it asked: who\\\\n# confirmed a line's nature is recorded, and must be a person, and the day of an expense is a date.\\\\n#\\\\n# Assumptions the business has not decided:\\\\n# - A claim is recorded in Xero as a bill, and the bill is paid separately, so \\\\\\\"paid\\\\\\\" is a step of its own after\\\\n#   the Xero record is read back.\\\\n# - Which function reviews, records and pays is undecided. The flow names no person and no fixed function:\\\\n#   approval is recorded against a BusinessFunction the approver names, and who may take each step is the\\\\n#   application's (ADR-0114).\\\\n# - Amounts are in one home currency, assumed USD here; a line spent in another currency is entered at the amount\\\\n#   charged in the home currency.\\\\nmodule: reimbursement\\\\n\\\\n# a version of this flow is approved by a person, never an agent (ADR-0187)\\\\npublishing: { taken_by: [human] }\\\\ncategories: [to_do, in_progress, in_service, closed]\\\\n\\\\nenumerations:\\\\n  SpendNature: [EXPENSE, PURCHASE]\\\\n  ReturnReason: [MISSING_RECEIPT, WRONG_AMOUNT, WRONG_CATEGORY, NEEDS_DETAIL, OTHER]\\\\n  RejectionReason: [NOT_BUSINESS_SPEND, DUPLICATE, SHOULD_BE_PROCUREMENT, OTHER]\\\\n  CorrectionReason: [TYPING_ERROR, WRONG_BILL]\\\\n\\\\nsequences:\\\\n  claim_number:\\\\n    description: Numbers the company's reimbursement claims.\\\\n\\\\nevaluators:\\\\n  xero:\\\\n    description: Xero, the company's accounting system, which owns the bills claims are recorded as and their payment.\\\\n    functions:\\\\n      bill_matches:\\\\n        description: Whether Xero holds a bill with this id that carries this claim number as its reference and totals this amount.\\\\n        arguments:\\\\n          bill_id: { type: string }\\\\n          claim_number: { type: string }\\\\n          amount: { type: money(USD) }\\\\n        fresh: 10 min\\\\n      bill_paid:\\\\n        description: Whether the bill with this id is paid in full in Xero.\\\\n        arguments:\\\\n          bill_id: { type: string }\\\\n        fresh: 10 min\\\\n\\\\ntypes:\\\\n  Employee:\\\\n    description: A person employed by the company, who may claim expenses and act on claims.\\\\n    tracking: record\\\\n    taken_by: [human, service]\\\\n    attributes:\\\\n      user_id: { type: identity, actor_kind: human, unique: true }\\\\n      name: { type: string, optional: true, personal: true }\\\\n      xero_contact_id:\\\\n        type: string\\\\n        external: xero\\\\n        optional: true\\\\n        description: The Xero contact the employee's bills are raised against.\\\\n    states:\\\\n      ACTIVE:\\\\n        category: in_service\\\\n        description: Employed, and may claim and act on claims.\\\\n      LEFT:\\\\n        category: closed\\\\n        final: true\\\\n        description: No longer employed.\\\\n    transitions:\\\\n      onboard:\\\\n        kind: initial\\\\n        to: ACTIVE\\\\n        required_inputs: [user_id]\\\\n        optional_inputs: [name]\\\\n      link_xero_contact:\\\\n        kind: internal\\\\n        from: ACTIVE\\\\n        description: Records the Xero contact the employee's bills are raised against.\\\\n        required_inputs: [xero_contact_id]\\\\n      leave:\\\\n        kind: external\\\\n        from: ACTIVE\\\\n        to: LEFT\\\\n      forget:\\\\n        kind: erasure\\\\n        taken_by: [human]\\\\n        description: Erases this store's copy of the employee's name.\\\\n        inputs:\\\\n          reason: { type: string }\\\\n\\\\n  AssistantAgent:\\\\n    description: An AI agent that makes requests of its own, such as suggesting whether a claim line is an expense or a purchase; it never commits a financial write.\\\\n    tracking: record\\\\n    taken_by: [human]\\\\n    attributes:\\\\n      agent_id: { type: identity, actor_kind: agent, unique: true }\\\\n      name: { type: string }\\\\n    states:\\\\n      ENABLED: { category: in_service }\\\\n      RETIRED: { category: closed, final: true }\\\\n    transitions:\\\\n      register:\\\\n        kind: initial\\\\n        to: ENABLED\\\\n        required_inputs: [agent_id, name]\\\\n      retire:\\\\n        kind: external\\\\n        from: ENABLED\\\\n        to: RETIRED\\\\n\\\\n  BusinessFunction:\\\\n    description: A function of the company, a role or team such as finance or management, under whose authority claims are approved; never a named person.\\\\n    tracking: record\\\\n    taken_by: [human, service]\\\\n    attributes:\\\\n      name: { type: string, unique: true }\\\\n    states:\\\\n      ACTIVE: { category: in_service }\\\\n      DISSOLVED: { category: closed, final: true }\\\\n    transitions:\\\\n      establish:\\\\n        kind: initial\\\\n        to: ACTIVE\\\\n        required_inputs: [name]\\\\n      dissolve:\\\\n        kind: external\\\\n        from: ACTIVE\\\\n        to: DISSOLVED\\\\n\\\\n  ExpenseCategory:\\\\n    description: A category of spending a claim line is filed under, such as travel, meals, equipment or other, with the policy amount above which a line is flagged.\\\\n    tracking: record\\\\n    taken_by: [human]\\\\n    attributes:\\\\n      name: { type: string, unique: true }\\\\n      policy_amount:\\\\n        type: money(USD)\\\\n        description: The most a single line of this category claims within policy; a line above it is allowed, and flagged.\\\\n    states:\\\\n      IN_USE: { category: in_service }\\\\n      RETIRED: { category: closed, final: true }\\\\n    conditions:\\\\n      policy_amount_positive:\\\\n        description: The policy amount given is above zero.\\\\n        expression: inputs.policy_amount > USD 0.00\\\\n        remedy: self_serviceable\\\\n    transitions:\\\\n      define:\\\\n        kind: initial\\\\n        to: IN_USE\\\\n        required_inputs: [name, policy_amount]\\\\n        guards:\\\\n          policy_amount_positive: deny\\\\n      change_policy_amount:\\\\n        kind: internal\\\\n        from: IN_USE\\\\n        required_inputs: [policy_amount]\\\\n        guards:\\\\n          policy_amount_positive: deny\\\\n      retire:\\\\n        kind: external\\\\n        from: IN_USE\\\\n        to: RETIRED\\\\n\\\\n  Claim:\\\\n    description: A staff reimbursement claim, one employee's request to be paid back for business spending, made of line items; it is recorded in Xero as a bill and paid separately.\\\\n    tracking: record\\\\n    # people and services take a claim's transitions, never the agent, which commits no financial write\\\\n    taken_by: [human, service]\\\\n    attributes:\\\\n      number:\\\\n        type: string\\\\n        identifier: { sequence: claim_number, format: \\\\\\\"EXP-{n:5}\\\\\\\" }\\\\n        unique: true\\\\n      claimant:\\\\n        reference: Employee\\\\n        description: The employee who spent the money and is paid back.\\\\n      title:\\\\n        type: string\\\\n        optional: true\\\\n        personal: true\\\\n        description: What the claim is for, in the claimant's words; free text may name someone, so it is personal, and optional only so that erasure can remove it.\\\\n      lines:\\\\n        reference: \\\\\\\"ClaimLine[]\\\\\\\"\\\\n        aggregation: composite\\\\n        opposite: claim\\\\n        cascade:\\\\n          - { on: [pay, reject, withdraw], transition: close, limit: 200 }\\\\n      first_submitted_at: { type: timestamp, optional: true }\\\\n      submitted_at: { type: timestamp, optional: true }\\\\n      return_reason: { type: ReturnReason, optional: true }\\\\n      approving_function:\\\\n        reference: BusinessFunction\\\\n        optional: true\\\\n        description: The function under whose authority the claim was approved.\\\\n      approved_at: { type: timestamp, optional: true }\\\\n      xero_bill_id:\\\\n        type: string\\\\n        external: xero\\\\n        optional: true\\\\n        description: The id of the bill the claim is recorded as in Xero.\\\\n      recorded_at: { type: timestamp, optional: true }\\\\n      verified_at: { type: timestamp, optional: true }\\\\n      paid_at: { type: timestamp, optional: true }\\\\n      rejection_reason: { type: RejectionReason, optional: true }\\\\n    states:\\\\n      DRAFT:\\\\n        category: to_do\\\\n        description: Being written by the claimant, and seen by no one else.\\\\n      SUBMITTED:\\\\n        category: in_progress\\\\n        description: Submitted, and under review, when a person confirms each line's nature.\\\\n        required_attributes: [first_submitted_at, submitted_at]\\\\n      RETURNED:\\\\n        category: to_do\\\\n        description: Sent back to the claimant for changes.\\\\n        required_attributes: [first_submitted_at, return_reason]\\\\n      REVIEWED:\\\\n        category: in_progress\\\\n        description: Reviewed, with every line's nature confirmed, and waiting for approval by a function.\\\\n        required_attributes: [first_submitted_at, submitted_at]\\\\n      APPROVED:\\\\n        category: in_progress\\\\n        description: Approved by a function, and waiting for a person to record it in Xero.\\\\n        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at]\\\\n      RECORDED:\\\\n        category: in_progress\\\\n        description: Recorded in Xero as a bill by a person, and waiting for the record to be read back.\\\\n        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at]\\\\n      VERIFIED:\\\\n        category: in_progress\\\\n        description: Its Xero bill read back and found to match, and waiting for payment.\\\\n        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at, verified_at]\\\\n      PAID:\\\\n        category: closed\\\\n        final: true\\\\n        description: Paid to the claimant.\\\\n        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at, verified_at, paid_at]\\\\n      REJECTED:\\\\n        category: closed\\\\n        final: true\\\\n        description: Refused, and will not be paid.\\\\n        required_attributes: [first_submitted_at, rejection_reason]\\\\n      WITHDRAWN:\\\\n        category: closed\\\\n        final: true\\\\n        description: Withdrawn by the claimant before approval.\\\\n    derived_attributes:\\\\n      total:\\\\n        description: The sum of the amounts of the claim's lines, those removed from it left out.\\\\n        expression: \\\\\\\"sum(l in lines where l.state != ClaimLine.REMOVED: l.amount)\\\\\\\"\\\\n      over_policy_lines:\\\\n        description: The number of the claim's lines above their category's policy amount, shown to everyone acting on the claim.\\\\n        expression: count(l in lines where l.state != ClaimLine.REMOVED and l.over_policy)\\\\n    summary: [number, state, claimant, total, over_policy_lines]\\\\n    invariants:\\\\n      lines_within_reach: { description: A claim holds at most the 200 lines its cascade and its erasure take, expression: \\\\\\\"count(l in lines) <= 200\\\\\\\" }\\\\n      has_title:\\\\n        description: Every claim has a title, until erasure removes it.\\\\n        expression: title is not null\\\\n    conditions:\\\\n      has_lines:\\\\n        description: The claim has at least one line not removed.\\\\n        expression: count(l in lines where l.state != ClaimLine.REMOVED) > 0\\\\n        remedy: unreachable_from_here\\\\n      lines_classified:\\\\n        description: Every line of the claim not removed has its nature, expense or purchase, confirmed by a person.\\\\n        expression: \\\\\\\"all(l in lines where l.state != ClaimLine.REMOVED: l.nature is not null)\\\\\\\"\\\\n        remedy: dependent\\\\n      lines_within_policy:\\\\n        description: No line of the claim is above its category's policy amount.\\\\n        expression: over_policy_lines == 0\\\\n        remedy: unreachable_from_here\\\\n      function_active:\\\\n        description: The function named as approving the claim is active.\\\\n        expression: inputs.approving_function.state == BusinessFunction.ACTIVE\\\\n        remedy: self_serviceable\\\\n      bill_matches_xero:\\\\n        description: Xero holds a bill with the recorded id that carries the claim's number and totals the claim.\\\\n        expression: xero.bill_matches(xero_bill_id, number, total)\\\\n        remedy: delegable\\\\n      bill_paid_in_xero:\\\\n        description: Xero shows the claim's bill paid in full.\\\\n        expression: xero.bill_paid(xero_bill_id)\\\\n        remedy: delegable\\\\n      payment_not_in_future:\\\\n        description: The payment date given is not in the future.\\\\n        expression: inputs.paid_at <= now\\\\n        remedy: self_serviceable\\\\n    transitions:\\\\n      draft:\\\\n        kind: initial\\\\n        to: DRAFT\\\\n        description: The claimant starts a claim.\\\\n        required_inputs: [claimant, title]\\\\n      add_line:\\\\n        kind: internal\\\\n        from: [DRAFT, RETURNED]\\\\n        description: Adds a line item to the claim.\\\\n        inputs:\\\\n          amount: { type: money(USD) }\\\\n          category: { reference: ExpenseCategory }\\\\n          expense_date: { type: date }\\\\n          receipt: { type: file }\\\\n          purpose: { type: string, optional: true, personal: true }\\\\n          merchant: { type: string, optional: true }\\\\n          original_amount: { type: \\\\\\\"decimal(12,2)\\\\\\\", optional: true }\\\\n          original_currency: { type: string, optional: true }\\\\n        effect:\\\\n          - create:\\\\n              type: ClaimLine\\\\n              transition: add\\\\n              inputs:\\\\n                claim: this\\\\n                amount: inputs.amount\\\\n                category: inputs.category\\\\n                expense_date: inputs.expense_date\\\\n                receipt: inputs.receipt\\\\n                purpose: inputs.purpose\\\\n                merchant: inputs.merchant\\\\n                original_amount: inputs.original_amount\\\\n                original_currency: inputs.original_currency\\\\n      submit:\\\\n        kind: external\\\\n        from: DRAFT\\\\n        to: SUBMITTED\\\\n        description: The claimant submits the claim for review.\\\\n        guards:\\\\n          has_lines: deny\\\\n        effect:\\\\n          - assign: { location: first_submitted_at, expr: now }\\\\n          - assign: { location: submitted_at, expr: now }\\\\n      resubmit:\\\\n        kind: external\\\\n        from: RETURNED\\\\n        to: SUBMITTED\\\\n        description: The claimant submits the claim again after changing it.\\\\n        guards:\\\\n          has_lines: deny\\\\n        effect:\\\\n          - assign: { location: submitted_at, expr: now }\\\\n      return_for_changes:\\\\n        kind: external\\\\n        from: [SUBMITTED, REVIEWED]\\\\n        to: RETURNED\\\\n        description: A reviewer or approver sends the claim back to the claimant for changes.\\\\n        required_inputs: [return_reason]\\\\n        inputs:\\\\n          note:\\\\n            type: string\\\\n            personal: true\\\\n            description: What the claimant should change.\\\\n      complete_review:\\\\n        kind: external\\\\n        taken_by: [human]\\\\n        from: SUBMITTED\\\\n        to: REVIEWED\\\\n        description: The reviewer finishes the review, every line's nature confirmed.\\\\n        guards:\\\\n          lines_classified: deny\\\\n      approve:\\\\n        kind: external\\\\n        taken_by: [human]\\\\n        from: REVIEWED\\\\n        to: APPROVED\\\\n        description: A person approves the claim under the authority of a function.\\\\n        required_inputs: [approving_function]\\\\n        guards:\\\\n          function_active: deny\\\\n          lines_within_policy: warn\\\\n        effect:\\\\n          - assign: { location: approved_at, expr: now }\\\\n      reject:\\\\n        kind: external\\\\n        taken_by: [human]\\\\n        from: [SUBMITTED, REVIEWED]\\\\n        to: REJECTED\\\\n        description: A reviewer or approver refuses the claim.\\\\n        required_inputs: [rejection_reason]\\\\n        inputs:\\\\n          note:\\\\n            type: string\\\\n            optional: true\\\\n            personal: true\\\\n            description: Why the claim was refused, in words.\\\\n      withdraw:\\\\n        kind: external\\\\n        from: [DRAFT, SUBMITTED, RETURNED, REVIEWED]\\\\n        to: WITHDRAWN\\\\n        description: The claimant withdraws the claim before it is approved.\\\\n      record_in_xero:\\\\n        kind: external\\\\n        from: APPROVED\\\\n        to: RECORDED\\\\n        description: A person records the claim in Xero as a bill and gives the bill's id.\\\\n        required_inputs: [xero_bill_id]\\\\n        effect:\\\\n          - assign: { location: recorded_at, expr: now }\\\\n      correct_xero_bill_id:\\\\n        kind: internal\\\\n        from: RECORDED\\\\n        description: Corrects the Xero bill id recorded, when the read-back shows it was wrong.\\\\n        corrects: [xero_bill_id]\\\\n        required_inputs: [xero_bill_id]\\\\n        inputs:\\\\n          reason: { type: CorrectionReason }\\\\n      verify_xero_record:\\\\n        kind: external\\\\n        from: RECORDED\\\\n        to: VERIFIED\\\\n        description: Reads the Xero bill back and confirms it matches the claim.\\\\n        guards:\\\\n          bill_matches_xero: deny\\\\n        effect:\\\\n          - assign: { location: verified_at, expr: now }\\\\n      pay:\\\\n        kind: external\\\\n        taken_by: [human, service]\\\\n        from: VERIFIED\\\\n        to: PAID\\\\n        description: Records that the bill was paid to the claimant, as Xero shows.\\\\n        required_inputs: [paid_at]\\\\n        guards:\\\\n          payment_not_in_future: deny\\\\n          bill_paid_in_xero: deny\\\\n      erase_personal_data:\\\\n        kind: erasure\\\\n        taken_by: [human]\\\\n        description: Erases the claim's personal data and that of its lines.\\\\n        inputs:\\\\n          reason: { type: string }\\\\n        effect:\\\\n          - foreach:\\\\n              item: l\\\\n              array: lines\\\\n              limit: 200\\\\n              steps:\\\\n                - call: { target: l, transition: erase, inputs: { reason: inputs.reason } }\\\\n    metrics:\\\\n      submission_to_payment:\\\\n        description: The median time from a claim's first submission to its payment, by the month it was paid.\\\\n        source: objects\\\\n        item: c\\\\n        filter: c.paid_at is not null\\\\n        dimensions:\\\\n          paid_month: month(c.paid_at)\\\\n        time_dimension: c.paid_at\\\\n        expression: median(c.paid_at - c.first_submitted_at)\\\\n        flag_when: { slow: \\\\\\\"value > 14 days\\\\\\\" }\\\\n      claimant_amount_claimed:\\\\n        description: The amount each claimant claimed, by the month of first submission, over claims submitted and not withdrawn; it names a person.\\\\n        source: objects\\\\n        item: c\\\\n        filter: c.first_submitted_at is not null and c.state != Claim.WITHDRAWN\\\\n        dimensions:\\\\n          claimant: c.claimant\\\\n          submitted_month: month(c.first_submitted_at)\\\\n        time_dimension: c.first_submitted_at\\\\n        expression: sum(c.total)\\\\n      claimant_over_policy_lines:\\\\n        description: The number of lines above policy on each claimant's claims, by the month of first submission, over claims submitted and not withdrawn; it names a person.\\\\n        source: objects\\\\n        item: c\\\\n        filter: c.first_submitted_at is not null and c.state != Claim.WITHDRAWN\\\\n        dimensions:\\\\n          claimant: c.claimant\\\\n          submitted_month: month(c.first_submitted_at)\\\\n        time_dimension: c.first_submitted_at\\\\n        expression: sum(c.over_policy_lines)\\\\n      approval_policy_flags:\\\\n        description: How many times a claim was approved with a line above its category's policy amount, by rule and month.\\\\n        source: attempt_counts\\\\n        item: a\\\\n        filter: a.flagged\\\\n        dimensions:\\\\n          rule: a.clause\\\\n          flagged_month: month(a.day)\\\\n        time_dimension: a.day\\\\n        expression: sum(a.count)\\\\n\\\\n  ClaimLine:\\\\n    description: One item of a claim, a single amount spent on one date in one category, with its receipt.\\\\n    tracking: record\\\\n    # the agent only suggests a line's nature (`suggest`, its own); everything else is a person's or a service's\\\\n    taken_by: [human, service]\\\\n    attributes:\\\\n      claim: { reference: Claim, opposite: lines }\\\\n      amount: { type: money(USD) }\\\\n      original_amount:\\\\n        type: decimal(12,2)\\\\n        optional: true\\\\n        description: The amount spent, in the currency it was spent in, where that is not the home currency; recorded, and never computed with (ADR-0145).\\\\n      original_currency:\\\\n        type: string\\\\n        optional: true\\\\n        description: The ISO 4217 code of the currency the amount was spent in, beside original_amount.\\\\n      category: { reference: ExpenseCategory }\\\\n      expense_date:\\\\n        type: date\\\\n        description: The day the money was spent, a calendar day with no time and no zone (ADR-0145).\\\\n      receipt: { type: file }\\\\n      purpose:\\\\n        type: string\\\\n        optional: true\\\\n        personal: true\\\\n        description: What the money was spent on, in the claimant's words.\\\\n      merchant: { type: string, optional: true }\\\\n      suggested_nature:\\\\n        type: SpendNature\\\\n        optional: true\\\\n        description: The agent's suggestion of whether the line is an expense or a purchase, which commits nothing.\\\\n      suggestion_rationale:\\\\n        type: string\\\\n        optional: true\\\\n        personal: true\\\\n        description: The agent's reasons for its suggestion, shown to the person who confirms it.\\\\n      nature:\\\\n        type: SpendNature\\\\n        optional: true\\\\n        description: Whether the line is an expense or a purchase, as a person confirmed it.\\\\n      nature_confirmed_by:\\\\n        type: actor_kind\\\\n        optional: true\\\\n        description: The kind of actor that confirmed the line's nature, recorded as it was confirmed (ADR-0145).\\\\n    states:\\\\n      LISTED:\\\\n        category: in_progress\\\\n        description: On its claim.\\\\n      REMOVED:\\\\n        category: closed\\\\n        final: true\\\\n        description: Taken off its claim by the claimant before approval.\\\\n      CLOSED:\\\\n        category: closed\\\\n        final: true\\\\n        description: Its claim was paid, rejected or withdrawn.\\\\n    derived_attributes:\\\\n      over_policy:\\\\n        description: The line's amount is above its category's policy amount.\\\\n        expression: amount > category.policy_amount\\\\n    invariants:\\\\n      spent_amount_has_its_currency:\\\\n        description: An amount spent in another currency names that currency.\\\\n        expression: original_amount is null or original_currency is not null\\\\n      confirmed_by_a_person:\\\\n        description: A line's nature is confirmed by a person, never by the agent, which only suggests it, so the agent never commits a financial write.\\\\n        expression: nature is null or (nature_confirmed_by is not null and nature_confirmed_by == human)\\\\n    conditions:\\\\n      amount_positive:\\\\n        description: The amount given is above zero.\\\\n        expression: inputs.amount > USD 0.00\\\\n        remedy: self_serviceable\\\\n      spent_in_past:\\\\n        description: The day of the expense is not in the future, allowing a day, since the claimant's today is a day ahead of UTC's east of it for part of each day.\\\\n        expression: inputs.expense_date <= date(now) + 1 day\\\\n        remedy: self_serviceable\\\\n      category_in_use:\\\\n        description: The category given is in use.\\\\n        expression: inputs.category.state == ExpenseCategory.IN_USE\\\\n        remedy: self_serviceable\\\\n      within_policy:\\\\n        description: The amount given is no more than its category's policy amount.\\\\n        expression: inputs.amount <= inputs.category.policy_amount\\\\n        remedy: self_serviceable\\\\n      claim_editable:\\\\n        description: The line's claim is a draft or has been sent back for changes.\\\\n        expression: claim.state == Claim.DRAFT or claim.state == Claim.RETURNED\\\\n        remedy: dependent\\\\n      claim_under_review:\\\\n        description: The line's claim is under review.\\\\n        expression: claim.state == Claim.SUBMITTED\\\\n        remedy: dependent\\\\n      nature_unconfirmed:\\\\n        description: No person has yet confirmed the line's nature.\\\\n        expression: nature is null\\\\n        remedy: unreachable_from_here\\\\n    transitions:\\\\n      add:\\\\n        kind: initial\\\\n        to: LISTED\\\\n        description: A line is added to its claim.\\\\n        only_via: [Claim.add_line]\\\\n        required_inputs: [claim, amount, category, expense_date, receipt]\\\\n        optional_inputs: [purpose, merchant, original_amount, original_currency]\\\\n        guards:\\\\n          amount_positive: deny\\\\n          spent_in_past: deny\\\\n          category_in_use: deny\\\\n          within_policy: warn\\\\n      amend:\\\\n        kind: internal\\\\n        from: LISTED\\\\n        description: The claimant replaces the line's details, which undoes any suggestion or confirmation of its nature.\\\\n        required_inputs: [amount, category, expense_date, receipt]\\\\n        optional_inputs: [purpose, merchant, original_amount, original_currency]\\\\n        guards:\\\\n          claim_editable: deny\\\\n          amount_positive: deny\\\\n          spent_in_past: deny\\\\n          category_in_use: deny\\\\n          within_policy: warn\\\\n        effect:\\\\n          - clear: [suggested_nature, suggestion_rationale, nature, nature_confirmed_by]\\\\n      discard:\\\\n        kind: external\\\\n        from: LISTED\\\\n        to: REMOVED\\\\n        description: The claimant takes the line off the claim.\\\\n        guards:\\\\n          claim_editable: deny\\\\n      suggest_nature:\\\\n        kind: internal\\\\n        from: LISTED\\\\n        description: The agent suggests whether the line is an expense or a purchase; the suggestion commits nothing.\\\\n        # the agent's, so its generated tools offer it (ADR-0189)\\\\n        taken_by: [agent]\\\\n        required_inputs: [suggested_nature]\\\\n        optional_inputs: [suggestion_rationale]\\\\n        guards:\\\\n          nature_unconfirmed: deny\\\\n      confirm_nature:\\\\n        kind: internal\\\\n        from: LISTED\\\\n        description: A person confirms the line's nature, accepting or overriding the agent's suggestion.\\\\n        required_inputs: [nature]\\\\n        guards:\\\\n          claim_under_review: deny\\\\n        effect:\\\\n          - assign: { location: nature_confirmed_by, expr: actor.kind }\\\\n      close:\\\\n        kind: external\\\\n        from: LISTED\\\\n        to: CLOSED\\\\n        description: The line closes with its claim.\\\\n        only_via: [Claim.pay, Claim.reject, Claim.withdraw]\\\\n      erase:\\\\n        kind: erasure\\\\n        taken_by: [human]\\\\n        description: Erases the line's personal data.\\\\n        inputs:\\\\n          reason: { type: string }\\\\n    metrics:\\\\n      amount_claimed_by_category:\\\\n        description: The amount claimed in each category, by the month the money was spent, over the lines of every claim submitted and not withdrawn.\\\\n        source: objects\\\\n        item: l\\\\n        filter: l.state != ClaimLine.REMOVED and l.claim.first_submitted_at is not null and l.claim.state != Claim.WITHDRAWN\\\\n        dimensions:\\\\n          expense_category: l.category\\\\n          spent_month: month(l.expense_date)\\\\n        time_dimension: l.expense_date\\\\n        expression: sum(l.amount)\\\\n      line_policy_flags:\\\\n        description: How many times a line was entered or amended above its category's policy amount, by rule and month.\\\\n        source: attempt_counts\\\\n        item: a\\\\n        filter: a.flagged\\\\n        dimensions:\\\\n          rule: a.clause\\\\n          flagged_month: month(a.day)\\\\n        time_dimension: a.day\\\\n        expression: sum(a.count)\\\\n\\\"}\",\"source_digest\":\"sha256:e91f00e6e8b7abb1e55b743ae8efea9baa0cc17d8711c5b81745f3487bd42474\",\"source_ref\":\"fixture:reimbursement\"}},\"reads\":{},\"context\":null,\"batch\":null}",
+  "{\"position\":3,\"object_id\":\"01a17c2c-9e25-7d2f-bc43-fb81bbc52e45\",\"object_seq\":2,\"transition\":\"submit\",\"from_state\":\"DRAFTED\",\"to_state\":\"SUBMITTED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":0,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"wrote\":{\"report\":\"{\\\"version\\\":1,\\\"accepted\\\":true,\\\"now\\\":\\\"2026-10-27T07:04:21Z\\\",\\\"findings\\\":[{\\\"severity\\\":\\\"notice\\\",\\\"code\\\":\\\"check:warn\\\",\\\"message\\\":\\\"reimbursement:370: lines_within_policy warns: a failure is reported with the result and refuses nothing\\\",\\\"affected\\\":0,\\\"sample\\\":[]},{\\\"severity\\\":\\\"notice\\\",\\\"code\\\":\\\"check:warn\\\",\\\"message\\\":\\\"reimbursement:589: within_policy warns: a failure is reported with the result and refuses nothing\\\",\\\"affected\\\":0,\\\"sample\\\":[]},{\\\"severity\\\":\\\"notice\\\",\\\"code\\\":\\\"check:warn\\\",\\\"message\\\":\\\"reimbursement:601: within_policy warns: a failure is reported with the result and refuses nothing\\\",\\\"affected\\\":0,\\\"sample\\\":[]}],\\\"change_id\\\":\\\"01a17c2c-9e25-7d2f-bc43-fb81bbc52e45\\\",\\\"source_ref\\\":\\\"fixture:reimbursement\\\",\\\"source_digest\\\":\\\"sha256:e91f00e6e8b7abb1e55b743ae8efea9baa0cc17d8711c5b81745f3487bd42474\\\",\\\"proposals_invalidated\\\":0,\\\"affected\\\":{},\\\"examples\\\":{},\\\"analysed\\\":{\\\"AssistantAgent\\\":[0,0],\\\"BusinessFunction\\\":[0,0],\\\"Claim\\\":[3,8],\\\"ClaimLine\\\":[3,12],\\\"Employee\\\":[0,0],\\\"ExpenseCategory\\\":[2,2]},\\\"person_dimensions\\\":[\\\"Claim.claimant_amount_claimed.claimant\\\",\\\"Claim.claimant_over_policy_lines.claimant\\\"],\\\"invariant_forms\\\":{\\\"AssistantAgent.register_taken_by\\\":\\\"local\\\",\\\"AssistantAgent.retire_taken_by\\\":\\\"local\\\",\\\"BusinessFunction.dissolve_taken_by\\\":\\\"local\\\",\\\"BusinessFunction.establish_taken_by\\\":\\\"local\\\",\\\"Claim.add_line_taken_by\\\":\\\"local\\\",\\\"Claim.approve_taken_by\\\":\\\"local\\\",\\\"Claim.complete_review_taken_by\\\":\\\"local\\\",\\\"Claim.correct_xero_bill_id_taken_by\\\":\\\"local\\\",\\\"Claim.draft_taken_by\\\":\\\"local\\\",\\\"Claim.erase_personal_data_taken_by\\\":\\\"local\\\",\\\"Claim.has_title\\\":\\\"local\\\",\\\"Claim.lines_within_reach\\\":\\\"traversal\\\",\\\"Claim.pay_taken_by\\\":\\\"local\\\",\\\"Claim.record_in_xero_taken_by\\\":\\\"local\\\",\\\"Claim.reject_taken_by\\\":\\\"local\\\",\\\"Claim.resubmit_taken_by\\\":\\\"local\\\",\\\"Claim.return_for_changes_taken_by\\\":\\\"local\\\",\\\"Claim.submit_taken_by\\\":\\\"local\\\",\\\"Claim.verify_xero_record_taken_by\\\":\\\"local\\\",\\\"Claim.withdraw_taken_by\\\":\\\"local\\\",\\\"ClaimLine.add_taken_by\\\":\\\"local\\\",\\\"ClaimLine.amend_taken_by\\\":\\\"local\\\",\\\"ClaimLine.close_taken_by\\\":\\\"local\\\",\\\"ClaimLine.confirm_nature_taken_by\\\":\\\"local\\\",\\\"ClaimLine.confirmed_by_a_person\\\":\\\"local\\\",\\\"ClaimLine.discard_taken_by\\\":\\\"local\\\",\\\"ClaimLine.erase_taken_by\\\":\\\"local\\\",\\\"ClaimLine.spent_amount_has_its_currency\\\":\\\"local\\\",\\\"ClaimLine.suggest_nature_taken_by\\\":\\\"local\\\",\\\"Employee.forget_taken_by\\\":\\\"local\\\",\\\"Employee.leave_taken_by\\\":\\\"local\\\",\\\"Employee.link_xero_contact_taken_by\\\":\\\"local\\\",\\\"Employee.onboard_taken_by\\\":\\\"local\\\",\\\"ExpenseCategory.change_policy_amount_taken_by\\\":\\\"local\\\",\\\"ExpenseCategory.define_taken_by\\\":\\\"local\\\",\\\"ExpenseCategory.retire_taken_by\\\":\\\"local\\\"},\\\"could_violate\\\":{\\\"AssistantAgent.register_taken_by\\\":[\\\"AssistantAgent.register\\\"],\\\"AssistantAgent.retire_taken_by\\\":[\\\"AssistantAgent.register\\\",\\\"AssistantAgent.retire\\\"],\\\"BusinessFunction.dissolve_taken_by\\\":[\\\"BusinessFunction.dissolve\\\",\\\"BusinessFunction.establish\\\"],\\\"BusinessFunction.establish_taken_by\\\":[\\\"BusinessFunction.establish\\\"],\\\"Claim.add_line_taken_by\\\":[\\\"Claim.add_line\\\",\\\"Claim.draft\\\"],\\\"Claim.approve_taken_by\\\":[\\\"Claim.approve\\\",\\\"Claim.draft\\\"],\\\"Claim.complete_review_taken_by\\\":[\\\"Claim.complete_review\\\",\\\"Claim.draft\\\"],\\\"Claim.correct_xero_bill_id_taken_by\\\":[\\\"Claim.correct_xero_bill_id\\\",\\\"Claim.draft\\\"],\\\"Claim.draft_taken_by\\\":[\\\"Claim.draft\\\"],\\\"Claim.erase_personal_data_taken_by\\\":[\\\"Claim.draft\\\",\\\"Claim.erase_personal_data\\\"],\\\"Claim.has_title\\\":[\\\"Claim.draft\\\",\\\"Claim.erase_personal_data\\\"],\\\"Claim.lines_within_reach\\\":[\\\"Claim.draft\\\",\\\"ClaimLine.add\\\"],\\\"Claim.pay_taken_by\\\":[\\\"Claim.draft\\\",\\\"Claim.pay\\\"],\\\"Claim.record_in_xero_taken_by\\\":[\\\"Claim.draft\\\",\\\"Claim.record_in_xero\\\"],\\\"Claim.reject_taken_by\\\":[\\\"Claim.draft\\\",\\\"Claim.reject\\\"],\\\"Claim.resubmit_taken_by\\\":[\\\"Claim.draft\\\",\\\"Claim.resubmit\\\"],\\\"Claim.return_for_changes_taken_by\\\":[\\\"Claim.draft\\\",\\\"Claim.return_for_changes\\\"],\\\"Claim.submit_taken_by\\\":[\\\"Claim.draft\\\",\\\"Claim.submit\\\"],\\\"Claim.verify_xero_record_taken_by\\\":[\\\"Claim.draft\\\",\\\"Claim.verify_xero_record\\\"],\\\"Claim.withdraw_taken_by\\\":[\\\"Claim.draft\\\",\\\"Claim.withdraw\\\"],\\\"ClaimLine.add_taken_by\\\":[\\\"ClaimLine.add\\\"],\\\"ClaimLine.amend_taken_by\\\":[\\\"ClaimLine.add\\\",\\\"ClaimLine.amend\\\"],\\\"ClaimLine.close_taken_by\\\":[\\\"ClaimLine.add\\\",\\\"ClaimLine.close\\\"],\\\"ClaimLine.confirm_nature_taken_by\\\":[\\\"ClaimLine.add\\\",\\\"ClaimLine.confirm_nature\\\"],\\\"ClaimLine.confirmed_by_a_person\\\":[\\\"ClaimLine.add\\\",\\\"ClaimLine.amend\\\",\\\"ClaimLine.confirm_nature\\\"],\\\"ClaimLine.discard_taken_by\\\":[\\\"ClaimLine.add\\\",\\\"ClaimLine.discard\\\"],\\\"ClaimLine.erase_taken_by\\\":[\\\"ClaimLine.add\\\",\\\"ClaimLine.erase\\\"],\\\"ClaimLine.spent_amount_has_its_currency\\\":[\\\"ClaimLine.add\\\",\\\"ClaimLine.amend\\\"],\\\"ClaimLine.suggest_nature_taken_by\\\":[\\\"ClaimLine.add\\\",\\\"ClaimLine.suggest_nature\\\"],\\\"Employee.forget_taken_by\\\":[\\\"Employee.forget\\\",\\\"Employee.onboard\\\"],\\\"Employee.leave_taken_by\\\":[\\\"Employee.leave\\\",\\\"Employee.onboard\\\"],\\\"Employee.link_xero_contact_taken_by\\\":[\\\"Employee.link_xero_contact\\\",\\\"Employee.onboard\\\"],\\\"Employee.onboard_taken_by\\\":[\\\"Employee.onboard\\\"],\\\"ExpenseCategory.change_policy_amount_taken_by\\\":[\\\"ExpenseCategory.change_policy_amount\\\",\\\"ExpenseCategory.define\\\"],\\\"ExpenseCategory.define_taken_by\\\":[\\\"ExpenseCategory.define\\\"],\\\"ExpenseCategory.retire_taken_by\\\":[\\\"ExpenseCategory.define\\\",\\\"ExpenseCategory.retire\\\"]},\\\"not_computed\\\":[\\\"invariants\\\",\\\"sweepable\\\",\\\"unsweepable\\\",\\\"queryable_derives\\\",\\\"worst_case_fanout\\\",\\\"observed_fanout\\\",\\\"replaced_creations\\\",\\\"creations_past_first_state\\\",\\\"observing_clauses\\\",\\\"flags\\\"]}\"}},\"reads\":{},\"context\":null,\"batch\":null}",
+  "{\"position\":4,\"object_id\":\"01a17c2c-9e25-7d2f-bc43-fb81bbc52e45\",\"object_seq\":3,\"transition\":\"publish\",\"from_state\":\"SUBMITTED\",\"to_state\":\"PUBLISHED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"version\":1},\"reads\":{},\"context\":null,\"batch\":null}",
+  "{\"position\":5,\"object_id\":\"01a17c2c-9f12-7f86-b585-d2a3c40a95bf\",\"object_seq\":1,\"transition\":\"onboard\",\"from_state\":null,\"to_state\":\"ACTIVE\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{\"user_id\":\"alice\"},\"wrote\":{\"onboard_by_kind\":\"human\",\"user_id\":\"alice\"}},\"reads\":{\"objects\":{},\"scans\":{\"identity_taken\":{\"AssistantAgent\":[],\"Employee\":[],\"Operator\":[]},\"user_id_unique\":{\"Employee\":[]}},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":6,\"object_id\":\"01a17c2c-9f1b-72c2-9146-12015aa8ddf2\",\"object_seq\":1,\"transition\":\"onboard\",\"from_state\":null,\"to_state\":\"ACTIVE\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{\"user_id\":\"rev\"},\"wrote\":{\"onboard_by_kind\":\"human\",\"user_id\":\"rev\"}},\"reads\":{\"objects\":{},\"scans\":{\"identity_taken\":{\"AssistantAgent\":[],\"Employee\":[],\"Operator\":[]},\"user_id_unique\":{\"Employee\":[]}},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":7,\"object_id\":\"01a17c2c-9f23-7bc1-9c64-30e6097fe94a\",\"object_seq\":1,\"transition\":\"onboard\",\"from_state\":null,\"to_state\":\"ACTIVE\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{\"user_id\":\"fin\"},\"wrote\":{\"onboard_by_kind\":\"human\",\"user_id\":\"fin\"}},\"reads\":{\"objects\":{},\"scans\":{\"identity_taken\":{\"AssistantAgent\":[],\"Employee\":[],\"Operator\":[]},\"user_id_unique\":{\"Employee\":[]}},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":8,\"object_id\":\"01a17c2c-9f2b-7d1c-a776-92a8c7626381\",\"object_seq\":1,\"transition\":\"register\",\"from_state\":null,\"to_state\":\"ENABLED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{\"agent_id\":\"classifier\",\"name\":\"Spend classifier\"},\"wrote\":{\"agent_id\":\"classifier\",\"name\":\"Spend classifier\",\"register_by_kind\":\"human\"}},\"reads\":{\"objects\":{},\"scans\":{\"agent_id_unique\":{\"AssistantAgent\":[]},\"identity_taken\":{\"AssistantAgent\":[],\"Employee\":[],\"Operator\":[]}},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":9,\"object_id\":\"01a17c2c-9f34-7b3d-9835-8ca40bc7e2d2\",\"object_seq\":1,\"transition\":\"establish\",\"from_state\":null,\"to_state\":\"ACTIVE\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{\"name\":\"Finance approvers\"},\"wrote\":{\"establish_by_kind\":\"human\",\"name\":\"Finance approvers\"}},\"reads\":{\"objects\":{},\"scans\":{\"name_unique\":{\"BusinessFunction\":[]}},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":10,\"object_id\":\"01a17c2c-9f3c-768c-809c-8679d92f093a\",\"object_seq\":1,\"transition\":\"define\",\"from_state\":null,\"to_state\":\"IN_USE\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{\"name\":\"Meals\",\"policy_amount\":\"USD 60.00\"},\"wrote\":{\"define_by_kind\":\"human\",\"name\":\"Meals\",\"policy_amount\":\"USD 60.00\"}},\"reads\":{\"objects\":{},\"scans\":{\"name_unique\":{\"ExpenseCategory\":[]}},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":11,\"object_id\":\"01a17c2c-9f44-7e6f-9788-6ca15a5c7e7e\",\"object_seq\":1,\"transition\":\"define\",\"from_state\":null,\"to_state\":\"IN_USE\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{\"name\":\"Equipment\",\"policy_amount\":\"USD 500.00\"},\"wrote\":{\"define_by_kind\":\"human\",\"name\":\"Equipment\",\"policy_amount\":\"USD 500.00\"}},\"reads\":{\"objects\":{},\"scans\":{\"name_unique\":{\"ExpenseCategory\":[]}},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":12,\"object_id\":\"01a17c2c-9f52-7915-a25d-290dc0efb767\",\"object_seq\":1,\"transition\":\"draft\",\"from_state\":null,\"to_state\":\"DRAFT\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"alice\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{\"claimant\":\"01a17c2c-9f12-7f86-b585-d2a3c40a95bf\"},\"wrote\":{\"claimant\":\"01a17c2c-9f12-7f86-b585-d2a3c40a95bf\",\"draft_by_kind\":\"human\",\"number\":\"EXP-00001\"}},\"reads\":{\"objects\":{},\"scans\":{\"number_unique\":{\"Claim\":[]}},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":13,\"object_id\":\"01a17c2c-9f52-7915-a25d-290dc0efb767\",\"object_seq\":2,\"transition\":\"add_line\",\"from_state\":\"DRAFT\",\"to_state\":\"DRAFT\",\"changes_state\":false,\"source\":\"observed\",\"actor_id\":\"alice\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{\"amount\":\"USD 45.00\",\"category\":\"01a17c2c-9f3c-768c-809c-8679d92f093a\",\"expense_date\":\"2025-12-30\",\"merchant\":\"Harbour Cafe\",\"receipt\":{\"hash\":\"sha256:236d76ea080aeb302fbb0c0c0f4ae01563ed3312c25635d548e7f4dd661450c2\",\"size\":17,\"media_type\":\"application/octet-stream\"}},\"wrote\":{\"add_line_by_kind\":\"human\"}},\"reads\":{\"objects\":{\"01a17c2c-9f60-7b6e-afaf-a4c5e8b22786\":1},\"scans\":{\"number_unique\":{\"Claim\":[]}},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":14,\"object_id\":\"01a17c2c-9f60-7b6e-afaf-a4c5e8b22786\",\"object_seq\":1,\"transition\":\"add\",\"from_state\":null,\"to_state\":\"LISTED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"alice\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":13,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{\"amount\":\"USD 45.00\",\"category\":\"01a17c2c-9f3c-768c-809c-8679d92f093a\",\"claim\":\"01a17c2c-9f52-7915-a25d-290dc0efb767\",\"expense_date\":\"2025-12-30\",\"merchant\":\"Harbour Cafe\",\"receipt\":{\"hash\":\"sha256:236d76ea080aeb302fbb0c0c0f4ae01563ed3312c25635d548e7f4dd661450c2\",\"size\":17,\"media_type\":\"application/octet-stream\"}},\"wrote\":{\"add_by_kind\":\"human\",\"amount\":\"USD 45.00\",\"category\":\"01a17c2c-9f3c-768c-809c-8679d92f093a\",\"claim\":\"01a17c2c-9f52-7915-a25d-290dc0efb767\",\"expense_date\":\"2025-12-30\",\"merchant\":\"Harbour Cafe\",\"receipt\":{\"hash\":\"sha256:236d76ea080aeb302fbb0c0c0f4ae01563ed3312c25635d548e7f4dd661450c2\",\"size\":17,\"media_type\":\"application/octet-stream\"}}},\"reads\":{\"objects\":{\"01a17c2c-9f3c-768c-809c-8679d92f093a\":1},\"scans\":{},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":15,\"object_id\":\"01a17c2c-9f52-7915-a25d-290dc0efb767\",\"object_seq\":3,\"transition\":\"submit\",\"from_state\":\"DRAFT\",\"to_state\":\"SUBMITTED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"alice\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{},\"wrote\":{\"first_submitted_at\":\"2026-10-27T07:04:21Z\",\"submit_by_kind\":\"human\",\"submitted_at\":\"2026-10-27T07:04:21Z\"}},\"reads\":{\"objects\":{\"01a17c2c-9f60-7b6e-afaf-a4c5e8b22786\":1},\"scans\":{\"number_unique\":{\"Claim\":[]}},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":16,\"object_id\":\"01a17c2c-9f52-7915-a25d-290dc0efb767\",\"object_seq\":4,\"transition\":\"withdraw\",\"from_state\":\"SUBMITTED\",\"to_state\":\"WITHDRAWN\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"alice\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{},\"wrote\":{\"withdraw_by_kind\":\"human\"}},\"reads\":{\"objects\":{\"01a17c2c-9f60-7b6e-afaf-a4c5e8b22786\":2},\"scans\":{\"number_unique\":{\"Claim\":[]}},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":17,\"object_id\":\"01a17c2c-9f60-7b6e-afaf-a4c5e8b22786\",\"object_seq\":2,\"transition\":\"close\",\"from_state\":\"LISTED\",\"to_state\":\"CLOSED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"alice\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":16,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{},\"wrote\":{\"close_by_kind\":\"human\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":18,\"object_id\":\"01a17c2c-a04f-7a5f-8acd-37f7555d8358\",\"object_seq\":1,\"transition\":\"record\",\"from_state\":null,\"to_state\":\"RECORDED\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{\"name\":\"fixture\",\"subject\":\"01a17c2c-9f12-7f86-b585-d2a3c40a95bf\"},\"wrote\":{\"name\":\"fixture\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"recorded_at\":\"2026-10-27T07:04:21Z\",\"subject\":\"01a17c2c-9f12-7f86-b585-d2a3c40a95bf\",\"subject_state\":\"ACTIVE\"}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}",
+  "{\"position\":19,\"object_id\":\"01a17c2c-a05c-7758-8623-3c4035df9445\",\"object_seq\":1,\"transition\":\"subscribe\",\"from_state\":null,\"to_state\":\"ACTIVE\",\"changes_state\":true,\"source\":\"observed\",\"actor_id\":\"operator\",\"actor_kind\":\"human\",\"principal\":null,\"cause\":null,\"declaration_version\":1,\"recorded_at\":\"2026-10-27T07:04:21Z\",\"occurred_at\":\"2026-10-27T07:04:21Z\",\"imported\":false,\"payload\":{\"inputs\":{\"target_type\":\"Employee\"},\"wrote\":{\"changes_state_only\":false,\"target_family\":false,\"target_type\":\"Employee\",\"transitions\":[]}},\"reads\":{\"objects\":{},\"scans\":{},\"now\":\"2026-10-27T07:04:21Z\"},\"context\":null,\"batch\":null}"
+ ],
+ "module": "reimbursement.yaml",
+ "objects": {
+  "01a17c2c-9e25-7d2f-bc43-fb81bbc52e45": {
+   "attributes": {
+    "approved_by": "operator",
+    "approved_by_kind": "human",
+    "base_version": 0,
+    "drafted_by": "operator",
+    "drafted_by_kind": "human",
+    "evidence": null,
+    "report": {
+     "accepted": true,
+     "affected": {},
+     "analysed": {
+      "AssistantAgent": [
+       0,
+       0
+      ],
+      "BusinessFunction": [
+       0,
+       0
+      ],
+      "Claim": [
+       3,
+       8
+      ],
+      "ClaimLine": [
+       3,
+       12
+      ],
+      "Employee": [
+       0,
+       0
+      ],
+      "ExpenseCategory": [
+       2,
+       2
+      ]
+     },
+     "change_id": "01a17c2c-9e25-7d2f-bc43-fb81bbc52e45",
+     "could_violate": {
+      "AssistantAgent.register_taken_by": [
+       "AssistantAgent.register"
+      ],
+      "AssistantAgent.retire_taken_by": [
+       "AssistantAgent.register",
+       "AssistantAgent.retire"
+      ],
+      "BusinessFunction.dissolve_taken_by": [
+       "BusinessFunction.dissolve",
+       "BusinessFunction.establish"
+      ],
+      "BusinessFunction.establish_taken_by": [
+       "BusinessFunction.establish"
+      ],
+      "Claim.add_line_taken_by": [
+       "Claim.add_line",
+       "Claim.draft"
+      ],
+      "Claim.approve_taken_by": [
+       "Claim.approve",
+       "Claim.draft"
+      ],
+      "Claim.complete_review_taken_by": [
+       "Claim.complete_review",
+       "Claim.draft"
+      ],
+      "Claim.correct_xero_bill_id_taken_by": [
+       "Claim.correct_xero_bill_id",
+       "Claim.draft"
+      ],
+      "Claim.draft_taken_by": [
+       "Claim.draft"
+      ],
+      "Claim.erase_personal_data_taken_by": [
+       "Claim.draft",
+       "Claim.erase_personal_data"
+      ],
+      "Claim.has_title": [
+       "Claim.draft",
+       "Claim.erase_personal_data"
+      ],
+      "Claim.lines_within_reach": [
+       "Claim.draft",
+       "ClaimLine.add"
+      ],
+      "Claim.pay_taken_by": [
+       "Claim.draft",
+       "Claim.pay"
+      ],
+      "Claim.record_in_xero_taken_by": [
+       "Claim.draft",
+       "Claim.record_in_xero"
+      ],
+      "Claim.reject_taken_by": [
+       "Claim.draft",
+       "Claim.reject"
+      ],
+      "Claim.resubmit_taken_by": [
+       "Claim.draft",
+       "Claim.resubmit"
+      ],
+      "Claim.return_for_changes_taken_by": [
+       "Claim.draft",
+       "Claim.return_for_changes"
+      ],
+      "Claim.submit_taken_by": [
+       "Claim.draft",
+       "Claim.submit"
+      ],
+      "Claim.verify_xero_record_taken_by": [
+       "Claim.draft",
+       "Claim.verify_xero_record"
+      ],
+      "Claim.withdraw_taken_by": [
+       "Claim.draft",
+       "Claim.withdraw"
+      ],
+      "ClaimLine.add_taken_by": [
+       "ClaimLine.add"
+      ],
+      "ClaimLine.amend_taken_by": [
+       "ClaimLine.add",
+       "ClaimLine.amend"
+      ],
+      "ClaimLine.close_taken_by": [
+       "ClaimLine.add",
+       "ClaimLine.close"
+      ],
+      "ClaimLine.confirm_nature_taken_by": [
+       "ClaimLine.add",
+       "ClaimLine.confirm_nature"
+      ],
+      "ClaimLine.confirmed_by_a_person": [
+       "ClaimLine.add",
+       "ClaimLine.amend",
+       "ClaimLine.confirm_nature"
+      ],
+      "ClaimLine.discard_taken_by": [
+       "ClaimLine.add",
+       "ClaimLine.discard"
+      ],
+      "ClaimLine.erase_taken_by": [
+       "ClaimLine.add",
+       "ClaimLine.erase"
+      ],
+      "ClaimLine.spent_amount_has_its_currency": [
+       "ClaimLine.add",
+       "ClaimLine.amend"
+      ],
+      "ClaimLine.suggest_nature_taken_by": [
+       "ClaimLine.add",
+       "ClaimLine.suggest_nature"
+      ],
+      "Employee.forget_taken_by": [
+       "Employee.forget",
+       "Employee.onboard"
+      ],
+      "Employee.leave_taken_by": [
+       "Employee.leave",
+       "Employee.onboard"
+      ],
+      "Employee.link_xero_contact_taken_by": [
+       "Employee.link_xero_contact",
+       "Employee.onboard"
+      ],
+      "Employee.onboard_taken_by": [
+       "Employee.onboard"
+      ],
+      "ExpenseCategory.change_policy_amount_taken_by": [
+       "ExpenseCategory.change_policy_amount",
+       "ExpenseCategory.define"
+      ],
+      "ExpenseCategory.define_taken_by": [
+       "ExpenseCategory.define"
+      ],
+      "ExpenseCategory.retire_taken_by": [
+       "ExpenseCategory.define",
+       "ExpenseCategory.retire"
+      ]
+     },
+     "examples": {},
+     "findings": [
+      {
+       "affected": 0,
+       "code": "check:warn",
+       "message": "reimbursement:370: lines_within_policy warns: a failure is reported with the result and refuses nothing",
+       "sample": [],
+       "severity": "notice"
+      },
+      {
+       "affected": 0,
+       "code": "check:warn",
+       "message": "reimbursement:589: within_policy warns: a failure is reported with the result and refuses nothing",
+       "sample": [],
+       "severity": "notice"
+      },
+      {
+       "affected": 0,
+       "code": "check:warn",
+       "message": "reimbursement:601: within_policy warns: a failure is reported with the result and refuses nothing",
+       "sample": [],
+       "severity": "notice"
+      }
+     ],
+     "invariant_forms": {
+      "AssistantAgent.register_taken_by": "local",
+      "AssistantAgent.retire_taken_by": "local",
+      "BusinessFunction.dissolve_taken_by": "local",
+      "BusinessFunction.establish_taken_by": "local",
+      "Claim.add_line_taken_by": "local",
+      "Claim.approve_taken_by": "local",
+      "Claim.complete_review_taken_by": "local",
+      "Claim.correct_xero_bill_id_taken_by": "local",
+      "Claim.draft_taken_by": "local",
+      "Claim.erase_personal_data_taken_by": "local",
+      "Claim.has_title": "local",
+      "Claim.lines_within_reach": "traversal",
+      "Claim.pay_taken_by": "local",
+      "Claim.record_in_xero_taken_by": "local",
+      "Claim.reject_taken_by": "local",
+      "Claim.resubmit_taken_by": "local",
+      "Claim.return_for_changes_taken_by": "local",
+      "Claim.submit_taken_by": "local",
+      "Claim.verify_xero_record_taken_by": "local",
+      "Claim.withdraw_taken_by": "local",
+      "ClaimLine.add_taken_by": "local",
+      "ClaimLine.amend_taken_by": "local",
+      "ClaimLine.close_taken_by": "local",
+      "ClaimLine.confirm_nature_taken_by": "local",
+      "ClaimLine.confirmed_by_a_person": "local",
+      "ClaimLine.discard_taken_by": "local",
+      "ClaimLine.erase_taken_by": "local",
+      "ClaimLine.spent_amount_has_its_currency": "local",
+      "ClaimLine.suggest_nature_taken_by": "local",
+      "Employee.forget_taken_by": "local",
+      "Employee.leave_taken_by": "local",
+      "Employee.link_xero_contact_taken_by": "local",
+      "Employee.onboard_taken_by": "local",
+      "ExpenseCategory.change_policy_amount_taken_by": "local",
+      "ExpenseCategory.define_taken_by": "local",
+      "ExpenseCategory.retire_taken_by": "local"
+     },
+     "not_computed": [
+      "invariants",
+      "sweepable",
+      "unsweepable",
+      "queryable_derives",
+      "worst_case_fanout",
+      "observed_fanout",
+      "replaced_creations",
+      "creations_past_first_state",
+      "observing_clauses",
+      "flags"
+     ],
+     "now": "2026-10-27T07:04:21Z",
+     "person_dimensions": [
+      "Claim.claimant_amount_claimed.claimant",
+      "Claim.claimant_over_policy_lines.claimant"
+     ],
+     "proposals_invalidated": 0,
+     "source_digest": "sha256:e91f00e6e8b7abb1e55b743ae8efea9baa0cc17d8711c5b81745f3487bd42474",
+     "source_ref": "fixture:reimbursement",
+     "version": 1
+    },
+    "source": {
+     "reimbursement": "# yaml-language-server: $schema=../flow.schema.json\n# Staff reimbursement, the first consumer's first workflow, drafted on 2026-09-30 by an agent that had read only\n# flow-format.md and the sections it cites, as authoring-flows.md \u00a76 prescribes; kept as that agent wrote it, and\n# judged by the defects it found (reimbursement-cold-draft.md), except where ADR-0145 answered what it asked: who\n# confirmed a line's nature is recorded, and must be a person, and the day of an expense is a date.\n#\n# Assumptions the business has not decided:\n# - A claim is recorded in Xero as a bill, and the bill is paid separately, so \"paid\" is a step of its own after\n#   the Xero record is read back.\n# - Which function reviews, records and pays is undecided. The flow names no person and no fixed function:\n#   approval is recorded against a BusinessFunction the approver names, and who may take each step is the\n#   application's (ADR-0114).\n# - Amounts are in one home currency, assumed USD here; a line spent in another currency is entered at the amount\n#   charged in the home currency.\nmodule: reimbursement\n\n# a version of this flow is approved by a person, never an agent (ADR-0187)\npublishing: { taken_by: [human] }\ncategories: [to_do, in_progress, in_service, closed]\n\nenumerations:\n  SpendNature: [EXPENSE, PURCHASE]\n  ReturnReason: [MISSING_RECEIPT, WRONG_AMOUNT, WRONG_CATEGORY, NEEDS_DETAIL, OTHER]\n  RejectionReason: [NOT_BUSINESS_SPEND, DUPLICATE, SHOULD_BE_PROCUREMENT, OTHER]\n  CorrectionReason: [TYPING_ERROR, WRONG_BILL]\n\nsequences:\n  claim_number:\n    description: Numbers the company's reimbursement claims.\n\nevaluators:\n  xero:\n    description: Xero, the company's accounting system, which owns the bills claims are recorded as and their payment.\n    functions:\n      bill_matches:\n        description: Whether Xero holds a bill with this id that carries this claim number as its reference and totals this amount.\n        arguments:\n          bill_id: { type: string }\n          claim_number: { type: string }\n          amount: { type: money(USD) }\n        fresh: 10 min\n      bill_paid:\n        description: Whether the bill with this id is paid in full in Xero.\n        arguments:\n          bill_id: { type: string }\n        fresh: 10 min\n\ntypes:\n  Employee:\n    description: A person employed by the company, who may claim expenses and act on claims.\n    tracking: record\n    taken_by: [human, service]\n    attributes:\n      user_id: { type: identity, actor_kind: human, unique: true }\n      name: { type: string, optional: true, personal: true }\n      xero_contact_id:\n        type: string\n        external: xero\n        optional: true\n        description: The Xero contact the employee's bills are raised against.\n    states:\n      ACTIVE:\n        category: in_service\n        description: Employed, and may claim and act on claims.\n      LEFT:\n        category: closed\n        final: true\n        description: No longer employed.\n    transitions:\n      onboard:\n        kind: initial\n        to: ACTIVE\n        required_inputs: [user_id]\n        optional_inputs: [name]\n      link_xero_contact:\n        kind: internal\n        from: ACTIVE\n        description: Records the Xero contact the employee's bills are raised against.\n        required_inputs: [xero_contact_id]\n      leave:\n        kind: external\n        from: ACTIVE\n        to: LEFT\n      forget:\n        kind: erasure\n        taken_by: [human]\n        description: Erases this store's copy of the employee's name.\n        inputs:\n          reason: { type: string }\n\n  AssistantAgent:\n    description: An AI agent that makes requests of its own, such as suggesting whether a claim line is an expense or a purchase; it never commits a financial write.\n    tracking: record\n    taken_by: [human]\n    attributes:\n      agent_id: { type: identity, actor_kind: agent, unique: true }\n      name: { type: string }\n    states:\n      ENABLED: { category: in_service }\n      RETIRED: { category: closed, final: true }\n    transitions:\n      register:\n        kind: initial\n        to: ENABLED\n        required_inputs: [agent_id, name]\n      retire:\n        kind: external\n        from: ENABLED\n        to: RETIRED\n\n  BusinessFunction:\n    description: A function of the company, a role or team such as finance or management, under whose authority claims are approved; never a named person.\n    tracking: record\n    taken_by: [human, service]\n    attributes:\n      name: { type: string, unique: true }\n    states:\n      ACTIVE: { category: in_service }\n      DISSOLVED: { category: closed, final: true }\n    transitions:\n      establish:\n        kind: initial\n        to: ACTIVE\n        required_inputs: [name]\n      dissolve:\n        kind: external\n        from: ACTIVE\n        to: DISSOLVED\n\n  ExpenseCategory:\n    description: A category of spending a claim line is filed under, such as travel, meals, equipment or other, with the policy amount above which a line is flagged.\n    tracking: record\n    taken_by: [human]\n    attributes:\n      name: { type: string, unique: true }\n      policy_amount:\n        type: money(USD)\n        description: The most a single line of this category claims within policy; a line above it is allowed, and flagged.\n    states:\n      IN_USE: { category: in_service }\n      RETIRED: { category: closed, final: true }\n    conditions:\n      policy_amount_positive:\n        description: The policy amount given is above zero.\n        expression: inputs.policy_amount > USD 0.00\n        remedy: self_serviceable\n    transitions:\n      define:\n        kind: initial\n        to: IN_USE\n        required_inputs: [name, policy_amount]\n        guards:\n          policy_amount_positive: deny\n      change_policy_amount:\n        kind: internal\n        from: IN_USE\n        required_inputs: [policy_amount]\n        guards:\n          policy_amount_positive: deny\n      retire:\n        kind: external\n        from: IN_USE\n        to: RETIRED\n\n  Claim:\n    description: A staff reimbursement claim, one employee's request to be paid back for business spending, made of line items; it is recorded in Xero as a bill and paid separately.\n    tracking: record\n    # people and services take a claim's transitions, never the agent, which commits no financial write\n    taken_by: [human, service]\n    attributes:\n      number:\n        type: string\n        identifier: { sequence: claim_number, format: \"EXP-{n:5}\" }\n        unique: true\n      claimant:\n        reference: Employee\n        description: The employee who spent the money and is paid back.\n      title:\n        type: string\n        optional: true\n        personal: true\n        description: What the claim is for, in the claimant's words; free text may name someone, so it is personal, and optional only so that erasure can remove it.\n      lines:\n        reference: \"ClaimLine[]\"\n        aggregation: composite\n        opposite: claim\n        cascade:\n          - { on: [pay, reject, withdraw], transition: close, limit: 200 }\n      first_submitted_at: { type: timestamp, optional: true }\n      submitted_at: { type: timestamp, optional: true }\n      return_reason: { type: ReturnReason, optional: true }\n      approving_function:\n        reference: BusinessFunction\n        optional: true\n        description: The function under whose authority the claim was approved.\n      approved_at: { type: timestamp, optional: true }\n      xero_bill_id:\n        type: string\n        external: xero\n        optional: true\n        description: The id of the bill the claim is recorded as in Xero.\n      recorded_at: { type: timestamp, optional: true }\n      verified_at: { type: timestamp, optional: true }\n      paid_at: { type: timestamp, optional: true }\n      rejection_reason: { type: RejectionReason, optional: true }\n    states:\n      DRAFT:\n        category: to_do\n        description: Being written by the claimant, and seen by no one else.\n      SUBMITTED:\n        category: in_progress\n        description: Submitted, and under review, when a person confirms each line's nature.\n        required_attributes: [first_submitted_at, submitted_at]\n      RETURNED:\n        category: to_do\n        description: Sent back to the claimant for changes.\n        required_attributes: [first_submitted_at, return_reason]\n      REVIEWED:\n        category: in_progress\n        description: Reviewed, with every line's nature confirmed, and waiting for approval by a function.\n        required_attributes: [first_submitted_at, submitted_at]\n      APPROVED:\n        category: in_progress\n        description: Approved by a function, and waiting for a person to record it in Xero.\n        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at]\n      RECORDED:\n        category: in_progress\n        description: Recorded in Xero as a bill by a person, and waiting for the record to be read back.\n        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at]\n      VERIFIED:\n        category: in_progress\n        description: Its Xero bill read back and found to match, and waiting for payment.\n        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at, verified_at]\n      PAID:\n        category: closed\n        final: true\n        description: Paid to the claimant.\n        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at, verified_at, paid_at]\n      REJECTED:\n        category: closed\n        final: true\n        description: Refused, and will not be paid.\n        required_attributes: [first_submitted_at, rejection_reason]\n      WITHDRAWN:\n        category: closed\n        final: true\n        description: Withdrawn by the claimant before approval.\n    derived_attributes:\n      total:\n        description: The sum of the amounts of the claim's lines, those removed from it left out.\n        expression: \"sum(l in lines where l.state != ClaimLine.REMOVED: l.amount)\"\n      over_policy_lines:\n        description: The number of the claim's lines above their category's policy amount, shown to everyone acting on the claim.\n        expression: count(l in lines where l.state != ClaimLine.REMOVED and l.over_policy)\n    summary: [number, state, claimant, total, over_policy_lines]\n    invariants:\n      lines_within_reach: { description: A claim holds at most the 200 lines its cascade and its erasure take, expression: \"count(l in lines) <= 200\" }\n      has_title:\n        description: Every claim has a title, until erasure removes it.\n        expression: title is not null\n    conditions:\n      has_lines:\n        description: The claim has at least one line not removed.\n        expression: count(l in lines where l.state != ClaimLine.REMOVED) > 0\n        remedy: unreachable_from_here\n      lines_classified:\n        description: Every line of the claim not removed has its nature, expense or purchase, confirmed by a person.\n        expression: \"all(l in lines where l.state != ClaimLine.REMOVED: l.nature is not null)\"\n        remedy: dependent\n      lines_within_policy:\n        description: No line of the claim is above its category's policy amount.\n        expression: over_policy_lines == 0\n        remedy: unreachable_from_here\n      function_active:\n        description: The function named as approving the claim is active.\n        expression: inputs.approving_function.state == BusinessFunction.ACTIVE\n        remedy: self_serviceable\n      bill_matches_xero:\n        description: Xero holds a bill with the recorded id that carries the claim's number and totals the claim.\n        expression: xero.bill_matches(xero_bill_id, number, total)\n        remedy: delegable\n      bill_paid_in_xero:\n        description: Xero shows the claim's bill paid in full.\n        expression: xero.bill_paid(xero_bill_id)\n        remedy: delegable\n      payment_not_in_future:\n        description: The payment date given is not in the future.\n        expression: inputs.paid_at <= now\n        remedy: self_serviceable\n    transitions:\n      draft:\n        kind: initial\n        to: DRAFT\n        description: The claimant starts a claim.\n        required_inputs: [claimant, title]\n      add_line:\n        kind: internal\n        from: [DRAFT, RETURNED]\n        description: Adds a line item to the claim.\n        inputs:\n          amount: { type: money(USD) }\n          category: { reference: ExpenseCategory }\n          expense_date: { type: date }\n          receipt: { type: file }\n          purpose: { type: string, optional: true, personal: true }\n          merchant: { type: string, optional: true }\n          original_amount: { type: \"decimal(12,2)\", optional: true }\n          original_currency: { type: string, optional: true }\n        effect:\n          - create:\n              type: ClaimLine\n              transition: add\n              inputs:\n                claim: this\n                amount: inputs.amount\n                category: inputs.category\n                expense_date: inputs.expense_date\n                receipt: inputs.receipt\n                purpose: inputs.purpose\n                merchant: inputs.merchant\n                original_amount: inputs.original_amount\n                original_currency: inputs.original_currency\n      submit:\n        kind: external\n        from: DRAFT\n        to: SUBMITTED\n        description: The claimant submits the claim for review.\n        guards:\n          has_lines: deny\n        effect:\n          - assign: { location: first_submitted_at, expr: now }\n          - assign: { location: submitted_at, expr: now }\n      resubmit:\n        kind: external\n        from: RETURNED\n        to: SUBMITTED\n        description: The claimant submits the claim again after changing it.\n        guards:\n          has_lines: deny\n        effect:\n          - assign: { location: submitted_at, expr: now }\n      return_for_changes:\n        kind: external\n        from: [SUBMITTED, REVIEWED]\n        to: RETURNED\n        description: A reviewer or approver sends the claim back to the claimant for changes.\n        required_inputs: [return_reason]\n        inputs:\n          note:\n            type: string\n            personal: true\n            description: What the claimant should change.\n      complete_review:\n        kind: external\n        taken_by: [human]\n        from: SUBMITTED\n        to: REVIEWED\n        description: The reviewer finishes the review, every line's nature confirmed.\n        guards:\n          lines_classified: deny\n      approve:\n        kind: external\n        taken_by: [human]\n        from: REVIEWED\n        to: APPROVED\n        description: A person approves the claim under the authority of a function.\n        required_inputs: [approving_function]\n        guards:\n          function_active: deny\n          lines_within_policy: warn\n        effect:\n          - assign: { location: approved_at, expr: now }\n      reject:\n        kind: external\n        taken_by: [human]\n        from: [SUBMITTED, REVIEWED]\n        to: REJECTED\n        description: A reviewer or approver refuses the claim.\n        required_inputs: [rejection_reason]\n        inputs:\n          note:\n            type: string\n            optional: true\n            personal: true\n            description: Why the claim was refused, in words.\n      withdraw:\n        kind: external\n        from: [DRAFT, SUBMITTED, RETURNED, REVIEWED]\n        to: WITHDRAWN\n        description: The claimant withdraws the claim before it is approved.\n      record_in_xero:\n        kind: external\n        from: APPROVED\n        to: RECORDED\n        description: A person records the claim in Xero as a bill and gives the bill's id.\n        required_inputs: [xero_bill_id]\n        effect:\n          - assign: { location: recorded_at, expr: now }\n      correct_xero_bill_id:\n        kind: internal\n        from: RECORDED\n        description: Corrects the Xero bill id recorded, when the read-back shows it was wrong.\n        corrects: [xero_bill_id]\n        required_inputs: [xero_bill_id]\n        inputs:\n          reason: { type: CorrectionReason }\n      verify_xero_record:\n        kind: external\n        from: RECORDED\n        to: VERIFIED\n        description: Reads the Xero bill back and confirms it matches the claim.\n        guards:\n          bill_matches_xero: deny\n        effect:\n          - assign: { location: verified_at, expr: now }\n      pay:\n        kind: external\n        taken_by: [human, service]\n        from: VERIFIED\n        to: PAID\n        description: Records that the bill was paid to the claimant, as Xero shows.\n        required_inputs: [paid_at]\n        guards:\n          payment_not_in_future: deny\n          bill_paid_in_xero: deny\n      erase_personal_data:\n        kind: erasure\n        taken_by: [human]\n        description: Erases the claim's personal data and that of its lines.\n        inputs:\n          reason: { type: string }\n        effect:\n          - foreach:\n              item: l\n              array: lines\n              limit: 200\n              steps:\n                - call: { target: l, transition: erase, inputs: { reason: inputs.reason } }\n    metrics:\n      submission_to_payment:\n        description: The median time from a claim's first submission to its payment, by the month it was paid.\n        source: objects\n        item: c\n        filter: c.paid_at is not null\n        dimensions:\n          paid_month: month(c.paid_at)\n        time_dimension: c.paid_at\n        expression: median(c.paid_at - c.first_submitted_at)\n        flag_when: { slow: \"value > 14 days\" }\n      claimant_amount_claimed:\n        description: The amount each claimant claimed, by the month of first submission, over claims submitted and not withdrawn; it names a person.\n        source: objects\n        item: c\n        filter: c.first_submitted_at is not null and c.state != Claim.WITHDRAWN\n        dimensions:\n          claimant: c.claimant\n          submitted_month: month(c.first_submitted_at)\n        time_dimension: c.first_submitted_at\n        expression: sum(c.total)\n      claimant_over_policy_lines:\n        description: The number of lines above policy on each claimant's claims, by the month of first submission, over claims submitted and not withdrawn; it names a person.\n        source: objects\n        item: c\n        filter: c.first_submitted_at is not null and c.state != Claim.WITHDRAWN\n        dimensions:\n          claimant: c.claimant\n          submitted_month: month(c.first_submitted_at)\n        time_dimension: c.first_submitted_at\n        expression: sum(c.over_policy_lines)\n      approval_policy_flags:\n        description: How many times a claim was approved with a line above its category's policy amount, by rule and month.\n        source: attempt_counts\n        item: a\n        filter: a.flagged\n        dimensions:\n          rule: a.clause\n          flagged_month: month(a.day)\n        time_dimension: a.day\n        expression: sum(a.count)\n\n  ClaimLine:\n    description: One item of a claim, a single amount spent on one date in one category, with its receipt.\n    tracking: record\n    # the agent only suggests a line's nature (`suggest`, its own); everything else is a person's or a service's\n    taken_by: [human, service]\n    attributes:\n      claim: { reference: Claim, opposite: lines }\n      amount: { type: money(USD) }\n      original_amount:\n        type: decimal(12,2)\n        optional: true\n        description: The amount spent, in the currency it was spent in, where that is not the home currency; recorded, and never computed with (ADR-0145).\n      original_currency:\n        type: string\n        optional: true\n        description: The ISO 4217 code of the currency the amount was spent in, beside original_amount.\n      category: { reference: ExpenseCategory }\n      expense_date:\n        type: date\n        description: The day the money was spent, a calendar day with no time and no zone (ADR-0145).\n      receipt: { type: file }\n      purpose:\n        type: string\n        optional: true\n        personal: true\n        description: What the money was spent on, in the claimant's words.\n      merchant: { type: string, optional: true }\n      suggested_nature:\n        type: SpendNature\n        optional: true\n        description: The agent's suggestion of whether the line is an expense or a purchase, which commits nothing.\n      suggestion_rationale:\n        type: string\n        optional: true\n        personal: true\n        description: The agent's reasons for its suggestion, shown to the person who confirms it.\n      nature:\n        type: SpendNature\n        optional: true\n        description: Whether the line is an expense or a purchase, as a person confirmed it.\n      nature_confirmed_by:\n        type: actor_kind\n        optional: true\n        description: The kind of actor that confirmed the line's nature, recorded as it was confirmed (ADR-0145).\n    states:\n      LISTED:\n        category: in_progress\n        description: On its claim.\n      REMOVED:\n        category: closed\n        final: true\n        description: Taken off its claim by the claimant before approval.\n      CLOSED:\n        category: closed\n        final: true\n        description: Its claim was paid, rejected or withdrawn.\n    derived_attributes:\n      over_policy:\n        description: The line's amount is above its category's policy amount.\n        expression: amount > category.policy_amount\n    invariants:\n      spent_amount_has_its_currency:\n        description: An amount spent in another currency names that currency.\n        expression: original_amount is null or original_currency is not null\n      confirmed_by_a_person:\n        description: A line's nature is confirmed by a person, never by the agent, which only suggests it, so the agent never commits a financial write.\n        expression: nature is null or (nature_confirmed_by is not null and nature_confirmed_by == human)\n    conditions:\n      amount_positive:\n        description: The amount given is above zero.\n        expression: inputs.amount > USD 0.00\n        remedy: self_serviceable\n      spent_in_past:\n        description: The day of the expense is not in the future, allowing a day, since the claimant's today is a day ahead of UTC's east of it for part of each day.\n        expression: inputs.expense_date <= date(now) + 1 day\n        remedy: self_serviceable\n      category_in_use:\n        description: The category given is in use.\n        expression: inputs.category.state == ExpenseCategory.IN_USE\n        remedy: self_serviceable\n      within_policy:\n        description: The amount given is no more than its category's policy amount.\n        expression: inputs.amount <= inputs.category.policy_amount\n        remedy: self_serviceable\n      claim_editable:\n        description: The line's claim is a draft or has been sent back for changes.\n        expression: claim.state == Claim.DRAFT or claim.state == Claim.RETURNED\n        remedy: dependent\n      claim_under_review:\n        description: The line's claim is under review.\n        expression: claim.state == Claim.SUBMITTED\n        remedy: dependent\n      nature_unconfirmed:\n        description: No person has yet confirmed the line's nature.\n        expression: nature is null\n        remedy: unreachable_from_here\n    transitions:\n      add:\n        kind: initial\n        to: LISTED\n        description: A line is added to its claim.\n        only_via: [Claim.add_line]\n        required_inputs: [claim, amount, category, expense_date, receipt]\n        optional_inputs: [purpose, merchant, original_amount, original_currency]\n        guards:\n          amount_positive: deny\n          spent_in_past: deny\n          category_in_use: deny\n          within_policy: warn\n      amend:\n        kind: internal\n        from: LISTED\n        description: The claimant replaces the line's details, which undoes any suggestion or confirmation of its nature.\n        required_inputs: [amount, category, expense_date, receipt]\n        optional_inputs: [purpose, merchant, original_amount, original_currency]\n        guards:\n          claim_editable: deny\n          amount_positive: deny\n          spent_in_past: deny\n          category_in_use: deny\n          within_policy: warn\n        effect:\n          - clear: [suggested_nature, suggestion_rationale, nature, nature_confirmed_by]\n      discard:\n        kind: external\n        from: LISTED\n        to: REMOVED\n        description: The claimant takes the line off the claim.\n        guards:\n          claim_editable: deny\n      suggest_nature:\n        kind: internal\n        from: LISTED\n        description: The agent suggests whether the line is an expense or a purchase; the suggestion commits nothing.\n        # the agent's, so its generated tools offer it (ADR-0189)\n        taken_by: [agent]\n        required_inputs: [suggested_nature]\n        optional_inputs: [suggestion_rationale]\n        guards:\n          nature_unconfirmed: deny\n      confirm_nature:\n        kind: internal\n        from: LISTED\n        description: A person confirms the line's nature, accepting or overriding the agent's suggestion.\n        required_inputs: [nature]\n        guards:\n          claim_under_review: deny\n        effect:\n          - assign: { location: nature_confirmed_by, expr: actor.kind }\n      close:\n        kind: external\n        from: LISTED\n        to: CLOSED\n        description: The line closes with its claim.\n        only_via: [Claim.pay, Claim.reject, Claim.withdraw]\n      erase:\n        kind: erasure\n        taken_by: [human]\n        description: Erases the line's personal data.\n        inputs:\n          reason: { type: string }\n    metrics:\n      amount_claimed_by_category:\n        description: The amount claimed in each category, by the month the money was spent, over the lines of every claim submitted and not withdrawn.\n        source: objects\n        item: l\n        filter: l.state != ClaimLine.REMOVED and l.claim.first_submitted_at is not null and l.claim.state != Claim.WITHDRAWN\n        dimensions:\n          expense_category: l.category\n          spent_month: month(l.expense_date)\n        time_dimension: l.expense_date\n        expression: sum(l.amount)\n      line_policy_flags:\n        description: How many times a line was entered or amended above its category's policy amount, by rule and month.\n        source: attempt_counts\n        item: a\n        filter: a.flagged\n        dimensions:\n          rule: a.clause\n          flagged_month: month(a.day)\n        time_dimension: a.day\n        expression: sum(a.count)\n"
+    },
+    "source_digest": "sha256:e91f00e6e8b7abb1e55b743ae8efea9baa0cc17d8711c5b81745f3487bd42474",
+    "source_ref": "fixture:reimbursement"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 0,
+      "from_state": null,
+      "imported": false,
+      "object_id": "01a17c2c-9e25-7d2f-bc43-fb81bbc52e45",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "source_digest": "sha256:e91f00e6e8b7abb1e55b743ae8efea9baa0cc17d8711c5b81745f3487bd42474",
+       "source_ref": "fixture:reimbursement",
+       "wrote": {
+        "base_version": 0,
+        "drafted_by": "operator",
+        "drafted_by_kind": "human",
+        "source": "{\"reimbursement\":\"# yaml-language-server: $schema=../flow.schema.json\\n# Staff reimbursement, the first consumer's first workflow, drafted on 2026-09-30 by an agent that had read only\\n# flow-format.md and the sections it cites, as authoring-flows.md \u00a76 prescribes; kept as that agent wrote it, and\\n# judged by the defects it found (reimbursement-cold-draft.md), except where ADR-0145 answered what it asked: who\\n# confirmed a line's nature is recorded, and must be a person, and the day of an expense is a date.\\n#\\n# Assumptions the business has not decided:\\n# - A claim is recorded in Xero as a bill, and the bill is paid separately, so \\\"paid\\\" is a step of its own after\\n#   the Xero record is read back.\\n# - Which function reviews, records and pays is undecided. The flow names no person and no fixed function:\\n#   approval is recorded against a BusinessFunction the approver names, and who may take each step is the\\n#   application's (ADR-0114).\\n# - Amounts are in one home currency, assumed USD here; a line spent in another currency is entered at the amount\\n#   charged in the home currency.\\nmodule: reimbursement\\n\\n# a version of this flow is approved by a person, never an agent (ADR-0187)\\npublishing: { taken_by: [human] }\\ncategories: [to_do, in_progress, in_service, closed]\\n\\nenumerations:\\n  SpendNature: [EXPENSE, PURCHASE]\\n  ReturnReason: [MISSING_RECEIPT, WRONG_AMOUNT, WRONG_CATEGORY, NEEDS_DETAIL, OTHER]\\n  RejectionReason: [NOT_BUSINESS_SPEND, DUPLICATE, SHOULD_BE_PROCUREMENT, OTHER]\\n  CorrectionReason: [TYPING_ERROR, WRONG_BILL]\\n\\nsequences:\\n  claim_number:\\n    description: Numbers the company's reimbursement claims.\\n\\nevaluators:\\n  xero:\\n    description: Xero, the company's accounting system, which owns the bills claims are recorded as and their payment.\\n    functions:\\n      bill_matches:\\n        description: Whether Xero holds a bill with this id that carries this claim number as its reference and totals this amount.\\n        arguments:\\n          bill_id: { type: string }\\n          claim_number: { type: string }\\n          amount: { type: money(USD) }\\n        fresh: 10 min\\n      bill_paid:\\n        description: Whether the bill with this id is paid in full in Xero.\\n        arguments:\\n          bill_id: { type: string }\\n        fresh: 10 min\\n\\ntypes:\\n  Employee:\\n    description: A person employed by the company, who may claim expenses and act on claims.\\n    tracking: record\\n    taken_by: [human, service]\\n    attributes:\\n      user_id: { type: identity, actor_kind: human, unique: true }\\n      name: { type: string, optional: true, personal: true }\\n      xero_contact_id:\\n        type: string\\n        external: xero\\n        optional: true\\n        description: The Xero contact the employee's bills are raised against.\\n    states:\\n      ACTIVE:\\n        category: in_service\\n        description: Employed, and may claim and act on claims.\\n      LEFT:\\n        category: closed\\n        final: true\\n        description: No longer employed.\\n    transitions:\\n      onboard:\\n        kind: initial\\n        to: ACTIVE\\n        required_inputs: [user_id]\\n        optional_inputs: [name]\\n      link_xero_contact:\\n        kind: internal\\n        from: ACTIVE\\n        description: Records the Xero contact the employee's bills are raised against.\\n        required_inputs: [xero_contact_id]\\n      leave:\\n        kind: external\\n        from: ACTIVE\\n        to: LEFT\\n      forget:\\n        kind: erasure\\n        taken_by: [human]\\n        description: Erases this store's copy of the employee's name.\\n        inputs:\\n          reason: { type: string }\\n\\n  AssistantAgent:\\n    description: An AI agent that makes requests of its own, such as suggesting whether a claim line is an expense or a purchase; it never commits a financial write.\\n    tracking: record\\n    taken_by: [human]\\n    attributes:\\n      agent_id: { type: identity, actor_kind: agent, unique: true }\\n      name: { type: string }\\n    states:\\n      ENABLED: { category: in_service }\\n      RETIRED: { category: closed, final: true }\\n    transitions:\\n      register:\\n        kind: initial\\n        to: ENABLED\\n        required_inputs: [agent_id, name]\\n      retire:\\n        kind: external\\n        from: ENABLED\\n        to: RETIRED\\n\\n  BusinessFunction:\\n    description: A function of the company, a role or team such as finance or management, under whose authority claims are approved; never a named person.\\n    tracking: record\\n    taken_by: [human, service]\\n    attributes:\\n      name: { type: string, unique: true }\\n    states:\\n      ACTIVE: { category: in_service }\\n      DISSOLVED: { category: closed, final: true }\\n    transitions:\\n      establish:\\n        kind: initial\\n        to: ACTIVE\\n        required_inputs: [name]\\n      dissolve:\\n        kind: external\\n        from: ACTIVE\\n        to: DISSOLVED\\n\\n  ExpenseCategory:\\n    description: A category of spending a claim line is filed under, such as travel, meals, equipment or other, with the policy amount above which a line is flagged.\\n    tracking: record\\n    taken_by: [human]\\n    attributes:\\n      name: { type: string, unique: true }\\n      policy_amount:\\n        type: money(USD)\\n        description: The most a single line of this category claims within policy; a line above it is allowed, and flagged.\\n    states:\\n      IN_USE: { category: in_service }\\n      RETIRED: { category: closed, final: true }\\n    conditions:\\n      policy_amount_positive:\\n        description: The policy amount given is above zero.\\n        expression: inputs.policy_amount > USD 0.00\\n        remedy: self_serviceable\\n    transitions:\\n      define:\\n        kind: initial\\n        to: IN_USE\\n        required_inputs: [name, policy_amount]\\n        guards:\\n          policy_amount_positive: deny\\n      change_policy_amount:\\n        kind: internal\\n        from: IN_USE\\n        required_inputs: [policy_amount]\\n        guards:\\n          policy_amount_positive: deny\\n      retire:\\n        kind: external\\n        from: IN_USE\\n        to: RETIRED\\n\\n  Claim:\\n    description: A staff reimbursement claim, one employee's request to be paid back for business spending, made of line items; it is recorded in Xero as a bill and paid separately.\\n    tracking: record\\n    # people and services take a claim's transitions, never the agent, which commits no financial write\\n    taken_by: [human, service]\\n    attributes:\\n      number:\\n        type: string\\n        identifier: { sequence: claim_number, format: \\\"EXP-{n:5}\\\" }\\n        unique: true\\n      claimant:\\n        reference: Employee\\n        description: The employee who spent the money and is paid back.\\n      title:\\n        type: string\\n        optional: true\\n        personal: true\\n        description: What the claim is for, in the claimant's words; free text may name someone, so it is personal, and optional only so that erasure can remove it.\\n      lines:\\n        reference: \\\"ClaimLine[]\\\"\\n        aggregation: composite\\n        opposite: claim\\n        cascade:\\n          - { on: [pay, reject, withdraw], transition: close, limit: 200 }\\n      first_submitted_at: { type: timestamp, optional: true }\\n      submitted_at: { type: timestamp, optional: true }\\n      return_reason: { type: ReturnReason, optional: true }\\n      approving_function:\\n        reference: BusinessFunction\\n        optional: true\\n        description: The function under whose authority the claim was approved.\\n      approved_at: { type: timestamp, optional: true }\\n      xero_bill_id:\\n        type: string\\n        external: xero\\n        optional: true\\n        description: The id of the bill the claim is recorded as in Xero.\\n      recorded_at: { type: timestamp, optional: true }\\n      verified_at: { type: timestamp, optional: true }\\n      paid_at: { type: timestamp, optional: true }\\n      rejection_reason: { type: RejectionReason, optional: true }\\n    states:\\n      DRAFT:\\n        category: to_do\\n        description: Being written by the claimant, and seen by no one else.\\n      SUBMITTED:\\n        category: in_progress\\n        description: Submitted, and under review, when a person confirms each line's nature.\\n        required_attributes: [first_submitted_at, submitted_at]\\n      RETURNED:\\n        category: to_do\\n        description: Sent back to the claimant for changes.\\n        required_attributes: [first_submitted_at, return_reason]\\n      REVIEWED:\\n        category: in_progress\\n        description: Reviewed, with every line's nature confirmed, and waiting for approval by a function.\\n        required_attributes: [first_submitted_at, submitted_at]\\n      APPROVED:\\n        category: in_progress\\n        description: Approved by a function, and waiting for a person to record it in Xero.\\n        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at]\\n      RECORDED:\\n        category: in_progress\\n        description: Recorded in Xero as a bill by a person, and waiting for the record to be read back.\\n        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at]\\n      VERIFIED:\\n        category: in_progress\\n        description: Its Xero bill read back and found to match, and waiting for payment.\\n        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at, verified_at]\\n      PAID:\\n        category: closed\\n        final: true\\n        description: Paid to the claimant.\\n        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at, verified_at, paid_at]\\n      REJECTED:\\n        category: closed\\n        final: true\\n        description: Refused, and will not be paid.\\n        required_attributes: [first_submitted_at, rejection_reason]\\n      WITHDRAWN:\\n        category: closed\\n        final: true\\n        description: Withdrawn by the claimant before approval.\\n    derived_attributes:\\n      total:\\n        description: The sum of the amounts of the claim's lines, those removed from it left out.\\n        expression: \\\"sum(l in lines where l.state != ClaimLine.REMOVED: l.amount)\\\"\\n      over_policy_lines:\\n        description: The number of the claim's lines above their category's policy amount, shown to everyone acting on the claim.\\n        expression: count(l in lines where l.state != ClaimLine.REMOVED and l.over_policy)\\n    summary: [number, state, claimant, total, over_policy_lines]\\n    invariants:\\n      lines_within_reach: { description: A claim holds at most the 200 lines its cascade and its erasure take, expression: \\\"count(l in lines) <= 200\\\" }\\n      has_title:\\n        description: Every claim has a title, until erasure removes it.\\n        expression: title is not null\\n    conditions:\\n      has_lines:\\n        description: The claim has at least one line not removed.\\n        expression: count(l in lines where l.state != ClaimLine.REMOVED) > 0\\n        remedy: unreachable_from_here\\n      lines_classified:\\n        description: Every line of the claim not removed has its nature, expense or purchase, confirmed by a person.\\n        expression: \\\"all(l in lines where l.state != ClaimLine.REMOVED: l.nature is not null)\\\"\\n        remedy: dependent\\n      lines_within_policy:\\n        description: No line of the claim is above its category's policy amount.\\n        expression: over_policy_lines == 0\\n        remedy: unreachable_from_here\\n      function_active:\\n        description: The function named as approving the claim is active.\\n        expression: inputs.approving_function.state == BusinessFunction.ACTIVE\\n        remedy: self_serviceable\\n      bill_matches_xero:\\n        description: Xero holds a bill with the recorded id that carries the claim's number and totals the claim.\\n        expression: xero.bill_matches(xero_bill_id, number, total)\\n        remedy: delegable\\n      bill_paid_in_xero:\\n        description: Xero shows the claim's bill paid in full.\\n        expression: xero.bill_paid(xero_bill_id)\\n        remedy: delegable\\n      payment_not_in_future:\\n        description: The payment date given is not in the future.\\n        expression: inputs.paid_at <= now\\n        remedy: self_serviceable\\n    transitions:\\n      draft:\\n        kind: initial\\n        to: DRAFT\\n        description: The claimant starts a claim.\\n        required_inputs: [claimant, title]\\n      add_line:\\n        kind: internal\\n        from: [DRAFT, RETURNED]\\n        description: Adds a line item to the claim.\\n        inputs:\\n          amount: { type: money(USD) }\\n          category: { reference: ExpenseCategory }\\n          expense_date: { type: date }\\n          receipt: { type: file }\\n          purpose: { type: string, optional: true, personal: true }\\n          merchant: { type: string, optional: true }\\n          original_amount: { type: \\\"decimal(12,2)\\\", optional: true }\\n          original_currency: { type: string, optional: true }\\n        effect:\\n          - create:\\n              type: ClaimLine\\n              transition: add\\n              inputs:\\n                claim: this\\n                amount: inputs.amount\\n                category: inputs.category\\n                expense_date: inputs.expense_date\\n                receipt: inputs.receipt\\n                purpose: inputs.purpose\\n                merchant: inputs.merchant\\n                original_amount: inputs.original_amount\\n                original_currency: inputs.original_currency\\n      submit:\\n        kind: external\\n        from: DRAFT\\n        to: SUBMITTED\\n        description: The claimant submits the claim for review.\\n        guards:\\n          has_lines: deny\\n        effect:\\n          - assign: { location: first_submitted_at, expr: now }\\n          - assign: { location: submitted_at, expr: now }\\n      resubmit:\\n        kind: external\\n        from: RETURNED\\n        to: SUBMITTED\\n        description: The claimant submits the claim again after changing it.\\n        guards:\\n          has_lines: deny\\n        effect:\\n          - assign: { location: submitted_at, expr: now }\\n      return_for_changes:\\n        kind: external\\n        from: [SUBMITTED, REVIEWED]\\n        to: RETURNED\\n        description: A reviewer or approver sends the claim back to the claimant for changes.\\n        required_inputs: [return_reason]\\n        inputs:\\n          note:\\n            type: string\\n            personal: true\\n            description: What the claimant should change.\\n      complete_review:\\n        kind: external\\n        taken_by: [human]\\n        from: SUBMITTED\\n        to: REVIEWED\\n        description: The reviewer finishes the review, every line's nature confirmed.\\n        guards:\\n          lines_classified: deny\\n      approve:\\n        kind: external\\n        taken_by: [human]\\n        from: REVIEWED\\n        to: APPROVED\\n        description: A person approves the claim under the authority of a function.\\n        required_inputs: [approving_function]\\n        guards:\\n          function_active: deny\\n          lines_within_policy: warn\\n        effect:\\n          - assign: { location: approved_at, expr: now }\\n      reject:\\n        kind: external\\n        taken_by: [human]\\n        from: [SUBMITTED, REVIEWED]\\n        to: REJECTED\\n        description: A reviewer or approver refuses the claim.\\n        required_inputs: [rejection_reason]\\n        inputs:\\n          note:\\n            type: string\\n            optional: true\\n            personal: true\\n            description: Why the claim was refused, in words.\\n      withdraw:\\n        kind: external\\n        from: [DRAFT, SUBMITTED, RETURNED, REVIEWED]\\n        to: WITHDRAWN\\n        description: The claimant withdraws the claim before it is approved.\\n      record_in_xero:\\n        kind: external\\n        from: APPROVED\\n        to: RECORDED\\n        description: A person records the claim in Xero as a bill and gives the bill's id.\\n        required_inputs: [xero_bill_id]\\n        effect:\\n          - assign: { location: recorded_at, expr: now }\\n      correct_xero_bill_id:\\n        kind: internal\\n        from: RECORDED\\n        description: Corrects the Xero bill id recorded, when the read-back shows it was wrong.\\n        corrects: [xero_bill_id]\\n        required_inputs: [xero_bill_id]\\n        inputs:\\n          reason: { type: CorrectionReason }\\n      verify_xero_record:\\n        kind: external\\n        from: RECORDED\\n        to: VERIFIED\\n        description: Reads the Xero bill back and confirms it matches the claim.\\n        guards:\\n          bill_matches_xero: deny\\n        effect:\\n          - assign: { location: verified_at, expr: now }\\n      pay:\\n        kind: external\\n        taken_by: [human, service]\\n        from: VERIFIED\\n        to: PAID\\n        description: Records that the bill was paid to the claimant, as Xero shows.\\n        required_inputs: [paid_at]\\n        guards:\\n          payment_not_in_future: deny\\n          bill_paid_in_xero: deny\\n      erase_personal_data:\\n        kind: erasure\\n        taken_by: [human]\\n        description: Erases the claim's personal data and that of its lines.\\n        inputs:\\n          reason: { type: string }\\n        effect:\\n          - foreach:\\n              item: l\\n              array: lines\\n              limit: 200\\n              steps:\\n                - call: { target: l, transition: erase, inputs: { reason: inputs.reason } }\\n    metrics:\\n      submission_to_payment:\\n        description: The median time from a claim's first submission to its payment, by the month it was paid.\\n        source: objects\\n        item: c\\n        filter: c.paid_at is not null\\n        dimensions:\\n          paid_month: month(c.paid_at)\\n        time_dimension: c.paid_at\\n        expression: median(c.paid_at - c.first_submitted_at)\\n        flag_when: { slow: \\\"value > 14 days\\\" }\\n      claimant_amount_claimed:\\n        description: The amount each claimant claimed, by the month of first submission, over claims submitted and not withdrawn; it names a person.\\n        source: objects\\n        item: c\\n        filter: c.first_submitted_at is not null and c.state != Claim.WITHDRAWN\\n        dimensions:\\n          claimant: c.claimant\\n          submitted_month: month(c.first_submitted_at)\\n        time_dimension: c.first_submitted_at\\n        expression: sum(c.total)\\n      claimant_over_policy_lines:\\n        description: The number of lines above policy on each claimant's claims, by the month of first submission, over claims submitted and not withdrawn; it names a person.\\n        source: objects\\n        item: c\\n        filter: c.first_submitted_at is not null and c.state != Claim.WITHDRAWN\\n        dimensions:\\n          claimant: c.claimant\\n          submitted_month: month(c.first_submitted_at)\\n        time_dimension: c.first_submitted_at\\n        expression: sum(c.over_policy_lines)\\n      approval_policy_flags:\\n        description: How many times a claim was approved with a line above its category's policy amount, by rule and month.\\n        source: attempt_counts\\n        item: a\\n        filter: a.flagged\\n        dimensions:\\n          rule: a.clause\\n          flagged_month: month(a.day)\\n        time_dimension: a.day\\n        expression: sum(a.count)\\n\\n  ClaimLine:\\n    description: One item of a claim, a single amount spent on one date in one category, with its receipt.\\n    tracking: record\\n    # the agent only suggests a line's nature (`suggest`, its own); everything else is a person's or a service's\\n    taken_by: [human, service]\\n    attributes:\\n      claim: { reference: Claim, opposite: lines }\\n      amount: { type: money(USD) }\\n      original_amount:\\n        type: decimal(12,2)\\n        optional: true\\n        description: The amount spent, in the currency it was spent in, where that is not the home currency; recorded, and never computed with (ADR-0145).\\n      original_currency:\\n        type: string\\n        optional: true\\n        description: The ISO 4217 code of the currency the amount was spent in, beside original_amount.\\n      category: { reference: ExpenseCategory }\\n      expense_date:\\n        type: date\\n        description: The day the money was spent, a calendar day with no time and no zone (ADR-0145).\\n      receipt: { type: file }\\n      purpose:\\n        type: string\\n        optional: true\\n        personal: true\\n        description: What the money was spent on, in the claimant's words.\\n      merchant: { type: string, optional: true }\\n      suggested_nature:\\n        type: SpendNature\\n        optional: true\\n        description: The agent's suggestion of whether the line is an expense or a purchase, which commits nothing.\\n      suggestion_rationale:\\n        type: string\\n        optional: true\\n        personal: true\\n        description: The agent's reasons for its suggestion, shown to the person who confirms it.\\n      nature:\\n        type: SpendNature\\n        optional: true\\n        description: Whether the line is an expense or a purchase, as a person confirmed it.\\n      nature_confirmed_by:\\n        type: actor_kind\\n        optional: true\\n        description: The kind of actor that confirmed the line's nature, recorded as it was confirmed (ADR-0145).\\n    states:\\n      LISTED:\\n        category: in_progress\\n        description: On its claim.\\n      REMOVED:\\n        category: closed\\n        final: true\\n        description: Taken off its claim by the claimant before approval.\\n      CLOSED:\\n        category: closed\\n        final: true\\n        description: Its claim was paid, rejected or withdrawn.\\n    derived_attributes:\\n      over_policy:\\n        description: The line's amount is above its category's policy amount.\\n        expression: amount > category.policy_amount\\n    invariants:\\n      spent_amount_has_its_currency:\\n        description: An amount spent in another currency names that currency.\\n        expression: original_amount is null or original_currency is not null\\n      confirmed_by_a_person:\\n        description: A line's nature is confirmed by a person, never by the agent, which only suggests it, so the agent never commits a financial write.\\n        expression: nature is null or (nature_confirmed_by is not null and nature_confirmed_by == human)\\n    conditions:\\n      amount_positive:\\n        description: The amount given is above zero.\\n        expression: inputs.amount > USD 0.00\\n        remedy: self_serviceable\\n      spent_in_past:\\n        description: The day of the expense is not in the future, allowing a day, since the claimant's today is a day ahead of UTC's east of it for part of each day.\\n        expression: inputs.expense_date <= date(now) + 1 day\\n        remedy: self_serviceable\\n      category_in_use:\\n        description: The category given is in use.\\n        expression: inputs.category.state == ExpenseCategory.IN_USE\\n        remedy: self_serviceable\\n      within_policy:\\n        description: The amount given is no more than its category's policy amount.\\n        expression: inputs.amount <= inputs.category.policy_amount\\n        remedy: self_serviceable\\n      claim_editable:\\n        description: The line's claim is a draft or has been sent back for changes.\\n        expression: claim.state == Claim.DRAFT or claim.state == Claim.RETURNED\\n        remedy: dependent\\n      claim_under_review:\\n        description: The line's claim is under review.\\n        expression: claim.state == Claim.SUBMITTED\\n        remedy: dependent\\n      nature_unconfirmed:\\n        description: No person has yet confirmed the line's nature.\\n        expression: nature is null\\n        remedy: unreachable_from_here\\n    transitions:\\n      add:\\n        kind: initial\\n        to: LISTED\\n        description: A line is added to its claim.\\n        only_via: [Claim.add_line]\\n        required_inputs: [claim, amount, category, expense_date, receipt]\\n        optional_inputs: [purpose, merchant, original_amount, original_currency]\\n        guards:\\n          amount_positive: deny\\n          spent_in_past: deny\\n          category_in_use: deny\\n          within_policy: warn\\n      amend:\\n        kind: internal\\n        from: LISTED\\n        description: The claimant replaces the line's details, which undoes any suggestion or confirmation of its nature.\\n        required_inputs: [amount, category, expense_date, receipt]\\n        optional_inputs: [purpose, merchant, original_amount, original_currency]\\n        guards:\\n          claim_editable: deny\\n          amount_positive: deny\\n          spent_in_past: deny\\n          category_in_use: deny\\n          within_policy: warn\\n        effect:\\n          - clear: [suggested_nature, suggestion_rationale, nature, nature_confirmed_by]\\n      discard:\\n        kind: external\\n        from: LISTED\\n        to: REMOVED\\n        description: The claimant takes the line off the claim.\\n        guards:\\n          claim_editable: deny\\n      suggest_nature:\\n        kind: internal\\n        from: LISTED\\n        description: The agent suggests whether the line is an expense or a purchase; the suggestion commits nothing.\\n        # the agent's, so its generated tools offer it (ADR-0189)\\n        taken_by: [agent]\\n        required_inputs: [suggested_nature]\\n        optional_inputs: [suggestion_rationale]\\n        guards:\\n          nature_unconfirmed: deny\\n      confirm_nature:\\n        kind: internal\\n        from: LISTED\\n        description: A person confirms the line's nature, accepting or overriding the agent's suggestion.\\n        required_inputs: [nature]\\n        guards:\\n          claim_under_review: deny\\n        effect:\\n          - assign: { location: nature_confirmed_by, expr: actor.kind }\\n      close:\\n        kind: external\\n        from: LISTED\\n        to: CLOSED\\n        description: The line closes with its claim.\\n        only_via: [Claim.pay, Claim.reject, Claim.withdraw]\\n      erase:\\n        kind: erasure\\n        taken_by: [human]\\n        description: Erases the line's personal data.\\n        inputs:\\n          reason: { type: string }\\n    metrics:\\n      amount_claimed_by_category:\\n        description: The amount claimed in each category, by the month the money was spent, over the lines of every claim submitted and not withdrawn.\\n        source: objects\\n        item: l\\n        filter: l.state != ClaimLine.REMOVED and l.claim.first_submitted_at is not null and l.claim.state != Claim.WITHDRAWN\\n        dimensions:\\n          expense_category: l.category\\n          spent_month: month(l.expense_date)\\n        time_dimension: l.expense_date\\n        expression: sum(l.amount)\\n      line_policy_flags:\\n        description: How many times a line was entered or amended above its category's policy amount, by rule and month.\\n        source: attempt_counts\\n        item: a\\n        filter: a.flagged\\n        dimensions:\\n          rule: a.clause\\n          flagged_month: month(a.day)\\n        time_dimension: a.day\\n        expression: sum(a.count)\\n\"}",
+        "source_digest": "sha256:e91f00e6e8b7abb1e55b743ae8efea9baa0cc17d8711c5b81745f3487bd42474",
+        "source_ref": "fixture:reimbursement"
+       }
+      },
+      "position": 2,
+      "principal": null,
+      "reads": {},
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "DRAFTED",
+      "transition": "draft"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 0,
+      "from_state": "DRAFTED",
+      "imported": false,
+      "object_id": "01a17c2c-9e25-7d2f-bc43-fb81bbc52e45",
+      "object_seq": 2,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "wrote": {
+        "report": "{\"version\":1,\"accepted\":true,\"now\":\"2026-10-27T07:04:21Z\",\"findings\":[{\"severity\":\"notice\",\"code\":\"check:warn\",\"message\":\"reimbursement:370: lines_within_policy warns: a failure is reported with the result and refuses nothing\",\"affected\":0,\"sample\":[]},{\"severity\":\"notice\",\"code\":\"check:warn\",\"message\":\"reimbursement:589: within_policy warns: a failure is reported with the result and refuses nothing\",\"affected\":0,\"sample\":[]},{\"severity\":\"notice\",\"code\":\"check:warn\",\"message\":\"reimbursement:601: within_policy warns: a failure is reported with the result and refuses nothing\",\"affected\":0,\"sample\":[]}],\"change_id\":\"01a17c2c-9e25-7d2f-bc43-fb81bbc52e45\",\"source_ref\":\"fixture:reimbursement\",\"source_digest\":\"sha256:e91f00e6e8b7abb1e55b743ae8efea9baa0cc17d8711c5b81745f3487bd42474\",\"proposals_invalidated\":0,\"affected\":{},\"examples\":{},\"analysed\":{\"AssistantAgent\":[0,0],\"BusinessFunction\":[0,0],\"Claim\":[3,8],\"ClaimLine\":[3,12],\"Employee\":[0,0],\"ExpenseCategory\":[2,2]},\"person_dimensions\":[\"Claim.claimant_amount_claimed.claimant\",\"Claim.claimant_over_policy_lines.claimant\"],\"invariant_forms\":{\"AssistantAgent.register_taken_by\":\"local\",\"AssistantAgent.retire_taken_by\":\"local\",\"BusinessFunction.dissolve_taken_by\":\"local\",\"BusinessFunction.establish_taken_by\":\"local\",\"Claim.add_line_taken_by\":\"local\",\"Claim.approve_taken_by\":\"local\",\"Claim.complete_review_taken_by\":\"local\",\"Claim.correct_xero_bill_id_taken_by\":\"local\",\"Claim.draft_taken_by\":\"local\",\"Claim.erase_personal_data_taken_by\":\"local\",\"Claim.has_title\":\"local\",\"Claim.lines_within_reach\":\"traversal\",\"Claim.pay_taken_by\":\"local\",\"Claim.record_in_xero_taken_by\":\"local\",\"Claim.reject_taken_by\":\"local\",\"Claim.resubmit_taken_by\":\"local\",\"Claim.return_for_changes_taken_by\":\"local\",\"Claim.submit_taken_by\":\"local\",\"Claim.verify_xero_record_taken_by\":\"local\",\"Claim.withdraw_taken_by\":\"local\",\"ClaimLine.add_taken_by\":\"local\",\"ClaimLine.amend_taken_by\":\"local\",\"ClaimLine.close_taken_by\":\"local\",\"ClaimLine.confirm_nature_taken_by\":\"local\",\"ClaimLine.confirmed_by_a_person\":\"local\",\"ClaimLine.discard_taken_by\":\"local\",\"ClaimLine.erase_taken_by\":\"local\",\"ClaimLine.spent_amount_has_its_currency\":\"local\",\"ClaimLine.suggest_nature_taken_by\":\"local\",\"Employee.forget_taken_by\":\"local\",\"Employee.leave_taken_by\":\"local\",\"Employee.link_xero_contact_taken_by\":\"local\",\"Employee.onboard_taken_by\":\"local\",\"ExpenseCategory.change_policy_amount_taken_by\":\"local\",\"ExpenseCategory.define_taken_by\":\"local\",\"ExpenseCategory.retire_taken_by\":\"local\"},\"could_violate\":{\"AssistantAgent.register_taken_by\":[\"AssistantAgent.register\"],\"AssistantAgent.retire_taken_by\":[\"AssistantAgent.register\",\"AssistantAgent.retire\"],\"BusinessFunction.dissolve_taken_by\":[\"BusinessFunction.dissolve\",\"BusinessFunction.establish\"],\"BusinessFunction.establish_taken_by\":[\"BusinessFunction.establish\"],\"Claim.add_line_taken_by\":[\"Claim.add_line\",\"Claim.draft\"],\"Claim.approve_taken_by\":[\"Claim.approve\",\"Claim.draft\"],\"Claim.complete_review_taken_by\":[\"Claim.complete_review\",\"Claim.draft\"],\"Claim.correct_xero_bill_id_taken_by\":[\"Claim.correct_xero_bill_id\",\"Claim.draft\"],\"Claim.draft_taken_by\":[\"Claim.draft\"],\"Claim.erase_personal_data_taken_by\":[\"Claim.draft\",\"Claim.erase_personal_data\"],\"Claim.has_title\":[\"Claim.draft\",\"Claim.erase_personal_data\"],\"Claim.lines_within_reach\":[\"Claim.draft\",\"ClaimLine.add\"],\"Claim.pay_taken_by\":[\"Claim.draft\",\"Claim.pay\"],\"Claim.record_in_xero_taken_by\":[\"Claim.draft\",\"Claim.record_in_xero\"],\"Claim.reject_taken_by\":[\"Claim.draft\",\"Claim.reject\"],\"Claim.resubmit_taken_by\":[\"Claim.draft\",\"Claim.resubmit\"],\"Claim.return_for_changes_taken_by\":[\"Claim.draft\",\"Claim.return_for_changes\"],\"Claim.submit_taken_by\":[\"Claim.draft\",\"Claim.submit\"],\"Claim.verify_xero_record_taken_by\":[\"Claim.draft\",\"Claim.verify_xero_record\"],\"Claim.withdraw_taken_by\":[\"Claim.draft\",\"Claim.withdraw\"],\"ClaimLine.add_taken_by\":[\"ClaimLine.add\"],\"ClaimLine.amend_taken_by\":[\"ClaimLine.add\",\"ClaimLine.amend\"],\"ClaimLine.close_taken_by\":[\"ClaimLine.add\",\"ClaimLine.close\"],\"ClaimLine.confirm_nature_taken_by\":[\"ClaimLine.add\",\"ClaimLine.confirm_nature\"],\"ClaimLine.confirmed_by_a_person\":[\"ClaimLine.add\",\"ClaimLine.amend\",\"ClaimLine.confirm_nature\"],\"ClaimLine.discard_taken_by\":[\"ClaimLine.add\",\"ClaimLine.discard\"],\"ClaimLine.erase_taken_by\":[\"ClaimLine.add\",\"ClaimLine.erase\"],\"ClaimLine.spent_amount_has_its_currency\":[\"ClaimLine.add\",\"ClaimLine.amend\"],\"ClaimLine.suggest_nature_taken_by\":[\"ClaimLine.add\",\"ClaimLine.suggest_nature\"],\"Employee.forget_taken_by\":[\"Employee.forget\",\"Employee.onboard\"],\"Employee.leave_taken_by\":[\"Employee.leave\",\"Employee.onboard\"],\"Employee.link_xero_contact_taken_by\":[\"Employee.link_xero_contact\",\"Employee.onboard\"],\"Employee.onboard_taken_by\":[\"Employee.onboard\"],\"ExpenseCategory.change_policy_amount_taken_by\":[\"ExpenseCategory.change_policy_amount\",\"ExpenseCategory.define\"],\"ExpenseCategory.define_taken_by\":[\"ExpenseCategory.define\"],\"ExpenseCategory.retire_taken_by\":[\"ExpenseCategory.define\",\"ExpenseCategory.retire\"]},\"not_computed\":[\"invariants\",\"sweepable\",\"unsweepable\",\"queryable_derives\",\"worst_case_fanout\",\"observed_fanout\",\"replaced_creations\",\"creations_past_first_state\",\"observing_clauses\",\"flags\"]}"
+       }
+      },
+      "position": 3,
+      "principal": null,
+      "reads": {},
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "SUBMITTED",
+      "transition": "submit"
+     },
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "SUBMITTED",
+      "imported": false,
+      "object_id": "01a17c2c-9e25-7d2f-bc43-fb81bbc52e45",
+      "object_seq": 3,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "version": 1
+      },
+      "position": 4,
+      "principal": null,
+      "reads": {},
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "PUBLISHED",
+      "transition": "publish"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "PUBLISHED",
+   "type": "DeclarationChange",
+   "version": 3
+  },
+  "01a17c2c-9f12-7f86-b585-d2a3c40a95bf": {
+   "attributes": {
+    "forget_by_kind": null,
+    "leave_by_kind": null,
+    "link_xero_contact_by_kind": null,
+    "name": null,
+    "onboard_by_kind": "human",
+    "user_id": "alice",
+    "xero_contact_id": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "01a17c2c-9f12-7f86-b585-d2a3c40a95bf",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {
+        "user_id": "alice"
+       },
+       "wrote": {
+        "onboard_by_kind": "human",
+        "user_id": "alice"
+       }
+      },
+      "position": 5,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {},
+       "scans": {
+        "identity_taken": {
+         "AssistantAgent": [],
+         "Employee": [],
+         "Operator": []
+        },
+        "user_id_unique": {
+         "Employee": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "ACTIVE",
+      "transition": "onboard"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "ACTIVE",
+   "type": "Employee",
+   "version": 1
+  },
+  "01a17c2c-9f1b-72c2-9146-12015aa8ddf2": {
+   "attributes": {
+    "forget_by_kind": null,
+    "leave_by_kind": null,
+    "link_xero_contact_by_kind": null,
+    "name": null,
+    "onboard_by_kind": "human",
+    "user_id": "rev",
+    "xero_contact_id": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "01a17c2c-9f1b-72c2-9146-12015aa8ddf2",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {
+        "user_id": "rev"
+       },
+       "wrote": {
+        "onboard_by_kind": "human",
+        "user_id": "rev"
+       }
+      },
+      "position": 6,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {},
+       "scans": {
+        "identity_taken": {
+         "AssistantAgent": [],
+         "Employee": [],
+         "Operator": []
+        },
+        "user_id_unique": {
+         "Employee": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "ACTIVE",
+      "transition": "onboard"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "ACTIVE",
+   "type": "Employee",
+   "version": 1
+  },
+  "01a17c2c-9f23-7bc1-9c64-30e6097fe94a": {
+   "attributes": {
+    "forget_by_kind": null,
+    "leave_by_kind": null,
+    "link_xero_contact_by_kind": null,
+    "name": null,
+    "onboard_by_kind": "human",
+    "user_id": "fin",
+    "xero_contact_id": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "01a17c2c-9f23-7bc1-9c64-30e6097fe94a",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {
+        "user_id": "fin"
+       },
+       "wrote": {
+        "onboard_by_kind": "human",
+        "user_id": "fin"
+       }
+      },
+      "position": 7,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {},
+       "scans": {
+        "identity_taken": {
+         "AssistantAgent": [],
+         "Employee": [],
+         "Operator": []
+        },
+        "user_id_unique": {
+         "Employee": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "ACTIVE",
+      "transition": "onboard"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "ACTIVE",
+   "type": "Employee",
+   "version": 1
+  },
+  "01a17c2c-9f2b-7d1c-a776-92a8c7626381": {
+   "attributes": {
+    "agent_id": "classifier",
+    "name": "Spend classifier",
+    "register_by_kind": "human",
+    "retire_by_kind": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "01a17c2c-9f2b-7d1c-a776-92a8c7626381",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {
+        "agent_id": "classifier",
+        "name": "Spend classifier"
+       },
+       "wrote": {
+        "agent_id": "classifier",
+        "name": "Spend classifier",
+        "register_by_kind": "human"
+       }
+      },
+      "position": 8,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {},
+       "scans": {
+        "agent_id_unique": {
+         "AssistantAgent": []
+        },
+        "identity_taken": {
+         "AssistantAgent": [],
+         "Employee": [],
+         "Operator": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "ENABLED",
+      "transition": "register"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "ENABLED",
+   "type": "AssistantAgent",
+   "version": 1
+  },
+  "01a17c2c-9f34-7b3d-9835-8ca40bc7e2d2": {
+   "attributes": {
+    "dissolve_by_kind": null,
+    "establish_by_kind": "human",
+    "name": "Finance approvers"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "01a17c2c-9f34-7b3d-9835-8ca40bc7e2d2",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {
+        "name": "Finance approvers"
+       },
+       "wrote": {
+        "establish_by_kind": "human",
+        "name": "Finance approvers"
+       }
+      },
+      "position": 9,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {},
+       "scans": {
+        "name_unique": {
+         "BusinessFunction": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "ACTIVE",
+      "transition": "establish"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "ACTIVE",
+   "type": "BusinessFunction",
+   "version": 1
+  },
+  "01a17c2c-9f3c-768c-809c-8679d92f093a": {
+   "attributes": {
+    "change_policy_amount_by_kind": null,
+    "define_by_kind": "human",
+    "name": "Meals",
+    "policy_amount": "USD 60.00",
+    "retire_by_kind": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "01a17c2c-9f3c-768c-809c-8679d92f093a",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {
+        "name": "Meals",
+        "policy_amount": "USD 60.00"
+       },
+       "wrote": {
+        "define_by_kind": "human",
+        "name": "Meals",
+        "policy_amount": "USD 60.00"
+       }
+      },
+      "position": 10,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {},
+       "scans": {
+        "name_unique": {
+         "ExpenseCategory": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "IN_USE",
+      "transition": "define"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "IN_USE",
+   "type": "ExpenseCategory",
+   "version": 1
+  },
+  "01a17c2c-9f44-7e6f-9788-6ca15a5c7e7e": {
+   "attributes": {
+    "change_policy_amount_by_kind": null,
+    "define_by_kind": "human",
+    "name": "Equipment",
+    "policy_amount": "USD 500.00",
+    "retire_by_kind": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "01a17c2c-9f44-7e6f-9788-6ca15a5c7e7e",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {
+        "name": "Equipment",
+        "policy_amount": "USD 500.00"
+       },
+       "wrote": {
+        "define_by_kind": "human",
+        "name": "Equipment",
+        "policy_amount": "USD 500.00"
+       }
+      },
+      "position": 11,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {},
+       "scans": {
+        "name_unique": {
+         "ExpenseCategory": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "IN_USE",
+      "transition": "define"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "IN_USE",
+   "type": "ExpenseCategory",
+   "version": 1
+  },
+  "01a17c2c-9f52-7915-a25d-290dc0efb767": {
+   "attributes": {
+    "add_line_by_kind": "human",
+    "approve_by_kind": null,
+    "approved_at": null,
+    "approving_function": null,
+    "claimant": "01a17c2c-9f12-7f86-b585-d2a3c40a95bf",
+    "complete_review_by_kind": null,
+    "correct_xero_bill_id_by_kind": null,
+    "draft_by_kind": "human",
+    "erase_personal_data_by_kind": null,
+    "first_submitted_at": "2026-10-27T07:04:21Z",
+    "lines": [
+     "01a17c2c-9f60-7b6e-afaf-a4c5e8b22786"
+    ],
+    "number": "EXP-00001",
+    "paid_at": null,
+    "pay_by_kind": null,
+    "record_in_xero_by_kind": null,
+    "recorded_at": null,
+    "reject_by_kind": null,
+    "rejection_reason": null,
+    "resubmit_by_kind": null,
+    "return_for_changes_by_kind": null,
+    "return_reason": null,
+    "submit_by_kind": "human",
+    "submitted_at": "2026-10-27T07:04:21Z",
+    "title": "Customer visit to the Acme plant",
+    "verified_at": null,
+    "verify_xero_record_by_kind": null,
+    "withdraw_by_kind": "human",
+    "xero_bill_id": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "alice",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "01a17c2c-9f52-7915-a25d-290dc0efb767",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {
+        "claimant": "01a17c2c-9f12-7f86-b585-d2a3c40a95bf",
+        "title": "Customer visit to the Acme plant"
+       },
+       "wrote": {
+        "claimant": "01a17c2c-9f12-7f86-b585-d2a3c40a95bf",
+        "draft_by_kind": "human",
+        "number": "EXP-00001",
+        "title": "Customer visit to the Acme plant"
+       }
+      },
+      "position": 12,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {},
+       "scans": {
+        "number_unique": {
+         "Claim": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "DRAFT",
+      "transition": "draft"
+     },
+     {
+      "actor_id": "alice",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": false,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "DRAFT",
+      "imported": false,
+      "object_id": "01a17c2c-9f52-7915-a25d-290dc0efb767",
+      "object_seq": 2,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {
+        "amount": "USD 45.00",
+        "category": "01a17c2c-9f3c-768c-809c-8679d92f093a",
+        "expense_date": "2025-12-30",
+        "merchant": "Harbour Cafe",
+        "receipt": {
+         "hash": "sha256:236d76ea080aeb302fbb0c0c0f4ae01563ed3312c25635d548e7f4dd661450c2",
+         "media_type": "application/octet-stream",
+         "size": 17
+        }
+       },
+       "wrote": {
+        "add_line_by_kind": "human"
+       }
+      },
+      "position": 13,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {
+        "01a17c2c-9f60-7b6e-afaf-a4c5e8b22786": 1
+       },
+       "scans": {
+        "number_unique": {
+         "Claim": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "DRAFT",
+      "transition": "add_line"
+     },
+     {
+      "actor_id": "alice",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "DRAFT",
+      "imported": false,
+      "object_id": "01a17c2c-9f52-7915-a25d-290dc0efb767",
+      "object_seq": 3,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {},
+       "wrote": {
+        "first_submitted_at": "2026-10-27T07:04:21Z",
+        "submit_by_kind": "human",
+        "submitted_at": "2026-10-27T07:04:21Z"
+       }
+      },
+      "position": 15,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {
+        "01a17c2c-9f60-7b6e-afaf-a4c5e8b22786": 1
+       },
+       "scans": {
+        "number_unique": {
+         "Claim": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "SUBMITTED",
+      "transition": "submit"
+     },
+     {
+      "actor_id": "alice",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "SUBMITTED",
+      "imported": false,
+      "object_id": "01a17c2c-9f52-7915-a25d-290dc0efb767",
+      "object_seq": 4,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {},
+       "wrote": {
+        "withdraw_by_kind": "human"
+       }
+      },
+      "position": 16,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {
+        "01a17c2c-9f60-7b6e-afaf-a4c5e8b22786": 2
+       },
+       "scans": {
+        "number_unique": {
+         "Claim": []
+        }
+       }
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "WITHDRAWN",
+      "transition": "withdraw"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "WITHDRAWN",
+   "type": "Claim",
+   "version": 4
+  },
+  "01a17c2c-9f60-7b6e-afaf-a4c5e8b22786": {
+   "attributes": {
+    "add_by_kind": "human",
+    "amend_by_kind": null,
+    "amount": "USD 45.00",
+    "category": "01a17c2c-9f3c-768c-809c-8679d92f093a",
+    "claim": "01a17c2c-9f52-7915-a25d-290dc0efb767",
+    "close_by_kind": "human",
+    "confirm_nature_by_kind": null,
+    "discard_by_kind": null,
+    "erase_by_kind": null,
+    "expense_date": "2025-12-30",
+    "merchant": "Harbour Cafe",
+    "nature": null,
+    "nature_confirmed_by": null,
+    "original_amount": null,
+    "original_currency": null,
+    "purpose": null,
+    "receipt": {
+     "hash": "sha256:236d76ea080aeb302fbb0c0c0f4ae01563ed3312c25635d548e7f4dd661450c2",
+     "media_type": "application/octet-stream",
+     "size": 17
+    },
+    "suggest_nature_by_kind": null,
+    "suggested_nature": null,
+    "suggestion_rationale": null
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "alice",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": 13,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "01a17c2c-9f60-7b6e-afaf-a4c5e8b22786",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {
+        "amount": "USD 45.00",
+        "category": "01a17c2c-9f3c-768c-809c-8679d92f093a",
+        "claim": "01a17c2c-9f52-7915-a25d-290dc0efb767",
+        "expense_date": "2025-12-30",
+        "merchant": "Harbour Cafe",
+        "receipt": {
+         "hash": "sha256:236d76ea080aeb302fbb0c0c0f4ae01563ed3312c25635d548e7f4dd661450c2",
+         "media_type": "application/octet-stream",
+         "size": 17
+        }
+       },
+       "wrote": {
+        "add_by_kind": "human",
+        "amount": "USD 45.00",
+        "category": "01a17c2c-9f3c-768c-809c-8679d92f093a",
+        "claim": "01a17c2c-9f52-7915-a25d-290dc0efb767",
+        "expense_date": "2025-12-30",
+        "merchant": "Harbour Cafe",
+        "receipt": {
+         "hash": "sha256:236d76ea080aeb302fbb0c0c0f4ae01563ed3312c25635d548e7f4dd661450c2",
+         "media_type": "application/octet-stream",
+         "size": 17
+        }
+       }
+      },
+      "position": 14,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {
+        "01a17c2c-9f3c-768c-809c-8679d92f093a": 1
+       },
+       "scans": {}
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "LISTED",
+      "transition": "add"
+     },
+     {
+      "actor_id": "alice",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": 16,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": "LISTED",
+      "imported": false,
+      "object_id": "01a17c2c-9f60-7b6e-afaf-a4c5e8b22786",
+      "object_seq": 2,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {},
+       "wrote": {
+        "close_by_kind": "human"
+       }
+      },
+      "position": 17,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "CLOSED",
+      "transition": "close"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "CLOSED",
+   "type": "ClaimLine",
+   "version": 2
+  },
+  "01a17c2c-a04f-7a5f-8acd-37f7555d8358": {
+   "attributes": {
+    "corrects": null,
+    "name": "fixture",
+    "note": null,
+    "occurred_at": "2026-10-27T07:04:21Z",
+    "recorded_at": "2026-10-27T07:04:21Z",
+    "subject": "01a17c2c-9f12-7f86-b585-d2a3c40a95bf",
+    "subject_state": "ACTIVE"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "01a17c2c-a04f-7a5f-8acd-37f7555d8358",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {
+        "name": "fixture",
+        "subject": "01a17c2c-9f12-7f86-b585-d2a3c40a95bf"
+       },
+       "wrote": {
+        "name": "fixture",
+        "occurred_at": "2026-10-27T07:04:21Z",
+        "recorded_at": "2026-10-27T07:04:21Z",
+        "subject": "01a17c2c-9f12-7f86-b585-d2a3c40a95bf",
+        "subject_state": "ACTIVE"
+       }
+      },
+      "position": 18,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "RECORDED",
+      "transition": "record"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "RECORDED",
+   "type": "label",
+   "version": 1
+  },
+  "01a17c2c-a05c-7758-8623-3c4035df9445": {
+   "attributes": {
+    "changes_state_only": false,
+    "dead": false,
+    "dead_after": null,
+    "lag": "0 s",
+    "lagging": false,
+    "lagging_after": null,
+    "target_family": false,
+    "target_type": "Employee",
+    "transitions": []
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": null,
+      "declaration_version": 1,
+      "from_state": null,
+      "imported": false,
+      "object_id": "01a17c2c-a05c-7758-8623-3c4035df9445",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "inputs": {
+        "target_type": "Employee"
+       },
+       "wrote": {
+        "changes_state_only": false,
+        "target_family": false,
+        "target_type": "Employee",
+        "transitions": []
+       }
+      },
+      "position": 19,
+      "principal": null,
+      "reads": {
+       "now": "2026-10-27T07:04:21Z",
+       "objects": {},
+       "scans": {}
+      },
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "ACTIVE",
+      "transition": "subscribe"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "ACTIVE",
+   "type": "Subscription",
+   "version": 1
+  },
+  "operator": {
+   "attributes": {
+    "identity": "operator"
+   },
+   "history": {
+    "cursor": null,
+    "events": [
+     {
+      "actor_id": "operator",
+      "actor_kind": "human",
+      "as_of": {},
+      "batch": null,
+      "cause": null,
+      "changes_state": true,
+      "consulted": {},
+      "context": "store-creation:objectflow-core 0.8.0",
+      "declaration_version": 0,
+      "from_state": null,
+      "imported": false,
+      "object_id": "operator",
+      "object_seq": 1,
+      "occurred_at": "2026-10-27T07:04:21Z",
+      "payload": {
+       "wrote": {
+        "identity": "operator"
+       }
+      },
+      "position": 1,
+      "principal": null,
+      "reads": {},
+      "recorded_at": "2026-10-27T07:04:21Z",
+      "retries": 0,
+      "source": "observed",
+      "to_state": "ACTIVE",
+      "transition": "install"
+     }
+    ],
+    "not_computed": [
+     "taint_version",
+     "txn",
+     "flags"
+    ]
+   },
+   "state": "ACTIVE",
+   "type": "Operator",
+   "version": 1
+  }
+ },
+ "release": "objectflow-core 0.8.0"
+}
