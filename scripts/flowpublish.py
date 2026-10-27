@@ -1195,8 +1195,8 @@ def install(store, installed, report, change_id, identity, kind):
     # on each object already erased, what the version newly marks personal redacted, the absence admitting every
     # invariant it leaves violated, as the erasure it completes would have (DESIGN.md §8, D527)
     judge = flowrun.Runner(kinds, sim.enums)
-    renamed = {(tn, to): frm for tn, maps in new.migration["renamed_attributes"].items()
-               for frm, to in (maps or {}).items()}
+    renamed = [(tn, frm, to) for tn, maps in new.migration["renamed_attributes"].items()
+               for frm, to in (maps or {}).items()]
     for oid, x in sorted(sim.objects.items(), key=lambda kv: kv[1].id_order):
         if not x.erased or oid not in store.objects or x.type in retired or x.type not in kinds:
             continue
@@ -1205,7 +1205,9 @@ def install(store, installed, report, change_id, identity, kind):
         old_attrs = (old_kinds.get(left.get(oid, x.type)) or {}).get("attributes") or {}
         redacted = []
         for a, spec in ((kinds[x.type].get("attributes") or {}).items()):
-            before = old_attrs.get(a if oid in left else renamed.get((x.type, a), a)) or {}
+            # its name before the version, a rename's, one keyed by an abstract base among them (ADR-0147)
+            named = a if oid in left else next((frm for tn, frm, to in renamed if to == a and is_a(kinds, x.type, tn)), a)
+            before = old_attrs.get(named) or {}
             if (spec or {}).get("personal") and not before.get("personal") and before:
                 if flowrun.is_set_attribute(spec):
                     x.attrs[a] = ()     # a personal set is emptied, a set being never absent (ADR-0148)

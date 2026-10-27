@@ -4634,6 +4634,7 @@ impl Store {
         source: &[(String, String)],
     ) -> Stored<Vec<i64>> {
         let old = self.lib.clone();
+        let earlier = Arc::clone(&self.earlier);
         let now = self.now;
         let (tx, _) = begin_write!(self);
         release_held(&tx)?;
@@ -4863,7 +4864,7 @@ impl Store {
         in_order.sort_by_key(|o| o.order);
         // each erased object's newly personal attributes, redacted after
         // every migration (publish-and-import.md §1 step 5)
-        let mut redactions: Vec<(Object, Vec<String>)> = Vec::new();
+        let mut redactions: Vec<(Object, Vec<(String, String)>)> = Vec::new();
         for o in in_order {
             let Some(t) = new.type_(&o.type_) else {
                 continue;
@@ -5043,17 +5044,26 @@ impl Store {
             // §1 step 5), which admits what the absence breaks, as the
             // erasure it completes does (declaration-syntax.md §6.4)
             let erased = x.parts_mut()?.erased;
-            let newly: Vec<String> = t
+            // each judged under the name the version before gave it: a
+            // rename's old one, where the version renamed it, a moved object
+            // holding its target's names already (ADR-0146 decision 2)
+            let moved = was.type_ != x.type_;
+            let before = |n: &str| {
+                m.renamed_attributes
+                    .iter()
+                    .find(|(owner, _, to)| !moved && to == n && new.is_a(&x.type_, owner))
+                    .map_or_else(|| n.to_string(), |(_, from, _)| from.clone())
+            };
+            let newly: Vec<(String, String)> = t
                 .attributes
                 .iter()
-                .filter(|(n, a)| {
-                    erased
-                        && a.personal
-                        && old_t
-                            .and_then(|ot| ot.attribute(n))
-                            .is_some_and(|oa| !oa.personal)
+                .filter(|(_, a)| erased && a.personal)
+                .map(|(n, _)| (n.clone(), before(n)))
+                .filter(|(_, named)| {
+                    old_t
+                        .and_then(|ot| ot.attribute(named))
+                        .is_some_and(|oa| !oa.personal)
                 })
-                .map(|(n, _)| n.clone())
                 .collect();
             // redacted once every object has migrated, as publish-and-import.md
             // §1 step 5 orders them, where each object's redaction followed its
@@ -5062,10 +5072,11 @@ impl Store {
                 redactions.push((x, newly));
             }
         }
-        for (mut x, newly) in redactions {
+        for (mut x, named) in redactions {
             let Some(t) = new.type_(&x.type_) else {
                 continue;
             };
+            let newly: Vec<String> = named.iter().map(|(n, _)| n.clone()).collect();
             let position = alloc.position();
             positions.push(position);
             let was = x.attrs.clone();
@@ -5119,6 +5130,28 @@ impl Store {
                 cause: Some(publish_position),
                 ..event
             };
+            // a renamed one's copies in the events before the publish, each
+            // under the name its event's version gave it, which the pass over
+            // the attributes' names does not reach (ADR-0146 decision 2)
+            if named.iter().any(|(n, was)| n != was) {
+                let own = read_events(&tx, "object_id = ?1", &x.id)?;
+                let mut then = World::new(&old, now);
+                then.earlier = &*earlier;
+                for e in own.iter().filter(|e| e.position < publish_position) {
+                    let type_ = crate::request::type_then(&own, &x.type_, e.declaration_version);
+                    for (_, was) in named.iter().filter(|(n, was)| n != was) {
+                        let name = then.named_under(e.declaration_version, &type_, was);
+                        let held =
+                            |part: &str| e.payload[part].get(&name).is_some_and(|v| !v.is_null());
+                        if held("wrote") || e.payload["corrected"].get(&name).is_some() {
+                            change_set.redacted_writes.push((e.position, name.clone()));
+                        }
+                        if held("inputs") {
+                            change_set.redacted_inputs.push((e.position, name.clone()));
+                        }
+                    }
+                }
+            }
             change_set.redacted.push((x.id.clone(), newly));
             change_set.writes.push((x, false, event));
         }

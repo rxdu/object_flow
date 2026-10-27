@@ -15,6 +15,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Fixed
 
 - A rename keyed by an abstract base reaches every type of its family, as `publish-and-import.md` §1 step 5 says (ADR-0147). The core's publish renamed the column only in a table of the mapping's own type, which a base has none of, so each member's values were dropped, and noticed only as `possible_rename:<Type>.<attribute>`. An erasure after such a rename now finds the value's copies under its old name too. The checkers count a base's rename and backfill for each member, where they noticed the attribute as gone or as needing a backfill. They check a base's rename against the version before as a type's own.
+- A publish redacts, on an object already erased, an attribute it renames into one it newly marks personal, as it redacts one it marks personal under its own name (`publish-and-import.md` §1 step 5). The core judged the attribute under its new name, which the version before lacked, so it kept the value and recorded no `redact` event; it now also clears the value's copies in the object's earlier events, under their old name. The Flow Studio's runner backend missed the same case for a rename keyed by an abstract base.
 
 ## 0.8.0, 2026-10-26
 

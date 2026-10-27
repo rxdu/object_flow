@@ -2916,7 +2916,7 @@ pub(crate) fn input_personal(lib: &Library, t: &Type, x: &Transition, name: &str
 /// move took it from, read from its own events, a move's naming the type it
 /// left, the version before the move its `declaration_version` (ADR-0229
 /// decision 3).
-fn type_then(own: &[Event], current: &str, version: i64) -> String {
+pub(crate) fn type_then(own: &[Event], current: &str, version: i64) -> String {
     let mut was = current;
     for e in own.iter().rev() {
         if version <= e.declaration_version

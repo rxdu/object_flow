@@ -6804,4 +6804,80 @@ types:
         assert_eq!(copies(&s, &laptop, "tag"), vec![]);
         assert_eq!(copies(&s, &laptop, "label"), vec![]);
     }
+    /// An object erased while an attribute was not personal, then a
+    /// version renaming the attribute into one it marks personal: the
+    /// publish redacts the value it carried, records the redaction, and
+    /// leaves no copy of it in an event written under the old name, whether
+    /// the rename is keyed by the type or by its abstract base
+    /// (`publish-and-import.md` §1 step 5, D527, ADR-0146 decision 2).
+    #[test]
+    fn a_publish_redacts_a_value_renamed_into_a_newly_personal_attribute() {
+        let shop_v1 = shop_corrected(&SHOP_V1.replace(
+            "name: { type: string, optional: true, personal: true }",
+            "name: { type: string, optional: true }",
+        ));
+        let shop_v2 = shop_corrected(SHOP_V1)
+            .replace(
+                "name: { type: string, optional: true, personal: true }",
+                "alias: { type: string, optional: true, personal: true }",
+            )
+            .replace(
+                "optional_inputs: [name, nick, tier, size]",
+                "optional_inputs: [alias, nick, tier, size]",
+            )
+            .replace(
+                "fix_name: { kind: internal, from: [ACTIVE], corrects: [name], required_inputs: [name]",
+                "fix_name: { kind: internal, from: [ACTIVE], corrects: [alias], required_inputs: [alias]",
+            )
+            + "migration:\n  description: The name is an alias.\n  renamed_attributes:\n    Customer: { name: alias }\n";
+        for (what, module, v1, v2, tn, xn, inputs, old, new) in [
+            (
+                "keyed by the type",
+                "shop",
+                shop_v1,
+                shop_v2,
+                "Customer",
+                "join",
+                json!({"name": "Ana"}),
+                "name",
+                "alias",
+            ),
+            (
+                "keyed by its base",
+                "assets",
+                assets(false),
+                assets_relabelled(true),
+                "Laptop",
+                "receive",
+                json!({"tag": "L-1"}),
+                "tag",
+                "label",
+            ),
+        ] {
+            let lib = Library::load(&[(format!("{module}.yaml"), v1)]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let id = created(&req(&mut s, xn, (tn, true), inputs));
+            created(&req(
+                &mut s,
+                "forget",
+                (&id, false),
+                json!({"reason": "asked"}),
+            ));
+            assert!(!copies(&s, &id, old).is_empty(), "{what}");
+            published_as(&mut s, module, &[&v2]);
+            let w = s.snapshot().unwrap();
+            let o = w.whole(&id).unwrap().unwrap();
+            assert!(o.attr(new).is_absent(), "{what}: {:?}", o.attr(new));
+            drop(w);
+            let history = s.history(&id).unwrap();
+            let redact = history.last().unwrap();
+            assert_eq!(
+                (redact.transition.as_str(), &redact.payload["redacted"]),
+                ("redact", &json!([new])),
+                "{what}"
+            );
+            assert_eq!(copies(&s, &id, old), vec![], "{what}");
+            assert_eq!(copies(&s, &id, new), vec![], "{what}");
+        }
+    }
 }

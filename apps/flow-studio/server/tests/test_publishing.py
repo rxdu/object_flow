@@ -2292,7 +2292,16 @@ types:
     transitions:
       receive: {{ kind: initial, to: {st}, optional_inputs: [tag] }}
       dispose: {{ kind: external, from: [{st}], to: GONE }}
+      forget: {{ kind: erasure, inputs: {{ reason: {{ type: string }} }} }}
 """ for t, st in (("Laptop", "IN_USE"), ("Server", "RACKED")))
+
+
+def relabelled(personal: bool = False) -> str:
+    """`ASSETS` with the base's `tag` renamed `label` by a rename keyed by
+    the base, `personal` marking the label."""
+    return ASSETS.replace("      tag: { type: string, optional: true }", "      label: { type: string, optional: true"
+                          + (", personal: true" if personal else "") + " }").replace("[tag]", "[label]") + (
+        "migration:\n  description: A tag is a label.\n  renamed_attributes:\n    Asset: { tag: label }\n")
 
 
 def test_a_rename_keyed_by_an_abstract_base_reaches_its_family_alike(tee):
@@ -2305,15 +2314,40 @@ def test_a_rename_keyed_by_an_abstract_base_reaches_its_family_alike(tee):
     laptop = made(tee, "Laptop", "receive", tag="L-1")
     server = made(tee, "Server", "receive", tag="S-1")
     tee.found.clear()
-    relabelled = ASSETS.replace("      tag: {", "      label: {").replace(
-        "[tag]", "[label]") + ("migration:\n  description: A tag is a label.\n"
-                               "  renamed_attributes:\n    Asset: { tag: label }\n")
-    c, codes = dry_run(tee, {"assets": relabelled})
+    c, codes = dry_run(tee, {"assets": relabelled()})
     assert not any(code.startswith("possible_rename:") for code in codes), codes
     approved(tee, c)
     for oid, want in ((laptop, "L-1"), (server, "S-1")):
         attributes = tee.post("/v1/get", {"id": oid})["attributes"]
         assert (attributes.get("label"), attributes.get("tag")) == (want, None), attributes
+    alike(tee)
+
+
+@pytest.mark.parametrize("keyed", ["by the type", "by its base"])
+def test_a_value_renamed_into_a_newly_personal_attribute_is_redacted_alike(tee, keyed):
+    """An object erased while an attribute was not personal, then a version
+    renaming it into one it marks personal: the publish redacts the value it
+    carried, as it redacts one never renamed, alike through both backends,
+    where the core kept it, and the runner did for a rename keyed by an
+    abstract base (`publish-and-import.md` §1 step 5, D527)."""
+    if keyed == "by the type":
+        load(tee, "shop", SHOP_V1.replace("name: { type: string, optional: true, personal: true }",
+                                          "name: { type: string, optional: true }"))
+        oid, new = made(tee, "Customer", "join", name="Ana"), "alias"
+        later = {"shop": SHOP_V1.replace("name: { type: string, optional: true, personal: true }", ALIAS.strip())
+                 .replace("optional_inputs: [name, nick, tier, size]", "optional_inputs: [alias, nick, tier, size]")
+                 + "migration:\n  description: The name is an alias.\n  renamed_attributes:\n    Customer: { name: alias }\n"}
+    else:
+        load(tee, "assets", ASSETS)
+        oid, new = made(tee, "Laptop", "receive", tag="L-1"), "label"
+        later = {"assets": relabelled(personal=True)}
+    took(tee, oid, "forget", reason="asked")
+    tee.found.clear()
+    c = change(tee, "draft", source=later, source_ref="git:case@2")["object_id"]
+    approved(tee, c)
+    assert tee.post("/v1/get", {"id": oid})["attributes"].get(new) is None
+    history = tee.post("/v1/history", {"id": oid})
+    assert history["events"][-1]["transition"] == "redact", history
     alike(tee)
 
 
