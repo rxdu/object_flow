@@ -69,8 +69,51 @@ Temporal's blog, "Scaling Temporal: The basics" (May 23, 2023) [S9]:
 | Jira Cloud, one issue's sustained limit (§4) | 3.3 (derived) | a limit, not a capacity |
 | ObjectFlow, writes alone at [ADR-0204](../adr/0204-what-production-readiness-means-and-when-the-reviews-stop.md) §1's month-end peak, twice its steady 50 | 100 offered, 101 answered at p95 34 ms | one writer, requests waiting for it committed together ([ADR-0208](../adr/0208-requests-waiting-for-the-writer-commit-together.md)); SQLite, the two-year profile store, a shared i7-8700 with NVMe, 2026-10-14 (`TODO.md`, A1) |
 | ObjectFlow, one request a commit | 87 answered at p95 406 ms | the same, before ADR-0208 |
+| ObjectFlow's grouped writer, its ceiling (§7 item 4) | SQLite: 400 at p95 94 ms. PostgreSQL: 100 at p95 53 ms with 32 sessions, 75 at p95 83 ms with 64 | the first table below, 2026-10-27 |
+| ObjectFlow, eight stores on one PostgreSQL server | 800 together, each store's p95 within 26 ms | the second table below, 2026-10-27 |
 
-What bounds ObjectFlow's writer is the disk's flush: 7.2 ms of a draft's 10.6 ms at p50, the deciding and writing about 3.4 ms (ADR-0208, measured 2026-10-14). No rate above 100 a second has been offered, so the grouped writer's ceiling is unknown (`TODO.md`, "Write scale past one writer").
+When the writer committed one request at a time, the disk's flush bounded it: 7.2 ms of a draft's 10.6 ms at p50, the deciding and writing about 3.4 ms (ADR-0208, measured 2026-10-14).
+
+Grouped, the writer's ceiling on this machine is about 400 writes a second on SQLite: 400 passed with 32 sessions and with 64, and 500 failed with 64. On PostgreSQL it is between 100 and 125 with the month-end peak's 32 sessions, and between 75 and 100 with 64. Where its sessions could offer them, each backend answered at least 99.6% of the writes offered, up to 600 a second on SQLite and 200 on PostgreSQL: a rate past the ceiling is answered late, not refused. A session waiting on its write offers no other, so 64 sessions offered SQLite at most 693 a second, and 32 offered it at most about 465. PostgreSQL's commits held 1.2 to 1.6 requests each, read from the service's `/metrics`.
+
+The machine's idle cores account for much of PostgreSQL's tail. Its CPUs ran the `powersave` governor, with idle states down to C10. With busy loops at the lowest priority on every thread, one store offered 100 writes a second by 16 sessions had a p95 of 25 ms in two runs, against 76 to 134 ms in three runs without them. With the loops, PostgreSQL's ceiling at 32 sessions rose to between 150 and 200. The loops also take each hyperthread's sibling, which slows the work itself: past the ceiling they made the p95 worse, 186 ms at 200 a second against 129 ms without. Which of the cores' idle states or clock speeds accounts for the gain is not measured. *Inferred:* each of a write's round trips to PostgreSQL waits on a core's wake-up, and SQLite, inside the service's process, makes none. What else bounds PostgreSQL's writer below SQLite's is not measured (`TODO.md`, "Write scale past one writer").
+
+Each cell is the writes' p95, past C5's 100 ms in bold:
+
+| Writes offered a second | SQLite, 64 sessions | SQLite, 32 | SQLite, 32, cores kept awake³ | PostgreSQL, 64 | PostgreSQL, 32 | PostgreSQL, 32, cores kept awake³ |
+|---|---|---|---|---|---|---|
+| 50 | | | | 35 ms¹ | | |
+| 75 | | | | 83 ms² | | |
+| 100 | 48 ms² | 49 ms² | | **136 ms², 142 ms², 149 ms¹** | 53 ms² | |
+| 125 | | | | | **137 ms** | |
+| 150 | | | | **182 ms** | **153 ms** | 95 ms |
+| 200 | 33 ms² | 67 ms¹ | | | **129 ms** | **186 ms** |
+| 300 | 39 ms², 64 ms¹ | 74 ms¹ | | | | **241 ms**, 218 answered a second |
+| 400 | 89 ms², 95 ms | 94 ms | 72 ms | | | |
+| 500 | **118 ms** | | 89 ms, 463 answered a second | | | |
+| 600 | **109 ms², 126 ms** | | 88 ms, 467 answered a second | | | |
+| 800 | **125 ms²**, 693 answered a second | | | | | |
+| 1,000 | **129 ms²**, 680 answered a second | | | | | |
+
+¹ Other processes took a mean of half a thread or more during the run. ² Other processes' load was not recorded during the run. ³ Beside busy loops at nice 19 on every thread, which took a mean of 10 to 11 threads. During every other run, other processes took a mean of 17% to 32% of one thread.
+
+**Several stores on one PostgreSQL server.** Eight stores answered 800 writes a second together, each store's p95 within 26 ms. Each store's p95 fell as stores were added, as the busy loops lowered a lone store's. The server's predicate-lock table held at most 1,297 of its 15,616 locks, 8%. Its 100 connections filled first: in the first of three eight-store runs at 50 a second each, the server refused five connections, and five writes were answered `500`. A write's only new connection was the read its answer took after its commit, so they had applied, a defect since fixed (`CHANGELOG.md`).
+
+| Stores | Writes offered a second, each | Each store's writes' p95 | SIRead locks at their peak, of 15,616 |
+|---|---|---|---|
+| 1 | 50 | 60 ms¹ | 38 |
+| 2 | 50 | 49 ms | 136 |
+| 4 | 50 | 34 to 38 ms | 417 |
+| 8 | 50 | 23 to 30 ms; 22 to 25 ms, and 22 to 25 ms¹ | 854; 1,252 and 1,297 |
+| 1 | 100 | **134 ms**, **123 ms**, 76 ms¹ | 52, 47, 41 |
+| 1, cores kept awake³ | 100 | 25 ms, 25 ms | 43, 51 |
+| 2 | 100 | 51 to 52 ms | 170 |
+| 4 | 100 | 34 to 44 ms | 434 |
+| 8 | 100 | 22 to 25 ms | 971 |
+
+During its unmarked runs, other processes took a mean of 14% to 39% of one thread. Each store had 16 sessions and its own copy of the two-year store in a database of its own, the copies checkpointed before each case. The locks were sampled every 0.2 s over each run from `pg_locks`. The table holds `max_pred_locks_per_transaction` × (`MaxBackends` + `max_prepared_transactions`) targets and twice as many locks (PostgreSQL 16's `predicate.c` and `postinit.c`): 64 × 122 and 15,616 at the server's defaults.
+
+Measured 2026-10-27 with `scripts/profile/load.py --writes`, 90 s a rate. Each write is a claim's `draft`, offered among the sessions' reads, with no report readers or agents. The service was the release build of `127de44`, on two-year stores `build-store.py` built that morning. PostgreSQL 16.8 ran in Docker beside the service at its default settings, its data on disk, reached at the container's address. Each PostgreSQL run used its own copy of the store, checkpointed before the run. The machine was a shared Intel i7-8700, 12 threads, with NVMe.
 
 ## 7. The patterns, and where each applies
 
@@ -83,10 +126,10 @@ What bounds ObjectFlow's writer is the disk's flush: 7.2 ms of a draft's 10.6 ms
 
 A recommendation, not a decision. Each step adds what the platforms above add, in the order they add it:
 
-1. **Measure the grouped writer's ceiling** on both backends, as §7 item 4 defines it.
+1. **Measure the grouped writer's ceiling** on both backends, as §7 item 4 defines it. *Measured 2026-10-27, §6.*
 2. **A standby service**, for availability, which is the first thing Jira's cluster gives. A second service on a PostgreSQL store is refused today, not held waiting (`docs/guides/operate.md`, "A store on PostgreSQL").
 3. **Read replicas** for reports and metrics, a cost the production reviews met repeatedly (READ-COST, READS and MEMORY in `TODO.md`).
-4. **Stores by domain**, the partitioning of §7 item 2 at the store's level.
+4. **Stores by domain**, the partitioning of §7 item 2 at the store's level. *Measured 2026-10-27: eight stores on one PostgreSQL server answered 800 writes a second together within C5 (§6).*
 5. **Several writers over one PostgreSQL database**, §7 item 1, only on a measured need, positions moved off `of_counter` first.
 
 ## Sources

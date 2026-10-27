@@ -87,7 +87,7 @@ In the unit, `--store` and `--store-password-file` take `--store <file>`'s place
 
 **Measured** at the profile (`scripts/profile/`, 12,000 claims, the profile's steady load, one 12-thread machine with the database beside the service): every read and write within PRD C5, the per-person metric `claimant_over_policy_lines` at p95 985 ms against its 1 s, which missed it from 0.3.0 to 0.5.0 (1,029 to 1,039 ms) and so stays to be measured on a deployment's own hosts; writes p95 88.4 ms, where the same load on a file's store gives 36.5 ms (0.5.1's release build). A database across a network adds its round trip to each of a write's statements, so measure on your own hosts before relying on these.
 
-**A publish** that changes a type's columns rebuilds its table, which waits for the reads holding the table, a backup's dump among them, up to the busy timeout, and is answered 503 past it with its version not taken; publish outside a backup's run, or again. **Connections:** the writer's, and one for each read running at once, up to `--max-reads` beside the reads every request makes and eight kept idle; size the server's `max_connections` for them.
+**A publish** that changes a type's columns rebuilds its table, which waits for the reads holding the table, a backup's dump among them, up to the busy timeout, and is answered 503 past it with its version not taken; publish outside a backup's run, or again. **Connections:** the writer's, and one for each read running at once, up to `--max-reads` beside the reads every request makes and eight kept idle; size the server's `max_connections` for them, summed over every service a shared server holds. Eight services, each serving 16 sessions, filled a server's default 100 in one run of three ([`write-throughput.md`](../research/write-throughput.md) §6, measured 2026-10-27).
 
 **Back it up** with your provider's snapshots and point-in-time recovery, or `pg_dump --format=custom`. A database restored from a backup is a copy, which must be marked before the service starts on it, as a file's copy is, so the restore moves the store's counters past what the lost store may have given out (ADR-0207):
 
@@ -296,7 +296,13 @@ Read the standard error to its end, as journald does. The service writes the log
 
 ## Capacity
 
-**Writes** run one at a time, each a durable commit of about 10 ms. A write that meets another process's lock on the store waits `--busy-timeout` up to four times, then is refused `stale` with cause `retries_exhausted`, after up to four more waits to record its refusal: up to eight times `--busy-timeout` in all; `/health` says `writes_stalled` from its first retry. Under load that took about 40 s in a measurement: give clients a write timeout above 45 s.
+**Writes** run one at a time on the store's writer. Requests waiting for it commit together, with one flush (ADR-0208). The writer's ceiling is the highest write rate whose p95 stays within C5's 100 ms. Measured on one machine ([`write-throughput.md`](../research/write-throughput.md) §6, 2026-10-27):
+
+- SQLite: 400 writes a second passed with 32 sessions and with 64; 500 failed with 64.
+- PostgreSQL in Docker beside the service: 100 passed and 125 failed with 32 sessions; 75 passed and 100 failed with 64. The machine's idle cores lengthened these writes most: with its cores kept busy, 150 passed and 200 failed with 32 sessions.
+- Eight stores on one PostgreSQL server: 100 a second each passed.
+
+Past its ceiling the writer answered writes late, and refused none. Measure your own deployment's ceiling against its month-end peak. A write that meets another process's lock on the store waits `--busy-timeout` up to four times, then is refused `stale` with cause `retries_exhausted`, after up to four more waits to record its refusal: up to eight times `--busy-timeout` in all; `/health` says `writes_stalled` from its first retry. Under load that took about 40 s in a measurement: give clients a write timeout above 45 s.
 
 **Reads** run beside writes, each with its own deadline (`--read-timeout`). Reads whose cost grows with the store take a turn in one of five pools, so no kind of read waits behind another:
 

@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Added
+
+- `scripts/profile/load.py --writes N` offers N writes a second across the sessions, past the profile's 50 at each scale, to find the writer's ceiling (`docs/research/write-throughput.md` §7 item 4).
+
 ### Changed
 
 - The checker's `coverage` notice names, in each of its parts, the examples starting at the version before, which it counts nothing of since it does not run them, so the notice says which examples its lists leave unread (ADR-0233). A file with no such example is noticed as before.

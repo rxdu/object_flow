@@ -33,7 +33,7 @@ the soak (ADR-0204 §7) and are not played here.
 Usage:
 
     load.py <objectflow-service> <store.sqlite | postgresql> [--seconds 150] [--scale 1] [--memory-max 8G]
-            [--sessions N] [--reporters N] [--agents N] [--think 1] [--report-think 10] [--stress]
+            [--sessions N] [--reporters N] [--agents N] [--writes N] [--think 1] [--report-think 10] [--stress]
 """
 import argparse
 import json
@@ -92,12 +92,13 @@ class Wire:
 
 
 class Record:
-    """Each answer's class, status and duration."""
+    """Each answer's class, status and duration, and each fault's count and the first reason given for it."""
 
     def __init__(self):
         self.lock = threading.Lock()
         self.times = {}
         self.faults = {}
+        self.reasons = {}
 
     def add(self, kind, status, took, body):
         with self.lock:
@@ -108,6 +109,8 @@ class Record:
                 code = (body.get("code", "") if isinstance(body, dict) else "") or f"refused {refused}"
                 self.faults.setdefault(f"{kind} {status} {code}", 0)
                 self.faults[f"{kind} {status} {code}"] += 1
+                reason = (body.get("fault") or body.get("reason") or "") if isinstance(body, dict) else ""
+                self.reasons.setdefault(f"{kind} {status} {code}", str(reason)[:300])
 
 
 def p(values, q):
@@ -166,6 +169,9 @@ def main():
     ap.add_argument("--sessions", type=int, help="people's sessions, 16 at scale 1")
     ap.add_argument("--reporters", type=int, help="report readers, 4 at scale 1")
     ap.add_argument("--agents", type=int, help="agents, 2 at scale 1")
+    # the writes offered, past the profile's peak, to find the highest rate the writer answers within PRD C5's 100 ms
+    # at p95 (`docs/research/write-throughput.md` §7 item 4)
+    ap.add_argument("--writes", type=int, help="writes offered a second, every session's together, 50 at scale 1")
     # the profile's pace (ADR-0210 decision 1, the audit's variant in `audit/cost.md`): a session pauses about 1 s, a
     # report reader or an agent about 10 s; `--stress` plays them back to back, reported beside the gate and never
     # failing it
@@ -180,6 +186,7 @@ def main():
     sessions = 16 * a.scale if a.sessions is None else a.sessions
     reporters = 4 * a.scale if a.reporters is None else a.reporters
     agents = 2 * a.scale if a.agents is None else a.agents
+    writes = WRITES_A_SECOND * a.scale if a.writes is None else a.writes
     memory_max = size(a.memory_max)
     work = pathlib.Path(tempfile.mkdtemp(prefix="objectflow-profile-"))
     # a file's copy, so each run starts from the store it was given; a PostgreSQL database is used as it is,
@@ -208,7 +215,7 @@ def main():
                   for o in pages(wire, {"actor": OPERATOR, "type": "Claim", "fields": ["claimant"], "limit": 1000})]
         categories = [o["id"] for o in pages(wire, {"actor": OPERATOR, "type": "ExpenseCategory", "limit": 1000})]
         identity = dict(staff)
-        record, bucket = Record(), Bucket(WRITES_A_SECOND * a.scale)
+        record, bucket = Record(), Bucket(writes)
         stop = time.monotonic() + a.seconds
         peak = [0]
 
@@ -278,6 +285,10 @@ def main():
         print(f"Gate P: {pathlib.Path(a.store).name}, {len(claims)} claims, {len(staff)} employees, scale {a.scale}, "
               f"{a.seconds} s, {sessions} sessions, {reporters} report readers, {agents} agents, pauses "
               f"{a.think} s and {a.report_think} s; load average at the start {load[0]:.1f}, {os.cpu_count()} threads")
+        # over the run's own seconds, not until its threads end, which waits out each session's last pause; the
+        # bucket starts full, so a second's writes more are offered than the rate times the seconds
+        print(f"writes offered {writes} a second, answered {len(record.times.get('write', [])) / a.seconds:.1f} a "
+              f"second over {a.seconds} s")
         print("| class | answers | p50 ms | p95 ms | max ms |")
         print("|---|---|---|---|---|")
         for kind in sorted(record.times):
@@ -287,7 +298,8 @@ def main():
             if bound is not None and p(t, 0.95) > bound:
                 failed.append(f"{kind}'s p95 is {p(t, 0.95) * 1e3:.0f} ms, past {bound * 1e3:.0f} ms")
         for fault, n in sorted(record.faults.items()):
-            failed.append(f"{n} answered {fault}")
+            failed.append(f"{n} answered {fault}" + (f", the first said: {record.reasons[fault]}"
+                                                     if record.reasons.get(fault) else ""))
         print(f"peak resident memory: {peak[0] / (1 << 20):.0f} MiB, against {memory_max / (1 << 20):.0f} MiB")
         if peak[0] > memory_max:
             failed.append(f"resident memory reached {peak[0] / (1 << 20):.0f} MiB")
