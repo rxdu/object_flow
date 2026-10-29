@@ -115,19 +115,32 @@ During its unmarked runs, other processes took a mean of 14% to 39% of one threa
 
 Measured 2026-10-27 with `scripts/profile/load.py --writes`, 90 s a rate. Each write is a claim's `draft`, offered among the sessions' reads, with no report readers or agents. The service was the release build of `127de44`, on two-year stores `build-store.py` built that morning. PostgreSQL 16.8 ran in Docker beside the service at its default settings, its data on disk, reached at the container's address. Each PostgreSQL run used its own copy of the store, checkpointed before the run. The machine was a shared Intel i7-8700, 12 threads, with NVMe.
 
-**A PostgreSQL write's cost by part.** A draft makes 30 statements and 29 sends to the server, about one round trip a statement. The server committed about four transactions a draft (3.7 to 4.1), the write's among them. On cores kept awake, a draft took a mean of 7.1 ms at the client. The WAL's flush, about one a draft, took 2.8 ms, the server's execution of its statements 1.0 ms and the service's CPU 1.6 ms. Its 29 round trips at pgbench's 0.059 ms make 1.7 ms. *Inferred:* these four parts are the whole draft, since they sum to its mean. With the cores idle between drafts, every part grew: of a 24.1 ms mean, the flush took 9.4 ms, the execution 2.6 ms and the service's CPU 5.7 ms. Which of the cores' clock speeds, their idle states or the disk's power states accounts for each part is not measured.
+**A PostgreSQL write's cost by part.** A draft sends the server 29 statements, each its own round trip: the server's log holds 29 a draft, and strace counted 29 sends. `pg_stat_statements` counts 30, the 30th a foreign key's check, which the server runs itself. The server committed about four transactions a draft (3.7 to 4.1): the write's, and three statements after it, each a transaction of its own. On cores kept awake, a draft took a mean of 7.1 ms at the client. The WAL's flush, about one a draft, took 2.8 ms, the server's execution of its statements 1.0 ms and the service's CPU 1.6 ms. Its 29 round trips at pgbench's 0.059 ms make 1.7 ms. *Inferred:* these four parts are the whole draft, since they sum to its mean. With the cores idle between drafts, every part grew: of a 24.1 ms mean, the flush took 9.4 ms, the execution 2.6 ms and the service's CPU 5.7 ms. Which of the cores' clock speeds, their idle states or the disk's power states accounts for each part is not measured.
 
 | A draft, one at a time | Cores idle, 0.1 s apart | Cores idle, back to back | Cores kept awake, 0.1 s apart |
 |---|---|---|---|
 | At the client: p50, p95, mean | 28.2, 33.0, 24.1 ms | 15.9, 19.9, 12.7 ms | 6.5, 11.4, 7.1 ms |
 | The WAL's flushes, and their time | 1.04, 9.4 ms | 1.01, 2.3 ms | 0.98, 2.8 ms |
-| The server's execution of the 30 statements | 2.6 ms | 1.9 ms | 1.0 ms |
+| The server's execution of the draft's statements | 2.6 ms | 1.9 ms | 1.0 ms |
 | The service's CPU | 5.7 ms | 4.1 ms | 1.6 ms |
 | The database container's CPU, the pauses included | 7.7 ms | 5.4 ms | 2.3 ms |
 
-pgbench's prepared `SELECT 1`, from the host's network to the container, took 0.47 ms a round trip at 10 a second with the cores idle and 0.059 ms beside the busy loops. Back to back, it took 0.025 ms. *Inferred:* a group's commit shares the flush (ADR-0208), and the writer still makes each statement's round trip and waits on its execution. How many of the 30 statements run inside the write's transaction is not counted. Five reads run more than once a draft, by the server's counts: `SELECT type FROM of_object WHERE id = $1` three times, and the engine's release, a claim's number, the admissions' positions and the subscriptions' positions twice each. Whether each repeat is needed is a question for the code (§8).
+pgbench's prepared `SELECT 1`, from the host's network to the container, took 0.47 ms a round trip at 10 a second with the cores idle and 0.059 ms beside the busy loops. Back to back, it took 0.025 ms.
 
-Measured 2026-10-27 with a one-off script, 200 drafts a condition after 10 to warm the service, one at a time. Each condition ran on its own copy of the two-year store, checkpointed before. The parts are the server's counts over the drafts: `pg_stat_statements` for the statements, `pg_stat_wal` with `track_wal_io_timing` on for the flushes, and `pg_stat_database` for the commits. The CPU is the container's cgroup and the service's `/proc` ticks. A separate run of 50 drafts under strace counted the sends; its times are not used. The busy loops ran at nice 19 on every thread, their CPU not sampled. The service was the release build of `2c5ea72`'s tree, on a store it built that hour. PostgreSQL 16.8 ran in Docker as above, at its defaults but for `pg_stat_statements` loaded and WAL timing on. The governor was `powersave`. Other processes' load was not sampled during the runs; the load average at each start was 0.7 to 1.0.
+**Where a draft's round trips go.** All 29 run on the writer's connection, in this order:
+
+| Statements | Round trips |
+|---|---|
+| `BEGIN`, and the declared version | 2 |
+| The snapshot: the engine's release, every subscription's cursor, every admission | 3 |
+| The allocator: the counter, every sequence | 2 |
+| The decision's reads: the actor, in four; the claimant, in two; the store's last row; the new claim's id; its number, twice; its lines | 11 |
+| The writes, and `COMMIT` | 8 |
+| After the commit, the answer's snapshot: the engine's release, every subscription's cursor, every admission | 3 |
+
+The answer's snapshot is `request_told`'s, taken on the writer's store once its transaction ends (`request.rs`); the service holds the writer until the request is answered (`run_group`, `main.rs`). In a group, each request takes both snapshots inside the group's transaction (`transact_grouped`, `store.rs`). Every snapshot reads all of `of_subscription_position` and every position in `of_admission` (`snapshot`, `store.rs`). One subscription's read and one expression use them (`subscription.rs`, `eval.rs`). ADR-0162 instead reads the objects and the log where an operation reads them. The claim's number is read twice with the same value. *Inferred:* a group's commit shares the flush (ADR-0208), and not these round trips, which each write makes in turn on the one writer. Which to cut is §8's.
+
+Measured 2026-10-27 with a one-off script, 200 drafts a condition after 10 to warm the service, one at a time. Each condition ran on its own copy of the two-year store, checkpointed before. The parts are the server's counts over the drafts: `pg_stat_statements` for the statements, `pg_stat_wal` with `track_wal_io_timing` on for the flushes, and `pg_stat_database` for the commits. The CPU is the container's cgroup and the service's `/proc` ticks. A separate run of 50 drafts under strace counted the sends; its times are not used. The statements' order and transactions are PostgreSQL's log of every statement (`log_statement = 'all'`), over five drafts on a store of 200 claims the same build made, 2026-10-29: four drafts' statements were alike, and the first after the service started made one more. The busy loops ran at nice 19 on every thread, their CPU not sampled. The service was the release build of `2c5ea72`'s tree, on a store it built that hour. PostgreSQL 16.8 ran in Docker as above, at its defaults but for `pg_stat_statements` loaded and WAL timing on. The governor was `powersave`. Other processes' load was not sampled during the runs; the load average at each start was 0.7 to 1.0.
 
 ## 7. The patterns, and where each applies
 
@@ -140,7 +153,7 @@ Measured 2026-10-27 with a one-off script, 200 drafts a condition after 10 to wa
 
 A recommendation, not a decision. Each step adds what the platforms above add, in the order they add it:
 
-1. **Measure the grouped writer's ceiling** on both backends, as §7 item 4 defines it. *Measured 2026-10-27, §6, with a PostgreSQL write's cost by part. A group's commit shares the flush and not a write's 29 round trips, which fewer statements in a write would cut, a change to the write path.*
+1. **Measure the grouped writer's ceiling** on both backends, as §7 item 4 defines it. *Measured 2026-10-27, §6, with a PostgreSQL write's cost by part and where its 29 round trips go. A group's commit shares the flush and not the round trips. Which round trips to cut is a change to the write path, the author's (`TODO.md`, "Write scale past one writer").*
 2. **A standby service**, for availability, which is the first thing Jira's cluster gives. A second service on a PostgreSQL store is refused today, not held waiting (`docs/guides/operate.md`, "A store on PostgreSQL").
 3. **Read replicas** for reports and metrics, a cost the production reviews met repeatedly (READ-COST, READS and MEMORY in `TODO.md`).
 4. **Stores by domain**, the partitioning of §7 item 2 at the store's level. *Measured 2026-10-27: eight stores on one PostgreSQL server answered 800 writes a second together within C5 (§6).*
