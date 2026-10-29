@@ -2533,7 +2533,7 @@ pub(crate) fn transition_row(
     // an assertion's event, and any that recorded an admission (§6.9)
     row.insert(
         "overrides".to_string(),
-        Value::Bool((asserted && !e.imported) || world.admitting.contains(&e.position)),
+        Value::Bool((asserted && !e.imported) || world.admitting()?.contains(&e.position)),
     );
     row.insert("imported".to_string(), Value::Bool(e.imported));
     row.insert("migrated".to_string(), Value::Bool(e.source == "migrated"));

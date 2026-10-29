@@ -5641,29 +5641,12 @@ fn snapshot<'l>(
     now: i64,
 ) -> Stored<World<'l>> {
     release_held(conn)?;
-    // the objects, and the log, are read where an operation reads them
-    // (ADR-0162 steps 1 and 2)
+    // the objects, the log, the subscriptions' cursors and the admissions
+    // are read where an operation reads them (ADR-0162 steps 1 and 2), the
+    // last two where every operation read both (`research/write-throughput.md`
+    // §6)
     let mut world = World::new(lib, now).reading_from(conn);
     world.earlier = earlier;
-    // each subscription's acknowledged cursor, a position on SQLite
-    let mut positions =
-        conn.prepare("SELECT subscription_id, acknowledged FROM of_subscription_position")?;
-    let rows = positions.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
-    for row in rows {
-        let (id, cursor) = row?;
-        let Ok(at) = cursor.parse::<i64>() else {
-            return Err(StoreError(format!("{id}'s acknowledged cursor {cursor}")));
-        };
-        world.acknowledged.insert(id, at);
-    }
-    // the events that recorded an admission; the log, the imported events,
-    // the external identifiers and the legacy entries are read where an
-    // operation reads them (ADR-0162 step 1)
-    let mut admitting = conn.prepare("SELECT DISTINCT position FROM of_admission")?;
-    let rows = admitting.query_map([], |r| r.get::<_, i64>(0))?;
-    for row in rows {
-        world.admitting.insert(row?);
-    }
     Ok(world)
 }
 
@@ -5729,6 +5712,29 @@ pub(crate) fn read_legacy(conn: &Connection, id: &str) -> Stored<Vec<crate::worl
 pub(crate) fn read_imported(conn: &Connection) -> Stored<std::collections::BTreeSet<i64>> {
     let mut imported = conn.prepare("SELECT position FROM of_event WHERE imported = 1")?;
     let rows = imported.query_map([], |r| r.get::<_, i64>(0))?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Each subscription's acknowledged cursor, by its id, a position on SQLite.
+pub(crate) fn read_acknowledged(conn: &Connection) -> Stored<BTreeMap<String, i64>> {
+    let mut positions =
+        conn.prepare("SELECT subscription_id, acknowledged FROM of_subscription_position")?;
+    let rows = positions.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    let mut out = BTreeMap::new();
+    for row in rows {
+        let (id, cursor) = row?;
+        let Ok(at) = cursor.parse::<i64>() else {
+            return Err(StoreError(format!("{id}'s acknowledged cursor {cursor}")));
+        };
+        out.insert(id, at);
+    }
+    Ok(out)
+}
+
+/// The position of each event that recorded an admission.
+pub(crate) fn read_admitting(conn: &Connection) -> Stored<BTreeSet<i64>> {
+    let mut admitting = conn.prepare("SELECT DISTINCT position FROM of_admission")?;
+    let rows = admitting.query_map([], |r| r.get::<_, i64>(0))?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
 

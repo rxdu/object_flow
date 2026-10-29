@@ -466,11 +466,28 @@ thread_local! {
     /// How many times this thread has read the store's whole attempt log
     /// (ADR-0205 decision 12).
     static WHOLE_ATTEMPT_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// How many times this thread has read every subscription's cursor
+    /// (`research/write-throughput.md` §6).
+    static WHOLE_CURSOR_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// How many times this thread has read every event that recorded an
+    /// admission.
+    static WHOLE_ADMISSION_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// How many times this thread has read the store's whole attempt log.
 pub fn whole_attempt_reads() -> u64 {
     WHOLE_ATTEMPT_READS.with(std::cell::Cell::get)
+}
+
+/// How many times this thread has read every subscription's cursor.
+pub fn whole_cursor_reads() -> u64 {
+    WHOLE_CURSOR_READS.with(std::cell::Cell::get)
+}
+
+/// How many times this thread has read every event that recorded an
+/// admission.
+pub fn whole_admission_reads() -> u64 {
+    WHOLE_ADMISSION_READS.with(std::cell::Cell::get)
 }
 
 /// How many objects' records this thread has read from the store.
@@ -571,8 +588,9 @@ pub struct World<'l> {
     /// through; none for a world built without a store.
     conn: Option<&'l crate::db::Connection>,
     /// The position of each event that recorded an admission, which is an
-    /// override (`declaration-syntax.md` §6.9, `of_admission`).
-    pub admitting: BTreeSet<i64>,
+    /// override (`declaration-syntax.md` §6.9, `of_admission`), read on
+    /// first use.
+    stored_admitting: std::cell::OnceCell<Result<BTreeSet<i64>, String>>,
     /// The position of each event the import recorded, whose spans may begin
     /// before it, at the legacy time of the change (ADR-0106), read on first
     /// use.
@@ -586,8 +604,8 @@ pub struct World<'l> {
     /// on first use from the actor types, which hold few objects.
     actors_by_identity: std::cell::OnceCell<Result<Option<BTreeMap<String, String>>, String>>,
     /// Each subscription's acknowledged cursor, where one was acknowledged:
-    /// runtime state, not versioned (`DESIGN.md` §7).
-    pub acknowledged: BTreeMap<String, i64>,
+    /// runtime state, not versioned (`DESIGN.md` §7), read on first use.
+    stored_acknowledged: std::cell::OnceCell<Result<BTreeMap<String, i64>, String>>,
     /// The daily counts of the attempt rows `maintain` pruned, each a row of
     /// the `attempt_counts` source as the rows it counted were
     /// (`storage-schema.md` §6, `of_attempt_rollup`), read on first use.
@@ -660,11 +678,11 @@ impl<'l> World<'l> {
             appended: Vec::new(),
             stored: std::cell::OnceCell::new(),
             conn: None,
-            admitting: BTreeSet::new(),
+            stored_admitting: std::cell::OnceCell::new(),
             stored_imported: std::cell::OnceCell::new(),
             stored_attempts: std::cell::OnceCell::new(),
             actors_by_identity: std::cell::OnceCell::new(),
-            acknowledged: BTreeMap::new(),
+            stored_acknowledged: std::cell::OnceCell::new(),
             stored_rollup: std::cell::OnceCell::new(),
             deadline: None,
             stop: None,
@@ -1281,6 +1299,39 @@ impl<'l> World<'l> {
         stored.as_ref().map_err(|e| {
             crate::eval::NotRun::Unreadable(format!(
                 "the store's imported events, which could not be read: {e}"
+            ))
+        })
+    }
+
+    /// The position of each event that recorded an admission, read on first
+    /// use.
+    pub fn admitting(&self) -> Result<&BTreeSet<i64>, crate::eval::NotRun> {
+        let stored = self.stored_admitting.get_or_init(|| match self.conn {
+            Some(conn) => {
+                WHOLE_ADMISSION_READS.with(|n| n.set(n.get() + 1));
+                crate::store::read_admitting(conn).map_err(|e| e.to_string())
+            }
+            None => Ok(BTreeSet::new()),
+        });
+        stored.as_ref().map_err(|e| {
+            crate::eval::NotRun::Unreadable(format!(
+                "the store's admissions, which could not be read: {e}"
+            ))
+        })
+    }
+
+    /// Each subscription's acknowledged cursor, by its id, read on first use.
+    pub fn acknowledged(&self) -> Result<&BTreeMap<String, i64>, crate::eval::NotRun> {
+        let stored = self.stored_acknowledged.get_or_init(|| match self.conn {
+            Some(conn) => {
+                WHOLE_CURSOR_READS.with(|n| n.set(n.get() + 1));
+                crate::store::read_acknowledged(conn).map_err(|e| e.to_string())
+            }
+            None => Ok(BTreeMap::new()),
+        });
+        stored.as_ref().map_err(|e| {
+            crate::eval::NotRun::Unreadable(format!(
+                "the store's acknowledged cursors, which could not be read: {e}"
             ))
         })
     }

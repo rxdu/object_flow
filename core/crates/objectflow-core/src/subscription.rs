@@ -111,7 +111,7 @@ pub fn pull_page(
 /// cursor at its creation, its own creation's position, so it starts with
 /// nothing old (`DESIGN.md` §7).
 pub fn acknowledged(world: &World<'_>, s: &Object) -> Result<i64, NotRun> {
-    if let Some(at) = world.acknowledged.get(&s.id) {
+    if let Some(at) = world.acknowledged()?.get(&s.id) {
         return Ok(*at);
     }
     Ok(world.first_position(&s.id)?.unwrap_or(0))
@@ -516,5 +516,96 @@ types:
             s.acknowledge("nonesuch", 0).unwrap().as_deref(),
             Some("unknown")
         );
+    }
+
+    /// A request, a `get` and a pull from a cursor given read no
+    /// subscription's cursor and no admission, where every operation read
+    /// both (`research/write-throughput.md` §6); one reaching either reads
+    /// it once and finds what the store holds, and a cursor the store cannot
+    /// read stops the operation reading it alone, named.
+    #[test]
+    fn an_operation_reads_the_cursors_and_the_admissions_where_it_reaches_them() {
+        let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let sub = req(
+            &mut s,
+            SUBSCRIPTION,
+            "subscribe",
+            None,
+            json!({"target_type": "Repair"}),
+        );
+        let j = req(&mut s, "Repair", "open", None, json!({"title": "one"}));
+        let settled = pull(&s.snapshot().unwrap(), &sub, None).unwrap().settled;
+        assert_eq!(s.acknowledge(&sub, settled).unwrap(), None);
+        let reads = || {
+            (
+                crate::world::whole_cursor_reads(),
+                crate::world::whole_admission_reads(),
+            )
+        };
+        let before = reads();
+        req(&mut s, "", "start", Some(&j), json!({}));
+        {
+            let w = s.snapshot().unwrap();
+            crate::reads::get(&w, &j).unwrap().unwrap();
+            assert_eq!(pull(&w, &sub, Some(0)).unwrap().refused, None);
+        }
+        assert_eq!(reads(), before);
+        // the start's event recorded an admission, since discharged, which its
+        // row reads as an override, every row of the object from one read
+        let at: i64 = s
+            .connection()
+            .query_row("SELECT MAX(position) FROM of_event", [], |r| r.get(0))
+            .unwrap();
+        s.connection()
+            .execute(
+                "INSERT INTO of_admission (object_id, invariant, position, reason, \
+                 discharged_position) VALUES (?1, 'bounded', ?2, 'test', ?2)",
+                crate::db::params![j, at],
+            )
+            .unwrap();
+        {
+            let w = s.snapshot().unwrap();
+            let o = w.whole(&j).unwrap().unwrap();
+            let t = w.lib.type_("Repair").unwrap();
+            let overrides: Vec<(i64, Value)> = w
+                .log()
+                .unwrap()
+                .filter(|e| e.object_id == j)
+                .map(|e| {
+                    let Value::Row(f) =
+                        crate::eval::transition_row(&w, o, w.parts(o).unwrap(), t, e).unwrap()
+                    else {
+                        panic!("no row")
+                    };
+                    (e.position, f["overrides"].clone())
+                })
+                .collect();
+            assert_eq!(
+                overrides,
+                [(at - 1, Value::Bool(false)), (at, Value::Bool(true))]
+            );
+            // and its pull from its acknowledged cursor reads the cursors
+            // once, finding the one acknowledged
+            assert_eq!(pull(&w, &sub, None).unwrap().events.len(), 1);
+            assert_eq!(pull(&w, &sub, None).unwrap().events.len(), 1);
+        }
+        assert_eq!(reads(), (before.0 + 1, before.1 + 1));
+        // a cursor damaged stops the pull reading it, never a request
+        s.connection()
+            .execute("UPDATE of_subscription_position SET acknowledged = 'x'", [])
+            .unwrap();
+        req(&mut s, "", "finish", Some(&j), json!({}));
+        let w = s.snapshot().unwrap();
+        crate::reads::get(&w, &j).unwrap().unwrap();
+        match pull(&w, &sub, None) {
+            Err(NotRun::Unreadable(why)) => {
+                assert!(
+                    why.contains(&format!("{sub}'s acknowledged cursor x")),
+                    "{why}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }
