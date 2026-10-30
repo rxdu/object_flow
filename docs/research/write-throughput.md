@@ -168,7 +168,19 @@ Each cell is a build's two runs, in the order they ran, the writes' p95 past C5'
 | 350 | **130.6**, **127.5 ms** | 285.5, 287.8 | **120.0**, **119.4 ms** | 308.7, 309.3 |
 | 400 | **127.9**, **127.9 ms** | 288.1, 286.2 | **118.8**, **130.2 ms** | 310.8, 301.0 |
 
-A rate answered above the rate offered comes from the client's first second, whose bucket starts full (`load.py`). Measured 2026-10-30 with a one-off script, in one session, as the runs before against after above, at the rates in the table. The two builds were those of 2026-10-29, their SHA-256 the same. Each run used a copy of one two-year store the build before built that hour. Each rate ran in the order before, after, after, before, for 90 s with 32 sessions, no report readers and no agents. The busy loops ran throughout; the load average was 2.5 at the first run's start and 12.9 to 16.9 at every later one. PostgreSQL 16.8 ran as above, and the governor was `powersave`. The ceiling with the cores idle, after the cut, is not measured.
+A rate answered above the rate offered comes from the client's first second, whose bucket starts full (`load.py`). Measured 2026-10-30 with a one-off script, in one session, as the runs before against after above, at the rates in the table. The two builds were those of 2026-10-29, their SHA-256 the same. Each run used a copy of one two-year store the build before built that hour. Each rate ran in the order before, after, after, before, for 90 s with 32 sessions, no report readers and no agents. The busy loops ran throughout; the load average was 2.5 at the first run's start and 12.9 to 16.9 at every later one. PostgreSQL 16.8 ran as above, and the governor was `powersave`.
+
+**With the cores idle.** Without the busy loops, the runs scattered too widely to place a ceiling for either build. At 100 writes a second every run failed C5, at 118.7 to 150.1 ms. At 125 both runs with the cut passed and both without it failed. At 150 one run of each build passed. At 200 and 250 every run failed, past 230 ms, and at 250 both builds answered 232 to 234 writes a second. The first two runs had a p50 about three times the later runs' at 100 a second; what slowed them is not measured. Gate P on PostgreSQL passed at 0.9.0, at the same 100 writes a second with its report readers and agents, with a writes' p95 of 65.6 ms (`TODO.md`). Why these runs of writes alone answered slower is not measured.
+
+| Writes offered a second | Before: writes' p95 | After: writes' p95 |
+|---|---|---|
+| 100 | **149.5**, **118.7 ms** | **150.1**, **123.6 ms** |
+| 125 | **102.0**, **106.9 ms** | 69.8, 96.8 ms |
+| 150 | 73.5, **121.7 ms** | **121.4**, 88.2 ms |
+| 200 | **231.5**, **272.2 ms** | **292.4**, **308.4 ms** |
+| 250 | **313.3**, **307.4 ms** | **303.8**, **296.6 ms** |
+
+Measured 2026-10-30 in a second session, as the ceiling above but without the busy loops. The builds were the same, on copies of a store the build before built that hour. Each rate ran in the order before, after, after, before. The load average at each run's start was 0.9 to 5.5.
 
 ## 7. The patterns, and where each applies
 
