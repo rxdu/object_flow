@@ -329,13 +329,22 @@ pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Result<Option<Who
     // actor type: a dry run resolving its submitter for each object read a
     // store's actors whole each time, and a person's submit on 37k objects
     // ran past 20 minutes where the operator's, named by id, took 9 s
-    // (DRYRUN-ACTOR)
+    // (DRYRUN-ACTOR); every actor type's read in one statement, which each
+    // `with_key` below then reads nothing more of, where each was a round
+    // trip of its own on PostgreSQL (`research/write-throughput.md` §6)
+    let named = Value::Text(actor.to_string());
+    let identities: Vec<(&str, &str, &Value)> = world
+        .lib
+        .types
+        .iter()
+        .filter_map(|(tn, t)| t.actor_identity().map(|(a, _)| (tn.as_str(), a, &named)))
+        .collect();
+    world.read_by_keys(&identities)?;
     let mut found: Option<(i64, Who)> = None;
     for (tn, t) in &world.lib.types {
         let Some((attr, _)) = t.actor_identity() else {
             continue;
         };
-        let named = Value::Text(actor.to_string());
         for o in world.with_key(
             tn,
             std::slice::from_ref(&attr.to_string()),
@@ -16059,6 +16068,143 @@ types:
         );
         assert!(resolve_actor(&w, "nobody@corp.example").unwrap().is_none());
         assert!(w.held_count() <= 3, "{} held", w.held_count());
+    }
+
+    /// An actor named by its identity is read from every actor type's
+    /// column in one statement, and a read by key is made once in an
+    /// operation, what the operation holds still filtered as it changes: on
+    /// PostgreSQL each read was a round trip, one an actor type, and a draft
+    /// read its claim's number twice (`research/write-throughput.md` §6).
+    #[test]
+    fn an_actor_and_a_key_are_each_read_once_in_one_statement() {
+        let text = r#"
+module: crew
+categories: [live, closed]
+types:
+  Pilot:
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { category: live }
+      LEFT: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [login] }
+      leave: { kind: external, from: ACTIVE, to: LEFT }
+  Drone:
+    attributes:
+      handle: { type: identity, actor_kind: agent, unique: true }
+    states:
+      ACTIVE: { category: live }
+      RETIRED: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [handle] }
+      retire: { kind: external, from: ACTIVE, to: RETIRED }
+  Parcel:
+    attributes:
+      code: { type: string, unique: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      send: { kind: initial, to: OPEN, required_inputs: [code] }
+      deliver: { kind: external, from: OPEN, to: DONE }
+"#;
+        let lib = Library::load(&[("crew.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Pilot", true),
+            json!({"login": "ana"}),
+        ));
+        created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Drone", true),
+            json!({"handle": "d1"}),
+        ));
+        let a = created(&req(
+            &mut s,
+            "send",
+            OPERATOR,
+            ("Parcel", true),
+            json!({"code": "A"}),
+        ));
+        let b = created(&req(
+            &mut s,
+            "send",
+            OPERATOR,
+            ("Parcel", true),
+            json!({"code": "B"}),
+        ));
+        let reads = crate::world::keyed_reads;
+        {
+            let w = s.snapshot().unwrap();
+            let at = reads();
+            let who = resolve_actor(&w, "d1").unwrap().unwrap();
+            assert_eq!((who.id.as_str(), who.kind.as_str()), ("d1", "agent"));
+            assert_eq!(resolve_actor(&w, "ana").unwrap().unwrap().kind, "human");
+            // the operator's type, the pilots' and the drones', in one
+            // statement for each name
+            assert_eq!(reads(), at + 2);
+            assert_eq!(resolve_actor(&w, "d1").unwrap().unwrap().id, "d1");
+            assert_eq!(reads(), at + 2);
+            assert!(resolve_actor(&w, "nobody").unwrap().is_none());
+            assert_eq!(reads(), at + 3);
+        }
+        {
+            let mut w = s.snapshot().unwrap();
+            let ids = |w: &World<'_>, code: &str| -> BTreeSet<String> {
+                w.with_key(
+                    "Parcel",
+                    &["code".to_string()],
+                    &[Value::Text(code.to_string())],
+                )
+                .unwrap()
+                .iter()
+                .map(|o| o.id.clone())
+                .collect()
+            };
+            let at = reads();
+            assert_eq!(ids(&w, "A"), BTreeSet::from([a.clone()]));
+            assert_eq!(ids(&w, "A"), BTreeSet::from([a.clone()]));
+            assert_eq!(reads(), at + 1);
+            // b given A in what the operation holds, the store still holding
+            // B: found by A without the store read again, and not by B,
+            // though the store finds it by B
+            w.get_mut(&b)
+                .unwrap()
+                .unwrap()
+                .attrs
+                .insert("code".into(), Value::Text("A".into()));
+            assert_eq!(ids(&w, "A"), BTreeSet::from([a.clone(), b.clone()]));
+            assert_eq!(reads(), at + 1);
+            assert_eq!(ids(&w, "B"), BTreeSet::new());
+            assert_eq!(reads(), at + 2);
+        }
+        // a request by an actor named by identity, its key checked unique:
+        // the actor in one statement and the key in one
+        let at = reads();
+        created(&req(
+            &mut s,
+            "send",
+            "ana",
+            ("Parcel", true),
+            json!({"code": "C"}),
+        ));
+        assert_eq!(reads(), at + 2);
+        assert!(matches!(
+            req(
+                &mut s,
+                "send",
+                "ana",
+                ("Parcel", true),
+                json!({"code": "C"})
+            ),
+            Verdict::InvariantViolated { .. }
+        ));
     }
 
     /// A submit takes the dry run prepared on a read beside the writes

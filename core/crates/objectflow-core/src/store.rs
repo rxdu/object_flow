@@ -6137,19 +6137,30 @@ pub(crate) fn read_ids_folded(
     Ok(ids)
 }
 
-pub(crate) fn read_ids_with(
-    conn: &Connection,
-    lib: &Library,
-    type_: &str,
-    key: &[(&str, &Value)],
-) -> Stored<Option<Vec<String>>> {
+/// A read of a concrete type's ids by the values of its attributes, each
+/// compared in its column.
+pub(crate) struct Keyed {
+    table: String,
+    conditions: Vec<(String, Sql)>,
+}
+
+impl Keyed {
+    /// What tells this read from another: two alike find the same ids in a
+    /// store not written since.
+    pub(crate) fn key(&self) -> String {
+        format!("{}\u{1f}{:?}", self.table, self.conditions)
+    }
+}
+
+/// The read of a concrete type's ids whose attributes hold the values
+/// given; none where a value has no column to compare in.
+pub(crate) fn keyed(lib: &Library, type_: &str, key: &[(&str, &Value)]) -> Stored<Option<Keyed>> {
     let Some(t) = lib.type_(type_) else {
         return Err(StoreError(format!(
             "the directory names a type {type_} the library lacks"
         )));
     };
     let mut conditions = Vec::new();
-    let mut values = Vec::new();
     for (n, v) in key {
         let Some(a) = t
             .attribute(n)
@@ -6161,23 +6172,45 @@ pub(crate) fn read_ids_with(
             Ok(Sql::Null) | Err(_) => return Ok(None),
             Ok(sql) => sql,
         };
-        values.push(sql);
-        conditions.push(format!("{} = ?{}", quote(&column(n, a)), values.len()));
+        conditions.push((quote(&column(n, a)), sql));
     }
     if conditions.is_empty() {
         return Ok(None);
     }
-    let mut stmt = conn.prepare(&format!(
-        "SELECT id FROM {} WHERE {}",
-        table(type_),
-        conditions.join(" AND ")
-    ))?;
+    Ok(Some(Keyed {
+        table: table(type_),
+        conditions,
+    }))
+}
+
+/// The ids the reads given find, in one statement however many reads
+/// there are: on PostgreSQL each read was a round trip of its own, one an
+/// actor type for each request's actor (`research/write-throughput.md` §6).
+pub(crate) fn read_ids_keyed(conn: &Connection, reads: &[Keyed]) -> Stored<Vec<String>> {
+    if reads.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut values = Vec::new();
+    let mut selects = Vec::new();
+    for r in reads {
+        let mut conditions = Vec::new();
+        for (c, v) in &r.conditions {
+            values.push(v.clone());
+            conditions.push(format!("{c} = ?{}", values.len()));
+        }
+        selects.push(format!(
+            "SELECT id FROM {} WHERE {}",
+            r.table,
+            conditions.join(" AND ")
+        ));
+    }
+    let mut stmt = conn.prepare(&selects.join(" UNION ALL "))?;
     let ids = stmt
         .query_map(crate::db::params_from_iter(values.iter()), |r| {
             r.get::<_, String>(0)
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(Some(ids))
+    Ok(ids)
 }
 
 /// The ids of the objects of a concrete type that one of it corrects, read

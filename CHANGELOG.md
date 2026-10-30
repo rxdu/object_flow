@@ -7,6 +7,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Changed
 
 - An operation reads the subscriptions' acknowledged cursors and the events that recorded an admission only where it uses them. Every request and read read both before, so a draft on PostgreSQL sends 25 statements where it sent 29 (`docs/research/write-throughput.md` §6). A damaged cursor fails only an operation that reads it, where it failed every operation.
+- An actor named by its identity is read from every actor type in one statement, and an operation reads a type's objects by the same key once. A draft on PostgreSQL sends 22 statements where the change above left 25 (`docs/research/write-throughput.md` §6).
 
 ## 0.9.0, 2026-10-27
 

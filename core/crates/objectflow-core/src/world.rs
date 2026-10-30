@@ -306,6 +306,11 @@ struct Held {
     by_id: std::cell::RefCell<BTreeMap<String, Option<usize>>>,
     /// The types whose every object in the store is held.
     whole: std::cell::RefCell<BTreeSet<String>>,
+    /// Each read of a type's ids by its attributes' values the operation
+    /// has made, by [`crate::store::Keyed::key`]: each is made once, since
+    /// the store is not written while the operation reads, where a draft
+    /// read its claim's number twice (`research/write-throughput.md` §6).
+    read_by_key: std::cell::RefCell<BTreeSet<String>>,
     /// The highest place in creation order the store holds, read on first
     /// use.
     stored_max: std::cell::OnceCell<Result<i64, String>>,
@@ -472,6 +477,15 @@ thread_local! {
     /// How many times this thread has read every event that recorded an
     /// admission.
     static WHOLE_ADMISSION_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// How many statements this thread has sent the store to read objects'
+    /// ids by their attributes' values (`research/write-throughput.md` §6).
+    static KEYED_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many statements this thread has sent the store to read objects' ids
+/// by their attributes' values.
+pub fn keyed_reads() -> u64 {
+    KEYED_READS.with(std::cell::Cell::get)
 }
 
 /// How many times this thread has read the store's whole attempt log.
@@ -2020,6 +2034,78 @@ impl<'l> World<'l> {
         Ok((self.held_in_order(holds), cut.is_some()))
     }
 
+    /// Makes those of the reads given the operation has not made, together
+    /// in one statement, and holds every object they find, which
+    /// [`World::with_key`] filters as it filters every held object.
+    fn read_keyed(
+        &self,
+        reads: Vec<crate::store::Keyed>,
+        unread: &dyn Fn() -> String,
+    ) -> Result<(), crate::eval::NotRun> {
+        let Some(conn) = self.conn else {
+            return Ok(());
+        };
+        let mut keys = BTreeSet::new();
+        let reads: Vec<crate::store::Keyed> = {
+            let made = self.held.read_by_key.borrow();
+            reads
+                .into_iter()
+                .filter(|r| {
+                    let k = r.key();
+                    !made.contains(&k) && keys.insert(k)
+                })
+                .collect()
+        };
+        if reads.is_empty() {
+            return Ok(());
+        }
+        KEYED_READS.with(|n| n.set(n.get() + 1));
+        let ids = crate::store::read_ids_keyed(conn, &reads).map_err(|e| {
+            crate::eval::NotRun::Unreadable(format!("{}, which could not be read: {e}", unread()))
+        })?;
+        for id in ids {
+            self.get(&id)?;
+        }
+        self.held.read_by_key.borrow_mut().extend(keys);
+        Ok(())
+    }
+
+    /// What [`World::with_key`] reads of each type named, its own objects
+    /// and its subtypes', by one attribute's value, read together in one
+    /// statement, so that `with_key` reads nothing more of them: an actor
+    /// named by its identity was a read of each actor type's in turn
+    /// (`research/write-throughput.md` §6).
+    pub(crate) fn read_by_keys(
+        &self,
+        keys: &[(&str, &str, &Value)],
+    ) -> Result<(), crate::eval::NotRun> {
+        if self.conn.is_none() {
+            return Ok(());
+        }
+        let unread = || {
+            let types: Vec<&str> = keys.iter().map(|(t, _, _)| *t).collect();
+            format!("the store's objects of {types:?} by key")
+        };
+        let mut reads = Vec::new();
+        for (type_, attr, v) in keys {
+            for t in self.family(type_).iter() {
+                if self.held.whole.borrow().contains(t) {
+                    continue;
+                }
+                // a value with no column to compare in is left to
+                // `with_key`, which reads its type whole
+                let read = crate::store::keyed(self.lib, t, &[(*attr, *v)]).map_err(|e| {
+                    crate::eval::NotRun::Unreadable(format!(
+                        "{}, which could not be read: {e}",
+                        unread()
+                    ))
+                })?;
+                reads.extend(read);
+            }
+        }
+        self.read_keyed(reads, &unread)
+    }
+
     /// Every object of a type, its own or a subtype's, whose attributes
     /// named hold values equal to those given, in ascending id order: a type
     /// held whole is read from what is held, any other by its columns, read
@@ -2034,18 +2120,16 @@ impl<'l> World<'l> {
         let pairs: Vec<(&str, &Value)> = attrs.iter().map(String::as_str).zip(key).collect();
         for t in self.family(type_).iter() {
             let whole = self.held.whole.borrow().contains(t);
-            if !whole && let Some(conn) = self.conn {
-                let ids = crate::store::read_ids_with(conn, self.lib, t, &pairs).map_err(|e| {
+            if !whole && self.conn.is_some() {
+                let unread = || format!("the store's objects of {t} by {attrs:?}");
+                let read = crate::store::keyed(self.lib, t, &pairs).map_err(|e| {
                     crate::eval::NotRun::Unreadable(format!(
-                        "the store's objects of {t} by {attrs:?}, which could not be read: {e}"
+                        "{}, which could not be read: {e}",
+                        unread()
                     ))
                 })?;
-                match ids {
-                    Some(ids) => {
-                        for id in ids {
-                            self.get(&id)?;
-                        }
-                    }
+                match read {
+                    Some(read) => self.read_keyed(vec![read], &unread)?,
                     None => self.hold_type(t)?,
                 }
             }
