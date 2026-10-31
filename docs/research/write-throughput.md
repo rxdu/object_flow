@@ -4,7 +4,7 @@ Research, 2026-10-22. Every source was retrieved on 2026-10-22, and each figure 
 
 **The question.** The author recorded one writer per store as a known limitation, not sufficient long-term (`TODO.md`, "Write scale past one writer"), and asked how ObjectFlow's write throughput compares with platforms such as Jira, and how such platforms scale writes.
 
-**The answer, in short.** The load profile Atlassian gives Jira app vendors writes at under two actions a second, and Jira Cloud limits one issue to about three writes a second sustained. ObjectFlow's one writer was offered 100 writes a second and answered them all within its latency target. Its ceiling, measured 2026-10-27, is about 400 writes a second on SQLite (§6). On PostgreSQL with the machine's cores idle no ceiling is placed: 100 writes a second from 32 sessions alone passed in one run and failed in seven, and passed in three runs beside the month-end peak's report readers and agents (§6). A cut to a PostgreSQL write's round trips has since raised its ceiling on cores kept awake to about 250 (§6). The platforms that scale writes do it with one database behind many application nodes (Jira Data Center) or with many partitions of one writer each (Temporal), not with several writers on shared rows. These are orders of magnitude, not a benchmark: a Jira action and an ObjectFlow write are different units, on different hardware.
+**The answer, in short.** The load profile Atlassian gives Jira app vendors writes at under two actions a second, and Jira Cloud limits one issue to about three writes a second sustained. ObjectFlow's one writer was offered 100 writes a second and answered them all within its latency target. Its ceiling, measured 2026-10-27, is about 400 writes a second on SQLite (§6). On PostgreSQL with the machine's cores idle no ceiling is placed: 100 writes a second from 32 sessions alone passed in one run and failed in seven, and beside the month-end peak's report readers and agents passed in five runs of ten (§6). A cut to a PostgreSQL write's round trips has since raised its ceiling on cores kept awake to about 250 (§6). The platforms that scale writes do it with one database behind many application nodes (Jira Data Center) or with many partitions of one writer each (Temporal), not with several writers on shared rows. These are orders of magnitude, not a benchmark: a Jira action and an ObjectFlow write are different units, on different hardware.
 
 ## 1. Jira Data Center: the app vendors' load profile
 
@@ -192,19 +192,26 @@ Measured 2026-10-30 in a second session, as the ceiling above but without the bu
 
 Measured 2026-10-30 in a third session, as the ceiling after the first cut above, with the busy loops. The build without the second cut was the first cut's, its SHA-256 the same; the build with it was the release build of `9d3e9ff`'s tree with the change. Each rate ran in the order without, with, with, without. The load average was 1.3 at the first run's start and 12.3 to 19.9 at every later one. The first cut's build answered 295 to 301 a second here past its ceiling, against 301 to 311 in the first session, so only runs within one session compare.
 
-**The month-end peak, with its readers.** At ADR-0204 §1's month-end peak, Gate P at scale 2, the writes passed C5 on PostgreSQL with the cores idle in three runs, at 49.0 to 65.7 ms. The same 32 sessions with no report readers and no agents failed in three runs, at 121.1 to 126.2 ms. Beside the readers the writes' p50 was 6.8 to 7.7 ms; without them it was 14.9 to 19.1 ms. *Inferred:* the readers' work keeps the cores awake, as the busy loops did, so writes alone on an idle machine measure its cores waking more than the writer. Gate P itself failed in all three runs on its reports, not its writes (`TODO.md`, *F. The release gate*). On SQLite the same gate passed in two runs, the writes' p95 43.7 and 44.9 ms.
+**The month-end peak, with its readers.** At ADR-0204 §1's month-end peak, Gate P at scale 2, the writes on PostgreSQL with the cores idle passed C5 in five runs of ten, at 35.5 to 84.6 ms, and failed in five, at 106.8 to 126.4 ms. The same 32 sessions without the readers and agents failed in three runs of three, at 121.1 to 126.2 ms. Where the machine's CPU was sampled, the two runs that passed had 2.2 and 3.4 of its threads busy, and the five that failed 1.4. *Withdrawn 2026-10-31:* this section inferred from the first session's runs that the readers' work keeps the cores awake; with the readers, the third session's three runs failed as the writes alone did. On SQLite the same gate passed in two runs, the writes' p95 43.7 and 44.9 ms. On PostgreSQL Gate P failed in every run on its reports (`TODO.md`, *F. The release gate*).
 
-| Run, in order | Writes' p50 | Writes' p95 |
-|---|---|---|
-| 1. Gate P at scale 2 | 6.8 ms | 54.9 ms |
-| 2. Writes alone | 19.1 ms | **123.3 ms** |
-| 3. Writes alone | 14.9 ms | **121.1 ms** |
-| 4. Gate P at scale 2 | 7.7 ms | 65.7 ms |
-| 5. Gate P at scale 2 | 7.4 ms | 49.0 ms |
-| 6. Writes alone | 18.7 ms | **126.2 ms** |
-| 7. Gate P at scale 1, 50 writes a second | 16.3 ms | 48.2 ms |
+| Session | Run, in order | Writes' p50 | Writes' p95 | The machine's threads busy |
+|---|---|---|---|---|
+| 1 | 1. Gate P at scale 2 | 6.8 ms | 54.9 ms | |
+| 1 | 2. Writes alone | 19.1 ms | **123.3 ms** | |
+| 1 | 3. Writes alone | 14.9 ms | **121.1 ms** | |
+| 1 | 4. Gate P at scale 2 | 7.7 ms | 65.7 ms | |
+| 1 | 5. Gate P at scale 2 | 7.4 ms | 49.0 ms | |
+| 1 | 6. Writes alone | 18.7 ms | **126.2 ms** | |
+| 1 | 7. Gate P at scale 1, 50 writes a second | 16.3 ms | 48.2 ms | |
+| 2 | 1. Gate P at scale 2 | 7.6 ms | 84.6 ms | 2.22 |
+| 2 | 2. Gate P at scale 2, `--max-reads 8` | 5.9 ms | 35.5 ms | 3.40 |
+| 2 | 3. Gate P at scale 2, `--max-reads 8` | 10.2 ms | **116.1 ms** | 1.45 |
+| 2 | 4. Gate P at scale 2 | 12.6 ms | **118.5 ms** | 1.42 |
+| 3 | 1. Gate P at scale 2 | 10.5 ms | **126.4 ms** | 1.40 |
+| 3 | 2. Gate P at scale 2 | 13.0 ms | **122.9 ms** | 1.40 |
+| 3 | 3. Gate P at scale 2 | 10.6 ms | **106.8 ms** | 1.38 |
 
-Measured 2026-10-31 with a one-off script, in one session, on the release build of `d147082`. Each PostgreSQL run used a copy of one two-year store the build made that hour, marked and checkpointed. PostgreSQL 16.8 ran on `scripts/setup/postgres-gate-db`, at its defaults, reached at the container's address. Gate P at scale 2 plays 32 sessions offering 100 writes a second, 8 report readers and 4 agents at the profile's pace (`load.py --scale 2`). Writes alone are its 32 sessions without the readers and agents (`--reporters 0 --agents 0`). Each run lasted 150 s. Before it, the script waited up to 5 minutes for the one-minute load average to fall below 1.0. It was 0.86 to 0.95 at each start but the first, 1.12, whose wait ran out. The cores were left to idle, and the governor was `powersave`. The SQLite runs followed, on a store the same build made.
+Measured 2026-10-31 with one-off scripts, in three sessions, on the release build of `d147082` in the first and of `a1f6e48` in the others; `a1f6e48` changes only documents. Each PostgreSQL run used a copy of a two-year store the build made that hour, marked and checkpointed. PostgreSQL 16.8 ran on `scripts/setup/postgres-gate-db` in the first and third sessions, at its defaults, and in the second on the same image with `pg_stat_statements` loaded; each was reached at the container's address. Gate P at scale 2 plays 32 sessions offering 100 writes a second, 8 report readers and 4 agents at the profile's pace (`load.py --scale 2`). Writes alone are its 32 sessions without the readers and agents (`--reporters 0 --agents 0`). Each run lasted 150 s. Before it, the script waited up to 5 minutes for the one-minute load average to fall below 1.0; it was 0.86 to 0.98 at each start but the first, 1.12, whose wait ran out. The machine's threads busy are `/proc/stat`'s, every process included, from each run's 15th second to 5 s before its end. The cores were left to idle, and the governor was `powersave`. The SQLite runs followed the first session, on a store the same build made.
 
 ## 7. The patterns, and where each applies
 
