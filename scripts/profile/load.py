@@ -13,9 +13,9 @@ it for `--seconds`, at `--scale` 1 or 2, the month-end peak being twice the stea
 - two agents sweeping through their reads;
 
 each at the profile's pace (ADR-0210 decision 1): a session pausing about 1 s between requests, a report reader or an
-agent about 10 s between reads. `--stress` plays them back to back, as the audit's gate first did, and reports what it
-measures without failing: back to back, a read's latency is the readers' count over the free cores times its cost, a
-measure of the machine's saturation more than of a read.
+agent about 10 s between reads and before its first, so that they start spaced (ADR-0234). `--stress` plays them back
+to back, as the audit's gate first did, and reports what it measures without failing: back to back, a read's latency
+is the readers' count over the free cores times its cost, a measure of the machine's saturation more than of a read.
 
 It fails, exiting 1, where any of these holds, as the audit set them:
 
@@ -249,6 +249,10 @@ def main():
 
         def reports(k, actor, kind):
             rng = random.Random(a.seed * 1000 + k)
+            # a pause before the first read as before every later one, so the readers start spaced as their pace
+            # keeps them; every reader at once, as after a restart, is the soak's (ADR-0234)
+            if a.report_think:
+                time.sleep(rng.expovariate(1 / a.report_think))
             while time.monotonic() < stop:
                 name, keep = rng.choice(REPORTS)
                 status, out, took = wire.post("/v1/metric", {"actor": actor, "name": name, "keep": keep,

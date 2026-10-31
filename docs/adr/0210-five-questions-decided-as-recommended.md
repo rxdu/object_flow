@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-16 by the author ("go ahead with your recommendations"), given after the open questions were listed the same day; each decision is the recommendation `TODO.md` recorded for it. E16, E24, E32 and an examples step expecting an import's refusal had no recommendation recorded and are not decided by it; nor is the release gate the author keeps (ADR-0204 §7, §8).
 - **Date:** 2026-10-16
+- **Refined by:** ADR-0234 — decision 1's readers pause before their first read too, so they start spaced
 - **Refines:** ADR-0204 §1 (how the profile's report readers read); ADR-0100 §7 (a mirror's `imported_at`); ADR-0088 (what a refusal's read set holds)
 - **Relates to:** question 16 of 2026-10-14 (`TODO.md`); ADR-0205 decision 13; ADR-0146 decision 7; ADR-0160 (an erasure's walk); D547; `adversarial-harness.md` §1; `design/hiring-third-review.md` E3
 

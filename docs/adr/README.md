@@ -210,7 +210,7 @@
 | [0207](0207-a-restored-store-skips-what-its-copy-never-saw.md) | A restored store skips what its copy never saw | Decided on the author's standing instruction |
 | [0208](0208-requests-waiting-for-the-writer-commit-together.md) | Requests waiting for the writer commit together | Decided on the author's standing instruction |
 | [0209](0209-the-log-records-what-each-event-wrote.md) | The log records what each event wrote, and a plain read of an absent value clears | Decided by the author |
-| [0210](0210-five-questions-decided-as-recommended.md) | Five questions decided as recommended | Decided by the author |
+| [0210](0210-five-questions-decided-as-recommended.md) | Five questions decided as recommended | Decided by the author — later refined by ADR-0234 |
 | [0211](0211-seven-questions-decided-as-recommended.md) | Seven questions decided as recommended | Decided by the author — later refined by ADR-0212 |
 | [0212](0212-a-dry-runs-class-says-what-excluding-it-uncovers.md) | A dry run's class says what excluding it uncovers | Decided by the author |
 | [0213](0213-postgresql-in-1-0-0.md) | PostgreSQL in 1.0.0 | Decided by the author (decisions 1 and 8), and as recommended at the author's direction (2 to 7) — the release 0.3.0 since ADR-0214 |
@@ -234,4 +234,5 @@
 | [0231](0231-a-backfill-rewriting-a-held-value-gives-a-notice-of-its-own.md) | A backfill rewriting a value an object holds gives a notice of its own | Decided under the author's direction; built |
 | [0232](0232-a-change-carries-the-version-its-migration-examples-start-from.md) | A change carries the version its migration examples start from | Decided under the author's direction; built; refined by ADR-0233 |
 | [0233](0233-the-coverage-notice-names-the-examples-it-does-not-read.md) | The coverage notice names the examples it does not read | Decided under the author's direction; built |
+| [0234](0234-gate-ps-readers-start-spaced-and-the-peaks-writes-are-accepted-by-name.md) | Gate P's readers start spaced, and the peak's writes on PostgreSQL are accepted by name | Decided under the author's direction; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |
