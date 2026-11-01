@@ -2108,9 +2108,16 @@ def machine_errors(doc, kinds=None):
     return out
 
 
+def takes_files(spec):
+    """Whether an attribute or an input holds a file or a set of files, the one place `media_types` applies."""
+    return "reference" not in spec and str(spec.get("type", "")) in ("file", "file[]")
+
+
 def reserved_name_errors(doc):
-    """Names the format keeps for itself: text-language collisions and generated names."""
+    """Names the format keeps for itself: text-language collisions and generated names; and the keys that apply to
+    one kind of attribute or input only."""
     out = []
+    machines = doc.get("machines") or {}     # the view's, each also checked as a type whose attributes it requires
     for i, c in enumerate(doc.get("categories") or []):
         if c in NOT_A_CATEGORY:
             out.append((("categories", i), "names", f"'{c}' cannot name a category: the text language reserves it in that position"))
@@ -2137,6 +2144,14 @@ def reserved_name_errors(doc):
         for a, spec in attrs.items():
             for k in sorted(ONLY_ON_OBSERVATIONS & set(spec)):
                 out.append((("types", tn, "attributes", a, k), "names", f"'{k}' applies only to an observation's attribute, not to {tn}.{a}"))
+            # the media types a file takes, on a file or a set of files alone; a machine's binder declares them, never
+            # the attribute the machine requires (ADR-0239 decision 1)
+            if "media_types" in spec and tn in machines:
+                out.append((("types", tn, "attributes", a, "media_types"), "names",
+                            f"'media_types' is declared by the type binding {tn}, not by the attribute {a} the machine requires"))
+            elif "media_types" in spec and not takes_files(spec):
+                out.append((("types", tn, "attributes", a, "media_types"), "names",
+                            f"'media_types' applies only to a file or a set of files, not to {tn}.{a}"))
         for o, ob in (t.get("observations") or {}).items():
             for a, spec in ob["attributes"].items():
                 if spec.get("type") == "counter":
@@ -2145,6 +2160,14 @@ def reserved_name_errors(doc):
                 for k in sorted(ONLY_ON_TYPES & set(spec)):
                     out.append((("types", tn, "observations", o, "attributes", a, k), "names",
                                 f"'{k}' applies only to a type's attribute, not to the observation attribute {o}.{a}"))
+                if "media_types" in spec and not takes_files(spec):
+                    out.append((("types", tn, "observations", o, "attributes", a, "media_types"), "names",
+                                f"'media_types' applies only to a file or a set of files, not to the observation attribute {o}.{a}"))
+        for xn, x in (t.get("transitions") or {}).items():
+            for i, spec in (x.get("inputs") or {}).items():
+                if "media_types" in spec and not takes_files(spec):
+                    out.append((("types", tn, "transitions", xn, "inputs", i, "media_types"), "names",
+                                f"'media_types' applies only to a file or a set of files, not to the input {i} of {tn}.{xn}"))
         for xn in (t.get("transitions") or {}):
             if xn in NOT_A_TRANSITION:
                 out.append((("types", tn, "transitions", xn), "names", f"'{xn}' cannot name a transition: " + (
@@ -2774,6 +2797,12 @@ class Typing:
                 return ("category",)
             if bt is not None and bt[0] == "state":
                 self.fail(f"it reads {m} of a state, which has only category")
+                return None
+            # a file's media type and its size in bytes, which a guard may read (ADR-0239 decision 4)
+            if bt is not None and bt[0] == "file" and m in FILE_MEMBERS:
+                return FILE_MEMBERS[m]
+            if bt is not None and bt[0] == "file":
+                self.fail(f"it reads {m} of a file, which has only media_type and size")
                 return None
             if bt is not None and bt[0] in NO_MEMBERS:
                 t = type_text(bt)
@@ -4423,6 +4452,8 @@ AGGREGATE_CALL = re.compile(r"\b(count|sum|min|max|avg|median|percentile)\s*\(")
 # the types whose values have no members (declaration-syntax.md §8.1)
 NO_MEMBERS = {"number", "int", "decimal", "money", "duration", "timestamp", "date", "bool", "string", "identity",
               "actor_kind", "category", "enumeration"}
+# the members of a file, its media type and its size in bytes (ADR-0239 decision 4)
+FILE_MEMBERS = {"media_type": ("string",), "size": ("int",)}
 # the functions an expression may call, and the member functions (declaration-syntax.md §8.3)
 FUNCTIONS = {"length", "date", "entered_at", "time_in"}
 # the functions a metric alone calls, which check 56 refuses elsewhere
@@ -9266,6 +9297,18 @@ def expression_type_plants(people):
 
     def misfit(expr, why):
         return f"Account.shut writes {expr}, {why} (the model's check 17)"
+
+    def filed(expr, condition=None, effect=None):
+        # the ledger with a file of its own, its shut taking one, guarded on a condition or writing what an effect gives
+        text = ledger(expr, condition=condition)
+        assert text.count("      span:  { type: duration }\n") == 1
+        text = text.replace("      span:  { type: duration }\n", "      span:  { type: duration }\n      scan:  { type: file, optional: true }\n")
+        photo = 'inputs: { photo: { type: file, media_types: ["image/*", application/pdf] } }'
+        if condition:
+            return text.replace("to: SHUT, guards: { ready: deny } }", f"to: SHUT, {photo}, guards: {{ ready: deny }} }}")
+        assert text.count("shut: { kind: external, from: [OPEN], to: SHUT }") == 1
+        return text.replace("shut: { kind: external, from: [OPEN], to: SHUT }", f"shut: {{ kind: external, from: [OPEN], to: SHUT, {photo}"
+                            + (f", effect: [ {effect} ]" if effect else "") + " }")
     cases = [
         ("money of two currencies", ledger("usd + sgd"), [wrong("derived attribute probe", "it adds money of two currencies, USD and SGD")]),
         ("decimals of two scales", ledger("rate + fine"), [wrong("derived attribute probe", "it adds decimals of two scales, 2 and 3")]),
@@ -9340,6 +9383,23 @@ def expression_type_plants(people):
          [wrong("derived attribute probe", "Foo names nothing: no type, enumeration or state of Account is called Foo")]),
         ("a type's member that is no state", ledger("Account.foo == label"), [wrong("derived attribute probe", "Account.foo names no state of Account")]),
         ("a member of a string", ledger("label.foo == label"), [wrong("derived attribute probe", "it reads foo of a string, which has no members")]),
+        # a file's media type a string and its size an int, and no other member (ADR-0239 decision 4)
+        ("a guard reading a file's media type and size",
+         filed(probe, condition='inputs.photo.media_type == \\"application/pdf\\" and inputs.photo.size < 1000000'), []),
+        ("a file's media type and size", filed('scan.size + count > 0 and length(scan.media_type) > 0 and scan.media_type in '
+                                                '{\\"image/png\\", label} and this.scan.size >= 0'), []),
+        ("a member of a file besides its media type and size", filed("scan.name == label"),
+         [wrong("derived attribute probe", "it reads name of a file, which has only media_type and size")]),
+        ("a file's size compared with a string", filed("scan.size == label"),
+         [wrong("derived attribute probe", "it compares an int with a string")]),
+        ("a file's media type compared with an int", filed("scan.media_type == count"),
+         [wrong("derived attribute probe", "it compares a string with an int")]),
+        ("an input's size and media type written", filed(probe, effect="{ assign: { location: count, expr: inputs.photo.size } }, "
+                                                                       "{ assign: { location: label, expr: inputs.photo.media_type } }"), []),
+        ("an input's member besides its media type and size", filed(probe, effect="{ assign: { location: label, expr: inputs.photo.hash } }"),
+         [wrong("Account.shut's effect", "it reads hash of a file, which has only media_type and size")]),
+        ("an input's media type written to an int", filed(probe, effect="{ assign: { location: count, expr: inputs.photo.media_type } }"),
+         [misfit("inputs.photo.media_type", "a string, to count, which holds int: a write's value must fit its target")]),
         ("a member of a state besides its category", ledger("state.foo == label"),
          [wrong("derived attribute probe", "it reads foo of a state, which has only category")]),
         ("a metric's count outside a metric", ledger("count(where vip) > 0"),
@@ -9449,6 +9509,194 @@ def expression_type_plants(people):
         hit = got == sorted(want) and all(x[3] == "names" for x in found)
         ok &= hit
         print(f"  check 24, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
+MEDIA_DESK = (
+    'module: desk\n'
+    'categories: [live, closed]\n'
+    'machines:\n'
+    '  Filing:\n'
+    '    description: A filing, drafted and then closed.\n'
+    '    requires:\n'
+    '      attributes:\n'
+    '        scan: { type: file, optional: true }\n'
+    '    states:\n'
+    '      OPEN: { category: live }\n'
+    '      SHUT: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      start: { kind: initial, to: OPEN }\n'
+    '      attach: { kind: internal, from: [OPEN], inputs: { upload: { type: file, media_types: [application/pdf] } }, '
+    'effect: [ { assign: { location: scan, expr: inputs.upload } } ] }\n'
+    '      shut: { kind: external, from: [OPEN], to: SHUT }\n'
+    'types:\n'
+    '  Claim:\n'
+    '    description: A claim, filed with its scans.\n'
+    '    tracking: record\n'
+    '    state_machine: Filing\n'
+    '    attributes:\n'
+    '      scan:  { type: file, optional: true, media_types: ["image/*", application/pdf] }\n'
+    '      pages: { type: "file[]", media_types: [image/png, image/jpeg] }\n'
+    '      title: { type: string, optional: true }\n'
+    '      owner: { reference: Claim, optional: true }\n'
+    '    observations:\n'
+    '      photos:\n'
+    '        kind: Photo\n'
+    '        description: A photo of what the claim is for.\n'
+    '        attributes:\n'
+    '          shot: { type: file, media_types: ["image/*"] }\n'
+    '          note: { type: string, optional: true }\n'
+    '    transitions:\n'
+    '      paginate: { kind: internal, from: [OPEN], inputs: { more: { type: "file[]", media_types: [image/png] }, '
+    'why: { type: string } }, effect: [ { assign: { location: title, expr: inputs.why } } ] }\n'
+)
+
+
+def media_type_plants(people):
+    """`media_types` applies to a file or a set of files alone (ADR-0239 decision 1). Step 3 refuses it on a type's
+    attribute, an observation's attribute or a declared input of another type, a reference among them, and on any
+    attribute a machine requires, since its binder declares the list. Step 2 refuses a list that is empty, repeats a
+    media type, or holds one not in lower case, with a parameter, or without a subtype. A type's and an observation's
+    file, a set of files and a type's and a machine's file input each take a list."""
+    def p(old, new):
+        assert MEDIA_DESK.count(old) == 1, old
+        return MEDIA_DESK.replace(old, new)
+    title = "      title: { type: string, optional: true }\n"
+    owner = "      owner: { reference: Claim, optional: true }\n"
+    note = "          note: { type: string, optional: true }\n"
+    why = "why: { type: string }"
+    required = "        scan: { type: file, optional: true }\n"
+    upload = "inputs: { upload: { type: file, media_types: [application/pdf] } }"
+    pages = "media_types: [image/png, image/jpeg]"
+    pattern = json.loads((FORMAT / "flow.schema.json").read_text())["definitions"]["attribute"]["properties"][
+        "media_types"]["items"]["pattern"]
+    cases = [
+        ("each file and set of files taking its media types", MEDIA_DESK, []),
+        ("on a type's attribute that is no file", p(title, "      title: { type: string, optional: true, media_types: [text/plain] }\n"),
+         ["'media_types' applies only to a file or a set of files, not to Claim.title"]),
+        ("on a reference", p(owner, "      owner: { reference: Claim, optional: true, media_types: [text/plain] }\n"),
+         ["'media_types' applies only to a file or a set of files, not to Claim.owner"]),
+        ("on an observation's attribute that is no file", p(note, "          note: { type: string, optional: true, media_types: [text/plain] }\n"),
+         ["'media_types' applies only to a file or a set of files, not to the observation attribute photos.note"]),
+        ("on a type's input that is no file", p(why, "why: { type: string, media_types: [text/plain] }"),
+         ["'media_types' applies only to a file or a set of files, not to the input why of Claim.paginate"]),
+        ("on a machine's required attribute", p(required, "        scan: { type: file, optional: true, media_types: [application/pdf] }\n"),
+         ["'media_types' is declared by the type binding Filing, not by the attribute scan the machine requires"]),
+        ("on a machine's required attribute that is no file",
+         p(required, required + "        title: { type: string, optional: true, media_types: [text/plain] }\n"),
+         ["'media_types' is declared by the type binding Filing, not by the attribute title the machine requires"]),
+        ("on a machine's input that is no file", p(upload, "inputs: { upload: { type: file, media_types: [application/pdf] }, "
+                                                           "reason: { type: string, media_types: [text/plain] } }"),
+         ["'media_types' applies only to a file or a set of files, not to the input reason of Filing.attach"]),
+        # step 2's, at the list
+        ("an empty list", p(pages, "media_types: []"), ["[] is too short"]),
+        ("a media type in capitals", p(pages, "media_types: [image/PNG]"), [f"'image/PNG' does not match {pattern!r}"]),
+        ("a media type with a parameter", p(pages, 'media_types: ["text/plain; charset=utf-8"]'),
+         [f"'text/plain; charset=utf-8' does not match {pattern!r}"]),
+        ("a type with no subtype", p(pages, "media_types: [image]"), [f"'image' does not match {pattern!r}"]),
+        ("every media type", p(pages, 'media_types: ["*/*"]'), [f"'*/*' does not match {pattern!r}"]),
+        ("a media type twice", p(pages, "media_types: [image/png, image/png]"), ["['image/png', 'image/png'] has non-unique elements"]),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, _ = check([("people.yaml", people), ("desk.yaml", text)])
+        got = sorted(x[4] for x in found)
+        code = "names" if pages in text else "schema"
+        hit = got == sorted(want) and all(x[3] == code for x in found)
+        ok &= hit
+        print(f"  media types, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
+MEDIA_ARCHIVE = (
+    'module: archive\n'
+    'categories: [live, closed]\n'
+    'types:\n'
+    '  Folder:\n'
+    '    description: A folder of scans.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      scan:  { type: file, optional: true, media_types: ["image/*", application/pdf] }\n'
+    '      pages: { type: "file[]", media_types: [image/png] }\n'
+    '      loose: { type: file, optional: true }\n'
+    '    states:\n'
+    '      OPEN: { category: live }\n'
+    '      SHUT: { category: closed, final: true }\n'
+    '    conditions:\n'
+    '      small:\n'
+    '        description: The upload is a PDF of less than 100 kB.\n'
+    '        expression: inputs.upload.media_type == "application/pdf" and inputs.upload.size < 100000\n'
+    '        remedy: self_serviceable\n'
+    '    transitions:\n'
+    '      open: { kind: initial, to: OPEN, optional_inputs: [scan] }\n'
+    '      attach: { kind: internal, from: [OPEN], inputs: { upload: { type: file, media_types: [application/pdf] } }, '
+    'guards: { small: deny }, effect: [ { assign: { location: loose, expr: inputs.upload } } ] }\n'
+    '      copy: { kind: internal, from: [OPEN], inputs: { raw: { type: file } }, '
+    'effect: [ { assign: { location: scan, expr: inputs.raw } } ] }\n'
+    '      add_page: { kind: internal, from: [OPEN], inputs: { raw: { type: file } }, '
+    'effect: [ { add: { location: pages, expr: inputs.raw } } ] }\n'
+    '      spawn: { kind: internal, from: [OPEN], inputs: { raw: { type: file } }, '
+    'effect: [ { create: { type: Folder, transition: open, inputs: { scan: inputs.raw } } } ] }\n'
+    '      shut: { kind: external, from: [OPEN], to: SHUT }\n'
+)
+
+
+def media_file(media_type, size=48213):
+    """A file as an example writes its wire form (flow-format.md §11.3)."""
+    return f'{{ hash: "sha256:{"ab" * 32}", size: {size}, media_type: {media_type} }}'
+
+
+def media_archive_examples(request, expect):
+    """The archive's examples file: one example, on a folder holding a PNG scan, making the request given."""
+    return ("examples_for: archive\n"
+            "setups:\n"
+            "  a_folder:\n"
+            "    description: A folder holding a PNG scan.\n"
+            "    steps:\n"
+            f"      - request: {{ type: Folder, transition: open, as: folder, inputs: {{ scan: {media_file('image/png')} }} }}\n"
+            "examples:\n"
+            "  the_request:\n"
+            "    description: The request, given its file.\n"
+            "    given: a_folder\n"
+            f"    request: {request}\n"
+            f"    expect: {expect}\n")
+
+
+def media_example_plants(people):
+    """Each write held to a file's list of media types as an example runs it (ADR-0239 decision 2): an input of a
+    media type its list does not take refused invalid_input, the attribute's list for an attribute input and its own
+    for a declared one; a creation an effect causes refused its input of one; a guard reading a file's media type and
+    size; and an effect's assign or add of a file its attribute does not take refused value_in_range. Each example
+    passes, and a reverted rule fails it."""
+    def on_folder(xn, name, media_type, size=48213):
+        return f"{{ object: folder, transition: {xn}, inputs: {{ {name}: {media_file(media_type, size)} }} }}"
+    in_range = "{ verdict: unsatisfied, clause: value_in_range, remedy: unreachable_from_here }"
+    cases = [
+        ("an attribute input of another media type",
+         f"{{ type: Folder, transition: open, inputs: {{ scan: {media_file('text/plain')} }} }}", "{ verdict: invalid_input }"),
+        ("an attribute input of a range's type", f"{{ type: Folder, transition: open, inputs: {{ scan: {media_file('image/gif')} }} }}",
+         "{ verdict: applied, state: OPEN }"),
+        ("a declared input of another media type", on_folder("attach", "upload", "image/png"), "{ verdict: invalid_input }"),
+        # refused as its input, which the caller corrects, before the attribute its creation writes refuses it
+        ("a caused creation's input of another media type", on_folder("spawn", "raw", "video/mp4"),
+         "{ verdict: call_refused, remedy: self_serviceable }"),
+        ("a guard reading a file's size", on_folder("attach", "upload", "application/pdf", 200000),
+         "{ verdict: unsatisfied, clause: small, remedy: self_serviceable }"),
+        ("a guard reading a file's media type and size", on_folder("attach", "upload", "application/pdf"), "{ verdict: applied, state: OPEN }"),
+        ("an assign of a file its attribute does not take", on_folder("copy", "raw", "video/mp4"), in_range),
+        ("an assign of a file its attribute takes", on_folder("copy", "raw", "image/jpeg"), "{ verdict: applied, state: OPEN }"),
+        ("an add of a file its set does not take", on_folder("add_page", "raw", "application/pdf"), in_range),
+        ("an add of a file its set takes, its media type read in lower case", on_folder("add_page", "raw", "IMAGE/PNG"),
+         "{ verdict: applied, state: OPEN }"),
+    ]
+    ok = True
+    for name, request, expect in cases:
+        EXAMPLE_OUTCOMES.clear()
+        found, _ = check([("people.yaml", people), ("archive.yaml", MEDIA_ARCHIVE),
+                          ("archive.examples.yaml", media_archive_examples(request, expect))])
+        hit = not found and [o for _n, o in EXAMPLE_OUTCOMES] == ["passed"]
+        ok &= hit
+        print(f"  media types, as an example runs it, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
     return ok
 
 
@@ -10557,6 +10805,8 @@ def main():
     ok &= identity_metric_plants(people)
     ok &= identifier_personal_plants(people)
     ok &= expression_type_plants(people)
+    ok &= media_type_plants(people)
+    ok &= media_example_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:

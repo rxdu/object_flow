@@ -221,8 +221,9 @@ def computed_end(kinds, spec):
 def at_declared_scale(spec, v, oid=None):
     """A value written to an attribute, as its declared type holds it, as the core's `fit_value` writes it: a number to
     a decimal at its scale, a quotient rounded once half to even (declaration-syntax.md §8.3, F4); a number to an
-    integer only where it is whole; text, a boolean or an enumeration's member only to its own type. A value it cannot
-    hold refuses the request value_in_range, naming the object (the audit's values W1 to W3, ADR-0205 decision 1)."""
+    integer only where it is whole; text, a boolean or an enumeration's member only to its own type; a file only of a
+    media type its attribute takes (ADR-0239 decision 2). A value it cannot hold refuses the request value_in_range,
+    naming the object (the audit's values W1 to W3, ADR-0205 decision 1)."""
     typ = str((spec or {}).get("type") or "")
     if v is ABSENT or not typ or (spec or {}).get("reference"):
         return v
@@ -231,7 +232,7 @@ def at_declared_scale(spec, v, oid=None):
         # where a value of another kind was written whole and the object could not be read (the differential battery)
         if not is_set(v):
             raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[oid] if oid else [])
-        return tuple(at_declared_scale({"type": typ[:-2]}, x, oid) for x in v)
+        return tuple(at_declared_scale(dict(spec, type=typ[:-2]), x, oid) for x in v)
     if is_set(v):
         raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[oid] if oid else [])
     number = isinstance(v, (int, Fraction)) and not isinstance(v, bool)
@@ -257,6 +258,9 @@ def at_declared_scale(spec, v, oid=None):
         fits = isinstance(v, tuple) and v[:1] == ("enum",) and v[1] == typ
     elif isinstance(v, tuple) and v[:1] == ("enum",):
         fits = v[1] == typ
+    # a file only of a media type its attribute takes (ADR-0239 decision 2)
+    if typ == "file":
+        fits = fits and takes_media(spec, v)
     if not fits:
         raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[oid] if oid else [])
     return v
@@ -308,7 +312,7 @@ def spec_kind(spec):
         return ("money", m.group(1))
     if typ in ("int", "counter"):
         return ("int",)
-    return (typ,) if typ in ("duration", "timestamp", "date", "bool") else ("other",)
+    return (typ,) if typ in ("duration", "timestamp", "date", "bool", "file") else ("other",)
 
 
 def arith_kind(op, a, b):
@@ -920,6 +924,9 @@ class Evaluator:
             raise NotRunnable(f"the member `{m}` of a row of an object's flow data")
         if isinstance(base, tuple) and base[0] == "state" and m == "category":
             return ("category", ((self.s.kinds.get(base[1]) or {}).get("states") or {}).get(base[2], {}).get("category"))
+        # a file's media type and its size in bytes, the members it has (ADR-0239 decision 4)
+        if isinstance(base, tuple) and len(base) == 4 and base[0] == "file" and m in ("media_type", "size"):
+            return base[3] if m == "media_type" else base[2]
         if not isinstance(base, str) or base not in self.s.objects:
             raise NotRunnable(f"a member `{m}` of a value that is not an object")
         o = self.s.objects[base]
@@ -2046,8 +2053,8 @@ class Evaluator:
 
     def kind(self, e, env):
         """An expression's type, as far as a metric's scale needs it (§8.1, §8.3): ("int",), ("decimal", scale), a
-        decimal literal ("literal", scale), ("money", currency), ("duration",), ("timestamp",), ("bool",), an object
-        ("object", type), a row ("interval" | "transition", type), a collection ("objects" | "intervals" |
+        decimal literal ("literal", scale), ("money", currency), ("duration",), ("timestamp",), ("bool",), ("file",),
+        an object ("object", type), a row ("interval" | "transition", type), a collection ("objects" | "intervals" |
         "transitions", type), or ("other",)."""
         k = e[0]
         if k == "num":
@@ -2126,6 +2133,8 @@ class Evaluator:
         if base[0] == "label":
             # a label of the metric's type is on an object of it
             return ("object", base[1]) if m == "subject" else self.member_kind(("object", LABEL), m)
+        if base[0] == "file":
+            return {"media_type": ("string",), "size": ("int",)}.get(m, ("other",))      # ADR-0239 decision 4
         if base[0] != "object":
             return ("other",)
         t = self.s.kinds.get(base[1]) or {}
@@ -2454,7 +2463,7 @@ class Runner:
                     wrong.append((k, "wrong_type"))
                 continue
             spec = declared.get(k) if k in declared else attrs.get(k)
-            why = input_fault(spec, v, self.enums, self.kinds)
+            why = input_fault(spec, v, self.enums, self.kinds) or media_fault(spec, v)
             if why:
                 wrong.append((k, why))
                 continue
@@ -2744,6 +2753,10 @@ class Runner:
                 if not all(ref in work.objects and (want == ANY_TYPE or work.is_a(work.type_of(ref), want))
                            for ref in (inputs[k] if isinstance(inputs[k], tuple) else (inputs[k],))):
                     wrong.append((k, "no_such_object"))
+            # a file a call, a creation or a cascade gives of a media type the input's list does not take, as a request's
+            # is refused (ADR-0239 decision 2)
+            elif not takes_media(spec, inputs[k]):
+                wrong.append((k, "wrong_media_type"))
         if wrong:
             raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in wrong], reasons=[w for _, w in wrong])
         left = [(k, "missing") for k in x.get("required_inputs", [])
@@ -3108,6 +3121,9 @@ class Runner:
                     raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
                 element = dict(attrs.get(spec["location"]) or {})
                 element["type"] = str(element.get("type") or "").removesuffix("[]")
+                if kind == "remove":
+                    # a set may hold a file from before its list narrowed, which a remove takes out (ADR-0239)
+                    element.pop("media_types", None)
                 v = at_declared_scale(element, v, o.id)
                 ctx.attr_writes.setdefault(o.id, set()).add(spec["location"])
                 current = tuple(o.attrs.get(spec["location"], ()))
@@ -4052,6 +4068,14 @@ def raise_sequence(store, sequence, last, scope):
     store.sequences[key] = max(store.sequences.get(key, 0), last)
 
 
+def media_refused(tn, attrs, given):
+    """An imported file of a media type its attribute does not take is a value not of its type, a class an example's
+    import, admitting nothing, leaves undecided, as the core's import refuses it (ADR-0239 decision 2)."""
+    for k in sorted(given):
+        if not takes_media(attrs.get(k), given[k]):
+            raise ImportRefused(f"its class {tn}.{k} (is not of its type) is undecided")
+
+
 def import_object(runner, store, tn, state, given):
     """One new object of a mirror type, written through the built-in assertion as an import writes it, and returned
     by id (publish-and-import.md §4). An example's import admits nothing, so an object whose state its type does not
@@ -4066,6 +4090,7 @@ def import_object(runner, store, tn, state, given):
     for k in given:
         if k not in attrs:
             raise ImportRefused(f"{tn} declares no attribute {k}")
+    media_refused(tn, attrs, given)
     counter = store.counter
     o = Obj(store.new_id(tn), tn, state, store.now)
     o.id_order = store.counter
@@ -4114,6 +4139,7 @@ def refresh_object(runner, store, oid, tn, state, given):
     for k in given:
         if k not in attrs:
             raise ImportRefused(f"{tn} declares no attribute {k}")
+    media_refused(tn, attrs, given)
     changes = {k: v for k, v in given.items() if v is not ABSENT and o.attrs.get(k, ABSENT) != v}
     if state == o.state and not changes:
         return oid
@@ -4246,7 +4272,7 @@ def file_proposal(runner, store, st, aliases):
             if k not in taken:
                 continue
             v, spec = given_inputs[k], declared.get(k) if k in declared else attrs.get(k)
-            why = input_fault(spec, v, runner.enums, runner.kinds)
+            why = input_fault(spec, v, runner.enums, runner.kinds) or media_fault(spec, v)
             if why is None and "reference" in (spec or {}) and not all(
                     a in aliases and store.is_a(store.type_of(aliases[a]), spec["reference"].rstrip("[]"))
                     for a in (v if isinstance(v, (list, tuple)) else [v])):
@@ -4460,6 +4486,33 @@ def file_value(v):
         return ("file", v.get("hash"), v.get("size"), str(v.get("media_type", "")).lower())
     data = str(v).encode("utf-8")
     return ("file", "sha256:" + hashlib.sha256(data).hexdigest(), len(data), "application/octet-stream")
+
+
+def takes_media(spec, v):
+    """Whether an attribute or an input takes a value by the media type of each file it holds, a set's each element:
+    any where it declares no media_types, else one listed or of a listed range's type, `type/*` (ADR-0239 decision
+    1). A value as the runner holds it; one that is no file is not judged here."""
+    listed = (spec or {}).get("media_types")
+    if not listed:
+        return True
+    for f in (v if is_set(v) else (v,)):
+        if isinstance(f, tuple) and len(f) == 4 and f[0] == "file":
+            media = str(f[3])
+            if media not in listed and media.split("/", 1)[0] + "/*" not in listed:
+                return False
+    return True
+
+
+def media_fault(spec, v):
+    """`wrong_media_type` where a file input's wire value, or a set's element, is well formed and of a media type its
+    list does not take, the attribute's for an attribute input and its own for a declared one, or None (ADR-0239
+    decision 2). Read once input_fault finds nothing, so a value is first of its type and then of a media type."""
+    spec = spec or {}
+    if v is None or isinstance(v, WrongKind) or not spec.get("media_types") or "reference" in spec \
+            or str(spec.get("type", "")).removesuffix("[]") != "file":
+        return None
+    items = v if isinstance(v, (list, tuple)) else [v]
+    return None if takes_media(spec, tuple(file_value(i) for i in items)) else "wrong_media_type"
 
 
 def file_fault(v):
@@ -5235,8 +5288,115 @@ def self_test():
     r.attempt(s, "Tag", "walk", tag, OPERATOR, {"labels": ["b", "c", "a"]}, {}, {})
     check("a loop over values runs in ascending value order", s.objects[tag].attrs.get("seen"), ("a", "b", "c"))
     ok &= metrics_self_test(kinds["Operator"])
+    ok &= media_self_test(kinds["Operator"])
     print(f"runner: a small order and its lines, a document over its history, and jobs read by their metrics, each thing "
           f"slices 1 to 4 execute: {'yes' if ok else 'NO'}")
+    return ok
+
+
+def media_self_test(operator):
+    """A file's media types (ADR-0239): an input of a media type its list does not take refused `wrong_media_type`, a
+    request's, a proposal's and a caused transition's; a range taking its type's every subtype; an effect's assign or
+    add of one refused value_in_range, and a remove of one held from before taken; an import of one refused; and a
+    guard reading a file's media type and size."""
+    ok = True
+
+    def check(name, got, want):
+        nonlocal ok
+        if got != want:
+            ok = False
+            print(f"  media types, {name}: {got!r}, not {want!r}")
+
+    def wire(media_type, size=48213):
+        return {"hash": "sha256:" + "ab" * 32, "size": size, "media_type": media_type}
+    pdf, png, mp4 = wire("application/pdf"), wire("IMAGE/PNG"), wire("video/mp4")
+    raw = {"raw": {"type": "file"}}
+    doc = {"attributes": {"scan": {"type": "file", "optional": True, "media_types": ["image/*", "application/pdf"]},
+                          "pages": {"type": "file[]", "media_types": ["image/png"]},
+                          "loose": {"type": "file", "optional": True}},
+           "states": {"OPEN": {"category": "live"}},
+           "conditions": {"small_pdf": {"expression": 'inputs.upload.media_type == "application/pdf" and '
+                                                      "inputs.upload.size < 100000", "remedy": "self_serviceable"}},
+           "transitions": {
+               "open": {"kind": "initial", "to": "OPEN", "optional_inputs": ["scan", "pages", "loose"]},
+               "attach": {"kind": "internal", "from": ["OPEN"], "proposable": True,
+                          "inputs": {"upload": {"type": "file", "media_types": ["application/pdf"]}},
+                          "guards": {"small_pdf": "deny"}, "effect": [{"assign": {"location": "loose", "expr": "inputs.upload"}}]},
+               "copy": {"kind": "internal", "from": ["OPEN"], "inputs": raw,
+                        "effect": [{"assign": {"location": "scan", "expr": "inputs.raw"}}]},
+               "add_page": {"kind": "internal", "from": ["OPEN"], "inputs": raw,
+                            "effect": [{"add": {"location": "pages", "expr": "inputs.raw"}}]},
+               "drop_page": {"kind": "internal", "from": ["OPEN"], "inputs": raw,
+                             "effect": [{"remove": {"location": "pages", "expr": "inputs.raw"}}]},
+               "spawn": {"kind": "internal", "from": ["OPEN"], "inputs": raw,
+                         "effect": [{"create": {"type": "Doc", "transition": "open", "inputs": {"scan": "inputs.raw"}}}]}}}
+    kinds = {"Operator": operator, "Doc": doc,
+             "Copy": {"mirror": True, "attributes": {"scan": {"type": "file", "media_types": ["application/pdf"]}},
+                      "states": {"HELD": {"category": "live"}}, "transitions": {}}}
+    r, s = Runner(kinds, {}), Store(kinds, {})
+
+    def refused(xn, oid, inputs, store=None):
+        w = copy.deepcopy(store or s)
+        try:
+            r.attempt(w, "Doc", xn, oid, OPERATOR, inputs, {}, {})
+            return "applied"
+        except Refused as e:
+            inner = e.inner or e
+            return (e.verdict, e.clause, e.remedy, inner.verdict, inner.inputs, inner.reasons)
+    d = r.attempt(s, "Doc", "open", None, OPERATOR, {"scan": png, "pages": [png]}, {}, {})[1]
+    check("a range takes its type's every subtype, the media type read in lower case",
+          (s.objects[d].attrs["scan"][3], s.objects[d].attrs["pages"]), ("image/png", (file_value(png),)))
+    ev = Evaluator(s, "Doc", d)
+    check("a file's members read, a string and an int", [(ev.value(parsed(f"scan.{m}"), {}), ev.kind(parsed(f"scan.{m}"),
+                                                          {"this": ("object", "Doc")})) for m in ("media_type", "size")],
+          [("image/png", ("string",)), (48213, ("int",))])
+    check("an attribute input of another media type", refused("open", None, {"scan": mp4}),
+          ("invalid_input", None, "self_serviceable", "invalid_input", ["scan"], ["wrong_media_type"]))
+    check("a set's element of another media type", refused("open", None, {"pages": [png, pdf]}),
+          ("invalid_input", None, "self_serviceable", "invalid_input", ["pages"], ["wrong_media_type"]))
+    check("a malformed file is malformed before its media type is read", refused("open", None, {"pages": [mp4, {"hash": "x"}]}),
+          ("invalid_input", None, "self_serviceable", "invalid_input", ["pages"], ["malformed"]))
+    check("an input of another media type told with every input not of its type", refused(
+        "open", None, {"scan": mp4, "loose": {"hash": "x"}}),
+          ("invalid_input", None, "self_serviceable", "invalid_input", ["loose", "scan"], ["malformed", "wrong_media_type"]))
+    check("a declared input is held to its own list", refused("attach", d, {"upload": png}),
+          ("invalid_input", None, "self_serviceable", "invalid_input", ["upload"], ["wrong_media_type"]))
+    check("a guard reads a file's media type and size", (refused("attach", d, {"upload": pdf}),
+                                                          refused("attach", d, {"upload": wire("application/pdf", 200000)})),
+          ("applied", ("unsatisfied", "small_pdf", "self_serviceable", "unsatisfied", None, None)))
+    check("an assign of a file its attribute does not take", refused("copy", d, {"raw": mp4}),
+          ("unsatisfied", "value_in_range", "unreachable_from_here", "unsatisfied", None, None))
+    check("an add of a file its set does not take", refused("add_page", d, {"raw": pdf}),
+          ("unsatisfied", "value_in_range", "unreachable_from_here", "unsatisfied", None, None))
+    check("an assign and an add of files taken", (refused("copy", d, {"raw": pdf}), refused("add_page", d, {"raw": wire("image/png", 7)})),
+          ("applied", "applied"))
+    caused = refused("spawn", d, {"raw": mp4})
+    check("a caused transition's input of another media type", (caused[0], caused[3:]),
+          ("call_refused", ("invalid_input", ["scan"], ["wrong_media_type"])))
+    # a file held from before the list narrowed stays, and a remove takes it out
+    held = copy.deepcopy(s)
+    held.objects[d].attrs["pages"] = (file_value(png), file_value(pdf))
+    r.attempt(held, "Doc", "drop_page", d, OPERATOR, {"raw": pdf}, {}, {})
+    check("a remove of a file held from before the list narrowed", held.objects[d].attrs["pages"], (file_value(png),))
+    # a proposal is filed as a request would be
+    aliases = {OPERATOR: OPERATOR, "d": d}
+    try:
+        step(r, copy.deepcopy(s), {"propose": {"object": "d", "transition": "attach", "inputs": {"upload": png},
+                                               "proposal": "p"}}, dict(aliases), {})
+        check("a proposal's input of another media type", "filed", "wrong_media_type")
+    except Refused as e:
+        check("a proposal's input of another media type", (e.verdict, e.inputs, e.reasons),
+              ("invalid_input", ["upload"], ["wrong_media_type"]))
+    # an import's file of another media type is a value not of its type, a class an example's import leaves undecided
+    try:
+        import_object(r, copy.deepcopy(s), "Copy", "HELD", {"scan": file_value(png)})
+        check("an imported file of another media type", "imported", "refused")
+    except ImportRefused as e:
+        check("an imported file of another media type", str(e), "its class Copy.scan (is not of its type) is undecided")
+    w = copy.deepcopy(s)
+    check("an imported file taken", w.objects[import_object(r, w, "Copy", "HELD", {"scan": file_value(pdf)})].attrs["scan"],
+          file_value(pdf))
+    print(f"  media types: each write held to a file's list, a guard reading its media type and size: {'yes' if ok else 'NO'}")
     return ok
 
 

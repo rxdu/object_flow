@@ -662,8 +662,10 @@ fn at_declared_scale(t: &Type, name: &str, v: Value, id: &str) -> Result<Value, 
         return Ok(v);
     };
     match fit_value(&a.declared, a.many, v) {
-        Ok(v) => Ok(v),
-        Err(_) => refused_naming(
+        // a file of a media type its list does not take is no value it
+        // holds (ADR-0239)
+        Ok(v) if media_taken(&a.media_types, &v) => Ok(v),
+        _ => refused_naming(
             Verdict::Unsatisfied {
                 clause: "value_in_range".into(),
                 remedy: Some(Remedy::UnreachableFromHere),
@@ -1076,11 +1078,15 @@ fn decide_or_stop(
             }
             continue;
         }
-        let Some((declared, many)) = input_type(t, x, k) else {
+        let Some((declared, many, media)) = input_type(t, x, k) else {
             return stop_not_run(format!("the input {k}, which names no attribute of {tn}"));
         };
         match wire::decode(raw, declared, many, lib) {
             Ok(Value::Absent) => {}
+            // a file of a media type its list does not take (ADR-0239)
+            Ok(v) if !media_taken(media, &v) => {
+                wrong.push((k.clone(), InputReason::WrongMediaType));
+            }
             Ok(v) => {
                 inputs.insert(k.clone(), v);
             }
@@ -1347,10 +1353,27 @@ fn takes(t: &Type, x: &Transition, k: &str) -> bool {
 
 /// The type an input is declared of: the transition's own input, or the
 /// attribute it writes.
-fn input_type<'t>(t: &'t Type, x: &'t Transition, k: &str) -> Option<(&'t Declared, bool)> {
+fn input_type<'t>(
+    t: &'t Type,
+    x: &'t Transition,
+    k: &str,
+) -> Option<(&'t Declared, bool, &'t [String])> {
     match x.inputs.iter().find(|(n, _)| n == k) {
-        Some((_, spec)) => Some((&spec.declared, spec.many)),
-        None => t.attribute(k).map(|a| (&a.declared, a.many)),
+        Some((_, spec)) => Some((&spec.declared, spec.many, &spec.media_types)),
+        None => t
+            .attribute(k)
+            .map(|a| (&a.declared, a.many, a.media_types.as_slice())),
+    }
+}
+
+/// Whether a value is one a list of media types takes (ADR-0239): a file
+/// by its media type, a set by each of its elements, any other value as it
+/// is.
+pub(crate) fn media_taken(types: &[String], v: &Value) -> bool {
+    match v {
+        Value::File { media_type, .. } => crate::model::takes_media(types, media_type),
+        Value::Set(items) => items.iter().all(|i| media_taken(types, i)),
+        _ => true,
     }
 }
 
@@ -1452,10 +1475,18 @@ fn take_unwound(
             ));
         }
     }
-    // a reference names an object of its type
+    // a reference names an object of its type; and a caused transition's
+    // file is of a media type its list takes, as a request's was when the
+    // wire decoded it (ADR-0239)
     let mut wrong = Vec::new();
     for (k, v) in &inputs {
-        if let Some((Declared::Reference(target), _)) = input_type(t, x, k) {
+        if depth > 0
+            && let Some((_, _, media)) = input_type(t, x, k)
+            && !media_taken(media, v)
+        {
+            wrong.push((k.clone(), InputReason::WrongMediaType));
+        }
+        if let Some((Declared::Reference(target), _, _)) = input_type(t, x, k) {
             let ids: Vec<&Value> = match v {
                 Value::Set(items) => items.iter().collect(),
                 one => vec![one],
@@ -3397,10 +3428,13 @@ fn file(
         if wrong.iter().any(|(w, _)| w == k) {
             continue;
         }
-        let Some((declared, many)) = input_type(t, x, k) else {
+        let Some((declared, many, media)) = input_type(t, x, k) else {
             continue;
         };
         match wire::decode(raw, declared, many, lib) {
+            Ok(v) if !media_taken(media, &v) => {
+                wrong.push((k.clone(), InputReason::WrongMediaType));
+            }
             Ok(v) => {
                 if let Declared::Reference(target) = declared {
                     let ids: Vec<&Value> = match &v {
@@ -4865,9 +4899,18 @@ fn effects(
                 // holds, refuses the request as an assignment of one does,
                 // where it answered not run (the audit's values W6, ADR-0205
                 // decision 1)
-                let fitted = t
-                    .attribute(location)
-                    .map_or(Ok(v.clone()), |a| fit_value(&a.declared, false, v));
+                let adding = matches!(step, Step::Add { .. });
+                let fitted = t.attribute(location).map_or(Ok(v.clone()), |a| {
+                    // a file added of a media type the set does not take;
+                    // one removed may be one it held before (ADR-0239)
+                    fit_value(&a.declared, false, v).and_then(|v| {
+                        if adding && !media_taken(&a.media_types, &v) {
+                            Err(format!("a file of a media type {location} does not take"))
+                        } else {
+                            Ok(v)
+                        }
+                    })
+                });
                 let v = match fitted {
                     Ok(v) if !v.is_absent() => v,
                     _ => {
@@ -12373,6 +12416,259 @@ types:
             batch(&mut s, &reqs, None).unwrap().unwrap(),
             Batched::Applied(_)
         ));
+    }
+
+    /// A folder whose files take some media types: a scan a PDF or any
+    /// image, photos JPEG alone, and an upload a PDF or an MP4 video.
+    const FOLDERS: &str = r#"
+module: folders
+categories: [live]
+types:
+  Folder:
+    attributes:
+      scan: { type: file, optional: true, media_types: [application/pdf, image/*] }
+      photos: { type: "file[]", media_types: [image/jpeg] }
+    states: { OPEN: { category: live } }
+    conditions:
+      small: { expression: inputs.upload.size <= 1000, remedy: self_serviceable }
+      a_pdf: { expression: inputs.upload.media_type == "application/pdf", remedy: self_serviceable }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [scan] }
+      add_photos: { kind: internal, from: [OPEN], required_inputs: [photos] }
+      file:
+        kind: internal
+        from: [OPEN]
+        proposable: true
+        inputs: { upload: { type: file, media_types: [application/pdf, video/mp4] } }
+        guards: { small: deny }
+        effect:
+          - assign: { location: scan, expr: inputs.upload }
+      file_pdf:
+        kind: internal
+        from: [OPEN]
+        inputs: { upload: { type: file } }
+        guards: { a_pdf: deny }
+      snap:
+        kind: internal
+        from: [OPEN]
+        inputs: { shot: { type: file } }
+        effect:
+          - add: { location: photos, expr: inputs.shot }
+      unsnap:
+        kind: internal
+        from: [OPEN]
+        inputs: { shot: { type: file } }
+        effect:
+          - remove: { location: photos, expr: inputs.shot }
+  Crate:
+    attributes:
+      folder: { reference: Folder, optional: true }
+    states: { ON: { category: live } }
+    transitions:
+      pack:
+        kind: initial
+        to: ON
+        inputs: { upload: { type: file } }
+        effect:
+          - create: { type: Folder, transition: open, inputs: { scan: inputs.upload }, result: f }
+      ship:
+        kind: initial
+        to: ON
+        inputs: { into: { reference: Folder }, upload: { type: file } }
+        effect:
+          - call: { target: inputs.into, transition: file, inputs: { upload: inputs.upload } }
+"#;
+
+    fn folders() -> Store {
+        let lib = Library::load(&[("folders.yaml".into(), FOLDERS.into())]).unwrap();
+        Store::sandbox(lib, 1_767_225_600).unwrap()
+    }
+
+    fn a_file(media_type: &str, size: i64) -> Json {
+        json!({"hash": format!("sha256:{}", "a".repeat(64)), "size": size, "media_type": media_type})
+    }
+
+    fn reasons(v: &Verdict) -> Vec<(String, InputReason)> {
+        match v {
+            Verdict::InvalidInput { inputs, reasons } => inputs
+                .iter()
+                .cloned()
+                .zip(reasons.iter().copied())
+                .collect(),
+            other => panic!("not invalid_input: {other:?}"),
+        }
+    }
+
+    fn in_range(v: &Verdict) -> bool {
+        matches!(v, Verdict::Unsatisfied { clause, .. } if clause == "value_in_range")
+    }
+
+    /// An input's file of a media type its list does not take is refused
+    /// `wrong_media_type`, an attribute input by its attribute's list, a set
+    /// by each element and a declared input by its own; a range takes its
+    /// type, and the wire's lower case meets the list's (ADR-0239 decisions
+    /// 1 and 2).
+    #[test]
+    fn a_file_input_of_a_media_type_its_list_does_not_take_is_refused() {
+        let mut s = folders();
+        let open =
+            |s: &mut Store, f: Json| req(s, "open", OPERATOR, ("Folder", true), json!({"scan": f}));
+        for taken in ["application/pdf", "image/png", "IMAGE/PNG"] {
+            created(&open(&mut s, a_file(taken, 10)));
+        }
+        let wrong = vec![("scan".to_string(), InputReason::WrongMediaType)];
+        assert_eq!(reasons(&open(&mut s, a_file("video/mp4", 10))), wrong);
+        let folder = created(&open(&mut s, a_file("application/pdf", 10)));
+        let photos = |s: &mut Store, fs: Vec<Json>| {
+            req(
+                s,
+                "add_photos",
+                OPERATOR,
+                (&folder, false),
+                json!({"photos": fs}),
+            )
+        };
+        assert_eq!(
+            reasons(&photos(
+                &mut s,
+                vec![a_file("image/jpeg", 1), a_file("image/png", 2)]
+            )),
+            vec![("photos".to_string(), InputReason::WrongMediaType)]
+        );
+        created(&photos(&mut s, vec![a_file("image/jpeg", 1)]));
+        // the declared input by its own list, which takes no image
+        assert_eq!(
+            reasons(&req(
+                &mut s,
+                "file",
+                OPERATOR,
+                (&folder, false),
+                json!({"upload": a_file("image/png", 10)})
+            )),
+            vec![("upload".to_string(), InputReason::WrongMediaType)]
+        );
+        // a proposal's inputs are held as a request's are
+        let proposed = Request {
+            propose: true,
+            inputs: [("upload".to_string(), a_file("image/png", 10))]
+                .into_iter()
+                .collect(),
+            ..asked("file", (&folder, false), json!({}))
+        };
+        assert_eq!(
+            reasons(&request(&mut s, &proposed).unwrap().unwrap()),
+            vec![("upload".to_string(), InputReason::WrongMediaType)]
+        );
+    }
+
+    /// An effect writing a file its attribute does not take is refused
+    /// `value_in_range`, by `assign` and by `add`, and `remove` takes any,
+    /// since a set may hold one from before its list (ADR-0239 decision 2).
+    #[test]
+    fn an_effect_writes_no_file_its_attribute_does_not_take() {
+        let mut s = folders();
+        let folder = created(&req(&mut s, "open", OPERATOR, ("Folder", true), json!({})));
+        let on =
+            |s: &mut Store, xn: &str, inputs: Json| req(s, xn, OPERATOR, (&folder, false), inputs);
+        // the upload takes a video, the scan it is written to does not
+        assert!(in_range(&on(
+            &mut s,
+            "file",
+            json!({"upload": a_file("video/mp4", 10)})
+        )));
+        created(&on(
+            &mut s,
+            "file",
+            json!({"upload": a_file("application/pdf", 10)}),
+        ));
+        let held = s.snapshot().unwrap().get(&folder).unwrap().unwrap().clone();
+        assert!(
+            matches!(held.attrs.get("scan"), Some(Value::File { media_type, .. }) if media_type == "application/pdf")
+        );
+        assert!(in_range(&on(
+            &mut s,
+            "snap",
+            json!({"shot": a_file("image/png", 10)})
+        )));
+        created(&on(
+            &mut s,
+            "snap",
+            json!({"shot": a_file("image/jpeg", 10)}),
+        ));
+        created(&on(
+            &mut s,
+            "unsnap",
+            json!({"shot": a_file("image/png", 10)}),
+        ));
+    }
+
+    /// A transition an effect causes is held to its inputs' lists as a
+    /// request is: a created object's attribute and a called transition's
+    /// declared input alike, nothing of the request kept (ADR-0239 decision
+    /// 2).
+    #[test]
+    fn a_caused_transitions_file_inputs_are_held_to_their_lists() {
+        let mut s = folders();
+        let before = rows(&s);
+        let packed = req(
+            &mut s,
+            "pack",
+            OPERATOR,
+            ("Crate", true),
+            json!({"upload": a_file("video/mp4", 10)}),
+        );
+        assert!(!matches!(packed, Verdict::Satisfied { .. }), "{packed:?}");
+        assert_eq!(rows(&s), before, "a refused creation kept a row");
+        created(&req(
+            &mut s,
+            "pack",
+            OPERATOR,
+            ("Crate", true),
+            json!({"upload": a_file("image/png", 10)}),
+        ));
+        let folder = created(&req(&mut s, "open", OPERATOR, ("Folder", true), json!({})));
+        // the called transition's upload takes no image, though the scan its
+        // effect writes would
+        let shipped = req(
+            &mut s,
+            "ship",
+            OPERATOR,
+            ("Crate", true),
+            json!({"into": folder, "upload": a_file("image/png", 10)}),
+        );
+        assert!(!matches!(shipped, Verdict::Satisfied { .. }), "{shipped:?}");
+        created(&req(
+            &mut s,
+            "ship",
+            OPERATOR,
+            ("Crate", true),
+            json!({"into": folder, "upload": a_file("application/pdf", 10)}),
+        ));
+    }
+
+    /// A guard reads a file's media type and its size in bytes (ADR-0239
+    /// decision 4).
+    #[test]
+    fn an_expression_reads_a_files_media_type_and_size() {
+        let mut s = folders();
+        let folder = created(&req(&mut s, "open", OPERATOR, ("Folder", true), json!({})));
+        let on = |s: &mut Store, xn: &str, f: Json| {
+            req(s, xn, OPERATOR, (&folder, false), json!({"upload": f}))
+        };
+        let refused_by = |v: &Verdict| match v {
+            Verdict::Unsatisfied { clause, .. } => clause.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            refused_by(&on(&mut s, "file", a_file("application/pdf", 1001))),
+            "small"
+        );
+        created(&on(&mut s, "file", a_file("application/pdf", 1000)));
+        assert_eq!(
+            refused_by(&on(&mut s, "file_pdf", a_file("image/png", 10))),
+            "a_pdf"
+        );
+        created(&on(&mut s, "file_pdf", a_file("application/pdf", 10)));
     }
 
     #[test]

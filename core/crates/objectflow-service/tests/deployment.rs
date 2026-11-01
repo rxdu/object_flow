@@ -782,6 +782,59 @@ fn a_batch_through_the_wire_names_what_it_creates_by_lid() {
     assert_eq!(status, 400, "a lid on a request sent alone: {said}");
 }
 
+/// A file attribute's or input's media types are answered by
+/// `declaration`, and a file the list does not take is refused through the
+/// wire with the reason `wrong_media_type` (ADR-0239).
+#[test]
+fn a_files_media_types_are_declared_and_held_through_the_wire() {
+    const LAB: &str = "module: lab\ncategories: [live, closed]\ntypes:\n  Folder:\n    description: A folder of files.\n    tracking: record\n    attributes:\n      scan: { type: file, optional: true, media_types: [application/pdf, image/*] }\n    states:\n      OPEN: { category: live }\n      CLOSED: { category: closed, final: true }\n    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [scan] }\n      close: { kind: external, from: [OPEN], to: CLOSED }\n      file:\n        kind: internal\n        from: [OPEN]\n        inputs: { upload: { type: file, media_types: [application/pdf] } }\n";
+    let path = fresh_store("media-types");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish(&s, &json!({"lab": LAB}));
+    let op = json!({"id": "operator"});
+    let declared = post(
+        &s,
+        "/v1/declaration",
+        &json!({"actor": op, "type": "Folder"}),
+    );
+    assert_eq!(
+        declared["attributes"]["scan"]["media_types"],
+        json!(["application/pdf", "image/*"]),
+        "{declared}"
+    );
+    assert_eq!(
+        declared["transitions"]["file"]["inputs"]["upload"]["media_types"],
+        json!(["application/pdf"]),
+        "{declared}"
+    );
+    let file = |media_type: &str| json!({"hash": format!("sha256:{}", "d".repeat(64)), "size": 10, "media_type": media_type});
+    let open = |media_type: &str| {
+        post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Folder", "transition": "open", "inputs": {"scan": file(media_type)}}),
+        )
+    };
+    let refused = open("video/mp4");
+    assert_eq!(
+        (&refused["kind"], &refused["reasons"]),
+        (
+            &json!("invalid_input"),
+            &json!({"scan": "wrong_media_type"})
+        ),
+        "{refused}"
+    );
+    assert_eq!(refused["remedy"], "self_serviceable", "{refused}");
+    let opened = open("image/png");
+    assert_eq!(opened["kind"], "satisfied", "{opened}");
+}
+
 /// A batch's check answers what the batch then answers, applied or
 /// refused at the same request, and writes nothing, not an event nor an
 /// attempt row; a satisfied verdict names nothing its run made, each said

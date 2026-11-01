@@ -66,6 +66,9 @@ pub enum InputReason {
     Malformed,
     /// An amount in another currency than the input's.
     WrongCurrency,
+    /// A file, or a set's, of a media type the input's list does not take
+    /// (ADR-0239).
+    WrongMediaType,
     /// A reference naming no object of the type it takes.
     NoSuchObject,
     /// A value its type cannot hold: an int past 64 bits, a decimal or an
@@ -86,6 +89,7 @@ impl InputReason {
             InputReason::WrongType => "wrong_type",
             InputReason::Malformed => "malformed",
             InputReason::WrongCurrency => "wrong_currency",
+            InputReason::WrongMediaType => "wrong_media_type",
             InputReason::NoSuchObject => "no_such_object",
             InputReason::OutOfRange => "out_of_range",
             InputReason::NotAllowed => "not_allowed",

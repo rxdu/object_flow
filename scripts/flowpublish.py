@@ -474,10 +474,10 @@ def follows_move(m, was, now):
 def fitted(spec, v, kind=None):
     """A mapping's value as its attribute holds it, as the core's `fit_value` fits one: its kind and scale as a
     request's write fits them (`flowrun.at_declared_scale`), a decimal within its digits and the 18 a value holds, an
-    amount at its currency's minor unit within the 18, text within 64 KiB and a time within the calendar. `kind` is
-    the type the core holds the value at (`Evaluator.held_kind`), which an amount, a duration and a time each need,
-    the runner holding all three as numbers. Returns the value and None, or None and why the attribute cannot hold it
-    (the audit's values W1 and W3, ADR-0205 decision 1)."""
+    amount at its currency's minor unit within the 18, text within 64 KiB, a time within the calendar and a file of a
+    media type its attribute takes (ADR-0239). `kind` is the type the core holds the value at (`Evaluator.held_kind`),
+    which an amount, a duration and a time each need, the runner holding all three as numbers. Returns the value and
+    None, or None and why the attribute cannot hold it (the audit's values W1 and W3, ADR-0205 decision 1)."""
     import flowrun
     spec = spec or {}
     typ = str(spec.get("type") or "")
@@ -490,6 +490,11 @@ def fitted(spec, v, kind=None):
             return None, f"a {held} where {typ} is held"
         if one in ("duration", "timestamp") and held != one:
             return None, f"a {held} where {typ} is held"
+    # a file only of a media type its attribute takes, as a request's write is held to it (ADR-0239 decision 2)
+    if one == "file":
+        refused = next((f[3] for f in (v if flowrun.is_set(v) else (v,)) if not flowrun.takes_media(spec, f)), None)
+        if refused is not None:
+            return None, f"a file of {refused}, which its media_types do not take"
     try:
         v = flowrun.at_declared_scale(spec, v)
     except flowrun.Refused:
@@ -996,7 +1001,9 @@ def takes_from(t, x, state):
 
 def proposals(store, kinds, found):
     """The pending proposals the version invalidates: its transition removed or no longer proposable, an input it no
-    longer takes, or a value its type no longer holds (DESIGN.md §9); returns how many."""
+    longer takes, or a value its type no longer holds (DESIGN.md §9), a file of a media type its input's or its
+    attribute's list no longer takes among them (ADR-0239); returns how many."""
+    import flowrun
     n = 0
     for pid, p in store.proposals.items():
         if p.get("state") != "pending":
@@ -1005,18 +1012,34 @@ def proposals(store, kinds, found):
         x = (t.get("transitions") or {}).get(p.get("transition"))
         breaks = x is None or not x.get("proposable")
         if not breaks:
-            taken = set(x.get("required_inputs") or []) | set(x.get("optional_inputs") or []) | set(x.get("inputs") or {})
+            declared, attrs = x.get("inputs") or {}, t.get("attributes") or {}
+            taken = set(x.get("required_inputs") or []) | set(x.get("optional_inputs") or []) | set(declared)
             breaks = any(k not in taken for k in (p.get("inputs") or {}))
+            breaks = breaks or any(flowrun.media_fault(declared.get(k) if k in declared else attrs.get(k), v)
+                                   for k, v in (p.get("inputs") or {}).items())
         if breaks:
             n += 1
             found.add("notice", "proposals_invalidated", "pending proposals the version invalidates", pid)
     return n
 
 
+def narrowed(was, now):
+    """Whether a file's list of media types takes fewer than the one before: it is declared, and the one before was
+    not, or lists a media type it does not take or a range, `type/*`, it does not list (ADR-0239 decision 5)."""
+    if not now:
+        return False
+    if not was:
+        return True
+    return any(token not in now if token.endswith("/*") else token not in now and token.split("/", 1)[0] + "/*" not in now
+               for token in was)
+
+
 def attribute_notices(old, new, retired, m, found, store=None):
-    """Notices of the declaration: an attribute dropped where one of its type is added, which may be a rename, and an
+    """Notices of the declaration: an attribute dropped where one of its type is added, which may be a rename; an
     attribute whose type changed, a drop and an add of the same name, naming each object holding a value it sets
-    aside, which its migration records (the audit's write path A-06)."""
+    aside, which its migration records (the audit's write path A-06); and a file's list of media types narrowed,
+    naming each object holding a file it no longer takes (ADR-0239 decision 5)."""
+    import flowrun
     for tn, nt in new.items():
         ot = old.get(tn)
         if ot is None or tn in BUILT_IN or tn in retired:
@@ -1035,6 +1058,15 @@ def attribute_notices(old, new, retired, m, found, store=None):
                 for oid, o in sorted((store.objects if store is not None else {}).items(),
                                      key=lambda kv: kv[1].id_order):
                     if o.type == tn and o.attrs.get(a, ABSENT) is not ABSENT:
+                        found.add("notice", code, message, oid)
+            # a list taking fewer media types keeps every value held, binding what is written next (ADR-0239 decision 5)
+            elif now is not None and narrowed(spec.get("media_types"), now.get("media_types")):
+                code = f"media_types_narrowed:{tn}.{a}"
+                message = f"{tn}.{a} takes fewer media types than before; a file it holds of another stays until written"
+                found.add("notice", code, message)
+                for oid, o in sorted((store.objects if store is not None else {}).items(),
+                                     key=lambda kv: kv[1].id_order):
+                    if o.type == tn and not flowrun.takes_media(now, o.attrs.get(a, ABSENT)):
                         found.add("notice", code, message, oid)
             # a base has no objects: each type of its family is noticed, as the checker notices it
             elif now is None and not nt.get("abstract") and a not in renamed and any(

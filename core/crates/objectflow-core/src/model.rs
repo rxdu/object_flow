@@ -68,6 +68,18 @@ pub enum Declared {
     Reference(String),
 }
 
+/// Whether a list of media types, as a file attribute or input declares
+/// it, takes a file of `media_type`: any where the list is empty, else one
+/// it lists, or one of a type it lists as `type/*` (ADR-0239). A file's
+/// media type is held in lower case, as the list is written.
+pub fn takes_media(types: &[String], media_type: &str) -> bool {
+    types.is_empty()
+        || types.iter().any(|t| match t.strip_suffix("/*") {
+            Some(kind) => media_type.split_once('/').is_some_and(|(k, _)| k == kind),
+            None => t == media_type,
+        })
+}
+
 /// Whether an attribute's values are unique, in the four forms the schema
 /// gives (`flow.schema.json`, `attribute.unique`).
 #[derive(Clone, Debug, PartialEq)]
@@ -106,6 +118,9 @@ pub struct Attribute {
     pub unique: Unique,
     pub assignee: bool,
     pub personal: bool,
+    /// On a file or a set of files, the media types it takes, each
+    /// `type/subtype` or `type/*`; empty where it takes any (ADR-0239).
+    pub media_types: Vec<String>,
     /// The kind of actor whose identity it holds, for an actor's type.
     pub actor_kind: Option<String>,
     /// The identifier minted for it from a sequence, when its object is
@@ -184,6 +199,9 @@ pub struct Input {
     /// A personal value, which the attempt log names and withholds
     /// (ADR-0105).
     pub personal: bool,
+    /// On a file or a set of files, the media types it takes; empty where
+    /// it takes any (ADR-0239).
+    pub media_types: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -567,6 +585,7 @@ impl Reader<'_> {
             },
             assignee: self.flag(node, "assignee")?,
             personal: self.flag(node, "personal")?,
+            media_types: self.names(node.get("media_types"))?,
             external: node
                 .get("external")
                 .and_then(Node::text)
@@ -631,6 +650,7 @@ impl Reader<'_> {
                 .map(|d| self.expression(d))
                 .transpose()?,
             personal: self.flag(node, "personal")?,
+            media_types: self.names(node.get("media_types"))?,
         })
     }
 
@@ -918,6 +938,7 @@ impl Reader<'_> {
             unique: Unique::No,
             assignee: false,
             personal: false,
+            media_types: Vec::new(),
             actor_kind: None,
             identifier: None,
             opposite: None,
@@ -1003,6 +1024,7 @@ impl Reader<'_> {
                 optional: false,
                 default: None,
                 personal: false,
+                media_types: Vec::new(),
             };
             transitions.push((
                 "forget".into(),
@@ -1404,6 +1426,7 @@ fn taken_by(t: &mut Type) -> Result<(), String> {
                 unique: Unique::No,
                 assignee: false,
                 personal: false,
+                media_types: Vec::new(),
                 actor_kind: None,
                 identifier: None,
                 opposite: None,
@@ -1621,6 +1644,7 @@ fn operator_type() -> Type {
                 unique: Unique::Yes,
                 assignee: false,
                 personal: false,
+                media_types: Vec::new(),
                 actor_kind: Some("human".to_string()),
                 identifier: None,
                 opposite: None,
@@ -1708,6 +1732,7 @@ fn proposal_type() -> Type {
         unique: Unique::No,
         assignee: false,
         personal: false,
+        media_types: Vec::new(),
         actor_kind: None,
         identifier: None,
         opposite: None,
@@ -1894,6 +1919,7 @@ fn label_type() -> Type {
         unique: Unique::No,
         assignee: false,
         personal,
+        media_types: Vec::new(),
         actor_kind: None,
         identifier: None,
         opposite: None,
@@ -1934,6 +1960,7 @@ fn label_type() -> Type {
         optional: false,
         default: None,
         personal: false,
+        media_types: Vec::new(),
     };
     Type {
         name: LABEL.to_string(),
@@ -2036,6 +2063,7 @@ fn subscription_type() -> Type {
         unique: Unique::No,
         assignee: false,
         personal: false,
+        media_types: Vec::new(),
         actor_kind: None,
         identifier: None,
         opposite: None,

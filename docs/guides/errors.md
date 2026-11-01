@@ -68,6 +68,7 @@ Every refusal carries a `remedy`: what the caller can do about it.
 | `wrong_type` | is a different JSON type than its declared type takes, or a string naming no member of the enumeration it takes. |
 | `malformed` | has the right JSON type but the wrong form: a bad date, an identity with invisible characters, a decimal with more places than its scale, which is never rounded, a set repeating an element. |
 | `wrong_currency` | is money in another currency than the declared one. |
+| `wrong_media_type` | is a file, or a set holding one, of a media type its `media_types` does not take (ADR-0239). |
 | `no_such_object` | names an object that does not exist, or one of another type. |
 | `out_of_range` | is past what its type holds: more digits than a decimal or an amount holds, an integer past 64 bits, a string over 64 KiB. |
 | `not_allowed` | is a value of its type the transition does not take here: an assertion's `to` or `admits` it does not list, an observation's `corrects` naming another subject's, a subscription selecting nothing. |

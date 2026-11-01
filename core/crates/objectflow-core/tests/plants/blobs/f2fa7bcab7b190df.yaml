@@ -1,0 +1,25 @@
+module: archive
+categories: [live, closed]
+types:
+  Folder:
+    description: A folder of scans.
+    tracking: record
+    attributes:
+      scan:  { type: file, optional: true, media_types: ["image/*", application/pdf] }
+      pages: { type: "file[]", media_types: [image/png] }
+      loose: { type: file, optional: true }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    conditions:
+      small:
+        description: The upload is a PDF of less than 100 kB.
+        expression: inputs.upload.media_type == "application/pdf" and inputs.upload.size < 100000
+        remedy: self_serviceable
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [scan] }
+      attach: { kind: internal, from: [OPEN], inputs: { upload: { type: file, media_types: [application/pdf] } }, guards: { small: deny }, effect: [ { assign: { location: loose, expr: inputs.upload } } ] }
+      copy: { kind: internal, from: [OPEN], inputs: { raw: { type: file } }, effect: [ { assign: { location: scan, expr: inputs.raw } } ] }
+      add_page: { kind: internal, from: [OPEN], inputs: { raw: { type: file } }, effect: [ { add: { location: pages, expr: inputs.raw } } ] }
+      spawn: { kind: internal, from: [OPEN], inputs: { raw: { type: file } }, effect: [ { create: { type: Folder, transition: open, inputs: { scan: inputs.raw } } } ] }
+      shut: { kind: external, from: [OPEN], to: SHUT }

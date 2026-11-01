@@ -210,6 +210,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 | `unique` | one of four forms: `true`, `in_scope`, `{ with: [<attribute>] }` or `{ where: <expression> }`; `with` and `where` do not combine, and "one live per" is an invariant | 4.12 |
 | `indexed` | queries may filter and order on it | 4.3 |
 | `personal` | erased by the type's `erasure`; so `optional` | 4.13 |
+| `media_types` | on a `file` or `file[]`: the media types it takes, each `type/subtype` or `type/*`; a file of another is refused | 4.3 |
 | `actor_kind` | `human`, `agent` or `service`, on the `identity` attribute of a type whose objects act | 4.3 |
 | `assignee` | on a reference: who is responsible for the object | 4.3 |
 | `unit` | on an observation's attribute: the unit measured | 4.4 |
@@ -233,7 +234,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 | `corrects` | the attributes a correction writes, exactly | 4.13 |
 | `may_admit` | on an assertion, the invariants a request may admit breaking | 4.13 |
 | `required_inputs`, `optional_inputs` | attributes the caller supplies, each written to its name | 4.8 |
-| `inputs` | declared inputs, read as `inputs.<name>`: `type` or `reference`, `optional`, `personal`, `default`, `description` | 4.8 |
+| `inputs` | declared inputs, read as `inputs.<name>`: `type` or `reference`, `optional`, `personal`, `media_types`, `default`, `description` | 4.8 |
 | `guards` | condition names, in order, each `deny`, `audit` or `warn` | 4.8 |
 | `effect` | the steps below, in order | 4.8 |
 | `backdating_limit` | how far back a caller may say it happened, `2 days` | 4.8 |

@@ -1,0 +1,12 @@
+examples_for: archive
+setups:
+  a_folder:
+    description: A folder holding a PNG scan.
+    steps:
+      - request: { type: Folder, transition: open, as: folder, inputs: { scan: { hash: "sha256:abababababababababababababababababababababababababababababababab", size: 48213, media_type: image/png } } }
+examples:
+  the_request:
+    description: The request, given its file.
+    given: a_folder
+    request: { object: folder, transition: add_page, inputs: { raw: { hash: "sha256:abababababababababababababababababababababababababababababababab", size: 48213, media_type: IMAGE/PNG } } }
+    expect: { verdict: applied, state: OPEN }

@@ -1,0 +1,34 @@
+module: desk
+categories: [live, closed]
+machines:
+  Filing:
+    description: A filing, drafted and then closed.
+    requires:
+      attributes:
+        scan: { type: file, optional: true }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    transitions:
+      start: { kind: initial, to: OPEN }
+      attach: { kind: internal, from: [OPEN], inputs: { upload: { type: file, media_types: [application/pdf] } }, effect: [ { assign: { location: scan, expr: inputs.upload } } ] }
+      shut: { kind: external, from: [OPEN], to: SHUT }
+types:
+  Claim:
+    description: A claim, filed with its scans.
+    tracking: record
+    state_machine: Filing
+    attributes:
+      scan:  { type: file, optional: true, media_types: ["image/*", application/pdf] }
+      pages: { type: "file[]", media_types: [image/PNG] }
+      title: { type: string, optional: true }
+      owner: { reference: Claim, optional: true }
+    observations:
+      photos:
+        kind: Photo
+        description: A photo of what the claim is for.
+        attributes:
+          shot: { type: file, media_types: ["image/*"] }
+          note: { type: string, optional: true }
+    transitions:
+      paginate: { kind: internal, from: [OPEN], inputs: { more: { type: "file[]", media_types: [image/png] }, why: { type: string } }, effect: [ { assign: { location: title, expr: inputs.why } } ] }

@@ -780,23 +780,21 @@ fn moves(
                     continue;
                 }
                 let v = match e.attributes.iter().find(|(n, _)| n == a) {
-                    Some((_, x)) => {
-                        match crate::request::fit_value(&spec.declared, spec.many, ev.eval(x)?) {
-                            Ok(v) => v,
-                            Err(why) => {
-                                found.add(
-                                    Severity::Fatal,
-                                    format!("mapping:moved_types:{tn}.{}.{a}", e.to),
-                                    format!(
-                                        "the move of {tn} to {} gives {a} what it cannot hold: {why}",
-                                        e.to
-                                    ),
-                                    Some(&o.id),
-                                );
-                                continue;
-                            }
+                    Some((_, x)) => match fitted(spec, ev.eval(x)?) {
+                        Ok(v) => v,
+                        Err(why) => {
+                            found.add(
+                                Severity::Fatal,
+                                format!("mapping:moved_types:{tn}.{}.{a}", e.to),
+                                format!(
+                                    "the move of {tn} to {} gives {a} what it cannot hold: {why}",
+                                    e.to
+                                ),
+                                Some(&o.id),
+                            );
+                            continue;
                         }
-                    }
+                    },
                     None if ot.attribute(a).is_some_and(|oa| {
                         (oa.declared == spec.declared && oa.many == spec.many)
                             || follows_move(m, oa, spec)
@@ -1154,10 +1152,7 @@ fn impact(
             // decimal at its scale; a value it cannot hold refuses the
             // publish, where it was written as it came (the audit's values
             // W1 and W3, ADR-0205 decision 1)
-            let v = match t
-                .attribute(attr)
-                .map(|a| crate::request::fit_value(&a.declared, a.many, v.clone()))
-            {
+            let v = match t.attribute(attr).map(|a| fitted(a, v.clone())) {
                 // an identity well formed, as one an input sends is, where a
                 // backfill wrote one the wire refuses (the audit's write
                 // path I-03)
@@ -1696,18 +1691,25 @@ fn proposals(world: &World<'_>, new: &Library, found: &mut Found) -> Result<usiz
                             .inputs
                             .iter()
                             .find(|(n, _)| n == k)
-                            .map(|(_, i)| (&i.declared, i.many))
+                            .map(|(_, i)| (&i.declared, i.many, i.media_types.as_slice()))
                             .or_else(|| {
                                 x.required_inputs
                                     .iter()
                                     .chain(&x.optional_inputs)
                                     .any(|n| n == k)
-                                    .then(|| t.attribute(k).map(|a| (&a.declared, a.many)))
+                                    .then(|| {
+                                        t.attribute(k).map(|a| {
+                                            (&a.declared, a.many, a.media_types.as_slice())
+                                        })
+                                    })
                                     .flatten()
                             });
+                        // a file of a media type the input no longer takes
+                        // is a value it no longer holds (ADR-0239)
                         match declared {
                             None => true,
-                            Some((d, many)) => crate::wire::decode(v, d, many, new).is_err(),
+                            Some((d, many, media)) => crate::wire::decode(v, d, many, new)
+                                .map_or(true, |v| !crate::request::media_taken(media, &v)),
                         }
                     })
             }
@@ -1723,6 +1725,33 @@ fn proposals(world: &World<'_>, new: &Library, found: &mut Found) -> Result<usiz
         }
     }
     Ok(n)
+}
+
+/// Whether a new list of media types takes less than the installed one: it
+/// is added, or some media type or range the installed one lists it does
+/// not take, a range only by listing it (ADR-0239 decision 5).
+fn narrowed(installed: &[String], new: &[String]) -> bool {
+    !new.is_empty()
+        && (installed.is_empty()
+            || installed.iter().any(|t| {
+                if t.ends_with("/*") {
+                    !new.contains(t)
+                } else {
+                    !crate::model::takes_media(new, t)
+                }
+            }))
+}
+
+/// A value a mapping writes, fitted to its attribute as a request's is: one
+/// it cannot hold, a file of a media type it does not take among them
+/// (ADR-0239), is why not.
+fn fitted(a: &crate::model::Attribute, v: Value) -> Result<Value, String> {
+    let v = crate::request::fit_value(&a.declared, a.many, v)?;
+    if crate::request::media_taken(&a.media_types, &v) {
+        Ok(v)
+    } else {
+        Err("a file of a media type it does not take".to_string())
+    }
 }
 
 /// Notices of the declaration: an attribute dropped where one of its type
@@ -1753,6 +1782,23 @@ fn attribute_notices(world: &World<'_>, new: &Library, found: &mut Found) -> Res
                     found.add(Severity::Notice, code.clone(), message.clone(), None);
                     for o in world.of_type(tn)? {
                         if o.type_ == *tn && !o.attr(a).is_absent() {
+                            found.add(Severity::Notice, code.clone(), message.clone(), Some(&o.id));
+                        }
+                    }
+                }
+                // a list that takes less binds what is written from now and
+                // keeps what is held, each object holding a file it no longer
+                // takes named (ADR-0239 decision 5)
+                Some(now) if narrowed(&spec.media_types, &now.media_types) => {
+                    let code = format!("media_types_narrowed:{tn}.{a}");
+                    let message = format!(
+                        "{tn}.{a} takes fewer media types than before; a file it holds of another stays until written"
+                    );
+                    found.add(Severity::Notice, code.clone(), message.clone(), None);
+                    for o in world.of_type(tn)? {
+                        if o.type_ == *tn
+                            && !crate::request::media_taken(&now.media_types, &o.attr(a))
+                        {
                             found.add(Severity::Notice, code.clone(), message.clone(), Some(&o.id));
                         }
                     }
@@ -3642,6 +3688,220 @@ types:
                 .iter()
                 .all(|e| e.transition != "migrate")
         );
+    }
+
+    /// A lab whose folders hold files no list restricts yet, for the
+    /// versions that add lists (ADR-0239).
+    const LAB_V1: &str = r#"
+module: lab
+categories: [live, closed]
+types:
+  Folder:
+    description: A folder of files.
+    tracking: record
+    attributes:
+      scan: { type: file, optional: true }
+      old: { type: file, optional: true }
+      photos: { type: "file[]" }
+    states:
+      OPEN: { category: live }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [scan, old] }
+      shoot: { kind: internal, from: [OPEN], required_inputs: [photos] }
+      rescan: { kind: internal, from: [OPEN], required_inputs: [scan] }
+      touch: { kind: internal, from: [OPEN] }
+      close: { kind: external, from: [OPEN], to: CLOSED }
+      file:
+        kind: internal
+        from: [OPEN]
+        proposable: true
+        inputs: { upload: { type: file } }
+"#;
+
+    fn lab_file(media_type: &str) -> Json {
+        json!({"hash": format!("sha256:{}", "b".repeat(64)), "size": 10, "media_type": media_type})
+    }
+
+    fn lab() -> Store {
+        let lib = Library::load(&[("lab.yaml".into(), LAB_V1.into())]).unwrap();
+        Store::sandbox(lib, 1_767_225_600).unwrap()
+    }
+
+    fn lab_draft(s: &mut Store, text: &str) -> String {
+        created(&req(
+            s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"lab": text}, "source_ref": "git:lab@2"}),
+        ))
+    }
+
+    /// A version narrowing a file's media types keeps every value held and
+    /// names each object holding one it no longer takes; a list widened is
+    /// noticed nowhere; and what is held stays until a write, which the list
+    /// then binds (ADR-0239 decision 5).
+    #[test]
+    fn a_narrowed_list_of_media_types_keeps_what_is_held_and_names_it() {
+        let mut s = lab();
+        let open = |s: &mut Store, inputs: Json| created(&req(s, "open", ("Folder", true), inputs));
+        let pdf = open(&mut s, json!({"scan": lab_file("application/pdf")}));
+        let png = open(&mut s, json!({"scan": lab_file("image/png")}));
+        let bare = open(&mut s, json!({}));
+        let shots = open(&mut s, json!({}));
+        created(&req(
+            &mut s,
+            "shoot",
+            (&shots, false),
+            json!({"photos": [lab_file("image/jpeg"), lab_file("image/png")]}),
+        ));
+        let v2 = LAB_V1
+            .replace(
+                "scan: { type: file, optional: true }",
+                "scan: { type: file, optional: true, media_types: [application/pdf] }",
+            )
+            .replace(
+                "photos: { type: \"file[]\" }",
+                "photos: { type: \"file[]\", media_types: [image/*] }",
+            );
+        let change = lab_draft(&mut s, &v2);
+        let r = run_on(&s, &change, "lab", &v2);
+        assert!(!r.fatal(), "{:?}", r.findings);
+        assert_eq!(
+            ids(&r, "media_types_narrowed:Folder.scan"),
+            vec![png.clone()]
+        );
+        assert!(
+            r.findings
+                .iter()
+                .any(|f| f.code == "media_types_narrowed:Folder.photos")
+        );
+        assert_eq!(
+            ids(&r, "media_types_narrowed:Folder.photos"),
+            Vec::<String>::new()
+        );
+        assert!(
+            r.findings
+                .iter()
+                .all(|f| !f.code.starts_with("type_changed")),
+            "{:?}",
+            r.findings
+        );
+        let _ = (pdf, bare, shots);
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let v = s
+            .snapshot()
+            .unwrap()
+            .whole(&change)
+            .unwrap()
+            .unwrap()
+            .version;
+        let (verdict, _) = approve(&mut s, &change, v);
+        assert!(matches!(verdict, Verdict::Satisfied { .. }), "{verdict:?}");
+        // held, and kept by a transition writing nothing to it
+        created(&req(&mut s, "touch", (&png, false), json!({})));
+        let held = s.snapshot().unwrap().get(&png).unwrap().unwrap().clone();
+        assert!(
+            matches!(held.attrs.get("scan"), Some(Value::File { media_type, .. }) if media_type == "image/png")
+        );
+        assert!(matches!(
+            req(
+                &mut s,
+                "rescan",
+                (&png, false),
+                json!({"scan": lab_file("image/png")})
+            ),
+            Verdict::InvalidInput { .. }
+        ));
+        // the list widened takes what it took, so nothing is noticed
+        let v3 = v2.replace(
+            "media_types: [application/pdf]",
+            "media_types: [application/pdf, image/*]",
+        );
+        let change = lab_draft(&mut s, &v3);
+        let r = run_on(&s, &change, "lab", &v3);
+        assert!(
+            r.findings
+                .iter()
+                .all(|f| !f.code.starts_with("media_types_narrowed")),
+            "{:?}",
+            r.findings
+        );
+    }
+
+    /// A backfill writing a file its attribute's list does not take is
+    /// fatal, as a value it cannot hold is, and one writing only files it
+    /// takes is not (ADR-0239 decision 2). The objects a backfill writes are
+    /// named under its code too, so the fatal finding names each.
+    #[test]
+    fn a_backfill_writing_a_file_its_list_does_not_take_is_fatal() {
+        let v2 = LAB_V1.replace(
+            "scan: { type: file, optional: true }",
+            "scan: { type: file, optional: true, media_types: [application/pdf] }",
+        ) + "migration:\n  description: Each folder's scan is its old file.\n  backfill:\n    Folder: { scan: old }\n";
+        for (held, fatal) in [
+            (vec!["image/png", "application/pdf"], true),
+            (vec!["application/pdf"], false),
+        ] {
+            let mut s = lab();
+            for m in &held {
+                created(&req(
+                    &mut s,
+                    "open",
+                    ("Folder", true),
+                    json!({"old": lab_file(m)}),
+                ));
+            }
+            let change = lab_draft(&mut s, &v2);
+            let r = run_on(&s, &change, "lab", &v2);
+            assert_eq!(r.fatal(), fatal, "{held:?}: {:?}", r.findings);
+            let refused = r.findings.iter().any(|f| {
+                f.code == "mapping:backfill:Folder.scan"
+                    && f.message
+                        .contains("a file of a media type it does not take")
+            });
+            assert_eq!(refused, fatal, "{held:?}: {:?}", r.findings);
+        }
+    }
+
+    /// A pending proposal holding a file the new version's input no longer
+    /// takes is one the version invalidates (ADR-0239 decision 2).
+    #[test]
+    fn a_proposal_holding_a_file_its_input_no_longer_takes_is_invalidated() {
+        let mut s = lab();
+        let folder = created(&req(&mut s, "open", ("Folder", true), json!({})));
+        let proposal = Request {
+            transition: "file".into(),
+            actor: OPERATOR.into(),
+            object_id: Some(folder),
+            type_: None,
+            inputs: [("upload".to_string(), lab_file("image/png"))]
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose: true,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let proposal = created(&request(&mut s, &proposal).unwrap().unwrap());
+        let narrowed = LAB_V1.replace(
+            "inputs: { upload: { type: file } }",
+            "inputs: { upload: { type: file, media_types: [application/pdf] } }",
+        );
+        let change = lab_draft(&mut s, &narrowed);
+        let r = run_on(&s, &change, "lab", &narrowed);
+        assert_eq!(ids(&r, "proposals_invalidated"), vec![proposal]);
+        let widened = LAB_V1.replace(
+            "inputs: { upload: { type: file } }",
+            "inputs: { upload: { type: file, media_types: [image/*] } }",
+        );
+        let change = lab_draft(&mut s, &widened);
+        let r = run_on(&s, &change, "lab", &widened);
+        assert_eq!(ids(&r, "proposals_invalidated"), Vec::<String>::new());
     }
 
     #[test]

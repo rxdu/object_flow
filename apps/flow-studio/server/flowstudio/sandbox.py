@@ -702,7 +702,12 @@ class Sandbox:
                         if spec else v
                     held_as = given[k] if isinstance(given[k], list) \
                         else [given[k]]
-                    if any(isinstance(x, flowrun.WrongKind) for x in held_as):
+                    # a file of a media type its attribute does not take is
+                    # one not of its type (ADR-0239 decision 2)
+                    if any(isinstance(x, flowrun.WrongKind) for x in held_as) \
+                            or not flowrun.takes_media(spec, tuple(
+                                flowrun.file_value(x) for x in held_as
+                                if isinstance(x, dict))):
                         # a value not of its type is a class the core's
                         # import decides (ADR-0154 decision 8), where the
                         # sandbox held it (the differential battery)

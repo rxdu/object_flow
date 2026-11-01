@@ -867,6 +867,13 @@ impl<'a> Evaluator<'a> {
                 return Ok(Term::Category(category));
             }
             Term::Value(Value::Row(fields)) => return row_member(fields, m).map(Term::Value),
+            // a file's media type and its size in bytes (ADR-0239)
+            Term::Value(Value::File { media_type, .. }) if m == "media_type" => {
+                return Ok(Term::Value(Value::Text(media_type.clone())));
+            }
+            Term::Value(Value::File { size, .. }) if m == "size" => {
+                return Ok(Term::Value(Value::Int(*size)));
+            }
             Term::Value(Value::Object(id)) => id,
             other => return not_run(format!("a member `{m}` of {}", other.kind())),
         };

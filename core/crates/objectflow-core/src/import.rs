@@ -691,11 +691,16 @@ fn decide(
                 });
                 continue;
             }
-            match wire::decode(raw, &a.declared, a.many, lib) {
-                Ok(v) => {
+            // a file of a media type its attribute does not take is a value
+            // not of its type (ADR-0239)
+            match wire::decode(raw, &a.declared, a.many, lib)
+                .ok()
+                .filter(|v| crate::request::media_taken(&a.media_types, v))
+            {
+                Some(v) => {
                     p.values.insert(k.clone(), v);
                 }
-                Err(_) => {
+                None => {
                     let declared_enum = matches!(&a.declared, Declared::Scalar(s) if lib.enumerations.contains_key(s));
                     let shape = if declared_enum {
                         NOT_DECLARED
@@ -2074,6 +2079,56 @@ types:
             s.snapshot().unwrap().external_all().unwrap().is_empty(),
             "nothing is written"
         );
+    }
+
+    /// An imported file of a media type its attribute does not take is a
+    /// value not of its type, classed as one is (ADR-0239 decision 2).
+    #[test]
+    fn an_imported_file_of_a_media_type_its_attribute_does_not_take_is_not_of_its_type() {
+        const SCANS: &str = r#"
+module: scans
+categories: [live]
+types:
+  Scan:
+    mirror: true
+    attributes:
+      code: { type: string, external: archive }
+      page: { type: file, optional: true, media_types: [application/pdf, image/*] }
+    states:
+      KEPT: { category: live }
+"#;
+        let lib = Library::load(&[("scans.yaml".into(), SCANS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let scan = |key: &str, media_type: &str| {
+            ImportedObject {
+            type_: "Scan".into(),
+            legacy_key: key.into(),
+            state: "KEPT".into(),
+            attributes: [
+                ("code".to_string(), json!(key.to_lowercase())),
+                (
+                    "page".to_string(),
+                    json!({"hash": format!("sha256:{}", "c".repeat(64)), "size": 10, "media_type": media_type}),
+                ),
+            ]
+            .into(),
+            ..ImportedObject::default()
+        }
+        };
+        let r = run(
+            &mut s,
+            vec![
+                scan("S-1", "application/pdf"),
+                scan("S-2", "image/png"),
+                scan("S-3", "video/mp4"),
+            ],
+            &[],
+            true,
+        );
+        let wrong: Vec<_> = r.findings.iter().filter(|c| c.rule == "page").collect();
+        assert_eq!(wrong.len(), 1, "{:?}", r.findings);
+        assert_eq!(wrong[0].shape, NOT_OF_ITS_TYPE);
+        assert_eq!(wrong[0].sample, vec!["S-3".to_string()]);
     }
 
     #[test]

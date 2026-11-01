@@ -235,6 +235,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
         library.insert(tn, t.clone());
     }
     let mut out = reserved_name_errors(doc);
+    out.extend(media_types_errors(doc));
     out.extend(relationship_errors(doc, &library));
     out.extend(combined_errors(doc));
     out.extend(cascade_cycle_errors(doc, &library));
@@ -557,6 +558,66 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
 
 /// Names the format keeps for itself: the text language's and generated
 /// ones.
+/// Each `media_types` declared where no file is (ADR-0239): on an
+/// attribute or an input whose type is not `file` or `file[]`, and on an
+/// attribute a machine requires, which its binding type declares. A machine
+/// is read as a type of the view, as the flow checker reads it.
+fn media_types_errors(doc: &Value) -> Found {
+    let mut out = Found::new();
+    let machines = obj(doc, "machines");
+    let file = |spec: &Value| {
+        !has(spec, "reference")
+            && text(spec, "type").map(|t| t.trim_end_matches("[]")) == Some("file")
+    };
+    let only =
+        |at: &str| format!("'media_types' applies only to a file or a set of files, not to {at}");
+    for (tn, t) in types(doc) {
+        for (a, spec) in obj(t, "attributes") {
+            let at = segs!["types", &tn, "attributes", a, "media_types"];
+            if has(spec, "media_types") && machines.contains_key(&tn) {
+                out.push(finding(
+                    at,
+                    "names",
+                    format!("'media_types' is declared by the type binding {tn}, not by the attribute {a} the machine requires"),
+                ));
+            } else if has(spec, "media_types") && !file(spec) {
+                out.push(finding(at, "names", only(&format!("{tn}.{a}"))));
+            }
+        }
+        for (o, ob) in obj(t, "observations") {
+            for (a, spec) in obj(ob, "attributes") {
+                if has(spec, "media_types") && !file(spec) {
+                    out.push(finding(
+                        segs![
+                            "types",
+                            &tn,
+                            "observations",
+                            o,
+                            "attributes",
+                            a,
+                            "media_types"
+                        ],
+                        "names",
+                        only(&format!("the observation attribute {o}.{a}")),
+                    ));
+                }
+            }
+        }
+        for (xn, x) in obj(t, "transitions") {
+            for (i, spec) in obj(x, "inputs") {
+                if has(spec, "media_types") && !file(spec) {
+                    out.push(finding(
+                        segs!["types", &tn, "transitions", xn, "inputs", i, "media_types"],
+                        "names",
+                        only(&format!("the input {i} of {tn}.{xn}")),
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
 fn reserved_name_errors(doc: &Value) -> Found {
     let mut out = Found::new();
     for (i, c) in list(doc, "categories").iter().enumerate() {
@@ -3586,6 +3647,17 @@ impl Typing<'_> {
                         self.fail(format!("it reads {m} of a state, which has only category"));
                         None
                     }
+                    // a file's media type and its size in bytes (ADR-0239)
+                    Some(Ty::File) => match m.as_str() {
+                        "media_type" => Some(Ty::Str),
+                        "size" => Some(Ty::Int),
+                        _ => {
+                            self.fail(format!(
+                                "it reads {m} of a file, which has only media_type and size"
+                            ));
+                            None
+                        }
+                    },
                     Some(t)
                         if matches!(
                             t,

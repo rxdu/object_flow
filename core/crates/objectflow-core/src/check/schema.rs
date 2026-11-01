@@ -523,7 +523,22 @@ pub fn repr(v: &Value) -> String {
         Value::Bool(true) => "True".into(),
         Value::Bool(false) => "False".into(),
         Value::Number(n) => n.to_string(),
-        Value::String(s) => format!("'{s}'"),
+        // a backslash and the control characters escaped as Python escapes
+        // them, so a pattern holding one is worded as the flow checker words
+        // it
+        Value::String(s) => {
+            let escaped: String = s
+                .chars()
+                .map(|c| match c {
+                    '\\' => "\\\\".to_string(),
+                    '\n' => "\\n".to_string(),
+                    '\r' => "\\r".to_string(),
+                    '\t' => "\\t".to_string(),
+                    c => c.to_string(),
+                })
+                .collect();
+            format!("'{escaped}'")
+        }
         Value::Array(items) => format!(
             "[{}]",
             items.iter().map(repr).collect::<Vec<_>>().join(", ")
