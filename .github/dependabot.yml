@@ -31,6 +31,11 @@ updates:
       # alone gave (#38, 2026-10-24), and test/react.test.ts fails it
       react:
         patterns: ["react", "react-dom"]
+    ignore:
+      # its types describe one major of Node's APIs, so a major moves with the Node the Studio is built and tested on,
+      # never as a weekly bump: #50 offered 26 while CI ran 24 and the tree pins 22 (2026-11-01)
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
