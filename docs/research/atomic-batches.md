@@ -38,7 +38,32 @@ These are recommendations for the author, not decisions.
 3. **Recommended:** supersede ADR-0037's rejection with a bounded, idempotent batch, much as the issue proposes. Its bound is set by measuring a batch's hold on the writer against C5, not taken from another platform. It keeps out what group commit already runs alone (a change to the flow), and, at first, requests that would consult an external evaluator, since the writer cannot be left mid-batch. It answers a changed batch under a used key as `request` does, as DynamoDB refuses a mismatched token.
 4. **Three homes for acts on several objects, by who knows the steps belong together.** The business, always: a cascade declared in the flow (ADR-0019). The caller, this once and decided now: an atomic batch. A process that waits on people or on other systems: a saga in the upper layer, with compensations, since no transaction can be held across it (S6, S7).
 5. **The batch is all or none, and nothing else.** Salesforce's `allOrNone: false` runs, past a failure, the subrequests that do not depend on the failed one (S3), which a caller has already by sending the requests one at a time. The store gives what the caller cannot build, the guarantee, and leaves retries, partial modes and sequencing over time to the caller.
-6. **Local names for created objects wait for a case.** JSON:API's `lid` and Salesforce's references let a later request name what an earlier one created. The case at hand needs none; the request's form can take one later without a change to the rest.
+6. **Local names for created objects wait for a case.** JSON:API's `lid` and Salesforce's references let a later request name what an earlier one created. The case at hand needs none; the request's form can take one later without a change to the rest. Issue #43 brought the case on 2026-11-01 (§6).
+
+## 6. Naming what an earlier request of the batch creates
+
+**The question,** added 2026-11-01. Issue #43 (filed 2026-10-31) asks that a request of a batch may name an object an earlier request of the same batch creates. The store mints a created object's id, so a later request has no way to name it, and two creations where one references the other cannot be applied as one act. In the issue's case, a person submits a record together with a second record that references it, kept apart because fewer people may read it. The issue asks for a reference by the earlier request's position. How do platforms that apply several writes in one call let a later one name what an earlier one made?
+
+**JSON:API 1.1 and its Atomic Operations extension** (S8, S4). A created resource may carry a name the client gives it: "a client **MAY** include a `lid` member to uniquely identify the resource by `type` _locally_ within the document." A later reference names it in place of an id: a resource identifier object "**MUST** also contain an `id` member, except when it represents a new resource to be created on the server. In this case, a `lid` member **MUST** be included that identifies the new resource." An operation may target it, by "`type` and `lid`: to target an individual resource that has been assigned a local identity (`lid`) in a prior operation object." The results stay positional: "each result **MUST** correspond positionally to its associated operation."
+
+**Salesforce, Composite** (S3, S9). Each subrequest has a `referenceId`, which "can be used to reference the response in later subrequests". "Use this syntax to include a reference: `@{referenceId.FieldName}`", in a subrequest's body or its URL, `"AccountId" : "@{refAccount.id}"`. A reference that finds no value fails that subrequest: "Invalid reference specified. No value for refNewAccount[1].id found in refNewAccount."
+
+**OData 4.01** (S10, S11). "Entities created by an insert request can be referenced in the request URL of subsequent requests by using the request identifier prefixed with a $ character as the first segment of the request URL." "Services MAY also support referencing within request bodies". In the JSON batch format a request lists what it depends on, "values of either id or atomicityGroup of preceding request objects; forward references are not allowed."
+
+**Microsoft Dataverse** (S12). "Within changesets, you can use $parameter such as $1, $2, and so on to reference URIs returned for new entities created earlier in the same changeset." A reference to a later request is refused: "Referencing a Content-ID before it appears in the request body returns the error HTTP 400 Bad request.", with the message "Content-ID Reference: '$1' does not exist in the batch context."
+
+**Microsoft Graph, JSON batching** (S13). `dependsOn` "is an array of strings that references the **id** of a different individual request", ordering requests; "If an individual request fails, any request that depends on that request fails with status code `424` (Failed Dependency)." The pages read give no way to put an earlier response's id into a later request.
+
+**ObjectFlow beside them.**
+- **Every platform that has the reference names it, none by position alone.** JSON:API's `lid`, Salesforce's `referenceId` and OData's request identifier are given by the client; Dataverse's `$1` names the request whose Content-ID is 1. A name stays right when a caller adds or reorders requests; a position does not.
+- **The refusals the platforms state fall before anything runs.** OData forbids a forward reference, and Dataverse answers one 400. ObjectFlow's batch already refuses before any request runs what it cannot hold (ADR-0228 decision 10, `wire.md`).
+- **A reference resolved inside the batch's transaction meets every rule the id would.** A request's reference input is the object's id on the wire (`wire.md`, Values), refused `no_such_object` where it names an object of another type. *Inferred:* a name resolved to the id before its request runs adds no rule and bypasses none.
+- **What a refused request's row keeps is as sent.** After a batch's rollback, the attempt row names no object the rollback unmade, and keeps the inputs as sent (`DESIGN.md` §6; `store.rs`, `held_named`). A name kept as sent names no unmade object.
+
+**What it suggests,** for the author, not decisions:
+1. **A name given by the caller, as JSON:API's `lid`**, on a request that creates, and a reference to it in place of an id: as the target, as a reference input, or as an element of a set of references.
+2. **Refused before anything runs**: a name given twice, a name on a request that creates nothing, and a reference to a name no earlier request gives.
+3. **Each request recorded as if sent alone** (ADR-0228 decision 7): an applied request's event holds the id the name resolved to, and a refused request's row the name, as sent.
 
 ## Sources
 
@@ -53,3 +78,16 @@ Each retrieved 2026-10-23 with `curl -sL` into its own directory, its markup str
 | S5 | Vaughn Vernon, *Effective Aggregate Design*, Part I: Modeling a Single Aggregate, 2011: https://www.dddcommunity.org/wp-content/uploads/files/pdf_articles/Vernon_2011_1.pdf | the PDF, its text read with `pdftotext` |
 | S6 | Hector Garcia-Molina and Kenneth Salem, *Sagas*, Proceedings of ACM SIGMOD 1987: https://www.cs.cornell.edu/andru/cs711/2002fa/reading/sagas.pdf | a scan, its text read with `pdftotext`; its text layer misreads letters (`m` for `in`, `l` for `i`), so the quotations correct them, each matched to its passage by similarity |
 | S7 | Microsoft, Azure Architecture Center, *Saga distributed transactions pattern*: https://learn.microsoft.com/en-us/azure/architecture/patterns/saga | dated 2025-02-25, updated 2026-06-03 (the page's metadata) |
+
+§6's sources, each retrieved 2026-11-01 with `curl -sL` into its own directory, its markup stripped, and every quotation found in the stripped text. A GitHub-hosted page's version is the latest commit to its file.
+
+| | Source | Version |
+|---|---|---|
+| S8 | JSON:API v1.1, the base specification: https://jsonapi.org/format/1.1/ | `json-api/json-api` `_format/1.1/index.md` at `572ea6c`, 2024-11-22 |
+| S9 | Salesforce REST API Developer Guide, Composite Request Body, Send Multiple Requests Using Composite and Composite Subrequest Result: https://developer.salesforce.com/docs/platform/api-rest/guide/requests-composite.html, https://developer.salesforce.com/docs/platform/api-rest/guide/resources-composite-composite-post.html, https://developer.salesforce.com/docs/platform/api-rest/guide/resources-composite-subrequest-result.html | the pages give none; their examples call API version 68.0 |
+| S10 | OASIS, OData Version 4.01 Part 1: Protocol, §11.7: https://docs.oasis-open.org/odata/odata/v4.01/odata-v4.01-part1-protocol.html | OASIS Standard, 23 April 2020 |
+| S11 | OASIS, OData JSON Format Version 4.01, §19: https://docs.oasis-open.org/odata/odata-json-format/v4.01/odata-json-format-v4.01.html | OASIS Standard, 11 May 2020 |
+| S12 | Microsoft Learn, Execute batch operations using the Web API (Dataverse): https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/execute-batch-operations-using-web-api | `MicrosoftDocs/powerapps-docs` at `9d5121c`, ms.date 2026-10-26 |
+| S13 | Microsoft Learn, Combine multiple HTTP requests using JSON batching (Microsoft Graph): https://learn.microsoft.com/en-us/graph/json-batching | `eabb8cc`, ms.date 2025-02-21 |
+
+S4 was read again on 2026-11-01 for §6, as `json-api/json-api` `ext/atomic/index.md` at `bd3575e`, 2021-02-24.
