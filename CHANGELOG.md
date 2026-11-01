@@ -18,6 +18,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 - `scripts/profile/load.py` samples the machine's threads and each process's every second of a run, and prints with its result the threads the service, its store's server, `load.py` and other work used. A run whose other work passed 0.5 threads in any 10 s is not decided, exiting 3, and is run again (ADR-0235).
 - `scripts/profile/idle.py`, Gate I, samples its runs as `load.py` does, and a run that other work shared is not decided, exiting 3. `throughput.py` prints the same parts beside its figures and says where other work shared its run (ADR-0236).
 
+### Fixed
+
+- A version's backfill that could not hold the value it wrote for an object was refused only where that object was the first the backfill met: where it fitted an earlier object, the dry run reported a notice, the version installed, and the later object was left unwritten with nothing said. It is now fatal whatever the order, so the change's submit is refused `dry_run_clean`, as a value its attribute cannot hold always was meant to be (ADR-0205 decision 1).
+
 ## 0.9.0, 2026-10-27
 
 A release before 1.0.0, as 0.8.0 was (ADR-0214), with the fixes found after 0.8.0. A rename keyed by an abstract base reaches every type of its family (ADR-0147), and a value renamed into a newly personal attribute is redacted on an object already erased. The `coverage` notice names the examples it does not read (ADR-0233). A write that has committed is answered its verdict when the PostgreSQL server then refuses a connection. A store of 0.8.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step recording the release alone; a store of 0.7.0 takes 0.8.0's step first. A version in which a type renames an attribute its abstract base's rename reaches already is refused, listed under its heading below.

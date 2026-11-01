@@ -249,7 +249,19 @@ impl Found {
         let message = message.into();
         let Found(findings, named) = self;
         let at = match findings.iter().position(|f| f.code == code) {
-            Some(at) => at,
+            // one of its code met already takes the graver severity and its
+            // message, so a fatal met after a notice of its code refuses the
+            // publish whatever order the objects are met in, where a backfill
+            // that fitted its first object kept the notice and skipped a later
+            // object it could not write
+            Some(at) => {
+                let f = &mut findings[at];
+                if gravity(severity) < gravity(f.severity) {
+                    f.severity = severity;
+                    f.message = message;
+                }
+                at
+            }
             None => {
                 findings.push(Finding {
                     severity,
@@ -271,6 +283,16 @@ impl Found {
                 f.affected.push(id.to_string());
             }
         }
+    }
+}
+
+/// How grave a severity is, the gravest least: a fatal finding, then a
+/// decision, then a notice.
+fn gravity(s: Severity) -> u8 {
+    match s {
+        Severity::Fatal => 0,
+        Severity::Decision => 1,
+        Severity::Notice => 2,
     }
 }
 
@@ -3861,6 +3883,63 @@ types:
                         .contains("a file of a media type it does not take")
             });
             assert_eq!(refused, fatal, "{held:?}: {:?}", r.findings);
+        }
+    }
+
+    /// A backfill writing a value its attribute cannot hold refuses the
+    /// publish whatever order its objects are met in, its submit refused
+    /// `dry_run_clean`: where it fitted the first object met, the notice
+    /// naming the objects it writes kept the finding a notice, the version
+    /// installed, and the later object was left unwritten, nothing said.
+    #[test]
+    fn a_backfill_it_cannot_write_refuses_the_publish_in_either_order() {
+        let v1 = LAB_V1
+            .replace(
+                "old: { type: file, optional: true }",
+                "old: { type: file, optional: true }\n      n: { type: int, optional: true }\n      d: { type: \"decimal(4,2)\", optional: true }",
+            )
+            .replace("optional_inputs: [scan, old]", "optional_inputs: [scan, old, n]");
+        let v2 = v1.clone()
+            + "migration:\n  description: d from n.\n  backfill:\n    Folder: { d: n }\n";
+        for ns in [[1, 1_000_000], [1_000_000, 1]] {
+            let lib = Library::load(&[("lab.yaml".into(), v1.clone())]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let ids: Vec<String> = ns
+                .iter()
+                .map(|n| created(&req(&mut s, "open", ("Folder", true), json!({"n": n}))))
+                .collect();
+            let change = lab_draft(&mut s, &v2);
+            let r = run_on(&s, &change, "lab", &v2);
+            let backfill = r
+                .findings
+                .iter()
+                .find(|f| f.code == "mapping:backfill:Folder.d")
+                .unwrap_or_else(|| panic!("{ns:?}: {:?}", r.findings));
+            assert_eq!(
+                backfill.severity,
+                Severity::Fatal,
+                "{ns:?}: {:?}",
+                r.findings
+            );
+            assert!(
+                backfill.message.contains("cannot hold"),
+                "{ns:?}: {backfill:?}"
+            );
+            // its submit, which a fatal dry run refuses, never reaches an
+            // approval
+            let submitted = req(&mut s, "submit", (&change, false), json!({}));
+            assert!(
+                matches!(&submitted, Verdict::Unsatisfied { clause, .. } if clause == "dry_run_clean"),
+                "{ns:?}: {submitted:?}"
+            );
+            let w = s.snapshot().unwrap();
+            for id in &ids {
+                assert_eq!(
+                    w.get(id).unwrap().unwrap().attrs.get("d"),
+                    None,
+                    "{ns:?}: {id}"
+                );
+            }
         }
     }
 

@@ -332,6 +332,10 @@ def import_order(flows, files):
     return order + examples
 
 
+# how grave a finding's severity is, the gravest least
+GRAVITY = {"fatal": 0, "decision": 1, "notice": 2}
+
+
 class Found:
     """Findings gathered by code, in the order first met, each with the ids it names (publish-and-import.md §2)."""
 
@@ -343,6 +347,10 @@ class Found:
         if f is None:
             f = {"severity": severity, "code": code, "message": message, "ids": []}
             self.findings.append(f)
+        elif GRAVITY[severity] < GRAVITY[f["severity"]]:
+            # one of its code met already takes the graver severity and its message, so a fatal met after a notice of
+            # its code refuses the publish whatever order the objects are met in, as the core's does
+            f["severity"], f["message"] = severity, message
         if oid is not None and oid not in f["ids"]:
             f["ids"].append(oid)
 
