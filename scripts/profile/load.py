@@ -24,8 +24,14 @@ It fails, exiting 1, where any of these holds, as the audit set them:
 - any answer is a 5xx, a 503 among them;
 - the service's resident memory passes `--memory-max`, `operate.md`'s MemoryMax for the store.
 
-Measurement conditions, said with the result: the machine and its load, the store, the duration. A shared machine
-gives higher numbers than a quiet one. A release's gate measures a PostgreSQL store on the database
+A run that other work shared is not decided either way, exiting 3, and is run again (ADR-0235). Each second it samples
+the threads busy over the machine, from `/proc/stat`, and each process's: the service's, its store's server's
+(processes named `postgres`, for a PostgreSQL store) and its own. Other work is the machine's less those, and it shares
+the run where it passes 0.5 threads in any 10 s. A run is not decided where `/proc` cannot be read.
+
+Measurement conditions, said with the result: the machine, its load at the start and its threads busy over the run,
+the store, the duration. Other work moves the result both ways: in the runs measured it slowed the reports, and the
+runs it kept busy passed writes that idle runs failed. A release's gate measures a PostgreSQL store on the database
 `scripts/setup/postgres-gate-db` starts, reached at the address it prints, never through a published port. The
 profile's other parts, retries after timeouts, a restart, a publish, an erasure batch, a backup and a prune, belong to
 the soak (ADR-0204 §7) and are not played here.
@@ -52,6 +58,9 @@ import urllib.request
 
 OPERATOR = {"id": "operator"}
 WRITES_A_SECOND = 50
+# threads other work may use in any 10 s of a run that is still decided: the gate's machine at rest reached about 0.2
+# (ADR-0235)
+OTHER_MAX = 0.5
 REPORTS = [
     ("Claim.claimant_amount_claimed", ["claimant"]),
     ("Claim.claimant_over_policy_lines", ["claimant"]),
@@ -156,6 +165,26 @@ def postgres(store):
     return store.startswith(("postgresql://", "postgres://")) or any(k in store for k in ("host=", "dbname="))
 
 
+def cpu_ticks():
+    """The machine's busy clock ticks over every core (user, nice, system, irq, softirq and steal), and each process's
+    name and user and system ticks by its pid and its start, so that a pid used again is another process."""
+    with open("/proc/stat") as f:
+        cpu = f.readline().split()
+    machine = sum(int(cpu[i]) for i in (1, 2, 3, 6, 7, 8))
+    procs = {}
+    for d in os.listdir("/proc"):
+        if not d.isdigit():
+            continue
+        try:
+            with open(f"/proc/{d}/stat") as f:
+                stat = f.read()
+        except OSError:
+            continue
+        rest = stat[stat.rindex(")") + 2:].split()
+        procs[(int(d), rest[19])] = (stat[stat.index("(") + 1:stat.rindex(")")], int(rest[11]) + int(rest[12]))
+    return machine, procs
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("service")
@@ -191,7 +220,8 @@ def main():
     work = pathlib.Path(tempfile.mkdtemp(prefix="objectflow-profile-"))
     # a file's copy, so each run starts from the store it was given; a PostgreSQL database is used as it is,
     # its run's writes kept, so a run that must start from the same state is given a store built for it
-    if postgres(a.store):
+    on_postgres = postgres(a.store)
+    if on_postgres:
         copy = a.store
     else:
         copy = work / "store.sqlite"
@@ -275,11 +305,40 @@ def main():
                     pass
                 time.sleep(0.5)
 
+        # each second's threads busy over the machine, the run's own by part, and each other process's by name
+        seconds = []
+
+        def machine():
+            try:
+                tick = os.sysconf("SC_CLK_TCK")
+                last, at = cpu_ticks(), time.monotonic()
+            except (OSError, AttributeError, ValueError):
+                return
+            while time.monotonic() < stop:
+                time.sleep(1.0)
+                now, t = cpu_ticks(), time.monotonic()
+                span = (t - at) * tick
+                ours, others = {"service": 0.0, "store": 0.0, "load": 0.0}, {}
+                for key, (name, used) in now[1].items():
+                    # a process first seen since the last sample started since, so all its ticks are this second's
+                    d = used - (last[1][key][1] if key in last[1] else 0)
+                    if d <= 0:
+                        continue
+                    part = ("service" if key[0] == proc.pid else "load" if key[0] == os.getpid()
+                            else "store" if on_postgres and name == "postgres" else None)
+                    if part:
+                        ours[part] += d / span
+                    else:
+                        others[name] = others.get(name, 0.0) + d / span
+                seconds.append(((now[0] - last[0]) / span, ours, others))
+                last, at = now, t
+
         threads = [threading.Thread(target=session, args=(k,)) for k in range(sessions)]
         threads += [threading.Thread(target=reports, args=(k, OPERATOR, "person")) for k in range(reporters)]
         threads += [threading.Thread(target=reports, args=(100 + k, {"id": "assistant"}, "agent"))
                     for k in range(agents)]
         threads.append(threading.Thread(target=rss))
+        threads.append(threading.Thread(target=machine))
         load = os.getloadavg()
         for t in threads:
             t.start()
@@ -307,11 +366,42 @@ def main():
         print(f"peak resident memory: {peak[0] / (1 << 20):.0f} MiB, against {memory_max / (1 << 20):.0f} MiB")
         if peak[0] > memory_max:
             failed.append(f"resident memory reached {peak[0] / (1 << 20):.0f} MiB")
+        undecided = None
+        if seconds:
+            # other work is the machine's threads less the run's own, so a process that starts and ends between two
+            # samples, as a build's compiler does, is counted though never named
+            other = [busy - sum(ours.values()) for busy, ours, _ in seconds]
+            part = {k: sum(s[1][k] for s in seconds) / len(seconds) for k in ("service", "store", "load")}
+            print(f"threads busy over the run, of {os.cpu_count()}: {sum(s[0] for s in seconds) / len(seconds):.2f}, "
+                  f"the service {part['service']:.2f}, the store's server {part['store']:.2f}, load.py "
+                  f"{part['load']:.2f}, other work {sum(other) / len(other):.2f}")
+            # its busiest 10 s, sliding by the second: a report's p95 is its second-slowest answer, so a burst
+            # that short can decide it
+            w = min(10, len(other))
+            i = max(range(len(other) - w + 1), key=lambda j: sum(other[j:j + w]))
+            busiest = sum(other[i:i + w]) / w
+            names = {}
+            for _, _, by in seconds[i:i + w]:
+                for name, v in by.items():
+                    names[name] = names.get(name, 0.0) + v / w
+            top = sorted(((v, k) for k, v in names.items() if v >= 0.05), reverse=True)[:3]
+            print(f"other work's busiest {w} s, from {i} s: {busiest:.2f} threads"
+                  + "".join(f", {k} {v:.2f}" for v, k in top))
+            if busiest > OTHER_MAX:
+                undecided = f"other work used {busiest:.2f} threads over {w} s of the run, past {OTHER_MAX}"
+        else:
+            print("threads busy over the run: not sampled, /proc not read")
+            undecided = "the machine's threads were not sampled"
         for f in failed:
-            print(f"{'MISSED' if a.stress else 'FAILED'}: {f}")
+            print(f"{'MISSED' if a.stress or undecided else 'FAILED'}: {f}")
+        if undecided:
+            print(f"UNDECIDED: {undecided}, so the run is not Gate P's result")
         if a.stress:
             print("stress run, back to back: reported beside Gate P, which it does not decide")
             return 0
+        if undecided:
+            print("Gate P: not decided, run it again")
+            return 3
         print("Gate P: " + ("failed" if failed else "passed"))
         return 1 if failed else 0
     finally:

@@ -9,6 +9,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 - An operation reads the subscriptions' acknowledged cursors and the events that recorded an admission only where it uses them. Every request and read read both before, so a draft on PostgreSQL sends 25 statements where it sent 29 (`docs/research/write-throughput.md` §6). A damaged cursor fails only an operation that reads it, where it failed every operation.
 - An actor named by its identity is read from every actor type in one statement, and an operation reads a type's objects by the same key once. A draft on PostgreSQL sends 22 statements where the change above left 25 (`docs/research/write-throughput.md` §6).
 - `scripts/profile/load.py`'s report readers and agents pause before their first read as before every later one, so Gate P starts them spaced as their pace keeps them, where every reader read at once as the load began (ADR-0234).
+- `scripts/profile/load.py` samples the machine's threads and each process's every second of a run, and prints with its result the threads the service, its store's server, `load.py` and other work used. A run whose other work passed 0.5 threads in any 10 s is not decided, exiting 3, and is run again (ADR-0235).
 
 ## 0.9.0, 2026-10-27
 

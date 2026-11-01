@@ -235,4 +235,5 @@
 | [0232](0232-a-change-carries-the-version-its-migration-examples-start-from.md) | A change carries the version its migration examples start from | Decided under the author's direction; built; refined by ADR-0233 |
 | [0233](0233-the-coverage-notice-names-the-examples-it-does-not-read.md) | The coverage notice names the examples it does not read | Decided under the author's direction; built |
 | [0234](0234-gate-ps-readers-start-spaced-and-the-peaks-writes-are-accepted-by-name.md) | Gate P's readers start spaced, and the peak's writes on PostgreSQL are accepted by name | Decided under the author's direction; built |
+| [0235](0235-a-gate-p-run-that-other-work-shared-is-run-again.md) | A Gate P run that other work shared is run again | Decided under the author's direction; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |
