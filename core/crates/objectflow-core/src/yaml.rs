@@ -469,6 +469,17 @@ mod tests {
         assert_eq!(states, ["OPEN", "DONE"]);
     }
 
+    /// An empty block scalar ending the text is empty, as PyYAML, the
+    /// reference loader, reads it, where saphyr-parser before 0.3 read a
+    /// newline (its issue 143).
+    #[test]
+    fn an_empty_block_scalar_ending_the_text_is_empty() {
+        for text in ["a: |\n", "a: |", "a: >\n"] {
+            let doc = load(text).unwrap();
+            assert_eq!(doc.get("a").unwrap().text(), Some(""), "{text:?}");
+        }
+    }
+
     #[test]
     fn only_a_plain_true_or_false_is_a_boolean() {
         let doc = load("a: true\nb: NO\nc: 'true'\nd: TRUE\ne: yes\n").unwrap();
