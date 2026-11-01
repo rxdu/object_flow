@@ -1,3 +1,3 @@
 # The scripts' own pins, which the server imports the runner and the checker from
 -r ../../../scripts/requirements-dev.txt
-pytest==9.1.1
+pytest==9.2.0
