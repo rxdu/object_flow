@@ -2272,6 +2272,16 @@ def name_errors(doc, library=None, ordered=True):
                     out.append((base + ("only_via",), "names", f"{tn}.{xn} is only via {v}, which is not a transition of {vt}"))
                 elif vt not in library and vt not in {n for ns in (doc.get("imports") or {}).values() for n in ns}:
                     out.append((base + ("only_via",), "names", f"{tn}.{xn} is only via {v}, and {vt} is neither declared in this module nor imported"))
+            # a creation offered on the object one of its inputs references, requested with that input bound to it
+            # (ADR-0240 decision 1)
+            if "offered_on" in x and x["kind"] != "initial":
+                out.append((base + ("offered_on",), "names", f"'offered_on' applies only to an initial transition, not to {tn}.{xn}"))
+            elif "offered_on" in x and x.get("only_via"):
+                out.append((base + ("offered_on",), "names", f"{tn}.{xn} is offered on an object, but only_via has no caller request it"))
+            for n, b in enumerate(x.get("offered_on") or []):
+                if flowrun.offered_reference(x, attrs, b) is None:
+                    out.append((base + ("offered_on", n), "names",
+                                f"{tn}.{xn} is offered on {b}, which is no required reference to one object it takes"))
             for i, spec in (x.get("inputs") or {}).items():
                 if i in set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])):
                     out.append((base + ("inputs", i), "names", f"{tn}.{xn} declares the input '{i}' and also takes the attribute '{i}' as an input"))
@@ -9700,6 +9710,112 @@ def media_example_plants(people):
     return ok
 
 
+OFFERED_DESK = (
+    'module: staffing\n'
+    'categories: [live, closed]\n'
+    'machines:\n'
+    '  Hold:\n'
+    '    description: A hold on a slot, placed and then freed.\n'
+    '    requires:\n'
+    '      attributes:\n'
+    '        slot: { reference: Slot }\n'
+    '    states:\n'
+    '      HELD: { category: live }\n'
+    '      FREED: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      place: { kind: initial, to: HELD, required_inputs: [slot], offered_on: [slot] }\n'
+    '      free: { kind: external, from: [HELD], to: FREED, required_inputs: [slot] }\n'
+    'types:\n'
+    '  Slot:\n'
+    '    description: A slot someone may be named to.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      title: { type: string }\n'
+    '    states:\n'
+    '      OPEN: { category: live }\n'
+    '      SHUT: { category: closed, final: true }\n'
+    '    transitions:\n'
+    '      open: { kind: initial, to: OPEN, required_inputs: [title] }\n'
+    '      shut: { kind: external, from: [OPEN], to: SHUT }\n'
+    '  Booking:\n'
+    '    description: A booking of a slot.\n'
+    '    tracking: record\n'
+    '    state_machine: Hold\n'
+    '    attributes:\n'
+    '      slot: { reference: Slot }\n'
+    '  Nomination:\n'
+    '    description: Someone named for a slot, with a slot to fall back on.\n'
+    '    tracking: record\n'
+    '    attributes:\n'
+    '      slot:  { reference: Slot }\n'
+    '      spare: { reference: Slot, optional: true }\n'
+    '      note:  { type: string }\n'
+    '    states:\n'
+    '      NAMED: { category: live }\n'
+    '      DROPPED: { category: closed, final: true }\n'
+    '    conditions:\n'
+    '      slot_open:\n'
+    '        description: The slot is open.\n'
+    '        expression: inputs.slot.state == Slot.OPEN\n'
+    '        remedy: dependent\n'
+    '    transitions:\n'
+    '      name: { kind: initial, to: NAMED, required_inputs: [slot, note], optional_inputs: [spare], '
+    'inputs: { backup: { reference: Slot }, later: { reference: Slot, optional: true } }, offered_on: [slot, backup], '
+    'guards: { slot_open: deny } }\n'
+    '      drop: { kind: external, from: [NAMED], to: DROPPED, required_inputs: [slot] }\n'
+)
+
+
+def offered_on_plants(people):
+    """`offered_on` on an initial transition alone, naming its required references to one object (ADR-0240 decision
+    1): step 3 refuses it on another kind of transition, a machine's among them, on a creation only_via names, which no
+    caller requests, and naming an input that is no required reference to one object: an optional or defaulted one, a
+    set, an attribute taken as an optional input or not a reference, or one the creation does not take."""
+    def p(old, new):
+        assert OFFERED_DESK.count(old) == 1, old
+        return OFFERED_DESK.replace(old, new)
+    named = "offered_on: [slot, backup]"
+    refs = "inputs: { backup: { reference: Slot }, later: { reference: Slot, optional: true } }"
+    drop = "      drop: { kind: external, from: [NAMED], to: DROPPED, required_inputs: [slot] }\n"
+    cases = [
+        ("a creation offered on its required references, a machine's among them", OFFERED_DESK, []),
+        ("on a transition that is not initial", p(drop, drop.replace(" }\n", ", offered_on: [slot] }\n")),
+         ["'offered_on' applies only to an initial transition, not to Nomination.drop"]),
+        ("on a machine's transition that is not initial",
+         p("      free: { kind: external, from: [HELD], to: FREED, required_inputs: [slot] }\n",
+           "      free: { kind: external, from: [HELD], to: FREED, required_inputs: [slot], offered_on: [slot] }\n"),
+         ["'offered_on' applies only to an initial transition, not to Hold.free"]),
+        ("on a creation only via another transition", p("to: NAMED, required_inputs", "to: NAMED, only_via: [any], required_inputs"),
+         ["Nomination.name is offered on an object, but only_via has no caller request it"]),
+        ("naming an optional input", p(named, "offered_on: [slot, later]"),
+         ["Nomination.name is offered on later, which is no required reference to one object it takes"]),
+        ("naming a defaulted input", p(refs, refs.replace("backup: { reference: Slot }", "backup: { reference: Slot, default: inputs.slot }")),
+         ["Nomination.name is offered on backup, which is no required reference to one object it takes"]),
+        ("naming a set of references", p(refs, refs.replace("backup: { reference: Slot }", 'backup: { reference: "Slot[]" }')),
+         ["Nomination.name is offered on backup, which is no required reference to one object it takes"]),
+        ("naming an attribute taken as an optional input", p(named, "offered_on: [spare]"),
+         ["Nomination.name is offered on spare, which is no required reference to one object it takes"]),
+        ("naming an attribute that is no reference", p(named, "offered_on: [slot, note]"),
+         ["Nomination.name is offered on note, which is no required reference to one object it takes"]),
+        ("naming an input it does not take", p(named, "offered_on: [slot, owner]"),
+         ["Nomination.name is offered on owner, which is no required reference to one object it takes"]),
+        ("naming a machine's input it does not take", p("offered_on: [slot] }\n      free", "offered_on: [hold] }\n      free"),
+         ["Hold.place is offered on hold, which is no required reference to one object it takes"]),
+        # step 2's
+        ("an empty list", p(named, "offered_on: []"), ["[] is too short"]),
+        ("an input twice", p(named, "offered_on: [slot, slot]"), ["['slot', 'slot'] has non-unique elements"]),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, _ = check([("people.yaml", people), ("staffing.yaml", text)])
+        got = sorted(x[4] for x in found)
+        code = "schema" if "is too short" in "".join(want) or "non-unique" in "".join(want) else "names"
+        hit = got == sorted(want) and all(x[3] == code for x in found)
+        ok &= hit
+        print(f"  offered on, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
 def identifier_personal_plants(people):
     """An identifier is kept past an erasure, and a sequence keeps its scope's value, so neither reads a personal
     value: a scope by a personal attribute and a format reading one are refused (the audit's personal data S27, S28),
@@ -10807,6 +10923,7 @@ def main():
     ok &= expression_type_plants(people)
     ok &= media_type_plants(people)
     ok &= media_example_plants(people)
+    ok &= offered_on_plants(people)
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:

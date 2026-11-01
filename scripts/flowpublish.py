@@ -940,7 +940,7 @@ def offer_classes(runner, store, actor, oid, kinds):
     runner.unasked = flowrun.DRY_RUN
     out = {}
     t = kinds.get(store.objects[oid].type) or {}
-    for xn, creates, how, _r, _schema, unevaluated, _flags in runner.availability(store, actor, oid):
+    for xn, creates, how, _r, _schema, unevaluated, _flags, _binds in runner.availability(store, actor, oid):
         if creates is not None:
             continue
         guards = ((t.get("transitions") or {}).get(xn) or {}).get("guards") or {}

@@ -240,4 +240,5 @@
 | [0237](0237-no-more-round-trips-are-cut-before-the-first-deployment-measures.md) | No more round trips are cut from a write before the first deployment measures its peak | Decided under the author's direction |
 | [0238](0238-a-batchs-request-names-what-an-earlier-one-creates.md) | A request of a batch names what an earlier one creates, by the lid it gave | Decided under the author's direction; built |
 | [0239](0239-a-file-says-which-media-types-it-takes.md) | A file attribute or input says which media types it takes, and an expression reads a file's media type and size | Decided under the author's direction; built |
+| [0240](0240-a-creation-says-on-which-object-it-is-offered.md) | A creation says on which object it is offered, and that object's offer decides it | Decided under the author's direction; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

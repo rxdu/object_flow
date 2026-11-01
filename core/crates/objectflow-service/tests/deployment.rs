@@ -835,6 +835,111 @@ fn a_files_media_types_are_declared_and_held_through_the_wire() {
     assert_eq!(opened["kind"], "satisfied", "{opened}");
 }
 
+/// An object's offer holds each creation a version marks `offered_on` an
+/// input its type fills, naming what it creates and the input it binds,
+/// decided by the creation's own guards with the object bound; one an
+/// invariant may refuse for who asks is simulated for them; one whose guard
+/// reads a personal member needs `reads_personal`; and a recording binds
+/// its subject (ADR-0240).
+#[test]
+fn an_offer_holds_the_creations_marked_on_its_object() {
+    const DESK: &str = "module: desk\npublishing: { taken_by: [human] }\ncategories: [live, closed]\ntypes:\n  Person:\n    description: Someone who books a slot.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n    states:\n      ON: { category: live }\n      LEFT: { category: closed, final: true }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login] }\n      leave: { kind: external, from: [ON], to: LEFT }\n  Bot:\n    description: An agent that books on someone's behalf.\n    tracking: record\n    attributes:\n      name: { type: identity, actor_kind: agent, unique: true }\n    states:\n      ON: { category: live }\n      RETIRED: { category: closed, final: true }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [name] }\n      retire: { kind: external, from: [ON], to: RETIRED }\n  Slot:\n    description: A slot that may be booked.\n    tracking: record\n    attributes:\n      code: { type: string, optional: true, personal: true }\n    states:\n      OPEN: { category: live }\n      SHUT: { category: closed, final: true }\n    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [code] }\n      shut: { kind: external, from: [OPEN], to: SHUT }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Booking:\n    description: A booking of one slot.\n    tracking: record\n    attributes:\n      slot: { reference: Slot }\n    states:\n      HELD: { category: live }\n      DONE: { category: closed, final: true }\n    conditions:\n      slot_open: { description: The slot is open., expression: inputs.slot.state == Slot.OPEN, remedy: unreachable_from_here }\n      coded: { description: The slot has a code., expression: inputs.slot.code is not null, remedy: unreachable_from_here }\n    transitions:\n      book: { kind: initial, to: HELD, required_inputs: [slot], offered_on: [slot], taken_by: [human], guards: { slot_open: deny } }\n      book_coded: { kind: initial, to: HELD, required_inputs: [slot], offered_on: [slot], guards: { coded: deny } }\n      end: { kind: external, from: [HELD], to: DONE }\n";
+    let path = fresh_store("offered-on");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish(&s, &json!({"desk": DESK}));
+    let op = json!({"id": "operator"});
+    let made = |type_: &str, xn: &str, inputs: Value| {
+        let v = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": type_, "transition": xn, "inputs": inputs}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        v["object_id"].clone()
+    };
+    made("Person", "join", json!({"login": "ana"}));
+    made("Bot", "make", json!({"name": "helper"}));
+    let open = made("Slot", "open", json!({}));
+    let shut = made("Slot", "open", json!({}));
+    post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": shut, "transition": "shut"}),
+    );
+    let offers = |actor: &str, id: &Value| {
+        post(
+            &s,
+            "/v1/availability",
+            &json!({"actor": {"id": actor}, "id": id, "reads_personal": true}),
+        )
+    };
+    let creation = |all: &Value, xn: &str| {
+        all.as_array()
+            .expect("the offers")
+            .iter()
+            .find(|o| o["creates"] == "Booking" && o["transition"] == xn)
+            .cloned()
+            .unwrap_or(Value::Null)
+    };
+    let all = offers("ana", &open);
+    let book = creation(&all, "book");
+    assert_eq!(
+        (&book["binds"], &book["availability"], &book["inputs"]),
+        (&json!("slot"), &json!("available"), &json!({})),
+        "{all}"
+    );
+    for o in all.as_array().expect("the offers") {
+        let binds = match o["creates"].as_str() {
+            None => Value::Null,
+            Some("Booking") => json!("slot"),
+            Some(_) => json!("subject"),
+        };
+        assert_eq!(o["binds"], binds, "{o}");
+    }
+    // a creation the bound object's state refuses
+    let refused = creation(&offers("ana", &shut), "book");
+    assert_eq!(
+        (
+            &refused["availability"],
+            &refused["verdict"]["clause"],
+            &refused["verdict"]["inputs"]
+        ),
+        (&json!("unavailable"), &json!("slot_open"), &json!(["slot"])),
+        "{refused}"
+    );
+    // for an agent, simulated as `check` would, refused by who takes it
+    let agent = creation(&offers("helper", &open), "book");
+    assert_eq!(agent["availability"], "unavailable", "{agent}");
+    assert_eq!(agent["verdict"]["remedy"], "delegable", "{agent}");
+    // a guard reading a personal member needs the opt-in
+    let gated = post(
+        &s,
+        "/v1/availability",
+        &json!({"actor": {"id": "ana"}, "id": open}),
+    );
+    assert_eq!(gated["refused"], "personal", "{gated}");
+    let coded = creation(&all, "book_coded");
+    assert_eq!(
+        (&coded["availability"], &coded["verdict"]["clause"]),
+        (&json!("unavailable"), &json!("coded")),
+        "{coded}"
+    );
+    // what the offer says is what the request takes
+    let booked = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": {"id": "ana"}, "type": book["creates"], "transition": book["transition"],
+                "inputs": {"slot": open}}),
+    );
+    assert_eq!(booked["kind"], "satisfied", "{booked}");
+}
+
 /// A batch's check answers what the batch then answers, applied or
 /// refused at the same request, and writes nothing, not an event nor an
 /// attempt row; a satisfied verdict names nothing its run made, each said

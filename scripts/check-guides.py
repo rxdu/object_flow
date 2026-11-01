@@ -44,9 +44,10 @@ RUNNABLE = ("quickstart.md", "agents.md", "write-a-flow.md")
 # the page's commands run as a reader's would.
 HELPER = """of() { curl -s "$OF/v1/$1" -H 'Content-Type: application/json' -d "$2"; echo; }"""
 
-# Words the extraction below meets that are not codes: an actor kind and two
-# value types a read answers as data.
-NOT_CODES = {"human", "state", "timestamp"}
+# Words the extraction below meets that are not codes: an actor kind, two
+# value types a read answers as data, and the input a recording's offer
+# binds (ADR-0240).
+NOT_CODES = {"human", "state", "timestamp", "subject"}
 
 # A fault's prefix that is not a code a client meets: the usage line, a load's
 # module and the stop's notice.

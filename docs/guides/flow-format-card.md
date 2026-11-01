@@ -230,6 +230,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 |---|---|---|
 | `only_via` | the `Type.transition`s that alone take it, by `call`, `create` or cascade, or `[any]`, every transition of any type; no caller requests it | 4.8 |
 | `proposable` | `true`: a request may be filed as a proposal, executed as its approver | 4.8 |
+| `offered_on` | on an initial transition: its inputs, each a required reference to one object, whose object's `availability` offers this creation | 4.8 |
 | `taken_by` | the kinds that may take it, `[human]`, on any transition, an erasure and an assertion included; records `<transition>_by_kind` and holds `<transition>_taken_by`, which no `may_admit` admits | 4.8 |
 | `corrects` | the attributes a correction writes, exactly | 4.13 |
 | `may_admit` | on an assertion, the invariants a request may admit breaking | 4.13 |

@@ -2555,7 +2555,7 @@ fn offer(o: &Offer, actor_dependent: bool) -> J {
         .map(|(k, t)| (k.clone(), json!(t)))
         .collect();
     json!({
-        "transition": o.transition, "creates": o.creates, "availability": o.availability.text(),
+        "transition": o.transition, "creates": o.creates, "binds": o.binds, "availability": o.availability.text(),
         "verdict": o.verdict.as_ref().map(|v| verdict_told(v, Some(&o.told))), "inputs": inputs,
         "unevaluated": o.unevaluated, "flags": flags(&o.flags),
         // it may be refused for who takes it (ADR-0173 decision 1)
@@ -4457,13 +4457,17 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
         )?;
         let mut r = reading(&shared)?;
         let s = r.store()?;
+        // the object's own transitions, and the creations offered on it
+        // (ADR-0240)
         if !opted(&body)?
             && let Some(o) = s.snapshot()?.get(id)?
-            && s.lib.type_(&o.type_).is_some_and(|t| {
+            && (s.lib.type_(&o.type_).is_some_and(|t| {
                 t.transitions
                     .iter()
                     .any(|(xn, _)| reads::transition_reads_personal(&s.lib, &o.type_, xn))
-            })
+            }) || reads::creations_offered_on(&s.lib, &o.type_)
+                .iter()
+                .any(|(ct, xn, _, _)| reads::transition_reads_personal(&s.lib, &ct.name, xn)))
         {
             return Err(personal_refused(
                 "an offer is decided by a personal member, and the request does not set reads_personal",
@@ -4472,12 +4476,21 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
         let decided = {
             let world = s.snapshot()?;
             let t = reads::get(&world, id)?.and_then(|v| s.lib.type_(&v.object.type_));
-            let dependent = |o: &Offer| {
-                o.creates.is_none()
-                    && t.and_then(|t| t.transition(&o.transition).map(|x| (t, x)))
-                        .is_some_and(|(t, x)| {
-                            objectflow_core::request::actor_dependent(&s.lib, t, x)
-                        })
+            // an object's own transition, or a creation offered on it
+            // (ADR-0240), that an invariant may refuse for who takes it
+            let dependent = |o: &Offer| match (&o.creates, &o.binds) {
+                (None, _) => t
+                    .and_then(|t| t.transition(&o.transition).map(|x| (t, x)))
+                    .is_some_and(|(t, x)| objectflow_core::request::actor_dependent(&s.lib, t, x)),
+                (Some(ct), Some(b)) => s
+                    .lib
+                    .type_(ct)
+                    .and_then(|ct| ct.transition(&o.transition).map(|x| (ct, x)))
+                    .is_some_and(|(ct, x)| {
+                        x.offered_on.contains(b)
+                            && objectflow_core::request::actor_dependent(&s.lib, ct, x)
+                    }),
+                _ => false,
             };
             reads::availability(&world, actor, id)?.map(|offers| {
                 offers
@@ -4501,9 +4514,14 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
             // and a simulation that would ask one leaves it as decided (ADR-0176
             // decision 2)
             if dependent && o.availability == Availability::Available && o.unevaluated.is_empty() {
-                let req = request_of(
-                    &json!({"transition": o.transition, "actor": {"id": actor}, "object_id": id}),
-                )?;
+                let req = request_of(&match (&o.creates, &o.binds) {
+                    // a creation, its bound input given the object
+                    (Some(ct), Some(b)) => json!({
+                        "transition": o.transition, "actor": {"id": actor}, "type": ct,
+                        "inputs": {b.as_str(): id},
+                    }),
+                    _ => json!({"transition": o.transition, "actor": {"id": actor}, "object_id": id}),
+                })?;
                 let given = std::mem::take(&mut s.answers);
                 let checked = request::check(s, &req);
                 s.answers = given;

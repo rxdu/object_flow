@@ -1829,12 +1829,176 @@ impl Availability {
     }
 }
 
+/// The creations an object of a type is offered (ADR-0240): each initial
+/// transition no `only_via` holds that names in `offered_on` an input
+/// referencing the type or a base it extends, with that input, by the
+/// creating type's name, then the transition's, then the input's place in
+/// `offered_on`.
+pub fn creations_offered_on<'l>(
+    lib: &'l Library,
+    type_: &str,
+) -> Vec<(&'l Type, &'l str, &'l Transition, &'l str)> {
+    let mut out = Vec::new();
+    for t in lib.types.values() {
+        let mut marked: Vec<(&String, &Transition)> = t
+            .transitions
+            .iter()
+            .filter(|(_, x)| x.kind == Kind::Initial && x.only_via.is_empty())
+            .map(|(n, x)| (n, x))
+            .collect();
+        marked.sort_by(|a, b| a.0.cmp(b.0));
+        for (xn, x) in marked {
+            for bound in &x.offered_on {
+                let target = match x.inputs.iter().find(|(n, _)| n == bound) {
+                    Some((_, spec)) if !spec.many => match &spec.declared {
+                        Declared::Reference(r) => Some(r),
+                        Declared::Scalar(_) => None,
+                    },
+                    Some(_) => None,
+                    None => {
+                        t.attribute(bound)
+                            .filter(|a| !a.many)
+                            .and_then(|a| match &a.declared {
+                                Declared::Reference(r) => Some(r),
+                                Declared::Scalar(_) => None,
+                            })
+                    }
+                };
+                if target.is_some_and(|r| lib.is_a(type_, r)) {
+                    out.push((t, xn.as_str(), x, bound.as_str()));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A creation's offer on the object it binds (ADR-0240), decided as an
+/// offer of the object's own is (ADR-0152), with no object of its own:
+/// the actor; then each guard that reads no input but the bound one and
+/// nothing but its inputs, `now` and qualified values, with the bound
+/// input given the object, the rest waiting; `available_with_input` where
+/// it takes another required input or a guard waits.
+#[allow(clippy::too_many_arguments)]
+fn creation_offer(
+    world: &World<'_>,
+    who: &Result<crate::eval::Who, Verdict>,
+    id: &str,
+    ct: &Type,
+    xn: &str,
+    x: &Transition,
+    bound: &str,
+    metrics: bool,
+) -> Result<Offer, NotRun> {
+    let mut offer = Offer {
+        transition: xn.to_string(),
+        creates: Some(ct.name.clone()),
+        binds: Some(bound.to_string()),
+        availability: Availability::Unavailable,
+        verdict: None,
+        inputs: input_schema(ct, x)
+            .into_iter()
+            .filter(|(n, _)| n != bound)
+            .collect(),
+        unevaluated: Vec::new(),
+        flags: Vec::new(),
+        told: Told::default(),
+    };
+    let who = match who {
+        Ok(who) => who,
+        Err(v) => {
+            offer.verdict = Some(v.clone());
+            offer.told = offer_told(Vec::new(), false, x.proposable);
+            return Ok(offer);
+        }
+    };
+    let mut needs = x.required_inputs.iter().any(|n| n != bound)
+        || x.inputs
+            .iter()
+            .any(|(n, s)| n != bound && !s.optional && s.default.is_none());
+    let given = BTreeMap::from([(bound.to_string(), Value::Object(id.to_string()))]);
+    let lib = world.lib;
+    let decidable = |e: &Expr| {
+        let mut names = BTreeSet::new();
+        names_read(e, &mut names);
+        let mut read = BTreeSet::new();
+        e.inputs_read(&mut read);
+        names.iter().all(|n| {
+            n == "inputs"
+                || n == "now"
+                || lib.types.contains_key(n)
+                || lib.enumerations.contains_key(n)
+        }) && read.iter().all(|i| i == bound)
+    };
+    for (g, mode) in &x.guards {
+        let Some(c) = ct.condition(g) else {
+            return Err(NotRun::Unsupported(format!(
+                "the guard {g}, which {} does not declare",
+                ct.name
+            )));
+        };
+        if !decidable(&c.expression) {
+            needs = true; // decided when the rest is given
+            continue;
+        }
+        let named = crate::eval::Named::on(None);
+        let mut asking = Evaluator::new(world, Some(ct), None)
+            .with_inputs(&given)
+            .with_actor(who)
+            .with_naming(&named);
+        if !metrics {
+            asking = asking.consulting_no_metric();
+        }
+        let ok = truth(&asking.eval(&c.expression)?)?;
+        let objects = crate::request::in_id_order(world, named.borrow().objects.clone())?;
+        // an evaluator is never asked by an offer (ADR-0048)
+        if asking.unanswered.get() {
+            offer.unevaluated.push(g.clone());
+            continue;
+        }
+        if ok != Some(true) {
+            match mode {
+                Enforce::Deny => {
+                    offer.verdict = Some(Verdict::Unsatisfied {
+                        clause: g.clone(),
+                        remedy: c.remedy,
+                    });
+                    // the clause reads the bound input, which it names
+                    // (ADR-0224)
+                    offer.told = Told {
+                        inputs: crate::request::clause_inputs(ct, x, g),
+                        ..offer_told(objects, ok.is_none(), x.proposable)
+                    };
+                    return Ok(offer);
+                }
+                Enforce::Warn => offer.flags.push(Flag {
+                    clause: g.clone(),
+                    remedy: c.remedy,
+                    unknown: ok.is_none(),
+                    objects,
+                }),
+                Enforce::Audit => {}
+            }
+        }
+    }
+    offer.availability = if needs {
+        Availability::AvailableWithInput
+    } else {
+        Availability::Available
+    };
+    Ok(offer)
+}
+
 /// What one transition offers (`library-api.md` §5).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Offer {
     pub transition: String,
-    /// The observation kind a recording creates; otherwise none.
+    /// The type a recording or a creation creates; none for the object's
+    /// own transitions.
     pub creates: Option<String>,
+    /// The input a recording or a creation takes the object as, `subject`
+    /// for a recording; none for the object's own transitions (ADR-0240).
+    pub binds: Option<String>,
     pub availability: Availability,
     pub verdict: Option<Verdict>,
     /// Each input by name, with the type a caller supplies.
@@ -2078,6 +2242,7 @@ fn offers_of(
                        told: Told| Offer {
             transition: xn.clone(),
             creates: None,
+            binds: None,
             availability: Availability::Unavailable,
             verdict: Some(v),
             inputs,
@@ -2195,6 +2360,7 @@ fn offers_of(
         offers.push(Offer {
             transition: xn.clone(),
             creates: None,
+            binds: None,
             availability: if needs {
                 Availability::AvailableWithInput
             } else {
@@ -2226,6 +2392,7 @@ fn offers_of(
             offers.push(Offer {
                 transition: xn.into(),
                 creates: None,
+                binds: None,
                 availability: if verdict.is_some() {
                     Availability::Unavailable
                 } else {
@@ -2237,6 +2404,16 @@ fn offers_of(
                 flags: Vec::new(),
                 told: Told::default(),
             });
+        }
+    }
+    // each creation a version offers on objects of its type, decided with
+    // the input it binds given the object (ADR-0240); never where one
+    // transition alone is asked for, as `available` asks
+    if only.is_none() {
+        for (ct, xn, x, bound) in creations_offered_on(world.lib, &o.type_) {
+            offers.push(creation_offer(
+                world, &who, &o.id, ct, xn, x, bound, metrics,
+            )?);
         }
     }
     // and recording each kind on it, and labelling, which every type
@@ -2280,6 +2457,7 @@ fn offers_of(
         offers.push(Offer {
             transition: "record".into(),
             creates: Some(kind.clone()),
+            binds: Some("subject".into()),
             availability: match (&refusal, needs) {
                 (Some(_), _) => Availability::Unavailable,
                 (None, true) => Availability::AvailableWithInput,
@@ -2380,6 +2558,220 @@ types:
         ));
         assert!(personal("Room", Some("hosted_by == \"Ana\""), &[]));
         assert!(personal("Room", None, &["hosted_by"]));
+    }
+
+    /// A slot, and the creations that take it: some marked `offered_on`,
+    /// one on its base, one not marked, one only a consequence.
+    const SLOTS: &str = r#"
+module: slots
+categories: [live, closed]
+types:
+  Place:
+    abstract: true
+    attributes:
+      size: { type: int, optional: true }
+  Slot:
+    extends: Place
+    tracking: record
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [size] }
+      shut: { kind: external, from: [OPEN], to: SHUT }
+  Booking:
+    attributes:
+      slot: { reference: Slot }
+      seen: { type: bool, optional: true }
+    states: { HELD: { category: live } }
+    conditions:
+      slot_open: { expression: inputs.slot.state == Slot.OPEN, remedy: unreachable_from_here }
+      roomy: { expression: inputs.slot.size > 2, remedy: self_serviceable }
+      a_reason: { expression: inputs.reason is not null, remedy: self_serviceable }
+      unseen: { expression: seen is null, remedy: self_serviceable }
+    transitions:
+      book: { kind: initial, to: HELD, required_inputs: [slot], inputs: { reason: { type: string, optional: true } }, offered_on: [slot], guards: { slot_open: deny, roomy: warn } }
+      book_reasoned: { kind: initial, to: HELD, required_inputs: [slot], inputs: { reason: { type: string, optional: true } }, offered_on: [slot], guards: { slot_open: deny, a_reason: deny } }
+      book_unseen: { kind: initial, to: HELD, required_inputs: [slot], offered_on: [slot], guards: { slot_open: deny, unseen: deny } }
+      book_noted: { kind: initial, to: HELD, required_inputs: [slot], inputs: { note: { type: string } }, offered_on: [slot], guards: { slot_open: deny } }
+      walk_in: { kind: initial, to: HELD, required_inputs: [slot] }
+      by_rule: { kind: initial, to: HELD, required_inputs: [slot], offered_on: [slot], only_via: [any] }
+  Swap:
+    attributes:
+      from: { reference: Slot }
+      to: { reference: Slot }
+    states: { DONE: { category: live } }
+    transitions:
+      swap: { kind: initial, to: DONE, required_inputs: [from, to], offered_on: [from, to] }
+  Visit:
+    attributes:
+      place: { reference: Place }
+    states: { MADE: { category: live } }
+    transitions:
+      visit: { kind: initial, to: MADE, required_inputs: [place], offered_on: [place] }
+"#;
+
+    /// Each creation marked `offered_on` an input the object's type, or a
+    /// base it extends, fills is offered on it, one offer an input, naming
+    /// what it creates and the input it binds; decided by each guard that
+    /// reads no input but the bound one, the rest waiting; and nothing is
+    /// offered that no version marked, nor what only a consequence takes
+    /// (ADR-0240).
+    #[test]
+    fn an_object_is_offered_each_creation_marked_on_its_type() {
+        // each creation offer by its type, transition and bound input, its
+        // availability, the clause refusing it and its flags
+        type Offered = (
+            String,
+            String,
+            String,
+            Availability,
+            Option<String>,
+            Vec<String>,
+        );
+        let lib = Library::load(&[("slots.yaml".into(), SLOTS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let open = |s: &mut Store, size: i64, xn: &str, target: Option<&str>| {
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: target.map(str::to_string),
+                type_: target.is_none().then(|| "Slot".to_string()),
+                inputs: if target.is_none() {
+                    [("size".to_string(), json!(size))].into_iter().collect()
+                } else {
+                    Default::default()
+                },
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            match request(s, &r).unwrap().unwrap() {
+                crate::verdict::Verdict::Satisfied { object_id, .. } => object_id,
+                other => panic!("{other:?}"),
+            }
+        };
+        let roomy = open(&mut s, 3, "open", None);
+        let small = open(&mut s, 1, "open", None);
+        let shut = open(&mut s, 3, "open", None);
+        open(&mut s, 0, "shut", Some(&shut));
+        let created = |s: &Store, actor: &str, id: &str| -> Vec<Offered> {
+            let w = s.snapshot().unwrap();
+            availability(&w, actor, id)
+                .unwrap()
+                .unwrap()
+                .into_iter()
+                .filter(|o| o.transition != "record")
+                .filter_map(|o| {
+                    let clause = o.verdict.as_ref().and_then(|v| match v {
+                        Verdict::Unsatisfied { clause, .. } => Some(clause.clone()),
+                        _ => None,
+                    });
+                    let flags = o.flags.iter().map(|f| f.clause.clone()).collect();
+                    Some((
+                        o.creates?,
+                        o.transition,
+                        o.binds?,
+                        o.availability,
+                        clause,
+                        flags,
+                    ))
+                })
+                .collect()
+        };
+        let row = |t: &str, x: &str, b: &str, a: Availability, c: Option<&str>, f: &[&str]| {
+            (
+                t.to_string(),
+                x.to_string(),
+                b.to_string(),
+                a,
+                c.map(str::to_string),
+                f.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+            )
+        };
+        use Availability::{Available, AvailableWithInput, Unavailable};
+        assert_eq!(
+            created(&s, OPERATOR, &roomy),
+            vec![
+                row("Booking", "book", "slot", Available, None, &[]),
+                row(
+                    "Booking",
+                    "book_noted",
+                    "slot",
+                    AvailableWithInput,
+                    None,
+                    &[]
+                ),
+                row(
+                    "Booking",
+                    "book_reasoned",
+                    "slot",
+                    AvailableWithInput,
+                    None,
+                    &[]
+                ),
+                row(
+                    "Booking",
+                    "book_unseen",
+                    "slot",
+                    AvailableWithInput,
+                    None,
+                    &[]
+                ),
+                row("Swap", "swap", "from", AvailableWithInput, None, &[]),
+                row("Swap", "swap", "to", AvailableWithInput, None, &[]),
+                row("Visit", "visit", "place", Available, None, &[]),
+            ]
+        );
+        // a warn guard that fails is a flag, and the offer stands
+        assert_eq!(
+            created(&s, OPERATOR, &small)[0],
+            row("Booking", "book", "slot", Available, None, &["roomy"])
+        );
+        // a deny guard on the bound input refuses the offer, a guard that
+        // waits deciding nothing
+        let closed = created(&s, OPERATOR, &shut);
+        for (t, x, _, a, c, _) in &closed[..4] {
+            assert_eq!(
+                (a, c.as_deref()),
+                (&Unavailable, Some("slot_open")),
+                "{t}.{x}"
+            );
+        }
+        // an actor the store does not know is refused every offer
+        for (t, x, _, a, c, _) in created(&s, "nobody", &roomy) {
+            assert_eq!(
+                (a, c.as_deref()),
+                (Unavailable, Some("actor_known")),
+                "{t}.{x}"
+            );
+        }
+        // a recording binds its subject; the object's own bind nothing
+        let w = s.snapshot().unwrap();
+        let all = availability(&w, OPERATOR, &roomy).unwrap().unwrap();
+        assert!(
+            all.iter()
+                .any(|o| o.transition == "record" && o.binds.as_deref() == Some("subject"))
+        );
+        assert!(
+            all.iter()
+                .filter(|o| o.creates.is_none())
+                .all(|o| o.binds.is_none())
+        );
+        assert!(
+            all.iter()
+                .all(|o| o.transition != "walk_in" && o.transition != "by_rule")
+        );
+        // asked for one transition alone, as `available` asks, none is offered
+        let one = offers_of(&w, OPERATOR, &roomy, true, Some("book"))
+            .unwrap()
+            .unwrap();
+        assert!(one.is_empty(), "{one:?}");
     }
 
     /// A transition's answer is decided by a personal member as its guards

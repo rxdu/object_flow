@@ -910,7 +910,8 @@ class Sandbox:
 
     def availability(self, body: dict) -> list | None:
         """What each requestable transition of an object offers its actor
-        now (`library-api.md` §5, ADR-0152)."""
+        now, and each creation marked as offered on it (`library-api.md`
+        §5, ADR-0152, ADR-0240)."""
         self.loaded()
         actor = self.who(body)
         oid = body.get("id")
@@ -926,19 +927,30 @@ class Sandbox:
         except flowrun.NotRunnable as e:
             raise not_run(e)
         out = []
-        for xn, creates, how, refusal, schema, unevaluated, flags in offers:
+        for xn, creates, how, refusal, schema, unevaluated, flags, binds in offers:
             tn = creates or s.objects[oid].type
+            # a creation an author marked as offered on this object, its
+            # input `binds` bound to it, where a recording binds `subject`
+            # (ADR-0240 decision 3)
+            marked = creates is not None and binds in (((
+                (self.runner.kinds.get(creates) or {}).get("transitions")
+                or {}).get(xn) or {}).get("offered_on") or [])
             # it may be refused for who takes it (ADR-0173 decision 1)
-            dependent = creates is None and self.runner.actor_dependent(tn, xn)
+            dependent = (creates is None or marked) \
+                and self.runner.actor_dependent(tn, xn)
             if dependent and how == "available" and not unevaluated:
                 # so it is decided for who asks, where it takes no input and
-                # asks no evaluator (ADR-0176 decision 2)
-                refused = self.runner.decided_for(s, actor, oid, xn,
-                                                  self.aliases())
+                # asks no evaluator (ADR-0176 decision 2), a creation with
+                # its bound input given
+                refused = self.runner.decided_for(
+                    s, actor, oid, xn, self.aliases(),
+                    creates if marked else None,
+                    {binds: oid} if marked else None)
                 if refused is not None:
                     how, refusal, flags = "unavailable", refused, []
             out.append({
-                "transition": xn, "creates": creates, "availability": how,
+                "transition": xn, "creates": creates, "binds": binds,
+                "availability": how,
                 "verdict": self.refusal(
                     refusal, tn, oid,
                     ((self.runner.kinds.get(tn) or {}).get("transitions")

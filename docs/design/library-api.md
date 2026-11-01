@@ -308,7 +308,11 @@ class TransitionOffer:
     transition: str
     availability: Availability
     creates: str | None                   # the type an offered creation creates: an
-                                          # observation kind's record, or a label (ADR-0101)
+                                          # observation kind's record, a label (ADR-0101), or
+                                          # a creation marked offered_on (ADR-0240)
+    binds: str | None                     # the input that takes this object: `subject` for a
+                                          # recording, the marked input for a creation, none
+                                          # for the object's own transitions (ADR-0240)
     verdict: Verdict | None
     inputs: Mapping[str, str]
     unevaluated: Sequence[str]

@@ -137,7 +137,7 @@ Every attribute is there, derived ones included. A set holds its members' ids, `
 One per transition, as `availability` answers it:
 
 ```json
-{"transition": "add_line", "creates": null, "availability": "unavailable",
+{"transition": "add_line", "creates": null, "binds": null, "availability": "unavailable",
  "verdict": {"kind": "unavailable", "remedy": "unreachable_from_here", "state": "SUBMITTED"},
  "inputs": {"amount": "money(USD)", "category": "ExpenseCategory", "expense_date": "date", "receipt": "file"},
  "unevaluated": [], "flags": [], "actor_dependent": false}
@@ -147,7 +147,8 @@ One per transition, as `availability` answers it:
 - `inputs` are the input types to build a form from; which are required is in `declaration`.
 - `flags` are the warnings taking it would raise; `unevaluated`, the evaluators it would ask.
 - A transition taking no input and asking no evaluator is decided for the actor asking: the request is simulated, as `check` would, so an agent sees an approval marked `taken_by: [human]` as `unavailable` with the refusal it would meet. **`actor_dependent: true`** marks one awaiting inputs that may still be refused for who takes it: `check` it with the inputs, or let the request answer.
-- Every object offers the built-in `record`, `"creates": "label"`: a label anyone may put on any object, which metrics read. It is a request of the type `label`, its object named by the input `subject`: `{"actor": …, "type": "label", "transition": "record", "inputs": {"subject": "claim-7", "name": "checked"}}`, with an optional `note` and an optional `corrects`, naming an earlier label it corrects.
+- **A creation of another type** that takes the object is offered where its transition marks the input `offered_on` (ADR-0240): `"creates": "<Type>"` names the type it creates and `"binds": "<input>"` the input that takes this object, so it is requested as `{"actor": …, "type": "<Type>", "transition": "<name>", "inputs": {"<input>": "<this object's id>", …}}`. It is decided by the creation's own guards that read no input but that one, the rest waiting, and its `inputs` leave that one out. An offer of the object's own transition has `"creates": null` and `"binds": null`.
+- Every object offers the built-in `record`, `"creates": "label"`, `"binds": "subject"`: a label anyone may put on any object, which metrics read. It is a request of the type `label`, its object named by the input `subject`: `{"actor": …, "type": "label", "transition": "record", "inputs": {"subject": "claim-7", "name": "checked"}}`, with an optional `note` and an optional `corrects`, naming an earlier label it corrects.
 
 ### An event
 

@@ -1,0 +1,50 @@
+module: staffing
+categories: [live, closed]
+machines:
+  Hold:
+    description: A hold on a slot, placed and then freed.
+    requires:
+      attributes:
+        slot: { reference: Slot }
+    states:
+      HELD: { category: live }
+      FREED: { category: closed, final: true }
+    transitions:
+      place: { kind: initial, to: HELD, required_inputs: [slot], offered_on: [slot] }
+      free: { kind: external, from: [HELD], to: FREED, required_inputs: [slot] }
+types:
+  Slot:
+    description: A slot someone may be named to.
+    tracking: record
+    attributes:
+      title: { type: string }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title] }
+      shut: { kind: external, from: [OPEN], to: SHUT }
+  Booking:
+    description: A booking of a slot.
+    tracking: record
+    state_machine: Hold
+    attributes:
+      slot: { reference: Slot }
+  Nomination:
+    description: Someone named for a slot, with a slot to fall back on.
+    tracking: record
+    attributes:
+      slot:  { reference: Slot }
+      spare: { reference: Slot, optional: true }
+      note:  { type: string }
+    states:
+      NAMED: { category: live }
+      DROPPED: { category: closed, final: true }
+    conditions:
+      slot_open:
+        description: The slot is open.
+        expression: inputs.slot.state == Slot.OPEN
+        remedy: dependent
+    transitions:
+      name: { kind: initial, to: NAMED, required_inputs: [slot, note], optional_inputs: [spare], inputs: { backup: { reference: Slot }, later: { reference: Slot, optional: true } }, offered_on: [slot, owner], guards: { slot_open: deny } }
+      drop: { kind: external, from: [NAMED], to: DROPPED, required_inputs: [slot] }

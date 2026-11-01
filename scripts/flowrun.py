@@ -218,6 +218,20 @@ def computed_end(kinds, spec):
     return not str(other.get("reference", "")).endswith("[]") and bool(other.get("stored")) and not spec.get("stored")
 
 
+def offered_reference(x, attrs, name):
+    """The type an input of a creation offered on an object references: a declared input that is a required reference
+    to one object, not optional and with no default, or an attribute the creation lists in `required_inputs` that is a
+    reference to one object; None for any other input (ADR-0240 decision 1)."""
+    spec = (x.get("inputs") or {}).get(name)
+    if spec is not None:
+        ref = str(spec.get("reference", ""))
+        return ref if ref and not ref.endswith("[]") and not spec.get("optional") and "default" not in spec else None
+    if name in (x.get("required_inputs") or []):
+        ref = str((attrs.get(name) or {}).get("reference", ""))
+        return ref if ref and not ref.endswith("[]") else None
+    return None
+
+
 def at_declared_scale(spec, v, oid=None):
     """A value written to an attribute, as its declared type holds it, as the core's `fit_value` writes it: a number to
     a decimal at its scale, a quotient rounded once half to even (declaration-syntax.md §8.3, F4); a number to an
@@ -2534,8 +2548,10 @@ class Runner:
         read no input, as `available` sweeps, and never on the effect or the invariants, which `check` simulates
         (ADR-0152). An evaluator is never asked: a guard that would ask one is listed as unevaluated (ADR-0048,
         ADR-0049). A transition that takes a required input, or whose guard reads an input, is available with input
-        once the rest passes. Each offer is (transition, the type a recording creates, availability, the refusal or
-        None, the input schema, the guards unevaluated, the flags it would raise as (clause, remedy))."""
+        once the rest passes. After the object's own, each creation marked as offered on its type, one per input it
+        binds (ADR-0240). Each offer is (transition, the type a recording or a creation creates, availability, the
+        refusal or None, the input schema, the guards unevaluated, the flags it would raise as (clause, remedy), the
+        input it binds to the object: a recording's `subject`, a creation's marked input, None for the object's own)."""
         if oid not in store.objects:
             raise Refused("not_found", remedy="unreachable_from_here")
         o = store.objects[oid]
@@ -2550,7 +2566,7 @@ class Runner:
         for xn, x in (t.get("transitions") or {}).items():
             if x["kind"] == "initial" or x.get("only_via"):
                 continue
-            offers.append(self.offer(store, o, t, xn, x, who))
+            offers.append(self.offer(store, o, t, xn, x, who) + (None,))
         if o.type == PROPOSAL:
             # a proposal's decisions, which its declared lifecycle names and a request takes on it by their own path: each
             # requestable out of PENDING and guarded by nothing of its own, the proposed request's guards being decided when
@@ -2564,11 +2580,23 @@ class Runner:
                     r = Refused("unavailable", remedy="unreachable_from_here", detail=f"it is in {o.state}")
                 else:
                     r = None
-                offers.append((xn, None, "unavailable" if r else "available", r, {}, [], []))
+                offers.append((xn, None, "unavailable" if r else "available", r, {}, [], [], None))
+        # each creation marked as offered on an input this object fills, by creating type, transition and the input's
+        # place in offered_on; one only_via names is offered on no object (ADR-0240 decisions 2 and 4)
+        for kn in sorted(self.kinds):
+            k = self.kinds[kn]
+            for xn in sorted(k.get("transitions") or {}):
+                x = k["transitions"][xn]
+                if x.get("kind") != "initial" or x.get("only_via"):
+                    continue
+                for bound in x.get("offered_on") or []:
+                    ref = offered_reference(x, k.get("attributes") or {}, bound)
+                    if ref and (ref == ANY_TYPE or store.is_a(o.type, ref)):
+                        offers.append(self.creation_offer(store, o, kn, k, xn, x, bound, who))
         for kn, k in self.kinds.items():
             ref = ((k.get("attributes") or {}).get("subject") or {}).get("reference")
             if "record" in (k.get("transitions") or {}) and ref and (ref == ANY_TYPE or store.is_a(o.type, ref)):
-                offers.append(self.record_offer(store, o, kn, k, who))
+                offers.append(self.record_offer(store, o, kn, k, who) + ("subject",))
         return offers
 
     @staticmethod
@@ -2583,14 +2611,16 @@ class Runner:
             out.update({"to": "state", "admits": "invariant[]"})
         return out
 
-    def decided_for(self, store, actor, oid, xn, aliases):
+    def decided_for(self, store, actor, oid, xn, aliases, creates=None, inputs=None):
         """An offer that may be refused for who takes it, decided for who asks (ADR-0176 decision 2): the request
-        with no inputs simulated whole on a copy of the store, as `check` simulates it, no evaluator asked. Its refusal,
-        or None where it applies, or where the simulation would ask an evaluator or reaches what the runner does not
-        run, which leaves the offer as availability decided it."""
+        with no inputs simulated whole on a copy of the store, as `check` simulates it, no evaluator asked; for a
+        creation offered on an object, `creates`'s creation xn given `inputs`, its bound input (ADR-0240 decision 2).
+        Its refusal, or None where it applies, or where the simulation would ask an evaluator or reaches what the
+        runner does not run, which leaves the offer as availability decided it."""
         probe = Probe()
         try:
-            self.attempted(copy.deepcopy(store), store.type_of(oid), xn, oid, actor, {}, aliases, probe)
+            self.attempted(copy.deepcopy(store), creates or store.type_of(oid), xn, None if creates else oid, actor,
+                           dict(inputs or {}), aliases, probe)
         except Refused as r:
             return None if probe.asked else r
         except NotRunnable:
@@ -2638,6 +2668,47 @@ class Runner:
         except Refused as r:
             return (xn, None, "unavailable", r, schema, unevaluated, [])
         return (xn, None, "available_with_input" if needs else "available", None, schema, unevaluated, flags)
+
+    def creation_offer(self, store, o, kn, k, xn, x, bound, who):
+        """kn's creation xn, offered on o with its input `bound` bound to o (ADR-0240 decision 2): decided on the actor
+        and on each guard that reads no input but the bound one and no name but `inputs`, `now`, a type's and an
+        enumeration's, evaluated with the bound input given and no object, as the object's own offer decides its
+        guards; any other guard waits, as one reading an input does. Its other inputs wait for the caller."""
+        schema = self.input_schema(k.get("attributes") or {}, x)
+        schema.pop(bound, None)
+        needs = any(i != bound for i in x.get("required_inputs", [])) or any(
+            i != bound and not (spec or {}).get("optional") and "default" not in (spec or {})
+            for i, spec in (x.get("inputs") or {}).items())
+        decidable = {"inputs", "now"} | set(self.kinds) | set(self.enums)
+        unevaluated, flags = [], []
+        try:
+            if who is None:
+                raise Refused("unsatisfied", "actor_known", GENERATED_REMEDY["actor_known"])
+            if who["ended"]:
+                raise Refused("unsatisfied", "actor_active", GENERATED_REMEDY["actor_active"])
+            conditions = k.get("conditions") or {}
+            for g, mode in (x.get("guards") or {}).items():
+                if g not in conditions:
+                    raise NotRunnable(f"the guard {g}, which {kn} does not declare")
+                text = conditions[g]["expression"]
+                expr = flowexpr.parse(text)
+                if not names_read(expr) <= decidable or not inputs_read(text) <= {bound}:
+                    needs = True                # decided when the inputs are given, or on the object it creates
+                    continue
+                asking = Evaluator(store, kn, None, {bound: o.id}, who, self.unasked, committed=store).noting(None)
+                ok = truth(asking.value(expr, {}))
+                if asking.unanswered:
+                    unevaluated.append(g)
+                    continue
+                if ok is not True:
+                    if mode == "deny":
+                        raise Refused("unsatisfied", g, conditions[g].get("remedy"), unknown=ok is ABSENT,
+                                      objects=asking.named())
+                    if mode == "warn":
+                        flags.append((g, conditions[g].get("remedy"), ok is ABSENT, asking.named()))
+        except Refused as r:
+            return (xn, kn, "unavailable", r, schema, unevaluated, [], bound)
+        return (xn, kn, "available_with_input" if needs else "available", None, schema, unevaluated, flags, bound)
 
     def record_offer(self, store, o, kn, k, who):
         """Recording an observation of a kind on this subject: its generated guards are decided on the subject, and
@@ -5289,6 +5360,7 @@ def self_test():
     check("a loop over values runs in ascending value order", s.objects[tag].attrs.get("seen"), ("a", "b", "c"))
     ok &= metrics_self_test(kinds["Operator"])
     ok &= media_self_test(kinds["Operator"])
+    ok &= offered_self_test(kinds["Operator"])
     print(f"runner: a small order and its lines, a document over its history, and jobs read by their metrics, each thing "
           f"slices 1 to 4 execute: {'yes' if ok else 'NO'}")
     return ok
@@ -5397,6 +5469,61 @@ def media_self_test(operator):
     check("an imported file taken", w.objects[import_object(r, w, "Copy", "HELD", {"scan": file_value(pdf)})].attrs["scan"],
           file_value(pdf))
     print(f"  media types: each write held to a file's list, a guard reading its media type and size: {'yes' if ok else 'NO'}")
+    return ok
+
+
+def offered_self_test(operator):
+    """A creation offered on the object one of its marked inputs references (ADR-0240): one offer per marked input,
+    after the object's own and before its recordings, decided with that input bound by each guard reading nothing
+    else but `now` and qualified names, and the rest waiting, one calling an evaluator among them; none for a creation
+    only_via names or one no input of which is marked; an unknown actor refused it."""
+    ok = True
+
+    def check(name, got, want):
+        nonlocal ok
+        if got != want:
+            ok = False
+            print(f"  offered on, {name}: {got!r}, not {want!r}")
+    slot = {"attributes": {"title": {"type": "string"}, "tier": {"type": "Tier"}},
+            "states": {"OPEN": {"category": "live"}, "SHUT": {"category": "closed", "final": True}},
+            "transitions": {"open": {"kind": "initial", "to": "OPEN", "required_inputs": ["title", "tier"]},
+                            "shut": {"kind": "external", "from": ["OPEN"], "to": "SHUT"}}}
+    nomination = {"attributes": {"slot": {"reference": "Slot"}, "note": {"type": "string", "optional": True}},
+                  "states": {"NAMED": {"category": "live"}},
+                  "conditions": {"open": {"expression": "inputs.slot.state == Slot.OPEN and inputs.slot.tier == Tier.A",
+                                          "remedy": "dependent"},
+                                 "paid": {"expression": "xero.invoice_paid(inputs.slot)", "remedy": "dependent"},
+                                 "noted": {"expression": "note is not null", "remedy": "self_serviceable"},
+                                 "by_now": {"expression": "now > now - 1 h", "remedy": "temporal"}},
+                  "transitions": {
+                      "name": {"kind": "initial", "to": "NAMED", "required_inputs": ["slot"], "offered_on": ["slot"],
+                               "guards": {"open": "deny", "by_now": "deny"}},
+                      "settle": {"kind": "initial", "to": "NAMED", "required_inputs": ["slot"], "offered_on": ["slot"],
+                                 "guards": {"paid": "deny"}},
+                      "remark": {"kind": "initial", "to": "NAMED", "required_inputs": ["slot"], "optional_inputs": ["note"],
+                                 "offered_on": ["slot"], "guards": {"noted": "deny"}},
+                      "copy": {"kind": "initial", "to": "NAMED", "required_inputs": ["slot"], "offered_on": ["slot"],
+                               "only_via": ["Slot.shut"]},
+                      "draft": {"kind": "initial", "to": "NAMED", "required_inputs": ["slot"]}}}
+    kinds, enums = {"Operator": operator, "Slot": slot, "Nomination": nomination}, {"Tier": ["A", "B"]}
+    r, s = Runner(kinds, enums), Store(kinds, enums)
+    oid = r.attempt(s, "Slot", "open", None, OPERATOR, {"title": "Lead", "tier": "Tier.A"}, {}, {})[1]
+
+    def offered(actor=OPERATOR):
+        return [(x[0], x[1], x[7], x[2], (x[3].verdict, x[3].clause) if x[3] else None, x[5], x[4])
+                for x in r.availability(s, actor, oid)]
+    check("each creation marked on the slot, after its own and before its labelling, decided on its bound input",
+          offered(), [("shut", None, None, "available", None, [], {}),
+                      ("name", "Nomination", "slot", "available", None, [], {}),
+                      ("remark", "Nomination", "slot", "available_with_input", None, [], {"note": "string"}),
+                      ("settle", "Nomination", "slot", "available_with_input", None, [], {}),
+                      ("record", LABEL, "subject", "available_with_input", None, [], offered()[-1][6])])
+    check("an unknown actor refused each creation", {x[4] for x in offered("nobody") if x[1] == "Nomination"},
+          {("unsatisfied", "actor_known")})
+    r.attempt(s, "Slot", "shut", oid, OPERATOR, {}, {}, {})
+    check("a shut slot refused the naming by its guard", [x[3:5] for x in offered() if x[0] == "name"],
+          [("unavailable", ("unsatisfied", "open"))])
+    print(f"  offered on: a creation offered on the object its marked input references: {'yes' if ok else 'NO'}")
     return ok
 
 

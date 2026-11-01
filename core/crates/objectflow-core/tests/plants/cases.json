@@ -47704,6 +47704,881 @@
   }
  },
  {
+  "label": "offered_on_plants: a creation offered on its required references, a machine's among them",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "f7d93c2977f0089b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Nomination (2), Slot (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Booking": [
+    0,
+    0
+   ],
+   "Nomination": [
+    0,
+    1
+   ],
+   "Service": [
+    0,
+    0
+   ],
+   "Slot": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "offered_on_plants: on a transition that is not initial",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "a87eabbe8fce4afd"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Nomination (2), Slot (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staffing.yaml",
+    50,
+    "fatal",
+    "names",
+    "'offered_on' applies only to an initial transition, not to Nomination.drop"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "offered_on_plants: on a machine's transition that is not initial",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "69c759f4ab0fceb4"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Nomination (2), Slot (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staffing.yaml",
+    14,
+    "fatal",
+    "names",
+    "'offered_on' applies only to an initial transition, not to Hold.free"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "offered_on_plants: on a creation only via another transition",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "e7b8c21a138f028e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Nomination (1), Slot (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staffing.yaml",
+    49,
+    "fatal",
+    "names",
+    "Nomination.name is offered on an object, but only_via has no caller request it"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "offered_on_plants: naming an optional input",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "8c435e5c511a893f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Nomination (2), Slot (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staffing.yaml",
+    49,
+    "fatal",
+    "names",
+    "Nomination.name is offered on later, which is no required reference to one object it takes"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "offered_on_plants: naming a defaulted input",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "189b6c65a7806f99"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Nomination (2), Slot (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staffing.yaml",
+    49,
+    "fatal",
+    "names",
+    "Nomination.name is offered on backup, which is no required reference to one object it takes"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "offered_on_plants: naming a set of references",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "9bbc9e1016a1a6a1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Nomination (2), Slot (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staffing.yaml",
+    49,
+    "fatal",
+    "names",
+    "Nomination.name is offered on backup, which is no required reference to one object it takes"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "offered_on_plants: naming an attribute taken as an optional input",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "8f5c4f206ef0f3aa"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Nomination (2), Slot (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staffing.yaml",
+    49,
+    "fatal",
+    "names",
+    "Nomination.name is offered on spare, which is no required reference to one object it takes"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "offered_on_plants: naming an attribute that is no reference",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "2d9e7daf5b9236a6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Nomination (2), Slot (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staffing.yaml",
+    49,
+    "fatal",
+    "names",
+    "Nomination.name is offered on note, which is no required reference to one object it takes"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "offered_on_plants: naming an input it does not take",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "2343825181237198"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Nomination (2), Slot (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staffing.yaml",
+    49,
+    "fatal",
+    "names",
+    "Nomination.name is offered on owner, which is no required reference to one object it takes"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "offered_on_plants: naming a machine's input it does not take",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "3e0619ec8234d3b7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Booking (2), Nomination (2), Slot (2), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staffing.yaml",
+    13,
+    "fatal",
+    "names",
+    "Hold.place is offered on hold, which is no required reference to one object it takes"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "offered_on_plants: an empty list",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "8a73f3c8620ab5d4"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    49,
+    "fatal",
+    "schema",
+    "[] is too short"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
+  "label": "offered_on_plants: an input twice",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "staffing.yaml",
+    "6c24a9e085a92e8d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staffing.yaml",
+    49,
+    "fatal",
+    "schema",
+    "['slot', 'slot'] has non-unique elements"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
   "label": "syntax_plants",
   "files": [
    [

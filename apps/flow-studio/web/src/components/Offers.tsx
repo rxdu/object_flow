@@ -73,14 +73,15 @@ export function Offers({
     propose = false,
   ) {
     setOpen(null);
-    const recording = o.creates !== null;
+    // a recording or a creation, this object the input it binds (ADR-0240)
+    const creating = o.creates !== null;
     const v = await player.request(
-      recording
+      creating
         ? {
             transition: o.transition,
             actor: { id: actor },
             type: o.creates ?? "",
-            inputs: { ...inputs, subject: objectId },
+            inputs: { ...inputs, [o.binds ?? "subject"]: objectId },
           }
         : {
             transition: o.transition,
@@ -89,13 +90,14 @@ export function Offers({
             inputs,
             ...(propose ? { propose: true } : {}),
           },
-      `${propose ? "propose " : ""}${recording ? `${o.creates}.record on` : `${o.transition} on`} ${objectId}`,
+      `${propose ? "propose " : ""}${creating ? `${o.creates}.${o.transition} on` : `${o.transition} on`} ${objectId}`,
     );
     onDone(v);
   }
 
   if (error) return <p className="text-sm text-red-700">{error}</p>;
-  const key = (o: TransitionOffer) => `${o.transition}/${o.creates ?? ""}`;
+  const key = (o: TransitionOffer) =>
+    `${o.transition}/${o.creates ?? ""}/${o.binds ?? ""}`;
   const proposable = (o: TransitionOffer) =>
     o.creates === null &&
     decl?.transitions?.[o.transition]?.proposable === true;
@@ -118,7 +120,11 @@ export function Offers({
               {o.availability.replace(/_/g, " ")}
             </span>
             <span className="font-mono">
-              {o.creates ? `record ${o.creates}` : o.transition}
+              {o.creates === null
+                ? o.transition
+                : o.transition === "record"
+                  ? `record ${o.creates}`
+                  : `${o.creates}.${o.transition} (${o.binds ?? ""})`}
             </span>
             <span className="ml-auto flex gap-1">
               {o.availability !== "unavailable" && (

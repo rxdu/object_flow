@@ -166,8 +166,12 @@ export type Availability = "available" | "available_with_input" | "unavailable";
 /** What a transition offers its actor now (library-api.md §5, ADR-0152). */
 export interface TransitionOffer {
   transition: string;
-  /** the observation kind a recording creates; otherwise null */
+  /** the type a recording or a creation creates; null for the object's own
+   * transitions */
   creates: string | null;
+  /** the input a recording or a creation takes this object as, `subject`
+   * for a recording; null for the object's own transitions (ADR-0240) */
+  binds?: string | null;
   availability: Availability;
   verdict: Verdict | null;
   /** each input by name, with the type a caller supplies */

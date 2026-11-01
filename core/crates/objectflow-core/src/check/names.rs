@@ -236,6 +236,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
     }
     let mut out = reserved_name_errors(doc);
     out.extend(media_types_errors(doc));
+    out.extend(offered_on_errors(doc));
     out.extend(relationship_errors(doc, &library));
     out.extend(combined_errors(doc));
     out.extend(cascade_cycle_errors(doc, &library));
@@ -610,6 +611,60 @@ fn media_types_errors(doc: &Value) -> Found {
                         segs!["types", &tn, "transitions", xn, "inputs", i, "media_types"],
                         "names",
                         only(&format!("the input {i} of {tn}.{xn}")),
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Each `offered_on` its transition cannot hold (ADR-0240): on one that is
+/// not initial, on one `only_via` names, which no caller requests, and
+/// naming an input that is no required reference to one object.
+fn offered_on_errors(doc: &Value) -> Found {
+    let mut out = Found::new();
+    let single = |spec: &Value| text(spec, "reference").is_some_and(|r| !r.ends_with("[]"));
+    for (tn, t) in types(doc) {
+        let attrs = obj(t, "attributes");
+        for (xn, x) in obj(t, "transitions") {
+            if !has(x, "offered_on") {
+                continue;
+            }
+            let at = segs!["types", &tn, "transitions", xn, "offered_on"];
+            if text(x, "kind") != Some("initial") {
+                out.push(finding(
+                    at.clone(),
+                    "names",
+                    format!("'offered_on' applies only to an initial transition, not to {tn}.{xn}"),
+                ));
+            }
+            if has(x, "only_via") {
+                out.push(finding(
+                    at.clone(),
+                    "names",
+                    format!(
+                        "{tn}.{xn} is offered on an object, but only_via has no caller request it"
+                    ),
+                ));
+            }
+            let declared = obj(x, "inputs");
+            let required = strings(x, "required_inputs");
+            for (i, b) in list(x, "offered_on").iter().enumerate() {
+                let b = py_str(b);
+                let takes = match declared.get(&b) {
+                    Some(spec) => {
+                        single(spec)
+                            && spec.get("optional").and_then(Value::as_bool) != Some(true)
+                            && !has(spec, "default")
+                    }
+                    None => required.contains(&b) && attrs.get(&b).is_some_and(single),
+                };
+                if !takes {
+                    out.push(finding(
+                        ext(&at, segs![i]),
+                        "names",
+                        format!("{tn}.{xn} is offered on {b}, which is no required reference to one object it takes"),
                     ));
                 }
             }
