@@ -686,6 +686,102 @@ fn a_batch_through_the_wire_applies_whole_or_not_at_all() {
     );
 }
 
+/// A batch through the wire names what an earlier request of it creates by
+/// the lid that request gives, as an input and as the object it acts on,
+/// its check alike; and a lid it cannot resolve is refused 400 before any
+/// of it runs, as a lid on a request sent alone is (ADR-0238).
+#[test]
+fn a_batch_through_the_wire_names_what_it_creates_by_lid() {
+    let path = fresh_store("batch-lid");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish_service(&s);
+    let op = json!({"id": "operator"});
+    let staffed = |login: &str| {
+        json!([
+            {"type": "User", "transition": "add", "inputs": {"login": login, "name": login}, "lid": "u"},
+            {"type": "ServiceJob", "transition": "open", "inputs": {"engineer": {"lid": "u"}}, "lid": "j"},
+            {"object_id": {"lid": "j"}, "transition": "start"},
+        ])
+    };
+    let checked = post(
+        &s,
+        "/v1/check_batch",
+        &json!({"actor": op, "requests": staffed("ana")}),
+    );
+    assert_eq!(checked["applies"], true, "{checked}");
+    let ran = post(
+        &s,
+        "/v1/batch",
+        &json!({"actor": op, "requests": staffed("ana")}),
+    );
+    assert_eq!(ran["applied"], true, "{ran}");
+    let (user, job) = (
+        ran["verdicts"][0]["object_id"].clone(),
+        ran["verdicts"][1]["object_id"].clone(),
+    );
+    assert_eq!(ran["verdicts"][2]["object_id"], job, "{ran}");
+    let got = post(&s, "/v1/get", &json!({"id": job}));
+    assert_eq!(
+        (&got["state"], &got["attributes"]["engineer"]),
+        (&json!("WORKING"), &user),
+        "{got}"
+    );
+    let mut forward = staffed("bea");
+    forward.as_array_mut().expect("the requests").swap(0, 1);
+    let mut acting = staffed("cy");
+    acting[2]["lid"] = json!("s");
+    let mut both = staffed("dee");
+    both[2]["object_id"] = json!({"lid": "j", "id": job});
+    for (requests, says) in [
+        (
+            forward,
+            "request 0 of the batch names the lid u, which no earlier request",
+        ),
+        (
+            acting,
+            "request 2 of the batch gives the lid s, but creates nothing",
+        ),
+        (
+            both,
+            "request 2 of the batch's object_id takes an object's id",
+        ),
+    ] {
+        let (status, said) = call(
+            &s,
+            "POST",
+            "/v1/batch",
+            Some(&json!({"actor": op, "requests": requests})),
+        );
+        assert_eq!(status, 400, "{says}: {said}");
+        assert!(
+            said["fault"].as_str().unwrap_or_default().contains(says),
+            "{says}: {said}"
+        );
+    }
+    for login in ["bea", "cy", "dee"] {
+        let found = post(
+            &s,
+            "/v1/query",
+            &json!({"actor": op, "type": "User", "filter": "login == :login", "params": {"login": login}}),
+        );
+        assert_eq!(found["items"], json!([]), "a refused batch kept {login}");
+    }
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/request",
+        Some(&json!({"actor": op, "type": "User", "transition": "add",
+                     "inputs": {"login": "eve", "name": "eve"}, "lid": "u"})),
+    );
+    assert_eq!(status, 400, "a lid on a request sent alone: {said}");
+}
+
 /// A batch's check answers what the batch then answers, applied or
 /// refused at the same request, and writes nothing, not an event nor an
 /// attempt row; a satisfied verdict names nothing its run made, each said

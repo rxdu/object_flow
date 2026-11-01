@@ -4352,6 +4352,24 @@ impl Store {
         Ok(())
     }
 
+    /// The batch's refused request's row keeping each input it holds as the
+    /// request sent it: a lid where it named an object an earlier request
+    /// of the batch made, which the rollback unmakes, not that object's id
+    /// (ADR-0238 decision 4). An input the row withholds stays withheld.
+    pub(crate) fn keep_sent_inputs(&mut self, sent: &BTreeMap<String, serde_json::Value>) {
+        let held = self
+            .batch
+            .as_mut()
+            .and_then(|b| b.attempt.as_mut())
+            .and_then(|a| a.request_values.get_mut("inputs"))
+            .and_then(serde_json::Value::as_object_mut);
+        for (k, v) in held.into_iter().flatten() {
+            if let Some(as_sent) = sent.get(k) {
+                *v = as_sent.clone();
+            }
+        }
+    }
+
     /// The batch rolled back, every request in it, and what a refused
     /// request keeps written after, each in a transaction of its own: the
     /// numbers its requests drew and the refused request's attempt row

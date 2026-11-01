@@ -691,20 +691,34 @@ An `Event` carries what the log stores and no more: the actor's id, kind and pri
 
 ```python
 
+@dataclass(frozen=True)
+class LocalNames:
+    """A request of a batch's local names (ADR-0238): the name it gives the
+    object it creates, and the name an earlier request gave the object it
+    acts on, in place of its object_id. An input names such an object as
+    {"lid": <name>}, alone or as an element of a set, where it would give the
+    object's id; the batch resolves each to the id before the request runs."""
+    lid: str | None = None
+    object_lid: str | None = None
+
+
 class Store(Protocol):
     """One API. Every operation names an actor, which a write records; no read
     is filtered by it (ADR-0114)."""
 
     def request(self, req: Request) -> Verdict: ...
 
-    def batch(self, reqs: Sequence[Request], idempotency_key: str | None = None) -> Sequence[Verdict]:
+    def batch(self, reqs: Sequence[Request], idempotency_key: str | None = None,
+              names: Sequence[LocalNames] = ()) -> Sequence[Verdict]:
         """Applied whole or not at all, in one transaction (ADR-0228): on a
         refusal the verdicts end at the refused request's, and nothing of
         the batch is applied. Under a key its actor applied it under before,
-        its first verdicts, each replaying."""
+        its first verdicts, each replaying. `names` holds each request's
+        local names by its index, or none (ADR-0238)."""
         ...
 
-    def check_batch(self, reqs: Sequence[Request]) -> Sequence[Verdict]:
+    def check_batch(self, reqs: Sequence[Request],
+                    names: Sequence[LocalNames] = ()) -> Sequence[Verdict]:
         """What batch would answer on the store as it stands, nothing written
         (ADR-0228 decision 12): the batch run and rolled back whole, keeping
         no event, no number drawn and no attempt row, so it holds the writer

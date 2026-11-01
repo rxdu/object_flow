@@ -2782,7 +2782,7 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// The keys a request of a batch takes: a request's but the actor and its
 /// principal, which the batch gives for all of them, and those no batch
 /// holds, a proposal's and a key of a request's own (ADR-0228 decisions 4
-/// and 10).
+/// and 10); and `lid`, the name it gives the object it creates (ADR-0238).
 const BATCH_REQUEST_KEYS: &[&str] = &[
     "transition",
     "object_id",
@@ -2791,32 +2791,58 @@ const BATCH_REQUEST_KEYS: &[&str] = &[
     "occurred_at",
     "expected_version",
     "context",
+    "lid",
 ];
 
-/// A batch's requests, each taking the batch's actor and principal.
-fn batch_of(body: &J) -> Result<Vec<Request>, Fault> {
+/// A batch's requests, each taking the batch's actor and principal, and
+/// their local names (ADR-0238): a request's `lid`, and its `object_id`
+/// given as `{"lid": <name>}`, which the core resolves.
+fn batch_of(body: &J) -> Result<(Vec<Request>, Vec<request::LocalNames>), Fault> {
     let Some(reqs) = body.get("requests").and_then(J::as_array) else {
         return Err(Fault::Bad(
             "requests takes an array of requests".to_string(),
         ));
     };
-    reqs.iter()
-        .enumerate()
-        .map(|(i, r)| {
-            let what = format!("request {i} of the batch");
-            if !r.is_object() {
-                return Err(Fault::Bad(format!("{what} takes an object")));
+    let mut out = Vec::with_capacity(reqs.len());
+    let mut names = Vec::with_capacity(reqs.len());
+    for (i, r) in reqs.iter().enumerate() {
+        let what = format!("request {i} of the batch");
+        if !r.is_object() {
+            return Err(Fault::Bad(format!("{what} takes an object")));
+        }
+        takes_only(r, &what, BATCH_REQUEST_KEYS)?;
+        let mut given = r.clone();
+        for k in ["actor", "principal"] {
+            if let Some(v) = body.get(k) {
+                given[k] = v.clone();
             }
-            takes_only(r, &what, BATCH_REQUEST_KEYS)?;
-            let mut given = r.clone();
-            for k in ["actor", "principal"] {
-                if let Some(v) = body.get(k) {
-                    given[k] = v.clone();
-                }
+        }
+        let lid = match given.as_object_mut().and_then(|m| m.remove("lid")) {
+            None | Some(J::Null) => None,
+            Some(J::String(l)) => Some(l),
+            Some(_) => return Err(Fault::Bad(format!("{what}'s lid takes a name, a string"))),
+        };
+        // an object an earlier request of the batch made, by the lid it gave
+        let object_lid = match given.get("object_id") {
+            Some(J::Object(m)) => {
+                let Some(J::String(l)) = m.get("lid").filter(|_| m.len() == 1) else {
+                    return Err(Fault::Bad(format!(
+                        "{what}'s object_id takes an object's id, or {{\"lid\": <name>}} naming one an earlier request of the batch makes"
+                    )));
+                };
+                let l = l.clone();
+                given["object_id"] = J::Null;
+                Some(l)
             }
-            request_of(&given)
-        })
-        .collect()
+            _ => None,
+        };
+        out.push(request_parts(&given, object_lid.is_some())?);
+        names.push(request::LocalNames { lid, object_lid });
+    }
+    if names.iter().all(|n| *n == request::LocalNames::default()) {
+        names.clear();
+    }
+    Ok((out, names))
 }
 
 /// Several requests applied whole or not at all, in one transaction, each
@@ -2826,7 +2852,7 @@ fn batch_of(body: &J) -> Result<Vec<Request>, Fault> {
 /// group with others (ADR-0208), since its refusal rolls back all of it.
 async fn batch_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answering(move || {
-        let reqs = batch_of(&body)?;
+        let (reqs, names) = batch_of(&body)?;
         // the batch's key, its actor's, read as a request's is (ADR-0228
         // decision 8)
         let key = idempotency_key_of(&body)?;
@@ -2837,7 +2863,7 @@ async fn batch_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
             let ran = {
                 let s = store(&mut w)?;
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    request::batch(s, &reqs, key.as_deref())
+                    request::batch_named(s, &reqs, &names, key.as_deref())
                 }))
             };
             match ran {
@@ -2914,6 +2940,9 @@ fn batch_fault(f: request::BatchFault) -> Fault {
         request::BatchFault::KeyReused { key } => Fault::Conflict(format!(
             "key_reused: this actor applied the idempotency key {key} to a different batch or request"
         )),
+        request::BatchFault::Named { index, why } => {
+            Fault::Bad(format!("request {index} of the batch {why}"))
+        }
     }
 }
 
@@ -2936,7 +2965,7 @@ fn batch_unanswered(index: usize, c: &objectflow_core::eval::Call) -> Fault {
 /// check does (ADR-0206 decision 2).
 async fn check_batch_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answering(move || {
-        let reqs = batch_of(&body)?;
+        let (reqs, names) = batch_of(&body)?;
         let opted = opted(&body)?;
         // a check is an oracle that writes nothing, not even an attempt row,
         // so a request decided by a personal member is opted into; one
@@ -2972,7 +3001,7 @@ async fn check_batch_op(State(shared): State<Shared>, Body(body): Body) -> Answe
             let ran = {
                 let s = store(&mut w)?;
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    request::check_batch(s, &reqs)
+                    request::check_batch_named(s, &reqs, &names)
                 }))
             };
             match ran {
@@ -3480,6 +3509,12 @@ fn idempotency_key_of(body: &J) -> Result<Option<String>, Fault> {
 }
 
 fn request_of(body: &J) -> Result<Request, Fault> {
+    request_parts(body, false)
+}
+
+/// A request, `named` where a batch names its object by a lid in place of
+/// its `object_id` (ADR-0238).
+fn request_parts(body: &J, named: bool) -> Result<Request, Fault> {
     let idempotency_key = idempotency_key_of(body)?;
     // the version of its object the caller read (library-api.md §3)
     let expected_version = match body.get("expected_version") {
@@ -3525,7 +3560,7 @@ fn request_of(body: &J) -> Result<Request, Fault> {
     // an object_id names the object, and a type beside it the type it must
     // be of, as a tool bound to its type sends (thirteenth production review
     // B); a type alone creates one
-    if object_id.is_none() && type_.is_none() {
+    if object_id.is_none() && type_.is_none() && !named {
         return Err(Fault::Bad(
             "a request names an object_id, a type to create one, or both".to_string(),
         ));

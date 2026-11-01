@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Added
+
+- A request of a batch names what an earlier request of it creates: a request that creates gives a `lid`, and a later one writes `{"lid": "<name>"}` where it would give the object's id, as its `object_id`, a reference input or a set's element. `check_batch` resolves names alike, and a name the batch cannot resolve is a `400` before any request runs (ADR-0238, issue #43). In the library, `request::batch_named` and `request::check_batch_named` take the names; `batch` and `check_batch` are unchanged.
+
 ### Changed
 
 - An operation reads the subscriptions' acknowledged cursors and the events that recorded an admission only where it uses them. Every request and read read both before, so a draft on PostgreSQL sends 25 statements where it sent 29 (`docs/research/write-throughput.md` §6). A damaged cursor fails only an operation that reads it, where it failed every operation.

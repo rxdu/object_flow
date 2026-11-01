@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-23 under the author's direction ("go ahead with your recommendations"), after the review of issue #30.
 - **Date:** 2026-10-23
+- **Refined by:** ADR-0238 — a request of a batch names what an earlier one creates, by the `lid` it gave
 - **Supersedes in part:** ADR-0037's rejection of an atomic batch (its "Alternatives rejected: An atomic batch") and its `batch` row, which described N independent requests and was never built
 - **Refines:** ADR-0208 decision 4 (a group rolled back whole)
 - **Relates to:** PRD F2 and C5; ADR-0019 (cascades), ADR-0023 decision 1 (one transaction per request), ADR-0104 and ADR-0105 (the engine takes no step of its own), ADR-0114 (who may do what is the upper layer's); `docs/research/atomic-batches.md`

@@ -6832,18 +6832,155 @@ pub enum BatchFault {
     KeyReused {
         key: String,
     },
+    /// A local name the batch cannot resolve, named by the request's index
+    /// (ADR-0238 decision 2).
+    Named {
+        index: usize,
+        why: String,
+    },
+}
+
+/// The local names of a request of a batch (ADR-0238): `lid`, the name it
+/// gives the object it creates, and `object_lid`, the name an earlier
+/// request gave the object it acts on, in place of its `object_id`. An input
+/// names such an object as `{"lid": <name>}`, alone or as an element of a
+/// set, where it would give the object's id.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LocalNames {
+    pub lid: Option<String>,
+    pub object_lid: Option<String>,
+}
+
+/// The local name a value holds in place of an object's id, an object of
+/// the one member `lid`; why it is malformed where that is no name.
+fn lid_of(v: &Json) -> Option<Result<&str, String>> {
+    let o = v.as_object().filter(|o| o.len() == 1)?;
+    let lid = o.get("lid")?;
+    Some(
+        lid.as_str()
+            .filter(|l| !l.is_empty())
+            .ok_or_else(|| format!("names the lid {lid}, where a lid is a name, a string")),
+    )
+}
+
+/// Each local name a request's inputs hold, as a value or as a set's
+/// element, in its inputs' order.
+fn lids_in(req: &Request) -> Result<Vec<&str>, String> {
+    let mut out = Vec::new();
+    for v in req.inputs.values() {
+        let elements = v.as_array().map_or_else(|| vec![v], |a| a.iter().collect());
+        for e in elements {
+            if let Some(lid) = lid_of(e) {
+                out.push(lid?);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Why a batch's local names cannot be resolved, before any request of it
+/// runs (ADR-0238 decision 2): a request naming a lid no earlier request
+/// gives, or naming its object both ways; one giving a lid it creates
+/// nothing for, as a request acting on an object does, or one an earlier
+/// request gave; and names for another number of requests than the batch's.
+fn names_fault(reqs: &[Request], names: &[LocalNames]) -> Option<BatchFault> {
+    if !names.is_empty() && names.len() != reqs.len() {
+        return Some(BatchFault::Named {
+            index: names.len().min(reqs.len()),
+            why: format!(
+                "has no local names, which are given for {} requests of the {} the batch holds",
+                names.len(),
+                reqs.len()
+            ),
+        });
+    }
+    let none = LocalNames::default();
+    let mut given = BTreeSet::new();
+    for (index, req) in reqs.iter().enumerate() {
+        let n = names.get(index).unwrap_or(&none);
+        let fault = |why: String| Some(BatchFault::Named { index, why });
+        if n.object_lid.is_some() && req.object_id.is_some() {
+            return fault("names its object both by an object_id and by a lid".into());
+        }
+        let named = match lids_in(req) {
+            Ok(named) => named,
+            Err(why) => return fault(why),
+        };
+        for lid in n.object_lid.iter().map(String::as_str).chain(named) {
+            if lid.is_empty() {
+                return fault("names an empty lid".into());
+            }
+            if !given.contains(lid) {
+                return fault(format!(
+                    "names the lid {lid}, which no earlier request of the batch gives"
+                ));
+            }
+        }
+        if let Some(lid) = &n.lid {
+            if lid.is_empty() {
+                return fault("gives an empty lid".into());
+            }
+            if req.type_.is_none() || req.object_id.is_some() || n.object_lid.is_some() {
+                return fault(format!(
+                    "gives the lid {lid}, but creates nothing: a lid names the object a creation makes"
+                ));
+            }
+            if !given.insert(lid.as_str()) {
+                return fault(format!(
+                    "gives the lid {lid}, which an earlier request of the batch gives"
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// The request as it runs (ADR-0238 decision 3): each local name it holds
+/// replaced by the id of the object the request giving it made, so it is
+/// judged as that id would be.
+fn resolved(req: &Request, n: Option<&LocalNames>, made: &BTreeMap<String, String>) -> Request {
+    let id = |v: &Json| match lid_of(v) {
+        Some(Ok(lid)) => made.get(lid).map_or_else(|| v.clone(), |id| json!(id)),
+        _ => v.clone(),
+    };
+    let mut out = req.clone();
+    if let Some(lid) = n.and_then(|n| n.object_lid.as_ref()) {
+        out.object_id = made.get(lid).cloned();
+    }
+    for v in out.inputs.values_mut() {
+        *v = match v.as_array() {
+            Some(a) => Json::Array(a.iter().map(id).collect()),
+            None => id(v),
+        };
+    }
+    out
 }
 
 /// A batch's digest, over each of its requests' digests in order, its
 /// actor and principal resolved, and marked as a batch's, so a request and a
 /// batch under one key never replay each other (ADR-0228 decision 8). An
 /// erasure of what any of them sent replaces it whole, so its key replays
-/// nothing after (ADR-0205 decision 3).
-fn batch_digest(lib: &Library, reqs: &[Request], actor: &str, principal: Option<&str>) -> String {
+/// nothing after (ADR-0205 decision 3). A request's local names are digested
+/// where it has any, so a batch without them digests as it did before them
+/// (ADR-0238 decision 4).
+fn batch_digest(
+    lib: &Library,
+    reqs: &[Request],
+    names: &[LocalNames],
+    actor: &str,
+    principal: Option<&str>,
+) -> String {
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
-    for r in reqs {
+    for (i, r) in reqs.iter().enumerate() {
         h.update(request_digest(lib, r, Some(actor), principal).as_bytes());
+        if let Some(n) = names.get(i).filter(|n| **n != LocalNames::default()) {
+            h.update(
+                json!({"lid": n.lid, "object_lid": n.object_lid})
+                    .to_string()
+                    .as_bytes(),
+            );
+        }
         h.update(b"\n");
     }
     let hex: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
@@ -6932,11 +7069,25 @@ pub fn batch(
     reqs: &[Request],
     key: Option<&str>,
 ) -> Result<Result<Batched, BatchFault>, crate::store::StoreError> {
+    batch_named(store, reqs, &[], key)
+}
+
+/// A [`batch`] whose requests may name what earlier ones create, `names`
+/// holding each request's local names by its index, or none (ADR-0238).
+pub fn batch_named(
+    store: &mut crate::store::Store,
+    reqs: &[Request],
+    names: &[LocalNames],
+    key: Option<&str>,
+) -> Result<Result<Batched, BatchFault>, crate::store::StoreError> {
     if reqs.is_empty() {
         return Ok(Err(BatchFault::Empty));
     }
     if reqs.len() > BATCH_MOST {
         return Ok(Err(BatchFault::OverLimit { most: BATCH_MOST }));
+    }
+    if let Some(fault) = names_fault(reqs, names) {
+        return Ok(Err(fault));
     }
     let unread = |e: NotRun| crate::store::StoreError(e.to_string());
     // the batch's key, its actor's: one the actor applied before replays
@@ -6952,7 +7103,7 @@ pub fn batch(
         }
         let Some(key) = key else {
             drop(world);
-            return run_batch(store, reqs, None, false);
+            return run_batch(store, reqs, names, None, false);
         };
         let (actor, principal) = (&reqs[0].actor, &reqs[0].principal);
         if let Some(index) = reqs
@@ -6971,7 +7122,7 @@ pub fn batch(
                     Some(p) => resolve_actor(&world, p).map_err(unread)?.map(|w| w.id),
                     None => None,
                 };
-                let digest = batch_digest(world.lib, reqs, &who.id, principal.as_deref());
+                let digest = batch_digest(world.lib, reqs, names, &who.id, principal.as_deref());
                 if let Some((applied, recorded)) =
                     world.idempotency_of(&who.id, key).map_err(unread)?
                 {
@@ -6992,7 +7143,7 @@ pub fn batch(
             None => None,
         }
     };
-    run_batch(store, reqs, keyed, false)
+    run_batch(store, reqs, names, keyed, false)
 }
 
 /// What a batch would answer on the store as it stands, nothing of it
@@ -7007,11 +7158,25 @@ pub fn check_batch(
     store: &mut crate::store::Store,
     reqs: &[Request],
 ) -> Result<Result<Batched, BatchFault>, crate::store::StoreError> {
+    check_batch_named(store, reqs, &[])
+}
+
+/// What a [`batch_named`] would answer on the store as it stands, its local
+/// names resolved as the batch resolves them, nothing of it written
+/// (ADR-0238 decision 5).
+pub fn check_batch_named(
+    store: &mut crate::store::Store,
+    reqs: &[Request],
+    names: &[LocalNames],
+) -> Result<Result<Batched, BatchFault>, crate::store::StoreError> {
     if reqs.is_empty() {
         return Ok(Err(BatchFault::Empty));
     }
     if reqs.len() > BATCH_MOST {
         return Ok(Err(BatchFault::OverLimit { most: BATCH_MOST }));
+    }
+    if let Some(fault) = names_fault(reqs, names) {
+        return Ok(Err(fault));
     }
     {
         let world = store.snapshot()?;
@@ -7023,7 +7188,7 @@ pub fn check_batch(
             }
         }
     }
-    run_batch(store, reqs, None, true)
+    run_batch(store, reqs, names, None, true)
 }
 
 /// The batch run, once nothing refuses it before: its key recorded where
@@ -7032,6 +7197,7 @@ pub fn check_batch(
 fn run_batch(
     store: &mut crate::store::Store,
     reqs: &[Request],
+    names: &[LocalNames],
     keyed: Option<(String, String, String)>,
     checking: bool,
 ) -> Result<Result<Batched, BatchFault>, crate::store::StoreError> {
@@ -7046,7 +7212,10 @@ fn run_batch(
     };
     store.begin_batch()?;
     let mut applied = Vec::with_capacity(reqs.len());
-    for (index, req) in reqs.iter().enumerate() {
+    // each lid given, by the id of the object its request made (ADR-0238)
+    let mut made = BTreeMap::new();
+    for (index, sent) in reqs.iter().enumerate() {
+        let req = &resolved(sent, names.get(index), &made);
         // checked again on the state it runs on, the ones before it applied,
         // in the batch's transaction and with the writer held, so a target
         // the check before the batch could not resolve, as one an earlier
@@ -7080,8 +7249,18 @@ fn run_batch(
             }
         };
         match out {
-            Ok((v @ Verdict::Satisfied { .. }, told)) => applied.push((v, told)),
+            Ok((v @ Verdict::Satisfied { .. }, told)) => {
+                if let (Verdict::Satisfied { object_id, .. }, Some(lid)) =
+                    (&v, names.get(index).and_then(|n| n.lid.as_ref()))
+                {
+                    made.insert(lid.clone(), object_id.clone());
+                }
+                applied.push((v, told));
+            }
             answer => {
+                // its row keeps its inputs as it sent them, a lid where it
+                // named what the rollback unmakes (ADR-0238 decision 4)
+                store.keep_sent_inputs(&sent.inputs);
                 undo(store, Some(index))?;
                 // what the rollback left unmade is named by no answer
                 let world = store.snapshot()?;
@@ -11807,6 +11986,360 @@ types:
             Err(BatchFault::Held { index: 1, .. })
         ));
         assert_eq!(check_batch(&mut s, &[]).unwrap(), Err(BatchFault::Empty));
+    }
+
+    /// A request of the jobs flow, asked as the operator, for a batch.
+    fn asked(xn: &str, target: (&str, bool), inputs: Json) -> Request {
+        let (name, is_type) = target;
+        Request {
+            transition: xn.into(),
+            actor: OPERATOR.into(),
+            object_id: (!is_type).then(|| name.to_string()),
+            type_: is_type.then(|| name.to_string()),
+            inputs: inputs
+                .as_object()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        }
+    }
+
+    /// A request acting on the object an earlier request of its batch
+    /// named, by that name alone.
+    fn on_lid(xn: &str, inputs: Json) -> Request {
+        Request {
+            type_: None,
+            ..asked(xn, ("", true), inputs)
+        }
+    }
+
+    fn gives(lid: &str) -> LocalNames {
+        LocalNames {
+            lid: Some(lid.into()),
+            object_lid: None,
+        }
+    }
+
+    fn names(lid: &str) -> LocalNames {
+        LocalNames {
+            lid: None,
+            object_lid: Some(lid.into()),
+        }
+    }
+
+    /// A user, a job, and the job started with the user as its engineer,
+    /// each named by the lid the request making it gives.
+    fn staffed() -> (Vec<Request>, Vec<LocalNames>) {
+        (
+            vec![
+                asked("add", ("User", true), json!({"login": "ann"})),
+                asked("open", ("Job", true), json!({"title": "Pump"})),
+                on_lid("start", json!({"engineer": {"lid": "u"}})),
+            ],
+            vec![gives("u"), gives("j"), names("j")],
+        )
+    }
+
+    fn made(v: &(Verdict, Told)) -> String {
+        created(&v.0)
+    }
+
+    /// A request of a batch names what an earlier one created by the lid
+    /// that request gave, as the object it acts on and as an input, and is
+    /// judged and recorded as if it had sent the id (ADR-0238 decisions 1,
+    /// 3 and 4).
+    #[test]
+    fn a_batch_names_what_an_earlier_request_creates_by_its_lid() {
+        let mut s = store();
+        let (reqs, lids) = staffed();
+        let Batched::Applied(applied) = batch_named(&mut s, &reqs, &lids, None).unwrap().unwrap()
+        else {
+            panic!("the batch was refused")
+        };
+        let (user, job) = (made(&applied[0]), made(&applied[1]));
+        assert_eq!(made(&applied[2]), job, "start acted on another object");
+        let w = s.snapshot().unwrap();
+        let o = w.get(&job).unwrap().unwrap().clone();
+        assert_eq!(o.state, "WORKING");
+        assert_eq!(o.attrs.get("engineer"), Some(&Value::Object(user.clone())));
+        drop(w);
+        let started = s.history(&job).unwrap().last().cloned().unwrap();
+        assert_eq!(started.transition, "start");
+        assert_eq!(started.payload["inputs"]["engineer"], json!(user));
+        // a name that is not a lid's object is a value of its own, judged
+        // by its type
+        let (mut reqs, lids) = staffed();
+        reqs[0].inputs.insert("login".into(), json!("bo"));
+        reqs[2]
+            .inputs
+            .insert("engineer".into(), json!({"lid": "u", "x": 1}));
+        let Batched::Refused { index: 2, answer } =
+            batch_named(&mut s, &reqs, &lids, None).unwrap().unwrap()
+        else {
+            panic!("a value holding more than a lid was read as one")
+        };
+        assert!(
+            matches!(*answer, Ok((Verdict::InvalidInput { .. }, _))),
+            "{answer:?}"
+        );
+    }
+
+    /// A set's element names what an earlier request created, each element
+    /// resolved on its own (ADR-0238 decision 1).
+    #[test]
+    fn a_sets_elements_name_what_earlier_requests_create() {
+        const CREWS: &str = r#"
+module: crews
+categories: [live]
+types:
+  Hand:
+    attributes:
+      name: { type: string }
+    states: { ON: { category: live } }
+    transitions:
+      hire: { kind: initial, to: ON, required_inputs: [name] }
+  Crew:
+    attributes:
+      size: { type: int, optional: true }
+    states: { ON: { category: live } }
+    transitions:
+      form:
+        kind: initial
+        to: ON
+        inputs: { members: { reference: "Hand[]" } }
+        effect:
+          - assign: { location: size, expr: count(m in inputs.members) }
+"#;
+        let lib = Library::load(&[("crews.yaml".into(), CREWS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let ann = created(&req(
+            &mut s,
+            "hire",
+            OPERATOR,
+            ("Hand", true),
+            json!({"name": "Ann"}),
+        ));
+        let reqs = vec![
+            asked("hire", ("Hand", true), json!({"name": "Bo"})),
+            asked("hire", ("Hand", true), json!({"name": "Cy"})),
+            asked(
+                "form",
+                ("Crew", true),
+                json!({"members": [{"lid": "bo"}, ann, {"lid": "cy"}]}),
+            ),
+        ];
+        let lids = vec![gives("bo"), gives("cy"), LocalNames::default()];
+        let Batched::Applied(applied) = batch_named(&mut s, &reqs, &lids, None).unwrap().unwrap()
+        else {
+            panic!("the batch was refused")
+        };
+        let (bo, cy, crew) = (made(&applied[0]), made(&applied[1]), made(&applied[2]));
+        let formed = s.history(&crew).unwrap().last().cloned().unwrap();
+        assert_eq!(formed.payload["inputs"]["members"], json!([bo, ann, cy]));
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.get(&crew).unwrap().unwrap().attrs.get("size"),
+            Some(&Value::Int(3))
+        );
+    }
+
+    /// A batch whose local names cannot be resolved is refused before any
+    /// request of it runs, naming the request, and writes nothing, its check
+    /// alike (ADR-0238 decision 2).
+    #[test]
+    fn a_batch_naming_what_it_cannot_resolve_is_refused_before_any_runs() {
+        let mut s = store();
+        let job = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Job", true),
+            json!({"title": "Pump"}),
+        ));
+        let user = || asked("add", ("User", true), json!({"login": "ann"}));
+        let start = |inputs: Json| asked("start", (&job, false), inputs);
+        let none = LocalNames::default;
+        let cases: Vec<(&str, Vec<Request>, Vec<LocalNames>, usize)> = vec![
+            (
+                "a lid given twice",
+                vec![user(), user()],
+                vec![gives("u"), gives("u")],
+                1,
+            ),
+            (
+                "a lid named before it is given",
+                vec![on_lid("start", json!({})), user()],
+                vec![names("u"), gives("u")],
+                0,
+            ),
+            (
+                "a lid no request gives",
+                vec![user(), start(json!({"engineer": {"lid": "v"}}))],
+                vec![gives("u"), none()],
+                1,
+            ),
+            (
+                "a lid given by a request acting on an object",
+                vec![user(), start(json!({}))],
+                vec![gives("u"), gives("s")],
+                1,
+            ),
+            (
+                "a lid given by a request acting on a named object",
+                vec![user(), on_lid("add", json!({}))],
+                vec![
+                    gives("u"),
+                    LocalNames {
+                        lid: Some("w".into()),
+                        object_lid: Some("u".into()),
+                    },
+                ],
+                1,
+            ),
+            (
+                "a lid that is not a name",
+                vec![user(), start(json!({"engineer": {"lid": 7}}))],
+                vec![gives("u"), none()],
+                1,
+            ),
+            (
+                "an object named both ways",
+                vec![user(), start(json!({}))],
+                vec![gives("u"), names("u")],
+                1,
+            ),
+            (
+                "a request naming the lid it gives",
+                vec![asked("add", ("User", true), json!({"login": {"lid": "u"}}))],
+                vec![gives("u")],
+                0,
+            ),
+            (
+                "names for fewer requests",
+                vec![user(), user()],
+                vec![gives("u")],
+                1,
+            ),
+        ];
+        for (case, reqs, lids, at) in cases {
+            let before = rows_but(&s, &[]);
+            match batch_named(&mut s, &reqs, &lids, None).unwrap() {
+                Err(BatchFault::Named { index, .. }) => assert_eq!(index, at, "{case}"),
+                other => panic!("{case}: {other:?}"),
+            }
+            assert!(
+                matches!(
+                    check_batch_named(&mut s, &reqs, &lids).unwrap(),
+                    Err(BatchFault::Named { index, .. }) if index == at
+                ),
+                "{case}: its check"
+            );
+            assert_eq!(rows_but(&s, &[]), before, "{case}: a row changed");
+        }
+    }
+
+    /// A request refused after a lid resolved keeps that lid in its row, as
+    /// sent, and no id of what the rollback unmade; nothing of the batch is
+    /// applied (ADR-0238 decision 4, ADR-0228 decision 6).
+    #[test]
+    fn a_refused_request_keeps_its_lids_as_sent() {
+        let mut s = store();
+        let (mut reqs, lids) = staffed();
+        // start takes no hours, so it is refused for its inputs
+        reqs[2].inputs.insert("hours".into(), json!(3));
+        let before = rows(&s);
+        let Batched::Refused { index: 2, answer } =
+            batch_named(&mut s, &reqs, &lids, None).unwrap().unwrap()
+        else {
+            panic!("the batch applied")
+        };
+        assert!(
+            matches!(*answer, Ok((Verdict::InvalidInput { .. }, _))),
+            "{answer:?}"
+        );
+        assert_eq!(rows(&s), before, "a row of the batch was kept");
+        let (values, object): (String, Option<String>) = s
+            .connection()
+            .query_row(
+                "SELECT request_values, object_id FROM of_attempt ORDER BY id DESC LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        let values: Json = serde_json::from_str(&values).unwrap();
+        assert_eq!(
+            values,
+            json!({"values": {"inputs": {"engineer": {"lid": "u"}}}, "withheld": ["hours"]})
+        );
+        assert_eq!(object, None, "the row names the job the rollback unmade");
+    }
+
+    /// A batch with local names replays under its key, its names resolved
+    /// as they were, and the same requests naming another of its objects are
+    /// a different batch under it (ADR-0238 decision 4).
+    #[test]
+    fn a_batchs_key_holds_its_local_names() {
+        let mut s = store();
+        let reqs = vec![
+            asked("add", ("User", true), json!({"login": "ann"})),
+            asked("open", ("Job", true), json!({"title": "Pump"})),
+            asked("open", ("Job", true), json!({"title": "Valve"})),
+            on_lid("start", json!({"engineer": {"lid": "u"}})),
+        ];
+        let lids = |started: &str| vec![gives("u"), gives("a"), gives("b"), names(started)];
+        let Batched::Applied(first) = batch_named(&mut s, &reqs, &lids("a"), Some("k"))
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("the batch was refused")
+        };
+        assert_eq!(made(&first[3]), made(&first[1]));
+        let Batched::Replayed(again) = batch_named(&mut s, &reqs, &lids("a"), Some("k"))
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("the batch did not replay")
+        };
+        let ids = |vs: &[(Verdict, Told)]| vs.iter().map(made).collect::<Vec<_>>();
+        assert_eq!(ids(&again), ids(&first));
+        assert_eq!(
+            batch_named(&mut s, &reqs, &lids("b"), Some("k")).unwrap(),
+            Err(BatchFault::KeyReused { key: "k".into() })
+        );
+    }
+
+    /// A batch's check resolves its local names as the batch does, and
+    /// writes nothing (ADR-0238 decision 5).
+    #[test]
+    fn a_batchs_check_resolves_its_local_names() {
+        let mut s = store();
+        let (reqs, lids) = staffed();
+        let before = rows_but(&s, &[]);
+        let checked = check_batch_named(&mut s, &reqs, &lids).unwrap().unwrap();
+        assert_eq!(rows_but(&s, &[]), before, "the check wrote");
+        let Batched::Applied(checked) = checked else {
+            panic!("the check refused: {checked:?}")
+        };
+        assert_eq!(made(&checked[2]), made(&checked[1]));
+        let (mut refused, lids) = staffed();
+        refused[2].inputs.insert("hours".into(), json!(3));
+        assert!(matches!(
+            check_batch_named(&mut s, &refused, &lids).unwrap().unwrap(),
+            Batched::Refused { index: 2, .. }
+        ));
+        assert!(matches!(
+            batch_named(&mut s, &reqs, &lids, None).unwrap().unwrap(),
+            Batched::Applied(_)
+        ));
     }
 
     /// A store fault or a panic at any request of a batch, or at its

@@ -228,7 +228,7 @@
 | [0225](0225-the-sequence-store-is-the-stores-own-table.md) | The sequence store is the store's own table, written by its one writer | Decided under the author's direction |
 | [0226](0226-a-deployments-object-ids-are-uuid7.md) | A deployment's object ids are UUIDv7s, a sandbox's are numbered | Decided under the author's direction |
 | [0227](0227-four-open-items-decided-as-recommended.md) | Four open items decided as recommended | Decided under the author's direction |
-| [0228](0228-a-failed-rollback-gives-its-connection-up-and-a-batch-applies-whole-or-not-at-all.md) | A failed rollback gives its connection up, and a batch of requests applies whole or not at all | Decided under the author's direction; built |
+| [0228](0228-a-failed-rollback-gives-its-connection-up-and-a-batch-applies-whole-or-not-at-all.md) | A failed rollback gives its connection up, and a batch of requests applies whole or not at all | Decided under the author's direction; built — later refined by ADR-0238 |
 | [0229](0229-a-removed-types-objects-are-moved-into-another-type-or-retired-on-purpose.md) | A removed type's objects are moved into another type or retired on purpose | Decided under the author's direction; built; decision 7 superseded in part by ADR-0230 |
 | [0230](0230-a-migration-entry-with-nothing-to-act-on-is-a-notice-and-a-backfill-runs-once.md) | A migration entry with nothing to act on is a notice, and a backfill runs once on a store | Decided under the author's direction; built; refined by ADR-0231 |
 | [0231](0231-a-backfill-rewriting-a-held-value-gives-a-notice-of-its-own.md) | A backfill rewriting a value an object holds gives a notice of its own | Decided under the author's direction; built |
@@ -238,4 +238,5 @@
 | [0235](0235-a-gate-p-run-that-other-work-shared-is-run-again.md) | A Gate P run that other work shared is run again | Decided under the author's direction; built — later refined by ADR-0236 |
 | [0236](0236-gate-i-is-not-decided-on-a-shared-machine-either.md) | Gate I is not decided on a shared machine either, and `throughput.py` says the other work beside it | Decided under the author's direction; built |
 | [0237](0237-no-more-round-trips-are-cut-before-the-first-deployment-measures.md) | No more round trips are cut from a write before the first deployment measures its peak | Decided under the author's direction |
+| [0238](0238-a-batchs-request-names-what-an-earlier-one-creates.md) | A request of a batch names what an earlier one creates, by the lid it gave | Decided under the author's direction; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |
