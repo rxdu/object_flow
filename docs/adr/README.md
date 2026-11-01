@@ -237,4 +237,5 @@
 | [0234](0234-gate-ps-readers-start-spaced-and-the-peaks-writes-are-accepted-by-name.md) | Gate P's readers start spaced, and the peak's writes on PostgreSQL are accepted by name | Decided under the author's direction; built |
 | [0235](0235-a-gate-p-run-that-other-work-shared-is-run-again.md) | A Gate P run that other work shared is run again | Decided under the author's direction; built — later refined by ADR-0236 |
 | [0236](0236-gate-i-is-not-decided-on-a-shared-machine-either.md) | Gate I is not decided on a shared machine either, and `throughput.py` says the other work beside it | Decided under the author's direction; built |
+| [0237](0237-no-more-round-trips-are-cut-before-the-first-deployment-measures.md) | No more round trips are cut from a write before the first deployment measures its peak | Decided under the author's direction |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |
