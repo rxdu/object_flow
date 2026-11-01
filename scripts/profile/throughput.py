@@ -10,8 +10,10 @@ and not a flow's:
    p50 and p95 of each request's time as the client saw it, over HTTP on the loopback;
 2. an import: a batch of `--objects` objects of a mirror type, its dry run and then its run, each timed whole.
 
-Measurement conditions, said with the result: the machine and its load, and the store's disk, since each commit is
-the disk's flush (ADR-0208).
+Measurement conditions, said with the result: the machine and its load, its threads busy over the run by part as
+`load.py` samples them, and the store's disk, since each commit is the disk's flush (ADR-0208). Where other work
+passes 0.5 threads in any 10 s, as it would make Gate P's run undecided (ADR-0235), it says so beside the figures and
+refuses nothing: they are a measurement stated with its conditions, not a gate (ADR-0236).
 
 Usage:
 
@@ -28,6 +30,9 @@ import threading
 import time
 import urllib.error
 import urllib.request
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from load import Machine  # noqa: E402
 
 OPERATOR = {"id": "operator"}
 FLOW = """module: bench
@@ -160,12 +165,18 @@ def main():
             threading.Thread(target=lambda: [None for _ in proc.stderr], daemon=True).start()
             publish(wire)
             print(f"store: {store} on {tmp}")
+            machine = Machine(proc.pid, False)
+            machine.start()
             for clients in [int(c) for c in a.clients.split(",")]:
                 rate, p50, p95 = writes(wire, clients, a.seconds)
                 print(f"writes, {clients} client(s) for {a.seconds} s: {rate:.0f} a second, "
                       f"p50 {p50 * 1000:.1f} ms, p95 {p95 * 1000:.1f} ms")
             took = imports(wire, a.objects)
             print(f"import of {a.objects} objects: dry run {took['dry run']:.1f} s, run {took['run']:.1f} s")
+            machine.stop()
+            shared = machine.report("throughput.py")
+            if shared:
+                print(f"SHARED: {shared}, so the figures above are not the engine's alone")
         finally:
             proc.terminate()
             proc.wait()

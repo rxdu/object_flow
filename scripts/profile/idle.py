@@ -7,8 +7,13 @@ The audit's Gate I (`docs/design/audit/cost.md` §3) ran each operation idle on 
 and the slowest. A read whose median passes PRD C5's target, 1 s for a metric and 100 ms for one object, is named
 FAILED, and the script exits 1.
 
-Measurement conditions, said with the result: the machine's load at the start and the store. A release's gate measures a
-PostgreSQL store on the database `scripts/setup/postgres-gate-db` starts, reached at the address it prints.
+A run that other work shared is not decided either way, exiting 3, and is run again, as Gate P's is (ADR-0236): it
+samples the machine's threads and each process's every second as `load.py` does, and other work shares the run where
+it passes 0.5 threads in any 10 s (ADR-0235). A run is not decided where `/proc` cannot be read.
+
+Measurement conditions, said with the result: the machine's load at the start, its threads busy over the run, and the
+store. A release's gate measures a PostgreSQL store on the database `scripts/setup/postgres-gate-db` starts, reached at
+the address it prints.
 
 Usage:
 
@@ -29,7 +34,7 @@ import tempfile
 import threading
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from load import OPERATOR, REPORTS, Wire, pages  # noqa: E402
+from load import OPERATOR, REPORTS, Machine, Wire, pages  # noqa: E402
 
 
 def postgres(store):
@@ -83,6 +88,8 @@ def main():
         print("| read | median ms | slowest ms | resident MiB after |")
         print("|---|---|---|---|")
         failed = []
+        machine = Machine(proc.pid, postgres(a.store))
+        machine.start()
         for name, path, body, bound in reads:
             times = []
             for _ in range(a.runs):
@@ -97,8 +104,14 @@ def main():
             print(f"| {name} | {median * 1e3:.1f} | {max(times) * 1e3:.1f} | {rss() / (1 << 20):.0f} |")
             if bound is not None and median > bound:
                 failed.append(f"{name}'s median is {median * 1e3:.0f} ms, past {bound * 1e3:.0f} ms")
+        machine.stop()
+        undecided = machine.report("idle.py")
         for f in failed:
-            print(f"FAILED: {f}")
+            print(f"{'MISSED' if undecided else 'FAILED'}: {f}")
+        if undecided:
+            print(f"UNDECIDED: {undecided}, so the run is not Gate I's result")
+            print("Gate I: not decided, run it again")
+            return 3
         print("Gate I: " + ("failed" if failed else "passed"))
         return 1 if failed else 0
     finally:

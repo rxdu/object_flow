@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-11-01 under the author's direction ("go with your recommendations"), given after the question was put in `TODO.md` the same day.
 - **Date:** 2026-11-01
+- **Refined by:** ADR-0236 — Gate I samples and refuses alike, and the sampler takes a last sample at its stop, weighing each sample by its length
 - **Relates to:** ADR-0214 decision 2 (a release's gates, each miss accepted by name); ADR-0234 (Gate P's readers start spaced); `design/audit/cost.md` §3 (Gate P); `research/write-throughput.md` §6; `docs/LESSONS.md`, "A quiet start is not a quiet run"
 
 ## Context

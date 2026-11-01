@@ -185,6 +185,88 @@ def cpu_ticks():
     return machine, procs
 
 
+class Machine:
+    """Each second from `start` to `stop`, the threads busy over the machine, the run's own by part (the service's,
+    its store's server's, processes named `postgres`, for a PostgreSQL store, and this script's), and each other
+    process's by name (ADR-0235). Gate P, Gate I and `throughput.py` sample with it."""
+
+    def __init__(self, service_pid, on_postgres):
+        self.service, self.on_postgres = service_pid, on_postgres
+        self.tick, self.samples, self.done = None, [], threading.Event()
+        self.thread = threading.Thread(target=self.sample, daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.done.set()
+        self.thread.join()
+
+    def sample(self):
+        try:
+            self.tick = os.sysconf("SC_CLK_TCK")
+            last, at = cpu_ticks(), time.monotonic()
+        except (OSError, AttributeError, ValueError):
+            return
+        stopped = False
+        while not stopped:
+            # a last sample at the stop, so that a run shorter than a second is sampled too
+            stopped = self.done.wait(1.0)
+            now, t = cpu_ticks(), time.monotonic()
+            ours, others = {"service": 0, "store": 0, "load": 0}, {}
+            for key, (name, used) in now[1].items():
+                # a process first seen since the last sample started since, so all its ticks are this sample's
+                d = used - (last[1][key][1] if key in last[1] else 0)
+                if d <= 0:
+                    continue
+                part = ("service" if key[0] == self.service else "load" if key[0] == os.getpid()
+                        else "store" if self.on_postgres and name == "postgres" else None)
+                if part:
+                    ours[part] += d
+                else:
+                    others[name] = others.get(name, 0) + d
+            # its seconds, the machine's busy ticks, the run's own by part, and each other process's by name
+            self.samples.append((t - at, now[0] - last[0], ours, others))
+            last, at = now, t
+
+    def report(self, script):
+        """Prints the threads busy by part and other work's busiest 10 s, and returns why the run is not decided,
+        other work having shared it or the machine not having been sampled, or None."""
+        if not self.samples:
+            print("threads busy over the run: not sampled, /proc not read")
+            return "the machine's threads were not sampled"
+
+        def threads(ticks, samples):
+            # ticks over the samples' seconds, so that the last, shorter sample weighs as long as it lasted
+            return ticks / self.tick / sum(s[0] for s in samples)
+
+        # other work is the machine's ticks less the run's own, so a process that starts and ends between two
+        # samples, as a build's compiler does, is counted though never named
+        other = [busy - sum(ours.values()) for _, busy, ours, _ in self.samples]
+        part = {k: threads(sum(s[2][k] for s in self.samples), self.samples) for k in ("service", "store", "load")}
+        busy = threads(sum(s[1] for s in self.samples), self.samples)
+        print(f"threads busy over the run, of {os.cpu_count()}: {busy:.2f}, the service {part['service']:.2f}, the "
+              f"store's server {part['store']:.2f}, {script} {part['load']:.2f}, other work "
+              f"{threads(sum(other), self.samples):.2f}")
+        # its busiest 10 s, sliding by the second, or the whole run where it is shorter: a burst that short can set a
+        # report's p95 in Gate P, its second-slowest answer, or a read's median of five in Gate I
+        w = min(10, len(other))
+        i = max(range(len(other) - w + 1), key=lambda j: threads(sum(other[j:j + w]), self.samples[j:j + w]))
+        window = self.samples[i:i + w]
+        busiest = threads(sum(other[i:i + w]), window)
+        names = {}
+        for _, _, _, by in window:
+            for name, d in by.items():
+                names[name] = names.get(name, 0) + d
+        top = sorted(((threads(d, window), k) for k, d in names.items()), reverse=True)[:3]
+        length = sum(s[0] for s in window)
+        print(f"other work's busiest {length:.1f} s, from {sum(s[0] for s in self.samples[:i]):.1f} s: "
+              f"{busiest:.2f} threads" + "".join(f", {k} {v:.2f}" for v, k in top if v >= 0.05))
+        if busiest > OTHER_MAX:
+            return f"other work used {busiest:.2f} threads over {length:.1f} s of the run, past {OTHER_MAX}"
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("service")
@@ -305,45 +387,19 @@ def main():
                     pass
                 time.sleep(0.5)
 
-        # each second's threads busy over the machine, the run's own by part, and each other process's by name
-        seconds = []
-
-        def machine():
-            try:
-                tick = os.sysconf("SC_CLK_TCK")
-                last, at = cpu_ticks(), time.monotonic()
-            except (OSError, AttributeError, ValueError):
-                return
-            while time.monotonic() < stop:
-                time.sleep(1.0)
-                now, t = cpu_ticks(), time.monotonic()
-                span = (t - at) * tick
-                ours, others = {"service": 0.0, "store": 0.0, "load": 0.0}, {}
-                for key, (name, used) in now[1].items():
-                    # a process first seen since the last sample started since, so all its ticks are this second's
-                    d = used - (last[1][key][1] if key in last[1] else 0)
-                    if d <= 0:
-                        continue
-                    part = ("service" if key[0] == proc.pid else "load" if key[0] == os.getpid()
-                            else "store" if on_postgres and name == "postgres" else None)
-                    if part:
-                        ours[part] += d / span
-                    else:
-                        others[name] = others.get(name, 0.0) + d / span
-                seconds.append(((now[0] - last[0]) / span, ours, others))
-                last, at = now, t
-
         threads = [threading.Thread(target=session, args=(k,)) for k in range(sessions)]
         threads += [threading.Thread(target=reports, args=(k, OPERATOR, "person")) for k in range(reporters)]
         threads += [threading.Thread(target=reports, args=(100 + k, {"id": "assistant"}, "agent"))
                     for k in range(agents)]
         threads.append(threading.Thread(target=rss))
-        threads.append(threading.Thread(target=machine))
+        machine = Machine(proc.pid, on_postgres)
         load = os.getloadavg()
+        machine.start()
         for t in threads:
             t.start()
         for t in threads:
             t.join()
+        machine.stop()
         failed = []
         print(f"Gate P: {pathlib.Path(a.store).name}, {len(claims)} claims, {len(staff)} employees, scale {a.scale}, "
               f"{a.seconds} s, {sessions} sessions, {reporters} report readers, {agents} agents, pauses "
@@ -366,32 +422,7 @@ def main():
         print(f"peak resident memory: {peak[0] / (1 << 20):.0f} MiB, against {memory_max / (1 << 20):.0f} MiB")
         if peak[0] > memory_max:
             failed.append(f"resident memory reached {peak[0] / (1 << 20):.0f} MiB")
-        undecided = None
-        if seconds:
-            # other work is the machine's threads less the run's own, so a process that starts and ends between two
-            # samples, as a build's compiler does, is counted though never named
-            other = [busy - sum(ours.values()) for busy, ours, _ in seconds]
-            part = {k: sum(s[1][k] for s in seconds) / len(seconds) for k in ("service", "store", "load")}
-            print(f"threads busy over the run, of {os.cpu_count()}: {sum(s[0] for s in seconds) / len(seconds):.2f}, "
-                  f"the service {part['service']:.2f}, the store's server {part['store']:.2f}, load.py "
-                  f"{part['load']:.2f}, other work {sum(other) / len(other):.2f}")
-            # its busiest 10 s, sliding by the second: a report's p95 is its second-slowest answer, so a burst
-            # that short can decide it
-            w = min(10, len(other))
-            i = max(range(len(other) - w + 1), key=lambda j: sum(other[j:j + w]))
-            busiest = sum(other[i:i + w]) / w
-            names = {}
-            for _, _, by in seconds[i:i + w]:
-                for name, v in by.items():
-                    names[name] = names.get(name, 0.0) + v / w
-            top = sorted(((v, k) for k, v in names.items() if v >= 0.05), reverse=True)[:3]
-            print(f"other work's busiest {w} s, from {i} s: {busiest:.2f} threads"
-                  + "".join(f", {k} {v:.2f}" for v, k in top))
-            if busiest > OTHER_MAX:
-                undecided = f"other work used {busiest:.2f} threads over {w} s of the run, past {OTHER_MAX}"
-        else:
-            print("threads busy over the run: not sampled, /proc not read")
-            undecided = "the machine's threads were not sampled"
+        undecided = machine.report("load.py")
         for f in failed:
             print(f"{'MISSED' if a.stress or undecided else 'FAILED'}: {f}")
         if undecided:
