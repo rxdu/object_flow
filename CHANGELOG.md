@@ -2,7 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.10.0, 2026-11-01
+
+A release before 1.0.0, as 0.9.0 was (ADR-0214), with issues #43, #44 and #54. A request of a batch names what an earlier request of it creates (ADR-0238). A file attribute or input says which media types it takes, and an expression reads a file's media type and size (ADR-0239). An object's offer holds each creation marked as offered on it (ADR-0240). A draft on PostgreSQL sends 22 statements where 0.9.0 sent 29. A store of 0.9.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step recording the release alone; a store of 0.8.0 takes 0.9.0's step first. Two changes may refuse what 0.9.0 accepted, listed under their heading below.
 
 ### Added
 
@@ -18,9 +20,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 - `scripts/profile/load.py` samples the machine's threads and each process's every second of a run, and prints with its result the threads the service, its store's server, `load.py` and other work used. A run whose other work passed 0.5 threads in any 10 s is not decided, exiting 3, and is run again (ADR-0235).
 - `scripts/profile/idle.py`, Gate I, samples its runs as `load.py` does, and a run that other work shared is not decided, exiting 3. `throughput.py` prints the same parts beside its figures and says where other work shared its run (ADR-0236).
 
-### Fixed
+### Changed, and may refuse what 0.9.0 accepted
 
-- A version's backfill that could not hold the value it wrote for an object was refused only where that object was the first the backfill met: where it fitted an earlier object, the dry run reported a notice, the version installed, and the later object was left unwritten with nothing said. It is now fatal whatever the order, so the change's submit is refused `dry_run_clean`, as a value its attribute cannot hold always was meant to be (ADR-0205 decision 1).
+- A version's backfill that cannot hold the value it writes for an object is fatal whatever order the backfill meets its objects in, so the change's submit is refused `dry_run_clean`, as a value its attribute cannot hold always was meant to be (ADR-0205 decision 1). 0.9.0 refused it only where that object was the first the backfill met: where the value fitted an earlier object, the dry run reported a notice, the version installed, and the later object was left unwritten with nothing said. 0.9.0 has this defect.
+- A rule reading a member of a file other than its `media_type` and `size` is refused by the checker, check 24 (ADR-0239 decision 4). 0.9.0's checker accepted it, and a request reaching it was answered `501 not_run`.
 
 ## 0.9.0, 2026-10-27
 
