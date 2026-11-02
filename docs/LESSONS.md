@@ -1021,3 +1021,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** A research note quoted a source written in Markdown as written, its links included: a Microsoft Graph page for #55's research, and Jira's OpenAPI descriptions, a link to the anchor `#pagination`, for #57's. Each link became the note's own, and `check-corpus` failed on anchors the note does not have, the second time only in the full gate. A code span did not help: the check reads a link's syntax anywhere on a line.
 - **Correction:** Quote a Markdown source as it renders, a link's text without its target, and say so in the note's sources. Run `scripts/check-corpus.py` on a new note before the full gate.
 - **Context:** `docs/research/`, and any document that quotes a source given as Markdown.
+
+### A merged page bounded per input is not bounded
+- **Pattern:** On 2026-11-02 a page of a group's history read each object's events whole, each to the page's byte limit, and merged them. The page's memory then grew with the group's size, and on PostgreSQL, which fetches a statement's rows whole, with `limit` events an object. `pull_page` already read a page's positions first and its events whole one at a time.
+- **Correction:** Before writing a bounded read, read how the store's other bounded reads hold their bound. For a merge of several inputs, read their positions alone, merge them, cut the page, and only then read its items whole.
+- **Context:** ObjectFlow's paged reads in `core/crates/objectflow-core/src/store.rs` and `subscription.rs`, on both backends.
