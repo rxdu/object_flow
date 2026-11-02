@@ -2,6 +2,16 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Added
+
+- `history` takes `newest_first`: the same events from the latest down, its `cursor` the position the page ended at and the next page reading the events before it, the legacy entries last, on the page whose `cursor` is `null` (ADR-0243, issue #57).
+
+### Changed
+
+- A page of `history` reads each object's events by an index on their position, in either order, where it sorted every event of the object past its cursor on SQLite and scanned the log on PostgreSQL. The index replaces `of_event_by_object`, which repeated the unique constraint's, so the upgrade from 0.11.0 builds it over the whole log, about a second for a million events with the log in memory (ADR-0243).
+
 ## 0.11.0, 2026-11-02
 
 A release before 1.0.0, as 0.10.0 was (ADR-0214), with issues #55 and #56. A state that is not final may say its actor does not act (ADR-0241). A request of a batch names what its effect creates (ADR-0242). A store of 0.10.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step recording the release alone; a store of 0.9.0 takes 0.10.0's step first. Nothing 0.10.0 accepted is refused.

@@ -150,7 +150,27 @@ pub const RELEASES: &[Release] = &[
         builtins_changed: false,
         migrate: |_, _| Ok(()),
     },
+    Release {
+        name: "objectflow-core 0.12.0",
+        from: &["objectflow-core 0.11.0"],
+        fingerprint: "sha256:d0f96b39a4fa49d8caee7600745e7235fc1694f79ca2a72063cde808a4a4d74e",
+        changes: "an object's events are indexed by their position, where the index by their sequence repeated the unique constraint's, so a page of an object's history reads its own events alone, oldest or newest first (ADR-0243)",
+        builtins_changed: false,
+        migrate: object_position_index,
+    },
 ];
+
+/// 0.11.0 to 0.12.0: an object's events indexed by its object and their
+/// position, the index of that name having repeated the unique constraint's
+/// `(object_id, object_seq)`; built over the whole log, once (ADR-0243
+/// decision 2).
+fn object_position_index(tx: &Transaction<'_>, _now: i64) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "DROP INDEX of_event_by_object; \
+         CREATE INDEX of_event_by_object ON of_event (object_id, position);",
+    )?;
+    Ok(())
+}
 
 /// 0.5.3 to 0.6.0: the batch an event's request came in, none for every
 /// event before, since no batch ran before this release; and a refused

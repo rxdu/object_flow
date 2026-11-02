@@ -2160,7 +2160,7 @@ CREATE TABLE of_event (
   CONSTRAINT of_event_source CHECK (source IN
     ('observed','asserted','migrated','corrected','erased'))
 );
-CREATE INDEX of_event_by_object ON of_event (object_id, object_seq);
+CREATE INDEX of_event_by_object ON of_event (object_id, position);
 CREATE INDEX of_event_by_cause  ON of_event (cause_position);
 CREATE INDEX of_event_by_cursor ON of_event (txn, position);
 CREATE TABLE of_counter (
@@ -5354,40 +5354,53 @@ impl Store {
         Ok(events)
     }
 
-    /// A page of the events of objects, after a position, in position
-    /// order, at most `limit` of them, read by the object's index, never the
-    /// object's history whole, which a `history` of 10,000 events of 16 KB
-    /// each answered at 164.6 MB (sixth production review HISTORY, ADR-0192
+    /// A page of the events of the objects given: after the position `from`
+    /// in position order, or with `newest_first` before it, the latest
+    /// first, `from` none starting at either end; at most `limit` of them
+    /// and [`EVENT_BYTES`] of them, one at least; and the position the next
+    /// page goes on from, where the limit or the bytes ended this one
+    /// (ADR-0194 decision 6, ADR-0243 decision 1). Never the objects'
+    /// history whole, which a `history` of 10,000 events of 16 KB each
+    /// answered at 164.6 MB (sixth production review HISTORY, ADR-0192
     /// decision 5).
-    /// A page of the events of the objects given after a position, in
-    /// position order: at most `limit` of them and [`EVENT_BYTES`] of them,
-    /// one at least, read one at a time; and the position the next page
-    /// goes on after, where the limit or the bytes ended this one (ADR-0194
-    /// decision 6).
+    ///
+    /// Each object's events are read by `of_event_by_object`, its object and
+    /// their position, a page's limit and bytes of them at most, and merged
+    /// by position, so a page reads about the events it holds, where one
+    /// read of every object sorted all their events past `from` (ADR-0243
+    /// decision 2).
     pub fn history_page(
         &self,
         ids: &[String],
-        after: i64,
+        from: Option<i64>,
         limit: usize,
+        newest_first: bool,
     ) -> Stored<(Vec<Event>, Option<i64>)> {
-        if ids.is_empty() {
-            return Ok((Vec::new(), None));
+        let (sql, start) = history_read(newest_first);
+        let bound = from.unwrap_or(start);
+        let mut stmt = self.conn.prepare(&sql)?;
+        let most = i64::try_from(limit).unwrap_or(i64::MAX);
+        let mut read = Vec::new();
+        for id in ids {
+            let mut bytes = 0;
+            for row in stmt.query_map(params![id, bound, most], event_row)? {
+                let e = row?;
+                bytes += event_bytes(&e);
+                read.push(e);
+                // the page ends by its bytes at this object's event or before
+                if bytes >= EVENT_BYTES {
+                    break;
+                }
+            }
         }
-        let marks: Vec<String> = (0..ids.len()).map(|i| format!("?{}", i + 3)).collect();
-        let mut stmt = self.conn.prepare(&format!(
-            "{EVENT_SELECT} WHERE object_id IN ({}) AND position > ?1 ORDER BY position LIMIT ?2",
-            marks.join(", ")
-        ))?;
-        let mut values: Vec<crate::db::Value> = vec![
-            crate::db::Value::Integer(after),
-            crate::db::Value::Integer(i64::try_from(limit).unwrap_or(i64::MAX)),
-        ];
-        values.extend(ids.iter().map(|id| crate::db::Value::Text(id.clone())));
-        let rows = stmt.query_map(crate::db::params_from_iter(values.iter()), event_row)?;
+        if newest_first {
+            read.sort_by_key(|e| std::cmp::Reverse(e.position));
+        } else {
+            read.sort_by_key(|e| e.position);
+        }
         let mut out = Vec::new();
         let mut bytes = 0;
-        for row in rows {
-            let e = row?;
+        for e in read.into_iter().take(limit) {
             bytes += event_bytes(&e);
             out.push(e);
             if bytes >= EVENT_BYTES {
@@ -5609,6 +5622,22 @@ fn next(tx: &Connection, name: &str) -> Stored<i64> {
         params![name],
         |r| r.get(0),
     )?)
+}
+
+/// The statement a page of history reads one object's events by, its
+/// object `?1`, the position it goes on from `?2` and its limit `?3`, which
+/// `of_event_by_object` answers in either order without a sort; and the
+/// position it starts from without a cursor (ADR-0243 decision 2).
+pub(crate) fn history_read(newest_first: bool) -> (String, i64) {
+    let (order, start) = if newest_first {
+        ("position < ?2 ORDER BY position DESC", i64::MAX)
+    } else {
+        ("position > ?2 ORDER BY position", 0)
+    };
+    (
+        format!("{EVENT_SELECT} WHERE object_id = ?1 AND {order} LIMIT ?3"),
+        start,
+    )
 }
 
 const EVENT_SELECT: &str = "SELECT position, object_id, object_seq, transition, from_state, to_state, changes_state, \
@@ -8751,6 +8780,40 @@ types:
             plan.iter().any(|p| p.contains("t_parcel_code_ix")),
             "{plan:?}"
         );
+    }
+
+    /// An object's page of history is read by the object's index on
+    /// position, in either order, with no sort of the object's events:
+    /// where the index ran by `object_seq`, SQLite sorted every event of the
+    /// object past the cursor for each page (ADR-0243 decision 2).
+    #[test]
+    fn a_page_of_an_objects_history_is_read_by_its_index_unsorted() {
+        let lib = Library::load(&[]).unwrap();
+        let s = Store::sandbox(lib, 0).unwrap();
+        if crate::db::sqlite_only(s.backend(), "its index plans") {
+            return;
+        }
+        for newest_first in [false, true] {
+            let (sql, start) = history_read(newest_first);
+            let plan: Vec<String> = s
+                .conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .unwrap()
+                .query_map(crate::db::params!["note-1", start, 100_i64], |r| {
+                    r.get::<_, String>(3)
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            let op = if newest_first { "<" } else { ">" };
+            assert_eq!(
+                plan,
+                [format!(
+                    "SEARCH of_event USING INDEX of_event_by_object (object_id=? AND position{op}?)"
+                )],
+                "newest first: {newest_first}"
+            );
+        }
     }
 
     #[test]

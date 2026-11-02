@@ -16883,19 +16883,158 @@ types:
             ));
         }
         let (page, next) = s
-            .history_page(std::slice::from_ref(&note), 0, 1000)
+            .history_page(std::slice::from_ref(&note), None, 1000, false)
             .unwrap();
         assert!(page.len() > 50 && page.len() < 200, "{} events", page.len());
         assert_eq!(next, page.last().map(|e| e.position));
         let bytes: usize = page.iter().map(crate::store::event_bytes).sum();
         assert!(bytes < crate::store::EVENT_BYTES + 100_000, "{bytes}");
         let (rest, _) = s
-            .history_page(std::slice::from_ref(&note), next.unwrap_or(0), 1000)
+            .history_page(std::slice::from_ref(&note), next, 1000, false)
             .unwrap();
         assert_eq!(page.len() + rest.len(), 201);
         let positions: Vec<i64> = page.iter().chain(&rest).map(|e| e.position).collect();
         assert!(matches!(s.events_within(&positions).unwrap(), Err(fit) if fit < positions.len()));
         assert!(s.events_within(&positions[..10]).unwrap().is_ok());
+        // newest first, the page ends at its bytes from the latest down,
+        // and the rest goes on before it (ADR-0243 decision 1)
+        let (newest, next) = s
+            .history_page(std::slice::from_ref(&note), None, 1000, true)
+            .unwrap();
+        assert!(
+            newest.len() > 50 && newest.len() < 200,
+            "{} events",
+            newest.len()
+        );
+        assert_eq!(newest[0].position, positions[200]);
+        assert_eq!(next, newest.last().map(|e| e.position));
+        let (older, last) = s
+            .history_page(std::slice::from_ref(&note), next, 1000, true)
+            .unwrap();
+        assert_eq!(last, None);
+        let mut backwards: Vec<i64> = newest.iter().chain(&older).map(|e| e.position).collect();
+        backwards.reverse();
+        assert_eq!(backwards, positions);
+    }
+
+    /// A page of history newest first reads the events oldest first does,
+    /// latest first: one object's or a group's, interleaved, at every
+    /// limit, each page going on before the last it gave, and from any
+    /// position; a group's pages each end at their bytes as one object's,
+    /// and hold every event once (ADR-0243 decision 1).
+    #[test]
+    fn a_history_newest_first_is_its_oldest_first_reversed() {
+        let text = r#"
+module: notes
+categories: [live]
+types:
+  Note:
+    attributes:
+      text: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      jot: { kind: initial, to: OPEN }
+      write: { kind: internal, from: OPEN, required_inputs: [text] }
+"#;
+        let lib = Library::load(&[("notes.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let a = created(&req(&mut s, "jot", OPERATOR, ("Note", true), json!({})));
+        let b = created(&req(&mut s, "jot", OPERATOR, ("Note", true), json!({})));
+        for n in [&a, &b, &a, &a, &b, &a, &b, &b, &a] {
+            created(&req(
+                &mut s,
+                "write",
+                OPERATOR,
+                (n, false),
+                json!({"text": "x"}),
+            ));
+        }
+        let pages = |s: &Store, ids: &[String], limit: usize, newest_first: bool| {
+            let (mut out, mut from) = (Vec::new(), None);
+            loop {
+                let (page, next) = s.history_page(ids, from, limit, newest_first).unwrap();
+                assert!(page.len() <= limit, "{} past {limit}", page.len());
+                assert_eq!(next.is_some(), page.len() == limit, "{next:?}");
+                out.extend(page.iter().map(|e| e.position));
+                match next {
+                    Some(p) => from = Some(p),
+                    None => return out,
+                }
+            }
+        };
+        let group = [a.clone(), b.clone()];
+        for ids in [std::slice::from_ref(&a), &group[..]] {
+            let all = pages(&s, ids, 1000, false);
+            let mut sorted = all.clone();
+            sorted.sort_unstable();
+            assert_eq!(all, sorted);
+            assert_eq!(all.len(), if ids.len() == 1 { 6 } else { 11 });
+            for limit in [1, 2, 3, 5, 1000] {
+                assert_eq!(pages(&s, ids, limit, false), all, "limit {limit}");
+                let mut newest = pages(&s, ids, limit, true);
+                newest.reverse();
+                assert_eq!(newest, all, "limit {limit}, newest first");
+            }
+            // from any position, the events before it, the latest first
+            for (i, p) in all.iter().enumerate() {
+                let (before, next) = s.history_page(ids, Some(*p), 1000, true).unwrap();
+                let want: Vec<i64> = all[..i].iter().rev().copied().collect();
+                let got: Vec<i64> = before.iter().map(|e| e.position).collect();
+                assert_eq!((got, next), (want, None), "before {p}");
+            }
+        }
+        // groups of large events, one object's ahead of the other's small
+        // ones and one behind them: each page ends at its bytes, holding
+        // every event once, where an object's read stopping short of the
+        // event that reached its own bytes skipped it
+        let big = "x".repeat(60_000);
+        let small = "y".to_string();
+        let c = created(&req(&mut s, "jot", OPERATOR, ("Note", true), json!({})));
+        let d = created(&req(&mut s, "jot", OPERATOR, ("Note", true), json!({})));
+        for (n, text, times) in [
+            (&a, &big, 150),
+            (&b, &small, 60),
+            (&c, &small, 60),
+            (&d, &big, 150),
+        ] {
+            for _ in 0..times {
+                created(&req(
+                    &mut s,
+                    "write",
+                    OPERATOR,
+                    (n, false),
+                    json!({"text": text}),
+                ));
+            }
+        }
+        for (ids, total) in [([a.clone(), b.clone()], 221), ([c, d], 212)] {
+            for newest_first in [false, true] {
+                let (mut seen, mut from, mut cut) = (Vec::new(), None, 0);
+                loop {
+                    let (page, next) = s.history_page(&ids, from, 1000, newest_first).unwrap();
+                    let bytes: usize = page.iter().map(crate::store::event_bytes).sum();
+                    assert!(bytes < crate::store::EVENT_BYTES + 100_000, "{bytes}");
+                    seen.extend(page.iter().map(|e| e.position));
+                    match next {
+                        Some(p) => (from, cut) = (Some(p), cut + 1),
+                        None => break,
+                    }
+                }
+                assert!(cut >= 1, "{cut} pages cut by their bytes");
+                if newest_first {
+                    seen.reverse();
+                }
+                let mut sorted = seen.clone();
+                sorted.sort_unstable();
+                sorted.dedup();
+                assert_eq!(
+                    (seen.len(), &seen),
+                    (total, &sorted),
+                    "newest first: {newest_first}"
+                );
+            }
+        }
     }
 
     /// A subscription's lag reads no event whole, and a page of `pull` or of

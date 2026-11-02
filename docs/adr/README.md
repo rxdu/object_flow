@@ -243,4 +243,5 @@
 | [0240](0240-a-creation-says-on-which-object-it-is-offered.md) | A creation says on which object it is offered, and that object's offer decides it | Decided under the author's direction; built |
 | [0241](0241-a-state-may-say-its-actor-does-not-act.md) | A state that is not final may say its actor does not act | Decided under the author's direction; built |
 | [0242](0242-a-batchs-request-names-what-its-effect-creates.md) | A request of a batch names what its effect creates, as an example's step does | Decided under the author's direction; built |
+| [0243](0243-history-reads-newest-first-by-an-index-on-position.md) | `history` reads newest first, and an object's events are indexed by their position | Decided under the author's direction; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

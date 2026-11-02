@@ -3430,6 +3430,15 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
                     assert_answers_alike(was, is, &format!("{name} {id}"));
                 }
                 assert_eq!(got["version"], was["version"], "{name} {id}");
+                // and newest first, by the index the step rebuilt (ADR-0243)
+                let newest = post(
+                    &s,
+                    "/v1/history",
+                    &json!({"actor": op, "id": id, "newest_first": true}),
+                );
+                let mut newest = newest["events"].as_array().cloned().unwrap_or_default();
+                newest.reverse();
+                assert_eq!(&newest, now, "{name} {id}, newest first");
             }
         }
         let log = exported_log(&s);
@@ -3546,6 +3555,25 @@ fn own_schema(path: &Path) -> Vec<String> {
                 })
                 .expect("its columns");
             out.extend(columns);
+        }
+        // an index by its columns, where its name alone passed an upgrade
+        // that kept an index's old columns (ADR-0243 decision 2)
+        if kind == "index" {
+            let columns: Vec<Option<String>> = conn
+                .prepare(&format!("PRAGMA index_info({name})"))
+                .and_then(|mut q| {
+                    q.query_map([], |r| r.get::<_, Option<String>>(2))
+                        .and_then(|r| r.collect())
+                })
+                .expect("its columns");
+            out.push(format!(
+                "  on {}",
+                columns
+                    .iter()
+                    .map(|c| c.as_deref().unwrap_or("<expression>"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
     }
     out
@@ -4297,6 +4325,133 @@ fn reads_and_writes_a_second_measured() {
 }
 
 // ── pages (ADR-0179) ────────────────────────────────────────────────────────
+
+/// An object's history read newest first is its oldest-first read
+/// reversed, page by page from its latest event: each page at most its
+/// limit, going on before the last event it gave, and its legacy entries,
+/// first oldest first, last, on the page naming no cursor; a cursor is a
+/// position either way; and `newest_first` takes true or false (ADR-0243
+/// decision 1).
+#[test]
+fn a_history_is_read_newest_first_its_legacy_entries_last() {
+    let file = fresh_store("newest-first");
+    let s = start(&[
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish(
+        &s,
+        &json!({"people": example("people.yaml"), "servicedesk": example("servicedesk.yaml")}),
+    );
+    let op = json!({"id": "operator"});
+    // an employee ported with two legacy entries, then refreshed three times
+    for (i, department) in ["Ops", "Desk", "Field", "Stores"].iter().enumerate() {
+        let entries = if i == 0 {
+            json!([{"kind": "audit", "occurred_at": "2025-06-01T00:00:00Z", "payload": {"action": "hired"}},
+                   {"kind": "audit", "occurred_at": "2025-07-01T00:00:00Z", "payload": {"action": "moved"}}])
+        } else {
+            json!([])
+        };
+        let imported = post(
+            &s,
+            "/v1/import_batch",
+            &json!({"actor": op, "batch": {"objects": [{"type": "Employee", "legacy_key": "E-1",
+                    "state": "EMPLOYED", "legacy_entries": entries,
+                    "attributes": {"employee_id": "1", "name": "Ana", "department": department}}],
+                    "legacy_kinds": {"audit": ["action"]}}}),
+        );
+        assert_eq!(imported["written"], json!(1), "{imported}");
+    }
+    let id = post(
+        &s,
+        "/v1/lookup",
+        &json!({"source": "legacy", "value": "Employee:E-1"}),
+    )["id"]
+        .clone();
+    let read = |limit: u64, newest_first: bool| {
+        let (mut items, mut cursor, mut pages) = (Vec::new(), Value::Null, Vec::new());
+        loop {
+            let page = post(
+                &s,
+                "/v1/history",
+                &json!({"actor": op, "id": id, "limit": limit, "newest_first": newest_first,
+                        "cursor": cursor}),
+            );
+            let got = page["events"].as_array().cloned().expect("its events");
+            let events: Vec<&Value> = got.iter().filter(|e| e.get("legacy").is_none()).collect();
+            assert!(events.len() as u64 <= limit, "{page}");
+            // a cursor is the position its page ended at, either way
+            if let Some(last) = events.last()
+                && !page["cursor"].is_null()
+            {
+                assert_eq!(
+                    page["cursor"],
+                    json!(last["position"].to_string()),
+                    "{page}"
+                );
+            }
+            pages.push(got.clone());
+            items.extend(got);
+            if page["cursor"].is_null() {
+                return (items, pages);
+            }
+            cursor = page["cursor"].clone();
+        }
+    };
+    let (oldest, _) = read(1000, false);
+    let legacy: Vec<&Value> = oldest.iter().take_while(|e| e["legacy"] == true).collect();
+    assert_eq!(
+        legacy.iter().map(|e| &e["ordinal"]).collect::<Vec<_>>(),
+        [&json!(1), &json!(2)],
+        "{oldest:?}"
+    );
+    assert_eq!(oldest.len(), 6, "{oldest:?}");
+    for limit in [1, 2, 3, 1000] {
+        let (forwards, _) = read(limit, false);
+        assert_eq!(forwards, oldest, "limit {limit}");
+        let (mut newest, pages) = read(limit, true);
+        let last = pages.last().expect("a page");
+        assert!(
+            last.iter().rev().take(2).all(|e| e["legacy"] == true),
+            "limit {limit}: {last:?}"
+        );
+        assert!(
+            pages[..pages.len() - 1]
+                .iter()
+                .flatten()
+                .all(|e| e.get("legacy").is_none())
+        );
+        newest.reverse();
+        assert_eq!(newest, oldest, "limit {limit}, newest first");
+    }
+    // from a position, the events before it, the latest first
+    let positions: Vec<&Value> = oldest[2..].iter().map(|e| &e["position"]).collect();
+    let before = post(
+        &s,
+        "/v1/history",
+        &json!({"actor": op, "id": id, "newest_first": true, "limit": 1,
+                "cursor": positions[2].to_string()}),
+    );
+    assert_eq!(
+        (&before["events"][0]["position"], &before["cursor"]),
+        (positions[1], &json!(positions[1].to_string())),
+        "{before}"
+    );
+    let (status, refused) = call(
+        &s,
+        "POST",
+        "/v1/history",
+        Some(&json!({"actor": op, "id": id, "newest_first": "yes"})),
+    );
+    assert_eq!(
+        (status, &refused["fault"]),
+        (400, &json!("newest_first takes true or false")),
+        "{refused}"
+    );
+}
 
 /// A query read in pages: each holds at most its limit, in the query's
 /// order, the last naming no cursor; the pages together are the whole
@@ -8953,17 +9108,33 @@ fn a_store_on_postgresql_at_an_earlier_release_is_upgraded() {
         ann["object_id"].as_str().expect("a person").to_string()
     };
     // taken back to the shape a store 0.2.0 made has: what the steps from
-    // 0.2.0 add, undone, the batch's columns 0.6.0 adds among them, and its
-    // release named
+    // 0.2.0 add, undone, the batch's columns 0.6.0 adds and the index by
+    // position 0.12.0 makes among them, and its release named
     admin
         .execute_batch(&format!(
             "SET search_path TO {schema}; DROP TABLE of_restore; DROP TABLE of_interval_retraction; \
              ALTER TABLE of_interval DROP COLUMN moved_position; \
              ALTER TABLE of_engine_release DROP COLUMN commit_id; \
              ALTER TABLE of_event DROP COLUMN batch; ALTER TABLE of_attempt DROP COLUMN batch_index; \
+             DROP INDEX of_event_by_object; \
+             CREATE INDEX of_event_by_object ON of_event (object_id, object_seq); \
              UPDATE of_engine_release SET release = 'objectflow-core 0.2.0'; RESET search_path"
         ))
         .expect("the store taken back to 0.2.0");
+    let indexed = || -> String {
+        admin
+            .query_row(
+                "SELECT indexdef FROM pg_indexes WHERE schemaname = ?1 AND indexname = 'of_event_by_object'",
+                [schema.as_str()],
+                |r| r.get(0),
+            )
+            .expect("the index")
+    };
+    assert!(
+        indexed().ends_with("(object_id, object_seq)"),
+        "{}",
+        indexed()
+    );
     let s = start(&again);
     let said = s.said_within("POST /v1/upgrade");
     assert!(said.contains("is at objectflow-core 0.2.0"), "{said}");
@@ -8984,6 +9155,13 @@ fn a_store_on_postgresql_at_an_earlier_release_is_upgraded() {
     );
     let got = post(&s, "/v1/get", &json!({"actor": op, "id": ann}));
     assert_eq!(got["attributes"]["login"], "ann@example.com", "{got}");
+    // an object's events by their position, as a store this release makes
+    // indexes them (ADR-0243 decision 2)
+    assert!(
+        indexed().ends_with("(object_id, \"position\")"),
+        "{}",
+        indexed()
+    );
     let bea = post(
         &s,
         "/v1/request",

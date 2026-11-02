@@ -160,3 +160,64 @@ def test_a_metrics_parameters_are_read_alike(tee):
                                 "params": ["2026-11-09"]})
     assert tee.found[before:] == [], tee.found[before:]
 
+
+
+NOTES = """module: notes
+categories: [live, closed]
+types:
+  Note:
+    description: A note written again and again.
+    tracking: record
+    attributes:
+      text: { type: string, optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      jot: { kind: initial, to: OPEN }
+      write: { kind: internal, from: OPEN, required_inputs: [text] }
+      finish: { kind: external, from: OPEN, to: DONE }
+"""
+
+
+def test_a_history_newest_first_is_read_alike(tee):
+    """A history read newest first, page by page at each limit, is
+    answered alike by both backends, and is the oldest-first read reversed;
+    a cursor given back goes on before it, and a `newest_first` that is not
+    true or false is refused by both (ADR-0243 decision 1)."""
+    tee.module = "notes (newest first)"
+    before = len(tee.found)
+    op = {"id": "operator"}
+    tee.post("/sandbox/load", {"files": [{"name": "notes.yaml",
+                                          "text": NOTES}]})
+    a, b = (tee.post("/v1/request", {"actor": op, "type": "Note",
+                                     "transition": "jot"})["object_id"]
+            for _ in range(2))
+    for n in (a, b, a, a, b, a):
+        tee.post("/v1/request", {"actor": op, "object_id": n,
+                                 "transition": "write",
+                                 "inputs": {"text": "x"}})
+
+    def read(oid: str, limit: int, newest_first: bool) -> list:
+        out, cursor = [], None
+        while True:
+            body = {"actor": op, "id": oid, "limit": limit,
+                    "newest_first": newest_first}
+            if cursor is not None:
+                body["cursor"] = cursor
+            page = tee.post("/v1/history", body)
+            assert len(page["events"]) <= limit, page
+            out += [e["position"] for e in page["events"]]
+            cursor = page["cursor"]
+            if cursor is None:
+                return out
+
+    for oid, n in ((a, 5), (b, 3)):
+        oldest = read(oid, 1000, False)
+        assert len(oldest) == n and oldest == sorted(oldest), oldest
+        for limit in (1, 2, 3):
+            assert read(oid, limit, False) == oldest
+            assert read(oid, limit, True) == oldest[::-1]
+    with pytest.raises(Failed):
+        tee.post("/v1/history", {"actor": op, "id": a, "newest_first": "yes"})
+    assert tee.found[before:] == [], tee.found[before:]

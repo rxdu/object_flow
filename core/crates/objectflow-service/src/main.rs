@@ -1738,7 +1738,10 @@ const TAKES: &[(&str, &[&str])] = &[
             "reads_personal",
         ],
     ),
-    ("/v1/history", &["actor", "id", "follow", "limit", "cursor"]),
+    (
+        "/v1/history",
+        &["actor", "id", "follow", "newest_first", "limit", "cursor"],
+    ),
     ("/v1/events", &["actor", "positions"]),
     ("/v1/referenced", &["actor", "hashes"]),
     ("/v1/exceptions", &["actor", "type", "cursor"]),
@@ -4241,10 +4244,12 @@ async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let id = text(&body, "id")?
             .ok_or_else(|| Fault::Bad("history names an object's id".to_string()))?;
         let follow = flag(&body, "follow")?;
+        let newest_first = flag(&body, "newest_first")?;
         let limit = limit_of(&body)?;
-        // a page goes on after the last event given, by its position, as a
-        // pull's does (ADR-0192 decision 5)
-        let after = match text(&body, "cursor")? {
+        // a page goes on from the last event given, by its position, as a
+        // pull's does, after it or, newest first, before it (ADR-0192
+        // decision 5, ADR-0243 decision 1)
+        let from = match text(&body, "cursor")? {
             None => None,
             Some(c) => Some(c.parse::<i64>().ok().filter(|p| *p >= 0).ok_or_else(|| {
                 Fault::Bad(format!(
@@ -4266,11 +4271,21 @@ async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
         } else {
             vec![id.to_string()]
         };
-        // their legacy entries on the first page, which predate the store,
-        // by member, then their events in position order, a page of them
-        // (library-api.md §6, ADR-0015)
+        // a page ends at its limit or at its bytes, a cursor going on
+        // from either (ADR-0194 decision 6)
+        let (events, next) = s.history_page(&members, from, limit, newest_first)?;
+        let cursor = next.map(|p| p.to_string());
+        // their legacy entries, which predate the store, by member, then
+        // their events in position order: on the first page, or newest
+        // first, all of it reversed, on the last (library-api.md §6,
+        // ADR-0015, ADR-0243 decision 1)
+        let at_their_end = if newest_first {
+            next.is_none()
+        } else {
+            from.is_none()
+        };
         let mut entries = Vec::new();
-        if after.is_none() {
+        if at_their_end {
             for m in &members {
                 entries.extend(s.legacy_entries(m)?.into_iter().map(|e| {
                     json!({"legacy": true, "object_id": m, "ordinal": e.ordinal, "kind": e.kind,
@@ -4278,12 +4293,15 @@ async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 }));
             }
         }
-        // a page ends at its limit or at its bytes, a cursor going on
-        // from either (ADR-0194 decision 6)
-        let (events, next) = s.history_page(&members, after.unwrap_or(0), limit)?;
-        let cursor = next.map(|p| p.to_string());
+        let events = events.iter().map(event);
+        let items: Vec<J> = if newest_first {
+            entries.reverse();
+            events.chain(entries).collect()
+        } else {
+            entries.into_iter().chain(events).collect()
+        };
         Ok(Json(json!({
-            "events": entries.into_iter().chain(events.iter().map(event)).collect::<Vec<_>>(),
+            "events": items,
             "cursor": cursor,
             "not_computed": EVENT_NOT_COMPUTED,
         })))

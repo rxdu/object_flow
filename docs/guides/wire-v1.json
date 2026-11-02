@@ -96,6 +96,7 @@
       "actor",
       "id",
       "follow",
+      "newest_first",
       "limit",
       "cursor"
     ],

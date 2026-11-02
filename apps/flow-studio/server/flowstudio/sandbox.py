@@ -894,15 +894,26 @@ class Sandbox:
         if isinstance(limit, bool) or not isinstance(limit, int) \
                 or not 1 <= limit <= 1000:
             raise Fault(400, "limit takes a page size, 1 to 1000")
+        # newest first, the same events from the latest down, a page going
+        # on before the last it gave (ADR-0243 decision 1)
+        newest_first = body.get("newest_first")
+        if newest_first is not None and not isinstance(newest_first, bool):
+            raise Fault(400, "newest_first takes true or false")
         cursor = body.get("cursor")
-        after = 0
+        start = None
         if cursor is not None:
             if not (isinstance(cursor, str) and cursor.isdigit()):
                 raise Fault(400, "history's cursor is the position its last "
                                  f"page ended at: {cursor}")
-            after = int(cursor)
-        page = [e for e in self.store.events
-                if e["object"] in group and e["position"] > after][:limit]
+            start = int(cursor)
+        if newest_first:
+            page = [e for e in reversed(self.store.events)
+                    if e["object"] in group
+                    and (start is None or e["position"] < start)][:limit]
+        else:
+            page = [e for e in self.store.events
+                    if e["object"] in group
+                    and e["position"] > (start or 0)][:limit]
         return {"events": [self.event(e) for e in page],
                 "cursor": str(page[-1]["position"]) if len(page) == limit
                 else None,

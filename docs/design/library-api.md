@@ -410,7 +410,7 @@ class Event:
 class LegacyEntry:
     """History that predates the store, attached at import (ADR-0015);
     `history` returns an object's entries, by ordinal, before its events
-    (ADR-0163)."""
+    (ADR-0163), and newest first after them, reversed (ADR-0243)."""
 
     object_id: str
     ordinal: int
@@ -752,13 +752,15 @@ class Store(Protocol):
               inputs: Mapping[str, Any],
               occurred_at: datetime | None = None) -> Checked: ...
 
-    def history(self, actor: Actor, id: str,
-                follow: bool = False) -> Iterator[Event | LegacyEntry] | None: ...
+    def history(self, actor: Actor, id: str, follow: bool = False,
+                newest_first: bool = False) -> Iterator[Event | LegacyEntry] | None: ...
     # None where no object has the id, as get's (ADR-0173 decision 12)
     # follow: the whole group supersession joins, every member whose chain ends where
     # this object's does, in position order (ADR-0147)
     # on the wire the iterator is read a page at a time, `limit` events and the cursor of
     # the next, as a query's (`guides/wire.md`, ADR-0192 decision 5)
+    # newest_first: the same entries reversed, the latest event first and the legacy
+    # entries last (ADR-0243)
 
     # one entry per position, in the order given: the event the log holds there, or None
     # where it holds none, as `get` gives None for an id no object has (ADR-0151)

@@ -430,6 +430,8 @@ What a later release promises, from 1.0.0:
 4. As the operator, see the steps: `POST /v1/upgrade {"actor": {"id": "operator"}, "dry_run": true}`.
 5. Run them: the same without `dry_run`. The service then serves the store.
 
+**The step to 0.12.0 builds an index over the whole event log** (ADR-0243), so it takes longer the more events the store holds. A million events took about a second on either backend with the log in memory, and reading the log from disk adds that read. The service serves nothing until the step commits.
+
 **Identities equal but for case.** Release 0.2.0 took two actors whose identities differ only in the case of their ASCII letters, `Ana@x.org` and `ana@x.org`; later releases take them as one actor, so neither may leave or be erased, and every publish is refused `decision_unresolved`. A store holding such a pair says so at its start, naming the actors' object ids. Publish a version whose `migration`, which takes a `description`, admits the actor type's `identity_taken`, as `admit: [{ invariant: Employee.identity_taken, reason: Reason.LEGACY }]` with your type and a member of an enumeration of yours; the two actors may then leave and be erased, and a later version may give each an identity of its own. Until then a request naming the identity in a third case acts as the actor made first.
 
 There is no downgrade: if the new release fails in service, restore the backup and run the old release. Once an upgrade commits, an old copy still running is refused; a copy of release 0.1.0 is not, so stop it before upgrading.

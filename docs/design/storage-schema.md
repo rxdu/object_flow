@@ -98,7 +98,7 @@ CREATE TABLE of_event (
   CONSTRAINT of_event_source CHECK (source IN
     ('observed','asserted','migrated','corrected','erased'))
 );
-CREATE INDEX of_event_by_object ON of_event (object_id, object_seq);
+CREATE INDEX of_event_by_object ON of_event (object_id, position);  -- a page of an object's history, either way (ADR-0243)
 CREATE INDEX of_event_by_cause  ON of_event (cause_position);
 CREATE INDEX of_event_by_cursor ON of_event (txn, position);
 CREATE INDEX of_event_by_actor ON of_event (actor_id);  -- an erased actor's events (§9 step 15)
