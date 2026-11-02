@@ -563,6 +563,7 @@ pub fn checked_as(
             .into_iter()
             .chain(raw::family_errors(&doc, &library))
             .chain(raw::machine_errors(&doc, &view_types))
+            .chain(raw::acts_errors(&doc, &view_types))
             .chain(raw::decimal_errors(&doc))
             .chain(raw::type_name_errors(&doc))
             .chain(names::name_errors(&v.doc, &library))

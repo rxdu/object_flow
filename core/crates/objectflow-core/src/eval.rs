@@ -183,9 +183,10 @@ pub struct Who {
     /// The principal it acts for, by its identity, where the request names
     /// one (`DESIGN.md` §5.8).
     pub principal: Option<String>,
-    /// Whether the actor's object is in a final state, which refuses its
-    /// requests as `actor_active` (ADR-0182 decision 6).
-    pub ended: bool,
+    /// Whether the actor's object is in a state in which it acts: neither
+    /// final nor declaring `acts: false`, either of which refuses its
+    /// requests as `actor_active` (ADR-0182 decision 6, ADR-0241).
+    pub acts: bool,
 }
 
 /// The objects a refusing clause names (`DESIGN.md` §5.5, `library-api.md`

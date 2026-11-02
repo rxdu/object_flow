@@ -303,7 +303,7 @@ pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Result<Option<Who
             id,
             kind: kind.to_string(),
             principal: None,
-            ended: t.state(&o.state).is_some_and(|s| s.is_final),
+            acts: t.state(&o.state).is_none_or(|s| s.acts),
         })
     };
     if let Some(o) = world.get(actor)? {
@@ -676,13 +676,15 @@ fn at_declared_scale(t: &Type, name: &str, v: Value, id: &str) -> Result<Value, 
 }
 
 /// What refuses an actor, resolved or not: one the store holds no actor
-/// for, as `actor_known`, and one whose object is in a final state, a
-/// person who left or an agent retired, as `actor_active`, each `dependent`
-/// (`DESIGN.md` §5.8, §6 step 1, ADR-0182 decision 6).
+/// for, as `actor_known`, and one whose object is in a state it does not
+/// act in, a final one, a person who left or an agent retired, or one
+/// declaring `acts: false`, a person away, as `actor_active`, each
+/// `dependent` (`DESIGN.md` §5.8, §6 step 1, ADR-0182 decision 6,
+/// ADR-0241).
 pub(crate) fn active(who: Option<Who>) -> Result<Who, Verdict> {
     let clause = match who {
         None => "actor_known",
-        Some(w) if w.ended => "actor_active",
+        Some(w) if !w.acts => "actor_active",
         Some(w) => return Ok(w),
     };
     Err(Verdict::Unsatisfied {
@@ -693,8 +695,8 @@ pub(crate) fn active(who: Option<Who>) -> Result<Who, Verdict> {
 
 /// Who a request acts as: its actor, and the principal it names, each an
 /// object of a type that marks an actor identity, or the request is refused
-/// as `actor_known`, and each in a state that is not final, or it is
-/// refused as `actor_active` (`DESIGN.md` §6 step 1). The kind is the
+/// as `actor_known`, and each in a state it acts in, or it is refused as
+/// `actor_active` (`DESIGN.md` §6 step 1, ADR-0241). The kind is the
 /// actor's.
 fn request_who(world: &World<'_>, req: &Request) -> Result<Who, Stop> {
     let mut who = match active(resolve_actor(world, &req.actor)?) {
@@ -16897,6 +16899,138 @@ types:
         );
         assert!(resolve_actor(&w, "nobody@corp.example").unwrap().is_none());
         assert!(w.held_count() <= 3, "{} held", w.held_count());
+    }
+
+    /// An actor whose object is in a state declaring `acts: false` is
+    /// refused `actor_active`, `dependent`, wherever a final state's is: its
+    /// request, a request naming it as the principal, every offer to it, an
+    /// import by it and the store's maintenance. Leaving the state lets it
+    /// act again, and its final state still refuses it (ADR-0241, issue
+    /// #55).
+    #[test]
+    fn an_actor_in_a_state_that_does_not_act_is_refused_as_in_a_final_one() {
+        let text = r#"
+module: staff
+categories: [live, closed]
+types:
+  User:
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { category: live }
+      AWAY: { category: closed, acts: false }
+      GONE: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [login] }
+      away: { kind: external, from: ACTIVE, to: AWAY }
+      back: { kind: external, from: AWAY, to: ACTIVE }
+      leave: { kind: external, from: AWAY, to: GONE }
+  Note:
+    attributes:
+      text: { type: string }
+    states:
+      KEPT: { category: live }
+      DROPPED: { category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text] }
+      drop: { kind: external, from: KEPT, to: DROPPED }
+"#;
+        let lib = Library::load(&[("staff.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        // a retention, so maintenance runs for an actor that acts
+        s.attempt_retention = Some(1);
+        let ana = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        let kept = created(&req(
+            &mut s,
+            "write",
+            OPERATOR,
+            ("Note", true),
+            json!({"text": "x"}),
+        ));
+        let refused = |v: &Verdict| {
+            matches!(v, Verdict::Unsatisfied { clause, remedy: Some(Remedy::Dependent), .. }
+                if clause == "actor_active")
+        };
+        let write = |s: &mut Store| req(s, "write", "ana", ("Note", true), json!({"text": "y"}));
+        let for_ana = |s: &mut Store| {
+            let r = Request {
+                transition: "write".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some("Note".into()),
+                inputs: [("text".to_string(), json!("z"))].into_iter().collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: Some("ana".into()),
+                idempotency_key: None,
+                context: None,
+            };
+            request(s, &r).unwrap().unwrap()
+        };
+        let offered = |s: &Store| -> BTreeSet<Option<String>> {
+            let w = s.snapshot().unwrap();
+            crate::reads::availability(&w, "ana", &kept)
+                .unwrap()
+                .unwrap()
+                .into_iter()
+                .map(|o| match o.verdict {
+                    Some(Verdict::Unsatisfied { clause, .. }) => Some(clause),
+                    _ => None,
+                })
+                .collect()
+        };
+        let imported = |s: &mut Store| {
+            let batch = crate::import::ImportBatch::default();
+            crate::import::import_batch(s, "ana", &batch, &[], true)
+                .unwrap()
+                .unwrap()
+                .refusal
+                .map(|r| r.reason)
+        };
+        let maintained = |s: &mut Store| {
+            let task = crate::store::MaintenanceTask {
+                name: "prune_attempts".into(),
+                before: s.now - 1,
+            };
+            s.maintain("ana", &task).unwrap().unwrap()
+        };
+        assert!(matches!(write(&mut s), Verdict::Satisfied { .. }));
+        assert!(matches!(for_ana(&mut s), Verdict::Satisfied { .. }));
+        assert_eq!(offered(&s), BTreeSet::from([None]));
+        assert_eq!(imported(&mut s), None);
+        assert!(maintained(&mut s).is_ok());
+        // away: refused at every site, as a final state is
+        created(&req(&mut s, "away", OPERATOR, (&ana, false), json!({})));
+        let v = write(&mut s);
+        assert!(refused(&v), "{v:?}");
+        let v = for_ana(&mut s);
+        assert!(refused(&v), "{v:?}");
+        assert_eq!(
+            offered(&s),
+            BTreeSet::from([Some("actor_active".to_string())])
+        );
+        assert_eq!(
+            imported(&mut s),
+            Some("actor_active: the actor ana is in a state it does not act in".to_string())
+        );
+        assert_eq!(maintained(&mut s), Err("actor_active"));
+        // back: acting again
+        created(&req(&mut s, "back", OPERATOR, (&ana, false), json!({})));
+        assert!(matches!(write(&mut s), Verdict::Satisfied { .. }));
+        // gone: the final state refuses still
+        created(&req(&mut s, "away", OPERATOR, (&ana, false), json!({})));
+        created(&req(&mut s, "leave", OPERATOR, (&ana, false), json!({})));
+        let v = write(&mut s);
+        assert!(refused(&v), "{v:?}");
     }
 
     /// An actor named by its identity is read from every actor type's

@@ -3707,7 +3707,7 @@ impl Store {
     /// erased value an index page's free space kept is gone once each is
     /// rebuilt; none where no erasure has been recorded since the last
     /// rebuild. Refused, as `maintain` is, for an actor the store does not
-    /// know or whose object is in a final state.
+    /// know or whose object is in a state it does not act in (ADR-0241).
     pub fn indexes_to_rebuild(
         &mut self,
         actor: &str,
@@ -3813,8 +3813,8 @@ impl Store {
     /// held only delays a deletion where one wrongly freed loses a file
     /// history shows. One pass over the store's text, whatever the count
     /// given, ending once each is found; refused, naming the generated
-    /// guard, for an actor the store does not know or one in a final state,
-    /// as `maintain` is.
+    /// guard, for an actor the store does not know or one in a state it
+    /// does not act in, as `maintain` is.
     pub fn referenced(
         &self,
         actor: &str,
@@ -3897,7 +3897,7 @@ impl Store {
         actor: &str,
         task: &MaintenanceTask,
     ) -> Stored<Result<Result<i64, &'static str>, NotRun>> {
-        // an actor the store knows, its object in no final state, as a
+        // an actor the store knows, its object in a state it acts in, as a
         // request's is (DESIGN.md §6 step 1); who may maintain is the upper
         // layer's to decide, never a capability the store holds (DESIGN.md
         // §10, ADR-0114, ADR-0183 decision 5)

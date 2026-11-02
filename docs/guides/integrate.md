@@ -48,6 +48,7 @@ Employee:
 - **Choose opaque identities**, such as an employee number or a generated id, never an email or a name: an identity is recorded with every event the actor makes. Write each in one Unicode form. The engine compares identities ignoring the case of ASCII letters (`ADMIN` and `admin` are one actor, `É` and `é` two), resolves a request's actor the same way, and refuses an identity that is empty, has spaces at its ends or characters that show nothing, or is shaped like an object id (`claim-12`). Avoid the shape `<word>-<number>` altogether, `u10442` rather than `u-10442`: a type a later version adds names its objects so, and once an actor holds such an identity a version adding a type of that word is refused `identity_shadowed` (D669).
 - **An unknown actor** is refused `unsatisfied`, clause `actor_known`, remedy `dependent`: create its object first.
 - **Someone who leaves**: move their actor object to a final state. Every later request naming them is refused `actor_active`. Revoke their session at your gateway too.
+- **Someone away who may return**: move their actor object to a state that declares `acts: false`. They are refused `actor_active` as in a final state, until a transition moves them out of it.
 - **Acting for someone**: a request made on a person's behalf names them as `principal`, `"actor": {"id": "helper", "principal": "u10442"}`. The principal is checked as an actor is, and recorded.
 
 Reads check no actor's permission: who may read what is yours to decide.

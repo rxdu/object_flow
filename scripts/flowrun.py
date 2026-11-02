@@ -791,6 +791,12 @@ class Store:
     def final(self, o):
         return bool(((self.kinds.get(o.type) or {}).get("states") or {}).get(o.state, {}).get("final"))
 
+    def acts(self, o):
+        """Whether an actor whose object is o acts: its state is neither final nor declares `acts: false`
+        (ADR-0182 decision 6, ADR-0241)."""
+        st = ((self.kinds.get(o.type) or {}).get("states") or {}).get(o.state, {})
+        return not st.get("final") and st.get("acts", True) is not False
+
     def superseded(self, o):
         return bool(((self.kinds.get(o.type) or {}).get("states") or {}).get(o.state, {}).get("superseding"))
 
@@ -2424,11 +2430,11 @@ class Runner:
 
     def attempted(self, store, tn, xn, oid, actor, raw_inputs, aliases, stubs, occurred=None, filed_at=None, named=None):
         work = copy.deepcopy(store)
-        # 1. the actor: an object of a type that marks an actor identity, in a state that is not final (DESIGN.md §6
-        # step 1, ADR-0182 decision 6)
+        # 1. the actor: an object of a type that marks an actor identity, in a state it acts in (DESIGN.md §6 step 1,
+        # ADR-0182 decision 6, ADR-0241)
         if actor not in work.objects or work.actor_attr(work.type_of(actor)) is None:
             raise Refused("unsatisfied", "actor_known", "dependent")
-        if work.final(work.objects[actor]):
+        if not work.acts(work.objects[actor]):
             raise Refused("unsatisfied", "actor_active", "dependent")
         attr, akind = work.actor_attr(work.type_of(actor))
         ctx = Ctx(work, {"id": work.objects[actor].attrs.get(attr, ABSENT), "kind": akind}, stubs, tn)
@@ -2559,9 +2565,9 @@ class Runner:
         who = None
         if actor in store.objects and store.actor_attr(store.type_of(actor)) is not None:
             attr, akind = store.actor_attr(store.type_of(actor))
-            # an actor in a final state is refused every offer (ADR-0182 decision 6)
+            # an actor in a state it does not act in is refused every offer (ADR-0182 decision 6, ADR-0241)
             who = {"id": store.objects[actor].attrs.get(attr, ABSENT), "kind": akind,
-                   "ended": store.final(store.objects[actor])}
+                   "ended": not store.acts(store.objects[actor])}
         offers = []
         for xn, x in (t.get("transitions") or {}).items():
             if x["kind"] == "initial" or x.get("only_via"):
@@ -4407,7 +4413,7 @@ def decide_or_request(runner, store, st, aliases, stubs, under_test):
             try:
                 if actor not in store.objects or store.actor_attr(store.type_of(actor)) is None:
                     raise Refused("unsatisfied", "actor_known", "dependent")
-                if store.final(store.objects[actor]):
+                if not store.acts(store.objects[actor]):
                     raise Refused("unsatisfied", "actor_active", "dependent")
                 if store.proposals[key]["state"] != "pending":
                     decided = Refused("unavailable", remedy="unreachable_from_here",
@@ -5361,6 +5367,7 @@ def self_test():
     ok &= metrics_self_test(kinds["Operator"])
     ok &= media_self_test(kinds["Operator"])
     ok &= offered_self_test(kinds["Operator"])
+    ok &= acts_self_test(kinds["Operator"])
     print(f"runner: a small order and its lines, a document over its history, and jobs read by their metrics, each thing "
           f"slices 1 to 4 execute: {'yes' if ok else 'NO'}")
     return ok
@@ -5469,6 +5476,54 @@ def media_self_test(operator):
     check("an imported file taken", w.objects[import_object(r, w, "Copy", "HELD", {"scan": file_value(pdf)})].attrs["scan"],
           file_value(pdf))
     print(f"  media types: each write held to a file's list, a guard reading its media type and size: {'yes' if ok else 'NO'}")
+    return ok
+
+
+def acts_self_test(operator):
+    """An actor whose object is in a state declaring `acts: false` is refused `actor_active` as one in a final state
+    is, its requests and every offer to it (ADR-0241); a transition out of the state lets it act again, and its final
+    state still refuses it."""
+    ok = True
+
+    def check(name, got, want):
+        nonlocal ok
+        if got != want:
+            ok = False
+            print(f"  acts, {name}: {got!r}, not {want!r}")
+    user = {"attributes": {"login": {"type": "identity", "actor_kind": "human", "unique": True}},
+            "states": {"ACTIVE": {"category": "live"}, "AWAY": {"category": "closed", "acts": False},
+                       "GONE": {"category": "closed", "final": True}},
+            "transitions": {"add": {"kind": "initial", "to": "ACTIVE", "required_inputs": ["login"]},
+                            "away": {"kind": "external", "from": ["ACTIVE"], "to": "AWAY"},
+                            "back": {"kind": "external", "from": ["AWAY"], "to": "ACTIVE"},
+                            "leave": {"kind": "external", "from": ["AWAY"], "to": "GONE"}}}
+    note = {"attributes": {"text": {"type": "string"}},
+            "states": {"KEPT": {"category": "live"}, "DROPPED": {"category": "closed", "final": True}},
+            "transitions": {"write": {"kind": "initial", "to": "KEPT", "required_inputs": ["text"]},
+                            "drop": {"kind": "external", "from": ["KEPT"], "to": "DROPPED"}}}
+    kinds = {"Operator": operator, "User": user, "Note": note}
+    r, s = Runner(kinds, {}), Store(kinds, {})
+    ana = r.attempt(s, "User", "add", None, OPERATOR, {"login": "ana"}, {}, {})[1]
+    kept = r.attempt(s, "Note", "write", None, OPERATOR, {"text": "x"}, {}, {})[1]
+
+    def write():
+        try:
+            return r.attempt(s, "Note", "write", None, ana, {"text": "y"}, {}, {})[0]
+        except Refused as e:
+            return (e.verdict, e.clause, e.remedy)
+
+    def offers():
+        return {(x[3].verdict, x[3].clause) if x[3] else x[2] for x in r.availability(s, ana, kept)}
+    check("an active actor writes", write(), "applied")
+    r.attempt(s, "User", "away", ana, OPERATOR, {}, {}, {})
+    check("an actor away refused", write(), ("unsatisfied", "actor_active", "dependent"))
+    check("an actor away offered nothing", offers(), {("unsatisfied", "actor_active")})
+    r.attempt(s, "User", "back", ana, OPERATOR, {}, {}, {})
+    check("an actor back writes again", write(), "applied")
+    r.attempt(s, "User", "away", ana, OPERATOR, {}, {}, {})
+    r.attempt(s, "User", "leave", ana, OPERATOR, {}, {}, {})
+    check("an actor gone refused", write(), ("unsatisfied", "actor_active", "dependent"))
+    print(f"  acts: an actor in a state that does not act refused as in a final one: {'yes' if ok else 'NO'}")
     return ok
 
 

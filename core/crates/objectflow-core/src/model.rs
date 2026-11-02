@@ -211,6 +211,10 @@ pub struct State {
     pub required_attributes: Vec<String>,
     /// An object in it is superseded: another stands in its place (ADR-0028).
     pub superseding: bool,
+    /// Whether an actor whose object is in it acts: false in a final state
+    /// and in one declaring `acts: false`, either refusing the actor
+    /// `actor_active` (ADR-0182 decision 6, ADR-0241).
+    pub acts: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -838,6 +842,10 @@ impl Reader<'_> {
         }
         let mut states = Vec::new();
         for (n, spec) in node.get("states").map(Node::entries).unwrap_or_default() {
+            let is_final = self.flag(spec, "final")?;
+            // a state acts unless it is final or says it does not, which
+            // only a state that is not final may say (ADR-0241)
+            let acts = !is_final && (spec.get("acts").is_none() || self.flag(spec, "acts")?);
             states.push((
                 n.clone(),
                 State {
@@ -846,9 +854,10 @@ impl Reader<'_> {
                         .and_then(Node::text)
                         .unwrap_or("")
                         .to_string(),
-                    is_final: self.flag(spec, "final")?,
+                    is_final,
                     required_attributes: self.names(spec.get("required_attributes"))?,
                     superseding: self.flag(spec, "superseding")?,
+                    acts,
                 },
             ));
         }
@@ -1084,6 +1093,7 @@ impl Reader<'_> {
                     is_final: true,
                     required_attributes: Vec::new(),
                     superseding: false,
+                    acts: false,
                 },
             )],
             conditions: Vec::new(),
@@ -1671,6 +1681,7 @@ fn operator_type() -> Type {
                     is_final: false,
                     required_attributes: Vec::new(),
                     superseding: false,
+                    acts: true,
                 },
             ),
             (
@@ -1680,6 +1691,7 @@ fn operator_type() -> Type {
                     is_final: true,
                     required_attributes: Vec::new(),
                     superseding: false,
+                    acts: false,
                 },
             ),
         ],
@@ -1754,6 +1766,7 @@ fn proposal_type() -> Type {
         is_final,
         required_attributes: Vec::new(),
         superseding: false,
+        acts: !is_final,
     };
     Type {
         name: PROPOSAL.to_string(),
@@ -1860,6 +1873,7 @@ fn declaration_change_type() -> Type {
         is_final,
         required_attributes: Vec::new(),
         superseding: false,
+        acts: !is_final,
     };
     t.states = vec![
         ("DRAFTED".into(), state("live", false)),
@@ -1996,6 +2010,7 @@ fn label_type() -> Type {
                 is_final: true,
                 required_attributes: Vec::new(),
                 superseding: false,
+                acts: false,
             },
         )],
         conditions: Vec::new(),
@@ -2086,6 +2101,7 @@ fn subscription_type() -> Type {
         is_final,
         required_attributes: Vec::new(),
         superseding: false,
+        acts: !is_final,
     };
     let transition =
         |kind: Kind, from: Option<From>, to: &str, required: &[&str], optional: &[&str]| {

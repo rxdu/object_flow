@@ -48579,6 +48579,264 @@
   }
  },
  {
+  "label": "acts_plants: a type's, a machine's and a subtype's states that do not act",
+  "files": [
+   [
+    "staff.yaml",
+    "4950050d2ce361b3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staff.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Contractor (4), Note (2), Nurse (4), User (4), since the version declares an agent kind of actor (Contractor.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staff.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Contractor.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ]
+  ],
+  "analysed": {
+   "Contractor": [
+    0,
+    0
+   ],
+   "Note": [
+    0,
+    0
+   ],
+   "Nurse": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "acts_plants: acts: true on a state that is not final",
+  "files": [
+   [
+    "staff.yaml",
+    "3c508e2e9e5f1c57"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staff.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Contractor (4), Note (2), Nurse (4), User (4), since the version declares an agent kind of actor (Contractor.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staff.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Contractor.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ]
+  ],
+  "analysed": {
+   "Contractor": [
+    0,
+    0
+   ],
+   "Note": [
+    0,
+    0
+   ],
+   "Nurse": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "acts_plants: on a final state",
+  "files": [
+   [
+    "staff.yaml",
+    "0f1ad5c5d6ae1ede"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staff.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Contractor (4), Note (2), Nurse (4), User (4), since the version declares an agent kind of actor (Contractor.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staff.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Contractor.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "staff.yaml",
+    24,
+    "fatal",
+    "names",
+    "'acts' applies only to a state that is not final, not to User.ARCHIVED"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "acts_plants: acts: true on a final state",
+  "files": [
+   [
+    "staff.yaml",
+    "ab337009c2a5444f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staff.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Contractor (4), Note (2), Nurse (4), User (4), since the version declares an agent kind of actor (Contractor.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staff.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Contractor.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "staff.yaml",
+    24,
+    "fatal",
+    "names",
+    "'acts' applies only to a state that is not final, not to User.ARCHIVED"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "acts_plants: on a machine's final state",
+  "files": [
+   [
+    "staff.yaml",
+    "2467d072a049b042"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staff.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Contractor (4), Note (2), Nurse (4), User (4), since the version declares an agent kind of actor (Contractor.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staff.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Contractor.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "staff.yaml",
+    9,
+    "fatal",
+    "names",
+    "'acts' applies only to a state that is not final, not to Tenure.DONE"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "acts_plants: on a type whose objects are no actors",
+  "files": [
+   [
+    "staff.yaml",
+    "642a231e9d64ca3c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staff.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Contractor (4), Note (2), Nurse (4), User (4), since the version declares an agent kind of actor (Contractor.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "staff.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Contractor.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "staff.yaml",
+    62,
+    "fatal",
+    "names",
+    "'acts' applies only to a state of a type that marks an actor identity, not to Note.KEPT"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "acts_plants: not a boolean",
+  "files": [
+   [
+    "staff.yaml",
+    "d4691eb29e8ca2bc"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "staff.yaml",
+    23,
+    "fatal",
+    "schema",
+    "'no_longer' is not of type 'boolean'"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "syntax_plants",
   "files": [
    [

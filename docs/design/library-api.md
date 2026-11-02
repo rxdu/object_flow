@@ -66,7 +66,8 @@ class Actor:
     truth (ADR-0025), and carries no kind: it resolves `id` to the object holding
     that actor identity and takes the kind that object's type declares, refusing
     an actor it does not know as `actor_known` (ADR-0110, ADR-0114), and one
-    whose object is in a final state as `actor_active` (ADR-0182). The store
+    whose object is in a state it does not act in, a final one or one
+    declaring `acts: false`, as `actor_active` (ADR-0182, ADR-0241). The store
     records the actor and evaluates nothing else of it."""
 
     id: str

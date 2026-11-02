@@ -182,7 +182,7 @@ Required: a module's `module`, `categories` and `types`; a type's `description` 
 | `taken_by` | the kinds that may take every transition of the type declaring none, `[human]`; a subtype does not inherit it | 4.2 |
 | `inherited_parts` | on a subtype, how the parts of a composite end it inherits go with its final transitions | 4.14 |
 | `observations` | datapoints recorded about an object, never changed: each a `kind`, `description`, `attributes`, `max_recording_delay` and `invariants` | 4.4 |
-| `states` | each a `category`, and `description`, `final`, `required_attributes`, `superseding` | 4.5 |
+| `states` | each a `category`, and `description`, `final`, `required_attributes`, `superseding`, `acts` | 4.5 |
 | `derived_attributes` | each a `description` and an `expression`, never written; `indexed` makes it a query filter | 4.11 |
 | `summary` | the members a listing returns by default | 4.2 |
 | `invariants` | each a `description` and an `expression` that holds of every object at all times | 4.6 |

@@ -1,0 +1,66 @@
+module: staff
+categories: [live, closed]
+machines:
+  Tenure:
+    description: A tenure that pauses between engagements.
+    states:
+      ON:     { category: live }
+      PAUSED: { category: closed, acts: false }
+      DONE:   { category: closed, final: true }
+    transitions:
+      start:  { kind: initial, to: ON }
+      pause:  { kind: external, from: [ON], to: PAUSED }
+      resume: { kind: external, from: [PAUSED], to: ON }
+      end:    { kind: external, from: [PAUSED], to: DONE }
+types:
+  User:
+    description: A person who may leave and come back.
+    tracking: record
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE:      { category: live }
+      DEACTIVATED: { category: closed, acts: no_longer }
+      ARCHIVED:    { category: closed, final: true }
+    transitions:
+      add:        { kind: initial, to: ACTIVE, required_inputs: [login] }
+      deactivate: { kind: external, from: [ACTIVE], to: DEACTIVATED }
+      reactivate: { kind: external, from: [DEACTIVATED], to: ACTIVE }
+      archive:    { kind: external, from: [DEACTIVATED], to: ARCHIVED }
+  Contractor:
+    description: A contractor, whose tenure is the machine's.
+    tracking: record
+    state_machine: Tenure
+    attributes:
+      key: { type: identity, actor_kind: agent, unique: true }
+    transitions:
+      engage: { kind: initial, to: ON, required_inputs: [key] }
+  Person:
+    description: Someone on the staff.
+    abstract: true
+    tracking: record
+    attributes:
+      badge: { type: identity, actor_kind: human, unique: true }
+  Nurse:
+    description: A nurse, whose identity is the base's.
+    extends: Person
+    states:
+      ON_WARD:  { category: live }
+      ON_LEAVE: { category: closed, acts: false }
+      GONE:     { category: closed, final: true }
+    transitions:
+      hire:  { kind: initial, to: ON_WARD, required_inputs: [badge] }
+      leave: { kind: external, from: [ON_WARD], to: ON_LEAVE }
+      back:  { kind: external, from: [ON_LEAVE], to: ON_WARD }
+      quit:  { kind: external, from: [ON_LEAVE], to: GONE }
+  Note:
+    description: A note someone writes.
+    tracking: record
+    attributes:
+      text: { type: string }
+    states:
+      KEPT:    { category: live }
+      DROPPED: { category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text] }
+      drop:  { kind: external, from: [KEPT], to: DROPPED }

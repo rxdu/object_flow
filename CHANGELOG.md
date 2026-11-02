@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Added
+
+- A state that is not final may declare `acts: false`, on a type that marks an actor identity or on a machine: an actor or principal whose object is in it is refused `actor_active`, as in a final state, at a request, an offer, a publish's approval, an import and the store's maintenance, until a transition leaves it. A flow that declares none behaves as before. Step 3 refuses `acts` on a final state and on a type whose objects are no actors (ADR-0241, issue #55).
+
 ## 0.10.0, 2026-11-01
 
 A release before 1.0.0, as 0.9.0 was (ADR-0214), with issues #43, #44 and #54. A request of a batch names what an earlier request of it creates (ADR-0238). A file attribute or input says which media types it takes, and an expression reads a file's media type and size (ADR-0239). An object's offer holds each creation marked as offered on it (ADR-0240). A draft on PostgreSQL sends 22 statements where 0.9.0 sent 29. A store of 0.9.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step recording the release alone; a store of 0.8.0 takes 0.9.0's step first. Two changes may refuse what 0.9.0 accepted, listed under their heading below.

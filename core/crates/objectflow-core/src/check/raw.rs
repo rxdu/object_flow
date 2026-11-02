@@ -642,6 +642,43 @@ pub fn family_errors(doc: &Value, library: &Obj) -> Found {
     out
 }
 
+/// `acts` on a state that is not final, of a machine or of a type that
+/// marks an actor identity, its own or inherited (ADR-0241 decision 1): a
+/// final state acts never, and a type with no actor's objects has no actor
+/// for it to refuse. A machine's state may say it for the binders that hold
+/// actors.
+pub fn acts_errors(doc: &Value, kinds: &Obj) -> Found {
+    let mut out = Found::new();
+    let lifecycles = obj(doc, "machines")
+        .iter()
+        .map(|(n, m)| ("machines", n, m))
+        .chain(obj(doc, "types").iter().map(|(n, t)| ("types", n, t)));
+    for (section, name, decl) in lifecycles {
+        for (sn, st) in obj(decl, "states") {
+            if st.get("acts").is_none() {
+                continue;
+            }
+            let at = segs![section, name, "states", sn, "acts"];
+            if flag(st, "final") {
+                out.push(finding(
+                    at,
+                    "names",
+                    format!("'acts' applies only to a state that is not final, not to {name}.{sn}"),
+                ));
+            } else if section == "types" && !super::examples::marks_actor(name, kinds) {
+                out.push(finding(
+                    at,
+                    "names",
+                    format!(
+                        "'acts' applies only to a state of a type that marks an actor identity, not to {name}.{sn}"
+                    ),
+                ));
+            }
+        }
+    }
+    out
+}
+
 /// `str(spec.get("reference", ""))`.
 fn kind_text_ref(spec: &Value) -> String {
     spec.get("reference").map(py_str).unwrap_or_default()

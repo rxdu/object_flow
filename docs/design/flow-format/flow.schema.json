@@ -544,6 +544,10 @@
         "superseding": {
           "type": "boolean",
           "description": "The object ends here by being superseded: a transition into it names the successor with a supersede step. It is final."
+        },
+        "acts": {
+          "type": "boolean",
+          "description": "false where an actor whose object is in this state does not act, refused actor_active as in a final state, until a transition leaves it; only on a state that is not final, of a type marking an actor identity or of a machine (ADR-0241)."
         }
       },
       "if": {

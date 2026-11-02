@@ -616,6 +616,10 @@ class Store:
     def final(self, tn, state):
         return bool(self.types[tn]["states"][state].get("final"))
 
+    def acts(self, tn, state):
+        st = self.types[tn]["states"][state]
+        return not st.get("final") and st.get("acts", True) is not False
+
     def open(self, o):
         st = self.types[o.type]["states"][o.state]
         return st.get("category") != "closed" and not st.get("final")
@@ -818,9 +822,10 @@ class Store:
                 self.kind = "unknown"
                 raise Fails("unsatisfied", "actor_known", "dependent")
         self.kind = self.kind_of(r["actor"])
-        # an actor, or a principal, in a final state is refused too (DESIGN.md §5.8, ADR-0182 decision 6)
+        # an actor, or a principal, in a state it does not act in is refused too, a final one or one declaring
+        # `acts: false` (DESIGN.md §5.8, ADR-0182 decision 6, ADR-0241)
         for who in (r["actor"], r.get("principal")):
-            if who is not None and self.final(self.objects[who].type, self.objects[who].state):
+            if who is not None and not self.acts(self.objects[who].type, self.objects[who].state):
                 raise Fails("unsatisfied", "actor_active", "dependent")
         self.principal = r.get("principal")
         occ = when(r["occurred_at"]) if r.get("occurred_at") else at

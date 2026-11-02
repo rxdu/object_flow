@@ -20,7 +20,7 @@ Every operation of the engine's service: what it takes and what it answers. [Bui
 
 An operation that acts or reads as someone takes `"actor": {"id": "<who>"}`: the actor's identity (an `Employee`'s `user_id`, say) or its object's id. The store's first actor is `operator`. A request made for someone else names them as `principal`, in the actor (`"actor": {"id": …, "principal": …}`) or as the request's own key; the two must agree. The principal is checked as the actor is, and recorded.
 
-An actor the store does not know is refused `unsatisfied`, clause `actor_known`. An actor or principal whose object is in a final state is refused `actor_active`. Both have remedy `dependent`.
+An actor the store does not know is refused `unsatisfied`, clause `actor_known`. An actor or principal whose object is in a final state, or in a state that declares `acts: false`, is refused `actor_active`. Both have remedy `dependent`.
 
 ## Values
 

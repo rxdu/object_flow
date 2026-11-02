@@ -64,7 +64,7 @@ fn is_a(tn: &str, want: &str, kinds: &Obj) -> bool {
 }
 
 /// A type whose objects are actors: one of its attributes marks an actor kind.
-fn marks_actor(tn: &str, kinds: &Obj) -> bool {
+pub(super) fn marks_actor(tn: &str, kinds: &Obj) -> bool {
     kinds.get(tn).is_some_and(|t| {
         obj(t, "attributes")
             .values()

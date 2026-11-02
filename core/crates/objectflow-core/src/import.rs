@@ -349,10 +349,10 @@ fn decide(
         Ok((report, None))
     };
     let who = match resolve_actor(world, actor)? {
-        Some(who) if !who.ended => who,
+        Some(who) if who.acts => who,
         found => {
             let reason = if found.is_some() {
-                format!("actor_active: the actor {actor} is in a final state")
+                format!("actor_active: the actor {actor} is in a state it does not act in")
             } else {
                 format!("actor_known: the store holds no actor {actor}")
             };

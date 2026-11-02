@@ -2062,6 +2062,24 @@ def agent_open(doc, v):
     return out
 
 
+def acts_errors(doc, kinds):
+    """`acts` on a state that is not final, of a machine or of a type that marks an actor identity, its own or
+    inherited (ADR-0241 decision 1): a final state acts never, and a type with no actor's objects has no actor for it
+    to refuse. A machine's state may say it for the binders that hold actors."""
+    out = []
+    lifecycles = [("machines", n, m) for n, m in (doc.get("machines") or {}).items()] + [("types", n, t) for n, t in types(doc)]
+    for section, name, decl in lifecycles:
+        for sn, st in ((decl or {}).get("states") or {}).items():
+            if "acts" not in (st or {}):
+                continue
+            at = (section, name, "states", sn, "acts")
+            if st.get("final"):
+                out.append((at, "names", f"'acts' applies only to a state that is not final, not to {name}.{sn}"))
+            elif section == "types" and not marks_actor(name, kinds):
+                out.append((at, "names", f"'acts' applies only to a state of a type that marks an actor identity, not to {name}.{sn}"))
+    return out
+
+
 def machine_errors(doc, kinds=None):
     """A binder names a declared or imported machine and declares what it
     requires; a machine's states require no attributes, since the invariant
@@ -6179,7 +6197,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
             pair, pair_notes = migration_pair_errors(load(previous[f]) if previous.get(f) else {}, doc, library, before,
                                                      installed)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
-        for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc)
+        for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + acts_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc)
                         + name_errors(v, library, ordered=False) + taken_by_errors(v) + column_errors(v)
                         + migration_errors(doc, v) + pair):
             p = back(p)
@@ -9766,6 +9784,110 @@ OFFERED_DESK = (
 )
 
 
+ACTS_STAFF = (
+    "module: staff\n"
+    "categories: [live, closed]\n"
+    "machines:\n"
+    "  Tenure:\n"
+    "    description: A tenure that pauses between engagements.\n"
+    "    states:\n"
+    "      ON:     { category: live }\n"
+    "      PAUSED: { category: closed, acts: false }\n"
+    "      DONE:   { category: closed, final: true }\n"
+    "    transitions:\n"
+    "      start:  { kind: initial, to: ON }\n"
+    "      pause:  { kind: external, from: [ON], to: PAUSED }\n"
+    "      resume: { kind: external, from: [PAUSED], to: ON }\n"
+    "      end:    { kind: external, from: [PAUSED], to: DONE }\n"
+    "types:\n"
+    "  User:\n"
+    "    description: A person who may leave and come back.\n"
+    "    tracking: record\n"
+    "    attributes:\n"
+    "      login: { type: identity, actor_kind: human, unique: true }\n"
+    "    states:\n"
+    "      ACTIVE:      { category: live }\n"
+    "      DEACTIVATED: { category: closed, acts: false }\n"
+    "      ARCHIVED:    { category: closed, final: true }\n"
+    "    transitions:\n"
+    "      add:        { kind: initial, to: ACTIVE, required_inputs: [login] }\n"
+    "      deactivate: { kind: external, from: [ACTIVE], to: DEACTIVATED }\n"
+    "      reactivate: { kind: external, from: [DEACTIVATED], to: ACTIVE }\n"
+    "      archive:    { kind: external, from: [DEACTIVATED], to: ARCHIVED }\n"
+    "  Contractor:\n"
+    "    description: A contractor, whose tenure is the machine's.\n"
+    "    tracking: record\n"
+    "    state_machine: Tenure\n"
+    "    attributes:\n"
+    "      key: { type: identity, actor_kind: agent, unique: true }\n"
+    "    transitions:\n"
+    "      engage: { kind: initial, to: ON, required_inputs: [key] }\n"
+    "  Person:\n"
+    "    description: Someone on the staff.\n"
+    "    abstract: true\n"
+    "    tracking: record\n"
+    "    attributes:\n"
+    "      badge: { type: identity, actor_kind: human, unique: true }\n"
+    "  Nurse:\n"
+    "    description: A nurse, whose identity is the base's.\n"
+    "    extends: Person\n"
+    "    states:\n"
+    "      ON_WARD:  { category: live }\n"
+    "      ON_LEAVE: { category: closed, acts: false }\n"
+    "      GONE:     { category: closed, final: true }\n"
+    "    transitions:\n"
+    "      hire:  { kind: initial, to: ON_WARD, required_inputs: [badge] }\n"
+    "      leave: { kind: external, from: [ON_WARD], to: ON_LEAVE }\n"
+    "      back:  { kind: external, from: [ON_LEAVE], to: ON_WARD }\n"
+    "      quit:  { kind: external, from: [ON_LEAVE], to: GONE }\n"
+    "  Note:\n"
+    "    description: A note someone writes.\n"
+    "    tracking: record\n"
+    "    attributes:\n"
+    "      text: { type: string }\n"
+    "    states:\n"
+    "      KEPT:    { category: live }\n"
+    "      DROPPED: { category: closed, final: true }\n"
+    "    transitions:\n"
+    "      write: { kind: initial, to: KEPT, required_inputs: [text] }\n"
+    "      drop:  { kind: external, from: [KEPT], to: DROPPED }\n"
+)
+
+
+def acts_plants():
+    """`acts` on a state that is not final, of a machine or of a type marking an actor identity, its own or its base's
+    (ADR-0241 decision 1): step 3 refuses it on a final state, either value, a machine's among them, and on a type
+    whose objects are no actors; `acts: true`, the default, is taken on a state that is not final."""
+    def p(old, new):
+        assert ACTS_STAFF.count(old) == 1, old
+        return ACTS_STAFF.replace(old, new)
+    final = "ARCHIVED:    { category: closed, final: true }"
+    cases = [
+        ("a type's, a machine's and a subtype's states that do not act", ACTS_STAFF, []),
+        ("acts: true on a state that is not final", p("ACTIVE:      { category: live }", "ACTIVE:      { category: live, acts: true }"), []),
+        ("on a final state", p(final, final.replace(" }", ", acts: false }")),
+         ["'acts' applies only to a state that is not final, not to User.ARCHIVED"]),
+        ("acts: true on a final state", p(final, final.replace(" }", ", acts: true }")),
+         ["'acts' applies only to a state that is not final, not to User.ARCHIVED"]),
+        ("on a machine's final state", p("DONE:   { category: closed, final: true }", "DONE:   { category: closed, final: true, acts: false }"),
+         ["'acts' applies only to a state that is not final, not to Tenure.DONE"]),
+        ("on a type whose objects are no actors", p("KEPT:    { category: live }", "KEPT:    { category: live, acts: false }"),
+         ["'acts' applies only to a state of a type that marks an actor identity, not to Note.KEPT"]),
+        # step 2's
+        ("not a boolean", p("DEACTIVATED: { category: closed, acts: false }", "DEACTIVATED: { category: closed, acts: no_longer }"),
+         ["'no_longer' is not of type 'boolean'"]),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, _ = check([("staff.yaml", text)])
+        got = sorted(x[4] for x in found)
+        code = "schema" if "is not of type" in "".join(want) else "names"
+        hit = got == sorted(want) and all(x[3] == code for x in found)
+        ok &= hit
+        print(f"  acts, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
+
 def offered_on_plants(people):
     """`offered_on` on an initial transition alone, naming its required references to one object (ADR-0240 decision
     1): step 3 refuses it on another kind of transition, a machine's among them, on a creation only_via names, which no
@@ -10924,6 +11046,7 @@ def main():
     ok &= media_type_plants(people)
     ok &= media_example_plants(people)
     ok &= offered_on_plants(people)
+    ok &= acts_plants()
     ok &= syntax_plants()
     cases, blobs = plants_export(RECORDED)
     if "--export-plants" in sys.argv[1:]:

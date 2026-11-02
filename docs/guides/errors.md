@@ -82,7 +82,7 @@ Besides the rules a flow declares, the engine adds some of its own. A refusal na
 | Name | Remedy | Refuses |
 |---|---|---|
 | `actor_known` | `dependent` | an actor the store has no object for. Create its actor object first. |
-| `actor_active` | `dependent` | an actor, or a `principal`, whose object is in a final state: someone who left, an agent retired. |
+| `actor_active` | `dependent` | an actor, or a `principal`, whose object is in a final state, someone who left or an agent retired, or in a state declaring `acts: false`, someone away who may return. |
 | `<attribute>_provided` | `self_serviceable` | a required input left out, where its attribute is optional elsewhere. |
 | `occurred_within` | `self_serviceable` | an `occurred_at` further back than the transition's `backdating_limit` allows. |
 | `whole_open` | `self_serviceable` | moving a part to a whole that is in a final state, by an input, an effect or a creation from another whole's transition. |
