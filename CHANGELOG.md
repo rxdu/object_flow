@@ -7,6 +7,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Added
 
 - A state that is not final may declare `acts: false`, on a type that marks an actor identity or on a machine: an actor or principal whose object is in it is refused `actor_active`, as in a final state, at a request, an offer, a publish's approval, an import and the store's maintenance, until a transition leaves it. A flow that declares none behaves as before. Step 3 refuses `acts` on a final state and on a type whose objects are no actors (ADR-0241, issue #55).
+- A request of a batch may give `creates`, names for the objects its effect creates other than its own, as an example's step names them: a list, where they are of one type, or a mapping from each type to a list, in the order made. A later request names each `{"lid": "<name>"}`, as it names a `lid`'s object, so a part made only through its whole can be named in the batch that makes it. A name given twice is answered `400` before any request runs, and a request that created fewer objects than it names, or objects of more than one type named by a list, is answered `400` once it runs, none of the batch applied. The batch's key digests `creates`, and a batch giving none digests as before (ADR-0242, issue #56).
 
 ## 0.10.0, 2026-11-01
 

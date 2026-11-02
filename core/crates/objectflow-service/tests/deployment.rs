@@ -782,6 +782,149 @@ fn a_batch_through_the_wire_names_what_it_creates_by_lid() {
     assert_eq!(status, 400, "a lid on a request sent alone: {said}");
 }
 
+/// A whole made with one part, and in a module above them a booking that
+/// takes a part (issue #56).
+const SLOTTED: &str = "module: orders
+categories: [live, closed]
+types:
+  Order:
+    description: A work order, made with one open slot.
+    tracking: record
+    attributes:
+      title: { type: string }
+      slots:
+        reference: \"Slot[]\"
+        aggregation: composite
+        opposite: order
+        cascade:
+          - { on: [close], transition: close, limit: 50 }
+    states:
+      OPEN: { category: live }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      open:
+        kind: initial
+        to: OPEN
+        required_inputs: [title]
+        effect:
+          - create: { type: Slot, transition: create, inputs: { order: this } }
+      close: { kind: external, from: OPEN, to: CLOSED }
+  Slot:
+    description: A place on a work order for someone to fill.
+    tracking: record
+    attributes:
+      order: { reference: Order, opposite: slots }
+    states:
+      OPEN: { category: live }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      create: { kind: initial, to: OPEN, only_via: [Order.open], required_inputs: [order] }
+      close: { kind: external, from: OPEN, to: CLOSED }
+";
+
+const BOOKED: &str = "module: booking
+imports: { orders: [Slot] }
+categories: [live, closed]
+types:
+  Booking:
+    description: A person put on a slot.
+    tracking: record
+    attributes:
+      slot: { reference: Slot }
+    states:
+      MADE: { category: live }
+      ENDED: { category: closed, final: true }
+    transitions:
+      make: { kind: initial, to: MADE, required_inputs: [slot] }
+      end: { kind: external, from: MADE, to: ENDED }
+";
+
+/// A request of a batch names what its effect creates through the wire,
+/// by a list or by type, each name bound to what its answer lists in
+/// `created`; names that are no names, `creates` on a request sent alone,
+/// and a request creating fewer objects than it names are each answered
+/// `400`, nothing of the batch applied (ADR-0242, issue #56).
+#[test]
+fn a_batch_through_the_wire_names_what_its_effect_creates() {
+    let path = fresh_store("batch-creates");
+    let s = start(&[
+        "--store",
+        path.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ]);
+    publish(&s, &json!({"orders": SLOTTED, "booking": BOOKED}));
+    let op = json!({"actor": {"id": "operator"}});
+    let placed = |title: &str, creates: Value| {
+        json!([
+            {"type": "Order", "transition": "open", "inputs": {"title": title}, "creates": creates},
+            {"type": "Booking", "transition": "make", "inputs": {"slot": {"lid": "s"}}},
+        ])
+    };
+    for (title, creates) in [
+        ("by a list", json!(["s"])),
+        ("by type", json!({"Slot": ["s"]})),
+    ] {
+        let mut body = op.clone();
+        body["requests"] = placed(title, creates);
+        let checked = post(&s, "/v1/check_batch", &body);
+        assert_eq!(checked["applies"], true, "{title}: {checked}");
+        let ran = post(&s, "/v1/batch", &body);
+        assert_eq!(ran["applied"], true, "{title}: {ran}");
+        let part = ran["verdicts"][0]["created"][1].clone();
+        assert!(part.is_string(), "{title}: {ran}");
+        let booking = post(
+            &s,
+            "/v1/get",
+            &json!({"id": ran["verdicts"][1]["object_id"]}),
+        );
+        assert_eq!(booking["attributes"]["slot"], part, "{title}: {booking}");
+    }
+    for (title, creates, says) in [
+        (
+            "not a list",
+            json!("s"),
+            "request 0 of the batch's creates takes a list of names",
+        ),
+        (
+            "not names",
+            json!([7]),
+            "request 0 of the batch's creates takes a list of names",
+        ),
+        (
+            "more than it creates",
+            json!(["s", "t"]),
+            "request 0 of the batch names 2 objects its effect creates, and it created 1 object",
+        ),
+    ] {
+        let mut body = op.clone();
+        body["requests"] = placed(title, creates);
+        let (status, said) = call(&s, "POST", "/v1/batch", Some(&body));
+        assert_eq!(status, 400, "{title}: {said}");
+        assert!(
+            said["fault"].as_str().unwrap_or_default().contains(says),
+            "{title}: {said}"
+        );
+        let found = post(
+            &s,
+            "/v1/query",
+            &json!({"actor": op["actor"], "type": "Order", "filter": "title == :t", "params": {"t": title}}),
+        );
+        assert_eq!(found["items"], json!([]), "a refused batch kept {title}");
+    }
+    let (status, said) = call(
+        &s,
+        "POST",
+        "/v1/request",
+        Some(
+            &json!({"actor": op["actor"], "type": "Order", "transition": "open",
+                     "inputs": {"title": "alone"}, "creates": ["s"]}),
+        ),
+    );
+    assert_eq!(status, 400, "creates on a request sent alone: {said}");
+}
+
 /// A file attribute's or input's media types are answered by
 /// `declaration`, and a file the list does not take is refused through the
 /// wire with the reason `wrong_media_type` (ADR-0239).

@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-11-01 under the author's direction ("go with your recommendations"), on the recommendation given the same day for issue #43; built the same day.
 - **Date:** 2026-11-01
+- **Refined by:** ADR-0242 — a request of a batch names what its effect creates, by `creates`, as an example's step does, each name then a `lid`.
 - **Refines:** ADR-0228 decisions 4 to 8 and 12 (the batch and its check), whose Consequences left such a name out "until a case needs it, as JSON:API's `lid` allows"
 - **Relates to:** PRD F2; ADR-0181 decision 2 (a refusal names no object that does not exist); D581; `docs/research/atomic-batches.md` §6
 

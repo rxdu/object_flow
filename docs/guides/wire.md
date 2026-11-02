@@ -88,6 +88,15 @@ POST /v1/batch
   {"object_id": {"lid": "job"}, "transition": "start"}]}
 ```
 
+**Naming what a request's effect creates** (ADR-0242). A request of a batch may give `creates`, names for the objects its effect creates other than its own, as an example's step names them. Give a list where they are of one type, or a mapping from each type to a list, each in the order made, the order its answer's `created` lists them. A part made only through its whole is named so. A later request names each `{"lid": "<name>"}`, as it names a `lid`'s object. A name given twice, by a `lid` or by `creates`, and an empty one are answered `400` before any request runs. A request that created fewer objects than it names, or objects of more than one type where it names them by a list, is answered `400` once it runs, none of the batch applied. A request sent alone takes no `creates`.
+
+```json
+POST /v1/batch
+{"actor": {"id": "operator"}, "requests": [
+  {"object_id": "workitem-7", "transition": "add_subtask", "inputs": {"title": "Check the seals"}, "creates": ["seals"]},
+  {"object_id": {"lid": "seals"}, "transition": "assign", "inputs": {"assignee": "user-2"}}]}
+```
+
 ### Verdicts
 
 A verdict is `{"kind": …, "remedy": …}` with the fields of its kind; a satisfied one has no `remedy`. The kinds, their fields and the five remedies are in [Errors and refusals](errors.md#verdict-kinds).

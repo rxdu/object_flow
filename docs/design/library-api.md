@@ -699,12 +699,16 @@ An `Event` carries what the log stores and no more: the actor's id, kind and pri
 @dataclass(frozen=True)
 class LocalNames:
     """A request of a batch's local names (ADR-0238): the name it gives the
-    object it creates, and the name an earlier request gave the object it
-    acts on, in place of its object_id. An input names such an object as
-    {"lid": <name>}, alone or as an element of a set, where it would give the
-    object's id; the batch resolves each to the id before the request runs."""
+    object it creates, the name an earlier request gave the object it acts
+    on, in place of its object_id, and the names it gives the objects its
+    effect creates, other than its own, a list of one type's or a list for
+    each type, in the order made (ADR-0242). An input names such an object
+    as {"lid": <name>}, alone or as an element of a set, where it would give
+    the object's id; the batch resolves each to the id before the request
+    runs, and binds `creates` once its request applies."""
     lid: str | None = None
     object_lid: str | None = None
+    creates: Sequence[str] | Mapping[str, Sequence[str]] | None = None
 
 
 class Store(Protocol):

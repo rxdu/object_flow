@@ -2792,11 +2792,13 @@ const BATCH_REQUEST_KEYS: &[&str] = &[
     "expected_version",
     "context",
     "lid",
+    "creates",
 ];
 
 /// A batch's requests, each taking the batch's actor and principal, and
-/// their local names (ADR-0238): a request's `lid`, and its `object_id`
-/// given as `{"lid": <name>}`, which the core resolves.
+/// their local names (ADR-0238): a request's `lid`, its `object_id` given as
+/// `{"lid": <name>}`, and its `creates`, the names it gives what its effect
+/// creates (ADR-0242), which the core resolves.
 fn batch_of(body: &J) -> Result<(Vec<Request>, Vec<request::LocalNames>), Fault> {
     let Some(reqs) = body.get("requests").and_then(J::as_array) else {
         return Err(Fault::Bad(
@@ -2836,13 +2838,47 @@ fn batch_of(body: &J) -> Result<(Vec<Request>, Vec<request::LocalNames>), Fault>
             }
             _ => None,
         };
+        // names for what its effect creates, a list or a mapping from a type
+        // to a list (ADR-0242 decision 1)
+        let creates = match given.as_object_mut().and_then(|m| m.remove("creates")) {
+            None | Some(J::Null) => None,
+            Some(c) => Some(creates_of(&c).ok_or_else(|| {
+                Fault::Bad(format!(
+                    "{what}'s creates takes a list of names, or a mapping from a type to a list of names"
+                ))
+            })?),
+        };
         out.push(request_parts(&given, object_lid.is_some())?);
-        names.push(request::LocalNames { lid, object_lid });
+        names.push(request::LocalNames {
+            lid,
+            object_lid,
+            creates,
+        });
     }
     if names.iter().all(|n| *n == request::LocalNames::default()) {
         names.clear();
     }
     Ok((out, names))
+}
+
+/// A request's `creates` as the core takes it: a list of names, or a
+/// mapping from a type to a list of names; none where it is neither.
+fn creates_of(c: &J) -> Option<request::Creates> {
+    let names = |v: &J| -> Option<Vec<String>> {
+        v.as_array()?
+            .iter()
+            .map(|n| n.as_str().map(str::to_string))
+            .collect()
+    };
+    match c {
+        J::Array(_) => names(c).map(request::Creates::List),
+        J::Object(m) => m
+            .iter()
+            .map(|(t, v)| names(v).map(|n| (t.clone(), n)))
+            .collect::<Option<Vec<_>>>()
+            .map(request::Creates::ByType),
+        _ => None,
+    }
 }
 
 /// Several requests applied whole or not at all, in one transaction, each

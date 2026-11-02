@@ -6886,14 +6886,48 @@ pub enum BatchFault {
 }
 
 /// The local names of a request of a batch (ADR-0238): `lid`, the name it
-/// gives the object it creates, and `object_lid`, the name an earlier
-/// request gave the object it acts on, in place of its `object_id`. An input
+/// gives the object it creates; `object_lid`, the name an earlier request
+/// gave the object it acts on, in place of its `object_id`; and `creates`,
+/// the names it gives the objects its effect creates (ADR-0242). An input
 /// names such an object as `{"lid": <name>}`, alone or as an element of a
 /// set, where it would give the object's id.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LocalNames {
     pub lid: Option<String>,
     pub object_lid: Option<String>,
+    pub creates: Option<Creates>,
+}
+
+/// Names for the objects a request's effect creates, other than its own, in
+/// the order it creates them, as an example's step gives them
+/// (`flow-format.md` §11.3, ADR-0242 decision 1): one list, for objects of
+/// one type, or a list for each type, by the type exactly.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Creates {
+    List(Vec<String>),
+    ByType(Vec<(String, Vec<String>)>),
+}
+
+impl Creates {
+    /// Every name it gives, in its order.
+    fn names(&self) -> Vec<&str> {
+        match self {
+            Creates::List(names) => names.iter().map(String::as_str).collect(),
+            Creates::ByType(by) => by
+                .iter()
+                .flat_map(|(_, names)| names.iter().map(String::as_str))
+                .collect(),
+        }
+    }
+
+    /// As a batch's digest reads it, a list and a mapping each its own
+    /// shape.
+    fn digested(&self) -> Json {
+        match self {
+            Creates::List(names) => json!({"list": names}),
+            Creates::ByType(by) => json!({"by_type": by}),
+        }
+    }
 }
 
 /// The local name a value holds in place of an object's id, an object of
@@ -6924,10 +6958,11 @@ fn lids_in(req: &Request) -> Result<Vec<&str>, String> {
 }
 
 /// Why a batch's local names cannot be resolved, before any request of it
-/// runs (ADR-0238 decision 2): a request naming a lid no earlier request
-/// gives, or naming its object both ways; one giving a lid it creates
-/// nothing for, as a request acting on an object does, or one an earlier
-/// request gave; and names for another number of requests than the batch's.
+/// runs (ADR-0238 decision 2, ADR-0242 decision 2): a request naming a lid
+/// no earlier request gives, or naming its object both ways; one giving a
+/// lid it creates nothing for, as a request acting on an object does; a
+/// name given twice, by a lid or by `creates`, or empty; and names for
+/// another number of requests than the batch's.
 fn names_fault(reqs: &[Request], names: &[LocalNames]) -> Option<BatchFault> {
     if !names.is_empty() && names.len() != reqs.len() {
         return Some(BatchFault::Named {
@@ -6976,8 +7011,87 @@ fn names_fault(reqs: &[Request], names: &[LocalNames]) -> Option<BatchFault> {
                 ));
             }
         }
+        // the names it gives what its effect creates, for the requests after
+        // it (ADR-0242 decision 2)
+        for name in n.creates.iter().flat_map(Creates::names) {
+            if name.is_empty() {
+                return fault("gives an empty name to an object its effect creates".into());
+            }
+            if !given.insert(name) {
+                return fault(format!(
+                    "gives the name {name} to an object its effect creates, which the batch gives already"
+                ));
+            }
+        }
     }
     None
+}
+
+/// The objects a request's effect created, other than its own, bound to
+/// the names its `creates` gives them, in the order made (ADR-0242 decision
+/// 3): a list to objects of one type, and a mapping each type's to its list,
+/// by the type exactly; why not, where it created fewer than it names, or
+/// objects of more than one type where it names them by a list.
+fn bind_created(
+    world: &World<'_>,
+    creates: &Creates,
+    own: &str,
+    created: &[String],
+) -> Result<Result<Vec<(String, String)>, String>, NotRun> {
+    let mut made = Vec::new();
+    for id in created.iter().filter(|id| *id != own) {
+        if let Some(o) = world.get(id)? {
+            made.push((o.type_.clone(), id.clone()));
+        }
+    }
+    let count = |n: usize, what: &str| match n {
+        0 => format!("no {what}"),
+        1 => format!("1 {what}"),
+        n => format!("{n} {what}s"),
+    };
+    let mut out = Vec::new();
+    match creates {
+        Creates::List(names) => {
+            let kinds: BTreeSet<&str> = made.iter().map(|(t, _)| t.as_str()).collect();
+            if kinds.len() > 1 {
+                return Ok(Err(format!(
+                    "names the objects its effect creates by a list, and it created objects of more than one type, {}: name them by type",
+                    kinds.into_iter().collect::<Vec<_>>().join(", ")
+                )));
+            }
+            if names.len() > made.len() {
+                return Ok(Err(format!(
+                    "names {} its effect creates, and it created {}",
+                    count(names.len(), "object"),
+                    count(made.len(), "object")
+                )));
+            }
+            out.extend(
+                names
+                    .iter()
+                    .cloned()
+                    .zip(made.into_iter().map(|(_, id)| id)),
+            );
+        }
+        Creates::ByType(by) => {
+            for (tn, names) in by {
+                let of: Vec<&String> = made
+                    .iter()
+                    .filter(|(t, _)| t == tn)
+                    .map(|(_, id)| id)
+                    .collect();
+                if names.len() > of.len() {
+                    return Ok(Err(format!(
+                        "names {} of {tn} its effect creates, and it created {}",
+                        count(names.len(), "object"),
+                        count(of.len(), "object")
+                    )));
+                }
+                out.extend(names.iter().cloned().zip(of.into_iter().cloned()));
+            }
+        }
+    }
+    Ok(Ok(out))
 }
 
 /// The request as it runs (ADR-0238 decision 3): each local name it holds
@@ -7007,7 +7121,8 @@ fn resolved(req: &Request, n: Option<&LocalNames>, made: &BTreeMap<String, Strin
 /// erasure of what any of them sent replaces it whole, so its key replays
 /// nothing after (ADR-0205 decision 3). A request's local names are digested
 /// where it has any, so a batch without them digests as it did before them
-/// (ADR-0238 decision 4).
+/// (ADR-0238 decision 4), and its `creates` where it gives one (ADR-0242
+/// decision 4).
 fn batch_digest(
     lib: &Library,
     reqs: &[Request],
@@ -7020,11 +7135,14 @@ fn batch_digest(
     for (i, r) in reqs.iter().enumerate() {
         h.update(request_digest(lib, r, Some(actor), principal).as_bytes());
         if let Some(n) = names.get(i).filter(|n| **n != LocalNames::default()) {
-            h.update(
-                json!({"lid": n.lid, "object_lid": n.object_lid})
-                    .to_string()
-                    .as_bytes(),
-            );
+            let mut named = json!({"lid": n.lid, "object_lid": n.object_lid});
+            // what it names of its effect's creations where it names any, so
+            // a batch naming none digests as it did before them (ADR-0242
+            // decision 4)
+            if let Some(c) = &n.creates {
+                named["creates"] = c.digested();
+            }
+            h.update(named.to_string().as_bytes());
         }
         h.update(b"\n");
     }
@@ -7299,6 +7417,35 @@ fn run_batch(
                     (&v, names.get(index).and_then(|n| n.lid.as_ref()))
                 {
                     made.insert(lid.clone(), object_id.clone());
+                }
+                // the names it gives what its effect created, bound as it
+                // applies; one it cannot bind refuses the batch, none of it
+                // applied (ADR-0242 decision 3)
+                if let (
+                    Verdict::Satisfied {
+                        object_id, created, ..
+                    },
+                    Some(creates),
+                ) = (&v, names.get(index).and_then(|n| n.creates.as_ref()))
+                {
+                    let bound = match store.snapshot() {
+                        Ok(world) => bind_created(&world, creates, object_id, created),
+                        Err(e) => {
+                            let _ = undo(store, None);
+                            return Err(e);
+                        }
+                    };
+                    match bound {
+                        Ok(Ok(pairs)) => made.extend(pairs),
+                        Ok(Err(why)) => {
+                            undo(store, None)?;
+                            return Ok(Err(BatchFault::Named { index, why }));
+                        }
+                        Err(e) => {
+                            let _ = undo(store, None);
+                            return Err(crate::store::StoreError(e.to_string()));
+                        }
+                    }
                 }
                 applied.push((v, told));
             }
@@ -12070,14 +12217,14 @@ types:
     fn gives(lid: &str) -> LocalNames {
         LocalNames {
             lid: Some(lid.into()),
-            object_lid: None,
+            ..LocalNames::default()
         }
     }
 
     fn names(lid: &str) -> LocalNames {
         LocalNames {
-            lid: None,
             object_lid: Some(lid.into()),
+            ..LocalNames::default()
         }
     }
 
@@ -12246,6 +12393,7 @@ types:
                     LocalNames {
                         lid: Some("w".into()),
                         object_lid: Some("u".into()),
+                        creates: None,
                     },
                 ],
                 1,
@@ -12381,6 +12529,487 @@ types:
             check_batch_named(&mut s, &refused, &lids).unwrap().unwrap(),
             Batched::Refused { index: 2, .. }
         ));
+        assert!(matches!(
+            batch_named(&mut s, &reqs, &lids, None).unwrap().unwrap(),
+            Batched::Applied(_)
+        ));
+    }
+
+    /// A whole made with one part, a part added to it later, and one made
+    /// beside a note; and, in a module above them, a booking taking a part
+    /// (issue #56).
+    const SLOTTED: &str = r#"
+module: orders
+categories: [live, closed]
+types:
+  Order:
+    attributes:
+      title: { type: string }
+      slots:
+        reference: "Slot[]"
+        aggregation: composite
+        opposite: order
+        cascade:
+          - { on: [close], transition: close, limit: 50 }
+    states:
+      OPEN: { category: live }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      open:
+        kind: initial
+        to: OPEN
+        required_inputs: [title]
+        effect:
+          - create: { type: Slot, transition: create, inputs: { order: this } }
+      open_noted:
+        kind: initial
+        to: OPEN
+        required_inputs: [title]
+        effect:
+          - create: { type: Slot, transition: create, inputs: { order: this } }
+          - create: { type: Note, transition: write, inputs: { order: this } }
+      add_slot:
+        kind: internal
+        from: OPEN
+        effect:
+          - create: { type: Slot, transition: create, inputs: { order: this } }
+      close: { kind: external, from: OPEN, to: CLOSED }
+  Slot:
+    attributes:
+      order: { reference: Order, opposite: slots }
+    states:
+      OPEN: { category: live }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      create: { kind: initial, to: OPEN, only_via: [Order.open, Order.open_noted, Order.add_slot], required_inputs: [order] }
+      close: { kind: external, from: OPEN, to: CLOSED }
+  Note:
+    attributes:
+      order: { reference: Order }
+    states:
+      KEPT: { category: live }
+      DROPPED: { category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [order] }
+      drop: { kind: external, from: KEPT, to: DROPPED }
+"#;
+
+    const BOOKED: &str = r#"
+module: booking
+imports: { orders: [Slot] }
+categories: [live, closed]
+types:
+  Booking:
+    attributes:
+      slot: { reference: Slot }
+    states:
+      MADE: { category: live }
+      ENDED: { category: closed, final: true }
+    transitions:
+      make: { kind: initial, to: MADE, required_inputs: [slot] }
+      end: { kind: external, from: MADE, to: ENDED }
+"#;
+
+    fn slotted() -> Store {
+        let lib = Library::load(&[
+            ("orders.yaml".into(), SLOTTED.into()),
+            ("booking.yaml".into(), BOOKED.into()),
+        ])
+        .unwrap();
+        Store::sandbox(lib, 1_767_225_600).unwrap()
+    }
+
+    fn creating(names: &[&str]) -> LocalNames {
+        LocalNames {
+            creates: Some(Creates::List(names.iter().map(|n| n.to_string()).collect())),
+            ..LocalNames::default()
+        }
+    }
+
+    fn creating_by(by: &[(&str, &[&str])]) -> LocalNames {
+        LocalNames {
+            creates: Some(Creates::ByType(
+                by.iter()
+                    .map(|(t, names)| {
+                        (t.to_string(), names.iter().map(|n| n.to_string()).collect())
+                    })
+                    .collect(),
+            )),
+            ..LocalNames::default()
+        }
+    }
+
+    fn opened() -> Request {
+        asked("open", ("Order", true), json!({"title": "Pump"}))
+    }
+
+    fn booked(lid: &str) -> Request {
+        asked("make", ("Booking", true), json!({"slot": {"lid": lid}}))
+    }
+
+    /// What a satisfied verdict created, other than its own object.
+    fn others(v: &(Verdict, Told)) -> Vec<String> {
+        match &v.0 {
+            Verdict::Satisfied {
+                object_id, created, ..
+            } => created
+                .iter()
+                .filter(|c| *c != object_id)
+                .cloned()
+                .collect(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A request of a batch names the objects its effect creates, by a list
+    /// or by type, a creation or a transition on an object, and a later
+    /// request names each by that name, as the object it acts on or as an
+    /// input, judged and recorded as if it had sent the id (ADR-0242
+    /// decisions 1, 3 and 4).
+    #[test]
+    fn a_batch_names_what_an_earlier_requests_effect_creates() {
+        let mut s = slotted();
+        let slot_of = |s: &Store, booking: &str| -> Value {
+            let w = s.snapshot().unwrap();
+            w.get(booking)
+                .unwrap()
+                .unwrap()
+                .attrs
+                .get("slot")
+                .cloned()
+                .unwrap()
+        };
+        for (case, names) in [
+            ("by a list", creating(&["s"])),
+            ("by type", creating_by(&[("Slot", &["s"])])),
+        ] {
+            let reqs = vec![opened(), booked("s")];
+            let Batched::Applied(applied) =
+                batch_named(&mut s, &reqs, &[names, LocalNames::default()], None)
+                    .unwrap()
+                    .unwrap()
+            else {
+                panic!("{case}: the batch was refused")
+            };
+            let part = others(&applied[0]);
+            assert_eq!(part.len(), 1, "{case}");
+            let booking = made(&applied[1]);
+            assert_eq!(
+                slot_of(&s, &booking),
+                Value::Object(part[0].clone()),
+                "{case}"
+            );
+            let made_it = s.history(&booking).unwrap()[0].clone();
+            assert_eq!(made_it.payload["inputs"]["slot"], json!(part[0]), "{case}");
+        }
+        // a transition on an object names the part its effect adds, and a
+        // later request acts on that part by its name
+        let reqs = vec![
+            opened(),
+            on_lid("add_slot", json!({})),
+            booked("added"),
+            on_lid("close", json!({})),
+        ];
+        let lids = vec![
+            gives("o"),
+            LocalNames {
+                object_lid: Some("o".into()),
+                creates: Some(Creates::List(vec!["added".into()])),
+                ..LocalNames::default()
+            },
+            LocalNames::default(),
+            names("added"),
+        ];
+        let Batched::Applied(applied) = batch_named(&mut s, &reqs, &lids, None).unwrap().unwrap()
+        else {
+            panic!("the batch on an object was refused")
+        };
+        let (first, added) = (others(&applied[0]), others(&applied[1]));
+        assert_eq!(added.len(), 1);
+        assert_ne!(added, first, "the added part was taken for the first");
+        assert_eq!(
+            slot_of(&s, &made(&applied[2])),
+            Value::Object(added[0].clone())
+        );
+        assert_eq!(made(&applied[3]), added[0], "close acted on another object");
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.get(&added[0]).unwrap().unwrap().state, "CLOSED");
+        assert_eq!(w.get(&first[0]).unwrap().unwrap().state, "OPEN");
+        drop(w);
+        // a mapping names each type's objects, an effect making two types
+        let reqs = vec![
+            asked("open_noted", ("Order", true), json!({"title": "Valve"})),
+            booked("s"),
+        ];
+        let lids = vec![
+            creating_by(&[("Note", &["n"]), ("Slot", &["s"])]),
+            LocalNames::default(),
+        ];
+        let Batched::Applied(applied) = batch_named(&mut s, &reqs, &lids, None).unwrap().unwrap()
+        else {
+            panic!("the batch naming two types was refused")
+        };
+        let w = s.snapshot().unwrap();
+        let slot = slot_of(&s, &made(&applied[1]));
+        let Value::Object(slot) = slot else {
+            panic!("{slot:?}")
+        };
+        assert_eq!(w.get(&slot).unwrap().unwrap().type_, "Slot");
+    }
+
+    /// A request that created fewer objects than it names, or objects of
+    /// more than one type where it names them by a list, refuses its batch
+    /// once it runs, naming the request, and none of the batch is kept, its
+    /// check alike (ADR-0242 decision 3).
+    #[test]
+    fn a_batch_naming_more_than_an_effect_creates_is_refused_and_keeps_nothing() {
+        let mut s = slotted();
+        created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Order", true),
+            json!({"title": "Kept"}),
+        ));
+        let none = LocalNames::default;
+        let noted = || asked("open_noted", ("Order", true), json!({"title": "Valve"}));
+        // a case, the batch and its names, and the request refused and why
+        type Case = (
+            &'static str,
+            Vec<Request>,
+            Vec<LocalNames>,
+            usize,
+            &'static str,
+        );
+        let cases: Vec<Case> = vec![
+            (
+                "a list naming more than it created",
+                vec![opened()],
+                vec![creating(&["s", "t"])],
+                0,
+                "names 2 objects its effect creates, and it created 1 object",
+            ),
+            (
+                "a type it did not create",
+                vec![opened()],
+                vec![creating_by(&[("Note", &["n"])])],
+                0,
+                "names 1 object of Note its effect creates, and it created no object",
+            ),
+            (
+                "a type of which it created fewer",
+                vec![noted()],
+                vec![creating_by(&[("Slot", &["s", "t"])])],
+                0,
+                "names 2 objects of Slot its effect creates, and it created 1 object",
+            ),
+            (
+                "a list over two types",
+                vec![noted()],
+                vec![creating(&["s"])],
+                0,
+                "names the objects its effect creates by a list, and it created objects of more than one type, Note, Slot: name them by type",
+            ),
+            (
+                "after a request that applied",
+                vec![opened(), on_lid("add_slot", json!({})), booked("b")],
+                vec![
+                    gives("o"),
+                    LocalNames {
+                        object_lid: Some("o".into()),
+                        creates: Some(Creates::List(vec!["a".into(), "b".into()])),
+                        ..LocalNames::default()
+                    },
+                    none(),
+                ],
+                1,
+                "names 2 objects its effect creates, and it created 1 object",
+            ),
+        ];
+        let kept = |s: &Store| rows_but(s, &["of_sequence", "of_counter"]);
+        for (case, reqs, lids, at, said) in cases {
+            let before = kept(&s);
+            match batch_named(&mut s, &reqs, &lids, None).unwrap() {
+                Err(BatchFault::Named { index, why }) => {
+                    assert_eq!((index, why.as_str()), (at, said), "{case}")
+                }
+                other => panic!("{case}: {other:?}"),
+            }
+            assert_eq!(kept(&s), before, "{case}: a row changed");
+            assert!(
+                matches!(
+                    check_batch_named(&mut s, &reqs, &lids).unwrap(),
+                    Err(BatchFault::Named { index, .. }) if index == at
+                ),
+                "{case}: its check"
+            );
+            assert_eq!(kept(&s), before, "{case}: its check wrote");
+        }
+    }
+
+    /// Names a batch cannot resolve for what an effect creates are refused
+    /// before any request runs, as a lid's are, and nothing is written
+    /// (ADR-0242 decision 2).
+    #[test]
+    fn a_batch_naming_an_effects_creations_amiss_is_refused_before_any_runs() {
+        let mut s = slotted();
+        let none = LocalNames::default;
+        let cases: Vec<(&str, Vec<Request>, Vec<LocalNames>, usize)> = vec![
+            (
+                "a name given twice",
+                vec![opened(), opened()],
+                vec![creating(&["s"]), creating(&["s"])],
+                1,
+            ),
+            (
+                "a name its own lid gives",
+                vec![opened()],
+                vec![LocalNames {
+                    lid: Some("s".into()),
+                    creates: Some(Creates::List(vec!["s".into()])),
+                    ..LocalNames::default()
+                }],
+                0,
+            ),
+            (
+                "a name an earlier lid gives",
+                vec![opened(), opened()],
+                vec![gives("o"), creating(&["o"])],
+                1,
+            ),
+            (
+                "a lid a name gave earlier",
+                vec![opened(), opened()],
+                vec![creating(&["o"]), gives("o")],
+                1,
+            ),
+            ("an empty name", vec![opened()], vec![creating(&[""])], 0),
+            (
+                "a name used before it is given",
+                vec![booked("s"), opened()],
+                vec![none(), creating(&["s"])],
+                0,
+            ),
+            (
+                "a request naming what it gives itself",
+                vec![booked("s")],
+                vec![creating(&["s"])],
+                0,
+            ),
+        ];
+        for (case, reqs, lids, at) in cases {
+            let before = rows_but(&s, &[]);
+            match batch_named(&mut s, &reqs, &lids, None).unwrap() {
+                Err(BatchFault::Named { index, .. }) => assert_eq!(index, at, "{case}"),
+                other => panic!("{case}: {other:?}"),
+            }
+            assert!(
+                matches!(
+                    check_batch_named(&mut s, &reqs, &lids).unwrap(),
+                    Err(BatchFault::Named { index, .. }) if index == at
+                ),
+                "{case}: its check"
+            );
+            assert_eq!(rows_but(&s, &[]), before, "{case}: a row changed");
+        }
+    }
+
+    /// A request refused after a name for an effect's creation was bound
+    /// keeps that name in its row, as sent; a batch with such names replays
+    /// under its key, the same requests naming other objects are another
+    /// batch under it, and a batch with a lid alone digests as 0.10.0 did
+    /// (ADR-0242 decision 4).
+    #[test]
+    fn an_effects_named_creations_are_kept_as_sent_and_held_by_the_key() {
+        let mut s = slotted();
+        let mut refused = booked("s");
+        refused.inputs.insert("hours".into(), json!(3));
+        let lids = vec![creating(&["s"]), LocalNames::default()];
+        let before = rows(&s);
+        let Batched::Refused { index: 1, answer } =
+            batch_named(&mut s, &[opened(), refused], &lids, None)
+                .unwrap()
+                .unwrap()
+        else {
+            panic!("the batch applied")
+        };
+        assert!(
+            matches!(*answer, Ok((Verdict::InvalidInput { .. }, _))),
+            "{answer:?}"
+        );
+        assert_eq!(rows(&s), before, "a row of the batch was kept");
+        let values: String = s
+            .connection()
+            .query_row(
+                "SELECT request_values FROM of_attempt ORDER BY id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let values: Json = serde_json::from_str(&values).unwrap();
+        assert_eq!(values["values"]["inputs"]["slot"], json!({"lid": "s"}));
+        // the key
+        let reqs = vec![opened(), opened(), booked("p")];
+        let named = |p: &str, q: &str| vec![creating(&[p]), creating(&[q]), LocalNames::default()];
+        let Batched::Applied(first) = batch_named(&mut s, &reqs, &named("p", "q"), Some("k"))
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("the batch was refused")
+        };
+        let Batched::Replayed(again) = batch_named(&mut s, &reqs, &named("p", "q"), Some("k"))
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("the batch did not replay")
+        };
+        let ids = |vs: &[(Verdict, Told)]| vs.iter().map(made).collect::<Vec<_>>();
+        assert_eq!(ids(&again), ids(&first));
+        assert_eq!(
+            batch_named(&mut s, &reqs, &named("q", "p"), Some("k")).unwrap(),
+            Err(BatchFault::KeyReused { key: "k".into() })
+        );
+        // a lid alone digests as 0.10.0 digested it
+        use sha2::{Digest, Sha256};
+        let w = s.snapshot().unwrap();
+        let reqs = vec![opened(), booked("o")];
+        let mut h = Sha256::new();
+        h.update(request_digest(w.lib, &reqs[0], Some("operator"), None).as_bytes());
+        h.update(
+            json!({"lid": "o", "object_lid": null})
+                .to_string()
+                .as_bytes(),
+        );
+        h.update(b"\n");
+        h.update(request_digest(w.lib, &reqs[1], Some("operator"), None).as_bytes());
+        h.update(b"\n");
+        let hex: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            batch_digest(
+                w.lib,
+                &reqs,
+                &[gives("o"), LocalNames::default()],
+                "operator",
+                None
+            ),
+            format!("batch:{hex}")
+        );
+    }
+
+    /// A batch's check binds the names it gives what an effect creates as
+    /// the batch does, and writes nothing (ADR-0242 decision 4).
+    #[test]
+    fn a_batchs_check_binds_what_an_effect_creates() {
+        let mut s = slotted();
+        let reqs = vec![opened(), booked("s")];
+        let lids = vec![creating(&["s"]), LocalNames::default()];
+        let before = rows_but(&s, &[]);
+        let Batched::Applied(checked) = check_batch_named(&mut s, &reqs, &lids).unwrap().unwrap()
+        else {
+            panic!("the check refused")
+        };
+        assert_eq!(rows_but(&s, &[]), before, "the check wrote");
+        assert_eq!(others(&checked[0]).len(), 1);
         assert!(matches!(
             batch_named(&mut s, &reqs, &lids, None).unwrap().unwrap(),
             Batched::Applied(_)
