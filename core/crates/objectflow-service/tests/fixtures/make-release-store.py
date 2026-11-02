@@ -26,9 +26,10 @@ v0.6.0, built at eff4a6d and checked against its SHA-256, from the modules as 0.
 release-0.7.0/ by the service published as v0.7.0, built at 4f5f169 and checked against its SHA-256, from the modules
 as 0.7.0 shipped them, those under release-0.8.0/ by the service published as v0.8.0, built at fed391b and checked
 against its SHA-256, from the modules as 0.8.0 shipped them, those under release-0.9.0/ by the service published as
-v0.9.0, built at 98a35ca and checked against its SHA-256, from the modules as 0.9.0 shipped them, and those under
+v0.9.0, built at 98a35ca and checked against its SHA-256, from the modules as 0.9.0 shipped them, those under
 release-0.10.0/ by the service published as v0.10.0, built at 5391c2a and checked against its SHA-256, from the
-modules as 0.10.0 shipped them.
+modules as 0.10.0 shipped them, and those under release-0.11.0/ by the service published as v0.11.0, built at dac042d
+and checked against its SHA-256, from the modules as 0.11.0 shipped them.
 """
 import json
 import pathlib

@@ -252,8 +252,8 @@ A service started on a store an earlier release made answers every operation but
 POST /v1/upgrade
 {"actor": {"id": "operator"}, "dry_run": true}
 
-{"from": "objectflow-core 0.10.0", "to": "objectflow-core 0.11.0", "dry_run": true, "upgraded": false,
- "steps": [{"release": "objectflow-core 0.11.0", "changes": "nothing in the store's own tables or its built-ins, which are 0.10.0's: the step records the release alone"}],
+{"from": "objectflow-core 0.11.0", "to": "objectflow-core 0.12.0", "dry_run": true, "upgraded": false,
+ "steps": [{"release": "objectflow-core 0.12.0", "changes": "an object's events are indexed by their position, where the index by their sequence repeated the unique constraint's, so a page of an object's history reads its own events alone, oldest or newest first (ADR-0243)"}],
  "restored": null}
 ```
 
