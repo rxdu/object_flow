@@ -65,6 +65,26 @@ These are recommendations for the author, not decisions.
 2. **Refused before anything runs**: a name given twice, a name on a request that creates nothing, and a reference to a name no earlier request gives.
 3. **Each request recorded as if sent alone** (ADR-0228 decision 7): an applied request's event holds the id the name resolved to, and a refused request's row the name, as sent.
 
+## 7. Naming what an earlier request's effect creates
+
+**The question,** added 2026-11-02. Issue #56 (filed 2026-11-01) asks that a later request of a batch may name the objects an earlier request's effect creates, beside the object that request makes itself (§6, ADR-0238). A composite part is created only through its whole (check 11), so a part is always an effect's creation. A whole, one of its parts and a record of another module taking the part then cannot be one act. How do platforms let a later request of one call name an object an earlier one made beyond its own?
+
+**Salesforce, Composite** (S9). A reference reaches into the earlier subrequest's response, by field and by index: "The . operator references a field on a JSON object in the response." and "The [] operator indexes a JSON collection in the response." Its example names an element of a collection: "You can refer to the ID of the first account in the recent items collection like this: @{AccountInfo.recentItems[0].Id}"
+
+**OData 4.01** (S10). A request may go on from an earlier request's new entity by a navigation path: the protocol's example batch creates a customer under `Content-ID: 1`, then sends `POST $1/Orders`, an order of that customer. A deep insert creates related entities in one request, and the client may name each of them: "Clients MAY associate an id with individual nested entities in the request by using the Core.ContentID term defined in [OData-VocCore]" and "Services that respond with 201 Created SHOULD annotate the entities in the response using the same Core.ContentID value as specified in the request." The response holds them: "the response MUST be expanded to at least the level that was present in the deep-insert request".
+
+**ObjectFlow beside them.**
+- **What a request creates beyond its own object is its effect's.** OData's nested entities are sent by the client; ObjectFlow's are made by the effect the flow declares. Each platform answers them: ObjectFlow's satisfied answer lists every object the request created, as `created`, in the order made (`wire.md`).
+- **The examples name them already.** An example's request step names the objects its effect creates by `creates`: a list, or a mapping by type, in the order the effect creates them, depth-first (`flow-format.md` §11.3, ADR-0173 decision 6). The core's examples bind each name from the request's creation events (`check/run.rs`, `name_created`).
+- **Salesforce indexes at each use; OData names once, where the entity is created.** *Inferred:* a name given once at the creating request, as the example step's `creates` and ADR-0238's `lid` are, keeps every later use a name rather than a position.
+- **The order is the flow's, not the caller's.** ADR-0238 rejected a request's position in the batch, which a caller shifts by adding a request. The installed version fixes the order of an effect's creations. A version that changes it changes what a list of names binds, as it changes an example's; naming by type confines that to objects of one type.
+- **What an effect created is known only once it runs.** An effect that loops or chooses may create fewer objects than a request names. Salesforce fails a reference that finds no value (§6).
+
+**What it suggests,** for the author, not decisions:
+1. **A request of a batch names what its effect creates as an example's step does**, `creates`, given once at that request, a list or a mapping by type.
+2. **Refused before anything runs**: what the installed version shows cannot be bound, such as a type the effect never creates.
+3. **A request creating fewer objects than it names refuses the batch**, nothing applied, as Salesforce fails a reference that finds no value.
+
 ## Sources
 
 Each retrieved 2026-10-23 with `curl -sL` into its own directory, its markup stripped, and every quotation above found in the stripped text. Spaces that stripped markup left before a comma are removed in the quotations.
@@ -91,3 +111,5 @@ Each retrieved 2026-10-23 with `curl -sL` into its own directory, its markup str
 | S13 | Microsoft Learn, Combine multiple HTTP requests using JSON batching (Microsoft Graph): https://learn.microsoft.com/en-us/graph/json-batching | `eabb8cc`, ms.date 2025-02-21 |
 
 S4 was read again on 2026-11-01 for §6, as `json-api/json-api` `ext/atomic/index.md` at `bd3575e`, 2021-02-24.
+
+For §7, S9's Composite Request Body page (its first address) and S10 were read again on 2026-11-02, each with `curl -sL` into its own directory, its markup stripped, and every quotation found in the stripped text.
