@@ -1016,3 +1016,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** On 2026-11-01 the commit recording 0.10.0's gates, `5391c2a`, changed `TODO.md` and one sentence of `docs/guides/operate.md`. I ran `check-corpus` and `check-guides`, the two checks I took to read those files, and pushed it as the release's commit. `scripts/check-all` runs six checks that read markdown, `check-traceability` and `check-flow-docs` among them, so the push went out on a partial gate. `check.yml` ran the full gate on `main` and passed before the tag, so nothing was published ungated.
 - **Correction:** Before any push, run `scripts/check-all` on both backends on the tree pushed, a docs-only commit included. Choosing checks by which files they seem to read is a partial gate.
 - **Context:** ObjectFlow's pushes, a release's record commits above all (TODO, *F. The release gate*).
+
+### A quotation of Markdown source brings its links into the page
+- **Pattern:** A research note quoted a source written in Markdown as written, its links included: a Microsoft Graph page for #55's research, and Jira's OpenAPI descriptions, a link to the anchor `#pagination`, for #57's. Each link became the note's own, and `check-corpus` failed on anchors the note does not have, the second time only in the full gate. A code span did not help: the check reads a link's syntax anywhere on a line.
+- **Correction:** Quote a Markdown source as it renders, a link's text without its target, and say so in the note's sources. Run `scripts/check-corpus.py` on a new note before the full gate.
+- **Context:** `docs/research/`, and any document that quotes a source given as Markdown.
