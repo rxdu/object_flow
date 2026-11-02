@@ -16921,7 +16921,9 @@ types:
     /// latest first: one object's or a group's, interleaved, at every
     /// limit, each page going on before the last it gave, and from any
     /// position; a group's pages each end at their bytes as one object's,
-    /// and hold every event once (ADR-0243 decision 1).
+    /// hold every event once, and decode whole no event they do not hold,
+    /// a fetch of a chunk the most they read past it (ADR-0243 decisions 1
+    /// and 2).
     #[test]
     fn a_history_newest_first_is_its_oldest_first_reversed() {
         let text = r#"
@@ -16985,9 +16987,8 @@ types:
             }
         }
         // groups of large events, one object's ahead of the other's small
-        // ones and one behind them: each page ends at its bytes, holding
-        // every event once, where an object's read stopping short of the
-        // event that reached its own bytes skipped it
+        // ones and one behind them, so one object's events fill a page:
+        // each page ends at its bytes and holds every event once
         let big = "x".repeat(60_000);
         let small = "y".to_string();
         let c = created(&req(&mut s, "jot", OPERATOR, ("Note", true), json!({})));
@@ -17012,7 +17013,11 @@ types:
             for newest_first in [false, true] {
                 let (mut seen, mut from, mut cut) = (Vec::new(), None, 0);
                 loop {
+                    let read = crate::world::events_read();
                     let (page, next) = s.history_page(&ids, from, 1000, newest_first).unwrap();
+                    // and decodes whole only the events it holds, where each
+                    // object's were read whole to its own bytes and merged
+                    assert_eq!(crate::world::events_read() - read, page.len() as u64);
                     let bytes: usize = page.iter().map(crate::store::event_bytes).sum();
                     assert!(bytes < crate::store::EVENT_BYTES + 100_000, "{bytes}");
                     seen.extend(page.iter().map(|e| e.position));

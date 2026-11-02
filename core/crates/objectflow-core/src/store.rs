@@ -5364,11 +5364,13 @@ impl Store {
     /// answered at 164.6 MB (sixth production review HISTORY, ADR-0192
     /// decision 5).
     ///
-    /// Each object's events are read by `of_event_by_object`, its object and
-    /// their position, a page's limit and bytes of them at most, and merged
-    /// by position, so a page reads about the events it holds, where one
-    /// read of every object sorted all their events past `from` (ADR-0243
-    /// decision 2).
+    /// Each object's positions are read by `of_event_by_object`, its object
+    /// and their position, a page's limit of them at most, and merged; then
+    /// the page's events are read whole a few at a time, ending at its
+    /// bytes, as the log's export reads them. So a page reads about the
+    /// events it holds, where one read of every object sorted all their
+    /// events past `from`, and holds whole no more than its own and one
+    /// chunk, a group's too (ADR-0243 decision 2).
     pub fn history_page(
         &self,
         ids: &[String],
@@ -5378,39 +5380,48 @@ impl Store {
     ) -> Stored<(Vec<Event>, Option<i64>)> {
         let (sql, start) = history_read(newest_first);
         let bound = from.unwrap_or(start);
-        let mut stmt = self.conn.prepare(&sql)?;
         let most = i64::try_from(limit).unwrap_or(i64::MAX);
-        let mut read = Vec::new();
+        let mut by_object = self.conn.prepare(&sql)?;
+        let mut heads = Vec::new();
         for id in ids {
-            let mut bytes = 0;
-            for row in stmt.query_map(params![id, bound, most], event_row)? {
-                let e = row?;
-                bytes += event_bytes(&e);
-                read.push(e);
-                // the page ends by its bytes at this object's event or before
-                if bytes >= EVENT_BYTES {
-                    break;
-                }
+            for p in by_object.query_map(params![id, bound, most], |r| r.get::<_, i64>(0))? {
+                heads.push(p?);
             }
         }
         if newest_first {
-            read.sort_by_key(|e| std::cmp::Reverse(e.position));
+            heads.sort_unstable_by(|a, b| b.cmp(a));
         } else {
-            read.sort_by_key(|e| e.position);
+            heads.sort_unstable();
         }
+        heads.truncate(limit);
+        let full = heads.len() == limit;
+        // a few events whole at a time, as the log's export reads them
+        // (tenth production review)
+        const CHUNK: usize = 16;
+        let order = if newest_first { "DESC" } else { "ASC" };
         let mut out = Vec::new();
         let mut bytes = 0;
-        for e in read.into_iter().take(limit) {
-            bytes += event_bytes(&e);
-            out.push(e);
-            if bytes >= EVENT_BYTES {
-                let next = out.last().map(|e| e.position);
-                return Ok((out, next));
+        for chunk in heads.chunks(CHUNK) {
+            let mut q = self.conn.prepare(&format!(
+                "{EVENT_SELECT} WHERE position IN ({}) ORDER BY position {order}",
+                marks(chunk.len())
+            ))?;
+            let rows = q.query_map(
+                crate::db::params_from_iter(chunk.iter().copied()),
+                event_row,
+            )?;
+            for row in rows {
+                let e = row?;
+                crate::world::events_counted(1);
+                bytes += event_bytes(&e);
+                out.push(e);
+                if bytes >= EVENT_BYTES {
+                    let next = out.last().map(|e| e.position);
+                    return Ok((out, next));
+                }
             }
         }
-        let next = (out.len() == limit)
-            .then(|| out.last().map(|e| e.position))
-            .flatten();
+        let next = full.then(|| out.last().map(|e| e.position)).flatten();
         Ok((out, next))
     }
 
@@ -5624,10 +5635,10 @@ fn next(tx: &Connection, name: &str) -> Stored<i64> {
     )?)
 }
 
-/// The statement a page of history reads one object's events by, its
+/// The statement a page of history reads one object's positions by, its
 /// object `?1`, the position it goes on from `?2` and its limit `?3`, which
-/// `of_event_by_object` answers in either order without a sort; and the
-/// position it starts from without a cursor (ADR-0243 decision 2).
+/// `of_event_by_object` answers alone, in either order, without a sort; and
+/// the position it starts from without a cursor (ADR-0243 decision 2).
 pub(crate) fn history_read(newest_first: bool) -> (String, i64) {
     let (order, start) = if newest_first {
         ("position < ?2 ORDER BY position DESC", i64::MAX)
@@ -5635,7 +5646,7 @@ pub(crate) fn history_read(newest_first: bool) -> (String, i64) {
         ("position > ?2 ORDER BY position", 0)
     };
     (
-        format!("{EVENT_SELECT} WHERE object_id = ?1 AND {order} LIMIT ?3"),
+        format!("SELECT position FROM of_event WHERE object_id = ?1 AND {order} LIMIT ?3"),
         start,
     )
 }
@@ -8782,10 +8793,10 @@ types:
         );
     }
 
-    /// An object's page of history is read by the object's index on
-    /// position, in either order, with no sort of the object's events:
-    /// where the index ran by `object_seq`, SQLite sorted every event of the
-    /// object past the cursor for each page (ADR-0243 decision 2).
+    /// An object's page of history finds its positions by the object's
+    /// index on position alone, in either order, with no sort and no event
+    /// read: where the index ran by `object_seq`, SQLite sorted every event
+    /// of the object past the cursor for each page (ADR-0243 decision 2).
     #[test]
     fn a_page_of_an_objects_history_is_read_by_its_index_unsorted() {
         let lib = Library::load(&[]).unwrap();
@@ -8809,7 +8820,7 @@ types:
             assert_eq!(
                 plan,
                 [format!(
-                    "SEARCH of_event USING INDEX of_event_by_object (object_id=? AND position{op}?)"
+                    "SEARCH of_event USING COVERING INDEX of_event_by_object (object_id=? AND position{op}?)"
                 )],
                 "newest first: {newest_first}"
             );

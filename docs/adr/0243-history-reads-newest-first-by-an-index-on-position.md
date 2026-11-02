@@ -21,7 +21,7 @@ KurrentDB reads a stream backwards from its end, Stripe's lists answer newest fi
    - An event recorded after the first page is not met by a later one, since each reads below the last. A reader sends the read again without a cursor to see it.
    - A cursor is a position either way, as before, so one from an oldest-first read reads the events before that position newest first.
 2. **An object's events are indexed by their position:** `of_event_by_object` is `(object_id, position)`, in place of the copy of the unique constraint's index.
-   - A page reads each object's events by it, in either order, a page's limit and bytes of them at most, and merges them by position. So a page reads about the events it holds, a group's included.
+   - A page reads each object's positions by it alone, in either order, a page's limit of them at most, and merges them. It then reads the page's events whole sixteen at a time, ending at its bytes, as the log's export reads them. So a page reads about the events it holds, a group's included, and holds whole no more than its own and one chunk.
    - It changes the store's tables, so it is a release (ADR-0177 decision 1): 0.12.0, the release in progress, its step from 0.11.0 dropping the old index and building the new one over the whole log.
    - Each write maintains as many indexes as before. Whether its time moves is measured by 0.12.0's Gate P, not assumed.
 
@@ -38,11 +38,11 @@ KurrentDB reads a stream backwards from its end, Stripe's lists answer newest fi
 
 - Built in the core (`store.rs`, `history_page` and `history_read`, and the schema's index; `release.rs`, the 0.12.0 entry and `object_position_index`), the service (`main.rs`, `history` and its keys), the Flow Studio's sandbox and its key list, and `wire-v1.json`. `wire.md`, `integrate.md`, `operate.md`, `library-api.md`, `storage-schema.md`, `DESIGN.md` §10 and `CHANGELOG.md` say so.
 - **Tested on both backends.**
-  - `a_history_newest_first_is_its_oldest_first_reversed`: one object and a group, at every limit and from every position, and pages cut by their bytes, one object's large events beside another's small ones, either way.
+  - `a_history_newest_first_is_its_oldest_first_reversed`: one object and a group, at every limit and from every position, and pages cut by their bytes, one object's large events beside another's small ones, either way, each page reading whole only the events it holds.
   - `a_page_of_events_ends_at_its_bytes`, newest first too.
-  - `a_page_of_an_objects_history_is_read_by_its_index_unsorted`, on SQLite: the plan, in both orders, is a search of the index with no sort.
+  - `a_page_of_an_objects_history_is_read_by_its_index_unsorted`, on SQLite: the plan, in both orders, is a search of the index alone, a covering one, with no sort.
   - `a_history_is_read_newest_first_its_legacy_entries_last`, on the wire: the legacy entries last, the cursor and the refusal of a value that is not true or false.
   - The upgrade tests: every fixture store read newest first after its upgrade, an upgraded store's indexes compared with a new one's by their columns, where they were compared by name, and a PostgreSQL store's index read by its columns before and after its upgrade.
   - The Flow Studio's `test_a_history_newest_first_is_read_alike`: the sandbox and the core answer alike at every limit.
-- **Planted defects, each caught:** in the store, the step migrating nothing (on both backends), the schema's index left by `object_seq`, newest first read oldest first, a group merged oldest first either way, and an object's read stopping before the event that reached its bytes; in the service, the legacy entries on the first page, not reversed, before the events, and `newest_first` not read; in the sandbox, `newest_first` not read.
+- **Planted defects, each caught:** in the store, the step migrating nothing (on both backends), the schema's index left by `object_seq`, newest first read oldest first, a group merged oldest first either way, the positions read with their events' payloads, a group's positions not cut to the page, a chunk read oldest first either way, and a page not ended at its bytes; in the service, the legacy entries on the first page, not reversed, before the events, and `newest_first` not read; in the sandbox, `newest_first` not read.
 - **The upgrade to 0.12.0 builds the index over the log once.** A million events of about 1 KB took 1.27 s on SQLite 3.37.2 and 0.68 s on PostgreSQL 16.8 with `fsync` off, each log already in memory (`TODO.md`, 0.12.0's entry). Reading a log from disk adds its read.
