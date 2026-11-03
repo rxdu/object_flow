@@ -158,7 +158,112 @@ pub const RELEASES: &[Release] = &[
         builtins_changed: false,
         migrate: object_position_index,
     },
+    Release {
+        name: "objectflow-core 0.13.0",
+        from: &["objectflow-core 0.12.0"],
+        fingerprint: "sha256:d0f96b39a4fa49d8caee7600745e7235fc1694f79ca2a72063cde808a4a4d74e",
+        changes: "the write index of each stored set and each end without a column a version renamed, which 0.12.0 and the releases before left under the old name, carried to the new, so `changed_since` of it reads the writes made before the rename (ADR-0246)",
+        builtins_changed: false,
+        migrate: renamed_write_index,
+    },
 ];
+
+/// 0.12.0 to 0.13.0: the write index of each stored set and each end without
+/// a column a version renamed, which the publishes of 0.12.0 and before left
+/// under the old name, so `changed_since` of the new name read no write made
+/// before the rename (ADR-0246). Each version from the second, in order, so a
+/// chain of renames is followed: each rename of such an attribute, and each
+/// object whose type under that version the rename reaches, its row of the
+/// old name written before the version's publish moved to the new name, or
+/// dropped where the object holds a row of the new name, a later write's. A
+/// row written after the publish is a later version's attribute of the old
+/// name, and stays.
+pub(crate) fn renamed_write_index(tx: &Transaction<'_>, _now: i64) -> Result<(), StoreError> {
+    let versions: Vec<i64> = {
+        let mut read =
+            tx.prepare("SELECT version FROM of_declaration WHERE version >= 2 ORDER BY version")?;
+        let rows = read.query_map([], |r| r.get::<_, i64>(0))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    for v in versions {
+        let (Some(lib), Some(before)) = (
+            crate::store::library_of(tx, v)?,
+            crate::store::library_of(tx, v - 1)?,
+        ) else {
+            continue;
+        };
+        if lib.migration.renamed_attributes.is_empty() {
+            continue;
+        }
+        // the version's publish, whose event every write before it precedes;
+        // a version no publish installed, which no release records past the
+        // first, renamed nothing
+        let Some(published) = tx
+            .query_row(
+                "SELECT e.position FROM of_event e JOIN of_declaration d ON e.object_id = d.change_id \
+                 WHERE d.version = ?1 AND e.transition = 'publish'",
+                params![v],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+        else {
+            continue;
+        };
+        for (owner, from, to) in &lib.migration.renamed_attributes {
+            let ids: Vec<String> = {
+                let mut read = tx.prepare(
+                    "SELECT object_id FROM of_attribute_write WHERE attribute = ?1 AND position < ?2",
+                )?;
+                let rows = read.query_map(params![from, published], |r| r.get::<_, String>(0))?;
+                rows.collect::<Result<_, _>>()?
+            };
+            for id in ids {
+                let Some(now) = crate::store::read_type_of(tx, &id)? else {
+                    continue;
+                };
+                // the type it was of under the version, its own moves read
+                let moves: Vec<crate::store::Event> =
+                    crate::store::read_events(tx, "object_id = ?1 AND source = 'migrated'", &id)?
+                        .into_iter()
+                        .filter(|e| e.payload.get("moved").is_some())
+                        .collect();
+                let then = crate::request::type_then(&moves, &now, v);
+                // a rename the publish carried no write index of: a stored
+                // set's, or an end's without a column, of a type of the
+                // rename's family that held the old name before it
+                let reached = lib.is_a(&then, owner)
+                    && lib
+                        .type_(&then)
+                        .and_then(|t| t.attribute(to))
+                        .is_some_and(|a| a.stored_set() || a.derived_end())
+                    && before
+                        .type_(&then)
+                        .and_then(|t| t.attribute(from))
+                        .is_some();
+                if !reached {
+                    continue;
+                }
+                let newer: i64 = tx.query_row(
+                    "SELECT count(*) FROM of_attribute_write WHERE object_id = ?1 AND attribute = ?2",
+                    params![id, to],
+                    |r| r.get(0),
+                )?;
+                if newer > 0 {
+                    tx.execute(
+                        "DELETE FROM of_attribute_write WHERE object_id = ?1 AND attribute = ?2",
+                        params![id, from],
+                    )?;
+                } else {
+                    tx.execute(
+                        "UPDATE of_attribute_write SET attribute = ?3 WHERE object_id = ?1 AND attribute = ?2",
+                        params![id, from, to],
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 /// 0.11.0 to 0.12.0: an object's events indexed by its object and their
 /// position, the index of that name having repeated the unique constraint's

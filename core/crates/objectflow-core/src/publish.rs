@@ -5167,6 +5167,221 @@ types:
         )
     }
 
+    /// The upgrade to 0.13.0 carries the write index a rename of a stored
+    /// set, or of an end without a column, left under its old name at 0.12.0
+    /// and before, each stale row planted here as those publishes left it
+    /// (ADR-0246). A card tagged after its sign-off, its tags renamed
+    /// keywords and then labels, has its row carried through both, and its
+    /// `close` refused again. A row of the old name beside a later write of
+    /// the new is dropped. A later version's attribute of the old name, and
+    /// a memo's column of it, keep their own rows. An order's composite end
+    /// renamed alone has its row carried too.
+    #[test]
+    fn the_upgrade_to_0_13_0_carries_the_write_index_a_rename_left() {
+        let rows = |s: &Store, id: &str| -> BTreeMap<String, i64> {
+            s.snapshot()
+                .unwrap()
+                .whole(id)
+                .unwrap()
+                .unwrap()
+                .held_parts()
+                .unwrap()
+                .writes
+                .iter()
+                .map(|(k, v)| (k.to_string(), *v))
+                .collect()
+        };
+        // a row as a publish of 0.12.0 left it, under the old name
+        let plant = |s: &Store, id: &str, now: &str, was: &str| {
+            let moved = s
+                .conn()
+                .execute(
+                    "UPDATE of_attribute_write SET attribute = ?3 WHERE object_id = ?1 AND attribute = ?2",
+                    crate::db::params![id, now, was],
+                )
+                .unwrap();
+            assert_eq!(moved, 1, "{id}: {now}");
+        };
+        let upgraded = |s: &Store| {
+            let tx = s.conn().unchecked_transaction().unwrap();
+            crate::release::renamed_write_index(&tx, 0).unwrap();
+            tx.commit().unwrap();
+        };
+        let stale =
+            |v: &Verdict| matches!(v, Verdict::Unsatisfied { clause, .. } if clause == "fresh");
+        // the card's tags under the name given, without a migration
+        let named = |name: &str| -> String {
+            let mut text = CARD_TAGS.to_string();
+            for (old, new) in [
+                (
+                    "      tags: { type: \"string[]\", optional: true }\n".to_string(),
+                    format!("      {name}: {{ type: \"string[]\", optional: true }}\n"),
+                ),
+                (
+                    " tags], signed_at)".to_string(),
+                    format!(" {name}], signed_at)"),
+                ),
+                (
+                    "required_inputs: [tags], description: Sets".to_string(),
+                    format!("required_inputs: [{name}], description: Sets"),
+                ),
+            ] {
+                assert_eq!(text.matches(&old).count(), 1, "{old}");
+                text = text.replace(&old, &new);
+            }
+            text
+        };
+        let keywords = format!(
+            "{}migration:\n  description: Tags are keywords.\n  renamed_attributes:\n    Card: {{ tags: keywords }}\n",
+            named("keywords")
+        );
+        let labels = format!(
+            "{}migration:\n  description: Keywords are labels.\n  renamed_attributes:\n    Card: {{ keywords: labels }}\n",
+            named("labels")
+        );
+        // the old name declared again, with a transition writing it
+        let mut again = named("labels");
+        for (old, new) in [
+            (
+                "      labels: { type: \"string[]\", optional: true }\n",
+                "      labels: { type: \"string[]\", optional: true }\n      tags: { type: \"string[]\", optional: true }\n",
+            ),
+            (
+                "      sign:\n",
+                "      retag: { kind: internal, from: OPEN, required_inputs: [tags], description: Sets its other tags. }\n      sign:\n",
+            ),
+        ] {
+            assert_eq!(again.matches(old).count(), 1, "{old}");
+            again = again.replace(old, new);
+        }
+        let lib = Library::load(&[("cards.yaml".into(), CARD_TAGS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let card = created(&req(
+            &mut s,
+            "open",
+            ("Card", true),
+            json!({"title": "Plan"}),
+        ));
+        created(&req(&mut s, "sign", (&card, false), json!({})));
+        created(&req(
+            &mut s,
+            "tag",
+            (&card, false),
+            json!({"tags": ["urgent"]}),
+        ));
+        let later = created(&req(
+            &mut s,
+            "open",
+            ("Card", true),
+            json!({"title": "Later"}),
+        ));
+        created(&req(&mut s, "tag", (&later, false), json!({"tags": ["a"]})));
+        let memo = created(&req(&mut s, "file", ("Memo", true), json!({"tags": 3})));
+        let tagged = rows(&s, &card)["tags"];
+        let memo_was = rows(&s, &memo);
+        assert!(memo_was.contains_key("tags"), "{memo_was:?}");
+        published_as(&mut s, "cards", &[&keywords]);
+        plant(&s, &card, "keywords", "tags");
+        plant(&s, &later, "keywords", "tags");
+        // a write under the new name after the rename, beside the stale row
+        created(&req(
+            &mut s,
+            "tag",
+            (&later, false),
+            json!({"keywords": ["b"]}),
+        ));
+        let rewritten = rows(&s, &later)["keywords"];
+        assert!(rewritten > tagged, "{rewritten} {tagged}");
+        published_as(&mut s, "cards", &[&labels, &again]);
+        let fresh = created(&req(
+            &mut s,
+            "open",
+            ("Card", true),
+            json!({"title": "Fresh"}),
+        ));
+        created(&req(
+            &mut s,
+            "retag",
+            (&fresh, false),
+            json!({"tags": ["x"]}),
+        ));
+        let retagged = rows(&s, &fresh)["tags"];
+        // as 0.12.0 left them: the card's row under the first name, the
+        // later card's stale row beside its carried one
+        assert_eq!(rows(&s, &card).get("tags"), Some(&tagged));
+        assert_eq!(rows(&s, &later).get("labels"), Some(&rewritten));
+        assert!(rows(&s, &later).contains_key("tags"));
+        upgraded(&s);
+        let card_now = rows(&s, &card);
+        assert_eq!(card_now.get("labels"), Some(&tagged), "{card_now:?}");
+        assert!(
+            !card_now.contains_key("tags") && !card_now.contains_key("keywords"),
+            "{card_now:?}"
+        );
+        let later_now = rows(&s, &later);
+        assert_eq!(later_now.get("labels"), Some(&rewritten), "{later_now:?}");
+        assert!(
+            !later_now.contains_key("tags") && !later_now.contains_key("keywords"),
+            "{later_now:?}"
+        );
+        assert_eq!(
+            rows(&s, &fresh).get("tags"),
+            Some(&retagged),
+            "the old name declared again"
+        );
+        assert_eq!(
+            rows(&s, &memo),
+            memo_was,
+            "the memo's column of the old name"
+        );
+        let close = req(&mut s, "close", (&card, false), json!({}));
+        assert!(stale(&close), "after the upgrade, {close:?}");
+        // an order's composite end, renamed alone
+        let mut items = ORDER_LINES.to_string();
+        for (old, new) in [
+            (
+                "      lines:\n        reference: \"Line[]\"\n",
+                "      items:\n        reference: \"Line[]\"\n",
+            ),
+            (
+                "changed_since([price, lines]",
+                "changed_since([price, items]",
+            ),
+            (
+                "      order: { reference: Order, opposite: lines }\n",
+                "      order: { reference: Order, opposite: items }\n",
+            ),
+        ] {
+            assert_eq!(items.matches(old).count(), 1, "{old}");
+            items = items.replace(old, new);
+        }
+        items.push_str("migration:\n  description: An order's lines are its items.\n  renamed_attributes:\n    Order: { lines: items }\n");
+        let lib = Library::load(&[("desk.yaml".into(), ORDER_LINES.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let order = created(&req(&mut s, "open", ("Order", true), json!({"price": 10})));
+        let Verdict::Satisfied { created: made, .. } =
+            req(&mut s, "add_line", (&order, false), json!({"text": "a"}))
+        else {
+            panic!("add_line");
+        };
+        created(&req(&mut s, "sign", (&order, false), json!({})));
+        created(&req(
+            &mut s,
+            "edit",
+            (&made[0], false),
+            json!({"text": "b"}),
+        ));
+        let edited = rows(&s, &order)["lines"];
+        published_as(&mut s, "desk", &[&items]);
+        plant(&s, &order, "items", "lines");
+        upgraded(&s);
+        let order_now = rows(&s, &order);
+        assert_eq!(order_now.get("items"), Some(&edited), "{order_now:?}");
+        assert!(!order_now.contains_key("lines"), "{order_now:?}");
+        let close = req(&mut s, "close", (&order, false), json!({}));
+        assert!(stale(&close), "the order after the upgrade, {close:?}");
+    }
+
     /// A stored set's rename carries its write-index rows under its new
     /// name, as a column's and a derived end's are, renamed alone and
     /// beside a renamed column (`storage-schema.md` §10): a card tagged
