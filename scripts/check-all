@@ -5,13 +5,33 @@
 # scenarios' replay on the core and on the reference runner. Each runs to its
 # end; the script fails if any failed, and says which.
 #
+# The gates run in three steps (ADR-0245):
+#   1. the builds, one at a time: the core's format and clippy, its tests
+#      built with every feature, and the service built without any, apart in
+#      core/target/plain, so neither build replaces the other's binary under a
+#      gate running it;
+#   2. the lanes, at once, each its gates in turn: `core` (the tests on
+#      SQLite), `postgres` (the tests on PostgreSQL), `studio` (the Flow
+#      Studio's server and web app), `checks` (the design's checks) and
+#      `scenarios` (the metric scenarios and their replays);
+#   3. the tests a load on the machine can fail, ALONE below, one at a time on
+#      each backend.
+# Each gate's line says how long it took.
+#
 # The core's tests run on SQLite, and again on PostgreSQL where
 # OBJECTFLOW_CHECK_POSTGRES names a database made with LC_COLLATE 'C'
-# (ADR-0213); without one that gate is not run, which the last line says.
+# (ADR-0213); without one that lane is not run, which the last line says.
 # scripts/setup/postgres-check-db starts one on this machine and prints the
 # value to give it.
 #
-# Usage: scripts/check-all
+# Usage: scripts/check-all            every gate
+#        scripts/check-all --lane <l> one lane's gates in turn, with the builds
+#                                     and the lone tests it needs: what one of
+#                                     CI's jobs runs
+#        scripts/check-all --serial   every gate, the lanes in turn: what CI's
+#                                     one job runs until its jobs are split by
+#                                     lane (ADR-0245 decision 4)
+#        scripts/check-all --lanes    the lanes' names, one a line
 # CI sets RUSTFLAGS="-D warnings" for the whole job, so a compiler warning
 # fails there as clippy's do everywhere (ADR-0183 decision 2).
 #
@@ -25,56 +45,168 @@ PY="$ROOT/scripts/.venv/bin/python"
 # each gate bounded, so one that hangs fails naming itself rather than
 # holding the run: a full pipe once stopped the core under the Studio's tests
 GATE_TIMEOUT="${GATE_TIMEOUT:-1800}"
-failed=()
-skipped=()
+LANES=(core postgres studio checks scenarios)
+# the service as the Flow Studio, the guides and the replays run it, built
+# without the tests' features where the tests' build cannot replace it
+PLAIN="$ROOT/core/target/plain"
+# the tests a load on the machine can fail, run alone once the lanes end:
+# three requests not counted in flight within 20 s under the suite's load
+# (TODO.md, `a_connection_at_the_cap_makes_room_or_is_told_busy`)
+ALONE=(a_connection_at_the_cap_makes_room_or_is_told_busy)
+SKIP_ALONE=()
+for t in "${ALONE[@]}"; do SKIP_ALONE+=(--skip "$t"); done
+OUT="$(mktemp -d)"
+trap 'rm -rf "$OUT"' EXIT
+
+# One gate: its command run to its end, bounded; its line names its elapsed
+# seconds and its output's last line, and a failure's last 40 lines follow.
 run() {
   local name="$1"; shift
-  local log; log="$(mktemp)"
+  local log; log="$(mktemp -p "$OUT")"
+  local start; start=$(date +%s)
   timeout "$GATE_TIMEOUT" "$@" > "$log" 2>&1
   local rc=$?
+  local took=$(( $(date +%s) - start ))
   if [ "$rc" -eq 0 ]; then
-    printf 'ok      %s | %s\n' "$name" "$(tail -1 "$log" | cut -c1-120)"
+    printf 'ok      %s | %s s | %s\n' "$name" "$took" "$(tail -1 "$log" | cut -c1-120)"
   else
     if [ "$rc" -eq 124 ]; then
-      printf 'FAILED  %s | timed out after %s s\n' "$name" "$GATE_TIMEOUT"
+      printf 'FAILED  %s | %s s | timed out after %s s\n' "$name" "$took" "$GATE_TIMEOUT"
     else
-      printf 'FAILED  %s | exit %s | %s\n' "$name" "$rc" "$(tail -1 "$log" | cut -c1-120)"
+      printf 'FAILED  %s | %s s | exit %s | %s\n' "$name" "$took" "$rc" "$(tail -1 "$log" | cut -c1-120)"
     fi
     tail -40 "$log" | sed 's/^/        /'
-    failed+=("$name")
+    echo "$name" >> "$OUT/failed"
   fi
   rm -f "$log"
 }
-# on SQLite, whatever a sandbox's database is set to in the environment
-run "core" env -u OBJECTFLOW_SANDBOX_POSTGRES CARGO="$CARGO" "$ROOT/core/scripts/check"
-if [ -n "${OBJECTFLOW_CHECK_POSTGRES:-}" ]; then
-  # the harness one seed of each sample there, its fork a copy of the store's
-  # schema for every request it takes, where SQLite's run holds six; each
-  # failing test's header and panic printed before the summary, which alone
-  # was kept, so a failure on CI named no test (2026-10-18). Four tests at a
-  # time on any machine: each test's store writes serialisable transactions
-  # on the one server, whose predicate locks a committed one keeps while an
-  # overlapping one runs, so eight at once filled the server's table at its
-  # defaults (`53200 out of shared memory`); four peaked at a sixth of it
-  # (2026-10-23)
-  run "core on postgres" env OBJECTFLOW_SANDBOX_POSTGRES="$OBJECTFLOW_CHECK_POSTGRES" OBJECTFLOW_HARNESS_SEEDS=1 RUST_TEST_THREADS=4 \
-    bash -c "cd '$ROOT/core' && out=\$(mktemp) && { '$CARGO' test -q --all-features > \"\$out\" 2>&1; rc=\$?; { grep -E -A6 '^---- ' \"\$out\"; grep -E '^test .* FAILED|^error' \"\$out\"; } | head -80; awk '/^test result/ {p += \$4; f += \$6; l = 0} /^failures:\$/ {l = 1} l && /^    [A-Za-z0-9_:]+\$/ {n = n \" \" \$1} END {print p \" passed, \" f \" failed on PostgreSQL\" (n ? \":\" n : \"\")}' \"\$out\"; rm -f \"\$out\"; exit \$rc; }"
-else
-  skipped+=("core on postgres")
-fi
-run "studio" bash -c "cd '$ROOT/apps/flow-studio/server' && .venv/bin/python -m pytest -q"
-run "web" bash -c "cd '$ROOT/apps/flow-studio/web' && corepack pnpm check"
-for c in "$ROOT"/scripts/check-*.py; do
-  run "$(basename "$c" .py)" "$PY" "$c"
-done
-run "replay" "$PY" "$ROOT/scripts/replay-scenarios.py"
-run "runner replay" "$PY" "$ROOT/scripts/replay-scenarios.py" --runner
-if ((${#failed[@]})); then
-  echo "check-all: ${#failed[@]} failed: ${failed[*]}"
-  exit 1
-fi
-if ((${#skipped[@]})); then
-  echo "check-all: every gate run passed; not run: ${skipped[*]}, for want of a database"
-  exit 0
-fi
-echo "check-all: every gate passed"
+
+# The core's tests on PostgreSQL, the arguments given passed to each test
+# binary: the harness one seed of each sample there, its fork a copy of the
+# store's schema for every request it takes, where SQLite's run holds six;
+# each failing test's header and panic printed before the summary, which alone
+# was kept, so a failure on CI named no test (2026-10-18). Four tests at a
+# time on any machine: each test's store writes serialisable transactions on
+# the one server, whose predicate locks a committed one keeps while an
+# overlapping one runs, so eight at once filled the server's table at its
+# defaults (`53200 out of shared memory`); four peaked at a sixth of it
+# (2026-10-23).
+on_postgres() {
+  local name="$1"; shift
+  local args="$*"
+  run "$name" env OBJECTFLOW_SANDBOX_POSTGRES="$OBJECTFLOW_CHECK_POSTGRES" OBJECTFLOW_HARNESS_SEEDS=1 RUST_TEST_THREADS=4 \
+    bash -c "cd '$ROOT/core' && out=\$(mktemp) && { '$CARGO' test -q --all-features -- $args > \"\$out\" 2>&1; rc=\$?; { grep -E -A6 '^---- ' \"\$out\"; grep -E '^test .* FAILED|^error' \"\$out\"; } | head -80; awk '/^test result/ {p += \$4; f += \$6; l = 0} /^failures:\$/ {l = 1} l && /^    [A-Za-z0-9_:]+\$/ {n = n \" \" \$1} END {print p \" passed, \" f \" failed on PostgreSQL\" (n ? \":\" n : \"\")}' \"\$out\"; p=\$(awk '/^test result/ {p += \$4} END {print p + 0}' \"\$out\"); rm -f \"\$out\"; [ \$rc -ne 0 ] && exit \$rc; [ \$p -ge 1 ] || { echo 'no test ran'; exit 1; }; }"
+}
+
+# The builds every lane after them reads, one at a time.
+builds() {
+  run "core lint" env CARGO="$CARGO" "$ROOT/core/scripts/check" lint
+  run "core build" env CARGO="$CARGO" "$ROOT/core/scripts/check" build
+  service_build
+}
+service_build() {
+  run "service build" env CARGO_TARGET_DIR="$PLAIN" "$CARGO" build -q --manifest-path "$ROOT/core/Cargo.toml" -p objectflow-service
+}
+
+# Each lane's gates, in turn.
+lane_core() {
+  # on SQLite, whatever a sandbox's database is set to in the environment
+  run "core" env -u OBJECTFLOW_SANDBOX_POSTGRES CARGO="$CARGO" "$ROOT/core/scripts/check" test -- "${SKIP_ALONE[@]}"
+}
+lane_postgres() {
+  if [ -n "${OBJECTFLOW_CHECK_POSTGRES:-}" ]; then
+    on_postgres "core on postgres" "${SKIP_ALONE[@]}"
+  else
+    echo "core on postgres" >> "$OUT/skipped"
+  fi
+}
+lane_studio() {
+  export CARGO_TARGET_DIR="$PLAIN"
+  run "studio" bash -c "cd '$ROOT/apps/flow-studio/server' && .venv/bin/python -m pytest -q"
+  run "web" bash -c "cd '$ROOT/apps/flow-studio/web' && corepack pnpm check"
+}
+lane_checks() {
+  export CARGO_TARGET_DIR="$PLAIN"
+  for c in "$ROOT"/scripts/check-*.py; do
+    [ "$(basename "$c")" = "check-scenarios.py" ] && continue
+    run "$(basename "$c" .py)" "$PY" "$c"
+  done
+}
+lane_scenarios() {
+  export CARGO_TARGET_DIR="$PLAIN"
+  run "check-scenarios" "$PY" "$ROOT/scripts/check-scenarios.py"
+  run "replay" "$PY" "$ROOT/scripts/replay-scenarios.py"
+  run "runner replay" "$PY" "$ROOT/scripts/replay-scenarios.py" --runner
+}
+
+# The tests a load can fail, each alone, on SQLite and on PostgreSQL.
+alone_sqlite() {
+  for t in "${ALONE[@]}"; do
+    # a name no test has any more runs nothing, which fails rather than passes
+    run "alone: $t" env -u OBJECTFLOW_SANDBOX_POSTGRES \
+      bash -c "cd '$ROOT/core' && out=\$(mktemp) && { '$CARGO' test -q --all-features -- --exact '$t' > \"\$out\" 2>&1; rc=\$?; grep -E -A6 '^---- ' \"\$out\" | head -40; p=\$(awk '/^test result/ {p += \$4} END {print p + 0}' \"\$out\"); rm -f \"\$out\"; echo \"\$p passed alone\"; [ \$rc -ne 0 ] && exit \$rc; [ \$p -ge 1 ] || { echo 'no test ran'; exit 1; }; }"
+  done
+}
+alone_postgres() {
+  [ -n "${OBJECTFLOW_CHECK_POSTGRES:-}" ] || return 0
+  for t in "${ALONE[@]}"; do
+    on_postgres "alone on postgres: $t" --exact "$t"
+  done
+}
+
+verdict() {
+  local took=$(( $(date +%s) - began ))
+  if [ -s "$OUT/failed" ]; then
+    echo "check-all: $(wc -l < "$OUT/failed") failed: $(tr '\n' ' ' < "$OUT/failed")in ${took} s"
+    exit 1
+  fi
+  if [ -s "$OUT/skipped" ]; then
+    echo "check-all: every gate run passed in ${took} s; not run: $(tr '\n' ' ' < "$OUT/skipped")for want of a database"
+    exit 0
+  fi
+  echo "check-all: every gate passed in ${took} s"
+}
+
+began=$(date +%s)
+case "${1:-}" in
+  --lanes)
+    printf '%s\n' "${LANES[@]}"
+    exit 0
+    ;;
+  --lane)
+    lane="${2:-}"
+    case "$lane" in
+      core) run "core lint" env CARGO="$CARGO" "$ROOT/core/scripts/check" lint; lane_core; alone_sqlite ;;
+      postgres) lane_postgres; alone_postgres ;;
+      studio|checks|scenarios) service_build; "lane_$lane" ;;
+      *) echo "check-all: no lane ${lane:-named}; the lanes are ${LANES[*]}" >&2; exit 2 ;;
+    esac
+    verdict
+    ;;
+  --serial)
+    builds
+    for lane in "${LANES[@]}"; do
+      ( "lane_$lane" )
+    done
+    alone_sqlite
+    alone_postgres
+    verdict
+    ;;
+  "")
+    builds
+    for lane in "${LANES[@]}"; do
+      ( "lane_$lane" ) > "$OUT/lane.$lane" 2>&1 &
+    done
+    wait
+    for lane in "${LANES[@]}"; do
+      cat "$OUT/lane.$lane"
+    done
+    alone_sqlite
+    alone_postgres
+    verdict
+    ;;
+  *)
+    echo "usage: scripts/check-all [--serial | --lane <lane> | --lanes]" >&2
+    exit 2
+    ;;
+esac

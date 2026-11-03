@@ -19,6 +19,7 @@ import threading
 
 import pytest
 
+from flowstudio import core as flowcore
 from replay import Wire
 
 ROOT = pathlib.Path(__file__).resolve().parents[4]
@@ -40,7 +41,7 @@ def deployment():
                    cwd=ROOT / "core", check=True)
     store = pathlib.Path(tempfile.mkdtemp()) / "store.sqlite"
     service = subprocess.Popen(
-        [str(ROOT / "core/target/debug/objectflow-service"),
+        [str(flowcore.BINARY),
          "--store", str(store), "--create", "--port", "0"],
         stderr=subprocess.PIPE, text=True)
     line = service.stderr.readline()

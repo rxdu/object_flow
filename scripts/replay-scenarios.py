@@ -43,6 +43,7 @@ import datetime
 import hashlib
 import importlib.util
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -57,6 +58,9 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CORE = ROOT / "core"
 CARGO = pathlib.Path.home() / ".cargo/bin/cargo"
+# where cargo builds the service: CARGO_TARGET_DIR where set, read from the
+# core's directory as cargo reads it there (scripts/check-all)
+SERVICE = (CORE / os.environ.get("CARGO_TARGET_DIR", "target")) / "debug/objectflow-service"
 PASSING = pathlib.Path(__file__).with_name("scenarios_passing.txt")
 spec = importlib.util.spec_from_file_location("scenarios", ROOT / "scripts/check-scenarios.py")
 cs = importlib.util.module_from_spec(spec)
@@ -83,7 +87,7 @@ class Service:
 
     def __init__(self):
         subprocess.run([str(CARGO), "build", "-q", "-p", "objectflow-service"], cwd=CORE, check=True)
-        self.proc = subprocess.Popen([str(CORE / "target/debug/objectflow-service"), "--port", "0"],
+        self.proc = subprocess.Popen([str(SERVICE), "--port", "0"],
                                      stderr=subprocess.PIPE, text=True)
         line = self.proc.stderr.readline()
         m = re.search(r"listening on (http://127\.0\.0\.1:\d+)", line)

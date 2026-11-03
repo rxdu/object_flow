@@ -1,9 +1,37 @@
 #!/usr/bin/env bash
 # The core's gates (the author's rules/rust.md): the format, clippy with every
-# warning an error, and the tests. CI runs the same.
+# warning an error, and the tests. CI runs the same, through scripts/check-all.
+#
+# Usage: core/scripts/check [lint|build|test] [-- <test arguments>]
+#   lint   the format and clippy
+#   build  the tests built, every feature on, and not run
+#   test   the tests run, every feature on; arguments after -- go to each
+#          test binary, such as --skip <name>
+#   none   all three, in that order
 set -euo pipefail
 cd "$(dirname "$0")/.."
 CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
-"$CARGO" fmt --all -- --check
-"$CARGO" clippy --all-targets --all-features -- -D warnings
-"$CARGO" test --all-features
+stage="${1:-all}"
+shift || true
+[ "${1:-}" = "--" ] && shift
+case "$stage" in
+  lint)
+    "$CARGO" fmt --all -- --check
+    "$CARGO" clippy --all-targets --all-features -- -D warnings
+    ;;
+  build)
+    "$CARGO" test --all-features --no-run
+    ;;
+  test)
+    "$CARGO" test --all-features -- "$@"
+    ;;
+  all)
+    "$CARGO" fmt --all -- --check
+    "$CARGO" clippy --all-targets --all-features -- -D warnings
+    "$CARGO" test --all-features -- "$@"
+    ;;
+  *)
+    echo "usage: core/scripts/check [lint|build|test] [-- <test arguments>]" >&2
+    exit 2
+    ;;
+esac

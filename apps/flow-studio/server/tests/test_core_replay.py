@@ -22,6 +22,7 @@ import threading
 
 import pytest
 
+from flowstudio import core as flowcore
 from flowstudio.catalogue import Catalogue
 from flowstudio.scripts import flows
 from replay import Wire, replay
@@ -41,7 +42,7 @@ def core():
     subprocess.run([str(CARGO), "build", "-q", "-p", "objectflow-service"],
                    cwd=CORE, check=True)
     service = subprocess.Popen(
-        [str(CORE / "target/debug/objectflow-service"), "--port", "0"],
+        [str(flowcore.BINARY), "--port", "0"],
         stderr=subprocess.PIPE, text=True)
     line = service.stderr.readline()
     m = re.search(r"listening on (http://127\.0\.0\.1:\d+)", line)

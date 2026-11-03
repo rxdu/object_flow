@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import pathlib
 import re
 import subprocess
@@ -31,7 +32,10 @@ log = logging.getLogger("flowstudio")
 ROOT = pathlib.Path(__file__).resolve().parents[4]
 CORE = ROOT / "core"
 CARGO = pathlib.Path.home() / ".cargo/bin/cargo"
-BINARY = CORE / "target/debug/objectflow-service"
+# where cargo builds it: CARGO_TARGET_DIR where set, read from the core's
+# directory as cargo reads it there, so a gate may build the service apart
+# from the core's tests, whose features differ (scripts/check-all)
+BINARY = (CORE / os.environ.get("CARGO_TARGET_DIR", "target")) / "debug/objectflow-service"
 # the line the core writes for each answer: its time, method, route, status
 # and duration (ADR-0183 decision 8)
 ANSWER = re.compile(r"\d{4}-\d\d-\d\dT\S+ [A-Z]+ \S+ \d{3} [\d.]+ ms")

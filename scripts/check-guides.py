@@ -19,9 +19,10 @@ Three checks:
    llms.txt, the index an agent reads first, each link every guide page.
 
 Usage: check-guides.py [--service <binary>]
-       The service defaults to the newer of core/target/debug and
-       core/target/release's objectflow-service, so check-all's core gate,
-       which builds the debug one, checks the guides against the tree.
+       The service defaults to the newer of the debug and release builds
+       of objectflow-service under core/target, or under CARGO_TARGET_DIR
+       where it is set, which check-all builds before its lanes, so the
+       guides are checked against the tree.
 """
 import json
 import os
@@ -346,7 +347,8 @@ def main():
     if args[:1] == ["--service"] and len(args) == 2:
         binary = pathlib.Path(args[1])
     elif not args:
-        target = ROOT / "core/target"
+        # where cargo builds: CARGO_TARGET_DIR where set, read from core/
+        target = (ROOT / "core") / os.environ.get("CARGO_TARGET_DIR", "target")
         built = [p for p in (target / "debug/objectflow-service", target / "release/objectflow-service")
                  if p.exists()]
         binary = max(built, key=lambda p: p.stat().st_mtime, default=None)

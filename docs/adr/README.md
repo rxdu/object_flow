@@ -245,4 +245,5 @@
 | [0242](0242-a-batchs-request-names-what-its-effect-creates.md) | A request of a batch names what its effect creates, as an example's step does | Decided under the author's direction; built |
 | [0243](0243-history-reads-newest-first-by-an-index-on-position.md) | `history` reads newest first, and an object's events are indexed by their position | Decided under the author's direction; built |
 | [0244](0244-a-read-names-the-type-an-object-was-of-under-each-version.md) | A read names the type an object was of under each version it answers, and an export judges a value as it was written | Decided under the author's direction; built |
+| [0245](0245-check-all-runs-its-gates-in-concurrent-lanes.md) | `check-all` runs its gates in concurrent lanes, after its builds | Decided under the author's direction; built, CI's jobs by lane to follow |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

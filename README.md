@@ -266,7 +266,7 @@ ObjectFlow is designed in the open, every choice written down with what it rejec
 - **Worked examples**: [a unit's journey](docs/design/unit-journey.md), [a returns flow](docs/design/returns-module.md), and [a catalogue of Jira's typical flows](docs/design/jira-flows.md), each a checked module.
 - **Reviews**: cold reviews in which agents new to ObjectFlow built an application on it and recorded what hurt ([procurement](docs/design/procurement-cold-draft.md), [its second round](docs/design/procurement-second-review.md)), and [whether a builder can recover a flow](docs/design/flow-recoverability-review.md) from the specification alone.
 
-The engine's core is written in Rust and held to a Python reference runner, both running every example in the record. To check the record, build the scripts' Python environment once with `scripts/setup/python-env`, then run `scripts/.venv/bin/python scripts/check-corpus.py`.
+The engine's core is written in Rust and held to a Python reference runner, both running every example in the record. To check the record, build the scripts' Python environment once with `scripts/setup/python-env`, then run `scripts/.venv/bin/python scripts/check-corpus.py` for the documents' coherence, or `scripts/check-all` for every gate, the scenarios and examples among them.
 
 ## License
 

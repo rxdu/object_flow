@@ -4,7 +4,7 @@
 - **Date:** 2026-10-11
 - **Superseded by:** ADR-0204 — decision 1, the bar of a review that finds no blocker and no major, replaced by written criteria, an audit by class through the adversarial harness, one confirming review on a release candidate, and the author's decision with a floor.
 - **Refines:** ADR-0174 decision 1 (a store is made only when asked), ADR-0114 (where the service's boundary is drawn)
-- **Refined by:** ADR-0184 — the operator's retirement requested by nothing (decision 7's store acts); idle and half-sent connections closed, built (decision 10); ADR-0187 — a store's flow may declare who approves its versions (decision 7's store acts).; ADR-0188 — the store's volume in `/health` and `/metrics` (decision 8). ADR-0191 — `--create` over a store that exists said at start (decision 3).
+- **Refined by:** ADR-0184 — the operator's retirement requested by nothing (decision 7's store acts); idle and half-sent connections closed, built (decision 10); ADR-0187 — a store's flow may declare who approves its versions (decision 7's store acts).; ADR-0188 — the store's volume in `/health` and `/metrics` (decision 8). ADR-0191 — `--create` over a store that exists said at start (decision 3). ADR-0245 — `check-all` runs its gates in concurrent lanes after its builds, and CI runs them in turn, `--serial`, until its jobs are split by lane.
 - **Builds:** `design/production-review.md` §4 and §5
 - **Relates to:** `PRD.md` T6, N7, UC-15; `DESIGN.md` §10; ADR-0177 (the operator's upgrade); `guides/integrate.md` §2, §6, §9; `guides/wire.md`; `core/README.md`; `CHANGELOG.md`; `SECURITY.md`; `TODO.md`, "Production readiness"
 

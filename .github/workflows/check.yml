@@ -82,5 +82,8 @@ jobs:
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
+      # the lanes in turn on this runner, its one job named check-all as
+      # release.yml reads it, until the jobs are split by lane (ADR-0245
+      # decision 4)
       - name: Every gate
-        run: scripts/check-all
+        run: scripts/check-all --serial

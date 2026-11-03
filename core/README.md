@@ -43,11 +43,11 @@ Measured on 2026-10-16 by [`scripts/profile/throughput.py`](../scripts/profile/t
 ## Checks
 
 ```sh
-core/scripts/check     # rustfmt, clippy with every warning an error, and the tests
-scripts/check-all      # every gate of the repository, the core's among them: what CI runs on each push
+core/scripts/check     # rustfmt, clippy with every warning an error, and the tests; lint, build or test runs one stage
+scripts/check-all      # every gate of the repository, the core's among them, its lanes at once after the builds
 ```
 
-CI (`.github/workflows/check.yml`) runs `scripts/check-all` on every push and pull request, with `RUSTFLAGS="-D warnings"`, and checks the core's dependencies against the RustSec advisory database (ADR-0183 decision 2).
+`scripts/check-all` builds first, then runs its lanes at once, the core's tests on SQLite and on PostgreSQL, the Flow Studio, the design's checks and the scenarios, then the tests a load can fail, one at a time (ADR-0245). `--lane <name>` runs one lane, and `--serial` runs the lanes in turn. CI (`.github/workflows/check.yml`) runs `scripts/check-all --serial` on every push and pull request, with `RUSTFLAGS="-D warnings"`, and checks the core's dependencies against the RustSec advisory database (ADR-0183 decision 2).
 
 ## Releases
 
