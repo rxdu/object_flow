@@ -77,9 +77,36 @@ For the author, not decided here:
 
 **What it suggests,** decided as ADR-0231: name a rewrite apart from a fill, as the plan marks `+` apart from `->`, beside the notice that names every write, so that whatever reads `mapping:backfill` for what a backfill writes is unchanged.
 
+## 8. An enumeration renamed, and a reference renamed with its referent (#58)
+
+**The question.** Issue #58 (filed 2026-11-03) asks for two renames that change no value. The first renames an enumeration, its members unchanged, and carries every attribute typed by it. The second renames an attribute whose reference changes only because the same version moves its referent's type. How do established platforms rename an enumerated type, and a reference whose target is renamed in the same migration?
+
+**PostgreSQL** (S15, S16). `ALTER TYPE … RENAME TO`: "This form changes the name of the type." A member is renamed on its own: "This form renames a value of an enum type." It keeps its order: "The value's place in the enum's ordering is not affected." A stored member is not its label: "An enum value occupies four bytes on disk." A table's rename leaves its rows alone (S17): "There is no effect on the stored data."
+
+**Ruby on Rails** (S18, S19). The adapter wraps both statements, `rename_enum`, "Rename an existing enum type to something else.", and `rename_enum_value`, "Rename enum value on an existing enum type." The guide adds that the model is the author's to change: "To rename the enum you can use rename_enum along with updating any model usage:".
+
+**Apache Avro** (S20). A type keeps its old name as an alias: "Named types and fields may have aliases." A reader resolves the writer's names through them: "Aliases function by re-writing the writer’s schema using aliases from the reader’s schema." An enumeration's members take no alias, and one the reader lacks takes its default: "if the writer’s symbol is not present in the reader’s enum and the reader has a default value, then that value is used, otherwise an error is signalled."
+
+**Protocol Buffers, JSON** (S21). A member's number is its identity, so a member renamed keeps its values where its old name is still read: "Parsers must accept any of the names defined for that numeric value." The page calls this "a safe, multi-step migration path for renaming enum values in a distributed system".
+
+**Django** (S8, S22, S23). `RenameModel` "Renames the model from an old name to a new one." Its state repoints the references: "# Repoint all fields pointing to the old model to the new one." The autodetector, asking whether a field was renamed, first rewrites the old field's target to the renamed model, `old_field_dec[2]["to"] = self.renamed_models_rel[old_rel_to]`, and then compares the two fields whole. *Inferred:* a field renamed in the migration that renames its target is still offered as a rename, and any other change to the field is not.
+
+**ObjectFlow beside them.**
+
+- **Both of #58's claims hold, reproduced 2026-11-03 on the published v0.12.0** (`af72aaa`), on a SQLite store made with `--create`. An enumeration renamed with its members unchanged makes each attribute typed by it a type change, `check:migration`, its values starting absent, and a required one is refused `required_absent`. A move giving the target's attribute from the old one is refused `mapping:moved_types`, the value "what it cannot hold". A rename of a reference to a moved type is refused `check:names`, "which changes its type or whether it is optional".
+- **Sequencing case 2 over two versions serves no one source.** Probed the same day: the rename in one version and the move in the next publish in turn. The second version's source, the rename kept in it, is refused `check:names` over a store at the first version, where §4.16 asks that one source serve a store at any earlier version.
+- **A stored member is its name.** An enumeration's column holds the member's text under a `CHECK` of the members (`storage-schema.md` §3), and so does an interval's value. *Inferred:* an enumeration renamed with its members kept changes no stored value or interval, only each attribute's declared type and the `CHECK`'s name, as PostgreSQL's `RENAME TO` changes the type's name alone.
+- **A stored reference is its referent's id.** A move keeps the id (ADR-0229 decision 3), and a reference that keeps its name follows the move (decision 5). *Inferred:* a reference renamed in the version that moves its referent is two renames, as Django's autodetector reads a field renamed with its target, and nothing stored differs from the two done in turn.
+- **An enumeration is declared in one module and used in others.** An attribute typed by it may sit in a module that imports it, as a reference to a moved type may (#60).
+
+**What it suggests,** for the author, not decided here:
+
+- **Name an enumeration's rename in the migration**, as PostgreSQL's and Rails' renames are explicit statements, rather than Avro's alias kept in the type for good. Members are matched by name, and a member the rename also drops is mapped as any removed member is.
+- **Carry a rename whose only change of type is a referent renamed by the same version**, a moved type or a renamed enumeration, as Django's autodetector compares a renamed field after repointing it, and still refuse any other change of type.
+
 ## Sources
 
-S1 to S8 were each retrieved 2026-10-24, S9 to S13 on 2026-10-25, and S14 on 2026-10-26, with `curl -sL`, its markup stripped, and each quotation found in the text. ServiceNow's documentation pages are rendered by JavaScript, so their text was fetched from the site's own content endpoint, which answers each topic's HTML. Salesforce's documentation refused the fetch (HTTP 403), so its lead conversion, a split into new records linked back to the lead, is left out unchecked.
+S1 to S8 were each retrieved 2026-10-24, S9 to S13 on 2026-10-25, S14 on 2026-10-26, and S15 to S23 on 2026-11-03, with `curl -sL`, its markup stripped, and each quotation found in the text. ServiceNow's documentation pages are rendered by JavaScript, so their text was fetched from the site's own content endpoint, which answers each topic's HTML. Salesforce's documentation refused the fetch (HTTP 403), so its lead conversion, a split into new records linked back to the lead, is left out unchecked.
 
 | | Source | Version |
 |---|---|---|
@@ -97,3 +124,12 @@ S1 to S8 were each retrieved 2026-10-24, S9 to S13 on 2026-10-25, and S14 on 202
 | S12 | Redgate, *Flyway schema history table*: https://documentation.red-gate.com/fd/flyway-schema-history-table-273973417.html | page last updated 25 September 2026 |
 | S13 | Redgate, *Repeatable migrations*, Flyway: https://documentation.red-gate.com/fd/repeatable-migrations-273973335.html | page last updated 20 June 2025 |
 | S14 | HashiCorp, *terraform plan command*, Terraform CLI: https://developer.hashicorp.com/terraform/cli/commands/plan | v1.17.x, the page's latest |
+| S15 | PostgreSQL, *ALTER TYPE*: https://www.postgresql.org/docs/current/sql-altertype.html | PostgreSQL 18 |
+| S16 | PostgreSQL, *Enumerated Types*: https://www.postgresql.org/docs/current/datatype-enum.html | PostgreSQL 18 |
+| S17 | PostgreSQL, *ALTER TABLE*: https://www.postgresql.org/docs/current/sql-altertable.html | PostgreSQL 18 |
+| S18 | Ruby on Rails, *ActiveRecord::ConnectionAdapters::PostgreSQLAdapter*: https://api.rubyonrails.org/classes/ActiveRecord/ConnectionAdapters/PostgreSQLAdapter.html | Rails 8.1.4 |
+| S19 | Ruby on Rails Guides, *Active Record and PostgreSQL*: https://guides.rubyonrails.org/active_record_postgresql.html | v8.1.4 |
+| S20 | Apache Avro, *Specification*: https://avro.apache.org/docs/1.12.0/specification/ | 1.12.0 |
+| S21 | Protocol Buffers, *ProtoJSON Format*: https://protobuf.dev/programming-guides/json/ | `protocolbuffers/protocolbuffers.github.io` at `d75b49a`, 2026-10-08 |
+| S22 | Django, `django/db/migrations/autodetector.py`, `create_renamed_fields`: https://raw.githubusercontent.com/django/django/stable/6.1.x/django/db/migrations/autodetector.py | `django/django` stable/6.1.x at `33a0a6f`, 2025-12-19 |
+| S23 | Django, `django/db/migrations/state.py`, `rename_model`: https://raw.githubusercontent.com/django/django/stable/6.1.x/django/db/migrations/state.py | `django/django` stable/6.1.x at `83622b8`, 2026-01-28 |
