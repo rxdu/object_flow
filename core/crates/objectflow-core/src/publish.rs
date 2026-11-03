@@ -1036,6 +1036,21 @@ fn impact(
                         parts.spans.insert(to.as_str().into(), spans);
                     }
                 }
+                // and its write index, as the approval carries it: for any
+                // attribute the installed type declares, a column, a stored
+                // set or a derived end, so an invariant or a guard reading
+                // `changed_since` of the new name is judged on who last wrote
+                // it (`storage-schema.md` §10, ADR-0146)
+                if old
+                    .type_(&o.type_)
+                    .is_some_and(|ot| ot.attribute(from).is_some())
+                    && x.held_parts()?.writes.contains_key(from.as_str())
+                {
+                    let parts = Rc::make_mut(&mut x).parts_mut()?;
+                    if let Some(at) = parts.writes.remove(from.as_str()) {
+                        parts.writes.insert(to.as_str().into(), at);
+                    }
+                }
             }
         }
         // an attribute whose type changed starts absent, its values set aside
@@ -5225,6 +5240,290 @@ types:
             let after = req(&mut s, "close", (&card, false), json!({}));
             assert!(stale(&after), "{what}: after the publish, {after:?}");
         }
+    }
+
+    /// `ORDER_LINES` with the order's lines renamed its items.
+    fn order_lines_renamed() -> String {
+        let mut text = ORDER_LINES.to_string();
+        for (old, new) in [
+            (
+                "      lines:\n        reference: \"Line[]\"\n",
+                "      items:\n        reference: \"Line[]\"\n",
+            ),
+            (
+                "changed_since([price, lines]",
+                "changed_since([price, items]",
+            ),
+            (
+                "      order: { reference: Order, opposite: lines }\n",
+                "      order: { reference: Order, opposite: items }\n",
+            ),
+        ] {
+            assert_eq!(text.matches(old).count(), 1, "{old}");
+            text = text.replace(old, new);
+        }
+        text + "migration:\n  description: An order's lines are its items.\n  renamed_attributes:\n    Order: { lines: items }\n"
+    }
+
+    /// The kinds of attribute a rename is tried on, each read by its
+    /// type's guard `fresh`: a card's title, a column; its tags, a stored
+    /// set; and an order's lines, a composite derived end.
+    const RENAMED_KINDS: [&str; 3] = ["a column", "a stored set", "a derived end"];
+
+    /// A store at version 1 of the module a kind of rename is tried on,
+    /// and the object it changes after its sign-off: a card retitled, a
+    /// card tagged, or an order a line of which was edited.
+    fn signed_then_changed(kind: &str) -> (Store, String) {
+        let (file, text) = if kind == "a derived end" {
+            ("desk.yaml", ORDER_LINES)
+        } else {
+            ("cards.yaml", CARD_TAGS)
+        };
+        let lib = Library::load(&[(file.into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        if kind == "a derived end" {
+            let order = created(&req(&mut s, "open", ("Order", true), json!({"price": 10})));
+            let Verdict::Satisfied { created: made, .. } =
+                req(&mut s, "add_line", (&order, false), json!({"text": "a"}))
+            else {
+                panic!("add_line");
+            };
+            created(&req(&mut s, "sign", (&order, false), json!({})));
+            created(&req(
+                &mut s,
+                "edit",
+                (&made[0], false),
+                json!({"text": "b"}),
+            ));
+            return (s, order);
+        }
+        let card = created(&req(
+            &mut s,
+            "open",
+            ("Card", true),
+            json!({"title": "Plan"}),
+        ));
+        created(&req(&mut s, "sign", (&card, false), json!({})));
+        let (xn, inputs) = if kind == "a column" {
+            ("retitle", json!({"title": "Plan B"}))
+        } else {
+            ("tag", json!({"tags": ["urgent"]}))
+        };
+        created(&req(&mut s, xn, (&card, false), inputs));
+        (s, card)
+    }
+
+    /// A kind's next version, its module and the type it changes: what the
+    /// kind reads renamed, or its name kept, and, where `invariant` says,
+    /// a new invariant reading `changed_since` of it.
+    fn renaming(kind: &str, rename: bool, invariant: bool) -> (&'static str, String, &'static str) {
+        let (module, tn, mut text, read) = match (kind, rename) {
+            ("a column", true) => ("cards", "Card", cards_renamed(true, false), "heading"),
+            ("a column", false) => ("cards", "Card", CARD_TAGS.to_string(), "title"),
+            ("a stored set", true) => ("cards", "Card", cards_renamed(false, true), "keywords"),
+            ("a stored set", false) => ("cards", "Card", CARD_TAGS.to_string(), "tags"),
+            (_, true) => ("desk", "Order", order_lines_renamed(), "items"),
+            (_, false) => ("desk", "Order", ORDER_LINES.to_string(), "lines"),
+        };
+        if invariant {
+            let at = "    conditions:\n";
+            assert_eq!(text.matches(at).count(), 1, "{kind}");
+            text = text.replace(
+                at,
+                &format!(
+                    "    invariants:\n      unchanged_since_signed:\n        description: Nothing it reads changed after its sign-off.\n        expression: signed_at is null or not changed_since([{read}], signed_at)\n{at}"
+                ),
+            );
+        }
+        (module, text, tn)
+    }
+
+    /// A change of the text drafted and dry run, its id and its report.
+    fn drafted_on(s: &mut Store, module: &str, text: &str) -> (String, PublishReport) {
+        let change = created(&req(
+            s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {module: text}, "source_ref": format!("git:{module}@next")}),
+        ));
+        let report = run_on(s, &change, module, text);
+        (change, report)
+    }
+
+    /// The change submitted and approved, the approval's verdict.
+    fn submitted_and_approved(s: &mut Store, change: &str) -> (Verdict, Option<PublishReport>) {
+        created(&req(s, "submit", (change, false), json!({})));
+        let v = s
+            .snapshot()
+            .unwrap()
+            .whole(change)
+            .unwrap()
+            .unwrap()
+            .version;
+        approve(s, change, v)
+    }
+
+    /// The dry run carries a rename's write index as its approval does,
+    /// for each kind of attribute: an object changed after its sign-off,
+    /// whose `close` its guard refuses, is reported gaining and losing
+    /// nothing, and the approval leaves `close` refused, where the dry run
+    /// reported `close` gained, reading no write under the new name
+    /// (`storage-schema.md` §10, issue #59).
+    #[test]
+    fn a_dry_run_reads_a_renamed_attributes_writes_as_its_approval_leaves_them() {
+        let stale =
+            |v: &Verdict| matches!(v, Verdict::Unsatisfied { clause, .. } if clause == "fresh");
+        for kind in RENAMED_KINDS {
+            let (mut s, id) = signed_then_changed(kind);
+            let (module, text, _) = renaming(kind, true, false);
+            let before = req(&mut s, "close", (&id, false), json!({}));
+            assert!(stale(&before), "{kind}: before the publish, {before:?}");
+            let (change, report) = drafted_on(&mut s, module, &text);
+            let offers: Vec<&str> = report
+                .findings
+                .iter()
+                .map(|f| f.code.as_str())
+                .filter(|c| c.starts_with("gained:") || c.starts_with("lost:"))
+                .collect();
+            assert!(
+                report.accepted && offers.is_empty(),
+                "{kind}: {offers:?} {:#?}",
+                report.findings
+            );
+            let (verdict, report) = submitted_and_approved(&mut s, &change);
+            assert!(
+                matches!(verdict, Verdict::Satisfied { .. }),
+                "{kind}: {verdict:?} {report:#?}"
+            );
+            let after = req(&mut s, "close", (&id, false), json!({}));
+            assert!(stale(&after), "{kind}: after the publish, {after:?}");
+        }
+    }
+
+    /// A new invariant reading `changed_since` of a renamed attribute is
+    /// judged on the writes the rename carries, for each kind of attribute:
+    /// an object changed after its sign-off is a decision, as it is where
+    /// the version keeps the name, and the approval is refused
+    /// `decision_unresolved`, where it installed a violation nobody
+    /// admitted (ADR-0146).
+    #[test]
+    fn a_new_invariant_over_a_renamed_attribute_reads_its_writes() {
+        for kind in RENAMED_KINDS {
+            for rename in [false, true] {
+                let what = format!("{kind}, renamed {rename}");
+                let (mut s, id) = signed_then_changed(kind);
+                let (module, text, tn) = renaming(kind, rename, true);
+                let (change, report) = drafted_on(&mut s, module, &text);
+                assert_eq!(
+                    ids(&report, &format!("invariant:{tn}.unchanged_since_signed")),
+                    vec![id.clone()],
+                    "{what}: {:#?}",
+                    report.findings
+                );
+                assert!(!report.accepted, "{what}");
+                let (verdict, _) = submitted_and_approved(&mut s, &change);
+                assert_eq!(verdict, refused("decision_unresolved"), "{what}");
+                assert_eq!(s.lib.version, 1, "{what}");
+            }
+        }
+    }
+
+    /// A memo whose name a later version removes.
+    const MEMO_NAMED: &str = r#"module: memos
+categories: [live]
+types:
+  Memo:
+    description: A memo, signed off as it stands.
+    tracking: record
+    attributes:
+      name: { type: string, optional: true }
+      signed_at: { type: event, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, description: Opens a memo. }
+      sign:
+        kind: internal
+        from: OPEN
+        description: Signs it off as it stands.
+        effect:
+          - assign: { location: signed_at, expr: this_event }
+      name_it: { kind: internal, from: OPEN, required_inputs: [name], description: Names it. }
+      close: { kind: external, from: OPEN, to: DONE, description: Closes it. }
+"#;
+
+    /// A rename naming an attribute the installed version lacks renames
+    /// nothing, its write index included, in the dry run as in the
+    /// approval (ADR-0230 decision 2): a memo named after its sign-off, its
+    /// name then removed, keeps that write under the old name, so a new
+    /// invariant reading the new name holds in both.
+    #[test]
+    fn a_rename_of_an_attribute_the_installed_version_lacks_carries_no_write_index() {
+        let lib = Library::load(&[("memos.yaml".into(), MEMO_NAMED.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let memo = created(&req(&mut s, "open", ("Memo", true), json!({})));
+        created(&req(&mut s, "sign", (&memo, false), json!({})));
+        created(&req(
+            &mut s,
+            "name_it",
+            (&memo, false),
+            json!({"name": "x"}),
+        ));
+        let mut dropped = MEMO_NAMED.to_string();
+        for line in [
+            "      name: { type: string, optional: true }\n",
+            "      name_it: { kind: internal, from: OPEN, required_inputs: [name], description: Names it. }\n",
+        ] {
+            assert_eq!(dropped.matches(line).count(), 1, "{line}");
+            dropped = dropped.replace(line, "");
+        }
+        published_as(&mut s, "memos", &[&dropped]);
+        let writes = |s: &Store| {
+            s.snapshot()
+                .unwrap()
+                .whole(&memo)
+                .unwrap()
+                .unwrap()
+                .held_parts()
+                .unwrap()
+                .writes
+                .clone()
+        };
+        let was = writes(&s);
+        assert!(was.contains_key("name"), "{was:?}");
+        let mut aliased = dropped.clone();
+        for (old, new) in [
+            (
+                "      signed_at: {",
+                "      alias: { type: string, optional: true }\n      signed_at: {",
+            ),
+            (
+                "    transitions:\n",
+                "    invariants:\n      unchanged_since_signed:\n        description: Nothing named it after its sign-off.\n        expression: signed_at is null or not changed_since([alias], signed_at)\n    transitions:\n",
+            ),
+        ] {
+            assert_eq!(aliased.matches(old).count(), 1, "{old}");
+            aliased = aliased.replace(old, new);
+        }
+        aliased.push_str("migration:\n  description: A memo's name is its alias.\n  renamed_attributes:\n    Memo: { name: alias }\n");
+        let (change, report) = drafted_on(&mut s, "memos", &aliased);
+        assert!(
+            notice(
+                &report,
+                "migration_not_applicable:renamed_attributes:Memo.name"
+            ) && report.accepted,
+            "{:#?}",
+            report.findings
+        );
+        let (verdict, report) = submitted_and_approved(&mut s, &change);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        assert_eq!(writes(&s), was);
+        let after = req(&mut s, "close", (&memo, false), json!({}));
+        assert!(matches!(after, Verdict::Satisfied { .. }), "{after:?}");
     }
 
     /// Two modules of a version, the catalog moving its genre to a

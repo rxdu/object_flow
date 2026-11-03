@@ -4679,7 +4679,8 @@ impl Store {
             // derived end's, which has no column and no table (§3.1), a
             // part's transitions writing it on a composite end's whole. A
             // derived end renamed alone leaves its type's table as it was, so
-            // each is carried before the table is compared (issue #59)
+            // each is carried before the table is compared (issue #59). The
+            // dry run's simulation carries the same (`publish.rs`, `impact`)
             for (owner, from, to) in &m.renamed_attributes {
                 if new.is_a(tn, owner) && ot.attribute(from).is_some() {
                     tx.execute(

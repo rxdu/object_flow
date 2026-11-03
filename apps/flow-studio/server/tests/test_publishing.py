@@ -4705,3 +4705,237 @@ def test_a_reference_to_a_type_another_module_moves_follows_it(tee):
     assert tee.post("/v1/get", {"id": book})["attributes"]["genre"] == genre
     assert tee.post("/v1/get", {"id": genre})["type"] == "Category"
     alike(tee)
+
+
+# a card whose title is a column and whose tags are a stored set, and an order
+# whose lines are the derived end of a composite pair, each transition of a
+# line writing on the order; each one's sign-off fresh while nothing its
+# guard reads changed since (issue #59)
+CARD_TAGS = """module: cards
+categories: [live]
+types:
+  Card:
+    description: A card, signed off before it is closed.
+    tracking: record
+    attributes:
+      title: { type: string }
+      tags: { type: "string[]", optional: true }
+      signed_at: { type: event, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    conditions:
+      fresh:
+        description: It is signed off, and neither its title nor its tags changed since.
+        expression: signed_at is not null and not changed_since([title, tags], signed_at)
+        remedy: delegable
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title], description: Opens a card. }
+      retitle: { kind: internal, from: OPEN, required_inputs: [title], description: Retitles it. }
+      tag: { kind: internal, from: OPEN, required_inputs: [tags], description: Sets its tags. }
+      sign:
+        kind: internal
+        from: OPEN
+        description: Signs the card off as it stands.
+        effect:
+          - assign: { location: signed_at, expr: this_event }
+      close:
+        kind: external
+        from: OPEN
+        to: DONE
+        description: Closes a signed-off card.
+        guards:
+          fresh: deny
+"""
+ORDER_LINES = """module: orders
+categories: [live]
+types:
+  Order:
+    description: An order, signed off before it is closed.
+    tracking: record
+    attributes:
+      price: { type: int }
+      signed_at: { type: event, optional: true }
+      lines:
+        reference: "Line[]"
+        aggregation: composite
+        opposite: order
+        description: Its lines.
+        survives: [close]
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    conditions:
+      fresh:
+        description: It is signed off, and neither its price nor its lines changed since.
+        expression: signed_at is not null and not changed_since([price, lines], signed_at)
+        remedy: delegable
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [price], description: Opens an order. }
+      add_line:
+        kind: internal
+        from: OPEN
+        description: Adds a line.
+        inputs:
+          text: { type: string, description: The line's text. }
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: this, text: inputs.text } }
+      sign:
+        kind: internal
+        from: OPEN
+        description: Signs the order off as it stands.
+        effect:
+          - assign: { location: signed_at, expr: this_event }
+      close:
+        kind: external
+        from: OPEN
+        to: DONE
+        description: Closes a signed-off order.
+        guards:
+          fresh: deny
+  Line:
+    description: A line of an order.
+    tracking: record
+    attributes:
+      order: { reference: Order, opposite: lines }
+      text: { type: string }
+    states:
+      LIVE: { description: Live., category: live }
+      GONE: { description: Gone., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LIVE, only_via: [Order.add_line], required_inputs: [order, text], description: Adds a line. }
+      edit: { kind: internal, from: LIVE, required_inputs: [text], description: Edits the line. }
+      drop: { kind: external, from: LIVE, to: GONE, description: Drops the line. }
+"""
+TITLE_RENAMED = [("      title: { type: string }\n", "      heading: { type: string }\n"),
+                 ("changed_since([title,", "changed_since([heading,"),
+                 ("required_inputs: [title], description: Opens",
+                  "required_inputs: [heading], description: Opens"),
+                 ("required_inputs: [title], description: Retitles",
+                  "required_inputs: [heading], description: Retitles")]
+TAGS_RENAMED = [('      tags: { type: "string[]", optional: true }\n',
+                 '      keywords: { type: "string[]", optional: true }\n'),
+                (" tags], signed_at)", " keywords], signed_at)"),
+                ("required_inputs: [tags]", "required_inputs: [keywords]")]
+LINES_RENAMED = [('      lines:\n        reference: "Line[]"\n',
+                  '      items:\n        reference: "Line[]"\n'),
+                 (" lines], signed_at)", " items], signed_at)"),
+                 ("      order: { reference: Order, opposite: lines }\n",
+                  "      order: { reference: Order, opposite: items }\n")]
+PRICE_RENAMED = [("      price: { type: int }\n", "      amount: { type: int }\n"),
+                 ("changed_since([price,", "changed_since([amount,"),
+                 ("required_inputs: [price]", "required_inputs: [amount]")]
+# each kind of rename: its module, its text, its type, the renames and the
+# text each changes, and the name its new invariant reads, kept and renamed
+RENAMED_KINDS = {
+    "a column": ("cards", CARD_TAGS, "Card", {"title": "heading"},
+                 TITLE_RENAMED, ("title", "heading")),
+    "a stored set": ("cards", CARD_TAGS, "Card", {"tags": "keywords"},
+                     TAGS_RENAMED, ("tags", "keywords")),
+    "a derived end": ("orders", ORDER_LINES, "Order", {"lines": "items"},
+                      LINES_RENAMED, ("lines", "items")),
+    "a derived end beside a column": (
+        "orders", ORDER_LINES, "Order", {"lines": "items", "price": "amount"},
+        LINES_RENAMED + PRICE_RENAMED, ("lines", "items")),
+}
+
+
+def signed_then_changed(tee, kind: str) -> str:
+    """The kind's module loaded, and its object signed off and then changed
+    in what the kind renames: an order whose line is edited, a card retitled
+    or a card tagged."""
+    module, text = RENAMED_KINDS[kind][:2]
+    load(tee, module, text)
+    if module == "orders":
+        order = made(tee, "Order", "open", price=10)
+        line = took(tee, order, "add_line", text="a")["created"][0]
+        took(tee, order, "sign")
+        took(tee, line, "edit", text="b")
+        return order
+    card = made(tee, "Card", "open", title="Plan")
+    took(tee, card, "sign")
+    if kind == "a column":
+        took(tee, card, "retitle", title="Plan B")
+    else:
+        took(tee, card, "tag", tags=["urgent"])
+    return card
+
+
+def renaming(kind: str, rename: bool = True, invariant: bool = False) -> dict:
+    """The kind's next version as a change's source: what it renames
+    renamed, or its names kept, and, where `invariant` says, a new invariant
+    reading `changed_since` of the renamed name."""
+    module, text, tn, renames, swaps, (kept, new) = RENAMED_KINDS[kind]
+    if rename:
+        for old, to in swaps:
+            assert text.count(old) == 1, old
+            text = text.replace(old, to)
+    if invariant:
+        read = new if rename else kept
+        at = "    conditions:\n"
+        assert text.count(at) == 1
+        text = text.replace(at, (
+            "    invariants:\n      unchanged_since_signed:\n"
+            "        description: Nothing it reads changed after its sign-off.\n"
+            f"        expression: signed_at is null or not changed_since([{read}], signed_at)\n"
+        ) + at)
+    if rename:
+        pairs = ", ".join(f"{a}: {b}" for a, b in renames.items())
+        text += ("migration:\n  description: Its attributes renamed.\n"
+                 f"  renamed_attributes:\n    {tn}: {{ {pairs} }}\n")
+    return {module: text}
+
+
+@pytest.mark.parametrize("kind", sorted(RENAMED_KINDS))
+def test_a_renamed_attributes_write_index_is_carried_alike(tee, kind):
+    """A rename of a column, a stored set or a composite derived end, the
+    last alone and beside a renamed column, carries the attribute's write
+    index through both backends alike, in the dry run's simulation as in the
+    approval: the object changed after its sign-off keeps its `close`
+    refused, and the dry run reports nothing gained or lost
+    (`storage-schema.md` §10, issue #59)."""
+    oid = signed_then_changed(tee, kind)
+    tee.found.clear()
+
+    def close() -> dict:
+        # refused, so it changes no object
+        return tee.post("/v1/request", {"actor": OP, "object_id": oid,
+                                        "transition": "close", "inputs": {}})
+    before = close()
+    assert (before["kind"], before["clause"]) == ("unsatisfied", "fresh"), before
+    c, codes = dry_run(tee, renaming(kind))
+    moved = sorted(code for code in codes
+                   if code.startswith(("gained:", "lost:")))
+    assert moved == [], moved
+    approved(tee, c)
+    after = close()
+    assert (after["kind"], after.get("clause")) == ("unsatisfied", "fresh"), after
+    alike(tee)
+
+
+@pytest.mark.parametrize("rename", [False, True])
+@pytest.mark.parametrize("kind", ["a column", "a stored set", "a derived end"])
+def test_a_new_invariant_over_a_renamed_attribute_reads_its_writes_alike(
+        tee, kind, rename):
+    """A version adding an invariant that reads `changed_since` of a renamed
+    attribute is judged on the writes the rename carries, through both
+    backends alike: the object changed after its sign-off is a decision, as
+    it is where the version keeps the name, and the approval is refused, so
+    the publish installs no violation nobody admitted (ADR-0146)."""
+    oid = signed_then_changed(tee, kind)
+    tn = RENAMED_KINDS[kind][2]
+    tee.found.clear()
+    c, _codes = dry_run(tee, renaming(kind, rename, invariant=True))
+    report = tee.post("/v1/publish", {"actor": OP, "change": c,
+                                      "dry_run": True})["report"]
+    assert not report["accepted"], report
+    code = f"invariant:{tn}.unchanged_since_signed"
+    assert report["affected"].get(code) == [oid], report["findings"]
+    assert tee.post("/v1/request", {"transition": "submit", "actor": OP,
+                                    "object_id": c})["kind"] == "satisfied"
+    version = tee.post("/v1/get", {"id": c})["version"]
+    v = tee.post("/v1/publish", {"actor": OP, "change": c,
+                                 "expected_version": version})
+    assert (v["verdict"]["kind"], v["verdict"].get("clause")) == (
+        "unsatisfied", "decision_unresolved"), v
+    alike(tee)
