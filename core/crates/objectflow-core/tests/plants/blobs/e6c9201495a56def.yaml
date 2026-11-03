@@ -1,0 +1,19 @@
+module: catalog
+categories: [live, closed]
+types:
+  Category:
+    description: A category.
+    tracking: record
+    attributes:
+      name: { type: string }
+    states:
+      LISTED: { description: Listed., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LISTED, required_inputs: [name] }
+      drop: { kind: external, from: LISTED, to: DROPPED }
+migration:
+  description: A genre is a category.
+  moved_types:
+    Genre:
+      - to: Category

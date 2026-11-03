@@ -4636,3 +4636,72 @@ def test_an_actor_named_in_another_case_is_that_actor_alike(tee):
     v = tee.post("/v1/request", {"type": "Bot", "transition": "issue", "actor": OP, "inputs": {"key": "\u00e9mile"}})
     assert v["kind"] == "satisfied", v
     alike(tee)
+
+
+# a module whose genre another module's book references, and the version
+# moving the genre to a category, the book's module referencing it there
+# (issue #60)
+GENRE_CATALOG = """module: catalog
+categories: [live]
+types:
+  Genre:
+    description: A genre.
+    tracking: record
+    attributes:
+      name: { type: string }
+    states:
+      LISTED: { description: Listed., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LISTED, required_inputs: [name], description: Adds a genre. }
+      drop: { kind: external, from: LISTED, to: DROPPED, description: Drops it. }
+"""
+GENRE_SHELF = """module: shelf
+imports: { catalog: [Genre] }
+categories: [live]
+types:
+  Book:
+    description: A book.
+    tracking: record
+    attributes:
+      title: { type: string }
+      genre: { reference: Genre }
+    states:
+      ON_SHELF: { description: On the shelf., category: live }
+      GONE: { description: Given away., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON_SHELF, required_inputs: [title, genre], description: Adds a book. }
+      give: { kind: external, from: ON_SHELF, to: GONE, description: Gives it away. }
+"""
+
+
+def test_a_reference_to_a_type_another_module_moves_follows_it(tee):
+    """A reference in one module to a type another module of the version
+    moves is no change of type: the dry run gives no `check:migration`
+    notice for it through either backend, and the approval carries its value
+    to the moved object, alike (issue #60, `flow-format.md` §4.16)."""
+    assert tee.post("/sandbox/load", {"files": [
+        {"name": "catalog.yaml", "text": GENRE_CATALOG},
+        {"name": "shelf.yaml", "text": GENRE_SHELF}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    genre = made(tee, "Genre", "add", name="Fiction")
+    book = made(tee, "Book", "add", title="Dune", genre=genre)
+    tee.found.clear()
+    catalog, shelf = GENRE_CATALOG, GENRE_SHELF
+    for old, new in [("  Genre:\n    description: A genre.\n",
+                      "  Category:\n    description: A category.\n")]:
+        assert catalog.count(old) == 1, old
+        catalog = catalog.replace(old, new)
+    catalog += ("migration:\n  description: A genre is a category.\n"
+                "  moved_types:\n    Genre:\n      - to: Category\n")
+    for old, new in [("[Genre]", "[Category]"),
+                     ("genre: { reference: Genre }", "genre: { reference: Category }")]:
+        assert shelf.count(old) == 1, old
+        shelf = shelf.replace(old, new)
+    c, codes = dry_run(tee, {"catalog": catalog, "shelf": shelf})
+    assert "check:migration" not in codes, codes
+    assert "mapping:moved_types:Genre.Category" in codes, codes
+    approved(tee, c)
+    assert tee.post("/v1/get", {"id": book})["attributes"]["genre"] == genre
+    assert tee.post("/v1/get", {"id": genre})["type"] == "Category"
+    alike(tee)

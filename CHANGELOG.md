@@ -7,6 +7,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Fixed
 
 - A version renaming the derived end of an opposite pair, a `Note[]` whose notes each name their book, beside another changed column of its type was accepted by the dry run and refused `500` by its approval, which sent the end, which has no column, to `RENAME COLUMN`; the approval installed nothing. It now applies. The rename also carries the end's write index, which the parts of a composite end write on their whole: renamed alone, a composite end kept it under its old name, so `changed_since` of the new name read no change, and a guard reading it let through what it refused before the publish (issue #59).
+- A reference to a type that another module of the version moves was reported by both checkers as a change of type, `check:migration`, "every object's value starting absent", though the publish carries every value to the moved object, as `flow-format.md` §4.16 says. Each checker read only the checked module's own moves; each now reads every module's before it checks any, so a reference follows another module's move whichever module is checked first (issue #60).
 
 ## 0.12.0, 2026-11-03
 

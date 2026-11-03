@@ -267,6 +267,9 @@ pub fn checked_as(
     // each module's types, enumerations and machines, which one store holds
     // together (ADR-0163 decision 5)
     let mut stored: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // every type a module of the version moves, which a reference in any
+    // module follows (`flow-format.md` §4.16, issue #60)
+    let moved = migration::moved_types(files);
     for (index, (file, text)) in files.iter().enumerate() {
         let fatal = |found: &mut Vec<Finding>, line: usize, code: &str, message: String| {
             found.push(Finding {
@@ -542,6 +545,7 @@ pub fn checked_as(
                 &library,
                 &before,
                 installed,
+                &moved,
             ),
             None if moving => migration::migration_pair_errors(
                 &Value::Object(doc::Obj::new()),
@@ -549,6 +553,7 @@ pub fn checked_as(
                 &library,
                 &before,
                 installed,
+                &moved,
             ),
             None => (Vec::new(), Vec::new()),
         };

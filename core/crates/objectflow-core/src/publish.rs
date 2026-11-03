@@ -5053,6 +5053,125 @@ types:
         }
     }
 
+    /// Two modules of a version, the catalog moving its genre to a
+    /// category and the shelf's book referencing it there (issue #60).
+    const GENRE_CATALOG: &str = r#"module: catalog
+categories: [live]
+types:
+  Genre:
+    description: A genre.
+    tracking: record
+    attributes:
+      name: { type: string }
+    states:
+      LISTED: { description: Listed., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LISTED, required_inputs: [name], description: Adds a genre. }
+      drop: { kind: external, from: LISTED, to: DROPPED, description: Drops it. }
+"#;
+    const GENRE_SHELF: &str = r#"module: shelf
+imports: { catalog: [Genre] }
+categories: [live]
+types:
+  Book:
+    description: A book.
+    tracking: record
+    attributes:
+      title: { type: string }
+      genre: { reference: Genre }
+    states:
+      ON_SHELF: { description: On the shelf., category: live }
+      GONE: { description: Given away., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON_SHELF, required_inputs: [title, genre], description: Adds a book. }
+      give: { kind: external, from: ON_SHELF, to: GONE, description: Gives it away. }
+"#;
+
+    /// A reference to a type another module of the version moves is no
+    /// change of type: the publish's report gives no `check:migration`
+    /// notice for it, as none is given where one module holds both, and the
+    /// approval carries its value to the moved object (issue #60,
+    /// `flow-format.md` §4.16).
+    #[test]
+    fn a_reference_to_a_type_another_module_moves_is_no_change_of_type() {
+        let mut catalog = GENRE_CATALOG.replace(
+            "  Genre:\n    description: A genre.\n",
+            "  Category:\n    description: A category.\n",
+        );
+        assert_ne!(catalog, GENRE_CATALOG);
+        catalog.push_str("migration:\n  description: A genre is a category.\n  moved_types:\n    Genre:\n      - to: Category\n");
+        let mut shelf = GENRE_SHELF.to_string();
+        for (old, new) in [
+            (
+                "imports: { catalog: [Genre] }",
+                "imports: { catalog: [Category] }",
+            ),
+            (
+                "genre: { reference: Genre }",
+                "genre: { reference: Category }",
+            ),
+        ] {
+            assert_eq!(shelf.matches(old).count(), 1, "{old}");
+            shelf = shelf.replace(old, new);
+        }
+        let lib = Library::load(&[
+            ("catalog.yaml".into(), GENRE_CATALOG.into()),
+            ("shelf.yaml".into(), GENRE_SHELF.into()),
+        ])
+        .unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let genre = created(&req(
+            &mut s,
+            "add",
+            ("Genre", true),
+            json!({"name": "Fiction"}),
+        ));
+        let book = created(&req(
+            &mut s,
+            "add",
+            ("Book", true),
+            json!({"title": "Dune", "genre": genre}),
+        ));
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"catalog": catalog, "shelf": shelf}, "source_ref": "git:shelf@2"}),
+        ));
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let v = s
+            .snapshot()
+            .unwrap()
+            .whole(&change)
+            .unwrap()
+            .unwrap()
+            .version;
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let codes: Vec<&str> = report
+            .as_ref()
+            .unwrap()
+            .findings
+            .iter()
+            .map(|f| f.code.as_str())
+            .collect();
+        assert!(!codes.contains(&"check:migration"), "{codes:?}");
+        assert!(
+            codes.contains(&"mapping:moved_types:Genre.Category"),
+            "{codes:?}"
+        );
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.whole(&book).unwrap().unwrap().attr("genre"),
+            Value::Object(genre.clone())
+        );
+        assert_eq!(w.whole(&genre).unwrap().unwrap().type_, "Category");
+    }
+
     /// A personal attribute renamed by one version and unmarked by the
     /// next is still erased from objects whose value was written before the
     /// rename, its name taken back through the rename (ADR-0146 decision 2).

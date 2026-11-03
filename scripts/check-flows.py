@@ -1582,12 +1582,33 @@ def family_errors(doc, library):
 BACKFILL_READS = {"state", "this"}   # a backfill reads the object's own members and literals (§6.6)
 
 
-def follows_move(m, was, now):
+def follows_move(moved, was, now):
     """Whether an attribute's change of type is a reference following a moved type, which keeps its values (ADR-0229
-    decision 5)."""
+    decision 5). `moved` is every type a module of the version moves, since a reference follows another module's move
+    as the publish carries it (flow-format.md §4.16, issue #60)."""
     before, after = str(was.get("reference", "")), str(now.get("reference", ""))
     return bool(before and after) and before.endswith("[]") == after.endswith("[]") \
-        and before.rstrip("[]") in (m.get("moved_types") or {})
+        and before.rstrip("[]") in moved
+
+
+def moved_types(files):
+    """Every type the modules of a version move, read from each before any is checked, so a reference follows a move
+    whichever module is checked first (issue #60). A source that does not parse moves nothing here; the check of it
+    says why."""
+    moved = set()
+    for _f, text in files:
+        try:
+            shallow(text)
+            doc = load(text)
+        except Exception:   # refused, and named, where the module is checked
+            continue
+        if not isinstance(doc, dict) or "module" not in doc or "examples_for" in doc:
+            continue
+        migration = doc.get("migration")
+        entries = migration.get("moved_types") if isinstance(migration, dict) else None
+        if isinstance(entries, dict):
+            moved |= set(entries)
+    return moved
 
 
 def unmovable(tn, t, kinds):
@@ -1767,7 +1788,7 @@ def previous_types(previous, file, library):
     return out
 
 
-def migration_pair_errors(prev, doc, library, before=None, installed=False):
+def migration_pair_errors(prev, doc, library, before=None, installed=False, moved=None):
     """This version against the one before it: every state it removes from a
     type is mapped, every mapping names what the previous version had, and a
     field added to an observation kind is optional (the model's checks 22 and
@@ -1778,13 +1799,15 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False):
     version moves is read when this module's previous text lacks it. Where
     `prev` is a store's installed version, `installed`, a mapping naming a
     state, a member or an attribute it lacks is left to the publish, which
-    notices it (ADR-0230 decision 2)."""
+    notices it (ADR-0230 decision 2). `moved` is every type a module of the
+    version moves (`moved_types`), this module's own where it is not given."""
     before = before or {}
     pv, _ = view(prev, library)
     v, _ = view(doc, library)
     machines = set(doc.get("machines") or {}) | set(prev.get("machines") or {})
     old, new = dict(types(pv)), dict(types(v))
     m = doc.get("migration") or {}
+    moved = set(m.get("moved_types") or {}) if moved is None else moved
     fatal, notes = [], []
     for tn, t in new.items():
         if tn in machines or tn not in old:
@@ -1835,7 +1858,7 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False):
         for a in sorted(set(t.get("attributes") or {}) & set(ot.get("attributes") or {})):
             now_spec, was_spec = t["attributes"][a] or {}, ot["attributes"][a] or {}
             if str(now_spec.get("type", now_spec.get("reference"))) != str(was_spec.get("type", was_spec.get("reference"))) \
-                    and not follows_move(m, was_spec, now_spec):
+                    and not follows_move(moved, was_spec, now_spec):
                 notes.append((here + ("attributes", a), "migration", f"{tn}.{a} changed its type: that is a drop and an add of the "
                                                                     "same name, every object's value starting absent (ADR-0147)"))
             elif optional(was_spec) and not optional(now_spec) and a not in filled and not str(now_spec.get("reference", "")).endswith("[]"):
@@ -6085,6 +6108,8 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     unfolded = {}               # derived attribute name -> the most it unfolds to, and its deepest, in the modules checked so far
     approvers = {}              # module -> the kinds that approve a version, where it declares them (ADR-0187)
     agents, opened = [], []     # the agent kinds of actor declared, and each module's transitions open to them (ADR-0189)
+    # every type a module of the version moves, which a reference in any module follows (flow-format.md §4.16, issue #60)
+    moved = moved_types(files)
     for f, text in files:
         # a source shows what it says: a bidirectional control or an invisible formatting character can make it read
         # otherwise than it shows (fifth production review, ADR-0190 decision 9)
@@ -6195,7 +6220,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
         if (previous or {}).get(f) or moving:
             before = previous_types(previous, f, library) if moving else {}
             pair, pair_notes = migration_pair_errors(load(previous[f]) if previous.get(f) else {}, doc, library, before,
-                                                     installed)
+                                                     installed, moved)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
         for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + acts_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc)
                         + name_errors(v, library, ordered=False) + taken_by_errors(v) + column_errors(v)
@@ -10713,7 +10738,8 @@ types:
 def moved_type_plants(people):
     """A version that moves a type's objects, checked against the one before (ADR-0229): the split clean, its
     reference following the move; a personal value carried or given into an attribute that is not; a move between
-    tracking kinds; a type that does not move yet; and an old state no entry places, noticed."""
+    tracking kinds; a type that does not move yet; an old state no entry places, noticed; and a reference to a type
+    another module moves, which follows it as one in the moving module does (issue #60)."""
     def p(text, old, new):
         assert old in text, old
         return text.replace(old, new, 1)
@@ -10816,6 +10842,43 @@ def moved_type_plants(people):
     ]
     for name, previous, after, want in across:
         found, notes = check([("grants.yaml", after)], previous)
+        got = sorted(x[4] for x in found + notes)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a moved type, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    # a reference to a type another module of the version moves follows the move, whichever module is checked first, as
+    # one in the moving module does; one to a type that module keeps is still a change of type (flow-format.md §4.16,
+    # ADR-0229 decision 5, issue #60)
+    genres = ("module: catalog\ncategories: [live, closed]\ntypes:\n  Genre:\n    description: A genre.\n"
+              "    tracking: record\n    attributes:\n      name: { type: string }\n    states:\n"
+              "      LISTED: { description: Listed., category: live }\n"
+              "      DROPPED: { description: Dropped., category: closed, final: true }\n"
+              "    transitions:\n      add: { kind: initial, to: LISTED, required_inputs: [name] }\n"
+              "      drop: { kind: external, from: LISTED, to: DROPPED }\n")
+    category = p(genres, "  Genre:\n    description: A genre.\n", "  Category:\n    description: A category.\n")
+    moving = category + "migration:\n  description: A genre is a category.\n  moved_types:\n    Genre:\n      - to: Category\n"
+    keeping = genres + category.split("types:\n", 1)[1]
+    shelf = ("module: shelf\nimports: { catalog: [Genre] }\ncategories: [live, closed]\ntypes:\n  Book:\n"
+             "    description: A book.\n    tracking: record\n    attributes:\n      title: { type: string }\n"
+             "      genre: { reference: Genre }\n    states:\n"
+             "      ON_SHELF: { description: On the shelf., category: live }\n"
+             "      GONE: { description: Given away., category: closed, final: true }\n"
+             "    transitions:\n      add: { kind: initial, to: ON_SHELF, required_inputs: [title, genre] }\n"
+             "      give: { kind: external, from: ON_SHELF, to: GONE }\n")
+    shelved = p(p(shelf, "imports: { catalog: [Genre] }\n", "imports: { catalog: [Category] }\n"),
+                "      genre: { reference: Genre }\n", "      genre: { reference: Category }\n")
+    before = {"catalog.yaml": genres, "shelf.yaml": shelf}
+    changed = ["Book.genre changed its type: that is a drop and an add of the same name, every object's value starting "
+               "absent (ADR-0147)"]
+    imported = ["catalog is not among the files checked, so steps 2 and 3 cannot check what is imported from it"]
+    references = [
+        ("a reference to a type another module moves", [("catalog.yaml", moving), ("shelf.yaml", shelved)], []),
+        ("a reference to a type another module moves, checked first", [("shelf.yaml", shelved), ("catalog.yaml", moving)],
+         imported),
+        ("a reference to a type another module keeps", [("catalog.yaml", keeping), ("shelf.yaml", shelved)], changed),
+    ]
+    for name, files, want in references:
+        found, notes = check(files, before)
         got = sorted(x[4] for x in found + notes)
         hit = got == sorted(want)
         ok &= hit

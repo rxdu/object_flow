@@ -29390,6 +29390,116 @@
   "could_violate": {}
  },
  {
+  "label": "moved_type_plants: a reference to a type another module moves",
+  "files": [
+   [
+    "catalog.yaml",
+    "e6c9201495a56def"
+   ],
+   [
+    "shelf.yaml",
+    "c7dd39aadb73f7e3"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "664ae62785d1ff2a",
+   "shelf.yaml": "a3b40d3a51388b82"
+  },
+  "findings": [],
+  "analysed": {
+   "Book": [
+    0,
+    0
+   ],
+   "Category": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_type_plants: a reference to a type another module moves, checked first",
+  "files": [
+   [
+    "shelf.yaml",
+    "c7dd39aadb73f7e3"
+   ],
+   [
+    "catalog.yaml",
+    "e6c9201495a56def"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "664ae62785d1ff2a",
+   "shelf.yaml": "a3b40d3a51388b82"
+  },
+  "findings": [
+   [
+    "shelf.yaml",
+    2,
+    "notice",
+    "imports",
+    "catalog is not among the files checked, so steps 2 and 3 cannot check what is imported from it"
+   ]
+  ],
+  "analysed": {
+   "Book": [
+    0,
+    0
+   ],
+   "Category": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_type_plants: a reference to a type another module keeps",
+  "files": [
+   [
+    "catalog.yaml",
+    "12005bb0fec0ee7a"
+   ],
+   [
+    "shelf.yaml",
+    "c7dd39aadb73f7e3"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "664ae62785d1ff2a",
+   "shelf.yaml": "a3b40d3a51388b82"
+  },
+  "findings": [
+   [
+    "shelf.yaml",
+    10,
+    "notice",
+    "migration",
+    "Book.genre changed its type: that is a drop and an add of the same name, every object's value starting absent (ADR-0147)"
+   ]
+  ],
+  "analysed": {
+   "Book": [
+    0,
+    0
+   ],
+   "Category": [
+    0,
+    0
+   ],
+   "Genre": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "metric_plants",
   "files": [
    [

@@ -23,13 +23,34 @@ const BACKFILL_READS: &[&str] = &["state", "this"];
 
 /// Whether an attribute's change of type is a reference following a moved
 /// type, which keeps its values (`check-flows.py`'s `follows_move`,
-/// ADR-0229 decision 5).
-fn follows_move(m: &Value, was: &Value, now: &Value) -> bool {
+/// ADR-0229 decision 5). `moved` is every type a module of the version
+/// moves, since a reference follows another module's move as the publish
+/// carries it (`flow-format.md` §4.16, issue #60).
+fn follows_move(moved: &BTreeSet<String>, was: &Value, now: &Value) -> bool {
     let (before, after) = (str_or(was, "reference", ""), str_or(now, "reference", ""));
     !before.is_empty()
         && !after.is_empty()
         && before.ends_with("[]") == after.ends_with("[]")
-        && obj(m, "moved_types").contains_key(before.trim_end_matches(['[', ']']))
+        && moved.contains(before.trim_end_matches(['[', ']']))
+}
+
+/// Every type the modules of a version move, read from each before any is
+/// checked, so a reference follows a move whichever module is checked first
+/// (issue #60). A source that does not parse moves nothing here; the check
+/// of it says why.
+pub fn moved_types(files: &[(String, String)]) -> BTreeSet<String> {
+    files
+        .iter()
+        .filter_map(|(_, text)| crate::yaml::load(text).ok())
+        .map(|node| super::schema::typed(&node))
+        .filter(|doc| doc.get("module").is_some() && doc.get("examples_for").is_none())
+        .flat_map(|doc| {
+            obj(doc.get("migration").unwrap_or(&Value::Null), "moved_types")
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 /// Why a type does not move, or take moved objects, yet, or none
@@ -501,12 +522,14 @@ pub fn previous_types(previous: &BTreeMap<String, String>, file: &str, library: 
 /// module's previous text lacks it. Where `prev` is a store's installed
 /// version, `installed`, a mapping naming a state, a member or an attribute
 /// it lacks is left to the publish, which notices it (ADR-0230 decision 2).
+/// `moved` is every type a module of the version moves ([`moved_types`]).
 pub fn migration_pair_errors(
     prev: &Value,
     doc: &Value,
     library: &Obj,
     before: &Obj,
     installed: bool,
+    moved: &BTreeSet<String>,
 ) -> (Found, Found) {
     let pv = View::new(prev, library);
     let v = View::new(doc, library);
@@ -667,7 +690,7 @@ pub fn migration_pair_errors(
             .collect::<BTreeSet<_>>()
         {
             let (now_spec, was_spec) = (&new_attrs[a], &old_attrs[a]);
-            if type_of(now_spec) != type_of(was_spec) && !follows_move(&m, was_spec, now_spec) {
+            if type_of(now_spec) != type_of(was_spec) && !follows_move(moved, was_spec, now_spec) {
                 notes.push(finding(
                     ext(&here, segs!["attributes", a]),
                     "migration",
