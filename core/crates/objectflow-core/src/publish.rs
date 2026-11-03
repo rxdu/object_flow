@@ -5053,6 +5053,180 @@ types:
         }
     }
 
+    /// A card whose title is a column and whose tags are a stored set, a
+    /// table of their own, its sign-off fresh while neither changed since;
+    /// and a memo with a column of the tags' name.
+    const CARD_TAGS: &str = r#"module: cards
+categories: [live]
+types:
+  Card:
+    description: A card, signed off before it is closed.
+    tracking: record
+    attributes:
+      title: { type: string }
+      tags: { type: "string[]", optional: true }
+      signed_at: { type: event, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    conditions:
+      fresh:
+        description: It is signed off, and neither its title nor its tags changed since.
+        expression: signed_at is not null and not changed_since([title, tags], signed_at)
+        remedy: delegable
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title], description: Opens a card. }
+      retitle: { kind: internal, from: OPEN, required_inputs: [title], description: Retitles it. }
+      tag: { kind: internal, from: OPEN, required_inputs: [tags], description: Sets its tags. }
+      sign:
+        kind: internal
+        from: OPEN
+        description: Signs the card off as it stands.
+        effect:
+          - assign: { location: signed_at, expr: this_event }
+      close:
+        kind: external
+        from: OPEN
+        to: DONE
+        description: Closes a signed-off card.
+        guards:
+          fresh: deny
+  Memo:
+    description: A memo, its tags a count.
+    tracking: record
+    attributes:
+      tags: { type: int }
+    states:
+      FILED: { description: Filed., category: live }
+      BINNED: { description: Binned., category: closed, final: true }
+    transitions:
+      file: { kind: initial, to: FILED, required_inputs: [tags], description: Files a memo. }
+      bin: { kind: external, from: FILED, to: BINNED, description: Bins it. }
+"#;
+
+    /// `CARD_TAGS` with the card's title renamed its heading, its tags
+    /// renamed its keywords, or both, by the migration it ends with.
+    fn cards_renamed(title: bool, tags: bool) -> String {
+        let mut text = CARD_TAGS.to_string();
+        let mut swaps = Vec::new();
+        let mut renames = Vec::new();
+        if title {
+            swaps.extend([
+                (
+                    "      title: { type: string }\n",
+                    "      heading: { type: string }\n",
+                ),
+                ("changed_since([title,", "changed_since([heading,"),
+                (
+                    "required_inputs: [title], description: Opens",
+                    "required_inputs: [heading], description: Opens",
+                ),
+                (
+                    "required_inputs: [title], description: Retitles",
+                    "required_inputs: [heading], description: Retitles",
+                ),
+            ]);
+            renames.push("title: heading");
+        }
+        if tags {
+            swaps.extend([
+                (
+                    "      tags: { type: \"string[]\", optional: true }\n",
+                    "      keywords: { type: \"string[]\", optional: true }\n",
+                ),
+                (" tags], signed_at)", " keywords], signed_at)"),
+                (
+                    "required_inputs: [tags], description: Sets",
+                    "required_inputs: [keywords], description: Sets",
+                ),
+            ]);
+            renames.push("tags: keywords");
+        }
+        for (old, new) in swaps {
+            assert_eq!(text.matches(old).count(), 1, "{old}");
+            text = text.replace(old, new);
+        }
+        format!(
+            "{text}migration:\n  description: A card's attributes renamed.\n  renamed_attributes:\n    Card: {{ {} }}\n",
+            renames.join(", ")
+        )
+    }
+
+    /// A stored set's rename carries its write-index rows under its new
+    /// name, as a column's and a derived end's are, renamed alone and
+    /// beside a renamed column (`storage-schema.md` §10): a card tagged
+    /// after its sign-off keeps its `close` refused after the publish, as
+    /// it was before it, its tags carried and no interval made of them, a
+    /// set being untracked (DESIGN.md §5.2), and another type's attribute
+    /// of the old name keeps its own.
+    #[test]
+    fn a_stored_sets_rename_carries_its_write_index() {
+        for (what, title) in [("alone", false), ("beside a renamed column", true)] {
+            let lib = Library::load(&[("cards.yaml".into(), CARD_TAGS.into())]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let card = created(&req(
+                &mut s,
+                "open",
+                ("Card", true),
+                json!({"title": "Plan"}),
+            ));
+            let memo = created(&req(&mut s, "file", ("Memo", true), json!({"tags": 3})));
+            created(&req(&mut s, "sign", (&card, false), json!({})));
+            created(&req(
+                &mut s,
+                "tag",
+                (&card, false),
+                json!({"tags": ["urgent", "q3"]}),
+            ));
+            let read = |s: &Store, id: &str| {
+                let w = s.snapshot().unwrap();
+                let o = w.whole(id).unwrap().unwrap();
+                (o.attrs.clone(), o.held_parts().unwrap().clone())
+            };
+            let stale =
+                |v: &Verdict| matches!(v, Verdict::Unsatisfied { clause, .. } if clause == "fresh");
+            let (was, parts_was) = read(&s, &card);
+            let memo_was = read(&s, &memo);
+            let history_was = s.history(&card).unwrap();
+            assert!(
+                parts_was.writes.contains_key("tags"),
+                "{what}: {parts_was:?}"
+            );
+            assert!(
+                !parts_was.spans.contains_key("tags"),
+                "{what}: {parts_was:?}"
+            );
+            let before = req(&mut s, "close", (&card, false), json!({}));
+            assert!(stale(&before), "{what}: before the publish, {before:?}");
+            published_as(&mut s, "cards", &[&cards_renamed(title, true)]);
+            assert_eq!(s.lib.version, 2, "{what}");
+            let (now, parts_now) = read(&s, &card);
+            assert_eq!(now.get("keywords"), was.get("tags"), "{what}: {now:?}");
+            assert!(!now.contains_key("tags"), "{what}: {now:?}");
+            assert_eq!(
+                parts_now.writes.get("keywords"),
+                parts_was.writes.get("tags"),
+                "{what}: {parts_now:?}"
+            );
+            assert!(
+                !parts_now.writes.contains_key("tags"),
+                "{what}: {parts_now:?}"
+            );
+            let heading = if title { "heading" } else { "title" };
+            assert_eq!(
+                parts_now.writes.get(heading),
+                parts_was.writes.get("title"),
+                "{what}: {parts_now:?}"
+            );
+            assert_eq!(parts_now.spans, parts_was.spans, "{what}");
+            assert_eq!(read(&s, &memo), memo_was, "{what}: the memo");
+            // the rename writes nothing of its own
+            assert_eq!(s.history(&card).unwrap(), history_was, "{what}");
+            let after = req(&mut s, "close", (&card, false), json!({}));
+            assert!(stale(&after), "{what}: after the publish, {after:?}");
+        }
+    }
+
     /// Two modules of a version, the catalog moving its genre to a
     /// category and the shelf's book referencing it there (issue #60).
     const GENRE_CATALOG: &str = r#"module: catalog
@@ -7467,9 +7641,9 @@ types:
     }
 
     /// A rename keyed by an abstract base reaches every object of its
-    /// family: each kind's value is carried under the new name, its column
-    /// renamed in its own table, and no kind's attribute is noticed as
-    /// dropped (`publish-and-import.md` §1 step 5, ADR-0147).
+    /// family: each kind's value and write index are carried under the new
+    /// name, its column renamed in its own table, and no kind's attribute
+    /// is noticed as dropped (`publish-and-import.md` §1 step 5, ADR-0147).
     #[test]
     fn a_rename_keyed_by_an_abstract_base_reaches_its_family() {
         let lib = Library::load(&[("assets.yaml".into(), assets(false))]).unwrap();
@@ -7486,6 +7660,20 @@ types:
             ("Server", true),
             json!({"tag": "S-1"}),
         ));
+        let written = |s: &Store, id: &str, a: &str| {
+            s.snapshot()
+                .unwrap()
+                .whole(id)
+                .unwrap()
+                .unwrap()
+                .held_parts()
+                .unwrap()
+                .writes
+                .get(a)
+                .copied()
+        };
+        let was = [laptop.clone(), server.clone()].map(|id| written(&s, &id, "tag"));
+        assert!(was.iter().all(Option::is_some), "{was:?}");
         let v2 = assets_relabelled(false);
         let change = created(&req(
             &mut s,
@@ -7518,6 +7706,14 @@ types:
             assert_eq!(o.attr("label"), Value::Text(want.into()), "{}", o.type_);
             assert!(o.attr("tag").is_absent(), "{}", o.type_);
         }
+        drop(w);
+        let now = [laptop.clone(), server.clone()].map(|id| written(&s, &id, "label"));
+        assert_eq!(now, was);
+        assert!(
+            [&laptop, &server]
+                .iter()
+                .all(|id| written(&s, id, "tag").is_none())
+        );
     }
 
     /// A possible rename is noticed on each kind of a family whose value no

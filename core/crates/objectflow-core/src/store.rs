@@ -4673,14 +4673,15 @@ impl Store {
                 continue;
             };
             let name = table(tn);
-            // a derived end's rename carries its write index, which a part's
-            // transitions write on a composite end's whole, the one thing the
-            // store holds under its name: it has no column and no table, and
-            // as a set no intervals (§3.1). Renamed alone it leaves its
-            // type's table as it was, so it is carried before the table is
-            // compared (issue #59)
+            // a rename carries its write index under the new name, so
+            // `changed_since` and an erasure read who last wrote it (D530),
+            // whatever the attribute: a column's, a stored set's, and a
+            // derived end's, which has no column and no table (§3.1), a
+            // part's transitions writing it on a composite end's whole. A
+            // derived end renamed alone leaves its type's table as it was, so
+            // each is carried before the table is compared (issue #59)
             for (owner, from, to) in &m.renamed_attributes {
-                if new.is_a(tn, owner) && ot.attribute(from).is_some_and(|a| a.derived_end()) {
+                if new.is_a(tn, owner) && ot.attribute(from).is_some() {
                     tx.execute(
                         &format!(
                             "UPDATE of_attribute_write SET attribute = ?2 WHERE attribute = ?1 \
@@ -4702,9 +4703,12 @@ impl Store {
                 if !new.is_a(tn, owner) {
                     continue;
                 }
+                // each one's write index carried above
                 match ot.attribute(from) {
-                    // no column to rename, its write index carried above
+                    // no column to rename
                     Some(a) if a.derived_end() => {}
+                    // its own table renamed, and no intervals, since no set
+                    // is tracked (DESIGN.md §5.2)
                     Some(a) if a.stored_set() => tx.execute_batch(&format!(
                         "ALTER TABLE {} RENAME TO {};",
                         quote(&format!("{name}__{from}")),
@@ -4739,15 +4743,6 @@ impl Store {
                                  AND object_id IN (SELECT id FROM {name})"
                             ),
                             params![from, to, publish_position],
-                        )?;
-                        // and its write index, so `changed_since` and an
-                        // erasure read who last wrote it under its new name
-                        tx.execute(
-                            &format!(
-                                "UPDATE of_attribute_write SET attribute = ?2 WHERE attribute = ?1 \
-                                 AND object_id IN (SELECT id FROM {name})"
-                            ),
-                            params![from, to],
                         )?;
                     }
                     None => {}
