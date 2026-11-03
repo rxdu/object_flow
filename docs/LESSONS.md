@@ -267,6 +267,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Capture the status on the next statement, `python3 $s > out; rc=$?`, and read each output's last lines as well as its status.
 - **Context:** Shell loops over the check scripts, and any loop that reports a status.
 - **Recurrence, 2026-09-29:** the scenarios and corpus checks ran in the background, and the command that printed their statuses also ran `git commit`, so the commit (`c98dfd4`) was made before `scenarios rc=1` and `corpus rc=1` were read. The new notice had changed the notices a quoted publish report lists. A status is read, and a failure handled, before the step that depends on it runs, never chained after it in one command.
+- **Recurred 2026-11-04, in 0.13.0's release gate:** the PostgreSQL upgrade check ran as `(python … | grep -v NOTICE) > log; echo exit $?`, so the stage printed `exit 0` for a check that had raised, its log ending in a traceback. A pipe's status is its last command's, here the filter's. Set `set -o pipefail` in a script that pipes a check through a filter, or read `${PIPESTATUS[0]}`, and read the log's last lines whatever the status says.
+
+### A release gate's scripts kept only in a scratch directory are lost with it
+
+- **Pattern:** 0.13.0's release gate needed the scripts that ran 0.12.0's, kept in a session's scratch directory, which no longer held them. Rebuilt from the session's transcript, the PostgreSQL upgrade check came back without an edit made to it on 2026-10-24, which read `/health`'s `503` as an answer while an upgrade is due. Run with the rebuilt copy, the check raised on that `503`, and the stage reported it passed.
+- **Correction:** Keep a release gate's scripts in the repository, beside the gates they run, so each release runs the copy the last one ran. Until then, rebuild a lost script from its last printed copy, not from its first version and the edits a search finds.
+- **Context:** ObjectFlow's release gate (`TODO.md`, *F. The release gate*); 2026-11-04.
 
 ### A check that claims to read a language parses it
 
