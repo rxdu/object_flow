@@ -99,6 +99,8 @@ export interface FlowObject extends Reported {
   state: string;
   version?: number;
   declaration_version?: number;
+  /** The type it was of under `declaration_version`; a service before 0.13.0 sends none (ADR-0244). */
+  declaration_type?: string;
   created_at?: string;
   created_by_kind?: string;
   recorded_from?: string;
@@ -116,6 +118,8 @@ export interface FlowEvent {
   actor_id: string;
   actor_kind: string;
   declaration_version: number;
+  /** The type its object was of under `declaration_version`; a service before 0.13.0 sends none (ADR-0244). */
+  declaration_type?: string;
   recorded_at: string;
   occurred_at: string;
   imported: boolean;

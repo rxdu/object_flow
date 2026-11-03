@@ -11,11 +11,11 @@ use std::collections::BTreeMap;
 use serde_json::{Value as Json, json};
 
 use crate::eval::NotRun;
-use crate::model::Library;
+use crate::model::{Library, Type};
 use crate::store::{Attempt, CursoredSpan, Event};
 use crate::value::timestamp_text;
 use crate::wire;
-use crate::world::{Object, World};
+use crate::world::{Object, TypesThen, World};
 
 /// A page of an export (`library-api.md` §6): its rows, one JSON object per
 /// line, and the cursor to continue from; or a refusal, a value, with no
@@ -193,12 +193,13 @@ fn log_rows(
     let mut rows = Vec::new();
     let mut bytes = 0;
     let mut at = after;
+    let mut then = world.types_then();
     while rows.len() < limit && bytes < crate::reads::PAGE_BYTES {
         let page = world.log_after(at, types, None, CHUNK.min(limit - rows.len()))?;
         let done = page.len() < CHUNK.min(limit - rows.len());
         for e in &page {
             at = e.position;
-            let row = event_row(world, e)?;
+            let row = event_row(world, &mut then, e)?;
             bytes += row.to_string().len() + 1;
             rows.push((e.position, row));
             if bytes >= crate::reads::PAGE_BYTES {
@@ -307,9 +308,10 @@ fn counts_page(
 /// The rows of the objects given by id, each at its last event.
 fn paged_rows(world: &World<'_>, ids: &[(String, i64)]) -> Result<Vec<(i64, Json)>, NotRun> {
     let mut rows = Vec::new();
+    let mut then = world.types_then();
     for (id, at) in ids {
         if let Some(o) = world.get(id)? {
-            rows.push((*at, object_row(world, o)?));
+            rows.push((*at, object_row(world, &mut then, o)?));
         }
     }
     Ok(rows)
@@ -328,38 +330,89 @@ fn object_rows(
         last.insert(e.object_id.as_str(), e.position);
     }
     let mut rows = Vec::new();
+    let mut then = world.types_then();
     for o in objects {
         if let Some(at) = last.get(o.id.as_str()).copied()
             && at > after
         {
-            rows.push((at, object_row(world, o)?));
+            rows.push((at, object_row(world, &mut then, o)?));
         }
     }
     Ok(rows)
 }
 
 /// An object in `Object`'s shape (`library-api.md` §5), its personal
-/// attributes omitted (ADR-0094 §3).
-fn object_row(world: &World<'_>, o: &Object) -> Result<Json, NotRun> {
+/// attributes omitted (ADR-0094 §3): those the installed version marks
+/// personal, and those personal under the version that wrote their value,
+/// as an erasure judges them (ADR-0146 decision 2, ADR-0244 decision 3).
+fn object_row(world: &World<'_>, then: &mut TypesThen<'_, '_>, o: &Object) -> Result<Json, NotRun> {
     let t = world.lib.type_(&o.type_);
-    let attributes: serde_json::Map<String, Json> = o
-        .attrs
-        .iter()
-        .filter(|(a, _)| !t.and_then(|t| t.attribute(a)).is_some_and(|s| s.personal))
-        .map(|(a, v)| (a.clone(), wire::encode(v)))
-        .collect();
+    let mut own: Option<Vec<Event>> = None;
+    let mut attributes = serde_json::Map::new();
+    for (a, v) in &o.attrs {
+        if t.and_then(|t| t.attribute(a)).is_some_and(|s| s.personal) {
+            continue;
+        }
+        // its writing version read only where an earlier version marked
+        // it personal, every other value judged as the installed version
+        // marks it
+        if once_personal(world, &o.type_, a) {
+            if own.is_none() {
+                own = Some(world.events_of(&o.id)?);
+            }
+            let own = own.as_deref().unwrap_or_default();
+            let indexed = world.parts(o)?.writes.get(a.as_str()).copied();
+            if let Some(version) = crate::request::declared_under(world, own, indexed, &o.type_, a)?
+                && world.personal_under(
+                    version,
+                    &crate::request::type_then(own, &o.type_, version),
+                    a,
+                )
+            {
+                continue;
+            }
+        }
+        attributes.insert(a.clone(), wire::encode(v));
+    }
+    let declaration_version = world.version_of(&o.id)?;
     Ok(json!({
         "id": o.id,
         "type": o.type_,
         "state": o.state,
         "version": o.version,
-        "declaration_version": world.version_of(&o.id)?,
+        "declaration_version": declaration_version,
+        "declaration_type": then.of(&o.id, declaration_version)?,
         "created_at": timestamp_text(o.created_at),
         "created_by_kind": o.created_by_kind,
         "attributes": attributes,
         "recorded_from": timestamp_text(o.recorded_from),
         "created_dated": o.created_dated,
     }))
+}
+
+/// Whether some earlier version marked an attribute personal, for the type
+/// or for a type a move took its objects from, named as each version named
+/// it: the attributes whose values an export judges by the version that
+/// wrote them.
+fn once_personal(world: &World<'_>, type_: &str, attribute: &str) -> bool {
+    // the type, and each type a move took into it or into one of those
+    let mut types = vec![type_.to_string()];
+    let mut i = 0;
+    while let Some(to) = types.get(i).cloned() {
+        for l in std::iter::once(world.lib).chain(world.earlier.values()) {
+            for (from, entries) in &l.migration.moved_types {
+                if entries.iter().any(|e| e.to == to) && !types.contains(from) {
+                    types.push(from.clone());
+                }
+            }
+        }
+        i += 1;
+    }
+    world
+        .earlier
+        .keys()
+        .filter(|v| **v != world.lib.version)
+        .any(|v| types.iter().any(|x| world.personal_under(*v, x, attribute)))
 }
 
 /// The objects of a type's family, by id, the family read a type at a time.
@@ -375,14 +428,21 @@ fn family_of<'w>(
 }
 
 /// An event as the log exports it, its personal inputs and corrected
-/// values omitted (ADR-0094 §3).
-fn event_row(world: &World<'_>, e: &Event) -> Result<Json, NotRun> {
+/// values omitted (ADR-0094 §3), each judged under the installed version
+/// and under the version that wrote it (ADR-0244 decision 3).
+fn event_row(world: &World<'_>, then: &mut TypesThen<'_, '_>, e: &Event) -> Result<Json, NotRun> {
     // the object's type alone, where its whole object was held for the page,
     // a change's source of 1.9 MB with each of its events, 550 MB for a page
     // of 178 KB (eleventh production review)
     let mut type_ = world.type_of(&e.object_id)?;
     let mut transition = e.transition.clone();
     let mut proposal = false;
+    // the type the object was of under the event's version (ADR-0244)
+    let declaration_type = then.of(&e.object_id, e.declaration_version)?;
+    // and under the version its writes were declared by, a migration's the
+    // one it installed, as an erasure reads them (ADR-0146 decision 2)
+    let under = crate::request::written_under(e);
+    let mut written = (then.of(&e.object_id, under)?, declaration_type.clone());
     // a proposal's event holds the inputs of the transition it proposed,
     // judged under that transition, where they were judged under the
     // proposal's, which declares none, and its personal inputs were
@@ -392,16 +452,23 @@ fn event_row(world: &World<'_>, e: &Event) -> Result<Json, NotRun> {
         && let (crate::value::Value::Text(target), crate::value::Value::Text(proposed)) =
             (p.attr("target_type"), p.attr("transition"))
     {
+        // a proposal never moves, and the type it names is the one it
+        // proposed for, named as its version named it
+        written = (target.clone(), target.clone());
         type_ = Some(target);
         transition = proposed;
         proposal = true;
     }
+    let was = WrittenUnder::of(world, type_.as_deref(), &transition, e, under, &written);
     let mut payload = e.payload.clone();
     // a personal attribute's value, as an input, a correction or a write
-    // (ADR-0209 decision 3)
+    // (ADR-0209 decision 3), personal now or when it was written
     for part in ["inputs", "corrected", "wrote"] {
         if let Some(values) = payload.get_mut(part).and_then(Json::as_object_mut) {
-            values.retain(|k, _| !personal(world.lib, type_.as_deref(), &transition, k));
+            values.retain(|k, _| {
+                !personal(world.lib, type_.as_deref(), &transition, k)
+                    && !was.personal(world.lib, part == "inputs", k)
+            });
         }
     }
     // and a proposal's `inputs` as it wrote them, the text of the inputs it
@@ -411,7 +478,10 @@ fn event_row(world: &World<'_>, e: &Event) -> Result<Json, NotRun> {
         && let Some(Json::String(text)) = payload.pointer("/wrote/inputs").cloned()
         && let Ok(mut held) = serde_json::from_str::<serde_json::Map<String, Json>>(&text)
     {
-        held.retain(|k, _| !personal(world.lib, type_.as_deref(), &transition, k));
+        held.retain(|k, _| {
+            !personal(world.lib, type_.as_deref(), &transition, k)
+                && !was.personal(world.lib, true, k)
+        });
         payload["wrote"]["inputs"] = Json::String(Json::Object(held).to_string());
     }
     Ok(json!({
@@ -428,6 +498,7 @@ fn event_row(world: &World<'_>, e: &Event) -> Result<Json, NotRun> {
         "principal": e.principal,
         "cause": e.cause,
         "declaration_version": e.declaration_version,
+        "declaration_type": declaration_type,
         "recorded_at": timestamp_text(e.recorded_at),
         "occurred_at": e.occurred_at.map(timestamp_text),
         "imported": e.imported,
@@ -448,6 +519,72 @@ fn personal(lib: &Library, type_: Option<&str>, transition: &str, name: &str) ->
     t.attribute(name).is_some_and(|a| a.personal)
         || t.transition(transition)
             .is_some_and(|x| crate::request::input_personal(lib, t, x, name))
+}
+
+/// What an event's payload held that was personal as the versions it was
+/// written under declared it, judged as an erasure judges it (ADR-0146
+/// decision 2, ADR-0209 decision 2, ADR-0244 decision 3): an attribute the
+/// type its object was of then marked so, one an input of the transition as
+/// its version declared it was or was written into, and one the installed
+/// version marks personal under the name a later rename gave it.
+struct WrittenUnder<'l> {
+    /// The type as the version its writes were declared by declared it.
+    declared: Option<&'l Type>,
+    /// The type as the event's version declared it, and its transition.
+    recorded: Option<(&'l Type, &'l crate::model::Transition)>,
+    /// The installed type's personal attributes, as the version the writes
+    /// were declared by named them, where a rename changed the name since.
+    renamed: std::collections::BTreeSet<String>,
+}
+
+impl<'l> WrittenUnder<'l> {
+    fn of(
+        world: &World<'l>,
+        now: Option<&str>,
+        transition: &str,
+        e: &Event,
+        under: i64,
+        (then_under, then_recorded): &(String, String),
+    ) -> Self {
+        let recorded = world
+            .type_at(e.declaration_version, then_recorded)
+            .and_then(|t| t.transition(transition).map(|x| (t, x)));
+        let renamed = now
+            .and_then(|n| world.lib.type_(n))
+            .map(|t| {
+                t.attributes
+                    .iter()
+                    .filter(|(_, spec)| spec.personal)
+                    .map(|(a, _)| (world.named_under(under, then_under, a), a))
+                    .filter(|(k, a)| k != *a)
+                    .map(|(k, _)| k)
+                    .collect()
+            })
+            .unwrap_or_default();
+        WrittenUnder {
+            declared: world.type_at(under, then_under),
+            recorded,
+            renamed,
+        }
+    }
+
+    /// Whether the value named, an input's or a written one's, was personal
+    /// when its event was written.
+    fn personal(&self, lib: &Library, input: bool, name: &str) -> bool {
+        if self.renamed.contains(name) {
+            return true;
+        }
+        if input {
+            self.recorded.is_some_and(|(t, x)| {
+                t.attribute(name).is_some_and(|a| a.personal)
+                    || crate::request::input_personal(lib, t, x, name)
+            })
+        } else {
+            self.declared
+                .and_then(|t| t.attribute(name))
+                .is_some_and(|a| a.personal)
+        }
+    }
 }
 
 /// Each span of each object of the type, after the cursor, by the event that
@@ -474,6 +611,7 @@ fn interval_rows(
     let mut bytes = 0;
     let mut at = after;
     let mut window = FIRST;
+    let mut then = world.types_then();
     while at < last && rows.len() < limit && bytes < crate::reads::PAGE_BYTES {
         world.due()?;
         let upto = at.saturating_add(window).min(last);
@@ -506,13 +644,22 @@ fn interval_rows(
             })
             .collect();
         for s in &spans {
+            // the type the object was of under the span's version, and the
+            // span personal under the installed version or under that one,
+            // as an erasure judges a span (ADR-0146 decision 2, ADR-0244)
+            let declaration_type = then.of(&s.object_id, s.span.declaration_version)?;
             let personal = s.dimension != "state"
-                && world
+                && (world
                     .lib
                     .type_(&s.type_)
                     .and_then(|t| t.attribute(&s.dimension))
-                    .is_some_and(|a| a.personal);
-            at_cursor.push((s.cursor, true, span_row(s, personal)));
+                    .is_some_and(|a| a.personal)
+                    || world.personal_under(
+                        s.span.declaration_version,
+                        &declaration_type,
+                        &s.dimension,
+                    ));
+            at_cursor.push((s.cursor, true, span_row(s, &declaration_type, personal)));
         }
         // stable: each cursor's retractions first, then its rows as read
         at_cursor.sort_by_key(|(cursor, written, _)| (*cursor, *written));
@@ -539,10 +686,25 @@ pub(crate) fn intervals_as_walked(world: &World<'_>, type_: &str) -> Vec<String>
             .find(|e| e.object_id == o.id && e.imported)
             .map_or(0, |e| e.position);
         let t = world.lib.type_(&o.type_).unwrap();
+        // its own events, from the whole log, for the type it was of then
+        let own: Vec<Event> = log
+            .iter()
+            .filter(|e| e.object_id == o.id)
+            .map(|e| (*e).clone())
+            .collect();
         for (dimension, spans) in &world.parts(o).unwrap().spans {
-            let personal =
+            let now_personal =
                 &**dimension != "state" && t.attribute(dimension).is_some_and(|a| a.personal);
             for sp in spans {
+                let declaration_type =
+                    crate::request::type_then(&own, &o.type_, sp.declaration_version);
+                let personal = now_personal
+                    || &**dimension != "state"
+                        && world.personal_under(
+                            sp.declaration_version,
+                            &declaration_type,
+                            dimension,
+                        );
                 let cursor = if sp.legacy {
                     imported
                 } else {
@@ -568,7 +730,10 @@ pub(crate) fn intervals_as_walked(world: &World<'_>, type_: &str) -> Vec<String>
                     transition,
                     order: o.order,
                 };
-                rows.push((cursor, span_row(&s, personal).to_string()));
+                rows.push((
+                    cursor,
+                    span_row(&s, &declaration_type, personal).to_string(),
+                ));
             }
         }
     }
@@ -638,7 +803,7 @@ pub(crate) fn assert_intervals_as_walked(s: &crate::store::Store, type_: &str) {
 
 /// A span as the export writes it, in `Interval`'s shape
 /// (`library-api.md` §4), its value omitted where the member is personal.
-fn span_row(s: &CursoredSpan, personal: bool) -> Json {
+fn span_row(s: &CursoredSpan, declaration_type: &str, personal: bool) -> Json {
     let sp = &s.span;
     let mut row = json!({
         "object_id": s.object_id,
@@ -652,6 +817,7 @@ fn span_row(s: &CursoredSpan, personal: bool) -> Json {
         "entered_by_kind": &*sp.entered_by_kind,
         "transition": if sp.legacy { None } else { s.transition.clone() },
         "declaration_version": sp.declaration_version,
+        "declaration_type": declaration_type,
         "legacy": sp.legacy,
     });
     if !personal {
@@ -1386,5 +1552,281 @@ types:
         );
         assert!(rows[0]["attributes"].get("note").is_none());
         assert_eq!(page(&s, "Tool.labels", None).0, Vec::<Json>::new());
+    }
+
+    /// A shelf whose genre holds personal values of every kind an export
+    /// writes: written values and inputs, an enumeration's intervals, and an
+    /// observation's records (issue #61, ADR-0244 decision 3).
+    const SHELF_V1: &str = r#"
+module: shelf
+categories: [live]
+enumerations: { Mood: [CALM, CROSS] }
+types:
+  Genre:
+    description: A genre.
+    tracking: record
+    attributes:
+      name: { type: string, optional: true, personal: true }
+      alias: { type: string, optional: true, personal: true }
+      mood: { type: Mood, optional: true, personal: true }
+    observations:
+      readings:
+        kind: Reading
+        description: A reading of the genre.
+        attributes:
+          level: { type: int }
+          remark: { type: string, optional: true, personal: true }
+    states:
+      LISTED: { description: Listed., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LISTED, required_inputs: [name, alias, mood], description: Adds one. }
+      drop: { kind: external, from: [LISTED], to: DROPPED, description: Drops it. }
+      tune: { kind: internal, from: [LISTED], required_inputs: [mood], description: Sets its mood. }
+      forget: { kind: erasure, description: Erases its names., inputs: { reason: { type: string } } }
+  Category:
+    description: A category.
+    tracking: record
+    attributes:
+      name: { type: string, optional: true, personal: true }
+    states:
+      LISTED: { description: Listed., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LISTED, required_inputs: [name], description: Adds one. }
+      drop: { kind: external, from: [LISTED], to: DROPPED, description: Drops it. }
+      forget: { kind: erasure, description: Erases its name., inputs: { reason: { type: string } } }
+"#;
+
+    /// A request of the operator's: on a new object of a type, or on one.
+    fn asked(s: &mut Store, xn: &str, on: (&str, bool), inputs: Json) -> String {
+        let (target, creating) = on;
+        let r = Request {
+            transition: xn.into(),
+            actor: OPERATOR.into(),
+            object_id: (!creating).then(|| target.to_string()),
+            type_: creating.then(|| target.to_string()),
+            inputs: inputs
+                .as_object()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        match request(s, &r).unwrap().unwrap() {
+            Verdict::Satisfied { object_id, .. } => object_id,
+            other => panic!("{xn}: {other:?}"),
+        }
+    }
+
+    /// The shelf's next version, drafted, submitted and approved.
+    fn published(s: &mut Store, text: &str) {
+        let change = asked(
+            s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"shelf": text}, "source_ref": "test:shelf"}),
+        );
+        let report = crate::publish::dry_run(
+            &s.snapshot().unwrap(),
+            &crate::publish::Draft {
+                change_id: Some(&change),
+                source: &[("shelf".to_string(), text.to_string())],
+                source_ref: Some("test:shelf"),
+                source_digest: None,
+                actor: OPERATOR,
+            },
+        )
+        .unwrap();
+        assert!(report.accepted, "{:#?}", report.findings);
+        asked(s, "submit", (&change, false), json!({}));
+        let version = s
+            .snapshot()
+            .unwrap()
+            .whole(&change)
+            .unwrap()
+            .unwrap()
+            .version;
+        let (verdict, report) = s.publish(OPERATOR, &change, version).unwrap().unwrap();
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+    }
+
+    /// Every row of a source, read whole.
+    fn rows_of(s: &Store, source: &str) -> Vec<Json> {
+        let w = s.snapshot().unwrap();
+        let p = export(&w, source, None).unwrap();
+        assert_eq!(p.refused, None, "{source}");
+        p.lines
+            .iter()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    }
+
+    /// A value personal under the version that wrote it is left out of an
+    /// export after a later version drops its attribute or no longer marks
+    /// it personal, as an erasure judges it, where the export judged each
+    /// value by the installed version alone and gave it; a value written
+    /// under the later version is given (issue #61, ADR-0244 decision 3).
+    #[test]
+    fn an_export_leaves_out_what_was_personal_when_it_was_written() {
+        let lib = Library::load(&[("shelf.yaml".into(), SHELF_V1.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let genre = asked(
+            &mut s,
+            "add",
+            ("Genre", true),
+            json!({"name": "Ada", "alias": "Countess", "mood": "CROSS"}),
+        );
+        asked(
+            &mut s,
+            "record",
+            ("Reading", true),
+            json!({"subject": genre, "level": 1, "remark": "tired"}),
+        );
+        // `alias` dropped, `mood` and a reading's `remark` no longer personal
+        let mut later = SHELF_V1.to_string();
+        for (old, new) in [
+            (
+                "      alias: { type: string, optional: true, personal: true }\n",
+                "",
+            ),
+            (
+                "required_inputs: [name, alias, mood]",
+                "required_inputs: [name, mood]",
+            ),
+            (
+                "      mood: { type: Mood, optional: true, personal: true }\n",
+                "      mood: { type: Mood, optional: true }\n",
+            ),
+            (
+                "          remark: { type: string, optional: true, personal: true }\n",
+                "          remark: { type: string, optional: true }\n",
+            ),
+        ] {
+            assert_eq!(later.matches(old).count(), 1, "{old}");
+            later = later.replace(old, new);
+        }
+        published(&mut s, &later);
+        asked(&mut s, "tune", (&genre, false), json!({"mood": "CALM"}));
+        asked(
+            &mut s,
+            "record",
+            ("Reading", true),
+            json!({"subject": genre, "level": 2, "remark": "fresh"}),
+        );
+        // the log: the creation's values, each personal when written, left
+        // out; the tune's, written under the version that does not mark it,
+        // given
+        let log: Vec<Json> = rows_of(&s, "log")
+            .into_iter()
+            .filter(|r| r["object_id"] == genre)
+            .collect();
+        let add = log.iter().find(|r| r["transition"] == "add").unwrap();
+        for part in ["inputs", "wrote"] {
+            assert_eq!(add["payload"][part], json!({}), "{part} of {add}");
+        }
+        let tune = log.iter().find(|r| r["transition"] == "tune").unwrap();
+        assert_eq!(tune["payload"]["inputs"], json!({"mood": "CALM"}), "{tune}");
+        for r in &log {
+            assert_eq!(r["declaration_type"], "Genre", "{r}");
+        }
+        // the intervals: the mood written under the first version left out,
+        // the one written under the second given
+        let moods: Vec<(Json, Option<Json>)> = rows_of(&s, "Genre.intervals")
+            .into_iter()
+            .filter(|r| r["dimension"] == "mood")
+            .map(|r| (r["declaration_version"].clone(), r.get("value").cloned()))
+            .collect();
+        assert_eq!(
+            moods,
+            vec![(json!(1), None), (json!(2), Some(json!("CALM")))],
+        );
+        // the readings: the remark recorded under the first version left
+        // out, the one recorded under the second given
+        let mut remarks: Vec<(Json, Option<Json>, Json)> = rows_of(&s, "Reading")
+            .into_iter()
+            .map(|r| {
+                (
+                    r["attributes"]["level"].clone(),
+                    r["attributes"].get("remark").cloned(),
+                    r["declaration_type"].clone(),
+                )
+            })
+            .collect();
+        remarks.sort_by_key(|(level, _, _)| level.as_i64());
+        assert_eq!(
+            remarks,
+            vec![
+                (json!(1), None, json!("Reading")),
+                (json!(2), Some(json!("fresh")), json!("Reading")),
+            ]
+        );
+    }
+
+    /// After a version merges a genre into a category the version before
+    /// declared, which holds no `alias` or `mood`, an export of the log
+    /// leaves out the genre's values personal when they were written, and
+    /// names the type each event's version declared it as, where the export
+    /// judged the event under the category and gave them (issue #61,
+    /// ADR-0244).
+    #[test]
+    fn an_export_after_a_merge_judges_each_event_as_the_type_it_was_of() {
+        // a type observations are recorded against does not move yet
+        // (ADR-0229), so this shelf's genre has none
+        let start = SHELF_V1.find("    observations:\n").unwrap();
+        let end = SHELF_V1[start..].find("    states:\n").unwrap() + start;
+        let shelf = format!("{}{}", &SHELF_V1[..start], &SHELF_V1[end..]);
+        let lib = Library::load(&[("shelf.yaml".into(), shelf.clone())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let genre = asked(
+            &mut s,
+            "add",
+            ("Genre", true),
+            json!({"name": "Ada", "alias": "Countess", "mood": "CROSS"}),
+        );
+        let (genre_at, category_at) = (
+            shelf.find("  Genre:\n").unwrap(),
+            shelf.find("  Category:\n").unwrap(),
+        );
+        let mut merged = format!("{}{}", &shelf[..genre_at], &shelf[category_at..])
+            .replace("enumerations: { Mood: [CALM, CROSS] }\n", "");
+        merged.push_str(
+            "migration:\n  description: A genre is a category.\n  moved_types:\n    Genre:\n      - to: Category\n",
+        );
+        published(&mut s, &merged);
+        let log: Vec<Json> = rows_of(&s, "log")
+            .into_iter()
+            .filter(|r| r["object_id"] == genre)
+            .collect();
+        assert_eq!(log.len(), 2, "{log:#?}");
+        let add = log.iter().find(|r| r["transition"] == "add").unwrap();
+        for part in ["inputs", "wrote"] {
+            assert_eq!(add["payload"][part], json!({}), "{part} of {add}");
+        }
+        let moved = log.iter().find(|r| r["transition"] == "migrate").unwrap();
+        assert_eq!(
+            moved["payload"]["moved"],
+            json!({"from": "Genre", "to": "Category"})
+        );
+        for r in &log {
+            assert_eq!(
+                (&r["declaration_type"], &r["declaration_version"]),
+                (&json!("Genre"), &json!(1)),
+                "{r}"
+            );
+        }
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.whole(&genre).unwrap().unwrap().type_, "Category");
     }
 }

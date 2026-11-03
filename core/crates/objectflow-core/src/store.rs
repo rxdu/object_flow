@@ -3214,17 +3214,23 @@ impl Store {
         // the types an earlier version declared and a later one dropped,
         // retired as the publish that dropped them retired them, where a
         // restart left their objects naming a type the library lacked and
-        // every read of one answered 500
+        // every read of one answered 500; and each earlier version's library
+        // kept, which a read judges a value written under it by and finds an
+        // object's moves through, where only a request loaded them and a read
+        // before the first found none (ADR-0244 decision 4)
+        let mut earlier = BTreeMap::new();
         for v in (1..latest).rev() {
-            if let Some(earlier) = store.library_at(v)? {
-                for (tn, t) in earlier.types {
-                    if !lib.types.contains_key(&tn) && !crate::publish::builtin(&tn) {
-                        lib.types.insert(tn, crate::publish::retired(&t));
+            if let Some(was) = store.library_at(v)? {
+                for (tn, t) in &was.types {
+                    if !lib.types.contains_key(tn) && !crate::publish::builtin(tn) {
+                        lib.types.insert(tn.clone(), crate::publish::retired(t));
                     }
                 }
+                earlier.insert(v, was);
             }
         }
         store.lib = Arc::new(lib);
+        store.earlier = Arc::new(earlier);
         // an index the version declares and the store lacks, which a core
         // before D593 never made: made now, since an index changes no answer,
         // only how much of the store a read by it reads
@@ -3312,6 +3318,9 @@ impl Store {
                     .library_at(at)?
                     .ok_or_else(|| StoreError(format!("version {at} recorded no source")))?,
             );
+            // and the versions before it, the one it replaced among them
+            // (ADR-0244 decision 4)
+            store.load_earlier()?;
         }
         Ok(store)
     }
@@ -4116,6 +4125,8 @@ impl Store {
                 self.library_at(at)?
                     .ok_or_else(|| StoreError(format!("version {at} recorded no source")))?,
             );
+            // and the versions before it (ADR-0244 decision 4)
+            self.load_earlier()?;
             reloaded = true;
         };
         let world = snapshot(&tx, &self.lib, &self.earlier, self.now)?;
@@ -4265,6 +4276,8 @@ impl Store {
                     self.library_at(at)?
                         .ok_or_else(|| StoreError(format!("version {at} recorded no source")))?,
                 );
+                // and the versions before it (ADR-0244 decision 4)
+                self.load_earlier()?;
             }
             Ok(())
         })();
@@ -4609,6 +4622,18 @@ impl Store {
             .into_iter()
             .map(|o| (o.id.clone(), o))
             .collect();
+        // the version it replaces, as its source loads, which joins the
+        // earlier versions once it is installed: loaded before anything is
+        // written, so a source that no longer loads refuses the publish
+        // (ADR-0244 decision 4)
+        let replaced = match self.lib.version {
+            0 => None,
+            v => Some((
+                v,
+                self.library_at(v)?
+                    .ok_or_else(|| StoreError(format!("version {v} recorded no source")))?,
+            )),
+        };
         self.conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
         let installed = self.install(
             &new,
@@ -4623,6 +4648,9 @@ impl Store {
         let events = installed?;
         let version = change_obj.version + 1;
         self.lib = Arc::new(new);
+        if let Some((v, was)) = replaced {
+            Arc::make_mut(&mut self.earlier).insert(v, was);
+        }
         Ok(Ok((
             Verdict::Satisfied {
                 object_id: change.to_string(),

@@ -2515,7 +2515,20 @@ fn verdict_told(v: &Verdict, told: Option<&Told>) -> J {
     out
 }
 
-fn event(e: &Event) -> J {
+/// Each event as the wire gives it, with the type its object was of under
+/// its version, its object's moves read once (ADR-0244).
+fn events_json<'e>(
+    world: &objectflow_core::world::World<'_>,
+    events: impl IntoIterator<Item = &'e Event>,
+) -> Result<Vec<J>, Fault> {
+    let mut then = world.types_then();
+    events
+        .into_iter()
+        .map(|e| Ok(event(e, &then.of(&e.object_id, e.declaration_version)?)))
+        .collect()
+}
+
+fn event(e: &Event, declaration_type: &str) -> J {
     // what its guards consulted, the verdict or value each was given by the
     // reference with its bindings, and its as-of time, each by guard, as the
     // library's `Event` carries them (`library-api.md` §5, D562)
@@ -2538,6 +2551,9 @@ fn event(e: &Event) -> J {
         // not computed (the guides' audit G-96)
         "object_seq": e.object_seq, "source": e.source,
         "declaration_version": e.declaration_version,
+        // the type the object was of under it, the pair naming the
+        // declaration its values were written under (ADR-0244)
+        "declaration_type": declaration_type,
         "recorded_at": timestamp_text(e.recorded_at),
         "occurred_at": e.occurred_at.map(timestamp_text), "imported": e.imported,
         "payload": payload, "cause": e.cause, "reads": e.reads, "context": e.context,
@@ -3259,7 +3275,7 @@ async fn pull(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let world = s.snapshot()?;
         let page = objectflow_core::subscription::pull_page(&world, subscription, cursor, limit)?;
         Ok(Json(json!({
-            "events": page.events.iter().map(event).collect::<Vec<_>>(),
+            "events": events_json(&world, &page.events)?,
             "settled": page.settled.to_string(),
             "more": page.more,
             "refused": page.refused,
@@ -4005,6 +4021,9 @@ fn object_json(s: &Store, id: &str) -> Answer {
     // carries (storage-schema.md §3), read by the object's index alone,
     // where its whole history was read (the audit's cost B11)
     let declaration_version = world.version_of(&o.id)?;
+    // the type it was of under that version, the pair naming the
+    // declaration its values were written under (ADR-0244)
+    let declaration_type = world.types_then().of(&o.id, declaration_version)?;
     let mut attributes = Map::new();
     // each as a reader reads it, an end the other side stores by its
     // members, so a set is never null (`flow-format.md` §4.3, D552)
@@ -4020,6 +4039,7 @@ fn object_json(s: &Store, id: &str) -> Answer {
     }
     Ok(Json(json!({
         "id": o.id, "type": o.type_, "state": o.state, "version": o.version, "declaration_version": declaration_version,
+        "declaration_type": declaration_type,
         "created_at": timestamp_text(o.created_at), "created_by_kind": o.created_by_kind,
         "created_dated": o.created_dated, "attributes": attributes,
         "recorded_from": timestamp_text(o.recorded_from), "open": view.open,
@@ -4293,7 +4313,7 @@ async fn history(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 }));
             }
         }
-        let events = events.iter().map(event);
+        let events = events_json(&s.snapshot()?, &events)?.into_iter();
         let items: Vec<J> = if newest_first {
             entries.reverse();
             events.chain(entries).collect()
@@ -4397,8 +4417,17 @@ async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 fit + 1
             ))
         })?;
+        let world = s.snapshot()?;
+        let mut then = world.types_then();
+        let events = found
+            .iter()
+            .map(|e| match e {
+                Some(e) => Ok(event(e, &then.of(&e.object_id, e.declaration_version)?)),
+                None => Ok(J::Null),
+            })
+            .collect::<Result<Vec<_>, Fault>>()?;
         Ok(Json(json!({
-            "events": found.iter().map(|e| e.as_ref().map_or(J::Null, event)).collect::<Vec<_>>(),
+            "events": events,
             "not_computed": EVENT_NOT_COMPUTED,
         })))
     })

@@ -4,8 +4,13 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Added
+
+- Every read that answers a `declaration_version` answers `declaration_type` beside it, the type the object was of under that version: `get`, each event of `history`, `events` and `pull`, and each row of `export` that holds a version. After a version moved a type (`moved_types`), an object's type and its `declaration_version` named no declaration, or, after a merge into a type the earlier version declared, that type's own. Send the pair to `declaration` to read the declaration the values were written under (issue #61, ADR-0244).
+
 ### Fixed
 
+- `export` judged each value personal by the installed version alone. It gave a value that was personal under the version that wrote it, once a later version dropped the attribute, moved its type into one without it, or stopped marking it personal. It now leaves out a value personal under either version, for the type the object was of then, as an erasure judges it (ADR-0244 decision 3).
 - A version renaming the derived end of an opposite pair, a `Note[]` whose notes each name their book, beside another changed column of its type was accepted by the dry run and refused `500` by its approval, which sent the end, which has no column, to `RENAME COLUMN`; the approval installed nothing. It now applies. The rename also carries the end's write index, which the parts of a composite end write on their whole: renamed alone, a composite end kept it under its old name, so `changed_since` of the new name read no change, and a guard reading it let through what it refused before the publish (issue #59).
 - A version renaming a set of values, a `string[]` such as a card's `tags`, renamed its table and kept its write index under the old name, so `changed_since` of the new name read no change, and a guard reading it let through what it refused before the publish. The rename now carries the set's write index, as it carries a column's and a derived end's.
 - A version renaming a column was judged by its dry run as though nothing had written the attribute under its new name. A new invariant reading `changed_since` of it held there, so the approval installed the version, and an object the invariant failed on was refused `invariant_violated` at its next request, a violation nobody admitted. The report could also name a transition gained, `gained:<Type>.<transition>`, that a guard reading the new name still refused after the approval. The dry run now carries each renamed attribute's write index as the approval does, a column's, a set's and a derived end's, so such an object is a decision, as it is where the version keeps the name (ADR-0146).

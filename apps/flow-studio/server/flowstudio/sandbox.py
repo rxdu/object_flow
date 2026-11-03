@@ -855,6 +855,10 @@ class Sandbox:
         return {"id": o.id, "type": o.type, "state": o.state,
                 "version": o.version,
                 "declaration_version": built["declaration_version"],
+                # the type it was of under that version, the pair naming
+                # the declaration its values were written under (ADR-0244)
+                "declaration_type": self.runner.type_then(
+                    s, o.id, o.type, built["declaration_version"]),
                 "created_at": built["created_at"],
                 "created_by_kind": built["created_by_kind"],
                 "attributes": attrs, "recorded_from": built["recorded_from"],
@@ -1275,6 +1279,11 @@ class Sandbox:
                     e["to_state"]),
                 "actor_id": e["actor_id"], "actor_kind": e["actor_kind"],
                 "declaration_version": e["declaration_version"],
+                # the type its object was of under it (ADR-0244)
+                "declaration_type": self.runner.type_then(
+                    self.store, e["object"],
+                    self.store.objects[e["object"]].type,
+                    e["declaration_version"]),
                 "recorded_at": ts(e["recorded_at"]),
                 "occurred_at": ts(e["occurred_at"]),
                 "imported": e["imported"],

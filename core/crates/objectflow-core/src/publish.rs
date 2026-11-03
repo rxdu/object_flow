@@ -5645,6 +5645,89 @@ types:
         assert_eq!(w.whole(&genre).unwrap().unwrap().type_, "Category");
     }
 
+    /// The type an object was of under each version, as a read answers it
+    /// beside the version (ADR-0244): through a chain of moves, `Genre` to
+    /// `Category` to `Topic`, and after a version moving nothing, whose
+    /// migration names no move, so only the versions before it say where
+    /// the object came from.
+    #[test]
+    fn a_read_names_the_type_an_object_was_of_under_each_version() {
+        let lib = Library::load(&[("catalog.yaml".into(), GENRE_CATALOG.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let genre = created(&req(
+            &mut s,
+            "add",
+            ("Genre", true),
+            json!({"name": "Fiction"}),
+        ));
+        let named = |from: &str, to: &str, text: &str| {
+            let head = format!("  {from}:\n    description: A {}.\n", from.to_lowercase());
+            assert_eq!(text.matches(&head).count(), 1, "{head}");
+            text.replace(
+                &head,
+                &format!("  {to}:\n    description: A {}.\n", to.to_lowercase()),
+            )
+        };
+        let category = named("Genre", "Category", GENRE_CATALOG);
+        let topic = named("Category", "Topic", &category);
+        let quiet = topic.replace(
+            "    description: A topic.\n",
+            "    description: A topic of books.\n",
+        );
+        let versions = [
+            format!(
+                "{category}migration:\n  description: A genre is a category.\n  moved_types:\n    Genre:\n      - to: Category\n"
+            ),
+            format!(
+                "{topic}migration:\n  description: A category is a topic.\n  moved_types:\n    Category:\n      - to: Topic\n"
+            ),
+            quiet,
+        ];
+        for text in &versions {
+            let change = created(&req(
+                &mut s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"catalog": text}, "source_ref": "git:catalog@2"}),
+            ));
+            created(&req(&mut s, "submit", (&change, false), json!({})));
+            let v = s
+                .snapshot()
+                .unwrap()
+                .whole(&change)
+                .unwrap()
+                .unwrap()
+                .version;
+            let (verdict, report) = approve(&mut s, &change, v);
+            assert!(
+                matches!(verdict, Verdict::Satisfied { .. }),
+                "{verdict:?} {report:#?}"
+            );
+        }
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.lib.version, 4);
+        assert!(w.lib.migration.moved_types.is_empty());
+        assert_eq!(w.whole(&genre).unwrap().unwrap().type_, "Topic");
+        let mut then = w.types_then();
+        let each: Vec<String> = (1..=4).map(|v| then.of(&genre, v).unwrap()).collect();
+        assert_eq!(each, ["Genre", "Category", "Topic", "Topic"]);
+        // an object no version moved is of its type under every version
+        let fresh = {
+            drop(then);
+            drop(w);
+            created(&req(
+                &mut s,
+                "add",
+                ("Topic", true),
+                json!({"name": "Poetry"}),
+            ))
+        };
+        let w = s.snapshot().unwrap();
+        let mut then = w.types_then();
+        assert_eq!(then.of(&fresh, 1).unwrap(), "Topic");
+        assert_eq!(then.of(&fresh, 4).unwrap(), "Topic");
+    }
+
     /// A personal attribute renamed by one version and unmarked by the
     /// next is still erased from objects whose value was written before the
     /// rename, its name taken back through the rename (ADR-0146 decision 2).

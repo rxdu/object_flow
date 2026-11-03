@@ -4707,6 +4707,53 @@ def test_a_reference_to_a_type_another_module_moves_follows_it(tee):
     alike(tee)
 
 
+def test_a_moved_objects_reads_name_the_type_it_was_of_alike(tee):
+    """After a version merges `Genre` into a `Category` the version before
+    declared too, `get`, `history` and `events` answer beside each
+    `declaration_version` the type the object was of under it, `Genre`, so
+    the pair names the declaration its values were written under, through
+    either backend alike, a version moving nothing after it (issue #61,
+    ADR-0244)."""
+    category = GENRE_CATALOG.split("types:\n", 1)[1].replace(
+        "  Genre:\n    description: A genre.\n",
+        "  Category:\n    description: A category.\n").replace(
+        "Adds a genre.", "Adds a category.")
+    assert "Category" in category
+    assert tee.post("/sandbox/load", {"files": [
+        {"name": "catalog.yaml", "text": GENRE_CATALOG + category}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    genre = made(tee, "Genre", "add", name="Fiction")
+    tee.found.clear()
+    merged = GENRE_CATALOG.split("  Genre:\n", 1)[0] + category + (
+        "migration:\n  description: A genre is a category.\n"
+        "  moved_types:\n    Genre:\n      - to: Category\n")
+    later = GENRE_CATALOG.split("  Genre:\n", 1)[0] + category.replace(
+        "    description: A category.\n",
+        "    description: A category of books.\n")
+    for version, text in [(2, merged), (3, later)]:
+        c, codes = dry_run(tee, {"catalog": text})
+        approved(tee, c)
+        got = tee.post("/v1/get", {"id": genre})
+        assert (got["type"], got["declaration_type"],
+                got["declaration_version"]) == ("Category", "Genre", 1), got
+        declared = tee.post("/v1/declaration", {
+            "type": got["declaration_type"],
+            "version": got["declaration_version"]})
+        assert declared["description"] == "A genre.", declared
+        history = tee.post("/v1/history", {"id": genre})["events"]
+        assert [(e["declaration_type"], e["declaration_version"])
+                for e in history] == [("Genre", 1), ("Genre", 1)], history
+        events = tee.post("/v1/events", {
+            "positions": [e["position"] for e in history]})["events"]
+        assert [e["declaration_type"] for e in events] == ["Genre", "Genre"]
+        alike(tee)
+    poetry = made(tee, "Category", "add", name="Poetry")
+    got = tee.post("/v1/get", {"id": poetry})
+    assert (got["declaration_type"], got["declaration_version"]) == (
+        "Category", 3), got
+    alike(tee)
+
+
 # a card whose title is a column and whose tags are a stored set, and an order
 # whose lines are the derived end of a composite pair, each transition of a
 # line writing on the order; each one's sign-off fresh while nothing its

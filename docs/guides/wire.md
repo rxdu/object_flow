@@ -124,7 +124,7 @@ A verdict is `{"kind": …, "remedy": …}` with the fields of its kind; a satis
 | `tools` | `actor_kind`; `actor` | `{"tools": [{"name", "description", "request", "input_schema"}…]}`: the tools an actor of that kind is handed, sorted by name ([Agents](agents.md)) |
 | `metric` | `actor`, `name`; `bind`, `keep`, `over`, `filter`, `params`, `cursor` | `{"rows": [{"dimensions", "value"}…], "flags": […], "history_complete": …, "refused": …}` |
 | `lookup` | `source`, `value`; `actor` | the object an external identifier names, or `null`. `source` is an external system, or `legacy` with `"<Type>:<key>"`. |
-| `export` | `actor`, `source`; `cursor`, `limit` | `{"lines": […], "cursor": …, "more": …}`: JSON lines of `log` (the event log), an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, with personal values left out. An `.intervals` row is keyed by `object_id`, `dimension`, `entered_position` and `entered_at`, and a line `{"retracted": true, …}` with that key removes a row a later commit deleted or moved, a correction merging it or a version renaming or retyping its member, before the rows that commit wrote: fold the lines by their key in order, and you hold what the store holds (ADR-0205 decision 9) |
+| `export` | `actor`, `source`; `cursor`, `limit` | `{"lines": […], "cursor": …, "more": …}`: JSON lines of `log` (the event log), an observation kind, or `<Type>.intervals`, `.attempts`, `.transitions` or `.labels`, with personal values left out: each value personal under the installed version, or under the version that wrote it for the type the object was of then. A row of the log, of an observation kind and of `.intervals` names that type, `declaration_type`, beside its `declaration_version`, and an attempt's `type` is the type it was made on. An `.intervals` row is keyed by `object_id`, `dimension`, `entered_position` and `entered_at`, and a line `{"retracted": true, …}` with that key removes a row a later commit deleted or moved, a correction merging it or a version renaming or retyping its member, before the rows that commit wrote: fold the lines by their key in order, and you hold what the store holds (ADR-0205 decision 9) |
 | `diagnostics` | `actor`, `type`, `window` | `{"diagnostics": […]}`: where the flow and its record disagree |
 
 A metric's `over` and diagnostics' `window` are positive durations, and a metric's `keep` names each dimension once; anything else is a `400`. The built-in attributes that hold JSON, a `DeclarationChange`'s `source`, `report` and `evidence` and a `Proposal`'s `inputs`, are answered as JSON.
@@ -132,7 +132,7 @@ A metric's `over` and diagnostics' `window` are positive durations, and a metric
 ### An object
 
 ```json
-{"id": "claim-4", "type": "Claim", "state": "DRAFT", "version": 2, "declaration_version": 1,
+{"id": "claim-4", "type": "Claim", "state": "DRAFT", "version": 2, "declaration_version": 1, "declaration_type": "Claim",
  "created_at": "2026-01-01T00:00:00Z", "created_by_kind": "human", "created_dated": true,
  "attributes": {"number": "EXP-00001", "claimant": "employee-1", "title": "Taxis", "lines": ["claimline-5"],
                 "submitted_at": null, "total": "USD 120.00", "over_policy_lines": 0},
@@ -140,6 +140,8 @@ A metric's `over` and diagnostics' `window` are positive durations, and a metric
 ```
 
 Every attribute is there, derived ones included. A set holds its members' ids, `[]` when empty.
+
+`declaration_version` is the version its last event was written under, and `declaration_type` the type the object was of under that version. The two differ from `type` and the installed version once a version moves the object's type into another (`moved_types`). Send the pair to `declaration`, `{"type": <declaration_type>, "version": <declaration_version>}`, to read the declaration its values were written under, and what was personal in it (ADR-0244).
 
 ### An offer
 
@@ -166,14 +168,14 @@ As `history`, `events` and `pull` answer it:
 ```json
 {"position": 3, "object_id": "transfer-2", "transition": "settle", "from_state": "SENT", "to_state": "SETTLED",
  "changes_state": true, "actor_id": "operator", "actor_kind": "human", "principal": null, "declaration_version": 1,
- "recorded_at": "2026-10-10T09:31:02Z", "occurred_at": "2026-10-10T09:31:02Z", "imported": false,
+ "declaration_type": "Transfer", "recorded_at": "2026-10-10T09:31:02Z", "occurred_at": "2026-10-10T09:31:02Z", "imported": false,
  "payload": {"inputs": {}, "wrote": {"settled_at": "2026-10-10T09:31:02Z"}}, "cause": null, "context": null,
  "reads": {"objects": {}, "scans": {}, "now": "2026-10-10T09:31:02Z"},
  "consulted": {"cleared": {"bank.cleared(T-1)": "satisfied"}}, "as_of": {"cleared": "2026-10-10T09:31:02Z"},
  "retries": 0, "batch": null}
 ```
 
-`payload.inputs` holds what the request sent, and `payload.wrote` each attribute the event changed, with its value after and `null` where it cleared one, so an object's events folded in order give its attributes (ADR-0209); an event that changed none has no `wrote`, nor has one recorded before 2026-10-16. `reads` holds what its rules read, and `consulted` and `as_of`, by guard, each outside answer or metric value it used and when. `retries` counts the times the request waited out another process's lock on the store. `batch` is the position of the first event of the batch its request came in, `null` for a request sent alone (ADR-0228).
+`declaration_version` and `declaration_type` name the declaration the event was written under, as an object's do. `payload.inputs` holds what the request sent, and `payload.wrote` each attribute the event changed, with its value after and `null` where it cleared one, so an object's events folded in order give its attributes (ADR-0209); an event that changed none has no `wrote`, nor has one recorded before 2026-10-16. `reads` holds what its rules read, and `consulted` and `as_of`, by guard, each outside answer or metric value it used and when. `retries` counts the times the request waited out another process's lock on the store. `batch` is the position of the first event of the batch its request came in, `null` for a request sent alone (ADR-0228).
 
 ### Pages
 

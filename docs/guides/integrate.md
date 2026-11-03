@@ -95,7 +95,7 @@ A transition marked `proposable` can be filed instead of taken: send the request
 - **`get`** an object: every attribute, derived ones included, references as ids, its `state` and `version`. An object that does not exist is `null`.
 - **`availability`** for an object and an actor: each transition `available`, `available_with_input` or `unavailable`, with the refusal it would meet and its inputs' types. Render buttons from it, and forms from the inputs (which are required is in `declaration`). An offer marked `actor_dependent` may still be refused for who takes it once its inputs are known.
 - **`history`**: the object's events, newest last, or newest first with `"newest_first": true`, with who, when, what was sent and why. It comes in pages.
-- **`declaration`**: a type as declared, for building forms and labels.
+- **`declaration`**: a type as declared, for building forms and labels. With a `version`, as an earlier version declared it. To filter what a read answers, send its `declaration_type` and `declaration_version` (an object's, or each event's): they name the declaration those values were written under, after a version moved the object's type too, and a value personal there is personal still (ADR-0244).
 
 ## Worklists
 

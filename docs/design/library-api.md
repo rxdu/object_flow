@@ -333,7 +333,9 @@ class Object:
     type: str
     state: str
     version: int
-    declaration_version: int
+    declaration_version: int              # the version its last event was written under
+    declaration_type: str                 # the type it was of under that version, its own
+                                          # unless a later version moved it (ADR-0244)
     created_at: datetime                  # when the creation happened: its occurred time, the
                                           # legacy creation, or the port (ADR-0096, ADR-0106)
     created_by_kind: ActorKind
@@ -390,6 +392,7 @@ class Event:
     context: str | None
     cause: int | None
     declaration_version: int
+    declaration_type: str                 # the type its object was of under that version (ADR-0244)
     taint_version: int
     txn: int                              # the writing transaction, a number (ADR-0089, ADR-0106)
     recorded_at: datetime
@@ -498,7 +501,8 @@ class Attempt:
     actor_kind: ActorKind
     principal: str | None
     context: str | None
-    type: str | None                      # None where the request named an unknown id
+    type: str | None                      # the type it was made on, kept through a later move
+                                          # (ADR-0244); None where the request named an unknown id
     object_id: str | None
     transition: str | None                # None for a request naming no transition
     verdict: str                          # the verdict kind, or the fault's name
@@ -534,6 +538,7 @@ class Interval:
     entered_by_kind: ActorKind            # UNKNOWN where a legacy record names no actor
     transition: str | None                # the transition that set it; None if legacy
     declaration_version: int
+    declaration_type: str                 # the type its object was of under that version (ADR-0244)
     legacy: bool = False                  # supplied by the import mapping
 
 

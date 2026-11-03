@@ -9323,3 +9323,255 @@ fn a_store_on_postgresql_is_served_made_and_kept() {
         .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
         .expect("the schema dropped");
 }
+
+/// A shelf whose `Genre` holds a personal `alias`, beside a `Category`
+/// without one: the version before a merge of the one into the other
+/// (issue #61, ADR-0244).
+const SHELF_V1: &str = r#"module: shelf
+categories: [live]
+types:
+  Genre:
+    description: A genre.
+    tracking: record
+    attributes:
+      name: { type: string, optional: true, personal: true }
+      alias: { type: string, optional: true, personal: true }
+    states:
+      LISTED: { description: Listed., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LISTED, required_inputs: [name, alias], description: Adds one. }
+      drop: { kind: external, from: LISTED, to: DROPPED, description: Drops it. }
+      forget: { kind: erasure, description: Erases the names., inputs: { reason: { type: string } } }
+  Category:
+    description: A category.
+    tracking: record
+    attributes:
+      name: { type: string, optional: true, personal: true }
+    states:
+      LISTED: { description: Listed., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LISTED, required_inputs: [name], description: Adds one. }
+      drop: { kind: external, from: LISTED, to: DROPPED, description: Drops it. }
+      forget: { kind: erasure, description: Erases the name., inputs: { reason: { type: string } } }
+"#;
+
+/// The shelf's versions after it: the merge of `Genre` into the `Category`
+/// the first declared, and a version after that moving nothing.
+fn shelf_after() -> (String, String) {
+    let at = SHELF_V1.find("  Category:\n").expect("the category");
+    let kept = format!(
+        "{}{}",
+        &SHELF_V1[..SHELF_V1.find("  Genre:\n").expect("the genre")],
+        &SHELF_V1[at..]
+    );
+    let merged = format!(
+        "{kept}migration:\n  description: A genre is a category.\n  moved_types:\n    Genre:\n      - to: Category\n"
+    );
+    let later = kept.replace(
+        "    description: A category.\n",
+        "    description: A category of books.\n",
+    );
+    assert_ne!(later, kept);
+    (merged, later)
+}
+
+/// After a version merges `Genre` into a `Category` the version before
+/// declared too, every read that answers a moved object's
+/// `declaration_version` answers beside it the type the object was of
+/// under it, so the pair names the declaration its values were written
+/// under, before a restart and after it, a version moving nothing between;
+/// and `export` leaves out what was personal when it was written, though
+/// the installed version declares no such attribute (issue #61, ADR-0244).
+fn a_moved_objects_reads_name_the_declaration_it_was_written_under(args: &[String]) {
+    let op = json!({"id": "operator"});
+    let (merged, later) = shelf_after();
+    let (genre, subscription) = {
+        let created: Vec<&str> = args.iter().map(String::as_str).collect();
+        let s = start(&created);
+        publish(&s, &json!({"shelf": SHELF_V1}));
+        let subscription = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Subscription", "transition": "subscribe", "inputs": {"target_type": "Category"}}),
+        );
+        assert_eq!(subscription["kind"], "satisfied", "{subscription}");
+        let added = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Genre", "transition": "add",
+                    "inputs": {"name": "Ada", "alias": "Countess"}}),
+        );
+        assert_eq!(added["kind"], "satisfied", "{added}");
+        let genre = added["object_id"].as_str().expect("the genre").to_string();
+        publish(&s, &json!({"shelf": merged}));
+        read_as_written(
+            &s,
+            &genre,
+            subscription["object_id"].as_str().expect("an id"),
+            2,
+        );
+        publish(&s, &json!({"shelf": later}));
+        read_as_written(
+            &s,
+            &genre,
+            subscription["object_id"].as_str().expect("an id"),
+            3,
+        );
+        (
+            genre,
+            subscription["object_id"]
+                .as_str()
+                .expect("an id")
+                .to_string(),
+        )
+    };
+    // a restart's reads, before any request, read the versions before the
+    // installed one (ADR-0244 decision 4)
+    let again: Vec<&str> = args
+        .iter()
+        .map(String::as_str)
+        .filter(|a| *a != "--create")
+        .collect();
+    let s = start(&again);
+    read_as_written(&s, &genre, &subscription, 3);
+    // an object made under the installed version is of its type there
+    let added = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Category", "transition": "add", "inputs": {"name": "Poetry"}}),
+    );
+    let category = added["object_id"].as_str().expect("the category");
+    let got = post(&s, "/v1/get", &json!({"actor": op, "id": category}));
+    assert_eq!(
+        (
+            &got["type"],
+            &got["declaration_type"],
+            &got["declaration_version"]
+        ),
+        (&json!("Category"), &json!("Category"), &json!(3)),
+        "{got}"
+    );
+}
+
+/// What a service answers of the moved genre, at the installed version
+/// given: each read's pair, the declaration it names, and the export.
+fn read_as_written(s: &Service, genre: &str, subscription: &str, installed: i64) {
+    let op = json!({"actor": {"id": "operator"}});
+    let with = |extra: Value| {
+        let mut body = op.clone();
+        body.as_object_mut()
+            .expect("a body")
+            .extend(extra.as_object().expect("an object").clone());
+        body
+    };
+    let (_, health) = call(s, "GET", "/health", None);
+    assert_eq!(health["version"].as_i64(), Some(installed), "{health}");
+    let got = post(s, "/v1/get", &with(json!({"id": genre})));
+    assert_eq!(
+        (
+            &got["type"],
+            &got["declaration_type"],
+            &got["declaration_version"]
+        ),
+        (&json!("Category"), &json!("Genre"), &json!(1)),
+        "{got}"
+    );
+    // the pair names the declaration the values were written under: Genre's,
+    // `alias` personal in it, where the type's name and the version named
+    // Category's, which has no `alias`
+    let declared = post(
+        s,
+        "/v1/declaration",
+        &with(json!({"type": got["declaration_type"], "version": got["declaration_version"]})),
+    );
+    assert_eq!(
+        declared["attributes"]["alias"]["personal"],
+        json!(true),
+        "{declared}"
+    );
+    let history = post(s, "/v1/history", &with(json!({"id": genre})));
+    let pairs: Vec<(Value, Value)> = history["events"]
+        .as_array()
+        .expect("events")
+        .iter()
+        .map(|e| {
+            (
+                e["declaration_type"].clone(),
+                e["declaration_version"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        pairs,
+        vec![(json!("Genre"), json!(1)), (json!("Genre"), json!(1))],
+        "{history}"
+    );
+    let positions: Vec<Value> = history["events"]
+        .as_array()
+        .expect("events")
+        .iter()
+        .map(|e| e["position"].clone())
+        .collect();
+    let events = post(s, "/v1/events", &with(json!({"positions": positions})));
+    for e in events["events"].as_array().expect("events") {
+        assert_eq!(e["declaration_type"], "Genre", "{events}");
+    }
+    let pulled = post(s, "/v1/pull", &with(json!({"subscription": subscription})));
+    let of_genre: Vec<&Value> = pulled["events"]
+        .as_array()
+        .expect("events")
+        .iter()
+        .filter(|e| e["object_id"] == genre)
+        .collect();
+    assert_eq!(of_genre.len(), 2, "{pulled}");
+    for e in of_genre {
+        assert_eq!(e["declaration_type"], "Genre", "{pulled}");
+    }
+    // the export leaves out what was personal when it was written
+    let exported = post(s, "/v1/export", &with(json!({"source": "log"})));
+    let rows: Vec<Value> = exported["lines"]
+        .as_array()
+        .expect("lines")
+        .iter()
+        .map(|l| serde_json::from_str(l.as_str().expect("a line")).expect("a row"))
+        .filter(|r: &Value| r["object_id"] == genre)
+        .collect();
+    assert_eq!(rows.len(), 2, "{exported}");
+    for r in &rows {
+        assert_eq!(r["declaration_type"], "Genre", "{r}");
+        for part in ["inputs", "wrote"] {
+            let held = &r["payload"][part];
+            assert!(
+                held.get("name").is_none() && held["alias"].as_str().is_none(),
+                "{part} of {r}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_moved_objects_reads_name_the_declaration_it_was_written_under_on_sqlite() {
+    let file = fresh_store("moved-reads");
+    let args = [
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ];
+    a_moved_objects_reads_name_the_declaration_it_was_written_under(&args.map(str::to_string));
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+#[test]
+fn a_moved_objects_reads_name_the_declaration_it_was_written_under_on_postgresql() {
+    let Some((admin, args, schema)) = served_on_postgresql("moved_reads") else {
+        return;
+    };
+    a_moved_objects_reads_name_the_declaration_it_was_written_under(&args);
+    admin
+        .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+        .expect("the schema dropped");
+}

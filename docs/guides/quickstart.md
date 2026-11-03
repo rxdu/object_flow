@@ -224,7 +224,7 @@ of get '{"id": "leaverequest-3"}'
 ```
 
 ```json
-{"id": "leaverequest-3", "type": "LeaveRequest", "state": "APPROVED", "version": 3, "declaration_version": 1, "created_at": "2026-01-01T00:00:00Z", "created_by_kind": "human", "created_dated": true, "attributes": {"days": 5}, "recorded_from": "2026-01-01T00:00:00Z", "open": false}
+{"id": "leaverequest-3", "type": "LeaveRequest", "state": "APPROVED", "version": 3, "declaration_version": 1, "declaration_type": "LeaveRequest", "created_at": "2026-01-01T00:00:00Z", "created_by_kind": "human", "created_dated": true, "attributes": {"days": 5}, "recorded_from": "2026-01-01T00:00:00Z", "open": false}
 ```
 
 Every change is an event, with who made it:

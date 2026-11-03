@@ -570,6 +570,43 @@ pub fn with_wrote(
     payload
 }
 
+/// The type each object was of under a version, as a read answers it beside
+/// the version (ADR-0244): its type now, or the one a later move took it
+/// from. An object's move events are read only where some version moved a
+/// type into its type now, and once per object.
+#[derive(Debug)]
+pub struct TypesThen<'w, 'l> {
+    world: &'w World<'l>,
+    /// Each object read so far: its type now and its move events.
+    objects: BTreeMap<String, (String, Vec<Event>)>,
+}
+
+impl TypesThen<'_, '_> {
+    /// The type the object was of under the version given, as
+    /// `request::type_then` reads it from the object's own events.
+    pub fn of(&mut self, id: &str, version: i64) -> Result<String, crate::eval::NotRun> {
+        if !self.objects.contains_key(id) {
+            let Some(now) = self.world.type_of(id)? else {
+                return Err(crate::eval::NotRun::Unreadable(format!(
+                    "the store's object {id}, which its directory does not hold"
+                )));
+            };
+            let moves = if self.world.moved_into(&now) {
+                self.world.moves_of(id)?
+            } else {
+                Vec::new()
+            };
+            self.objects.insert(id.to_string(), (now, moves));
+        }
+        let Some((now, moves)) = self.objects.get(id) else {
+            return Err(crate::eval::NotRun::Unreadable(format!(
+                "the store's object {id}, which could not be held"
+            )));
+        };
+        Ok(crate::request::type_then(moves, now, version))
+    }
+}
+
 /// The objects of a store, and the time a request reads.
 #[derive(Clone, Debug)]
 pub struct World<'l> {
@@ -931,6 +968,40 @@ impl<'l> World<'l> {
     /// An object's events, in position order.
     pub fn events_of(&self, id: &str) -> Result<Vec<Event>, crate::eval::NotRun> {
         self.events_where("object_id = ?1", &id, |e| e.object_id == id)
+    }
+
+    /// Whether some version, the installed one or an earlier one, moved a
+    /// type into the one named (ADR-0229), so an object of it may have been
+    /// of another type under an earlier version.
+    pub fn moved_into(&self, type_: &str) -> bool {
+        std::iter::once(self.lib)
+            .chain(self.earlier.values())
+            .any(|l| {
+                l.migration
+                    .moved_types
+                    .iter()
+                    .any(|(_, entries)| entries.iter().any(|e| e.to == type_))
+            })
+    }
+
+    /// An object's move events, in position order: its migrations' events
+    /// that name the type it left (ADR-0229 decision 3), read by the index on
+    /// its events and holding none of the others.
+    pub fn moves_of(&self, id: &str) -> Result<Vec<Event>, crate::eval::NotRun> {
+        let mut moves = self.events_where("object_id = ?1 AND source = 'migrated'", &id, |e| {
+            e.object_id == id && e.source == "migrated"
+        })?;
+        moves.retain(|e| e.payload.get("moved").is_some());
+        Ok(moves)
+    }
+
+    /// The types objects were of under versions, each object's type and
+    /// moves read once (ADR-0244).
+    pub fn types_then(&self) -> TypesThen<'_, 'l> {
+        TypesThen {
+            world: self,
+            objects: BTreeMap::new(),
+        }
     }
 
     /// The events one event caused, in position order.

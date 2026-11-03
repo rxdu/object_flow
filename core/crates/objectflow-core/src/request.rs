@@ -2971,27 +2971,20 @@ pub(crate) fn type_then(own: &[Event], current: &str, version: i64) -> String {
 }
 
 /// The type an object was of under a version, as `type_then` reads it, its
-/// events read only where some version moved a type into its current one.
+/// move events read only where some version moved a type into its current
+/// one.
 fn object_type_then(work: &World<'_>, o: &Object, version: i64) -> Result<String, NotRun> {
-    let moved_in = std::iter::once(work.lib)
-        .chain(work.earlier.values())
-        .any(|l| {
-            l.migration
-                .moved_types
-                .iter()
-                .any(|(_, entries)| entries.iter().any(|e| e.to == o.type_))
-        });
-    if !moved_in {
+    if !work.moved_into(&o.type_) {
         return Ok(o.type_.clone());
     }
-    Ok(type_then(&work.events_of(&o.id)?, &o.type_, version))
+    Ok(type_then(&work.moves_of(&o.id)?, &o.type_, version))
 }
 
 /// The version an event's writes were declared by: its own, or a
 /// migration's, whose event names the version before the publish, the one
 /// it installed, a publish installing the version after
 /// (`store.rs::publish_decided`).
-fn written_under(e: &Event) -> i64 {
+pub(crate) fn written_under(e: &Event) -> i64 {
     if e.source == "migrated" {
         e.declaration_version + 1
     } else {
@@ -3007,7 +3000,7 @@ fn written_under(e: &Event) -> i64 {
 /// writes a value where it differs from what the object held before it,
 /// which its earlier events' `wrote` give, so a rename carrying a value,
 /// which `wrote` names to fold the row, writes none.
-fn declared_under(
+pub(crate) fn declared_under(
     work: &World<'_>,
     own: &[Event],
     indexed: Option<i64>,
