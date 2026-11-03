@@ -4773,6 +4773,286 @@ types:
         assert_eq!(values, vec![None, Some("SILVER".to_string())]);
     }
 
+    /// A shelf whose book's `notes` is the derived end of an opposite pair,
+    /// beside a cover, a stored reference (issue #59).
+    const SHELF_ENDS: &str = r#"module: shelf
+categories: [live]
+types:
+  Book:
+    description: A book.
+    tracking: record
+    attributes:
+      title: { type: string }
+      cover: { reference: Note, optional: true }
+      notes: { reference: "Note[]", opposite: book }
+    states:
+      ON_SHELF: { description: On the shelf., category: live }
+      GONE: { description: Given away., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON_SHELF, required_inputs: [title], description: Adds a book. }
+      set_cover: { kind: internal, from: ON_SHELF, required_inputs: [cover], description: Sets its cover. }
+      give: { kind: external, from: ON_SHELF, to: GONE, description: Gives it away. }
+  Note:
+    description: A note on a book.
+    tracking: record
+    attributes:
+      book: { reference: Book, opposite: notes }
+      text: { type: string }
+    states:
+      KEPT: { description: Kept., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: KEPT, required_inputs: [book, text], description: Adds a note. }
+      drop: { kind: external, from: KEPT, to: DROPPED, description: Drops it. }
+"#;
+
+    /// A version renaming a derived end beside another renamed column of
+    /// its type applies, where the end, which has no column, was sent to
+    /// `RENAME COLUMN` and the approval faulted (issue #59); every value, its
+    /// intervals, its write index and the objects' histories read alike
+    /// after it, under the new names.
+    #[test]
+    fn a_derived_ends_rename_beside_another_renamed_column_applies() {
+        let mut renamed = SHELF_ENDS.to_string();
+        for (old, new) in [
+            (
+                "      cover: { reference: Note, optional: true }\n",
+                "      cover_note: { reference: Note, optional: true }\n",
+            ),
+            (
+                "      notes: { reference: \"Note[]\", opposite: book }\n",
+                "      margin_notes: { reference: \"Note[]\", opposite: book }\n",
+            ),
+            ("required_inputs: [cover]", "required_inputs: [cover_note]"),
+            (
+                "      book: { reference: Book, opposite: notes }\n",
+                "      book: { reference: Book, opposite: margin_notes }\n",
+            ),
+        ] {
+            assert_eq!(renamed.matches(old).count(), 1, "{old}");
+            renamed = renamed.replace(old, new);
+        }
+        renamed.push_str("migration:\n  description: A book's cover is its cover note, its notes its margin notes.\n  renamed_attributes:\n    Book: { cover: cover_note, notes: margin_notes }\n");
+        let lib = Library::load(&[("shelf.yaml".into(), SHELF_ENDS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let book = created(&req(
+            &mut s,
+            "add",
+            ("Book", true),
+            json!({"title": "Dune"}),
+        ));
+        let note = created(&req(
+            &mut s,
+            "add",
+            ("Note", true),
+            json!({"book": book, "text": "A note."}),
+        ));
+        created(&req(
+            &mut s,
+            "set_cover",
+            (&book, false),
+            json!({"cover": note}),
+        ));
+        let read = |s: &Store| {
+            let w = s.snapshot().unwrap();
+            let b = w.whole(&book).unwrap().unwrap();
+            let n = w.whole(&note).unwrap().unwrap();
+            (
+                b.attrs.clone(),
+                b.held_parts().unwrap().clone(),
+                n.attrs.clone(),
+                n.held_parts().unwrap().clone(),
+                s.history(&book).unwrap(),
+                s.history(&note).unwrap(),
+            )
+        };
+        let (b_was, bp_was, n_was, np_was, bh_was, nh_was) = read(&s);
+        assert!(bp_was.spans.contains_key("cover") && bp_was.writes.contains_key("cover"));
+        published_as(&mut s, "shelf", &[&renamed]);
+        assert_eq!(s.lib.version, 2);
+        let (b_now, bp_now, n_now, np_now, bh_now, nh_now) = read(&s);
+        assert_eq!(b_now.get("cover_note"), b_was.get("cover"));
+        assert_eq!(b_now.get("title"), b_was.get("title"));
+        assert!(!b_now.contains_key("cover"));
+        // the end, which the note's `book` stores, read under its new name
+        {
+            let w = s.snapshot().unwrap();
+            let end = crate::eval::Evaluator::new(&w, w.lib.type_("Book"), Some(&book))
+                .eval(&crate::expr::parse("margin_notes").unwrap())
+                .unwrap();
+            assert_eq!(end, Value::Set(vec![Value::Object(note.clone())]));
+        }
+        assert_eq!(bp_now.spans.get("cover_note"), bp_was.spans.get("cover"));
+        assert_eq!(bp_now.writes.get("cover_note"), bp_was.writes.get("cover"));
+        assert!(!bp_now.spans.contains_key("cover") && !bp_now.writes.contains_key("cover"));
+        assert_eq!(bp_now.spans.get("state"), bp_was.spans.get("state"));
+        assert_eq!((n_now, np_now), (n_was, np_was));
+        // the rename writes nothing of its own: each history is as it was
+        assert_eq!(bh_now, bh_was);
+        assert_eq!(nh_now, nh_was);
+    }
+
+    /// An order whose lines are the derived end of a composite pair, which
+    /// each transition of a line writes on the order, and whose sign-off
+    /// is fresh while neither its price nor its lines changed since; and a
+    /// memo with an attribute of the lines' name (issue #59).
+    const ORDER_LINES: &str = r#"module: desk
+categories: [live]
+types:
+  Order:
+    description: An order, signed off before it is closed.
+    tracking: record
+    attributes:
+      price: { type: int }
+      signed_at: { type: event, optional: true }
+      lines:
+        reference: "Line[]"
+        aggregation: composite
+        opposite: order
+        description: Its lines.
+        survives: [close]
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    conditions:
+      fresh:
+        description: It is signed off, and neither its price nor its lines changed since.
+        expression: signed_at is not null and not changed_since([price, lines], signed_at)
+        remedy: delegable
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [price], description: Opens an order. }
+      add_line:
+        kind: internal
+        from: OPEN
+        description: Adds a line.
+        inputs:
+          text: { type: string, description: The line's text. }
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: this, text: inputs.text } }
+      sign:
+        kind: internal
+        from: OPEN
+        description: Signs the order off as it stands.
+        effect:
+          - assign: { location: signed_at, expr: this_event }
+      close:
+        kind: external
+        from: OPEN
+        to: DONE
+        description: Closes a signed-off order.
+        guards:
+          fresh: deny
+  Line:
+    description: A line of an order.
+    tracking: record
+    attributes:
+      order: { reference: Order, opposite: lines }
+      text: { type: string }
+    states:
+      LIVE: { description: Live., category: live }
+      GONE: { description: Gone., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LIVE, only_via: [Order.add_line], required_inputs: [order, text], description: Adds a line. }
+      edit: { kind: internal, from: LIVE, required_inputs: [text], description: Edits the line. }
+      drop: { kind: external, from: LIVE, to: GONE, description: Drops the line. }
+  Memo:
+    description: A memo, its lines a count.
+    tracking: record
+    attributes:
+      lines: { type: int }
+    states:
+      FILED: { description: Filed., category: live }
+      BINNED: { description: Binned., category: closed, final: true }
+    transitions:
+      file: { kind: initial, to: FILED, required_inputs: [lines], description: Files a memo. }
+      bin: { kind: external, from: FILED, to: BINNED, description: Bins it. }
+"#;
+
+    /// A composite end's rename carries its write-index rows, which each
+    /// transition of a part writes on its whole and `changed_since` reads,
+    /// renamed alone, which leaves its type's table as it was, and beside a
+    /// renamed column, which faulted (issue #59): a line edited after the
+    /// sign-off keeps the order's `close` refused after the publish, as it
+    /// was before it, and another type's attribute of the old name keeps
+    /// its own.
+    #[test]
+    fn a_derived_ends_rename_carries_its_write_index() {
+        let mut alone = ORDER_LINES.to_string();
+        for (old, new) in [
+            (
+                "      lines:\n        reference: \"Line[]\"\n",
+                "      items:\n        reference: \"Line[]\"\n",
+            ),
+            (
+                "changed_since([price, lines]",
+                "changed_since([price, items]",
+            ),
+            (
+                "      order: { reference: Order, opposite: lines }\n",
+                "      order: { reference: Order, opposite: items }\n",
+            ),
+        ] {
+            assert_eq!(alone.matches(old).count(), 1, "{old}");
+            alone = alone.replace(old, new);
+        }
+        let mut beside = alone.clone();
+        for (old, new) in [
+            (
+                "      price: { type: int }\n",
+                "      amount: { type: int }\n",
+            ),
+            (
+                "changed_since([price, items]",
+                "changed_since([amount, items]",
+            ),
+            ("required_inputs: [price]", "required_inputs: [amount]"),
+        ] {
+            assert_eq!(beside.matches(old).count(), 1, "{old}");
+            beside = beside.replace(old, new);
+        }
+        alone.push_str("migration:\n  description: An order's lines are its items.\n  renamed_attributes:\n    Order: { lines: items }\n");
+        beside.push_str("migration:\n  description: An order's lines are its items, its price its amount.\n  renamed_attributes:\n    Order: { lines: items, price: amount }\n");
+        for (what, text) in [("alone", alone), ("beside a renamed column", beside)] {
+            let lib = Library::load(&[("desk.yaml".into(), ORDER_LINES.into())]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let order = created(&req(&mut s, "open", ("Order", true), json!({"price": 10})));
+            let memo = created(&req(&mut s, "file", ("Memo", true), json!({"lines": 3})));
+            let Verdict::Satisfied { created: made, .. } =
+                req(&mut s, "add_line", (&order, false), json!({"text": "a"}))
+            else {
+                panic!("{what}: add_line");
+            };
+            let line = made[0].clone();
+            created(&req(&mut s, "sign", (&order, false), json!({})));
+            created(&req(&mut s, "edit", (&line, false), json!({"text": "b"})));
+            let writes = |s: &Store, id: &str| {
+                s.snapshot()
+                    .unwrap()
+                    .whole(id)
+                    .unwrap()
+                    .unwrap()
+                    .held_parts()
+                    .unwrap()
+                    .writes
+                    .clone()
+            };
+            let stale =
+                |v: &Verdict| matches!(v, Verdict::Unsatisfied { clause, .. } if clause == "fresh");
+            let was = writes(&s, &order);
+            let memo_was = writes(&s, &memo);
+            assert!(was.contains_key("lines"), "{what}: {was:?}");
+            let before = req(&mut s, "close", (&order, false), json!({}));
+            assert!(stale(&before), "{what}: before the publish, {before:?}");
+            published_as(&mut s, "desk", &[&text]);
+            let now = writes(&s, &order);
+            assert_eq!(now.get("items"), was.get("lines"), "{what}: {now:?}");
+            assert!(!now.contains_key("lines"), "{what}: {now:?}");
+            assert_eq!(writes(&s, &memo), memo_was, "{what}: the memo");
+            let after = req(&mut s, "close", (&order, false), json!({}));
+            assert!(stale(&after), "{what}: after the publish, {after:?}");
+        }
+    }
+
     /// A personal attribute renamed by one version and unmarked by the
     /// next is still erased from objects whose value was written before the
     /// rename, its name taken back through the rename (ADR-0146 decision 2).

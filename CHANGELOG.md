@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Fixed
+
+- A version renaming the derived end of an opposite pair, a `Note[]` whose notes each name their book, beside another changed column of its type was accepted by the dry run and refused `500` by its approval, which sent the end, which has no column, to `RENAME COLUMN`; the approval installed nothing. It now applies. The rename also carries the end's write index, which the parts of a composite end write on their whole: renamed alone, a composite end kept it under its old name, so `changed_since` of the new name read no change, and a guard reading it let through what it refused before the publish (issue #59).
+
 ## 0.12.0, 2026-11-03
 
 A release before 1.0.0, as 0.11.0 was (ADR-0214), with issue #57. `history` reads an object's events newest first, by an index on their position (ADR-0243). A store of 0.11.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step rebuilding `of_event_by_object` by position over the whole log; a store of 0.10.0 takes 0.11.0's step first. Nothing 0.11.0 accepted is refused.

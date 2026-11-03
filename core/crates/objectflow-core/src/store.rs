@@ -4673,6 +4673,23 @@ impl Store {
                 continue;
             };
             let name = table(tn);
+            // a derived end's rename carries its write index, which a part's
+            // transitions write on a composite end's whole, the one thing the
+            // store holds under its name: it has no column and no table, and
+            // as a set no intervals (§3.1). Renamed alone it leaves its
+            // type's table as it was, so it is carried before the table is
+            // compared (issue #59)
+            for (owner, from, to) in &m.renamed_attributes {
+                if new.is_a(tn, owner) && ot.attribute(from).is_some_and(|a| a.derived_end()) {
+                    tx.execute(
+                        &format!(
+                            "UPDATE of_attribute_write SET attribute = ?2 WHERE attribute = ?1 \
+                             AND object_id IN (SELECT id FROM {name})"
+                        ),
+                        params![from, to],
+                    )?;
+                }
+            }
             if table_parts(&old, ot, false).create(&name, &[])
                 == table_parts(new, t, false).create(&name, &[])
             {
@@ -4686,6 +4703,8 @@ impl Store {
                     continue;
                 }
                 match ot.attribute(from) {
+                    // no column to rename, its write index carried above
+                    Some(a) if a.derived_end() => {}
                     Some(a) if a.stored_set() => tx.execute_batch(&format!(
                         "ALTER TABLE {} RENAME TO {};",
                         quote(&format!("{name}__{from}")),
