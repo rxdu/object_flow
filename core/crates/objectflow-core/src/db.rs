@@ -2222,6 +2222,18 @@ impl Connection {
     }
 
     /// Which database the connection reaches.
+    /// A connection of its own to the same PostgreSQL database, writable,
+    /// its every statement bounded by `until`: a dry run's empty copy of the
+    /// store's tables is made on it, in transactions rolled back, beside the
+    /// reads and the writer (ADR-0248). None on SQLite, whose copy is a
+    /// database of its own in memory.
+    pub fn beside(&self, until: Option<std::time::Instant>) -> Result<Option<Connection>> {
+        match &self.inner {
+            Inner::Sqlite(_) => Ok(None),
+            Inner::Postgres(pg) => Connection::postgres_in(&pg.config, None, until).map(Some),
+        }
+    }
+
     pub fn backend(&self) -> Backend {
         match self.inner {
             Inner::Sqlite(_) => Backend::Sqlite,

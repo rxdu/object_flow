@@ -1608,6 +1608,20 @@ fn impact(
         }
     }
     attribute_notices(world, &new, &mut found)?;
+    // the approval's table changes run on an empty copy of the tables they
+    // touch, and on PostgreSQL the locks they take judged against the
+    // server's, a dry run's alone, the approval running them for real, and
+    // only where nothing else is fatal (ADR-0248)
+    if !installing && !found.0.iter().any(|f| f.severity == Severity::Fatal) {
+        for (fatal, code, message) in crate::store::tables_on_empty_copy(world, &new)? {
+            let severity = if fatal {
+                Severity::Fatal
+            } else {
+                Severity::Notice
+            };
+            found.add(severity, code, message, None);
+        }
+    }
     report.findings = found.0;
     report.accepted = !report.fatal()
         && report.findings.iter().all(|f| {
@@ -4918,6 +4932,222 @@ types:
       add: { kind: initial, to: KEPT, required_inputs: [book, text], description: Adds a note. }
       drop: { kind: external, from: KEPT, to: DROPPED, description: Drops it. }
 "#;
+
+    /// The shelf's next version as issue #59 gives it: the book's cover and
+    /// its notes, the derived end of an opposite pair, renamed together.
+    fn shelf_ends_renamed() -> String {
+        let mut renamed = SHELF_ENDS.to_string();
+        for (old, new) in [
+            (
+                "      cover: { reference: Note, optional: true }\n",
+                "      cover_note: { reference: Note, optional: true }\n",
+            ),
+            (
+                "      notes: { reference: \"Note[]\", opposite: book }\n",
+                "      margin_notes: { reference: \"Note[]\", opposite: book }\n",
+            ),
+            ("required_inputs: [cover]", "required_inputs: [cover_note]"),
+            (
+                "      book: { reference: Book, opposite: notes }\n",
+                "      book: { reference: Book, opposite: margin_notes }\n",
+            ),
+        ] {
+            assert_eq!(renamed.matches(old).count(), 1, "{old}");
+            renamed = renamed.replace(old, new);
+        }
+        renamed.push_str("migration:\n  description: A book's cover is its cover note, its notes its margin notes.\n  renamed_attributes:\n    Book: { cover: cover_note, notes: margin_notes }\n");
+        renamed
+    }
+
+    /// Every table, index and schema the store's database holds, as its
+    /// catalog lists them: what a dry run must leave as it was.
+    fn catalog_of(s: &Store) -> Vec<String> {
+        let sql = if s.conn().backend() == crate::db::Backend::Postgres {
+            "SELECT 'schema ' || nspname FROM pg_namespace WHERE nspname LIKE 'of_dry%' \
+             UNION ALL SELECT type || ' ' || name FROM sqlite_master ORDER BY 1"
+        } else {
+            "SELECT type || ' ' || name || ' ' || coalesce(sql, '') FROM sqlite_master ORDER BY 1"
+        };
+        let mut q = s.conn().prepare(sql).unwrap();
+        q.query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    /// A dry run runs the approval's table changes on an empty copy of the
+    /// tables they touch: one the database refuses, as it refused 0.12.0's
+    /// rename of a derived end, planted back, is a fatal finding naming the
+    /// statement, so the submit is refused where its approval faulted; the
+    /// same version without it is accepted; and the store's tables, indexes
+    /// and schemas are as they were (issue #59, ADR-0248 decision 1).
+    #[test]
+    fn a_dry_run_refuses_a_table_change_the_database_refuses() {
+        let lib = Library::load(&[("shelf.yaml".into(), SHELF_ENDS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let book = created(&req(
+            &mut s,
+            "add",
+            ("Book", true),
+            json!({"title": "Dune"}),
+        ));
+        created(&req(
+            &mut s,
+            "add",
+            ("Note", true),
+            json!({"book": book, "text": "A note."}),
+        ));
+        let was = catalog_of(&s);
+        crate::store::PLANTED_DERIVED_END_RENAME.with(|c| c.set(true));
+        let (change, planted) = drafted_on(&mut s, "shelf", &shelf_ends_renamed());
+        let submitted = req(&mut s, "submit", (&change, false), json!({}));
+        crate::store::PLANTED_DERIVED_END_RENAME.with(|c| c.set(false));
+        assert!(!planted.accepted);
+        let finding = planted
+            .findings
+            .iter()
+            .find(|f| f.code == "table_change:Book")
+            .unwrap_or_else(|| panic!("{:#?}", planted.findings));
+        assert_eq!(finding.severity, Severity::Fatal);
+        assert!(
+            finding.message.contains("RENAME COLUMN") || finding.message.contains("no such column"),
+            "{}",
+            finding.message
+        );
+        assert_eq!(submitted, refused("dry_run_clean"));
+        assert_eq!(catalog_of(&s), was);
+        let (_, clean) = drafted_on(&mut s, "shelf", &shelf_ends_renamed());
+        assert!(clean.accepted, "{:#?}", clean.findings);
+        assert!(
+            !clean
+                .findings
+                .iter()
+                .any(|f| f.code.starts_with("table_change")),
+            "{:#?}",
+            clean.findings
+        );
+        assert_eq!(catalog_of(&s), was);
+        assert_eq!(s.lib.version, 1);
+    }
+
+    /// The copy takes a version's types in batches, each with its own
+    /// tables: a table the store holds where the approval would make its
+    /// rebuild of the fortieth type, in the second batch, is refused naming
+    /// that type, and the version without it is accepted (ADR-0248 decision
+    /// 1).
+    #[test]
+    fn a_dry_runs_copy_takes_every_batch_of_types() {
+        let module_of = |n: usize, renamed: bool| {
+            let mut m = String::from("module: big\ncategories: [live, closed]\ntypes:\n");
+            for i in 0..n {
+                let a = if renamed { "b" } else { "a" };
+                m.push_str(&format!("  T{i}:\n    description: Type {i}.\n    tracking: record\n    attributes:\n      {a}: {{ type: string }}\n    states:\n      OPEN: {{ category: live }}\n      DONE: {{ category: closed, final: true }}\n    transitions:\n      make: {{ kind: initial, to: OPEN, required_inputs: [{a}] }}\n      finish: {{ kind: external, from: OPEN, to: DONE }}\n"));
+            }
+            if renamed {
+                m.push_str("migration:\n  description: Each a is b.\n  renamed_attributes:\n");
+                for i in 0..n {
+                    m.push_str(&format!("    T{i}: {{ a: b }}\n"));
+                }
+            }
+            m
+        };
+        let module = |renamed: bool| module_of(40, renamed);
+        let lib = Library::load(&[("big.yaml".into(), module(false))]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        // a renamed column changes its type's table, which the approval
+        // rebuilds after renaming the column
+        let next = module(true);
+        s.conn()
+            .execute_batch("CREATE TABLE t_t9__rebuild (planted INTEGER);")
+            .unwrap();
+        let (_, report) = drafted_on(&mut s, "big", &next);
+        let codes: Vec<&str> = report.findings.iter().map(|f| f.code.as_str()).collect();
+        assert!(codes.contains(&"table_change:T9"), "{codes:?}");
+        s.conn().execute_batch("DROP TABLE t_t9__rebuild;").unwrap();
+        let (_, report) = drafted_on(&mut s, "big", &next);
+        assert!(report.accepted, "{:#?}", report.findings);
+        // on PostgreSQL every batch's locks count: the forty types take more
+        // than the first twenty of them, in a batch alone
+        if s.conn().backend() == crate::db::Backend::Postgres {
+            let need = |s: &mut Store, text: &str| -> i64 {
+                crate::store::LOCK_CAPACITY.with(|c| c.set(Some(1)));
+                let (_, report) = drafted_on(s, "big", text);
+                crate::store::LOCK_CAPACITY.with(|c| c.set(None));
+                report
+                    .findings
+                    .iter()
+                    .find(|f| f.code == "table_change_locks")
+                    .and_then(|f| f.message.split("take about ").nth(1))
+                    .and_then(|r| r.split(' ').next())
+                    .and_then(|n| n.parse().ok())
+                    .unwrap_or_else(|| panic!("{:#?}", report.findings))
+            };
+            let mut twenty = module(false);
+            for i in 0..20 {
+                twenty = twenty.replacen(&format!("  T{i}:\n    description: Type {i}.\n    tracking: record\n    attributes:\n      a: {{ type: string }}\n"), &format!("  T{i}:\n    description: Type {i}.\n    tracking: record\n    attributes:\n      a: {{ type: string }}\n      c: {{ type: string, optional: true }}\n"), 1);
+            }
+            let (all, part) = (need(&mut s, &next), need(&mut s, &twenty));
+            assert!(all > part, "{all} for 40 types, {part} for 20");
+        }
+    }
+
+    /// On PostgreSQL the locks the copy's batches take, summed, are the
+    /// approval's lock need, judged against the lock table the server's
+    /// settings size: past it a notice naming the setting to raise, which
+    /// refuses nothing, and nothing within it; on SQLite, which has no such
+    /// table, nothing (ADR-0248 decision 2).
+    #[test]
+    fn a_dry_run_judges_the_approvals_lock_need() {
+        let lib = Library::load(&[("shelf.yaml".into(), SHELF_ENDS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let postgres = s.conn().backend() == crate::db::Backend::Postgres;
+        let with_capacity = |s: &mut Store, capacity: Option<i64>| {
+            crate::store::LOCK_CAPACITY.with(|c| c.set(capacity));
+            let (_, report) = drafted_on(s, "shelf", &shelf_ends_renamed());
+            crate::store::LOCK_CAPACITY.with(|c| c.set(None));
+            report
+        };
+        let lock = |r: &PublishReport| {
+            r.findings
+                .iter()
+                .find(|f| f.code == "table_change_locks")
+                .cloned()
+        };
+        let tiny = with_capacity(&mut s, Some(1));
+        assert!(tiny.accepted, "{:#?}", tiny.findings);
+        if !postgres {
+            assert!(lock(&tiny).is_none(), "{:#?}", tiny.findings);
+            return;
+        }
+        let notice = lock(&tiny).unwrap_or_else(|| panic!("{:#?}", tiny.findings));
+        assert_eq!(notice.severity, Severity::Notice);
+        assert!(
+            notice.message.contains("max_locks_per_transaction"),
+            "{}",
+            notice.message
+        );
+        let need: i64 = notice
+            .message
+            .split("take about ")
+            .nth(1)
+            .and_then(|r| r.split(' ').next())
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("{}", notice.message));
+        assert!(need > 1);
+        // one lock short is past it, and as many as it takes is not
+        let short = with_capacity(&mut s, Some(need - 1));
+        assert!(
+            short.accepted && lock(&short).is_some_and(|f| f.severity == Severity::Notice),
+            "{:#?}",
+            short.findings
+        );
+        let room = with_capacity(&mut s, Some(need));
+        assert!(
+            room.accepted && lock(&room).is_none(),
+            "{:#?}",
+            room.findings
+        );
+    }
 
     /// A version renaming a derived end beside another renamed column of
     /// its type applies, where the end, which has no column, was sent to

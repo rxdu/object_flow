@@ -1954,6 +1954,471 @@ fn rebuild(tx: &Transaction<'_>, lib: &Library, t: &Type, relaxed: bool) -> Stor
     Ok(())
 }
 
+/// The approval's table changes before its mappings: each new type's table
+/// made, and each table the version changes relaxed, its renamed columns
+/// and set tables and its set-asides first, then rebuilt; a table it
+/// leaves as it was is not rebuilt. `only` limits them to the types it
+/// names, as a dry run's empty copy takes them in batches (ADR-0248).
+/// Answers each type whose table changed.
+fn change_tables<'n>(
+    tx: &Transaction<'_>,
+    old: &Library,
+    new: &'n Library,
+    publish_position: i64,
+    now: i64,
+    only: Option<&BTreeSet<&str>>,
+) -> Stored<Vec<&'n Type>> {
+    // before the mappings: new tables, and each table the version
+    // changes relaxed, its renamed columns and set tables and its
+    // set-asides first; a table it leaves as it was is not rebuilt
+    let m = &new.migration;
+    let mut changed = Vec::new();
+    for (tn, t) in &new.types {
+        if t.retired
+            || crate::publish::builtin(tn)
+            || only.is_some_and(|only| !only.contains(tn.as_str()))
+        {
+            continue;
+        }
+        let Some(ot) = old.type_(tn) else {
+            tx.execute_batch(&table_parts(new, t, false).create(&table(tn), &[]))?;
+            continue;
+        };
+        let name = table(tn);
+        // a rename carries its write index under the new name, so
+        // `changed_since` and an erasure read who last wrote it (D530),
+        // whatever the attribute: a column's, a stored set's, and a
+        // derived end's, which has no column and no table (§3.1), a
+        // part's transitions writing it on a composite end's whole. A
+        // derived end renamed alone leaves its type's table as it was, so
+        // each is carried before the table is compared (issue #59). The
+        // dry run's simulation carries the same (`publish.rs`, `impact`)
+        for (owner, from, to) in &m.renamed_attributes {
+            if new.is_a(tn, owner) && ot.attribute(from).is_some() {
+                tx.execute(
+                    &format!(
+                        "UPDATE of_attribute_write SET attribute = ?2 WHERE attribute = ?1 \
+                         AND object_id IN (SELECT id FROM {name})"
+                    ),
+                    params![from, to],
+                )?;
+            }
+        }
+        if table_parts(old, ot, false).create(&name, &[])
+            == table_parts(new, t, false).create(&name, &[])
+        {
+            continue;
+        }
+        changed.push(t);
+        // a rename keyed by an abstract base reaches each type of its
+        // family, whose table holds the column (ADR-0147)
+        for (owner, from, to) in &m.renamed_attributes {
+            if !new.is_a(tn, owner) {
+                continue;
+            }
+            // each one's write index carried above
+            match ot.attribute(from) {
+                // no column to rename
+                Some(a) if a.derived_end() && !planted_derived_end_rename() => {}
+                // its own table renamed, and no intervals, since no set
+                // is tracked (DESIGN.md §5.2)
+                Some(a) if a.stored_set() => tx.execute_batch(&format!(
+                    "ALTER TABLE {} RENAME TO {};",
+                    quote(&format!("{name}__{from}")),
+                    quote(&format!("{name}__{to}"))
+                ))?,
+                Some(a) => {
+                    let to_col = t
+                        .attribute(to)
+                        .map_or_else(|| to.clone(), |na| column(to, na));
+                    tx.execute_batch(&format!(
+                        "ALTER TABLE {name} RENAME COLUMN {} TO {};",
+                        quote(&column(from, a)),
+                        quote(&to_col)
+                    ))?;
+                    // its intervals carried under its new name (§3),
+                    // retracted under the old and moved to the publish,
+                    // so an export's consumer reads them under the new,
+                    // where it kept them under the old (the audit's
+                    // durability V7c, ADR-0205 decision 9)
+                    tx.execute(
+                        &format!(
+                            "INSERT OR IGNORE INTO of_interval_retraction \
+                             (position, object_id, dimension, entered_position, entered_at) \
+                             SELECT ?2, object_id, dimension, entered_position, entered_at FROM of_interval \
+                             WHERE dimension = ?1 AND object_id IN (SELECT id FROM {name})"
+                        ),
+                        params![from, publish_position],
+                    )?;
+                    tx.execute(
+                        &format!(
+                            "UPDATE of_interval SET dimension = ?2, moved_position = ?3 WHERE dimension = ?1 \
+                             AND object_id IN (SELECT id FROM {name})"
+                        ),
+                        params![from, to, publish_position],
+                    )?;
+                }
+                None => {}
+            }
+        }
+        for (n, a) in &ot.attributes {
+            let Some(na) = t.attribute(n) else { continue };
+            if na.declared == a.declared && na.many == a.many {
+                continue;
+            }
+            // a reference following a moved type keeps its values, its
+            // key made to name what it now references by the table's
+            // rebuild below; a stored reference is single, a set of them
+            // being derived from its opposite (ADR-0229 decision 5)
+            // and an enumeration renamed keeps them (ADR-0247)
+            if crate::publish::carries(m, a, na) {
+                continue;
+            }
+            // its intervals set aside under the name its column takes,
+            // the open one closed at the publish event, and retracted
+            // there, since no export reads a set-aside row, where an
+            // export's consumer kept them open (the audit's durability
+            // V7b, ADR-0205 decision 9)
+            tx.execute(
+                &format!(
+                    "INSERT OR IGNORE INTO of_interval_retraction \
+                     (position, object_id, dimension, entered_position, entered_at) \
+                     SELECT ?2, object_id, dimension, entered_position, entered_at FROM of_interval \
+                     WHERE dimension = ?1 AND object_id IN (SELECT id FROM {name})"
+                ),
+                params![n, publish_position],
+            )?;
+            tx.execute(
+                &format!(
+                    "UPDATE of_interval SET dimension = ?2, \
+                     left_position = coalesce(left_position, ?3), left_at = coalesce(left_at, ?4) \
+                     WHERE dimension = ?1 AND object_id IN (SELECT id FROM {name})"
+                ),
+                params![
+                    n,
+                    format!("{n}__v{}", old.version),
+                    publish_position,
+                    timestamp_text(now)
+                ],
+            )?;
+            if a.stored_set() {
+                tx.execute_batch(&format!(
+                    "ALTER TABLE {} RENAME TO {};",
+                    quote(&format!("{name}__{n}")),
+                    quote(&format!("{name}__{n}__v{}", old.version))
+                ))?;
+            }
+            if !a.many && !a.derived_end() {
+                tx.execute_batch(&format!(
+                    "ALTER TABLE {name} RENAME COLUMN {} TO {};",
+                    quote(&column(n, a)),
+                    quote(&format!("{}__v{}", column(n, a), old.version))
+                ))?;
+            }
+        }
+        rebuild(tx, new, t, true)?;
+    }
+    Ok(changed)
+}
+
+/// Whether a test planted 0.12.0's defect, which sent a derived end's
+/// rename to `RENAME COLUMN`, so a dry run's empty copy is seen to refuse
+/// it (issue #59, ADR-0248).
+#[cfg(test)]
+fn planted_derived_end_rename() -> bool {
+    PLANTED_DERIVED_END_RENAME.with(std::cell::Cell::get)
+}
+
+#[cfg(not(test))]
+fn planted_derived_end_rename() -> bool {
+    false
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static PLANTED_DERIVED_END_RENAME: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// How many of a version's types a dry run's empty copy takes at once. On
+/// PostgreSQL each batch is a transaction of its own, so the copy holds the
+/// locks of at most this many types' tables at a time; on SQLite each is a
+/// database of its own, so no statement reads a schema of every type
+/// (ADR-0248).
+const COPY_BATCH: usize = 32;
+
+/// The built-in tables the approval's table changes read and write beside a
+/// type's own, copied into each batch.
+const COPY_BUILTINS: &[&str] = &[
+    "of_object",
+    "of_event",
+    "of_attribute_write",
+    "of_interval",
+    "of_interval_retraction",
+];
+
+/// What a dry run's empty copy found, as the report gives it: whether it is
+/// fatal, its code and its message.
+pub(crate) type CopyFinding = (bool, String, String);
+
+/// The approval's table changes, before its mappings ([`change_tables`])
+/// and after them ([`rebuild`] exact), run on an empty copy of the store's
+/// tables they touch and rolled back, so
+/// a statement the approval would send and the database refuse is a dry
+/// run's fatal finding, `table_change:<Type>`, where it faulted the approval
+/// (issue #59, ADR-0248). The types they touch, each new one and each whose
+/// table a rename reaches or the version changes, are taken
+/// [`COPY_BATCH`] at a time, each type's table and set tables copied with
+/// the built-in tables beside them. On SQLite each batch is a database of
+/// its own in memory, made from the store's catalog, so the copy holds no
+/// lock on the store. On PostgreSQL each is a schema of its own in the
+/// store's database, made on a connection of its own in a transaction
+/// rolled back, each store table copied holding only `ACCESS SHARE` until
+/// it ends. There the locks each batch's changes take, summed, are the
+/// approval's lock need, which it takes in one transaction: past what the
+/// server's settings size its lock table for, a notice,
+/// `table_change_locks`. A copy that cannot be made says so in a notice,
+/// `table_change_not_run`, and refuses nothing.
+pub(crate) fn tables_on_empty_copy(
+    world: &World<'_>,
+    new: &Library,
+) -> Result<Vec<CopyFinding>, NotRun> {
+    let Some(conn) = world.connection() else {
+        return Ok(Vec::new());
+    };
+    let old = world.lib;
+    let m = &new.migration;
+    let touched: Vec<&str> = new
+        .types
+        .iter()
+        .filter(|(tn, t)| !t.retired && !crate::publish::builtin(tn))
+        .filter(|(tn, t)| match old.type_(tn) {
+            None => true,
+            Some(ot) => {
+                m.renamed_attributes
+                    .iter()
+                    .any(|(owner, from, _)| new.is_a(tn, owner) && ot.attribute(from).is_some())
+                    || table_parts(old, ot, false).create(&table(tn), &[])
+                        != table_parts(new, t, false).create(&table(tn), &[])
+            }
+        })
+        .map(|(tn, _)| tn.as_str())
+        .collect();
+    if touched.is_empty() {
+        return Ok(Vec::new());
+    }
+    let unreadable = |e: StoreError| {
+        NotRun::Unreadable(format!(
+            "the store's catalog, which a dry run's empty copy of its tables reads: {e}"
+        ))
+    };
+    let not_run = |why: String| {
+        vec![(
+            false,
+            "table_change_not_run".to_string(),
+            format!(
+                "the approval's table changes were not run on an empty copy of the store's tables, which could not be made: {why}"
+            ),
+        )]
+    };
+    let refused = |tn: &str, e: StoreError| {
+        vec![(
+            true,
+            format!("table_change:{tn}"),
+            format!(
+                "the approval's table changes for {tn}, run on an empty copy of the store's tables, were refused, so its approval would fail: {e}"
+            ),
+        )]
+    };
+    let tables: Vec<String> = (|| -> Stored<Vec<String>> {
+        let mut q =
+            conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")?;
+        let rows = q.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    })()
+    .map_err(unreadable)?;
+    // a batch's tables: the built-in ones, and each of its types' own and
+    // set tables, a set-aside among them, as the store holds them
+    let copied = |batch: &[&str]| -> Vec<&String> {
+        tables
+            .iter()
+            .filter(|n| {
+                COPY_BUILTINS.contains(&n.as_str())
+                    || batch.iter().any(|tn| {
+                        let own = table(tn);
+                        **n == own || n.starts_with(&format!("{own}__"))
+                    })
+            })
+            .collect()
+    };
+    match conn.backend() {
+        crate::db::Backend::Sqlite => {
+            let sql_of = |n: &str| -> Stored<Vec<String>> {
+                let mut q = conn.prepare(
+                    "SELECT sql FROM sqlite_master WHERE tbl_name = ?1 AND sql IS NOT NULL ORDER BY type DESC, name",
+                )?;
+                let rows = q.query_map([n], |r| r.get::<_, String>(0))?;
+                Ok(rows.collect::<Result<_, _>>()?)
+            };
+            for batch in touched.chunks(COPY_BATCH) {
+                world.due()?;
+                let mut statements = Vec::new();
+                for n in copied(batch) {
+                    statements.extend(sql_of(n).map_err(unreadable)?);
+                }
+                let made = (|| -> Stored<Connection> {
+                    let copy = Connection::open_in_memory()?;
+                    // as the approval holds them off (`publish`), so a key
+                    // naming a table the batch does not copy refuses nothing
+                    copy.execute_batch("PRAGMA foreign_keys = OFF;")?;
+                    for s in &statements {
+                        copy.execute_batch(&format!("{s};"))?;
+                    }
+                    Ok(copy)
+                })();
+                let mut copy = match made {
+                    Ok(copy) => copy,
+                    Err(e) => return Ok(not_run(e.to_string())),
+                };
+                let tx = copy
+                    .transaction_with_behavior(Behavior::Immediate)
+                    .map_err(|e| unreadable(e.into()))?;
+                for tn in batch {
+                    if let Err(e) = both_phases(&tx, old, new, world.now, tn) {
+                        return Ok(refused(tn, e));
+                    }
+                }
+            }
+            Ok(Vec::new())
+        }
+        crate::db::Backend::Postgres => {
+            let read = |sql: &str| -> Result<i64, NotRun> {
+                conn.query_row(sql, [], |r| r.get::<_, i64>(0))
+                    .map_err(|e| unreadable(e.into()))
+            };
+            let schema: String = conn
+                .query_row("SELECT current_schema()", [], |r| r.get(0))
+                .map_err(|e| unreadable(e.into()))?;
+            let per = read("SELECT current_setting('max_locks_per_transaction')::bigint")?;
+            let connections = read("SELECT current_setting('max_connections')::bigint")?;
+            let prepared = read("SELECT current_setting('max_prepared_transactions')::bigint")?;
+            let capacity = lock_capacity(per * (connections + prepared));
+            let mut scratch = match conn.beside(world.deadline) {
+                Ok(Some(c)) => c,
+                Ok(None) => return Ok(Vec::new()),
+                Err(e) => return Ok(not_run(e.to_string())),
+            };
+            let name: String =
+                match scratch.query_row("SELECT 'of_dry_copy_' || pg_backend_pid()", [], |r| {
+                    r.get(0)
+                }) {
+                    Ok(n) => n,
+                    Err(e) => return Ok(not_run(e.to_string())),
+                };
+            let held = |tx: &Transaction<'_>| -> Stored<i64> {
+                Ok(tx.query_row(
+                    "SELECT count(*) FROM pg_locks WHERE pid = pg_backend_pid()",
+                    [],
+                    |r| r.get::<_, i64>(0),
+                )?)
+            };
+            let (mut need, mut base_once) = (0_i64, None);
+            for batch in touched.chunks(COPY_BATCH) {
+                world.due()?;
+                let tx = match scratch.transaction_with_behavior(Behavior::Deferred) {
+                    Ok(tx) => tx,
+                    Err(e) => return Ok(not_run(e.to_string())),
+                };
+                let made = (|| -> Stored<i64> {
+                    tx.execute_batch(&format!(
+                        "CREATE SCHEMA {name}; SET LOCAL search_path TO {name}, {};",
+                        quote(&schema)
+                    ))?;
+                    for n in COPY_BUILTINS {
+                        tx.execute_batch(&format!(
+                            "CREATE TABLE {name}.{n} (LIKE {}.{n} INCLUDING ALL);",
+                            quote(&schema)
+                        ))?;
+                    }
+                    let base = held(&tx)?;
+                    for n in copied(batch) {
+                        if COPY_BUILTINS.contains(&n.as_str()) {
+                            continue;
+                        }
+                        tx.execute_batch(&format!(
+                            "CREATE TABLE {name}.{q} (LIKE {}.{q} INCLUDING ALL);",
+                            quote(&schema),
+                            q = quote(n)
+                        ))?;
+                    }
+                    Ok(base)
+                })();
+                let base = match made {
+                    Ok(base) => base,
+                    Err(e) => return Ok(not_run(e.to_string())),
+                };
+                for tn in batch {
+                    if let Err(e) = both_phases(&tx, old, new, world.now, tn) {
+                        return Ok(refused(tn, e));
+                    }
+                }
+                let after = held(&tx).map_err(unreadable)?;
+                need += after - base;
+                base_once.get_or_insert(base);
+                drop(tx);
+            }
+            need += base_once.unwrap_or(0);
+            // a notice and never a refusal: the server's lock table holds
+            // more than its settings size it for, by the shared memory it
+            // has spare, which no setting gives (ADR-0248 decision 2)
+            Ok(if need > capacity {
+                vec![(
+                    false,
+                    "table_change_locks".to_string(),
+                    format!(
+                        "the approval's table changes take about {need} locks in its one transaction, as an empty copy of them took, past the {capacity} the server's lock table is sized for, max_locks_per_transaction ({per}) for each of max_connections ({connections}) and max_prepared_transactions ({prepared}); the approval may fail out of shared memory, installing nothing: raise max_locks_per_transaction, which takes the server's restart, or publish the changes over several versions"
+                    ),
+                )]
+            } else {
+                Vec::new()
+            })
+        }
+    }
+}
+
+/// A type's table changes on a dry run's copy, both phases of the
+/// approval's: its changes before the mappings, then its table rebuilt to
+/// the version's exact shape, as the approval does after them.
+fn both_phases(
+    tx: &Transaction<'_>,
+    old: &Library,
+    new: &Library,
+    now: i64,
+    tn: &str,
+) -> Stored<()> {
+    for t in change_tables(tx, old, new, 0, now, Some(&BTreeSet::from([tn])))? {
+        rebuild(tx, new, t, false)?;
+    }
+    Ok(())
+}
+
+/// The server's lock table as a dry run judges an approval's lock need
+/// against it: the server's own, or, in a test, one set smaller.
+#[cfg(not(test))]
+fn lock_capacity(server: i64) -> i64 {
+    server
+}
+
+#[cfg(test)]
+fn lock_capacity(server: i64) -> i64 {
+    LOCK_CAPACITY.with(std::cell::Cell::get).unwrap_or(server)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The lock table a test judges an approval's lock need against.
+    pub(crate) static LOCK_CAPACITY: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
+}
+
 /// Each file hash a text holds, as the wire writes one.
 fn hashes_in(text: &str) -> impl Iterator<Item = &str> {
     text.match_indices("sha256:").filter_map(move |(at, _)| {
@@ -4687,148 +5152,8 @@ impl Store {
         let mut alloc = Allocator::read(&tx, self.ids)?;
         let publish_position = alloc.position();
         alloc.txn();
-        // before the mappings: new tables, and each table the version
-        // changes relaxed, its renamed columns and set tables and its
-        // set-asides first; a table it leaves as it was is not rebuilt
         let m = &new.migration;
-        let mut changed = Vec::new();
-        for (tn, t) in &new.types {
-            if t.retired || crate::publish::builtin(tn) {
-                continue;
-            }
-            let Some(ot) = old.type_(tn) else {
-                tx.execute_batch(&table_parts(new, t, false).create(&table(tn), &[]))?;
-                continue;
-            };
-            let name = table(tn);
-            // a rename carries its write index under the new name, so
-            // `changed_since` and an erasure read who last wrote it (D530),
-            // whatever the attribute: a column's, a stored set's, and a
-            // derived end's, which has no column and no table (§3.1), a
-            // part's transitions writing it on a composite end's whole. A
-            // derived end renamed alone leaves its type's table as it was, so
-            // each is carried before the table is compared (issue #59). The
-            // dry run's simulation carries the same (`publish.rs`, `impact`)
-            for (owner, from, to) in &m.renamed_attributes {
-                if new.is_a(tn, owner) && ot.attribute(from).is_some() {
-                    tx.execute(
-                        &format!(
-                            "UPDATE of_attribute_write SET attribute = ?2 WHERE attribute = ?1 \
-                             AND object_id IN (SELECT id FROM {name})"
-                        ),
-                        params![from, to],
-                    )?;
-                }
-            }
-            if table_parts(&old, ot, false).create(&name, &[])
-                == table_parts(new, t, false).create(&name, &[])
-            {
-                continue;
-            }
-            changed.push(t);
-            // a rename keyed by an abstract base reaches each type of its
-            // family, whose table holds the column (ADR-0147)
-            for (owner, from, to) in &m.renamed_attributes {
-                if !new.is_a(tn, owner) {
-                    continue;
-                }
-                // each one's write index carried above
-                match ot.attribute(from) {
-                    // no column to rename
-                    Some(a) if a.derived_end() => {}
-                    // its own table renamed, and no intervals, since no set
-                    // is tracked (DESIGN.md §5.2)
-                    Some(a) if a.stored_set() => tx.execute_batch(&format!(
-                        "ALTER TABLE {} RENAME TO {};",
-                        quote(&format!("{name}__{from}")),
-                        quote(&format!("{name}__{to}"))
-                    ))?,
-                    Some(a) => {
-                        let to_col = t
-                            .attribute(to)
-                            .map_or_else(|| to.clone(), |na| column(to, na));
-                        tx.execute_batch(&format!(
-                            "ALTER TABLE {name} RENAME COLUMN {} TO {};",
-                            quote(&column(from, a)),
-                            quote(&to_col)
-                        ))?;
-                        // its intervals carried under its new name (§3),
-                        // retracted under the old and moved to the publish,
-                        // so an export's consumer reads them under the new,
-                        // where it kept them under the old (the audit's
-                        // durability V7c, ADR-0205 decision 9)
-                        tx.execute(
-                            &format!(
-                                "INSERT OR IGNORE INTO of_interval_retraction \
-                                 (position, object_id, dimension, entered_position, entered_at) \
-                                 SELECT ?2, object_id, dimension, entered_position, entered_at FROM of_interval \
-                                 WHERE dimension = ?1 AND object_id IN (SELECT id FROM {name})"
-                            ),
-                            params![from, publish_position],
-                        )?;
-                        tx.execute(
-                            &format!(
-                                "UPDATE of_interval SET dimension = ?2, moved_position = ?3 WHERE dimension = ?1 \
-                                 AND object_id IN (SELECT id FROM {name})"
-                            ),
-                            params![from, to, publish_position],
-                        )?;
-                    }
-                    None => {}
-                }
-            }
-            for (n, a) in &ot.attributes {
-                let Some(na) = t.attribute(n) else { continue };
-                if na.declared == a.declared && na.many == a.many {
-                    continue;
-                }
-                // a reference following a moved type keeps its values, its
-                // key made to name what it now references by the table's
-                // rebuild below; a stored reference is single, a set of them
-                // being derived from its opposite (ADR-0229 decision 5)
-                // and an enumeration renamed keeps them (ADR-0247)
-                if crate::publish::carries(m, a, na) {
-                    continue;
-                }
-                // its intervals set aside under the name its column takes,
-                // the open one closed at the publish event, and retracted
-                // there, since no export reads a set-aside row, where an
-                // export's consumer kept them open (the audit's durability
-                // V7b, ADR-0205 decision 9)
-                tx.execute(
-                    &format!(
-                        "INSERT OR IGNORE INTO of_interval_retraction \
-                         (position, object_id, dimension, entered_position, entered_at) \
-                         SELECT ?2, object_id, dimension, entered_position, entered_at FROM of_interval \
-                         WHERE dimension = ?1 AND object_id IN (SELECT id FROM {name})"
-                    ),
-                    params![n, publish_position],
-                )?;
-                tx.execute(
-                    &format!(
-                        "UPDATE of_interval SET dimension = ?2, \
-                         left_position = coalesce(left_position, ?3), left_at = coalesce(left_at, ?4) \
-                         WHERE dimension = ?1 AND object_id IN (SELECT id FROM {name})"
-                    ),
-                    params![n, format!("{n}__v{}", old.version), publish_position, timestamp_text(now)],
-                )?;
-                if a.stored_set() {
-                    tx.execute_batch(&format!(
-                        "ALTER TABLE {} RENAME TO {};",
-                        quote(&format!("{name}__{n}")),
-                        quote(&format!("{name}__{n}__v{}", old.version))
-                    ))?;
-                }
-                if !a.many && !a.derived_end() {
-                    tx.execute_batch(&format!(
-                        "ALTER TABLE {name} RENAME COLUMN {} TO {};",
-                        quote(&column(n, a)),
-                        quote(&format!("{}__v{}", column(n, a), old.version))
-                    ))?;
-                }
-            }
-            rebuild(&tx, new, t, true)?;
-        }
+        let changed = change_tables(&tx, &old, new, publish_position, now, None)?;
         // the publish event, then one migration per object whose row the
         // mappings change or an admission reaches, in ascending id order
         let mut change_obj = change.clone();

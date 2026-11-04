@@ -841,6 +841,8 @@ A publish is a declaration version and a set of DDL statements derived from it, 
 | an `admit` mapping | an `of_admission` row per violating object, on its migration event; where the admitted invariant is compiled, its constraint is dropped first, in the same transaction, and stays dropped while any admission of it stands (§8, ADR-0074, ADR-0105) |
 | a new tracked member | no DDL; an `of_interval` row per object holding its current value, opened at the event that first gives it a value in the publish, the object's migration where a backfill writes it and else the publish event, marked `migrated`, which a fold reproduces (ADR-0106, ADR-0147) |
 
+A change's dry run runs these statements on an empty copy of the tables they touch and rolls it back, so one the database refuses is found before the approval (`publish-and-import.md` §1 step 3, ADR-0248).
+
 **A migration reaches every row the change affects, terminal ones included, and no observation's** (ADR-0101): it is the publish's recorded change, not a transition the object takes, and an observation is born final, so a publish removing an enum member an observation holds is refused. **A request or an import never writes a personal column of an object whose erasure is recorded**, so neither a refresh of a mirror nor an externally owned type's sync can restore an erased value (ADR-0101, ADR-0105).
 
 A removed attribute leaving its column in place is deliberate: the column is how history stays readable, and dropping it would make a fold of the log fail on an event the store still holds.

@@ -40,7 +40,7 @@
 
 ## 5. What it suggests
 
-For the author, not decided here:
+For the author, not decided here. *Decided 2026-11-04: ADR-0248, recommendations 1 to 3 as written, the copy taken in batches.*
 
 1. **Run the approval's table changes in the dry run on an empty copy of the installed version's tables**, on the store's own backend, and roll the copy back. A statement the copy refuses is a fatal finding naming the statement, so the submit is refused `dry_run_clean`. This is Atlas's dev database and `pt-online-schema-change`'s dry run, which are the sources' tools that catch a refused statement before the apply.
 2. **Keep the simulation as the judge of the rows**, since an empty copy holds none.

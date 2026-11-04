@@ -683,6 +683,13 @@ pub struct World<'l> {
 const TICKS: u32 = 256;
 
 impl<'l> World<'l> {
+    /// The store's connection the world reads through, none for a world
+    /// read from nothing: what a dry run's empty copy of the store's tables
+    /// is made from (ADR-0248).
+    pub(crate) fn connection(&self) -> Option<&'l crate::db::Connection> {
+        self.conn
+    }
+
     /// How a metric's row names an actor its record names by identity: by
     /// the actor's object id, where an actor type marks its identity
     /// personal, as a metric reads no personal value; by the identity where

@@ -8,6 +8,11 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 - A version may rename an enumeration, `migration.renamed_enumerations: { <Old>: <New> }`, in the module that declares the new one. Every attribute typed by it, in any module of the version, keeps its values, intervals and history, each member by its name, and the publish writes no row for it. A member the version also drops is mapped by `removed_members` under the new name. Over a store whose installed version lacks the old enumeration, the entry renames nothing, a notice, `migration_not_applicable:renamed_enumerations:<Old>`. Where 0.13.0 noticed each such attribute as a change of type, its values starting absent, and refused a required one (ADR-0247, issue #58).
 - A rename whose only change of type the publish carries is accepted: a reference following a type the version moves, or an enumeration the version renames. Its optionality must still be unchanged, and any other change of type is refused, as before (ADR-0247 decision 2, issue #58).
+- On PostgreSQL a change's dry run notices, `table_change_locks`, a version whose approval takes more locks in its one transaction than the server's settings size its lock table for, with the count and the setting to raise. Its approval may fail `out of shared memory`, as 0.13.0's did with no warning, and installs nothing (ADR-0248 decision 2).
+
+### Changed, and may refuse what 0.13.0 accepted
+
+- A change's dry run runs the approval's table changes on an empty copy of the tables they touch, and rolls it back. A statement the database refuses is fatal, `table_change:<Type>`, naming it, so the submit is refused `dry_run_clean` where 0.13.0's approval failed. A copy that cannot be made is a notice, `table_change_not_run`. On PostgreSQL the copy is made on a connection of its own, in a schema named `of_dry_copy_<pid>` (ADR-0248 decision 1, issue #59).
 
 ## 0.13.0, 2026-11-03
 
