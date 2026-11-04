@@ -943,6 +943,11 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** After pushing a tag, list every run on its commit (`gh run list --commit <sha>`, the full SHA: a short one matches no run, and a loop waiting for runs waits forever) and watch each to its end; report the release only when all have passed, naming any that did not.
 - **Context:** GitHub Actions, where a workflow with `on: push` runs for a tag as for a branch.
 
+### A run's success is not yet its check run's
+- **Pattern:** Releasing 0.16.0 (2026-11-04), I tagged once `gh run watch` and `gh run list` said `main`'s `check` run had succeeded. GitHub still held that run's job, the `check-all` check run `release.yml` reads, as `in_progress` with no conclusion, more than 15 minutes after its last step ended. The release job's first step found no passed `check-all`, failed, and published nothing; its failed job was rerun once the record caught up.
+- **Correction:** Before tagging, run the query the release job runs, `gh api repos/<repo>/commits/<full sha>/check-runs --jq '[.check_runs[] | select(.name == "check-all") | .conclusion] | join(" ")'`, and tag only once it holds `success`. A release job that failed on it is rerun with `gh run rerun <id> --failed` once it does.
+- **Context:** GitHub Actions, `release.yml`'s step *The tagged commit's check has passed*.
+
 ### A rewrite drops what TODO reserves to the author
 - **Pattern:** Rewriting the README at the author's request (2026-10-21), I replaced its status paragraph and dropped "not yet for production", which `TODO.md` holds open as the author's decision at the release cut. Nothing failed; the item was found the same day while addressing TODO's open items, and the phrase restored. The search below then found a second: one of ADR-0204 §10's four limits, an approval holding writes, which a closed item requires the README to state, dropped from the new limits table and restored.
 - **Correction:** Before rewriting a document, search `TODO.md` and the ADRs for items naming it or a phrase in it (`grep -n "README" TODO.md`), and carry every statement an open item reserves to the author into the new text unchanged, saying so in the commit.
