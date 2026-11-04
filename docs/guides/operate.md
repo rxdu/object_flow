@@ -216,7 +216,7 @@ An evaluator served over HTTPS under your own certificate authority is trusted t
 `GET /health` answers `200` while the store serves, opening the store's file to answer:
 
 ```json
-{"release": "objectflow-core 0.15.0", "shape": "deployment", "version": 3, "now": "2026-10-13T01:03:28Z", "store_release": "objectflow-core 0.15.0", "upgrade_due": false, "clock_lead_seconds": 0, "writer_held_seconds": 0.0, "requests_in_flight": 1, "connections_open": 1, "disk_free_bytes": 52428800000}
+{"release": "objectflow-core 0.16.0", "shape": "deployment", "version": 3, "now": "2026-10-13T01:03:28Z", "store_release": "objectflow-core 0.16.0", "upgrade_due": false, "clock_lead_seconds": 0, "writer_held_seconds": 0.0, "requests_in_flight": 1, "connections_open": 1, "disk_free_bytes": 52428800000}
 ```
 
 `release` is the engine's, `store_release` the store's; `version` is the installed flow version and `now` the store's clock; `writer_held_seconds` is seconds with a fraction, `0.0` while no write runs, in a sandbox too; while writes wait for another process's lock, it counts from the first retry, through every write refused since. A health check that answers `200` is not logged.
@@ -432,7 +432,7 @@ What a later release promises, from 1.0.0:
 4. As the operator, see the steps: `POST /v1/upgrade {"actor": {"id": "operator"}, "dry_run": true}`.
 5. Run them: the same without `dry_run`. The service then serves the store.
 
-**The steps to 0.14.0 and to 0.15.0 record the release alone**: neither changes anything in the store's tables.
+**The steps to 0.14.0, to 0.15.0 and to 0.16.0 record the release alone**: none changes anything in the store's tables.
 
 **The step to 0.13.0 carries the write index a renamed set or end left under its old name** (ADR-0246). A store whose versions renamed a stored set, such as a `string[]`, or a to-many end with no column of its own, has each such row moved to the new name, so a guard reading `changed_since` of it reads the writes made before the rename. It reads each version's source once, and each such row's object's moves.
 
