@@ -2146,6 +2146,10 @@ thread_local! {
 /// (ADR-0248).
 const COPY_BATCH: usize = 32;
 
+/// How long a dry run's copy on PostgreSQL waits for a lock on a store table
+/// it copies, which an approval may hold for its length (ADR-0248).
+const COPY_LOCK_TIMEOUT: &str = "5s";
+
 /// The built-in tables the approval's table changes read and write beside a
 /// type's own, copied into each batch.
 const COPY_BUILTINS: &[&str] = &[
@@ -2171,9 +2175,10 @@ pub(crate) type CopyFinding = (bool, String, String);
 /// the built-in tables beside them. On SQLite each batch is a database of
 /// its own in memory, made from the store's catalog, so the copy holds no
 /// lock on the store. On PostgreSQL each is a schema of its own in the
-/// store's database, made on a connection of its own in a transaction
-/// rolled back, each store table copied holding only `ACCESS SHARE` until
-/// it ends. There the locks each batch's changes take, summed, are the
+/// store's database, the only schema on its path, made on a connection of
+/// its own in a transaction rolled back, each store table copied holding
+/// only `ACCESS SHARE` until it ends, waited on no longer than
+/// [`COPY_LOCK_TIMEOUT`]. There the locks each batch's changes take, summed, are the
 /// approval's lock need, which it takes in one transaction: past what the
 /// server's settings size its lock table for, a notice,
 /// `table_change_locks`. A copy that cannot be made says so in a notice,
@@ -2307,13 +2312,19 @@ pub(crate) fn tables_on_empty_copy(
                 Ok(None) => return Ok(Vec::new()),
                 Err(e) => return Ok(not_run(e.to_string())),
             };
-            let name: String =
-                match scratch.query_row("SELECT 'of_dry_copy_' || pg_backend_pid()", [], |r| {
-                    r.get(0)
+            // a store table an approval holds is waited on no longer than
+            // this, the copy then not made, so a dry run never queues behind
+            // an approval for its length
+            let name: String = match scratch
+                .execute_batch(&format!("SET lock_timeout = '{COPY_LOCK_TIMEOUT}';"))
+                .and_then(|()| {
+                    scratch.query_row("SELECT 'of_dry_copy_' || pg_backend_pid()", [], |r| {
+                        r.get(0)
+                    })
                 }) {
-                    Ok(n) => n,
-                    Err(e) => return Ok(not_run(e.to_string())),
-                };
+                Ok(n) => n,
+                Err(e) => return Ok(not_run(e.to_string())),
+            };
             let held = |tx: &Transaction<'_>| -> Stored<i64> {
                 Ok(tx.query_row(
                     "SELECT count(*) FROM pg_locks WHERE pid = pg_backend_pid()",
@@ -2329,10 +2340,14 @@ pub(crate) fn tables_on_empty_copy(
                     Err(e) => return Ok(not_run(e.to_string())),
                 };
                 let made = (|| -> Stored<i64> {
+                    // the scratch schema alone on the path, with the catalog
+                    // a rebuild reads made in it, so a name the copy does not
+                    // hold refuses the statement and reaches no table of the
+                    // store's; each store table it copies is named whole
                     tx.execute_batch(&format!(
-                        "CREATE SCHEMA {name}; SET LOCAL search_path TO {name}, {};",
-                        quote(&schema)
+                        "CREATE SCHEMA {name}; SET LOCAL search_path TO {name};"
                     ))?;
+                    tx.execute_batch(crate::db::PG_CATALOG)?;
                     for n in COPY_BUILTINS {
                         tx.execute_batch(&format!(
                             "CREATE TABLE {name}.{n} (LIKE {}.{n} INCLUDING ALL);",
