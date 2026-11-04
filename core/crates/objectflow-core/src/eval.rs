@@ -243,6 +243,10 @@ pub struct Evaluator<'a> {
     /// The type whose names a bare name resolves against.
     type_: Option<&'a Type>,
     inputs: &'a BTreeMap<String, Value>,
+    /// On a creation, the attributes it takes as inputs, which a member read
+    /// of the object it creates, which has no earlier value, reads as
+    /// supplied (ADR-0251).
+    creating: Option<&'a BTreeSet<String>>,
     actor: Option<&'a Who>,
     /// In a filter, an element whose filter is unknown is left out (§8.2).
     filter_mode: bool,
@@ -407,6 +411,7 @@ impl<'a> Evaluator<'a> {
             this,
             type_,
             inputs: &NO_INPUTS,
+            creating: None,
             actor: None,
             filter_mode: false,
             event: None,
@@ -538,6 +543,13 @@ impl<'a> Evaluator<'a> {
         self
     }
 
+    /// The evaluator of a creation's guards: a member it takes as an input,
+    /// read on the object it creates, reads the value supplied (ADR-0251).
+    pub fn with_creation(mut self, taken: &'a BTreeSet<String>) -> Evaluator<'a> {
+        self.creating = Some(taken);
+        self
+    }
+
     pub fn with_actor(mut self, actor: &'a Who) -> Evaluator<'a> {
         self.actor = Some(actor);
         self
@@ -652,6 +664,16 @@ impl<'a> Evaluator<'a> {
                 if !env.contains_key(n) {
                     self.name_object(&t);
                 }
+                t
+            }
+            // `this.<member>` on a creation's object, as its bare name reads
+            Expr::Path(base, member)
+                if self.this.is_none()
+                    && self.creating.is_some_and(|taken| taken.contains(member))
+                    && matches!(base.as_ref(), Expr::Name(b) if b == "this" && !env.contains_key("this")) =>
+            {
+                let t = self.name(member, env)?;
+                self.name_object(&t);
                 t
             }
             Expr::Path(base, member) => {
@@ -798,6 +820,12 @@ impl<'a> Evaluator<'a> {
             if member {
                 return match self.this {
                     Some(id) => self.member(&Term::Value(Value::Object(id.to_string())), n),
+                    // a creation's object, which has no earlier value: a
+                    // member it takes as an input reads the value supplied
+                    // (ADR-0251)
+                    None if self.creating.is_some_and(|taken| taken.contains(n)) => Ok(
+                        Term::Value(self.inputs.get(n).cloned().unwrap_or(Value::Absent)),
+                    ),
                     None => Ok(Term::absent()),
                 };
             }

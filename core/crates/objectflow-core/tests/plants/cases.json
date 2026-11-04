@@ -24538,13 +24538,6 @@
    ],
    [
     "module.yaml",
-    97,
-    "notice",
-    "before",
-    "engineer_active reads engineer, which open takes as an input: a guard runs before the transition writes it, so the object it creates has none yet; inputs.engineer is the value supplied"
-   ],
-   [
-    "module.yaml",
     107,
     "notice",
     "before",
@@ -30148,6 +30141,79 @@
    ]
   ],
   "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "creation_read_plants: a creation's guard reading what it takes",
+  "files": [
+   [
+    "nums.yaml",
+    "61da81039aff250a"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Num": [
+    1,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "creation_read_plants: a creation's guards contradicting over what it takes",
+  "files": [
+   [
+    "nums.yaml",
+    "1a600ccd2031b846"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "nums.yaml",
+    16,
+    "fatal",
+    "contradiction",
+    "Num.make can never be taken: guard positive and guard negative_input cannot both hold"
+   ]
+  ],
+  "analysed": {
+   "Num": [
+    2,
+    2
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "creation_read_plants: a later act's guards over the stored value and the input",
+  "files": [
+   [
+    "nums.yaml",
+    "91f8068ef54a1206"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "nums.yaml",
+    17,
+    "notice",
+    "before",
+    "positive reads n, which renumber takes as an input: a guard runs before the transition writes it, so it reads the value n had before the request; inputs.n is the value supplied"
+   ]
+  ],
+  "analysed": {
+   "Num": [
+    2,
+    2
+   ]
+  },
   "forms": {},
   "could_violate": {}
  },

@@ -851,8 +851,11 @@ class Evaluator:
     """An expression's value over the store, for one object and one request (§8, §9.2)."""
 
     def __init__(self, store, tn, this=None, inputs=None, actor=None, stubs=None, filter_mode=False, event=None, committed=None,
-                 others=False):
+                 others=False, creating=None):
         self.s, self.tn, self.this, self.event = store, tn, this, event
+        # on a creation, the attributes it takes as inputs, which a member read of the object it creates reads as
+        # supplied, its object having no earlier value (ADR-0251)
+        self.creating = creating or frozenset()
         self.others = others                    # an invariant's scan of a type leaves out `this` (ADR-0061 decision 1)
         self.inputs, self.actor, self.stubs = inputs or {}, actor, stubs or {}
         self.filter_mode = filter_mode          # a filter leaves out an element it cannot decide (§8.2)
@@ -915,6 +918,8 @@ class Evaluator:
             return ("event", self.event)
         if n == "state" or n in (self.t.get("attributes") or {}) or n in (self.t.get("derived_attributes") or {}) \
                 or n in (self.t.get("observations") or {}) or n in ("id", "open", "created_at", "created_by_kind", "recorded_from", "declaration_version"):
+            if self.this is None and n in self.creating:
+                return self.inputs.get(n, ABSENT)
             return self.member(self.this, n) if self.this is not None else ABSENT
         if n in (self.t.get("states") or {}):
             return ("state", self.tn, n)
@@ -1128,6 +1133,9 @@ class Evaluator:
             v = self.name(e[1], env)
             return v if e[1] in env else self.note(v)       # a name an aggregate binds is no reference
         if k == "path":
+            # `this.<member>` on a creation's object, as its bare name reads (ADR-0251)
+            if e[1] == ("name", "this") and "this" not in env and self.this is None and e[2] in self.creating:
+                return self.note(self.inputs.get(e[2], ABSENT))
             return self.note(self.member(self.value(e[1], env), e[2]))
         if k == "set":
             # a set: an element written twice is held once, and one that is unknown makes it unknown (§8.2), as the
@@ -2931,8 +2939,11 @@ class Runner:
                 raise Refused("invalid_input", remedy="self_serviceable", inputs=["name"], reasons=["malformed"])
         conditions = t.get("conditions") or {}
         failed = []
+        # a creation's guards read a member it takes as an input as supplied (ADR-0251)
+        taken = frozenset(i for i in list(x.get("required_inputs") or []) + list(x.get("optional_inputs") or [])
+                          if i in (t.get("attributes") or {})) if oid is None else None
         for g, mode in (x.get("guards") or {}).items():
-            asking = Evaluator(work, tn, oid, inputs, ctx.who, ctx.stubs, committed=ctx.before).noting(oid)
+            asking = Evaluator(work, tn, oid, inputs, ctx.who, ctx.stubs, committed=ctx.before, creating=taken).noting(oid)
             ok = truth(asking.value(flowexpr.parse(conditions[g]["expression"]), {}))
             if ok is not True:
                 remedy = "temporal" if asking.unanswered else conditions[g].get("remedy")

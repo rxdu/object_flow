@@ -159,7 +159,10 @@ class Analysis:
             if n == "state":
                 return ("lit", "state", self.fixed_state) if self.fixed_state else ("var", ("state",))
             if n in m.attrs:
-                return self.resolve(self.written[n]) if n in self.written else ("var", ("attr", n))
+                if n in self.written:
+                    return self.resolve(self.written[n])
+                # a creation's object has no earlier value: a member it takes as an input is the input (ADR-0251)
+                return ("var", ("in", n)) if m.created and n in m.inputs else ("var", ("attr", n))
             if n in m.states:
                 return ("lit", "state", n)
             if n in m.categories:

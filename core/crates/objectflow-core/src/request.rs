@@ -1832,6 +1832,15 @@ fn take_unwound(
     // what the transition's guards read, each guard's under its name, after
     // what the checks before them read
     let mut read = checked.into_inner();
+    // the attributes a creation takes as inputs, which its guards read as
+    // supplied (ADR-0251)
+    let taken: BTreeSet<String> = x
+        .required_inputs
+        .iter()
+        .chain(&x.optional_inputs)
+        .filter(|i| t.attribute(i).is_some())
+        .cloned()
+        .collect();
     for (g, mode) in &x.guards {
         let Some(c) = t.condition(g) else {
             return stop_not_run(format!("the guard {g}, which {tn} does not declare"));
@@ -1841,7 +1850,15 @@ fn take_unwound(
         let (ok, unanswered) = {
             let asking = Evaluator::new(&ctx.work, Some(t), oid.as_deref())
                 .with_committed(&ctx.before)
-                .with_inputs(&inputs)
+                .with_inputs(&inputs);
+            // a creation's guards read a member it takes as an input as the
+            // value supplied, its object having none before it (ADR-0251)
+            let asking = if oid.is_none() {
+                asking.with_creation(&taken)
+            } else {
+                asking
+            };
+            let asking = asking
                 .with_actor(&ctx.who)
                 .with_reading(&reading, g)
                 .with_naming(&named);
@@ -7761,6 +7778,124 @@ types:
             Verdict::Satisfied { object_id, .. } => object_id.clone(),
             other => panic!("{other:?}"),
         }
+    }
+
+    /// A creation's guard reads a member the creation takes as an input as
+    /// the value supplied, its object having none before it, by its bare
+    /// name and as `this.<member>`; a member the creation writes only in its
+    /// effect stays absent to it; and the same condition guards a later act
+    /// over the stored value, so a rule checked on both is declared once
+    /// (issue #64, ADR-0251).
+    #[test]
+    fn a_creations_guard_reads_a_member_it_takes_as_supplied() {
+        const GRANTS: &str = r#"
+module: grants
+categories: [live, closed]
+types:
+  Person:
+    attributes:
+      name: { type: string }
+    states:
+      ACTIVE: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [name] }
+      leave: { kind: external, from: [ACTIVE], to: GONE }
+  Grant:
+    attributes:
+      person: { reference: Person }
+      n: { type: int }
+      note: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    conditions:
+      person_active: { expression: person.state == Person.ACTIVE, remedy: self_serviceable }
+      positive: { expression: this.n > 0, remedy: self_serviceable }
+      unnoted: { expression: note is null, remedy: self_serviceable }
+    transitions:
+      grant: { kind: initial, to: OPEN, required_inputs: [person, n], guards: { person_active: deny, positive: deny } }
+      grant_noting:
+        kind: initial
+        to: OPEN
+        required_inputs: [person, n]
+        guards: { unnoted: deny }
+        effect:
+          - assign: { location: note, expr: '"noted"' }
+      change: { kind: internal, from: [OPEN], guards: { person_active: deny } }
+"#;
+        let lib = Library::load(&[("grants.yaml".into(), GRANTS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let ada = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Person", true),
+            json!({"name": "Ada"}),
+        ));
+        let bo = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Person", true),
+            json!({"name": "Bo"}),
+        ));
+        assert!(matches!(
+            req(&mut s, "leave", OPERATOR, (&bo, false), json!({})),
+            Verdict::Satisfied { .. }
+        ));
+        let refused_by =
+            |v: &Verdict, g: &str| matches!(v, Verdict::Unsatisfied { clause, .. } if clause == g);
+        let grant = created(&req(
+            &mut s,
+            "grant",
+            OPERATOR,
+            ("Grant", true),
+            json!({"person": ada, "n": 1}),
+        ));
+        let v = req(
+            &mut s,
+            "grant",
+            OPERATOR,
+            ("Grant", true),
+            json!({"person": ada, "n": 0}),
+        );
+        assert!(refused_by(&v, "positive"), "{v:?}");
+        let v = req(
+            &mut s,
+            "grant",
+            OPERATOR,
+            ("Grant", true),
+            json!({"person": bo, "n": 1}),
+        );
+        assert!(refused_by(&v, "person_active"), "{v:?}");
+        // the note its effect writes is absent to its guards
+        let noted = created(&req(
+            &mut s,
+            "grant_noting",
+            OPERATOR,
+            ("Grant", true),
+            json!({"person": ada, "n": 1}),
+        ));
+        let held = s
+            .snapshot()
+            .unwrap()
+            .whole(&noted)
+            .unwrap()
+            .unwrap()
+            .attr("note");
+        assert_eq!(held, Value::Text("noted".into()));
+        // the same condition on a later act reads the stored person
+        assert!(matches!(
+            req(&mut s, "change", OPERATOR, (&grant, false), json!({})),
+            Verdict::Satisfied { .. }
+        ));
+        assert!(matches!(
+            req(&mut s, "leave", OPERATOR, (&ada, false), json!({})),
+            Verdict::Satisfied { .. }
+        ));
+        let v = req(&mut s, "change", OPERATOR, (&grant, false), json!({}));
+        assert!(refused_by(&v, "person_active"), "{v:?}");
     }
 
     /// `trim` takes the white space around a string away, Unicode's

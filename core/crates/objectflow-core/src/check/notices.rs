@@ -533,6 +533,10 @@ pub fn befores(v: &Value) -> Found {
                 .into_iter()
                 .chain(strings(x, "optional_inputs"))
                 .collect();
+            // a creation's guard reads such a member as supplied (ADR-0251)
+            if kind(x) == "initial" {
+                continue;
+            }
             for g in keys(x, "guards") {
                 let Some(expr) = conds.get(&g).and_then(|c| text(c, "expression")) else {
                     continue;

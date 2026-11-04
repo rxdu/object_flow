@@ -5129,6 +5129,8 @@ def befores(v):
     for tn, t in types(v):
         conds = t.get("conditions") or {}
         for xn, x in (t.get("transitions") or {}).items():
+            if x["kind"] == "initial":
+                continue        # a creation's guard reads such a member as supplied (ADR-0251)
             supplied = set(x.get("required_inputs") or []) | set(x.get("optional_inputs") or [])
             for g in (x.get("guards") or {}):
                 expr = (conds.get(g) or {}).get("expression")
@@ -5136,8 +5138,7 @@ def befores(v):
                     continue
                 attrs, inputs = supplied_reads(flowexpr.parse(expr))
                 for a in sorted((attrs & supplied) - inputs):
-                    had = ("the object it creates has none yet" if x["kind"] == "initial"
-                           else f"it reads the value {a} had before the request")
+                    had = f"it reads the value {a} had before the request"
                     out.append((("types", tn, "transitions", xn, "guards", g), "before",
                                 f"{g} reads {a}, which {xn} takes as an input: a guard runs before the transition writes it, "
                                 f"so {had}; inputs.{a} is the value supplied"))
@@ -11195,6 +11196,41 @@ def trim_plants():
     return ok
 
 
+def creation_read_plants():
+    """A creation's guard reads a member the creation takes as an input as the value supplied (ADR-0251): no `before`
+    notice for it; on a creation, a guard on `n` and one on `inputs.n` constrain one value, so two that contradict leave
+    no request satisfying the transition; on a later act they are two values, the stored one before the request."""
+    def module(conditions, transitions):
+        return ("module: nums\ncategories: [live, closed]\ntypes:\n  Num:\n    description: A number.\n    tracking: record\n"
+                "    attributes:\n      n: { type: int }\n    states:\n      OPEN: { description: Open., category: live }\n"
+                "      DONE: { description: Done., category: closed, final: true }\n    conditions:\n" + conditions
+                + "    transitions:\n" + transitions)
+    positive = "      positive: { description: n is positive., expression: n > 0, remedy: self_serviceable }\n"
+    negative = "      negative_input: { description: n given is negative., expression: inputs.n < 0, remedy: self_serviceable }\n"
+    finish = "      finish: { kind: external, from: OPEN, to: DONE }\n"
+    cases = [
+        ("a creation's guard reading what it takes", module(positive,
+         "      make: { kind: initial, to: OPEN, required_inputs: [n], guards: { positive: deny } }\n" + finish), [], []),
+        ("a creation's guards contradicting over what it takes", module(positive + negative,
+         "      make: { kind: initial, to: OPEN, required_inputs: [n], guards: { positive: deny, negative_input: deny } }\n" + finish),
+         ["Num.make can never be taken: guard positive and guard negative_input cannot both hold"], []),
+        ("a later act's guards over the stored value and the input", module(positive + negative,
+         "      make: { kind: initial, to: OPEN, required_inputs: [n] }\n"
+         "      renumber: { kind: internal, from: OPEN, required_inputs: [n], guards: { positive: deny, negative_input: deny } }\n"
+         + finish), [],
+         ["positive reads n, which renumber takes as an input: a guard runs before the transition writes it, so it reads "
+          "the value n had before the request; inputs.n is the value supplied"]),
+    ]
+    ok = True
+    for name, text, fatal, notices in cases:
+        found, notes = check([("nums.yaml", text)])
+        got = (sorted(x[4] for x in found), sorted(x[4] for x in notes if x[3] == "before"))
+        hit = got == (sorted(fatal), sorted(notices))
+        ok &= hit
+        print(f"  a creation's reads, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def this_checker():
     """This module, as the checker a `publish` step's dry run calls back into, however it was loaded: run as a script,
     imported, or loaded by path under a name `sys.modules` does not hold, as the studio loads it; its `check` the one in
@@ -11394,6 +11430,7 @@ def main():
     ok &= moved_type_plants(people)
     ok &= renamed_enumeration_plants()
     ok &= trim_plants()
+    ok &= creation_read_plants()
     ok &= metric_plants(people)
     ok &= range_plant(people)
     ok &= erasure_plants(people)

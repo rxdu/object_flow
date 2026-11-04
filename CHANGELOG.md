@@ -9,6 +9,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 - An expression may call `trim(<string>)`, the string without the white space around it, Unicode's `White_Space` characters alone, and `unknown` for an absent value, so a guard `trim(inputs.reason) != ""` refuses a reason of white space alone from every writer. What is written stays as sent. An `indexed` derivation may not call it (ADR-0249, issue #63).
 - Each event read, `history`, `events` and `pull`, and each row of `export`'s log answers `renamed` beside its payload: each name the payload holds that a later version renamed, mapped to the installed version's name, a chain composed, and none where nothing was renamed. The payload stays as written, under the declaration its `declaration_type` and `declaration_version` name (ADR-0250, issue #62).
 
+### Changed, and may refuse what 0.14.0 accepted
+
+- On a creation, a guard reading a member the creation takes as an input reads the value supplied, by its name and as `this.<name>`, where it read no value, the object having none before it. One condition, such as `person.state == Person.ACTIVE`, then guards a creation and a later act over the stored value alike. A guard that read such a member as absent, `n is null or n > 0`, now refuses `n: -1`. A member the creation writes only in its effect stays absent to its guards, and the checker no longer notices `before` on a creation. Two guards of a creation contradicting over a member and its input refuse the publish, as two over one value do (ADR-0251, issue #64).
+
 ## 0.14.0, 2026-11-04
 
 A release before 1.0.0, as 0.13.0 was (ADR-0214), with issue #58 and the second ask of #59. A version may rename an enumeration, and a rename keeps a change of type the publish carries (ADR-0247). A change's dry run runs the approval's table changes on an empty copy of the tables they touch, and on PostgreSQL counts their locks (ADR-0248). A store of 0.13.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that records the release alone; a store of 0.12.0 takes 0.13.0's step first. One change may refuse what 0.13.0 accepted, listed under its heading.

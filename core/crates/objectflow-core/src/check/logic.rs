@@ -455,6 +455,11 @@ impl<'m, 'a> Analysis<'m, 'a> {
                 if m.attrs.contains_key(n) {
                     return match self.written.get(n) {
                         Some(w) => self.resolve_written(w),
+                        // a creation's object has no earlier value: a member
+                        // it takes as an input is the input (ADR-0251)
+                        None if m.created && m.inputs.contains_key(n) => {
+                            Some(Res::Var(Var::In(n.clone())))
+                        }
                         None => Some(Res::Var(Var::Attr(n.clone()))),
                     };
                 }

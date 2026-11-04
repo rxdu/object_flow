@@ -1,0 +1,16 @@
+module: nums
+categories: [live, closed]
+types:
+  Num:
+    description: A number.
+    tracking: record
+    attributes:
+      n: { type: int }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    conditions:
+      positive: { description: n is positive., expression: n > 0, remedy: self_serviceable }
+    transitions:
+      make: { kind: initial, to: OPEN, required_inputs: [n], guards: { positive: deny } }
+      finish: { kind: external, from: OPEN, to: DONE }

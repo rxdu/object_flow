@@ -514,3 +514,58 @@ def test_a_text_of_white_space_alone_is_refused_by_trim_alike(tee):
         if applies:
             assert tee.post("/v1/get", {"id": card})["attributes"]["reason"] == reason
     alike(tee)
+
+
+GRANTS = """module: grants
+categories: [live, closed]
+types:
+  Person:
+    description: A person.
+    tracking: record
+    attributes:
+      name: { type: string }
+    states:
+      ACTIVE: { category: live, description: Active. }
+      GONE: { category: closed, final: true, description: Gone. }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [name] }
+      leave: { kind: external, from: [ACTIVE], to: GONE }
+  Grant:
+    description: A grant to a person.
+    tracking: record
+    attributes:
+      person: { reference: Person }
+      n: { type: int }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    conditions:
+      person_active: { description: The person is active., expression: person.state == Person.ACTIVE, remedy: self_serviceable }
+      positive: { description: n is positive., expression: this.n > 0, remedy: self_serviceable }
+    transitions:
+      grant: { kind: initial, to: OPEN, required_inputs: [person, n], guards: { person_active: deny, positive: deny } }
+      change: { kind: internal, from: [OPEN], guards: { person_active: deny } }
+      close: { kind: external, from: [OPEN], to: DONE }
+"""
+
+
+def test_a_creations_guard_reads_what_it_takes_alike(tee):
+    """A creation's guard reads a member the creation takes as an input as
+    the value supplied, by its bare name and as `this.<member>`, and the same
+    condition guards a later act over the stored value, on both runners alike
+    (issue #64, ADR-0251)."""
+    tee.found.clear()
+    load(tee, "grants", GRANTS)
+    ada = made(tee, "Person", "add", name="Ada")
+    bo = made(tee, "Person", "add", name="Bo")
+    assert tee.post("/v1/request", {"transition": "leave", "actor": OP, "object_id": bo, "inputs": {}})["kind"] == "satisfied"
+    grant = made(tee, "Grant", "grant", person=ada, n=1)
+    for person, n, clause in [(ada, 0, "positive"), (bo, 1, "person_active")]:
+        v = tee.post("/v1/request", {"transition": "grant", "actor": OP, "type": "Grant",
+                                     "inputs": {"person": person, "n": n}})
+        assert (v["kind"], v.get("clause")) == ("unsatisfied", clause), v
+    assert tee.post("/v1/request", {"transition": "change", "actor": OP, "object_id": grant, "inputs": {}})["kind"] == "satisfied"
+    assert tee.post("/v1/request", {"transition": "leave", "actor": OP, "object_id": ada, "inputs": {}})["kind"] == "satisfied"
+    v = tee.post("/v1/request", {"transition": "change", "actor": OP, "object_id": grant, "inputs": {}})
+    assert (v["kind"], v.get("clause")) == ("unsatisfied", "person_active"), v
+    alike(tee)
