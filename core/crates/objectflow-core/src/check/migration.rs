@@ -667,7 +667,8 @@ pub fn previous_types(previous: &BTreeMap<String, String>, file: &str, library: 
 /// in its other modules, where a type this version moves is read when this
 /// module's previous text lacks it. Where `prev` is a store's installed
 /// version, `installed`, a mapping naming a state, a member or an attribute
-/// it lacks is left to the publish, which notices it (ADR-0230 decision 2).
+/// it lacks is left to the publish, which notices it (ADR-0230 decision 2),
+/// a move's state map's included (ADR-0252).
 /// `moved` is every type a module of the version moves ([`moved_types`]);
 /// `renamed` maps each enumeration a module of the version renames to its new
 /// name ([`renamed_enumerations`]), and `enums_before` holds every
@@ -1021,10 +1022,12 @@ pub fn migration_pair_errors(
                     ));
                 }
             }
+            // over a store's installed version, a state it lacks is the
+            // publish's notice, as a removed state's is (ADR-0252)
             let ostates = obj(ot, "states");
             let mut unknown: Vec<String> = keys(e, "states")
                 .into_iter()
-                .filter(|st| !ostates.contains_key(st))
+                .filter(|st| !ostates.contains_key(st) && !installed)
                 .collect();
             unknown.sort();
             for st in unknown {

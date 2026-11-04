@@ -559,8 +559,9 @@ def fitted(spec, v, kind=None):
 
 
 def not_applicable(store, m, found):
-    """Each rename, removed state and removed member naming what the installed version lacks, a notice: the entry has
-    nothing to act on, and changes nothing (ADR-0230 decision 2), as the core's `not_applicable`."""
+    """Each rename, removed state, removed member and move's mapped state naming what the installed version lacks, a
+    notice: the entry has nothing to act on, and changes nothing (ADR-0230 decision 2, ADR-0252), as the core's
+    `not_applicable`."""
     v = store.version
 
     def held(tn):
@@ -578,6 +579,16 @@ def not_applicable(store, m, found):
                 found.add("notice", f"migration_not_applicable:removed_states:{tn}.{st}",
                           f"the migration maps {tn}.{st}, which the installed version, {v}, does not have: the entry "
                           "moves nothing")
+    # a move's state map naming a state the installed old type lacks, over a store already past it, carries nothing
+    # for it; a type the installed version does not hold is `moves`'s notice (ADR-0252)
+    for tn, entries in m["moved_types"].items():
+        t = held(tn)
+        if not t:
+            continue
+        for st in sorted({st for e in entries or () for st in (e.get("states") or {})} - set(t.get("states") or {})):
+            found.add("notice", f"migration_not_applicable:moved_types:{tn}.{st}",
+                      f"the move of {tn} maps {tn}.{st}, which the installed version, {v}, does not have: the entry "
+                      "carries nothing for it")
     # an enumeration rename over a store whose installed version lacks the old one renames nothing (ADR-0247)
     for old in m["renamed_enumerations"]:
         if old not in store.enums:

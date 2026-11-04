@@ -662,10 +662,10 @@ pub(crate) fn renamed_member(m: &crate::model::Migration, v: Value) -> Value {
     }
 }
 
-/// Each rename, removed state and removed member naming what the installed
-/// version lacks, a notice: the entry has nothing to act on, and changes
-/// nothing, so one source serves a store without it, a new one or one the
-/// mapping already reached (ADR-0230 decision 2). The checker leaves these
+/// Each rename, removed state, removed member and move's mapped state naming
+/// what the installed version lacks, a notice: the entry has nothing to act
+/// on, and changes nothing, so one source serves a store without it, a new
+/// one or one the mapping already reached (ADR-0230 decision 2, ADR-0252). The checker leaves these
 /// to the publish (`check::checked_installed`); a type the installed
 /// version does not hold is `moves`'s.
 fn not_applicable(old: &Library, m: &crate::model::Migration, found: &mut Found) {
@@ -703,6 +703,24 @@ fn not_applicable(old: &Library, m: &crate::model::Migration, found: &mut Found)
                 format!("migration_not_applicable:removed_states:{tn}.{st}"),
                 format!(
                     "the migration maps {tn}.{st}, which the installed version, {v}, does not have: the entry moves nothing"
+                ),
+            );
+        }
+    }
+    // a move's state map naming a state the installed old type lacks, over a
+    // store already past it, carries nothing for it; a type the installed
+    // version does not hold is `moves`'s notice (ADR-0252)
+    for (tn, entries) in &m.moved_types {
+        let Some(t) = held(tn) else { continue };
+        let mapped: BTreeSet<&str> = entries
+            .iter()
+            .flat_map(|e| e.states.iter().map(|(st, _)| st.as_str()))
+            .collect();
+        for st in mapped.into_iter().filter(|st| t.state(st).is_none()) {
+            notice(
+                format!("migration_not_applicable:moved_types:{tn}.{st}"),
+                format!(
+                    "the move of {tn} maps {tn}.{st}, which the installed version, {v}, does not have: the entry carries nothing for it"
                 ),
             );
         }
@@ -7916,6 +7934,101 @@ migration:
             assert!(notice(&report, code), "{code}: {:#?}", report.findings);
         }
         assert_eq!(held(&s), first);
+    }
+
+    /// A span closed at the first version; the second renames `CLOSED`
+    /// `CANCELLED`, and the third moves `Span` to `Period`, mapping `CLOSED`.
+    const SPANS_V1: &str = r#"
+module: spans
+categories: [live, closed]
+types:
+  Span:
+    description: A span of time.
+    tracking: record
+    attributes:
+      label: { type: string }
+    states:
+      OPEN: { description: Open., category: live }
+      CLOSED: { description: Ended., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label] }
+      close: { kind: external, from: OPEN, to: CLOSED }
+"#;
+
+    /// The spans' version `n`, 2 or 3, as its doc above says.
+    fn spans(n: u8) -> String {
+        let cancelled = SPANS_V1
+            .replace("CLOSED:", "CANCELLED:")
+            .replace("to: CLOSED", "to: CANCELLED");
+        match n {
+            2 => {
+                cancelled
+                    + "migration:\n  description: CLOSED is CANCELLED.\n  removed_states:\n    Span: { CLOSED: CANCELLED }\n"
+            }
+            _ => {
+                cancelled.replace("  Span:\n", "  Period:\n")
+                    + "migration:\n  description: A span is a period.\n  moved_types:\n    Span: [ { to: Period, states: { CLOSED: CANCELLED } } ]\n"
+            }
+        }
+    }
+
+    /// A version of the spans published, its report: refused, the finding.
+    fn spans_published(s: &mut Store, text: &str) -> PublishReport {
+        let change = created(&req(
+            s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"spans": text}, "source_ref": "git:spans"}),
+        ));
+        created(&req(s, "submit", (&change, false), json!({})));
+        let v = s
+            .snapshot()
+            .unwrap()
+            .whole(&change)
+            .unwrap()
+            .unwrap()
+            .version;
+        let (verdict, report) = approve(s, &change, v);
+        let report = report.unwrap();
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        report
+    }
+
+    /// One source carries a store at the version that has a state a move
+    /// maps and a store already past it: over the first the move carries
+    /// the closed span into `CANCELLED`, and over the second the state map
+    /// names what the installed version lacks, a notice, the span carried
+    /// as it stands (ADR-0252, issue #67).
+    #[test]
+    fn a_moves_state_map_over_a_store_past_the_state_is_a_notice() {
+        for path in [&[3u8][..], &[2, 3]] {
+            let lib = Library::load(&[("spans.yaml".into(), SPANS_V1.into())]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let span = created(&req(&mut s, "open", ("Span", true), json!({"label": "a"})));
+            created(&req(&mut s, "close", (&span, false), json!({})));
+            let mut report = None;
+            for &n in path {
+                report = Some(spans_published(&mut s, &spans(n)));
+            }
+            let report = report.unwrap();
+            let code = "migration_not_applicable:moved_types:Span.CLOSED";
+            assert_eq!(
+                notice(&report, code),
+                path.len() == 2,
+                "{path:?}: {:#?}",
+                report.findings
+            );
+            let w = s.snapshot().unwrap();
+            let o = w.whole(&span).unwrap().unwrap();
+            assert_eq!(
+                (o.type_.as_str(), o.state.as_str()),
+                ("Period", "CANCELLED"),
+                "{path:?}"
+            );
+        }
     }
 
     /// A backfill the installed version's migration holds, unchanged, does

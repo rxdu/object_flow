@@ -956,6 +956,52 @@ NOT_APPLICABLE = {"migration_not_applicable:renamed_attributes:Thing.holder",
                   "migration_not_applicable:moved_types:Coupon"}
 
 
+SPANS_V1 = """module: spans
+categories: [live, closed]
+types:
+  Span:
+    description: A span of time.
+    tracking: record
+    attributes:
+      label: { type: string }
+    states:
+      OPEN: { category: live }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label] }
+      close: { kind: external, from: [OPEN], to: CLOSED }
+"""
+SPANS_CANCELLED = (SPANS_V1.replace("CLOSED:", "CANCELLED:")
+                   .replace("to: CLOSED", "to: CANCELLED"))
+SPANS_V2 = SPANS_CANCELLED + (
+    "migration:\n  description: CLOSED is CANCELLED.\n"
+    "  removed_states:\n    Span: { CLOSED: CANCELLED }\n")
+SPANS_V3 = SPANS_CANCELLED.replace("  Span:\n", "  Period:\n") + (
+    "migration:\n  description: A span is a period.\n"
+    "  moved_types:\n    Span: [ { to: Period, states: { CLOSED: CANCELLED } } ]\n")
+
+
+@pytest.mark.parametrize("past", [False, True])
+def test_a_moves_state_map_over_a_store_past_the_state_alike(tee, past):
+    """One source moving a type and mapping a state carries a store that
+    has the state, the closed span into CANCELLED, and one already past
+    it, where the map names what the installed version lacks, a notice,
+    alike through both backends (ADR-0252, issue #67)."""
+    load(tee, "spans", SPANS_V1)
+    span = made(tee, "Span", "open", label="a")
+    took(tee, span, "close")
+    tee.found.clear()
+    if past:
+        c, _codes = dry_run(tee, {"spans": SPANS_V2})
+        approved(tee, c)
+    c, codes = dry_run(tee, {"spans": SPANS_V3})
+    assert ("migration_not_applicable:moved_types:Span.CLOSED" in codes) == past, codes
+    approved(tee, c)
+    held = tee.post("/v1/get", {"id": span})
+    assert (held["type"], held["state"]) == ("Period", "CANCELLED"), held
+    alike(tee)
+
+
 @pytest.mark.parametrize("store", ["behind", "kept", "new", "retired"])
 def test_one_source_serves_a_store_behind_kept_or_new_alike(tee, store):
     """One source carrying a rename, a removed state and member, a move and

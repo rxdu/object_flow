@@ -1,0 +1,18 @@
+module: spans
+categories: [live, closed]
+types:
+  Period:
+    description: A span of time.
+    tracking: record
+    attributes:
+      label: { type: string }
+    states:
+      OPEN: { description: Open., category: live }
+      CANCELLED: { description: Ended., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label] }
+      close: { kind: external, from: OPEN, to: CANCELLED }
+migration:
+  description: A span is a period.
+  moved_types:
+    Span: [ { to: Period, states: { CLOSED: CANCELLED } } ]

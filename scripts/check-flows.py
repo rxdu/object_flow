@@ -1887,7 +1887,7 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
     version moves is read when this module's previous text lacks it. Where
     `prev` is a store's installed version, `installed`, a mapping naming a
     state, a member or an attribute it lacks is left to the publish, which
-    notices it (ADR-0230 decision 2). `moved` is every type a module of the
+    notices it (ADR-0230 decision 2), a move's state map's included (ADR-0252). `moved` is every type a module of the
     version moves (`moved_types`), this module's own where it is not given;
     `enum_renames` maps each enumeration a module of the version renames to its
     new name, this module's own where it is not given, and `enums_before` holds
@@ -2018,7 +2018,9 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
             for expr in ([e["where"]] if "where" in e else []) + list(given.values()):
                 for r in sorted(reads(expr) - members):
                     fatal.append((here, "names", f"the move of {tn} to {to} reads '{r}'; a move reads the old object's own members and literals"))
-            for st in sorted(set(e.get("states") or {}) - set(ot.get("states") or {})):
+            # over a store's installed version, a state it lacks is the publish's notice, as a removed state's is
+            # (ADR-0252)
+            for st in sorted(set(e.get("states") or {}) - set(ot.get("states") or {}) if not installed else ()):
                 fatal.append((here + ("states", st), "names", f"the move of {tn} to {to} maps {tn}.{st}, which the previous version did not have"))
             t = new.get(to)
             if t is None:
@@ -11165,6 +11167,36 @@ def renamed_enumeration_plants():
     return ok
 
 
+def moved_state_plants():
+    """A move's state map naming a state the version before had renamed: a mistake in the source given `--previous`,
+    fatal, and over a store's installed version left to the publish, which notices it (ADR-0252, issue #67)."""
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new)
+    spans = ("module: spans\ncategories: [live, closed]\ntypes:\n  Span:\n    description: A span of time.\n"
+             "    tracking: record\n    attributes:\n      label: { type: string }\n    states:\n"
+             "      OPEN: { description: Open., category: live }\n"
+             "      CANCELLED: { description: Ended., category: closed, final: true }\n"
+             "    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [label] }\n"
+             "      close: { kind: external, from: OPEN, to: CANCELLED }\n")
+    periods = p(spans, "  Span:\n", "  Period:\n") \
+        + ("migration:\n  description: A span is a period.\n  moved_types:\n"
+           "    Span: [ { to: Period, states: { CLOSED: CANCELLED } } ]\n")
+    cases = [
+        ("over the version before", False,
+         ["the move of Span to Period maps Span.CLOSED, which the previous version did not have"]),
+        ("over the installed version", True, []),
+    ]
+    ok = True
+    for name, installed, want in cases:
+        found, notes = check([("spans.yaml", periods)], {"spans.yaml": spans}, installed=installed)
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a move mapping a state the previous version lacks, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def trim_plants():
     """`trim`, the string without the white space around it (ADR-0249): a guard reading it is clean, a value other than
     a string is refused, and an indexed derivation calling it is refused, since its generated column's SQL trims spaces
@@ -11429,6 +11461,7 @@ def main():
     ok &= migration_plants(people)
     ok &= moved_type_plants(people)
     ok &= renamed_enumeration_plants()
+    ok &= moved_state_plants()
     ok &= trim_plants()
     ok &= creation_read_plants()
     ok &= metric_plants(people)

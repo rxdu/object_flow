@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Changed
+
+- A move's `states` naming a state the installed version's old type lacks is a notice in a publish, `migration_not_applicable:moved_types:<Type>.<state>`, and carries nothing for it, so one source moving a type serves a store that still has a state an earlier version renamed and one already past it (#67, ADR-0252). Given `--previous`, the checker still refuses it.
+
 ## 0.15.0, 2026-11-04
 
 A release before 1.0.0, as 0.14.0 was (ADR-0214), with issues #62, #63 and #64. An expression trims the white space around a string (ADR-0249), each event read names what a later version renamed of its payload (ADR-0250), and a creation's guard reads a member the creation takes as the value supplied (ADR-0251). A store of 0.14.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that records the release alone; a store of 0.13.0 takes 0.14.0's step first. One change may refuse what 0.14.0 accepted, listed under its heading.

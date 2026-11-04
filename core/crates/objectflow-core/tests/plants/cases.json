@@ -30060,6 +30060,52 @@
   "could_violate": {}
  },
  {
+  "label": "moved_state_plants: over the version before",
+  "files": [
+   [
+    "spans.yaml",
+    "9aa26ec4d25bba58"
+   ]
+  ],
+  "previous": {
+   "spans.yaml": "cc2f7dc6e36ec629"
+  },
+  "findings": [
+   [
+    "spans.yaml",
+    18,
+    "fatal",
+    "names",
+    "the move of Span to Period maps Span.CLOSED, which the previous version did not have"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_state_plants: over the installed version",
+  "files": [
+   [
+    "spans.yaml",
+    "9aa26ec4d25bba58"
+   ]
+  ],
+  "previous": {
+   "spans.yaml": "cc2f7dc6e36ec629"
+  },
+  "findings": [],
+  "analysed": {
+   "Period": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "installed": true
+ },
+ {
   "label": "trim_plants: a guard reading a trimmed input",
   "files": [
    [
