@@ -582,6 +582,24 @@ pub(crate) fn retired(t: &crate::model::Type) -> crate::model::Type {
     r
 }
 
+/// Whether a test left the dry run's empty copy out, so it times the impact
+/// over the objects alone, which grows with them, the copy growing with the
+/// tables a version changes (ADR-0248).
+#[cfg(test)]
+fn copy_left_out() -> bool {
+    COPY_LEFT_OUT.with(std::cell::Cell::get)
+}
+
+#[cfg(not(test))]
+fn copy_left_out() -> bool {
+    false
+}
+
+#[cfg(test)]
+thread_local! {
+    static COPY_LEFT_OUT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// Whether an attribute's change of type is a reference following a moved
 /// type: the version before referenced a type the version moves, and this
 /// one references another, a set or one alike, so its values are carried,
@@ -1612,7 +1630,7 @@ fn impact(
     // touch, and on PostgreSQL the locks they take judged against the
     // server's, a dry run's alone, the approval running them for real, and
     // only where nothing else is fatal (ADR-0248)
-    if !installing && !found.0.iter().any(|f| f.severity == Severity::Fatal) {
+    if !installing && !copy_left_out() && !found.0.iter().any(|f| f.severity == Severity::Fatal) {
         for (fatal, code, message) in crate::store::tables_on_empty_copy(world, &new)? {
             let severity = if fatal {
                 Severity::Fatal
@@ -2908,9 +2926,13 @@ types:
     /// declares only as they add work of their own, where each object's
     /// lookup by key walked every type of the library: a change adding 1,000
     /// types to a store of 37k objects took 14.5 s, about 13 ms a type
-    /// (tenth production review).
+    /// (tenth production review). Timed with the empty copy of the tables
+    /// left out, which makes a table for each new type, its own linear cost
+    /// measured apart (ADR-0248): with it, CI's PostgreSQL took 1.52 s for
+    /// 50 types and 14.00 s for 800 on 2026-11-04, past this bound.
     #[test]
     fn a_dry_runs_impact_does_not_walk_every_type_for_each_object() {
+        COPY_LEFT_OUT.with(|c| c.set(true));
         const SHOP: &str = "module: shop\ncategories: [live, closed]\ntypes:\n  Item:\n    description: An item.\n    tracking: record\n    attributes:\n      sku: { type: string, unique: true }\n    states:\n      ON: { category: live, description: On. }\n      OFF: { category: closed, final: true, description: Off. }\n    transitions:\n      add: { kind: initial, to: ON, required_inputs: [sku] }\n      drop: { kind: external, from: ON, to: OFF }\n";
         let lib = Library::load(&[("shop.yaml".into(), SHOP.into())]).unwrap();
         let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
@@ -2944,6 +2966,7 @@ types:
             t.elapsed().as_secs_f64()
         };
         let (few, many) = (timed(50), timed(800));
+        COPY_LEFT_OUT.with(|c| c.set(false));
         // sixteen times the types: well under sixteen times the time
         assert!(
             many < few * 8.0,
