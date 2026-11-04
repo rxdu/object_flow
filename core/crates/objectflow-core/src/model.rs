@@ -66,6 +66,31 @@ pub enum Declared {
     Scalar(String),
     /// A reference to an object of a type.
     Reference(String),
+    /// A value of several fields, by the name of the value a module
+    /// declares (ADR-0254). The reader gives it as a `Scalar`, and the
+    /// library names it a value once every module is read.
+    Value(String),
+}
+
+/// A value of several fields a module declares once with its rules, which
+/// an attribute or a declared input names as its type: equal by its fields,
+/// with no id, state or events of its own (ADR-0254).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ValueType {
+    pub name: String,
+    pub module: String,
+    pub description: String,
+    /// Its fields in the order declared, each a built-in type or an
+    /// enumeration.
+    pub fields: Vec<(String, Attribute)>,
+    /// Its declaration as written, as a type's `source` is.
+    pub source: serde_json::Value,
+}
+
+impl ValueType {
+    pub fn field(&self, name: &str) -> Option<&Attribute> {
+        self.fields.iter().find(|(n, _)| n == name).map(|(_, a)| a)
+    }
 }
 
 /// Whether a list of media types, as a file attribute or input declares
@@ -382,6 +407,8 @@ impl Library {
                         .and_then(|tt| tt.attribute(o))
                         .is_some_and(|back| back.many)
                 }),
+                // a value's fields are not timed in this slice (ADR-0254)
+                Declared::Value(_) => false,
             };
             if tracked {
                 out.push(n.clone());
@@ -458,6 +485,8 @@ pub struct Module {
     /// Its `migration`: what a publish of it maps (`flow-format.md` §4.16).
     pub migration: Migration,
     pub enumerations: Vec<(String, Vec<String>)>,
+    /// The values it declares (ADR-0254).
+    pub values: Vec<ValueType>,
     pub types: Vec<Type>,
     /// The observation kinds its types declare, by name.
     pub observation_kinds: Vec<String>,
@@ -1126,6 +1155,28 @@ impl Reader<'_> {
         {
             enumerations.push((n.clone(), self.names(Some(members))?));
         }
+        let mut values = Vec::new();
+        for (n, spec) in doc.get("values").map(Node::entries).unwrap_or_default() {
+            let mut fields = Vec::new();
+            for (f, field) in spec
+                .get("attributes")
+                .map(Node::entries)
+                .unwrap_or_default()
+            {
+                fields.push((f.clone(), self.attribute(field)?));
+            }
+            values.push(ValueType {
+                name: n.clone(),
+                module: name.to_string(),
+                description: spec
+                    .get("description")
+                    .and_then(Node::text)
+                    .unwrap_or_default()
+                    .to_string(),
+                fields,
+                source: spec.to_json(),
+            });
+        }
         let mut types = Vec::new();
         let mut observation_kinds = Vec::new();
         let mut kinds = Vec::new();
@@ -1188,6 +1239,7 @@ impl Reader<'_> {
             sequences,
             migration: self.migration(doc.get("migration"))?,
             enumerations,
+            values,
             types,
             observation_kinds,
             machines,
@@ -1385,6 +1437,8 @@ pub fn load_module(file: &str, text: &str) -> Result<Module, LoadError> {
 pub struct Library {
     pub types: BTreeMap<String, Type>,
     pub enumerations: BTreeMap<String, Vec<String>>,
+    /// The values the modules declare, by name (ADR-0254).
+    pub values: BTreeMap<String, ValueType>,
     /// The observation kinds the types declare, each also a type of its own.
     pub observation_kinds: BTreeSet<String>,
     /// The evaluators' functions the modules declare, in the order loaded.
@@ -2287,6 +2341,7 @@ impl Library {
                         .iter()
                         .map(|(n, _)| ("enumeration", n.as_str())),
                 )
+                .chain(m.values.iter().map(|v| ("value", v.name.as_str())))
                 .chain(m.machines.iter().map(|t| ("machine", t.name.as_str())));
             for (kind, n) in names {
                 if let Some(other) = owner.insert(n.to_string(), m.name.clone())
@@ -2296,7 +2351,7 @@ impl Library {
                         file: file.clone(),
                         line: declared_line(text, n),
                         message: format!(
-                            "the {kind} {n} is also declared by {other}; a store holds one type, enumeration or machine of a name (ADR-0163)"
+                            "the {kind} {n} is also declared by {other}; a store holds one type, enumeration, value or machine of a name (ADR-0163)"
                         ),
                     });
                 }
@@ -2328,6 +2383,9 @@ impl Library {
             for (n, members) in m.enumerations {
                 lib.enumerations.insert(n, members);
             }
+            for v in m.values {
+                lib.values.insert(v.name.clone(), v);
+            }
             for t in m.types {
                 if !m.observation_kinds.contains(&t.name) {
                     lib.declared.push(t.name.clone());
@@ -2354,6 +2412,28 @@ impl Library {
                     None => t
                         .beyond
                         .push(format!("the machine {name}, which no module declares")),
+                }
+            }
+        }
+        // an attribute or an input typed by a value names it, once every
+        // module, and so every value one may import, is read, and before a
+        // subtype inherits it (ADR-0254)
+        let values: BTreeSet<String> = lib.values.keys().cloned().collect();
+        let as_value = |d: &mut Declared| {
+            if let Declared::Scalar(n) = d
+                && values.contains(n.as_str())
+            {
+                let n = n.clone();
+                *d = Declared::Value(n);
+            }
+        };
+        for t in lib.types.values_mut() {
+            for (_, a) in &mut t.attributes {
+                as_value(&mut a.declared);
+            }
+            for (_, x) in &mut t.transitions {
+                for (_, i) in &mut x.inputs {
+                    as_value(&mut i.declared);
                 }
             }
         }
@@ -2414,6 +2494,33 @@ impl Library {
                     .strip_suffix("_id")
                     .and_then(|base| t.attribute(base))
                     .is_some_and(|r| matches!(r.declared, Declared::Reference(_)) && !r.many);
+                // nor the column a value's field is kept in (ADR-0254)
+                let field_clash = a.split_once("__").is_some_and(|(base, f)| {
+                    t.attribute(base).is_some_and(|v| match &v.declared {
+                        Declared::Value(vn) => {
+                            lib.values.get(vn).is_some_and(|vt| vt.field(f).is_some())
+                        }
+                        _ => false,
+                    })
+                });
+                if field_clash {
+                    let (file, line) = files
+                        .iter()
+                        .find(|(_, text)| {
+                            crate::source::name_of(text).as_deref() == Some(t.module.as_str())
+                        })
+                        .map_or((String::new(), 1), |(f, text)| {
+                            (f.clone(), declared_line(text, &t.name))
+                        });
+                    return Err(LoadError {
+                        file,
+                        line,
+                        message: format!(
+                            "{}.{a} is the column the store keeps a field of a value in; name the attribute otherwise (ADR-0254, as D578)",
+                            t.name
+                        ),
+                    });
+                }
                 if clash {
                     let (file, line) = files
                         .iter()

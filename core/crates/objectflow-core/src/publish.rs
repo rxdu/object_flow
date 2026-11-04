@@ -7997,6 +7997,71 @@ types:
         report
     }
 
+    /// A booking's days, a value of several fields, at the first version.
+    const DAYS_V1: &str = r#"
+module: spans
+categories: [live, closed]
+values:
+  DayRange:
+    description: A span of days.
+    attributes:
+      first: { type: date }
+      last: { type: date }
+types:
+  Span:
+    description: A span of time.
+    tracking: record
+    attributes:
+      label: { type: string }
+      days: { type: DayRange }
+    states:
+      OPEN: { description: Open., category: live }
+      CLOSED: { description: Ended., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label, days] }
+      close: { kind: external, from: OPEN, to: CLOSED }
+"#;
+
+    /// A version adding an optional attribute holding a value to a type with
+    /// objects publishes: the store makes its columns, the objects keep
+    /// their values and hold none of it, and a later request writes it
+    /// (ADR-0254 decision 6).
+    #[test]
+    fn a_version_adds_an_attribute_holding_a_value() {
+        let lib = Library::load(&[("spans.yaml".into(), DAYS_V1.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let days = json!({"first": "2026-11-02", "last": "2026-11-04"});
+        let span = created(&req(
+            &mut s,
+            "open",
+            ("Span", true),
+            json!({"label": "a", "days": days}),
+        ));
+        let v2 = DAYS_V1
+            .replace(
+                "      days: { type: DayRange }\n",
+                "      days: { type: DayRange }\n      later: { type: DayRange, optional: true }\n",
+            )
+            .replace(
+                "required_inputs: [label, days] }",
+                "required_inputs: [label, days], optional_inputs: [later] }",
+            );
+        spans_published(&mut s, &v2);
+        let held = |s: &Store, id: &str, a: &str| {
+            crate::wire::encode(&s.snapshot().unwrap().whole(id).unwrap().unwrap().attr(a))
+        };
+        assert_eq!(held(&s, &span, "days"), days);
+        assert_eq!(held(&s, &span, "later"), json!(null));
+        let later = json!({"first": "2026-12-01", "last": "2026-12-02"});
+        let next = created(&req(
+            &mut s,
+            "open",
+            ("Span", true),
+            json!({"label": "b", "days": days, "later": later}),
+        ));
+        assert_eq!(held(&s, &next, "later"), later);
+    }
+
     /// One source carries a store at the version that has a state a move
     /// maps and a store already past it: over the first the move carries
     /// the closed span into `CANCELLED`, and over the second the state map

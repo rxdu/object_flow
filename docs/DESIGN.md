@@ -289,7 +289,7 @@ One language serves guards, invariants, derived attributes, outcome values and f
 
 | Construct | Example |
 |---|---|
-| literals; attribute paths across relationships; `this`, `this_event`, `inputs.*`, `now` | `binding.delivery.state`, `inputs.qty` |
+| literals; attribute paths across relationships and into a value's fields; `this`, `this_event`, `inputs.*`, `now` | `binding.delivery.state`, `inputs.qty`, `days.first` |
 | comparison, membership; boolean logic and implication | `reason in CancellationReason`, `required implies count(p in photos) >= 1` |
 | `is null`, `is not null` — definite presence tests, never unknown | `s.unit is not null` |
 | `count`, `all`, `any`, `none`, `sum`, `min`, `max` over a relationship or a type, binding the element | `none(s in Service where s.unit == this and s.state != CANCELLED)`, `sum(l in lines: l.qty * l.unit_price)` |

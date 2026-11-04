@@ -73,7 +73,7 @@ FORMAT = ROOT / "docs/design/flow-format"
 EXAMPLES = FORMAT / "examples"
 CHECKER = ROOT / "scripts/check-syntax-doc.py"
 
-MODULE_ORDER = ["module", "imports", "publishing", "categories", "enumerations", "sequences", "evaluators", "machines", "types", "metrics", "migration"]
+MODULE_ORDER = ["module", "imports", "publishing", "categories", "enumerations", "values", "sequences", "evaluators", "machines", "types", "metrics", "migration"]
 COMBINED_ORDER = ["description", "input_metrics", "group_by", "expression", "flag_when"]
 MACHINE_ORDER = ["description", "requires", "states", "conditions", "transitions"]
 # names the text language gives a meaning in the same position (declaration-syntax.md §9.2, check 33)
@@ -276,6 +276,26 @@ def inherited(t, key, name):
 
 
 TAKEN = "_taken_by"     # on a member a transition's taken_by generates: the transition (ADR-0176)
+FIELDS = "_fields"      # beside an attribute or an input typed by a value: the value's fields (ADR-0254)
+
+
+def with_fields(t, values):
+    """A type's attributes and its transitions' declared inputs typed by a value `values` holds, each given the value's
+    fields beside it, so a module importing the type reads them too (ADR-0254), as the core's `with_fields`."""
+    if not values:
+        return t
+
+    def give(spec):
+        typ = spec.get("type") if isinstance(spec, dict) else None
+        fields = (values.get(typ) or {}).get("attributes") if isinstance(typ, str) else None
+        return dict(spec, **{FIELDS: fields}) if fields is not None else spec
+    t = dict(t)
+    if t.get("attributes"):
+        t["attributes"] = {n: give(s) for n, s in t["attributes"].items()}
+    if t.get("transitions"):
+        t["transitions"] = {xn: (dict(x, inputs={n: give(s) for n, s in x["inputs"].items()}) if x.get("inputs") else x)
+                            for xn, x in t["transitions"].items()}
+    return t
 
 
 def taken_by_names(xn):
@@ -355,8 +375,9 @@ def view(doc, library=None):
     machines = doc.get("machines") or {}
     kinds = {mn: machine_as_type(m) for mn, m in machines.items()}
     kinds.update({tn: bound(t, machines) for tn, t in (doc.get("types") or {}).items()})
-    kinds = {tn: with_taken_by(dict(t, transitions={xn: resolve_any(x, t.get("states"))
-                                                    for xn, x in (t.get("transitions") or {}).items()}))
+    kinds = {tn: with_fields(with_taken_by(dict(t, transitions={xn: resolve_any(x, t.get("states"))
+                                                                for xn, x in (t.get("transitions") or {}).items()})),
+                             doc.get("values") or {})
              for tn, t in kinds.items()}
     everything = dict(library or {})
     everything.update(kinds)
@@ -1920,6 +1941,36 @@ def previous_types(previous, file, library):
     return out
 
 
+def field_shapes(v):
+    """A value's fields as a version declares them: each field's type and whether it is optional, a description aside."""
+    return [(f, str((s or {}).get("type", "")), bool((s or {}).get("optional"))) for f, s in (v.get("attributes") or {}).items()]
+
+
+def value_pair_errors(prev, doc, old, new):
+    """What does not change between versions in this release (ADR-0254 decision 9): a published value's fields, and an
+    attribute's type to or from a value, which no store's table change yet carries; the core's `value_pair_errors`."""
+    was, now, out = prev.get("values") or {}, doc.get("values") or {}, []
+    for vn, v in now.items():
+        if vn in was and field_shapes(was[vn]) != field_shapes(v):
+            out.append((("values", vn, "attributes"), "names",
+                        f"the value {vn} changes its fields, as the version before declared them; a published value's "
+                        "fields do not change in this release (ADR-0254)"))
+    for tn, t in new.items():
+        ot = old.get(tn)
+        if ot is None:
+            continue
+        for a, spec in (t.get("attributes") or {}).items():
+            ospec = (ot.get("attributes") or {}).get(a)
+            if ospec is None:
+                continue
+            o, n = str(ospec.get("type", "")), str(spec.get("type", ""))
+            if o != n and (o.removesuffix("[]") in was or n.removesuffix("[]") in now):
+                out.append((("types", tn, "attributes", a, "type"), "names",
+                            f"{tn}.{a} changes its type from {o} to {n}; an attribute's type does not change to or from "
+                            "a value in this release (ADR-0254)"))
+    return out
+
+
 def migration_pair_errors(prev, doc, library, before=None, installed=False, moved=None, enum_renames=None,
                           enums_before=None):
     """This version against the one before it: every state it removes from a
@@ -1948,6 +1999,7 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
     enum_renames = own if enum_renames is None else enum_renames
     enums_before = set(prev.get("enumerations") or {}) if enums_before is None else enums_before
     fatal, notes = [], []
+    fatal += value_pair_errors(prev, doc, old, new)
     # an enumeration renamed: one the version before had, into a name it did not, since a rename does not merge two
     # enumerations (ADR-0247 decision 1)
     for was_named, now_named in sorted(own.items()):
@@ -2827,6 +2879,9 @@ def attribute_type(spec, enums):
     if ref:
         return ("objects", ref[:-2]) if ref.endswith("[]") else ("reference", ref)
     typ = str(spec.get("type", ""))
+    # a value of several fields, its fields as the view gives them (ADR-0254)
+    if isinstance(spec.get(FIELDS), dict):
+        return ("record", typ, spec[FIELDS])
     if typ.endswith("[]"):
         # a set of values, of its element's type, where it typed as nothing, so a set added, multiplied, ordered or
         # negated published and the core did not run it (the differential battery, 2026-10-15)
@@ -2854,6 +2909,8 @@ def type_text(k):
         return f"a member of {k[1]}"
     if k[0] == "state":
         return f"a state of {k[1]}"
+    if k[0] == "record":
+        return f"a {k[1]}"
     return {"int": "an int", "identity": "an identity", "actor_kind": "an actor kind"}.get(k[0], f"a {k[0]}")
 
 
@@ -3001,6 +3058,12 @@ class Typing:
                 self.fail(f"{b}.{m} names no state of {b}")
                 return None
             bt = self.of(base, tn, x, env, seen)
+            # a field of a value, of its own type (ADR-0254 decision 5)
+            if bt is not None and bt[0] == "record":
+                if m in bt[2]:
+                    return attribute_type(bt[2][m], self.enums)
+                self.fail(f"it reads {m} of a {bt[1]}, which has no field {m}")
+                return None
             if bt is not None and bt[0] == "reference":
                 why = self.undeclared(bt[1], m)
                 if why:
@@ -3220,11 +3283,13 @@ class Typing:
                     # an enumeration has no order, which the core did not run (the values audit's K-4)
                     self.fail(f"it orders {type_text(l if l is not None and l[0] == 'enumeration' else r)}, and an "
                               "enumeration has no order")
-                elif op not in ("==", "!=") and any(v is not None and v[0] in ("state", "values") for v in (l, r)):
+                elif op not in ("==", "!=") and any(v is not None and v[0] in ("state", "values", "record") for v in (l, r)):
                     # nor has a state or a set, which the core did not run and the runner ordered by name or crashed
-                    # on (the differential battery, 2026-10-15)
-                    v = l if l is not None and l[0] in ("state", "values") else r
-                    self.fail(f"it orders {type_text(v)}, and {'a state' if v[0] == 'state' else 'a set'} has no order")
+                    # on (the differential battery, 2026-10-15), nor a value of several fields, equal by its fields
+                    # alone (ADR-0254 decision 3)
+                    v = l if l is not None and l[0] in ("state", "values", "record") else r
+                    what = {"state": "a state", "record": "a value of several fields"}.get(v[0], "a set")
+                    self.fail(f"it orders {type_text(v)}, and {what} has no order")
                 return ("bool",)
             # a literal zero divisor, which no value has, and a date moved by a literal part of a day, which no date is,
             # each refused at run time on every object (the differential battery)
@@ -3386,6 +3451,11 @@ def typed_write_error(typing, t, step, tn, x, env, kinds, enums):
     if (target[0] == "values") != (got[0] == "values"):
         # a set holds a set and nothing else does, where either was written and the core refused it at run time (the
         # differential battery)
+        return f"{type_text(got)}, to {loc}, which holds {type_text(target)}: a write's value must fit its target"
+    # a value of several fields holds one of its own value, and nothing else holds one (ADR-0254 decision 5)
+    if target[0] == "record" or got[0] == "record":
+        if target[0] == got[0] == "record" and target[1] == got[1]:
+            return None
         return f"{type_text(got)}, to {loc}, which holds {type_text(target)}: a write's value must fit its target"
     product = tree[0] == "bin" and tree[1] in ("*", "/")
     if target[0] == "decimal" and target[1] is not None and got[0] in ("decimal", "number") and got[1] is not None \
@@ -4008,7 +4078,7 @@ def type_name_errors(doc):
     """Every type a module declares an attribute, a field, an input, a requirement or an argument of is built in, an
     enumeration the module declares, or a name it imports (flow-format.md §4.3): an unknown name was taken as some
     type nothing checked (D493)."""
-    known = set(BUILT_IN_TYPES) | {"counter"} | set(doc.get("enumerations") or {})
+    known = set(BUILT_IN_TYPES) | {"counter"} | set(doc.get("enumerations") or {}) | set(doc.get("values") or {})
     known |= {n for names in (doc.get("imports") or {}).values() for n in names}
     out = []
 
@@ -4018,7 +4088,7 @@ def type_name_errors(doc):
             base = re.match(r"[A-Za-z_][A-Za-z0-9_]*", typ)
             if base and base.group(0) not in known:
                 out.append((path + ("type",), "names", f"{path[-1]} is of the type {typ}, which is neither built in, nor an "
-                                                       "enumeration this module declares, nor a name it imports"))
+                                                       "enumeration or a value this module declares, nor a name it imports"))
 
     def members(section, path):
         for n, spec in (section or {}).items():
@@ -4055,6 +4125,93 @@ def decimal_errors(doc):
             for i, v in enumerate(node):
                 walk(v, path + (i,))
     walk(doc, ())
+    return out
+
+
+FIELD_TYPES = ("string", "bool", "int", "decimal", "money", "timestamp", "date", "duration")
+VALUE_MARKINGS = ("type", "optional", "description")
+
+
+def declared_value_errors(doc):
+    """A value's fields, and where a value may stand, in this release (ADR-0254 decisions 1, 2, 6 and 9): a field is one
+    value of a built-in type or an enumeration; an attribute of a type holds one value, marked only optional; a declared
+    input takes one, with no default; and no machine's requirement, observation's field or evaluator's argument is one.
+    No member is named for the column a field is kept in, as no attribute is named for a reference's (D578). The core's
+    `declared_value_errors`."""
+    values, out = doc.get("values") or {}, []
+    enums = set(doc.get("enumerations") or {})
+    for vn, v in values.items():
+        for f, spec in (v.get("attributes") or {}).items():
+            typ = str((spec or {}).get("type", ""))
+            head = re.match(r"[A-Za-z_][A-Za-z0-9_]*", typ)
+            head = head.group(0) if head else ""
+            if typ.endswith("[]") or not (head in FIELD_TYPES or head in enums):
+                out.append((("values", vn, "attributes", f, "type"), "names",
+                            f"the field {vn}.{f} is of the type {typ}, which a value's field does not take in this "
+                            "release: one string, bool, int, decimal, money, timestamp, date or duration, or a member of "
+                            "an enumeration this module declares (ADR-0254)"))
+    if not values:
+        return out
+
+    def value_of(spec):
+        typ = (spec or {}).get("type") if isinstance(spec, dict) else None
+        if not isinstance(typ, str) or typ.removesuffix("[]") not in values:
+            return None
+        return typ.removesuffix("[]"), typ.endswith("[]")
+    for kind in ("types", "machines"):
+        for tn, t in (doc.get(kind) or {}).items():
+            base = (kind, tn)
+            members = set(t.get("attributes") or {}) | set(t.get("derived_attributes") or {})
+            for a, spec in (t.get("attributes") or {}).items():
+                got = value_of(spec)
+                if got is None:
+                    continue
+                vn, many = got
+                at = base + ("attributes", a)
+                if kind == "machines":
+                    out.append((at, "names", f"the machine {tn} requires {a}, a {vn}; a machine requires no value in this "
+                                             "release (ADR-0254)"))
+                    continue
+                if many:
+                    out.append((at + ("type",), "names", f"{tn}.{a} is a set of {vn}; an attribute holds one value of "
+                                                         "several fields in this release (ADR-0254)"))
+                for k in sorted(k for k in spec if k not in VALUE_MARKINGS):
+                    out.append((at + (k,), "names", f"{tn}.{a} is a {vn}, which takes no {k} in this release (ADR-0254)"))
+                for f in values[vn].get("attributes") or {}:
+                    col = f"{a}__{f}"
+                    if col in members:
+                        out.append((base + ("attributes", col), "names",
+                                    f"{tn}.{col} is the column the store keeps the field {f} of {a} in; name the member "
+                                    "otherwise (ADR-0254, as D578)"))
+            for o, ob in (t.get("observations") or {}).items():
+                for f, spec in (ob.get("attributes") or {}).items():
+                    got = value_of(spec)
+                    if got is not None:
+                        out.append((base + ("observations", o, "attributes", f, "type"), "names",
+                                    f"the observation {o}'s field {f} is a {got[0]}; an observation records no value of "
+                                    "several fields in this release (ADR-0254)"))
+            for xn, x in (t.get("transitions") or {}).items():
+                for i, spec in (x.get("inputs") or {}).items():
+                    got = value_of(spec)
+                    if got is None:
+                        continue
+                    vn, many = got
+                    at = base + ("transitions", xn, "inputs", i)
+                    if many:
+                        out.append((at + ("type",), "names", f"{xn}'s input {i} is a set of {vn}; an input takes one value "
+                                                             "of several fields in this release (ADR-0254)"))
+                    for k in ("default", "personal", "media_types"):
+                        if k in spec:
+                            out.append((at + (k,), "names", f"{xn}'s input {i} is a {vn}, which takes no {k} in this "
+                                                            "release (ADR-0254)"))
+    for e, ev in (doc.get("evaluators") or {}).items():
+        for fn, f in (ev.get("functions") or {}).items():
+            for n, spec in (f.get("arguments") or {}).items():
+                got = value_of(spec)
+                if got is not None:
+                    out.append((("evaluators", e, "functions", fn, "arguments", n, "type"), "names",
+                                f"the argument {n} of {e}.{fn} is a {got[0]}; an evaluator takes no value of several "
+                                "fields in this release (ADR-0254)"))
     return out
 
 
@@ -4177,7 +4334,9 @@ def identifier_errors(doc, tn, t, library):
                 if target is None:
                     out.append((where + ("format",), "names", f"{tn}.{a}'s format reads {ph}, and {first['reference']} has no attribute '{hops[1]}'"))
                     continue
-            if not is_text(target):
+            # a value of several fields is no text a format writes (ADR-0254)
+            value = FIELDS in target or str(target.get("type", "")) in (doc.get("values") or {})
+            if not is_text(target) or value:
                 out.append((where + ("format",), "names", f"{tn}.{a}'s format reads {ph}, which is not a string or an enumeration"))
             elif optional(target) and depth == 0:
                 out.append((where + ("format",), "names", f"{tn}.{a}'s format reads {ph}, which is optional, outside [ … ]; a segment that may be absent goes in brackets"))
@@ -5429,6 +5588,14 @@ def to_text(doc, library=None):
     emit(f"category {', '.join(doc['categories'])}", ("categories",))
     for en, members in (doc.get("enumerations") or {}).items():
         emit(f"enum {en} version 1 {{ {', '.join(members)} }}", ("enumerations", en))
+    # a value of several fields, its fields each a field (ADR-0254, declaration-syntax.md §3.5)
+    for vn, v in (doc.get("values") or {}).items():
+        V = ("values", vn)
+        emit(f"# {v['description']}", V)
+        emit(f"value {vn} version 1 {{", V)
+        for fn, spec in (v.get("attributes") or {}).items():
+            emit(f"  field {fn} : {spec['type']}{'?' if optional(spec) else ''}", V + ("attributes", fn))
+        emit("}", V)
     for sq, spec in (doc.get("sequences") or {}).items():
         emit(f"# {spec['description']}", ("sequences", sq))
         emit(f"sequence {sq} version 1", ("sequences", sq))
@@ -5596,7 +5763,8 @@ def tracked_attributes(t, library):
     for a, spec in (t.get("attributes") or {}).items():
         spec = spec or {}
         typ, ref = str(spec.get("type", "")), str(spec.get("reference", ""))
-        if typ[:1].isupper() and not typ.endswith("[]"):
+        # an enumeration is tracked, and a value's fields are not (ADR-0254)
+        if typ[:1].isupper() and not typ.endswith("[]") and FIELDS not in spec:
             out.add(a)
         elif ref and not ref.endswith("[]"):
             far = ((library.get(ref) or {}).get("attributes") or {}).get(spec.get("opposite") or "") or {}
@@ -6355,7 +6523,13 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
                 if n not in declared[mod]:
                     found.append((f, line_of(idx, ("imports", mod)), "fatal", "names",
                                   f"imports '{n}' from {mod}, which does not declare it"))
-        mine = {n: k for k in ("enumerations", "sequences", "evaluators", "machines", "types") for n in (doc.get(k) or {})}
+                elif n in ((modules.get(mod) or {}).get("values") or {}):
+                    # a module uses the values it declares in this release (ADR-0254)
+                    found.append((f, line_of(idx, ("imports", mod)), "fatal", "names",
+                                  f"imports '{n}' from {mod}, a value, which a module uses where it is declared in this "
+                                  f"release; a type of {mod} holding it imports it with its fields (ADR-0254)"))
+        mine = {n: k for k in ("enumerations", "values", "sequences", "evaluators", "machines", "types")
+                for n in (doc.get(k) or {})}
         # a name is declared once across the closure: the modules this one imports, and theirs (the model's check 33)
         closure, todo = set(), [m for m in (doc.get("imports") or {}) if m in declared]
         while todo:
@@ -6380,12 +6554,12 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
                                   f"a version's approvers are declared alike by every module that declares them (ADR-0187)"))
                     break
             approvers[doc.get("module")] = kinds
-        held = {n for n, k in mine.items() if k in ("enumerations", "machines", "types")}
+        held = {n for n, k in mine.items() if k in ("enumerations", "values", "machines", "types")}
         for m in sorted(set(stored) - closure):
             for n in sorted(held & stored[m]):
                 found.append((f, line_of(idx, (mine[n], n)), "fatal", "names",
                               f"{n} is also declared by {m}, which is checked with this module; a store holds one "
-                              f"type, enumeration or machine of a name (ADR-0163)"))
+                              f"type, enumeration, value or machine of a name (ADR-0163)"))
         stored[doc["module"]] = held
         declared[doc["module"]] = set(mine)
         modules[doc["module"]] = doc
@@ -6401,7 +6575,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
             pair, pair_notes = migration_pair_errors(load(previous[f]) if previous.get(f) else {}, doc, library, before,
                                                      installed, moved, enum_renames, enums_before)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
-        for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + acts_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc)
+        for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + acts_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc) + declared_value_errors(doc)
                         + name_errors(v, library, ordered=False) + taken_by_errors(v) + column_errors(v)
                         + migration_errors(doc, v) + renamed_enumeration_errors(f, renames, enum_modules) + pair):
             p = back(p)
@@ -11285,6 +11459,75 @@ def actor_move_plants():
     return ok
 
 
+def value_plants():
+    """A value of several fields (ADR-0254): a module holding one is clean; a field read that the value lacks, whole
+    values ordered, another type written to one, a set of one, a marking it takes no part in, a field of a type no field
+    takes, a member named for a field's column, a value a machine requires, an observation records, an evaluator takes
+    or an input defaults, an imported value, and a version changing a value's fields or an attribute's type to or from
+    a value each refuse, naming why."""
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new)
+    base = ("module: bookings\ncategories: [live, closed]\nvalues:\n  DayRange:\n"
+            "    description: A span of days, its first no later than its last.\n    attributes:\n"
+            "      first: { type: date }\n      last: { type: date }\n      note: { type: string, optional: true }\n"
+            "types:\n  Booking:\n    description: A booking of some days, and a proposal of others.\n"
+            "    tracking: record\n    attributes:\n      days: { type: DayRange }\n"
+            "      proposed: { type: DayRange, optional: true }\n    states:\n"
+            "      OPEN: { description: Held., category: live }\n"
+            "      DONE: { description: Over., category: closed, final: true }\n    conditions:\n"
+            "      days_in_order: { description: The first day is no later than the last., "
+            "expression: days.first <= days.last, remedy: self_serviceable }\n    transitions:\n"
+            "      book: { kind: initial, to: OPEN, required_inputs: [days], guards: { days_in_order: deny } }\n"
+            "      propose: { kind: internal, from: [OPEN], required_inputs: [proposed] }\n"
+            "      accept:\n        kind: internal\n        from: [OPEN]\n        effect:\n"
+            "          - assign: { location: days, expr: proposed }\n          - clear: [proposed]\n"
+            "      finish: { kind: external, from: [OPEN], to: DONE }\n")
+    guard = "expression: days.first <= days.last"
+    cases = [
+        ("a value held and read", [("bookings.yaml", base)], None, []),
+        ("a field it lacks", [("bookings.yaml", p(base, guard, "expression: days.frist <= days.last"))], None,
+         ["condition days_in_order does not type: it reads frist of a DayRange, which has no field frist (the model's check 24)"]),
+        ("whole values ordered", [("bookings.yaml", p(base, guard, "expression: days <= proposed"))], None,
+         ["condition days_in_order does not type: it orders a DayRange, and a value of several fields has no order (the model's check 24)"]),
+        ("another type written to one", [("bookings.yaml", p(base, "expr: proposed }", "expr: proposed.first }"))], None,
+         ["Booking.accept writes proposed.first, a date, to days, which holds a DayRange: a write's value must fit its target (the model's check 17)"]),
+        ("a set of one", [("bookings.yaml", p(base, "      proposed: { type: DayRange, optional: true }\n", '      proposed: { type: "DayRange[]" }\n'))], None,
+         ["Booking.proposed is a set of DayRange; an attribute holds one value of several fields in this release (ADR-0254)"]),
+        ("a marking it takes no part in", [("bookings.yaml", p(base, "      days: { type: DayRange }\n", "      days: { type: DayRange, indexed: true }\n"))], None,
+         ["Booking.days is a DayRange, which takes no indexed in this release (ADR-0254)"]),
+        ("a field of a type no field takes", [("bookings.yaml", p(base, "      note: { type: string, optional: true }\n", "      note: { type: identity, optional: true }\n"))], None,
+         ["the field DayRange.note is of the type identity, which a value's field does not take in this release: one string, bool, int, decimal, money, timestamp, date or duration, or a member of an enumeration this module declares (ADR-0254)"]),
+        ("a member named for a field's column", [("bookings.yaml", p(base, "      proposed: { type: DayRange, optional: true }\n", "      proposed: { type: DayRange, optional: true }\n      days__last: { type: date, optional: true }\n"))], None,
+         ["Booking.days__last is the column the store keeps the field last of days in; name the member otherwise (ADR-0254, as D578)"]),
+        ("an input that defaults", [("bookings.yaml", p(base, "      propose: { kind: internal, from: [OPEN], required_inputs: [proposed] }\n",
+                                                       "      propose:\n        kind: internal\n        from: [OPEN]\n        inputs:\n          other: { type: DayRange, default: proposed }\n        effect:\n          - assign: { location: proposed, expr: inputs.other }\n"))], None,
+         ["propose's input other is a DayRange, which takes no default in this release (ADR-0254)"]),
+        ("a version changing a value's fields", [("bookings.yaml", p(base, "      note: { type: string, optional: true }\n", "      note: { type: string }\n"))], {"bookings.yaml": base},
+         ["the value DayRange changes its fields, as the version before declared them; a published value's fields do not change in this release (ADR-0254)"]),
+        ("a version changing an attribute to a value", [("bookings.yaml", base)],
+         {"bookings.yaml": p(p(base, "      proposed: { type: DayRange, optional: true }\n", "      proposed: { type: date, optional: true }\n"),
+                             "          - assign: { location: days, expr: proposed }\n", "")},
+         ["Booking.proposed changes its type from date to DayRange; an attribute's type does not change to or from a value in this release (ADR-0254)"]),
+    ]
+    holder = ("module: stays\nimports: { bookings: [Booking, DayRange] }\ncategories: [live, closed]\ntypes:\n  Stay:\n"
+              "    description: A stay at a booking.\n    tracking: record\n    attributes:\n"
+              "      booking: { reference: Booking }\n    states:\n      IN: { description: Staying., category: live }\n"
+              "      OUT: { description: Left., category: closed, final: true }\n    transitions:\n"
+              "      arrive: { kind: initial, to: IN, required_inputs: [booking] }\n"
+              "      leave: { kind: external, from: [IN], to: OUT }\n")
+    cases.append(("an imported value", [("bookings.yaml", base), ("stays.yaml", holder)], None,
+                  ["imports 'DayRange' from bookings, a value, which a module uses where it is declared in this release; a type of bookings holding it imports it with its fields (ADR-0254)"]))
+    ok = True
+    for name, files, previous, want in cases:
+        found, notes = check(files, previous)
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a value of several fields, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def moved_state_plants():
     """A move's state map naming a state the version before had renamed: a mistake in the source given `--previous`,
     fatal, and over a store's installed version left to the publish, which notices it (ADR-0252, issue #67)."""
@@ -11581,6 +11824,7 @@ def main():
     ok &= renamed_enumeration_plants()
     ok &= moved_state_plants()
     ok &= actor_move_plants()
+    ok &= value_plants()
     ok &= trim_plants()
     ok &= creation_read_plants()
     ok &= metric_plants(people)

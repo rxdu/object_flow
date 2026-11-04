@@ -88,6 +88,61 @@ fn resolve_any(x: &Value, states: Option<&Value>) -> Value {
 /// On a member a transition's `taken_by` generates: the transition
 /// (ADR-0176).
 pub(super) const TAKEN: &str = "_taken_by";
+/// Beside an attribute or an input typed by a value, the value's fields, as
+/// its module declares them, so a module importing the type reads them too
+/// (ADR-0254).
+pub(super) const FIELDS: &str = "_fields";
+
+/// A type's attributes and its transitions' declared inputs typed by a value
+/// `values` holds, each given the value's fields beside it (ADR-0254).
+fn with_fields(t: Value, values: &Obj) -> Value {
+    if values.is_empty() {
+        return t;
+    }
+    let give = |spec: &Value| -> Value {
+        let typ = spec.get("type").and_then(Value::as_str).unwrap_or_default();
+        match values.get(typ).and_then(|v| v.get("attributes")) {
+            Some(fields) => {
+                let mut s = as_obj(spec).clone();
+                s.insert(FIELDS.into(), fields.clone());
+                Value::Object(s)
+            }
+            None => spec.clone(),
+        }
+    };
+    let mut t = as_obj(&t).clone();
+    let attrs: Obj = obj(&Value::Object(t.clone()), "attributes")
+        .iter()
+        .map(|(n, spec)| (n.clone(), give(spec)))
+        .collect();
+    if !attrs.is_empty() {
+        t.insert(
+            "attributes".into(),
+            Value::Object(attrs.into_iter().collect()),
+        );
+    }
+    let transitions: Obj = obj(&Value::Object(t.clone()), "transitions")
+        .iter()
+        .map(|(xn, x)| {
+            let inputs: Obj = obj(x, "inputs")
+                .iter()
+                .map(|(n, s)| (n.clone(), give(s)))
+                .collect();
+            let mut x = as_obj(x).clone();
+            if !inputs.is_empty() {
+                x.insert("inputs".into(), Value::Object(inputs.into_iter().collect()));
+            }
+            (xn.clone(), Value::Object(x))
+        })
+        .collect();
+    if !transitions.is_empty() {
+        t.insert(
+            "transitions".into(),
+            Value::Object(transitions.into_iter().collect()),
+        );
+    }
+    Value::Object(t)
+}
 
 /// A transition's `taken_by`, its kinds of actor, where it has one.
 fn taken_kinds(x: &Value) -> Option<Vec<String>> {
@@ -339,7 +394,10 @@ impl View {
                     .collect();
                 let mut t = as_obj(&t).clone();
                 t.insert("transitions".into(), Value::Object(transitions));
-                (tn, with_taken_by(Value::Object(t)))
+                (
+                    tn,
+                    with_fields(with_taken_by(Value::Object(t)), obj(doc, "values")),
+                )
             })
             .collect();
         let mut everything = library.clone();

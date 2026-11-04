@@ -1048,3 +1048,9 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** On 2026-11-04, the commit for #58 staged `docs/design` as a directory, with `git add`, and took in the untracked `docs/design/jira-flows.html`, which is never committed. It was seen in the commit's file list before any push, and the commit was amended at the author's word.
 - **Correction:** Stage each changed file by name, from `git status --short`, and never a directory that holds `docs/design/jira-flows.html`. Read the commit's file list, `git show --stat`, before pushing it.
 - **Context:** this repository's working tree, where `docs/design/jira-flows.html` stays untracked.
+
+### A wider variant on a type a deep recursion returns overflows the test thread first
+- **Pattern:** On 2026-11-04 `Ty::Record(String, Obj)` was added to the checker's `Ty`, which `Typing::of` returns through every frame of its recursion over an expression. The enum grew from about 32 bytes to 56, and the checker oracle's test thread, with Rust's default 2 MiB stack, overflowed on a plant the service's threads checked without trouble. With `RUST_MIN_STACK` raised the same run passed, so it was depth, not a loop.
+- **Correction:** Box a large payload on a type a deep recursion holds in each frame, `Record(Box<(String, Obj)>)`, so the type stays as small as its other variants. A stack overflow that a larger `RUST_MIN_STACK` cures is a frame grown, to be found in the types the recursion returns and holds.
+- **Context:** The core's checker (`check/names.rs`), and any recursive Rust code tested on cargo's default test threads.
+

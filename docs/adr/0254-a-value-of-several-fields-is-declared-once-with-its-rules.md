@@ -1,6 +1,6 @@
 # ADR-0254: A value of several fields is declared once with its rules
 
-- **Status:** **Decided** 2026-11-04 under the author's direction ("go with your recommendations"), on the recommendation and five questions given the same day after researching issue #65's second and third cases. Not built yet: decision 9 names the first slice.
+- **Status:** **Decided** 2026-11-04 under the author's direction ("go with your recommendations"), on the recommendation and five questions given the same day after researching issue #65's second and third cases. Its first slice is being built: decisions 1 to 3, 5, 6 and 7 built 2026-11-04, decision 4's invariants next (`TODO.md`).
 - **Date:** 2026-11-04
 - **Relates to:** PRD C2 and M7 (a rule declared once), F10 (flows clearly described); issue #65; `docs/research/declaring-a-value-of-several-fields.md`; ADR-0251 (a creation's guard reads what the creation takes)
 

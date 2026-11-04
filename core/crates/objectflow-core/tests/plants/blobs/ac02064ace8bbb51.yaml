@@ -1,0 +1,15 @@
+module: stays
+imports: { bookings: [Booking, DayRange] }
+categories: [live, closed]
+types:
+  Stay:
+    description: A stay at a booking.
+    tracking: record
+    attributes:
+      booking: { reference: Booking }
+    states:
+      IN: { description: Staying., category: live }
+      OUT: { description: Left., category: closed, final: true }
+    transitions:
+      arrive: { kind: initial, to: IN, required_inputs: [booking] }
+      leave: { kind: external, from: [IN], to: OUT }

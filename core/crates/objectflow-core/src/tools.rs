@@ -76,10 +76,10 @@ fn snake(name: &str) -> String {
 }
 
 /// A scalar type's JSON Schema, in the wire's notation (ADR-0150 decision 2).
-fn scalar(typ: &str, enums: &BTreeMap<String, Vec<String>>) -> Map<String, Json> {
+fn scalar(typ: &str, lib: &Library) -> Map<String, Json> {
     let mut out = Map::new();
     out.insert("type".into(), json!("string"));
-    if let Some(members) = enums.get(typ) {
+    if let Some(members) = lib.enumerations.get(typ) {
         out.insert("enum".into(), json!(members));
     } else if typ == "actor_kind" {
         out.insert("enum".into(), json!(ACTOR_KINDS));
@@ -137,12 +137,7 @@ fn scalar(typ: &str, enums: &BTreeMap<String, Vec<String>>) -> Map<String, Json>
 
 /// An input's schema from what it declares: a reference or a type, one or
 /// a set, and the unit an observation's field is measured in.
-fn schema_of(
-    declared: &Declared,
-    many: bool,
-    unit: Option<&str>,
-    enums: &BTreeMap<String, Vec<String>>,
-) -> Json {
+fn schema_of(declared: &Declared, many: bool, unit: Option<&str>, lib: &Library) -> Json {
     match declared {
         Declared::Reference(target) if many => json!({
             "type": "array", "items": {"type": "string"}, "uniqueItems": true,
@@ -151,8 +146,27 @@ fn schema_of(
         Declared::Reference(target) => {
             json!({"type": "string", "description": format!("the {target}, by its id")})
         }
+        // a value as an object of its fields, each its own type (ADR-0254)
+        Declared::Value(v) => {
+            let fields = lib
+                .values
+                .get(v)
+                .map(|vt| vt.fields.as_slice())
+                .unwrap_or_default();
+            let props: Map<String, Json> = fields
+                .iter()
+                .map(|(f, a)| (f.clone(), schema_of(&a.declared, a.many, None, lib)))
+                .collect();
+            let required: Vec<&String> = fields
+                .iter()
+                .filter(|(_, a)| !a.optional)
+                .map(|(f, _)| f)
+                .collect();
+            json!({"type": "object", "properties": props, "required": required,
+                   "additionalProperties": false, "description": format!("a {v}, by its fields")})
+        }
         Declared::Scalar(typ) => {
-            let one = Json::Object(scalar(typ, enums));
+            let one = Json::Object(scalar(typ, lib));
             let mut out = if many {
                 json!({"type": "array", "items": one, "uniqueItems": true})
             } else {
@@ -169,7 +183,7 @@ fn schema_of(
 }
 
 /// An input written as the flow format writes it, an observation's field.
-fn schema_of_source(spec: &Json, enums: &BTreeMap<String, Vec<String>>) -> Json {
+fn schema_of_source(spec: &Json, lib: &Library) -> Json {
     let (text, reference) = match (spec.get("reference"), spec.get("type")) {
         (Some(r), _) => (r.as_str().unwrap_or_default(), true),
         (None, Some(t)) => (t.as_str().unwrap_or_default(), false),
@@ -186,24 +200,24 @@ fn schema_of_source(spec: &Json, enums: &BTreeMap<String, Vec<String>>) -> Json 
         &declared,
         many,
         spec.get("unit").and_then(Json::as_str),
-        enums,
+        lib,
     )
 }
 
 /// A transition's inputs, each an attribute it writes or an input it
 /// declares, and those a request must give.
-fn inputs_schema(t: &Type, x: &Transition, enums: &BTreeMap<String, Vec<String>>) -> Json {
+fn inputs_schema(t: &Type, x: &Transition, lib: &Library) -> Json {
     let mut props = Map::new();
     let mut required: BTreeSet<String> = x.required_inputs.iter().cloned().collect();
     for name in x.required_inputs.iter().chain(&x.optional_inputs) {
         let schema = t.attributes.iter().find(|(a, _)| a == name).map_or_else(
             || json!({"type": "string"}),
-            |(_, a)| schema_of(&a.declared, a.many, None, enums),
+            |(_, a)| schema_of(&a.declared, a.many, None, lib),
         );
         props.insert(name.clone(), schema);
     }
     for (name, i) in &x.inputs {
-        props.insert(name.clone(), schema_of(&i.declared, i.many, None, enums));
+        props.insert(name.clone(), schema_of(&i.declared, i.many, None, lib));
         if !i.optional && i.default.is_none() {
             required.insert(name.clone());
         }
@@ -345,7 +359,7 @@ fn transition_tool(
     xn: &str,
     t: &Type,
     x: &Transition,
-    enums: &BTreeMap<String, Vec<String>>,
+    lib: &Library,
     proposing: bool,
 ) -> Json {
     let creation = x.kind == Kind::Initial;
@@ -381,7 +395,7 @@ fn transition_tool(
             json!({"type": "boolean", "description": "file the request as a proposal a person approves, instead of taking it"}),
         );
     }
-    props.insert("inputs".into(), inputs_schema(t, x, enums));
+    props.insert("inputs".into(), inputs_schema(t, x, lib));
     let own = x.description.as_deref().map(str::trim).unwrap_or_default();
     let lead = if !own.is_empty() {
         own.to_string()
@@ -414,7 +428,7 @@ fn transition_tool(
                             "additionalProperties": false}})
 }
 
-fn observation_tool(tn: &str, ob: &Json, enums: &BTreeMap<String, Vec<String>>) -> Json {
+fn observation_tool(tn: &str, ob: &Json, lib: &Library) -> Json {
     let kind = ob.get("kind").and_then(Json::as_str).unwrap_or_default();
     let mut props = Map::new();
     props.insert(
@@ -424,7 +438,7 @@ fn observation_tool(tn: &str, ob: &Json, enums: &BTreeMap<String, Vec<String>>) 
     let mut required: BTreeSet<String> = BTreeSet::from(["subject".to_string()]);
     if let Some(fields) = ob.get("attributes").and_then(Json::as_object) {
         for (f, spec) in fields {
-            props.insert(f.clone(), schema_of_source(spec, enums));
+            props.insert(f.clone(), schema_of_source(spec, lib));
             if spec.get("optional").and_then(Json::as_bool) != Some(true) {
                 required.insert(f.clone());
             }
@@ -520,15 +534,15 @@ pub fn tools(lib: &Library, actor_kind: &str) -> Vec<Json> {
                 // refused, it is offered for proposing where it may be
                 // proposed (ADR-0176 decision 1)
                 if x.proposable {
-                    out.push(transition_tool(tn, xn, t, x, &lib.enumerations, true));
+                    out.push(transition_tool(tn, xn, t, x, lib, true));
                 }
                 continue;
             }
-            out.push(transition_tool(tn, xn, t, x, &lib.enumerations, false));
+            out.push(transition_tool(tn, xn, t, x, lib, false));
         }
         if let Some(obs) = t.source.get("observations").and_then(Json::as_object) {
             for ob in obs.values() {
-                out.push(observation_tool(tn, ob, &lib.enumerations));
+                out.push(observation_tool(tn, ob, lib));
             }
         }
     }

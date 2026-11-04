@@ -47,11 +47,18 @@ class Decl:
         self.generated = []     # an observation kind's generated `record` creation
 
 
+# the values every text checked declares, which no attribute's tracking reads (ADR-0254, §3.5)
+VALUES = set()
+
+
 def parse(text, base=0):
     decls, cur, lines = [], None, text.split("\n")
     i = 0
     while i < len(lines):
         raw, ln = lines[i], base + i
+        if m := re.match(r"^value\s+(\w+)", raw):    # a value's fields are its own, no member of a type (§3.5)
+            VALUES.add(m.group(1))
+            cur = None; i += 1; continue
         if m := re.match(r"^(observation|metric)\s+(\w+)(.*)$", raw):
             if "…" in raw:                     # elided placeholder
                 cur = None; i += 1; continue
@@ -198,7 +205,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
             out.append((51, f"continuation line not indented deeper than its clause: {st[:48]}", base + i))
 
     for i, raw in enumerate(text.split("\n")):
-        m = re.match(r"^(enum|sequence|evaluator|machine|type|observation|metric)\s+(\w+)(.*)$", raw)
+        m = re.match(r"^(enum|value|sequence|evaluator|machine|type|observation|metric)\s+(\w+)(.*)$", raw)
         if m and "…" not in raw and not re.search(r"\bversion\s+\d", m.group(3)):
             out.append((42, f"{m.group(1)} {m.group(2)} has no version", base + i))
 
@@ -860,7 +867,8 @@ def tracked(d, member, by_name):
     """An enum attribute or a singular stored relationship end (ADR-0083)."""
     if member in d.attrs:
         toks = d.attrs[member][0].split()
-        return bool(toks) and toks[0][:1].isupper() and "[]" not in toks[0]
+        # a value's fields are not timed (ADR-0254)
+        return bool(toks) and toks[0][:1].isupper() and "[]" not in toks[0] and toks[0].rstrip("?") not in VALUES
     if member in d.rels:
         rk, spec, _l = d.rels[member]
         return rk in ("ref", "owner") and (rk == "owner" or stores(d, spec, by_name))

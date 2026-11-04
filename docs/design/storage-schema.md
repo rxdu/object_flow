@@ -191,6 +191,7 @@ A numeric field's declared unit is metadata in `of_declaration`, not a column, s
 | `event` | `BIGINT` → `of_event.position` | `INTEGER` | which is what makes `changed_since([…], a.at_event)` a comparison of two integers |
 | `file` | `TEXT` | `TEXT`, the hash, size and media type as JSON | content-addressed; the store holds the reference, never the content (ADR-0017), and keeps no file table (§6) *(corrected 2026-10-15: it named `of_file` and `of_file_ref`, which the core never made)* |
 | `<T>[]` | a side table | a side table | §3.3 |
+| a value | `BIGINT`, 1 where it is held, and a column for each field, `<attribute>__<field>`, of the field's type | `INTEGER`, likewise | a required field is checked held wherever the value is, and an enumeration's field as an enumeration's column is (ADR-0254) |
 | `ref`/`owner`, singular and stored | column + foreign key, deferred to commit + index | same | the index is not optional; §5 |
 | `ref`/`part`, the derived end | **nothing** | **nothing** | it is a query against the other end's index |
 | `counter` | `BIGINT NOT NULL DEFAULT 0` | `INTEGER NOT NULL DEFAULT 0` | non-negativity is an invariant the type declares, not a property of the column (ADR-0072) |

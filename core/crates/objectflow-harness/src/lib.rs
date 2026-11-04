@@ -1489,6 +1489,24 @@ impl Actor<'_> {
         self.made += 1;
         let n = self.made;
         match d {
+            // a value of several fields, each field a value of its own type
+            // (ADR-0254)
+            Declared::Value(v) => {
+                let fields = world
+                    .lib
+                    .values
+                    .get(v)
+                    .map(|vt| vt.fields.clone())
+                    .unwrap_or_default();
+                let mut out = serde_json::Map::new();
+                for (f, a) in &fields {
+                    let one = self.value(world, &a.declared, a.many, personal);
+                    if !one.is_null() {
+                        out.insert(f.clone(), one);
+                    }
+                }
+                Json::Object(out)
+            }
             Declared::Reference(target) => {
                 let ids: Vec<String> = world
                     .of_type(target.trim_end_matches("[]"))

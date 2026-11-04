@@ -220,6 +220,32 @@ pub fn decode(
             .as_str()
             .map(|s| Value::Object(s.to_string()))
             .ok_or_else(wrong),
+        // an object of the value's fields, each decoded as its own type: a
+        // key no field has is another shape, and a required field left out
+        // is a value not written as its type is (ADR-0254)
+        Declared::Value(vt) => {
+            let (Some(decl), Json::Object(given)) = (lib.values.get(vt), v) else {
+                return Err(wrong());
+            };
+            if given.keys().any(|k| decl.field(k).is_none()) {
+                return Err(wrong());
+            }
+            let mut fields = std::collections::BTreeMap::new();
+            for (f, a) in &decl.fields {
+                let held = match given.get(f) {
+                    Some(x) => decode(x, &a.declared, a.many, lib)?,
+                    None => Value::Absent,
+                };
+                if held.is_absent() && !a.optional {
+                    return Err(malformed());
+                }
+                fields.insert(f.clone(), held);
+            }
+            Ok(Value::Record {
+                value_type: vt.clone(),
+                fields,
+            })
+        }
         Declared::Scalar(t) => {
             let t = scalar(t);
             if let Some(members) = lib.enumerations.get(t) {
@@ -436,6 +462,9 @@ pub fn encode(v: &Value) -> Json {
         } => json!({"hash": hash, "size": size, "media_type": media_type}),
         Value::Set(items) => Json::Array(items.iter().map(encode).collect()),
         Value::Row(fields) => {
+            Json::Object(fields.iter().map(|(k, v)| (k.clone(), encode(v))).collect())
+        }
+        Value::Record { fields, .. } => {
             Json::Object(fields.iter().map(|(k, v)| (k.clone(), encode(v))).collect())
         }
     }

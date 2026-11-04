@@ -64,6 +64,16 @@
         }
       }
     },
+    "values": {
+      "description": "Values of several fields, each declared once and named as the type of an attribute or a declared input; equal by its fields, with no id, state or events of its own (ADR-0254).",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/definitions/typeName"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/value"
+      }
+    },
     "sequences": {
       "description": "Named counters that mint identifiers (declaration-syntax.md §1, §3.1), by name.",
       "type": "object",
@@ -1144,7 +1154,7 @@
         "type": {
           "type": "string",
           "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\([A-Za-z0-9, ]+\\))?(\\[\\])?$",
-          "description": "A built-in type (string, bool, int, decimal(p,s) of 1 to 18 digits with its scale within them, money(ccy), timestamp, date, duration, identity, actor_kind, file) or the name of an enumeration the module declares or imports; or counter, an int never absent and zero at creation, on a type tracked by quantity."
+          "description": "A built-in type (string, bool, int, decimal(p,s) of 1 to 18 digits with its scale within them, money(ccy), timestamp, date, duration, identity, actor_kind, file), the name of an enumeration the module declares or imports, or the name of a value the module declares or imports (ADR-0254); or counter, an int never absent and zero at creation, on a type tracked by quantity."
         },
         "reference": {
           "type": "string",
@@ -1490,6 +1500,51 @@
         }
       }
     },
+    "value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "description",
+        "attributes"
+      ],
+      "properties": {
+        "description": {
+          "$ref": "#/definitions/description"
+        },
+        "attributes": {
+          "description": "Its fields, each a built-in type or an enumeration, in the order declared.",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/field"
+          }
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\([A-Za-z0-9, ]+\\))?(\\[\\])?$",
+          "description": "string, bool, int, decimal(p,s), money(ccy), timestamp, date or duration, or the name of an enumeration the module declares or imports."
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "true if the field may be without a value while the value is held; otherwise it always has one."
+        },
+        "description": {
+          "$ref": "#/definitions/description"
+        }
+      }
+    },
     "input": {
       "description": "A value the caller supplies with a request, recorded with the event and written only where an effect writes it.",
       "type": "object",
@@ -1498,7 +1553,7 @@
         "type": {
           "type": "string",
           "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\([A-Za-z0-9, ]+\\))?(\\[\\])?$",
-          "description": "A built-in type or an enumeration's name; [] makes the input a set."
+          "description": "A built-in type, an enumeration's name or a value's (ADR-0254); [] makes the input a set."
         },
         "reference": {
           "type": "string",

@@ -560,6 +560,14 @@ pub(crate) fn fit_value(declared: &Declared, many: bool, v: Value) -> Result<Val
                 wrong()
             };
         }
+        // a value is written whole, of its own value, its fields each fitted
+        // when it was decoded (ADR-0254)
+        Declared::Value(vt) => {
+            return match &v {
+                Value::Record { value_type, .. } if value_type == vt => Ok(v),
+                _ => wrong(),
+            };
+        }
         Declared::Scalar(ty) => ty.as_str(),
     };
     if let Some(rest) = ty.strip_prefix("decimal(") {
@@ -7778,6 +7786,127 @@ types:
             Verdict::Satisfied { object_id, .. } => object_id.clone(),
             other => panic!("{other:?}"),
         }
+    }
+
+    /// A booking's days and a proposal of others, each a value of one
+    /// `DayRange`, its fields read by a guard (ADR-0254).
+    const BOOKINGS: &str = r#"
+module: bookings
+categories: [live, closed]
+values:
+  DayRange:
+    description: A span of days, its first no later than its last.
+    attributes:
+      first: { type: date }
+      last: { type: date }
+      note: { type: string, optional: true }
+types:
+  Booking:
+    attributes:
+      days: { type: DayRange }
+      proposed: { type: DayRange, optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    conditions:
+      days_in_order: { expression: days.first <= days.last, remedy: self_serviceable }
+      proposed_in_order: { expression: inputs.proposed.first <= inputs.proposed.last, remedy: self_serviceable }
+    transitions:
+      book: { kind: initial, to: OPEN, required_inputs: [days], guards: { days_in_order: deny } }
+      propose: { kind: internal, from: [OPEN], required_inputs: [proposed], guards: { proposed_in_order: deny } }
+      accept:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - assign: { location: days, expr: proposed }
+          - clear: [proposed]
+"#;
+
+    /// A value of several fields is taken as an input whole, its fields
+    /// decoded each as its type, held across a restart of what is read,
+    /// read field by field by a guard, assigned whole from another of its
+    /// value and cleared, and answered as a nested object, an absent field
+    /// as null; an input of another shape, or lacking a required field, is
+    /// refused (ADR-0254 decisions 2, 5, 6 and 7).
+    #[test]
+    fn a_value_of_several_fields_is_held_and_read_by_its_fields() {
+        let lib = Library::load(&[("bookings.yaml".into(), BOOKINGS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let book = |s: &mut Store, days: Json| {
+            req(
+                s,
+                "book",
+                OPERATOR,
+                ("Booking", true),
+                json!({ "days": days }),
+            )
+        };
+        let b = created(&book(
+            &mut s,
+            json!({"first": "2026-11-02", "last": "2026-11-04"}),
+        ));
+        let held = |s: &Store, a: &str| {
+            let w = s.snapshot().unwrap();
+            crate::wire::encode(&w.whole(&b).unwrap().unwrap().attr(a))
+        };
+        assert_eq!(
+            held(&s, "days"),
+            json!({"first": "2026-11-02", "last": "2026-11-04", "note": null})
+        );
+        assert_eq!(held(&s, "proposed"), json!(null));
+        assert!(
+            matches!(book(&mut s, json!({"first": "2026-11-05", "last": "2026-11-04"})),
+                Verdict::Unsatisfied { ref clause, .. } if clause == "days_in_order"),
+            "the guard reads the value's fields"
+        );
+        for (given, reason) in [
+            (json!({"first": "2026-11-02"}), InputReason::Malformed),
+            (
+                json!({"first": "2026-11-02", "last": "2026-11-04", "end": "x"}),
+                InputReason::WrongType,
+            ),
+            (
+                json!({"first": "2 Nov", "last": "2026-11-04"}),
+                InputReason::Malformed,
+            ),
+            (json!("2026-11-02"), InputReason::WrongType),
+        ] {
+            assert_eq!(
+                book(&mut s, given.clone()),
+                Verdict::InvalidInput {
+                    inputs: vec!["days".into()],
+                    reasons: vec![reason]
+                },
+                "{given}"
+            );
+        }
+        let proposed = json!({"first": "2026-11-09", "last": "2026-11-12", "note": "longer"});
+        let v = req(
+            &mut s,
+            "propose",
+            OPERATOR,
+            (&b, false),
+            json!({ "proposed": proposed }),
+        );
+        assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+        assert_eq!(held(&s, "proposed"), proposed);
+        let v = req(
+            &mut s,
+            "propose",
+            OPERATOR,
+            (&b, false),
+            json!({ "proposed": {"first": "2026-11-12", "last": "2026-11-09"} }),
+        );
+        assert!(
+            matches!(v, Verdict::Unsatisfied { ref clause, .. } if clause == "proposed_in_order"),
+            "an input's fields are read: {v:?}"
+        );
+        assert!(matches!(
+            req(&mut s, "accept", OPERATOR, (&b, false), json!({})),
+            Verdict::Satisfied { .. }
+        ));
+        assert_eq!(held(&s, "days"), proposed, "assigned whole");
+        assert_eq!(held(&s, "proposed"), json!(null), "cleared whole");
     }
 
     /// A creation's guard reads a member the creation takes as an input as

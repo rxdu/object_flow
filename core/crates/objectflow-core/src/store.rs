@@ -926,6 +926,49 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
         }
         let col = column(n, a);
         let required = !a.optional && a.default.is_none() && base(&a.declared) != "counter";
+        // a value: whether it is held, and a column for each field, a
+        // required field held wherever the value is (ADR-0254 decision 6)
+        if matches!(a.declared, Declared::Value(_)) {
+            let mut def = format!("{} INTEGER", quote(&col));
+            if required && !relaxed {
+                def.push_str(" NOT NULL");
+            }
+            columns.push((col.clone(), def));
+            for (f, fa) in value_fields(lib, a) {
+                let fc = field_column(n, f);
+                columns.push((
+                    fc.clone(),
+                    format!("{} {}", quote(&fc), sql_type(&fa.declared)),
+                ));
+                if relaxed {
+                    continue;
+                }
+                if !fa.optional {
+                    constraints.push(format!(
+                        "CONSTRAINT {} CHECK ({} IS NULL OR {} IS NOT NULL)",
+                        quote(&format!("{name}_{fc}_held")),
+                        quote(&col),
+                        quote(&fc)
+                    ));
+                }
+                if let Declared::Scalar(e) = &fa.declared
+                    && let Some(members) = lib.enumerations.get(e)
+                {
+                    let ms = members
+                        .iter()
+                        .map(|m| literal(m))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    constraints.push(format!(
+                        "CONSTRAINT {} CHECK ({} IS NULL OR {} IN ({ms}))",
+                        quote(&format!("{name}_{fc}")),
+                        quote(&fc),
+                        quote(&fc)
+                    ));
+                }
+            }
+            continue;
+        }
         let mut def = format!("{} {}", quote(&col), sql_type(&a.declared));
         if base(&a.declared) == "counter" {
             def.push_str(" NOT NULL DEFAULT 0");
@@ -963,7 +1006,7 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
                     ));
                 }
             }
-            Declared::Reference(_) => {}
+            Declared::Reference(_) | Declared::Value(_) => {}
         }
         columns.push((col, def));
     }
@@ -2452,16 +2495,35 @@ fn literal(text: &str) -> String {
 
 fn base(declared: &Declared) -> &str {
     match declared {
-        Declared::Scalar(t) | Declared::Reference(t) => t,
+        Declared::Scalar(t) | Declared::Reference(t) | Declared::Value(t) => t,
     }
 }
 
 /// The column an attribute is stored in: its own name, or `<name>_id` for a
-/// reference (§3.2).
+/// reference (§3.2). A value's is whether it is held, its fields each in a
+/// column of its own ([`field_column`], ADR-0254 decision 6).
 fn column(name: &str, a: &Attribute) -> String {
     match a.declared {
         Declared::Reference(_) => format!("{name}_id"),
-        Declared::Scalar(_) => name.to_string(),
+        Declared::Scalar(_) | Declared::Value(_) => name.to_string(),
+    }
+}
+
+/// The column a field of a value an attribute holds is stored in
+/// (ADR-0254 decision 6).
+fn field_column(name: &str, field: &str) -> String {
+    format!("{name}__{field}")
+}
+
+/// The fields of the value an attribute holds, none for another attribute.
+fn value_fields<'l>(lib: &'l Library, a: &Attribute) -> &'l [(String, Attribute)] {
+    match &a.declared {
+        Declared::Value(v) => lib
+            .values
+            .get(v)
+            .map(|vt| vt.fields.as_slice())
+            .unwrap_or_default(),
+        _ => &[],
     }
 }
 
@@ -2485,6 +2547,12 @@ fn to_sql(v: &Value) -> Stored<Sql> {
         file @ Value::File { .. } => Sql::Text(crate::wire::encode(file).to_string()),
         Value::Set(_) => return Err(StoreError("a set in a column".to_string())),
         Value::Row(_) => return Err(StoreError("a row of flow data in a column".to_string())),
+        // a value is held in a column for each field (ADR-0254)
+        Value::Record { .. } => {
+            return Err(StoreError(
+                "a value of several fields in one column".to_string(),
+            ));
+        }
     })
 }
 
@@ -2520,6 +2588,8 @@ fn from_sql(v: Sql, declared: &Declared, lib: &Library) -> Stored<Value> {
             Sql::Text(s) => Ok(Value::Object(s.clone())),
             _ => Err(bad()),
         },
+        // a value is read from a column for each field (ADR-0254)
+        Declared::Value(_) => Err(bad()),
         Declared::Scalar(t) => {
             if lib.enumerations.contains_key(t.as_str()) {
                 return match &v {
@@ -2574,6 +2644,8 @@ fn from_sql(v: Sql, declared: &Declared, lib: &Library) -> Stored<Value> {
 fn sql_type(declared: &Declared) -> &'static str {
     match declared {
         Declared::Reference(_) => "TEXT",
+        // whether a value is held, 1 where it is (ADR-0254 decision 6)
+        Declared::Value(_) => "INTEGER",
         Declared::Scalar(t) => match t.as_str() {
             "bool" | "int" | "counter" | "duration" | "event" => "INTEGER",
             t if t.starts_with("decimal(") || t.starts_with("money(") => "INTEGER",
@@ -6862,18 +6934,22 @@ fn read_rows(
         cols.push("t.superseded_by".into());
     }
     let first = cols.len();
-    cols.extend(
-        scalars
-            .iter()
-            .map(|(n, a)| format!("t.{}", quote(&column(n, a)))),
-    );
+    // each attribute's column, a value's followed by its fields' (ADR-0254)
+    let read_cols: Vec<String> = scalars
+        .iter()
+        .flat_map(|(n, a)| {
+            std::iter::once(column(n, a))
+                .chain(value_fields(lib, a).iter().map(|(f, _)| field_column(n, f)))
+        })
+        .collect();
+    cols.extend(read_cols.iter().map(|c| format!("t.{}", quote(c))));
     let mut stmt = conn.prepare(&format!(
         "SELECT {} FROM {name} t JOIN of_object o ON o.id = t.id {of_row}",
         cols.join(", ")
     ))?;
     let read = stmt.query_map(crate::db::params_from_iter(&only), |r| {
         let mut values = Vec::new();
-        for i in 0..scalars.len() {
+        for i in 0..read_cols.len() {
             values.push(r.get::<_, Sql>(i + first)?);
         }
         Ok((
@@ -6908,7 +6984,27 @@ fn read_rows(
         let created_at = at(&created_at, "creation time")?;
         let recorded_from = at(&from, "recorded_from")?;
         let mut attrs = BTreeMap::new();
-        for ((n, a), v) in scalars.iter().zip(values) {
+        let mut values = values.into_iter();
+        for (n, a) in scalars.iter().map(|x| (&x.0, &x.1)) {
+            let v = values.next().unwrap_or(Sql::Null);
+            // a value where it is held, of its fields (ADR-0254 decision 6)
+            if let Declared::Value(vt) = &a.declared {
+                let mut fields = BTreeMap::new();
+                for (f, fa) in value_fields(lib, a) {
+                    let held = values.next().unwrap_or(Sql::Null);
+                    fields.insert(f.clone(), from_sql(held, &fa.declared, lib)?);
+                }
+                if !matches!(v, Sql::Null) {
+                    attrs.insert(
+                        n.clone(),
+                        Value::Record {
+                            value_type: vt.clone(),
+                            fields,
+                        },
+                    );
+                }
+                continue;
+            }
             let v = from_sql(v, &a.declared, lib)?;
             if !v.is_absent() {
                 attrs.insert(n.clone(), v);
@@ -7650,6 +7746,28 @@ fn write(
         }
         for (n, a) in &scalars {
             cols.push(quote(&column(n, a)));
+            // a value: whether it is held, and each field in its column
+            // (ADR-0254 decision 6)
+            if let Declared::Value(_) = &a.declared {
+                let held = o.attr(n);
+                let fields = match &held {
+                    Value::Record { fields, .. } => Some(fields),
+                    _ => None,
+                };
+                vals.push(if fields.is_some() {
+                    Sql::Integer(1)
+                } else {
+                    Sql::Null
+                });
+                for (f, _) in value_fields(lib, a) {
+                    cols.push(quote(&field_column(n, f)));
+                    vals.push(match fields.and_then(|fs| fs.get(f)) {
+                        Some(v) => to_sql(v)?,
+                        None => Sql::Null,
+                    });
+                }
+                continue;
+            }
             vals.push(to_sql(&o.attr(n))?);
         }
         if made {

@@ -228,6 +228,16 @@ impl Player<'_> {
             return self.alias(&py_str(v)).map(Json::from);
         }
         let typ = spec.get("type").map(py_str).unwrap_or_default();
+        // a value of several fields, written as a mapping of its fields, each
+        // as its own type (ADR-0254)
+        if let (Some(vt), Json::Object(given)) = (self.store.lib.values.get(&typ), v) {
+            let fields = vt.source.get("attributes").cloned().unwrap_or(Json::Null);
+            let mut out = serde_json::Map::new();
+            for (f, x) in given {
+                out.insert(f.clone(), self.wire_value(x, fields.get(f))?);
+            }
+            return Ok(Json::Object(out));
+        }
         if let Some(item) = typ.strip_suffix("[]") {
             let mut one = spec.clone();
             if let Some(o) = one.as_object_mut() {
@@ -888,6 +898,25 @@ impl Player<'_> {
         let typ = spec.get("type").map(py_str).unwrap_or_default();
         if spec.get("reference").is_some() || typ.ends_with("[]") {
             return Ok(self.wire_value(expected, Some(spec))? == *got);
+        }
+        // a value of several fields is its fields, each the same as its own
+        // type holds it, a field left out of the expectation absent (ADR-0254)
+        if let Some(vt) = self.store.lib.values.get(&typ) {
+            let (Json::Object(want), Json::Object(have)) = (expected, got) else {
+                return Ok(false);
+            };
+            if want.keys().any(|k| vt.field(k).is_none()) {
+                return Ok(false);
+            }
+            let fields = vt.source.get("attributes").cloned().unwrap_or(Json::Null);
+            for (f, _) in &vt.fields {
+                let e = want.get(f).unwrap_or(&Json::Null);
+                let g = have.get(f).unwrap_or(&Json::Null);
+                if !self.same(e, g, fields.get(f).unwrap_or(&Json::Null))? {
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
         }
         if typ == "timestamp" {
             let at = parse_timestamp(&self.instant(expected)?);

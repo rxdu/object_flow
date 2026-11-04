@@ -36,7 +36,7 @@ Every word in a description is one of two kinds, and the examples in this docume
 (step 2, `schema`)
 
 1. A name MUST be unique among the names of its section, and a type, machine, enumeration, sequence or evaluator MUST NOT share its name with one a module in its closure declares, the modules it imports and theirs (step 3, `names`; the model's check 33). A type, machine or enumeration MUST NOT share its name with one any module checked or loaded with it declares, since one store holds them all (step 3, `names`; ADR-0163). A repeated key is refused by step 1.
-2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `publishing`, `categories`, `enumerations`, `sequences`, `evaluators`, `machines`, `types`, `metrics` and `migration`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a metric declares, in this order, `description`, `measure`, `state`, `transition`, `source`, `item`, `split_by`, `filter`, `dimensions`, `group_by`, `time_dimension`, `expression` and `flag_when`, and a combined metric `description`, `input_metrics`, `group_by`, `expression` and `flag_when`; a type declares, in this order, `description`, `abstract`, `extends`, `mirror`, `tracking`, `state_machine`, `taken_by`, `attributes`, `inherited_parts`, `observations`, `states`, `derived_attributes`, `summary`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used, except that a cascade's `on` and an attribute's `survives`, and those of an entry in `inherited_parts`, name transitions of the type, which follow its attributes (step 3, `order`).
+2. **Every name MUST be defined before it is used.** A module declares, in this order, `module`, `imports`, `publishing`, `categories`, `enumerations`, `values`, `sequences`, `evaluators`, `machines`, `types`, `metrics` and `migration`; a machine declares, in this order, `description`, `requires`, `states`, `conditions` and `transitions`; a metric declares, in this order, `description`, `measure`, `state`, `transition`, `source`, `item`, `split_by`, `filter`, `dimensions`, `group_by`, `time_dimension`, `expression` and `flag_when`, and a combined metric `description`, `input_metrics`, `group_by`, `expression` and `flag_when`; a type declares, in this order, `description`, `abstract`, `extends`, `mirror`, `tracking`, `state_machine`, `taken_by`, `attributes`, `inherited_parts`, `observations`, `states`, `derived_attributes`, `summary`, `invariants`, `conditions`, `transitions` and `metrics`. The machines and types of a module form one group and MAY reference each other in any order, as related types must (ADR-0117); a reference MUST name a type the module declares or imports (step 3, `names`). Every other name is defined before it is used, except that a cascade's `on` and an attribute's `survives`, and those of an entry in `inherited_parts`, name transitions of the type, which follow its attributes (step 3, `order`).
 3. Reserved words of the text language MAY be used as names, as `declaration-syntax.md` §9.2 allows, with these exceptions (step 3, `names`):
    - a category MUST NOT be named `any`, `terminal` or `superseding`, and a transition MUST NOT be named `any` (the text language's check 33), nor `migrate`, `import` or `redact`, the names the engine's own events carry (`DESIGN.md` §7, ADR-0148);
    - an attribute, including an observation's, MUST NOT be named `state`, `inputs`, `actor`, `this`, `now`, `referrers` or `this_event`, since an expression resolves those words before any attribute;
@@ -51,10 +51,11 @@ Every word in a description is one of two kinds, and the examples in this docume
 | Key | Required | Value |
 |---|---|---|
 | `module` | yes | the module's name |
-| `imports` | no | a mapping from another module's name to the list of its types, enumerations, sequences, evaluators and machines this module uses; where that module is among the files checked, before this one, each name MUST be one it declares (step 3, `names`), and where it is not, step 3 reports an `imports` notice, since steps 2 and 3 cannot check what is imported from it; a module does not re-export the names it imports, so each name is imported from the module that declares it (ADR-0122) |
+| `imports` | no | a mapping from another module's name to the list of its types, enumerations, sequences, evaluators and machines this module uses, never a value (§4.20); where that module is among the files checked, before this one, each name MUST be one it declares (step 3, `names`), and where it is not, step 3 reports an `imports` notice, since steps 2 and 3 cannot check what is imported from it; a module does not re-export the names it imports, so each name is imported from the module that declares it (ADR-0122) |
 | `publishing` | no | `taken_by`: the kinds of actor that approve the store's next version, `[human]` or several (§4.1, ADR-0187) |
 | `categories` | yes | the list of state categories the module's states use. `closed` is in every vocabulary whether or not it is listed, and has the meaning `declaration-syntax.md` §1 gives it: work is open until it enters a `closed` or final state, which the standard metrics read. Any other category is a name the author chooses, such as `to_do` or `in_progress`, which an expression may read, as `state.category`, and to which the engine gives no meaning |
 | `enumerations` | no | a mapping from an enumeration's name to its list of values |
+| `values` | no | a mapping from a value's name to its declaration, a group of fields an attribute or an input names as its type (§4.20) |
 | `sequences` | no | a mapping from a sequence's name to its `description` (§4.12) |
 | `evaluators` | no | the systems outside the store a guard may ask (§4.18) |
 | `machines` | no | a mapping from a shared state machine's name to its declaration (§4.10) |
@@ -92,7 +93,7 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 
 | Key | Value |
 |---|---|
-| `type` | a built-in type (`string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `date`, `duration`, `identity`, `actor_kind`, `file`, `event`) or an enumeration's name, which the module declares or imports (step 3, `names`), `[]` making the attribute a set of values; or `counter`, on a type tracked by quantity (§4.17). A `decimal(p,s)` holds 1 to 18 digits, its scale within them, wherever a type is declared (step 3, `names`; ADR-0143) |
+| `type` | a built-in type (`string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `date`, `duration`, `identity`, `actor_kind`, `file`, `event`) or an enumeration's name, which the module declares or imports, or the name of a value the module declares (§4.20) (step 3, `names`), `[]` making the attribute a set of values; or `counter`, on a type tracked by quantity (§4.17). A `decimal(p,s)` holds 1 to 18 digits, its scale within them, wherever a type is declared (step 3, `names`; ADR-0143) |
 | `reference` | the name of a type the module declares or imports; `[]` makes the attribute a set of references |
 | `opposite` | the attribute of the referenced type that is the other end of this relationship (UML `Property::opposite`) |
 | `stored` | `true` on the one of two single ends that holds the value |
@@ -190,7 +191,7 @@ A **declared input** is a value the caller supplies that is not simply written t
 
 | Key | Value |
 |---|---|
-| `type` or `reference` | exactly one: a built-in type or an enumeration, or the type of object it names; `[]` makes it a set |
+| `type` or `reference` | exactly one: a built-in type, an enumeration or a value (§4.20), or the type of object it names; `[]` makes it a set |
 | `optional` | `true` if the caller MAY leave it out; a set is never optional, since an empty set is supplied instead (step 3, `names`) |
 | `personal` | `true` if erasure redacts it from every event that recorded it |
 | `media_types` | on a `file` or `file[]` input: the media types it takes, as an attribute's are (§4.3) |
@@ -620,6 +621,43 @@ merged_into:
 
 The successor is a required input that names an object, or a name a `create` step earlier at the top level of the effect binds, as a move creates the work item that supersedes the one it moves; never `this`. The `supersede` step is written once, at the top level of the effect and not inside a `foreach`, so every request of the transition names exactly one successor (step 3, `names`; the model's checks 26 and 49). **A successor given as an input is neither the object itself nor already superseded**: the generated guard `successor_not_superseded` refuses either when the request is made, with the remedy `self_serviceable` (ADR-0144). Only the data shows a chain that comes back on itself, since a module's types repeat, as a customer merged into a customer does. A transition's new state is written before its effect runs, so the guard also refuses a chain closed within one request, and every chain ends in one object not superseded, which `get(id, follow)` returns. *Corrected 2026-09-26, when this section said step 4 refuses "a cycle among the declared supersession targets", which no step did; ADR-0144 withdrew that clause from the model's check 26 on 2026-09-30.* Erasure reaches the whole group supersession joins, every object whose chain ends in the same survivor, through each member's own erasure, which §4.13 already requires of every type holding personal data, each receiving the requested erasure's inputs by name; the types a supersession joins that declare erasures MUST declare ones requiring the same inputs, by name, type and optionality, a type holding nothing personal declaring none and being passed over by the group's erasure, and a type MUST declare at most one erasure (step 3, `names`; the model's check 60; ADR-0146, ADR-0147); an assertion's `to` MUST NOT list a superseding state, a merge being a declared transition (step 3, `names`; the model's check 26). A superseded whole's parts are cascaded or survive its superseding transition as for any final transition (§4.3).
 
+### 4.20 Values
+
+A **value** is a group of fields a module declares once, which an attribute or a declared input names as its type. It is equal by its fields and has no id, state or events of its own, as UML's structured `DataType` (ADR-0254). Proposed dates beside the dates they would replace are two attributes of one value.
+
+| Key | Required | Value |
+|---|---|---|
+| `description` | yes | what the value is |
+| `attributes` | yes | its fields, at least one, each with a `type`, `optional` where it may be absent, and a `description`; a field's type is `string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `date`, `duration` or an enumeration the module declares (step 2, `schema`; step 3, `names`) |
+
+```yaml
+values:
+  DayRange:
+    description: A span of days, its first no later than its last.
+    attributes:
+      first: { type: date }
+      last:  { type: date }
+      note:  { type: string, optional: true }
+types:
+  Booking:
+    attributes:
+      days:     { type: DayRange }
+      proposed: { type: DayRange, optional: true }
+```
+
+A value is held whole: it is absent, or present with every field it requires. A request gives it as an object of its fields, each written as its type is (`guides/wire.md`). A key that names no field is refused `wrong_type`, and a required field left out `malformed`. An expression reads a field through its holder, as `days.first` or `inputs.proposed.first`. Two values of one declaration compare with `==` and `!=` alone (step 3, `names`; the model's check 24). An effect assigns a value whole from another of its declaration, and `clear` removes it whole (the model's check 17). An event's payload and every read answer a value as an object of its fields, an absent field as `null`.
+
+The store keeps each field in a column of the holder's table, `<attribute>__<field>`, beside a column saying whether the value is held (`storage-schema.md` §3.1). So no member is named `<attribute>__<field>` for a value it holds (step 3, `names`).
+
+**What this release takes** (ADR-0254 decision 9):
+- an attribute holding a value is marked `optional` alone, and is no set;
+- a declared input holding one takes no `default`, `personal` or `media_types`;
+- no machine's requirement, observation's field or evaluator's argument holds one;
+- a module uses the values it declares, and a type of another module holding one is imported with its fields;
+- a later version changes no published value's fields, and no attribute's type to or from a value.
+
+A value declares its fields alone in this release. A rule over its fields is a condition or an invariant of the type holding it.
+
 ## 5. Expressions
 
 An `expression` is written in the expression language of `declaration-syntax.md` §8, which this format does not change. It MUST NOT nest deeper than 64 levels, parentheses, `not`, `-`, `implies` and `if` each a level, and its tree MUST NOT be deeper than 128, a chain of 200 `or`s being 200 deep where a list of alternatives, `x in {a, b, …}`, is one (step 2, `syntax`; F1, since an unbounded expression exhausted the stack that parsed or evaluated it). Within it:
@@ -645,6 +683,7 @@ Each form converts to the text language as follows, and means what that declarat
 
 | Description | Text language |
 |---|---|
+| `values: { V: { description: d, attributes: { f: { type: T, optional: true } } } }` | `value V version 1 { field f : T? }`, an attribute `{ type: V }` written `attr a V` (`declaration-syntax.md` §3.5, ADR-0254) |
 | `observations: { o: { kind: K, attributes: …, max_recording_delay: d } }` on a type `T` | `observation K version <v> on T as o { field … occurred within d }`, whose generated `record` takes `subject`, the fields and an optional `corrects` (ADR-0146) |
 | `kind: initial`, `to: S` | `create <name> -> S` |
 | `kind: external`, `from: [A, B]`, `to: C` | `do <name> { A, B } -> C` |
@@ -778,7 +817,7 @@ These are open in `authoring-flows.md` §3 and §7, and an answer would change t
 
 These words are reserved by the format. `scripts/check-flow-format-doc.py` holds this list equal to the keys and values `flow.schema.json` and the checker define.
 
-**Keys:** `module`, `imports`, `publishing`, `categories`, `enumerations`, `sequences`, `evaluators`, `functions`, `arguments`, `fresh`, `machines`, `requires`, `state_machine`, `types`, `description`, `abstract`, `extends`, `mirror`, `tracking`, `attributes`, `inherited_parts`, `observations`, `states`, `derived_attributes`, `summary`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `superseding`, `acts`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `proposable`, `offered_on`, `taken_by`, `corrects`, `may_admit`, `optional`, `identifier`, `external`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `media_types`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `supersede`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `migration`, `removed_states`, `removed_members`, `renamed_enumerations`, `renamed_attributes`, `moved_types`, `retired_types`, `backfill`, `admit`, `invariant`, `reason`, `measure`, `source`, `split_by`, `filter`, `dimensions`, `time_dimension`, `input_metrics`, `state`, `transition`, `group_by`, `flag_when`.
+**Keys:** `module`, `imports`, `publishing`, `categories`, `enumerations`, `values`, `sequences`, `evaluators`, `functions`, `arguments`, `fresh`, `machines`, `requires`, `state_machine`, `types`, `description`, `abstract`, `extends`, `mirror`, `tracking`, `attributes`, `inherited_parts`, `observations`, `states`, `derived_attributes`, `summary`, `invariants`, `conditions`, `transitions`, `metrics`, `category`, `final`, `superseding`, `acts`, `required_attributes`, `type`, `reference`, `opposite`, `stored`, `aggregation`, `cascade`, `on`, `survives`, `only_via`, `proposable`, `offered_on`, `taken_by`, `corrects`, `may_admit`, `optional`, `identifier`, `external`, `sequence`, `scope`, `format`, `unique`, `with`, `indexed`, `personal`, `media_types`, `actor_kind`, `assignee`, `unit`, `kind`, `max_recording_delay`, `expression`, `remedy`, `from`, `to`, `required_inputs`, `optional_inputs`, `inputs`, `default`, `guards`, `effect`, `assign`, `location`, `expr`, `clear`, `add`, `remove`, `supersede`, `call`, `target`, `create`, `result`, `foreach`, `item`, `array`, `range`, `where`, `limit`, `steps`, `backdating_limit`, `migration`, `removed_states`, `removed_members`, `renamed_enumerations`, `renamed_attributes`, `moved_types`, `retired_types`, `backfill`, `admit`, `invariant`, `reason`, `measure`, `source`, `split_by`, `filter`, `dimensions`, `time_dimension`, `input_metrics`, `state`, `transition`, `group_by`, `flag_when`.
 
 **Values:** `true`, `false`, `closed`, `record`, `serial`, `quantity`, `human`, `agent`, `service`, `initial`, `external`, `internal`, `assertion`, `erasure`, `any`, `deny`, `audit`, `warn`, `self_serviceable`, `delegable`, `temporal`, `dependent`, `unreachable_from_here`, `median_time_in_state`, `transition_count`, `objects`, `intervals`, `transitions`, `attempts`, `attempt_counts`, `labels`, `composite`, `in_scope`, `month`, `week`, `actor`, `day`, `quarter`, `year`.
 
@@ -966,6 +1005,7 @@ The declaration model is defined in `declaration-syntax.md`; this table says, fo
 | Part of the model | `declaration-syntax.md` | This format |
 |---|---|---|
 | module, imports, categories, enumerations | §1 | written (§4.1) |
+| values of several fields, held by attributes and inputs | §3.5 | written (§4.20) |
 | sequences and identifiers minted from them | §1, §3.1 | written (§4.12) |
 | external evaluators | §1, §6.2 | written (§4.18) |
 | a type, its tracking mode and description | §2 | written (§4.2) |

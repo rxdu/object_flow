@@ -483,6 +483,17 @@ The test exchanges the two objects over the **whole** invariant, each derived at
 
 A traversal invariant may read through any relationship end, its far end declared or not: one end of every relationship stores the value and is always available to a filter (§3.1), so the write that breaks it finds the invariant through that end (ADR-0171). *(Until 2026-10-08 the far end had to be declared, check 4; ADR-0171 withdrew it.)*
 
+### 3.5 Values
+
+```text
+value <Name> version <v> {
+  field <name> : <type>[?]
+}
+attr <name> <Name>[?]
+```
+
+A **value** is a group of fields declared once, which an attribute names as its type. It is equal by its fields, with no id, state or events of its own (ADR-0254). A field holds one scalar of §3.1, but `identity` and `actor_kind`, or one member of an enum. An expression reads a field through its holder, `days.first`, and two values of one declaration compare with `==` and `!=` alone (check 24). An outcome sets a value whole from another of its declaration, and clears it whole (check 17). `flow-format.md` §4.20 writes it, and says what this release does not yet take.
+
 ## 4. Machines and transitions
 
 ```text

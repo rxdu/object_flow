@@ -408,6 +408,15 @@ pub fn timestamp_text(seconds: i64) -> String {
     )
 }
 
+/// About how many bytes the wire writes a row's or a value's fields in.
+fn fields_bytes(fields: &BTreeMap<String, Value>) -> usize {
+    fields
+        .iter()
+        .map(|(k, v)| k.len() + v.wire_bytes() + 4)
+        .sum::<usize>()
+        + 2
+}
+
 /// A value of the expression language (§8.1).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Value {
@@ -454,6 +463,13 @@ pub enum Value {
     /// Its fields are shared, so a metric copies a row by its reference
     /// and not field by field; a row is never changed once built.
     Row(std::sync::Arc<BTreeMap<String, Value>>),
+    /// A value of several fields, of the value a module declares, equal by
+    /// its fields: every field of it, one absent held as `Absent`
+    /// (ADR-0254).
+    Record {
+        value_type: String,
+        fields: BTreeMap<String, Value>,
+    },
 }
 
 impl Value {
@@ -473,13 +489,8 @@ impl Value {
                 hash, media_type, ..
             } => hash.len() + media_type.len() + 64,
             Value::Set(vs) => vs.iter().map(Value::wire_bytes).sum::<usize>() + vs.len() + 2,
-            Value::Row(fields) => {
-                fields
-                    .iter()
-                    .map(|(k, v)| k.len() + v.wire_bytes() + 4)
-                    .sum::<usize>()
-                    + 2
-            }
+            Value::Row(fields) => fields_bytes(fields),
+            Value::Record { fields, .. } => fields_bytes(fields),
             _ => 48,
         }
     }
@@ -504,6 +515,7 @@ impl Value {
             Value::File { .. } => "a file",
             Value::Set(_) => "a set",
             Value::Row(_) => "a row",
+            Value::Record { .. } => "a value of several fields",
         }
     }
 

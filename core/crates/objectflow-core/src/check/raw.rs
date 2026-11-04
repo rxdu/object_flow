@@ -22,6 +22,7 @@ const MODULE_ORDER: &[&str] = &[
     "publishing",
     "categories",
     "enumerations",
+    "values",
     "sequences",
     "evaluators",
     "machines",
@@ -867,6 +868,7 @@ pub fn type_name_errors(doc: &Value) -> Found {
     let mut known: BTreeSet<String> = BUILT_IN_TYPES.iter().map(|s| s.to_string()).collect();
     known.insert("counter".into());
     known.extend(keys(doc, "enumerations"));
+    known.extend(keys(doc, "values"));
     known.extend(imported(doc));
     let mut out = Found::new();
     let mut one = |spec: &Value, at: Path| {
@@ -882,7 +884,7 @@ pub fn type_name_errors(doc: &Value) -> Found {
                 ext(&at, segs!["type"]),
                 "names",
                 format!(
-                    "{last} is of the type {typ}, which is neither built in, nor an enumeration this module declares, nor a name it imports"
+                    "{last} is of the type {typ}, which is neither built in, nor an enumeration or a value this module declares, nor a name it imports"
                 ),
             ));
         }
@@ -914,6 +916,141 @@ pub fn type_name_errors(doc: &Value) -> Found {
         for (f, fun) in obj(ev, "functions") {
             for (n, spec) in obj(fun, "arguments") {
                 one(spec, segs!["evaluators", e, "functions", f, "arguments", n]);
+            }
+        }
+    }
+    out
+}
+
+/// What a value's field takes in this release (ADR-0254 decision 1).
+const FIELD_TYPES: &[&str] = &[
+    "string",
+    "bool",
+    "int",
+    "decimal",
+    "money",
+    "timestamp",
+    "date",
+    "duration",
+];
+
+/// What an attribute typed by a value takes beside its type in this
+/// release (ADR-0254 decision 9).
+const VALUE_MARKINGS: &[&str] = &["type", "optional", "description"];
+
+/// A value's fields, and where a value may stand, in this release
+/// (ADR-0254 decisions 1, 2, 6 and 9): a field is one value of a built-in
+/// type or an enumeration; an attribute of a type holds one value, marked
+/// only optional; a declared input takes one, with no default; and no
+/// machine's requirement, observation's field or evaluator's argument is
+/// one. No member is named for the column a field is kept in, as no
+/// attribute is named for a reference's (D578). `check-flows.py`'s
+/// `declared_value_errors`.
+pub fn declared_value_errors(doc: &Value) -> Found {
+    let values = obj(doc, "values");
+    let mut out = Found::new();
+    let enums: BTreeSet<String> = keys(doc, "enumerations").into_iter().collect();
+    for (vn, v) in values {
+        for (f, spec) in obj(v, "attributes") {
+            let typ = spec.get("type").map(py_str).unwrap_or_default();
+            let head = TYPE_HEAD
+                .find(&typ)
+                .map(|h| h.as_str().to_string())
+                .unwrap_or_default();
+            if typ.ends_with("[]")
+                || !(FIELD_TYPES.contains(&head.as_str()) || enums.contains(&head))
+            {
+                out.push(finding(
+                    segs!["values", vn, "attributes", f, "type"],
+                    "names",
+                    format!("the field {vn}.{f} is of the type {typ}, which a value's field does not take in this release: one string, bool, int, decimal, money, timestamp, date or duration, or a member of an enumeration this module declares (ADR-0254)"),
+                ));
+            }
+        }
+    }
+    if values.is_empty() {
+        return out;
+    }
+    let value_of = |spec: &Value| -> Option<(String, bool)> {
+        let typ = spec.get("type").map(py_str)?;
+        let base = typ.trim_end_matches("[]");
+        values
+            .contains_key(base)
+            .then(|| (base.to_string(), typ.ends_with("[]")))
+    };
+    for kind in ["types", "machines"] {
+        for (tn, t) in obj(doc, kind) {
+            let base = segs![kind, tn];
+            let members: BTreeSet<String> = keys(t, "attributes")
+                .into_iter()
+                .chain(keys(t, "derived_attributes"))
+                .collect();
+            for (a, spec) in obj(t, "attributes") {
+                let Some((vn, many)) = value_of(spec) else {
+                    continue;
+                };
+                let at = ext(&base, segs!["attributes", a]);
+                if kind == "machines" {
+                    out.push(finding(at, "names", format!("the machine {tn} requires {a}, a {vn}; a machine requires no value in this release (ADR-0254)")));
+                    continue;
+                }
+                if many {
+                    out.push(finding(ext(&at, segs!["type"]), "names", format!("{tn}.{a} is a set of {vn}; an attribute holds one value of several fields in this release (ADR-0254)")));
+                }
+                for k in super::doc::as_obj(spec)
+                    .keys()
+                    .filter(|k| !VALUE_MARKINGS.contains(&k.as_str()))
+                {
+                    out.push(finding(
+                        ext(&at, segs![k]),
+                        "names",
+                        format!(
+                            "{tn}.{a} is a {vn}, which takes no {k} in this release (ADR-0254)"
+                        ),
+                    ));
+                }
+                for f in keys(&values[&vn], "attributes") {
+                    let col = format!("{a}__{f}");
+                    if members.contains(&col) {
+                        out.push(finding(
+                            ext(&base, segs!["attributes", &col]),
+                            "names",
+                            format!("{tn}.{col} is the column the store keeps the field {f} of {a} in; name the member otherwise (ADR-0254, as D578)"),
+                        ));
+                    }
+                }
+            }
+            for (o, ob) in obj(t, "observations") {
+                for (f, spec) in obj(ob, "attributes") {
+                    if let Some((vn, _)) = value_of(spec) {
+                        out.push(finding(ext(&base, segs!["observations", o, "attributes", f, "type"]), "names", format!("the observation {o}'s field {f} is a {vn}; an observation records no value of several fields in this release (ADR-0254)")));
+                    }
+                }
+            }
+            for (xn, x) in obj(t, "transitions") {
+                for (i, spec) in obj(x, "inputs") {
+                    let Some((vn, many)) = value_of(spec) else {
+                        continue;
+                    };
+                    let at = ext(&base, segs!["transitions", xn, "inputs", i]);
+                    if many {
+                        out.push(finding(ext(&at, segs!["type"]), "names", format!("{xn}'s input {i} is a set of {vn}; an input takes one value of several fields in this release (ADR-0254)")));
+                    }
+                    for k in ["default", "personal", "media_types"] {
+                        if spec.get(k).is_some() {
+                            out.push(finding(ext(&at, segs![k]), "names", format!("{xn}'s input {i} is a {vn}, which takes no {k} in this release (ADR-0254)")));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for (e, ev) in obj(doc, "evaluators") {
+        for (f, fun) in obj(ev, "functions") {
+            for (n, spec) in obj(fun, "arguments") {
+                if let Some((vn, _)) = value_of(spec) {
+                    out.push(finding(segs!["evaluators", e, "functions", f, "arguments", n, "type"], "names", format!("the argument {n} of {e}.{f} is a {vn}; an evaluator takes no value of several fields in this release (ADR-0254)")));
+                }
             }
         }
     }

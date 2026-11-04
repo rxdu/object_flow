@@ -1610,6 +1610,8 @@ impl<'w> Reader<'w> {
                         Declared::Reference(r) if a.many => Kind::Objects(r.clone()),
                         Declared::Reference(r) => Kind::Object(r.clone()),
                         Declared::Scalar(s) => spec_kind(&json!({ "type": s })),
+                        // no metric reads a value whole (ADR-0254)
+                        Declared::Value(_) => Kind::Other,
                     });
                 }
                 if let Some((_, e)) = t.derived.iter().find(|(d, _)| d == m) {
@@ -3439,6 +3441,7 @@ metrics:
                 let what = match r {
                     crate::reads::Reads::Declared(Declared::Scalar(s)) => s,
                     crate::reads::Reads::Declared(Declared::Reference(t)) => format!("id of {t}"),
+                    crate::reads::Reads::Declared(Declared::Value(v)) => format!("value {v}"),
                     crate::reads::Reads::State(t) => format!("state of {t}"),
                 };
                 if many { format!("{what}[]") } else { what }

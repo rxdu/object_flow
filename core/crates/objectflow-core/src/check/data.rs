@@ -69,11 +69,19 @@ fn first_token(spec: &Value) -> String {
 }
 
 /// Whether a member is tracked, as the text checker decides it: an `attr`
-/// whose type is a name in capitals and not a set, or a stored single end.
-pub fn tracked(d: &Decl, member: &str, world: &BTreeMap<&str, &Decl>) -> bool {
+/// whose type is a name in capitals, not a set and not one of `values`, or
+/// a stored single end. A value's fields are not timed (ADR-0254).
+pub fn tracked(
+    d: &Decl,
+    member: &str,
+    world: &BTreeMap<&str, &Decl>,
+    values: &BTreeSet<String>,
+) -> bool {
     if let Some((_, spec)) = d.attrs.iter().find(|(a, _)| a == member) {
         let t = first_token(spec);
-        return t.chars().next().is_some_and(char::is_uppercase) && !t.contains("[]");
+        return t.chars().next().is_some_and(char::is_uppercase)
+            && !t.contains("[]")
+            && !values.contains(t.trim_end_matches('?'));
     }
     if let Some(r) = d.rels.iter().find(|r| r.name == member) {
         return matches!(r.kind, RelKind::Ref | RelKind::Owner)
@@ -85,6 +93,10 @@ pub fn tracked(d: &Decl, member: &str, world: &BTreeMap<&str, &Decl>) -> bool {
 /// The observation kinds and metrics of the modules.
 pub fn kinds_and_metrics(docs: &[Value]) -> (Vec<ObsD>, Vec<MetricD>) {
     let (mut kinds, mut metrics) = (Vec::new(), Vec::new());
+    let values: BTreeSet<String> = docs
+        .iter()
+        .flat_map(|d| super::doc::keys(d, "values"))
+        .collect();
     for (module, doc) in docs.iter().enumerate() {
         for (tn, t) in types(doc) {
             for (coll, ob) in obj(t, "observations") {
@@ -108,7 +120,7 @@ pub fn kinds_and_metrics(docs: &[Value]) -> (Vec<ObsD>, Vec<MetricD>) {
                 });
             }
             for (mn, m) in obj(t, "metrics") {
-                metrics.push(type_metric(&tn, t, mn, m, module));
+                metrics.push(type_metric(&tn, t, mn, m, module, &values));
             }
         }
         for (mn, m) in obj(doc, "metrics") {
@@ -147,7 +159,14 @@ pub fn kinds_and_metrics(docs: &[Value]) -> (Vec<ObsD>, Vec<MetricD>) {
 }
 
 /// A type's metric, its clauses as `metric_text` writes them.
-fn type_metric(tn: &str, t: &Value, mn: &str, m: &Value, module: usize) -> MetricD {
+fn type_metric(
+    tn: &str,
+    t: &Value,
+    mn: &str,
+    m: &Value,
+    module: usize,
+    values: &BTreeSet<String>,
+) -> MetricD {
     let at = segs!["types", tn, "metrics", mn];
     let flags: Vec<Clause> = obj(m, "flag_when")
         .iter()
@@ -228,7 +247,7 @@ fn type_metric(tn: &str, t: &Value, mn: &str, m: &Value, module: usize) -> Metri
                 "month" => format!("month({time})"),
                 "week" => format!("week({time})"),
                 "actor" => "t.actor_id".to_string(),
-                _ if tracked_yaml(t, d) => format!("{v}.held({d})"),
+                _ if tracked_yaml(t, d, values) => format!("{v}.held({d})"),
                 _ => format!("{v}.object.{d}"),
             };
             format!("{d} = {e}")
@@ -257,13 +276,16 @@ fn type_metric(tn: &str, t: &Value, mn: &str, m: &Value, module: usize) -> Metri
 
 /// `tracked_attributes` of `check-flows.py`: an enumeration attribute, or a
 /// single reference that stores its value, read from the type's YAML.
-fn tracked_yaml(t: &Value, a: &str) -> bool {
+fn tracked_yaml(t: &Value, a: &str, values: &BTreeSet<String>) -> bool {
     let Some(spec) = obj(t, "attributes").get(a) else {
         return false;
     };
     let typ = str_or(spec, "type", "");
     let reference = str_or(spec, "reference", "");
-    if typ.chars().next().is_some_and(char::is_uppercase) && !typ.ends_with("[]") {
+    if typ.chars().next().is_some_and(char::is_uppercase)
+        && !typ.ends_with("[]")
+        && !values.contains(&typ)
+    {
         return true;
     }
     !reference.is_empty()
@@ -386,6 +408,11 @@ fn body_texts(x: &Value) -> Vec<String> {
 #[allow(clippy::too_many_lines)]
 pub fn checks(docs: &[Value], all: &[Decl], world: &BTreeMap<&str, &Decl>, out: &mut Vec<Found4>) {
     let (kinds, metrics) = kinds_and_metrics(docs);
+    // the values the modules declare, whose attributes are not tracked
+    let values: BTreeSet<String> = docs
+        .iter()
+        .flat_map(|d| super::doc::keys(d, "values"))
+        .collect();
     let evaluators: BTreeSet<String> = docs
         .iter()
         .flat_map(|d| obj(d, "evaluators").keys().cloned().collect::<Vec<_>>())
@@ -535,7 +562,7 @@ pub fn checks(docs: &[Value], all: &[Decl], world: &BTreeMap<&str, &Decl>, out: 
                 );
             }
             if let (Some(mem), Some(SourceDecl::Type(sd))) = (&member, &src_decl)
-                && !tracked(sd, mem, world)
+                && !tracked(sd, mem, world, &values)
             {
                 add(
                     out,
@@ -773,7 +800,7 @@ pub fn checks(docs: &[Value], all: &[Decl], world: &BTreeMap<&str, &Decl>, out: 
                     }
                 }
                 for c in ENTERED_AT.captures_iter(txt) {
-                    if !states.contains(&c[1].to_string()) && !tracked(d, &c[1], world) {
+                    if !states.contains(&c[1].to_string()) && !tracked(d, &c[1], world, &values) {
                         add(
                             out,
                             58,

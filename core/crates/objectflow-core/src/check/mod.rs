@@ -65,6 +65,7 @@ pub struct Finding {
 /// The kinds of declaration a module names, by the key that holds them.
 const DECLARES: &[&str] = &[
     "enumerations",
+    "values",
     "sequences",
     "evaluators",
     "machines",
@@ -249,6 +250,9 @@ pub fn checked_as(
     let mut modules: Vec<(usize, crate::yaml::Node, Value)> = Vec::new();
     let mut parsed = 0usize;
     let mut declared: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // each module's values, which no other module imports in this release
+    // (ADR-0254)
+    let mut values_of: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     // each module that declares who approves a version, in the order
     // checked, with the kinds it declares, sorted (ADR-0187 decision 1)
     let mut approvers: Vec<(String, Vec<String>)> = Vec::new();
@@ -429,6 +433,15 @@ pub fn checked_as(
                         "names",
                         format!("imports '{n}' from {m}, which does not declare it"),
                     );
+                } else if values_of.get(m).is_some_and(|vs| vs.contains(n)) {
+                    fatal(
+                        found,
+                        at,
+                        "names",
+                        format!(
+                            "imports '{n}' from {m}, a value, which a module uses where it is declared in this release; a type of {m} holding it imports it with its fields (ADR-0254)"
+                        ),
+                    );
                 }
             }
         }
@@ -504,7 +517,7 @@ pub fn checked_as(
         // all: a type, an enumeration or a machine of a name once (ADR-0163)
         let held: BTreeSet<String> = mine
             .iter()
-            .filter(|(_, k)| matches!(**k, "enumerations" | "machines" | "types"))
+            .filter(|(_, k)| matches!(**k, "enumerations" | "values" | "machines" | "types"))
             .map(|(n, _)| n.clone())
             .collect();
         for (m, theirs) in &stored {
@@ -517,13 +530,17 @@ pub fn checked_as(
                     node.line_at(&[Seg::Key(mine[n].to_string()), Seg::Key(n.clone())]),
                     "names",
                     format!(
-                        "{n} is also declared by {m}, which is checked with this module; a store holds one type, enumeration or machine of a name (ADR-0163)"
+                        "{n} is also declared by {m}, which is checked with this module; a store holds one type, enumeration, value or machine of a name (ADR-0163)"
                     ),
                 );
             }
         }
         stored.insert(module.clone(), held);
         declared.insert(module.clone(), mine.keys().cloned().collect());
+        values_of.insert(
+            module.clone(),
+            doc::keys(&doc, "values").into_iter().collect(),
+        );
         uses.insert(module, imports.into_iter().map(|(m, _)| m).collect());
         // step 3: the module's names and relationships, over its view
         let v = view::View::new(&doc, &library);
@@ -584,6 +601,7 @@ pub fn checked_as(
             .chain(raw::acts_errors(&doc, &view_types))
             .chain(raw::decimal_errors(&doc))
             .chain(raw::type_name_errors(&doc))
+            .chain(raw::declared_value_errors(&doc))
             .chain(names::name_errors(&v.doc, &library))
             .chain(view::taken_by_errors(&v.doc))
             .chain(view::column_errors(&v.doc))

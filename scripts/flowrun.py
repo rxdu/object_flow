@@ -44,6 +44,27 @@ class _Absent:
 
 
 ABSENT = _Absent()
+
+# beside an attribute or an input typed by a value: the value's fields, as the checker's view gives them (ADR-0254)
+FIELDS = "_fields"
+
+
+class Record:
+    """A value of several fields (ADR-0254): of the value its module declares, equal by its fields, every field held, an
+    absent one ABSENT, as the core's Value::Record."""
+    __slots__ = ("value_type", "fields")
+
+    def __init__(self, value_type, fields):
+        self.value_type, self.fields = value_type, dict(fields)
+
+    def __eq__(self, other):
+        return isinstance(other, Record) and (self.value_type, self.fields) == (other.value_type, other.fields)
+
+    def __hash__(self):
+        return hash((self.value_type, tuple(sorted((k, repr(v)) for k, v in self.fields.items()))))
+
+    def __repr__(self):
+        return repr({k: (None if v is ABSENT else v) for k, v in self.fields.items()})
 SECONDS = {"s": 1, "min": 60, "h": 3600, "day": 86400, "days": 86400, "week": 604800, "weeks": 604800}
 EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 # the calendar a time is written in, 0001-01-01 to 9999-12-31T23:59:59Z, in seconds since 1970 (ADR-0190 decision 1)
@@ -273,6 +294,9 @@ def at_declared_scale(spec, v, oid=None):
         fits = number
     elif typ == "date":
         fits = is_date(v)
+    # a value of several fields holds one of its own value, whole (ADR-0254 decision 5)
+    elif FIELDS in (spec or {}):
+        fits = isinstance(v, Record) and v.value_type == typ
     elif typ[:1].isupper():
         fits = isinstance(v, tuple) and v[:1] == ("enum",) and v[1] == typ
     elif isinstance(v, tuple) and v[:1] == ("enum",):
@@ -944,6 +968,11 @@ class Evaluator:
             if m in ((self.s.kinds.get(base[1]) or {}).get("states") or {}):
                 return ("state", base[1], m)
             raise NotRunnable(f"`{base[1]}.{m}`")
+        # a field of a value its holder holds (ADR-0254 decision 5)
+        if isinstance(base, Record):
+            if m in base.fields:
+                return base.fields[m]
+            raise NotRunnable(f"the field `{m}` of a {base.value_type}")
         if isinstance(base, Row):
             if m == "actor_id" and m in base:
                 return self.actor_named(base[m])
@@ -2392,6 +2421,10 @@ class Runner:
                 return tuple(aliases[a] for a in v)
             return aliases[v]
         typ = spec.get("type", "")
+        # a value of several fields, written as a mapping of its fields, each as its own type, one left out absent
+        # (ADR-0254)
+        if isinstance(spec.get(FIELDS), dict) and isinstance(v, dict):
+            return Record(typ, {f: self.value_of(store, fs, v.get(f), aliases) for f, fs in spec[FIELDS].items()})
         if typ.endswith("[]"):
             return tuple(self.value_of(store, dict(spec, type=typ[:-2]), x, aliases) for x in v)
         if typ in self.enums:
@@ -4527,6 +4560,11 @@ def written(v, spec):
     by its hash, its size and its media type."""
     if isinstance(v, tuple) and len(v) == 4 and v[0] == "file":
         return f"the file {v[1][:19]}…, {v[2]} bytes of {v[3]}"
+    # a value of several fields, each field as its own type writes it, a date in ISO form (ADR-0254)
+    if isinstance(v, Record):
+        fields = (spec or {}).get(FIELDS) or {}
+        return {f: None if x is ABSENT else x.isoformat() if isinstance(x, datetime.date) else written(x, fields.get(f))
+                for f, x in v.fields.items()}
     if not isinstance(v, Fraction) or isinstance(v, bool):
         return v
     places = 0
@@ -4634,6 +4672,19 @@ def input_fault(spec, v, enums, kinds=None):
     if isinstance(v, WrongKind):
         return "wrong_type"
     spec = spec or {}
+    # an object of the value's fields, each as its own type: a key no field has is another shape, and a required field
+    # left out a value not written as its type is, as the core's decoder says (ADR-0254)
+    if isinstance(spec.get(FIELDS), dict):
+        fields = spec[FIELDS]
+        if not isinstance(v, dict) or any(k not in fields for k in v):
+            return "wrong_type"
+        for f, fs in fields.items():
+            why = input_fault(fs, v.get(f), enums, kinds)
+            if why:
+                return why
+            if v.get(f) is None and not (fs or {}).get("optional"):
+                return "malformed"
+        return None
     if "reference" in spec:
         items = v if isinstance(v, (list, tuple)) else [v]
         # whether it names an object of its type is checked later; a set never repeats an element

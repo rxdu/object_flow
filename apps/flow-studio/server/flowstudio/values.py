@@ -35,6 +35,9 @@ def type_of_spec(spec: dict | None, enums: dict) -> tuple:
         ref = spec["reference"]
         return ("set", ("ref",)) if ref.endswith("[]") else ("ref",)
     typ = str(spec.get("type", ""))
+    # a value of several fields, each field of its own type (ADR-0254)
+    if isinstance(spec.get(flowrun.FIELDS), dict):
+        return ("record", {f: type_of_spec(fs, enums) for f, fs in spec[flowrun.FIELDS].items()})
     if typ.endswith("[]"):
         return ("set", type_of_spec(dict(spec, type=typ[:-2]), enums))
     m = re.fullmatch(r"decimal\((\d+),\s*(\d+)\)", typ)
@@ -118,6 +121,11 @@ def encode(v: Any, typ: tuple) -> Any:
         return None
     if isinstance(v, bool):
         return v
+    # a value of several fields as an object of its fields, each as its own
+    # type writes it, an absent one null (ADR-0254 decision 7)
+    if isinstance(v, flowrun.Record):
+        fields = typ[1] if typ[0] == "record" else {}
+        return {f: encode(x, fields.get(f, ("unknown",))) for f, x in v.fields.items()}
     if isinstance(v, tuple) and v and v[0] == "state":
         return v[2]
     if isinstance(v, tuple) and v and v[0] == "enum":
@@ -161,6 +169,13 @@ def decode_input(v: Any, spec: dict | None, enums: dict) -> Any:
     typ = type_of_spec(spec, enums)
     if v is None:
         return None
+    # an object of the value's fields, each read as its own type; the runner
+    # refuses a key no field has (ADR-0254)
+    if typ[0] == "record":
+        if not isinstance(v, dict):
+            return flowrun.WrongKind(v)
+        fields = (spec or {}).get(flowrun.FIELDS) or {}
+        return {f: decode_input(x, fields.get(f), enums) for f, x in v.items()}
     if typ[0] == "set":
         if not isinstance(v, list):
             return flowrun.WrongKind(v)

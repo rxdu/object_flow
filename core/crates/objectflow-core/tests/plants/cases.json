@@ -9309,7 +9309,7 @@
     36,
     "fatal",
     "names",
-    "note_kind is of the type frobnicate, which is neither built in, nor an enumeration this module declares, nor a name it imports"
+    "note_kind is of the type frobnicate, which is neither built in, nor an enumeration or a value this module declares, nor a name it imports"
    ],
    [
     "customers.yaml",
@@ -12030,7 +12030,7 @@
     9,
     "fatal",
     "names",
-    "Service is also declared by people, which is checked with this module; a store holds one type, enumeration or machine of a name (ADR-0163)"
+    "Service is also declared by people, which is checked with this module; a store holds one type, enumeration, value or machine of a name (ADR-0163)"
    ]
   ],
   "analysed": {},
@@ -30378,6 +30378,374 @@
     "fatal",
     "names",
     "the migration moves Member to Account, an actor's type, which takes the objects of an actor's type alone (ADR-0253)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "value_plants: a value held and read",
+  "files": [
+   [
+    "bookings.yaml",
+    "abb72f0cf9f47299"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    29,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {
+   "Booking": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "value_plants: a field it lacks",
+  "files": [
+   [
+    "bookings.yaml",
+    "5cecffef7ec70865"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    21,
+    "fatal",
+    "names",
+    "condition days_in_order does not type: it reads frist of a DayRange, which has no field frist (the model's check 24)"
+   ],
+   [
+    "bookings.yaml",
+    29,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "value_plants: whole values ordered",
+  "files": [
+   [
+    "bookings.yaml",
+    "476de086eb6e04f8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    21,
+    "fatal",
+    "names",
+    "condition days_in_order does not type: it orders a DayRange, and a value of several fields has no order (the model's check 24)"
+   ],
+   [
+    "bookings.yaml",
+    23,
+    "notice",
+    "unknown",
+    "days_in_order can be unknown when book is requested, through proposed (Booking.proposed is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ],
+   [
+    "bookings.yaml",
+    29,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "value_plants: another type written to one",
+  "files": [
+   [
+    "bookings.yaml",
+    "9b40f1d0b4b22acb"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    29,
+    "fatal",
+    "names",
+    "Booking.accept writes proposed.first, a date, to days, which holds a DayRange: a write's value must fit its target (the model's check 17)"
+   ],
+   [
+    "bookings.yaml",
+    29,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "value_plants: a set of one",
+  "files": [
+   [
+    "bookings.yaml",
+    "aa18083bfe99e533"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    16,
+    "fatal",
+    "names",
+    "Booking.proposed is a set of DayRange; an attribute holds one value of several fields in this release (ADR-0254)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "value_plants: a marking it takes no part in",
+  "files": [
+   [
+    "bookings.yaml",
+    "582b5d8b35c48664"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    15,
+    "fatal",
+    "names",
+    "Booking.days is a DayRange, which takes no indexed in this release (ADR-0254)"
+   ],
+   [
+    "bookings.yaml",
+    29,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "value_plants: a field of a type no field takes",
+  "files": [
+   [
+    "bookings.yaml",
+    "a15c2fb76b7c4f10"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    9,
+    "fatal",
+    "names",
+    "the field DayRange.note is of the type identity, which a value's field does not take in this release: one string, bool, int, decimal, money, timestamp, date or duration, or a member of an enumeration this module declares (ADR-0254)"
+   ],
+   [
+    "bookings.yaml",
+    29,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "value_plants: a member named for a field's column",
+  "files": [
+   [
+    "bookings.yaml",
+    "de5f63cee4a5ddd9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    17,
+    "fatal",
+    "names",
+    "Booking.days__last is the column the store keeps the field last of days in; name the member otherwise (ADR-0254, as D578)"
+   ],
+   [
+    "bookings.yaml",
+    17,
+    "notice",
+    "unwritten",
+    "Booking.days__last is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "bookings.yaml",
+    30,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "value_plants: an input that defaults",
+  "files": [
+   [
+    "bookings.yaml",
+    "7931c809d9a155f8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    28,
+    "fatal",
+    "names",
+    "propose's input other is a DayRange, which takes no default in this release (ADR-0254)"
+   ],
+   [
+    "bookings.yaml",
+    35,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "value_plants: a version changing a value's fields",
+  "files": [
+   [
+    "bookings.yaml",
+    "e58735300bd75e4e"
+   ]
+  ],
+  "previous": {
+   "bookings.yaml": "abb72f0cf9f47299"
+  },
+  "findings": [
+   [
+    "bookings.yaml",
+    6,
+    "fatal",
+    "names",
+    "the value DayRange changes its fields, as the version before declared them; a published value's fields do not change in this release (ADR-0254)"
+   ],
+   [
+    "bookings.yaml",
+    29,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "value_plants: a version changing an attribute to a value",
+  "files": [
+   [
+    "bookings.yaml",
+    "abb72f0cf9f47299"
+   ]
+  ],
+  "previous": {
+   "bookings.yaml": "99a2fd03c3d9449a"
+  },
+  "findings": [
+   [
+    "bookings.yaml",
+    16,
+    "fatal",
+    "names",
+    "Booking.proposed changes its type from date to DayRange; an attribute's type does not change to or from a value in this release (ADR-0254)"
+   ],
+   [
+    "bookings.yaml",
+    16,
+    "notice",
+    "migration",
+    "Booking.proposed changed its type: that is a drop and an add of the same name, every object's value starting absent (ADR-0147)"
+   ],
+   [
+    "bookings.yaml",
+    29,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "value_plants: an imported value",
+  "files": [
+   [
+    "bookings.yaml",
+    "abb72f0cf9f47299"
+   ],
+   [
+    "stays.yaml",
+    "ac02064ace8bbb51"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    29,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ],
+   [
+    "stays.yaml",
+    2,
+    "fatal",
+    "names",
+    "imports 'DayRange' from bookings, a value, which a module uses where it is declared in this release; a type of bookings holding it imports it with its fields (ADR-0254)"
    ]
   ],
   "analysed": {},

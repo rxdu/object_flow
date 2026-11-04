@@ -3209,6 +3209,11 @@ enum Ty {
     State(String),
     /// A set of values, of its element's type (the differential battery).
     Values(Box<Ty>),
+    /// A value of several fields: its value's name, and each field's spec
+    /// as the view gives it beside the attribute (ADR-0254), boxed so a
+    /// type stays as small as the others, which the typing's recursion
+    /// holds in every frame.
+    Record(Box<(String, super::doc::Obj)>),
 }
 
 impl Ty {
@@ -3234,6 +3239,7 @@ impl Ty {
             Ty::Enumeration(_) => "enumeration",
             Ty::State(_) => "state",
             Ty::Values(_) => "values",
+            Ty::Record(..) => "value",
         }
     }
 
@@ -3256,6 +3262,7 @@ impl Ty {
             Ty::Enumeration(e) => format!("a member of {e}"),
             Ty::State(t) => format!("a state of {t}"),
             Ty::Int => "an int".into(),
+            Ty::Record(r) => format!("a {}", r.0),
             Ty::Identity => "an identity".into(),
             Ty::ActorKind => "an actor kind".into(),
             other => format!("a {}", other.tag()),
@@ -3284,6 +3291,13 @@ fn attribute_type(spec: Option<&Value>, enums: &BTreeSet<String>) -> Option<Ty> 
         });
     }
     let typ = spec.get("type").map(py_str).unwrap_or_default();
+    // a value of several fields, its fields as the view gives them (ADR-0254)
+    if let Some(Value::Object(fields)) = spec.get(super::view::FIELDS) {
+        return Some(Ty::Record(Box::new((
+            typ,
+            fields.clone().into_iter().collect(),
+        ))));
+    }
     // a set of values, of its element's type, where it typed as nothing, so
     // a set added, multiplied, ordered or negated published and was not run
     // (the differential battery, 2026-10-15)
@@ -3342,7 +3356,11 @@ fn tracked_attribute(t: &Value, a: &str, kinds: &Obj) -> bool {
     };
     let typ = str_or(spec, "type", "");
     let reference = str_or(spec, "reference", "");
-    if typ.chars().next().is_some_and(char::is_uppercase) && !typ.ends_with("[]") {
+    // an enumeration is tracked, and a value's fields are not (ADR-0254)
+    if typ.chars().next().is_some_and(char::is_uppercase)
+        && !typ.ends_with("[]")
+        && spec.get(super::view::FIELDS).is_none()
+    {
         return true;
     }
     if reference.is_empty() || reference.ends_with("[]") {
@@ -3696,6 +3714,14 @@ impl Typing<'_> {
                             None
                         }
                         None => self.member(&t, m, seen),
+                    },
+                    // a field of a value, of its own type (ADR-0254 decision 5)
+                    Some(Ty::Record(r)) => match r.1.get(m) {
+                        Some(f) => attribute_type(Some(f), self.enums),
+                        None => {
+                            self.fail(format!("it reads {m} of a {}, which has no field {m}", r.0));
+                            None
+                        }
                     },
                     Some(Ty::State(_)) if m == "category" => Some(Ty::Category),
                     Some(Ty::State(_)) => {
@@ -4142,18 +4168,19 @@ impl Typing<'_> {
                                 e.text()
                             ));
                         } else if !matches!(op, BinOp::Eq | BinOp::Ne)
-                            && let Some(v) = [&l, &r]
-                                .into_iter()
-                                .flatten()
-                                .find(|v| matches!(v, Ty::State(_) | Ty::Values(_)))
+                            && let Some(v) = [&l, &r].into_iter().flatten().find(|v| {
+                                matches!(v, Ty::State(_) | Ty::Values(_) | Ty::Record(..))
+                            })
                         {
                             // nor has a state or a set, which was not run and
                             // the runner ordered by name or crashed on (the
-                            // differential battery, 2026-10-15)
-                            let what = if matches!(v, Ty::State(_)) {
-                                "a state"
-                            } else {
-                                "a set"
+                            // differential battery, 2026-10-15), nor a value
+                            // of several fields, equal by its fields alone
+                            // (ADR-0254 decision 3)
+                            let what = match v {
+                                Ty::State(_) => "a state",
+                                Ty::Record(..) => "a value of several fields",
+                                _ => "a set",
                             };
                             self.fail(format!("it orders {}, and {what} has no order", v.text()));
                         }
@@ -4855,6 +4882,18 @@ fn typed_write_error(
             got.text(),
             target.text()
         ));
+    }
+    // a value of several fields holds one of its own value, and nothing
+    // else holds one (ADR-0254 decision 5)
+    if matches!(target, Ty::Record(..)) || matches!(got, Ty::Record(..)) {
+        return match (&target, &got) {
+            (Ty::Record(a), Ty::Record(b)) if a.0 == b.0 => None,
+            _ => Some(format!(
+                "{}, to {loc}, which holds {}: a write's value must fit its target",
+                got.text(),
+                target.text()
+            )),
+        };
     }
     let product = matches!(tree, Expr::Bin(BinOp::Mul | BinOp::Div, ..));
     let scale = match got {
@@ -6297,7 +6336,10 @@ fn identifier_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
                 };
                 target = tg.clone();
             }
-            if !is_text(&target) {
+            // a value of several fields is no text a format writes (ADR-0254)
+            let value = target.get(super::view::FIELDS).is_some()
+                || obj(doc, "values").contains_key(&str_or(&target, "type", ""));
+            if !is_text(&target) || value {
                 out.push(finding(
                     fw.clone(),
                     "names",

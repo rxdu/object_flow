@@ -715,6 +715,53 @@ pub fn previous_types(previous: &BTreeMap<String, String>, file: &str, library: 
     out
 }
 
+/// A value's fields as a version declares them: each field's type and
+/// whether it is optional, a description aside.
+fn field_shapes(v: &Value) -> Vec<(String, String, bool)> {
+    obj(v, "attributes")
+        .iter()
+        .map(|(f, s)| (f.clone(), str_or(s, "type", ""), flag(s, "optional")))
+        .collect()
+}
+
+/// What does not change between versions in this release (ADR-0254
+/// decision 9): a published value's fields, and an attribute's type to or
+/// from a value, which no store's table change yet carries
+/// (`check-flows.py`'s `value_pair_errors`).
+fn value_pair_errors(prev: &Value, doc: &Value, old: &Obj, new: &Obj) -> Found {
+    let (was, now) = (obj(prev, "values"), obj(doc, "values"));
+    let mut out = Found::new();
+    for (vn, v) in now {
+        if let Some(w) = was.get(vn)
+            && field_shapes(w) != field_shapes(v)
+        {
+            out.push(finding(
+                segs!["values", vn, "attributes"],
+                "names",
+                format!("the value {vn} changes its fields, as the version before declared them; a published value's fields do not change in this release (ADR-0254)"),
+            ));
+        }
+    }
+    for (tn, t) in new {
+        let Some(ot) = old.get(tn) else { continue };
+        for (a, spec) in obj(t, "attributes") {
+            let Some(ospec) = obj(ot, "attributes").get(a) else {
+                continue;
+            };
+            let (o, n) = (str_or(ospec, "type", ""), str_or(spec, "type", ""));
+            let valued = |typ: &str, values: &Obj| values.contains_key(typ.trim_end_matches("[]"));
+            if o != n && (valued(&o, was) || valued(&n, now)) {
+                out.push(finding(
+                    segs!["types", tn, "attributes", a, "type"],
+                    "names",
+                    format!("{tn}.{a} changes its type from {o} to {n}; an attribute's type does not change to or from a value in this release (ADR-0254)"),
+                ));
+            }
+        }
+    }
+    out
+}
+
 /// This version against the one before it (the model's checks 22 and 23),
 /// as fatal findings and notices. `before` holds the version before's types
 /// in its other modules, where a type this version moves is read when this
@@ -747,6 +794,7 @@ pub fn migration_pair_errors(
     let new = obj(&v.doc, "types").clone();
     let m = doc.get("migration").cloned().unwrap_or(Value::Null);
     let (mut fatal, mut notes) = (Found::new(), Found::new());
+    fatal.extend(value_pair_errors(prev, doc, &old, &new));
     let own: BTreeMap<String, String> = obj(&m, "renamed_enumerations")
         .iter()
         .map(|(o, n)| (o.clone(), py_str(n)))

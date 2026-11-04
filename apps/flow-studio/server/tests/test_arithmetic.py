@@ -569,3 +569,67 @@ def test_a_creations_guard_reads_what_it_takes_alike(tee):
     v = tee.post("/v1/request", {"transition": "change", "actor": OP, "object_id": grant, "inputs": {}})
     assert (v["kind"], v.get("clause")) == ("unsatisfied", "person_active"), v
     alike(tee)
+
+
+BOOKINGS = """module: bookings
+categories: [live, closed]
+values:
+  DayRange:
+    description: A span of days, its first no later than its last.
+    attributes:
+      first: { type: date }
+      last: { type: date }
+      note: { type: string, optional: true }
+types:
+  Booking:
+    description: A booking of some days, and a proposal of others.
+    tracking: record
+    attributes:
+      days: { type: DayRange }
+      proposed: { type: DayRange, optional: true }
+    states:
+      OPEN: { description: Held., category: live }
+      DONE: { description: Over., category: closed, final: true }
+    conditions:
+      days_in_order: { description: The first day is no later than the last., expression: days.first <= days.last, remedy: self_serviceable }
+      proposed_in_order: { description: The first day proposed is no later than the last., expression: inputs.proposed.first <= inputs.proposed.last, remedy: self_serviceable }
+    transitions:
+      book: { kind: initial, to: OPEN, required_inputs: [days], guards: { days_in_order: deny } }
+      propose: { kind: internal, from: [OPEN], required_inputs: [proposed], guards: { proposed_in_order: deny } }
+      accept:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - assign: { location: days, expr: proposed }
+          - clear: [proposed]
+      finish: { kind: external, from: [OPEN], to: DONE }
+"""
+
+
+def test_a_value_of_several_fields_is_held_and_read_alike(tee):
+    """A value of several fields is taken as an input whole, read field by
+    field by a guard, assigned whole and cleared, and answered as a nested
+    object, an absent field as null; an input of another shape, or lacking a
+    required field, is refused alike on both runners (ADR-0254)."""
+    tee.found.clear()
+    load(tee, "bookings", BOOKINGS)
+    b = made(tee, "Booking", "book", days={"first": "2026-11-02", "last": "2026-11-04"})
+    held = tee.post("/v1/get", {"id": b})["attributes"]
+    assert held["days"] == {"first": "2026-11-02", "last": "2026-11-04", "note": None}, held
+    assert held["proposed"] is None, held
+    v = tee.post("/v1/request", {"transition": "book", "actor": OP, "type": "Booking",
+                                 "inputs": {"days": {"first": "2026-11-05", "last": "2026-11-04"}}})
+    assert (v["kind"], v.get("clause")) == ("unsatisfied", "days_in_order"), v
+    for given, reason in [({"first": "2026-11-02"}, "malformed"),
+                          ({"first": "2026-11-02", "last": "2026-11-04", "end": "x"}, "wrong_type"),
+                          ({"first": "2 Nov", "last": "2026-11-04"}, "malformed"),
+                          ("2026-11-02", "wrong_type")]:
+        v = tee.post("/v1/request", {"transition": "book", "actor": OP, "type": "Booking", "inputs": {"days": given}})
+        assert (v["kind"], v.get("reasons")) == ("invalid_input", {"days": reason}), (given, v)
+    proposed = {"first": "2026-11-09", "last": "2026-11-12", "note": "longer"}
+    took(tee, b, "propose", proposed=proposed)
+    took(tee, b, "accept")
+    held = tee.post("/v1/get", {"id": b})["attributes"]
+    assert (held["days"], held["proposed"]) == (proposed, None), held
+    tee.post("/v1/history", {"id": b})
+    alike(tee)
