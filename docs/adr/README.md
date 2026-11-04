@@ -254,4 +254,5 @@
 | [0251](0251-a-creations-guard-reads-what-the-creation-takes.md) | A creation's guard reads a member the creation takes as the value supplied | Decided under the author's direction; built |
 | [0252](0252-a-moves-state-map-over-a-store-past-the-state-is-a-notice.md) | A move's state map naming a state the installed version lacks is a notice | Decided under the author's direction; built |
 | [0253](0253-a-move-renames-an-actors-type.md) | A move renames an actor's type, its actors kept | Decided under the author's direction; built |
+| [0254](0254-a-value-of-several-fields-is-declared-once-with-its-rules.md) | A value of several fields is declared once with its rules | Decided under the author's direction; its first slice to be built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |
