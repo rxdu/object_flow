@@ -30113,6 +30113,127 @@
   "installed": true
  },
  {
+  "label": "moved_attribute_plants: its attribute reading what the version before lacks",
+  "files": [
+   [
+    "spans.yaml",
+    "d059fd229f0d6ecc"
+   ]
+  ],
+  "previous": {
+   "spans.yaml": "a3ad67cf18c74dc4"
+  },
+  "findings": [
+   [
+    "spans.yaml",
+    21,
+    "fatal",
+    "names",
+    "the move of Span to Period reads 'sort'; a move reads the old object's own members and literals"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_attribute_plants: its attribute reading what the installed version lacks",
+  "files": [
+   [
+    "spans.yaml",
+    "d059fd229f0d6ecc"
+   ]
+  ],
+  "previous": {
+   "spans.yaml": "a3ad67cf18c74dc4"
+  },
+  "findings": [],
+  "analysed": {
+   "Period": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "installed": true
+ },
+ {
+  "label": "moved_attribute_plants: its where reading what the installed version lacks",
+  "files": [
+   [
+    "spans.yaml",
+    "9ef3fc9d016eff4d"
+   ]
+  ],
+  "previous": {
+   "spans.yaml": "a3ad67cf18c74dc4"
+  },
+  "findings": [
+   [
+    "spans.yaml",
+    21,
+    "fatal",
+    "names",
+    "the move of Span to Period reads 'sort'; a move reads the old object's own members and literals"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {},
+  "installed": true
+ },
+ {
+  "label": "moved_attribute_plants: leaving an attribute behind where the target adds one of its type",
+  "files": [
+   [
+    "spans.yaml",
+    "d401c6b36c90341f"
+   ]
+  ],
+  "previous": {
+   "spans.yaml": "5df393c359a6575a"
+  },
+  "findings": [
+   [
+    "spans.yaml",
+    21,
+    "notice",
+    "migration",
+    "the move of Span to Period leaves Span.sort behind, and Period.kind, of its type, takes nothing: if it is the same, give it in the move's attributes, or its values stay behind"
+   ]
+  ],
+  "analysed": {
+   "Period": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_attribute_plants: carrying the attribute by its name",
+  "files": [
+   [
+    "spans.yaml",
+    "d401c6b36c90341f"
+   ]
+  ],
+  "previous": {
+   "spans.yaml": "a3ad67cf18c74dc4"
+  },
+  "findings": [],
+  "analysed": {
+   "Period": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "actor_move_plants: the plain rename",
   "files": [
    [
@@ -30165,6 +30286,13 @@
     "fatal",
     "names",
     "the migration splits Member, an actor's type; an actor's type moves whole, by one entry without a where (ADR-0253)"
+   ],
+   [
+    "members.yaml",
+    31,
+    "notice",
+    "migration",
+    "the move of Member to Guest leaves Member.principal_id behind, and Guest.guest_id, of its type, takes nothing: if it is the same, give it in the move's attributes, or its values stay behind"
    ]
   ],
   "analysed": {},
@@ -30244,6 +30372,13 @@
     "fatal",
     "names",
     "the migration moves Member to Account, whose actors' identity is Account.login where it was Member.principal_id; a move keeps the identity's name (ADR-0253)"
+   ],
+   [
+    "members.yaml",
+    18,
+    "notice",
+    "migration",
+    "the move of Member to Account leaves Member.principal_id behind, and Account.login, of its type, takes nothing: if it is the same, give it in the move's attributes, or its values stay behind"
    ]
   ],
   "analysed": {},

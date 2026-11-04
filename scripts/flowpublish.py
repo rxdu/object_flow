@@ -412,7 +412,7 @@ def simulate(store, change_id, flows, actor):
         try:
             # the backfills the installed version ran, each run once on a store (ADR-0230 decision 4)
             ran = Version(flows, dict(store.source)).migration["backfill"] if store.source else {}
-            proposals_invalidated, installed = impact(store, new, found, actor, change_id, ran)
+            proposals_invalidated, installed = impact(store, new, found, actor, change_id, ran, flows.reads)
         except NotRunnable as e:
             if not refused:
                 raise
@@ -558,10 +558,19 @@ def fitted(spec, v, kind=None):
     return (tuple(out) if typ.endswith("[]") else out[0]), None
 
 
-def not_applicable(store, m, found):
-    """Each rename, removed state, removed member and move's mapped state naming what the installed version lacks, a
-    notice: the entry has nothing to act on, and changes nothing (ADR-0230 decision 2, ADR-0252), as the core's
-    `not_applicable`."""
+def lacked(ot, expr, reads):
+    """The members a move's expression for one attribute reads, as the checker reads them, that the old type `ot`
+    lacks: over a store whose installed version lacks one, the entry gives the attribute nothing, and the move carries
+    it by its name (ADR-0256 decision 1), as the core's `lacked`. A move reads the old object's own members and the
+    checker's BACKFILL_READS."""
+    members = set(ot.get("attributes") or {}) | set(ot.get("derived_attributes") or {}) | {"state", "this"}
+    return sorted(reads(expr) - members)
+
+
+def not_applicable(store, m, found, reads):
+    """Each rename, removed state, removed member, move's mapped state and move's attribute naming what the installed
+    version lacks, a notice: the entry has nothing to act on, and changes nothing (ADR-0230 decision 2, ADR-0252,
+    ADR-0256), as the core's `not_applicable`."""
     v = store.version
 
     def held(tn):
@@ -589,6 +598,15 @@ def not_applicable(store, m, found):
             found.add("notice", f"migration_not_applicable:moved_types:{tn}.{st}",
                       f"the move of {tn} maps {tn}.{st}, which the installed version, {v}, does not have: the entry "
                       "carries nothing for it")
+        # a move's attribute reading what the installed old type lacks, over a store already past it, gives nothing,
+        # and the attribute is carried by its name (ADR-0256 decision 1)
+        for e in entries or ():
+            for a, x in (e.get("attributes") or {}).items():
+                lacks = lacked(t, x, reads)
+                if lacks:
+                    found.add("notice", f"migration_not_applicable:moved_types:{tn}.{e['to']}.{a}",
+                              f"the move of {tn} to {e['to']} gives {a} from {', '.join(lacks)}, which the installed "
+                              f"version, {v}, does not have: the entry gives it nothing, and {a} is carried by its name")
     # an enumeration rename over a store whose installed version lacks the old one renames nothing (ADR-0247)
     for old in m["renamed_enumerations"]:
         if old not in store.enums:
@@ -605,7 +623,41 @@ def not_applicable(store, m, found):
                           "moves nothing")
 
 
-def moves(store, sim, kinds, retired, m, found):
+def moved_attribute_notices(store, kinds, retired, m, found, reads):
+    """A move leaving an old attribute behind, carried into no attribute of its target and given from none, where the
+    target has an attribute of its type that takes nothing: noticed as the same drop in place is, which may be a rename
+    (ADR-0256 decision 4), as the core's `moved_attribute_notices`. Read over the installed old type, so an entry giving
+    from what it lacks gives nothing here either."""
+    for tn, entries in m["moved_types"].items():
+        ot = store.kinds.get(tn)
+        if ot is None or ot.get("_retired"):
+            continue
+        oattrs = ot.get("attributes") or {}
+        for e in entries or ():
+            to = e["to"]
+            nt = kinds.get(to)
+            if nt is None or to in retired:
+                continue
+            given = e.get("attributes") or {}
+            gives = {a for a, x in given.items() if not lacked(ot, x, reads)}
+            read = set().union(*(reads(given[a]) for a in gives))
+
+            def carried(a, spec):
+                was = oattrs.get(a)
+                return was is not None and (declared_as(was) == declared_as(spec) or carries(m, was or {}, spec or {}))
+            for d, was in oattrs.items():
+                if derived_end(was or {}) or d in read or (d in (nt.get("attributes") or {}) and carried(d, nt["attributes"][d])):
+                    continue
+                alike = [f"{to}.{a}" for a, spec in (nt.get("attributes") or {}).items()
+                         if not derived_end(spec or {}) and a not in gives and not carried(a, spec)
+                         and declared_as(spec) == declared_as(was)]
+                if alike:
+                    found.add("notice", f"possible_rename:{tn}.{d}",
+                              f"the move of {tn} to {to} leaves {tn}.{d} behind where {', '.join(alike)}, of its type, "
+                              "takes nothing, which may be a rename")
+
+
+def moves(store, sim, kinds, retired, m, found, reads):
     """Each object of a type the version moves, put into the simulation as its entry leaves it: an object of the
     entry's type, its id kept, its attributes given or carried, its state mapped (ADR-0229 decisions 2 and 3). Read
     under the new version, where the old type stands retired, so an entry's expressions read the old object and the
@@ -665,7 +717,9 @@ def moves(store, sim, kinds, retired, m, found):
                 if derived_end(spec) or (o.erased and spec.get("personal")):
                     continue
                 was = (ot.get("attributes") or {}).get(a)
-                if a in given:
+                # an expression reading what the installed old type lacks gives nothing, `not_applicable`'s notice
+                # (ADR-0256)
+                if a in given and not lacked(ot, given[a], reads):
                     # fitted to the target's attribute, one it cannot hold refusing the publish, as the core's
                     tree = flowrun.parsed(str(given[a]))
                     v, why = fitted(spec, renamed_member(m, ev.value(tree, {})), ev.held_kind(tree, ev.kinds_here({}), {}))
@@ -720,10 +774,12 @@ def declared_as(spec):
     return t.removesuffix("[]"), t.endswith("[]")
 
 
-def impact(store, new, found, actor, change_id, ran=None):
+def impact(store, new, found, actor, change_id, ran=None, reads=None):
     """Steps 2 and 3 (publish-and-import.md §1): every object as the mappings leave it, read under the new version,
     into the report's categories; returns how many pending proposals the version invalidates. `ran` holds the
-    backfills the installed version ran, by type and attribute."""
+    backfills the installed version ran, by type and attribute; `reads` is the checker's, the members an expression
+    reads (ADR-0256)."""
+    reads = reads or (lambda _expr: set())
     import copy
 
     import flowrun
@@ -759,9 +815,10 @@ def impact(store, new, found, actor, change_id, ran=None):
     runner = flowrun.Runner(kinds, new.enums)
     m = new.migration
     old_enums = store.enums
-    not_applicable(store, m, found)
+    not_applicable(store, m, found, reads)
+    moved_attribute_notices(store, kinds, retired, m, found, reads)
     # moves first, each moved object an object of its target for every mapping after (ADR-0229)
-    moving = moves(store, sim, kinds, retired, m, found)
+    moving = moves(store, sim, kinds, retired, m, found, reads)
     removed_types(store, retired, m, found)
     for oid, o in sim.objects.items():
         if o.type in BUILT_IN or o.type in retired or o.type not in kinds:

@@ -1002,6 +1002,67 @@ def test_a_moves_state_map_over_a_store_past_the_state_alike(tee, past):
     alike(tee)
 
 
+SORTED_V1 = """module: spans
+categories: [live, closed]
+enumerations:
+  Sort: [A, B]
+types:
+  Span:
+    description: A span of time.
+    tracking: record
+    attributes:
+      label: { type: string }
+      sort: { type: Sort, optional: true }
+    states:
+      OPEN: { category: live }
+      CLOSED: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [sort] }
+      close: { kind: external, from: [OPEN], to: CLOSED }
+"""
+SORTED_KIND = (SORTED_V1.replace("      sort: {", "      kind: {")
+               .replace("optional_inputs: [sort]", "optional_inputs: [kind]"))
+SORTED_V2 = SORTED_KIND + (
+    "migration:\n  description: A span's sort is its kind.\n"
+    "  renamed_attributes:\n    Span: { sort: kind }\n")
+
+
+def sorted_v3(given):
+    """`Span` moved to `Period`, the move giving `kind` from `sort` where
+    `given`."""
+    gives = ", attributes: { kind: sort }" if given else ""
+    return SORTED_KIND.replace("  Span:\n", "  Period:\n") + (
+        "migration:\n  description: A span is a period.\n"
+        f"  moved_types:\n    Span: [ {{ to: Period{gives} }} ]\n")
+
+
+@pytest.mark.parametrize("given", [True, False])
+@pytest.mark.parametrize("past", [False, True])
+def test_a_moves_attribute_over_a_store_past_a_rename_alike(tee, given, past):
+    """One source moving a type carries an attribute an earlier version
+    renamed over a store at either version: a move giving it from the old
+    name gives nothing over a store past the rename, a notice, the attribute
+    carried by its name; a move giving nothing leaves the old attribute
+    behind over the store before it, noticed as a drop in place is, alike
+    through both backends (ADR-0256, issue #68)."""
+    load(tee, "spans", SORTED_V1)
+    span = made(tee, "Span", "open", label="a", sort="A")
+    tee.found.clear()
+    if past:
+        c, _codes = dry_run(tee, {"spans": SORTED_V2})
+        approved(tee, c)
+    c, codes = dry_run(tee, {"spans": sorted_v3(given)})
+    given_nothing = "migration_not_applicable:moved_types:Span.Period.kind"
+    assert (given_nothing in codes) == (given and past), codes
+    behind = not given and not past
+    assert ("possible_rename:Span.sort" in codes) == behind, codes
+    approved(tee, c)
+    held = tee.post("/v1/get", {"id": span})
+    assert held["type"] == "Period", held
+    assert held["attributes"].get("kind") == (None if behind else "A"), held
+    alike(tee)
+
+
 MEMBERS_V1 = """module: members
 categories: [live, closed]
 types:

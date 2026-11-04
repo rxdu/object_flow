@@ -2112,6 +2112,8 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
                 if fld not in had and not optional(spec):
                     fatal.append((here + ("observations", o, "attributes", fld), "names",
                                   f"{o}.{fld} is added to an observation kind and is required; an observation is born final, so nothing could fill it"))
+    # every type a module of the version moves, which a reference follows
+    every_moved = moved
     # a type the version removes: moved, retired, or noticed (ADR-0229)
     moved, retired = m.get("moved_types") or {}, m.get("retired_types") or {}
     for tn in sorted(set(old) - set(new) - machines):
@@ -2141,7 +2143,10 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
                 for why in actor_move_errors(tn, ot, entries, e, to, new[to], merged or to in old or to in before):
                     fatal.append((here + ("to",), "names", why))
             given = e.get("attributes") or {}
-            for expr in ([e["where"]] if "where" in e else []) + list(given.values()):
+            # a `where` decides which entry takes an object, so it reads what the old type has over any store; an
+            # attribute's expression reading what a store's installed version lacks is the publish's notice, the
+            # attribute carried by its name (ADR-0256)
+            for expr in ([e["where"]] if "where" in e else []) + ([] if installed else list(given.values())):
                 for r in sorted(reads(expr) - members):
                     fatal.append((here, "names", f"the move of {tn} to {to} reads '{r}'; a move reads the old object's own members and literals"))
             # over a store's installed version, a state it lacks is the publish's notice, as a removed state's is
@@ -2169,6 +2174,24 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
                         and not spec.get("personal"):
                     fatal.append((here, "names", f"the move of {tn} to {to} carries {a}, personal in {tn}, into {to}.{a}, which is not; "
                                                  "a personal value reaches no attribute that is not (the model's check 10)"))
+            # an old attribute the entry carries into no attribute of the target and gives none from, where the target
+            # has one of its type that takes nothing, is noticed as the same drop in place is, which may be a rename
+            # (ADR-0256 decision 4)
+            read = set().union(*(reads(x) for x in given.values()))
+            pair = lambda sp: ((sp or {}).get("type"), (sp or {}).get("reference"))
+
+            def carried(a, spec):
+                was = oattrs.get(a)
+                return was is not None and (pair(was) == pair(spec) or follows_move(every_moved, was or {}, spec or {})
+                                            or follows_rename(enum_renames, was or {}, spec or {}))
+            takes_nothing = {a: spec for a, spec in tattrs.items() if a not in given and not carried(a, spec)}
+            for d, was in sorted(oattrs.items()):
+                if d in read or (d in tattrs and carried(d, tattrs[d])):
+                    continue
+                for a in sorted(a for a, spec in takes_nothing.items() if pair(spec) == pair(was)):
+                    notes.append((here + ("attributes", a), "migration", f"the move of {tn} to {to} leaves {tn}.{d} behind, and {to}.{a}, of "
+                                                                         "its type, takes nothing: if it is the same, give it in the move's "
+                                                                         "attributes, or its values stay behind"))
             for st in sorted(set(ot.get("states") or {}) - set(e.get("states") or {}) - set(t.get("states") or {})):
                 notes.append((here, "migration", f"{tn}.{st} has no state of its name in {to}, and the entry maps it nowhere: a publish "
                                                  f"over objects of {tn} in it is refused"))
@@ -11628,6 +11651,47 @@ def moved_state_plants():
     return ok
 
 
+def moved_attribute_plants():
+    """A move's attribute reading what the version before lacks: a mistake in the source given `--previous`, fatal, and
+    over a store's installed version left to the publish, which notices it; a `where` so reading fatal over both, since
+    it decides which entry takes an object; and a move leaving an old attribute behind where the target adds one of its
+    type, noticed as the same drop in place is (ADR-0256, issue #68)."""
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new)
+    sorts = ("module: spans\ncategories: [live, closed]\nenumerations:\n  Sort: [A, B]\ntypes:\n  Span:\n"
+             "    description: A span of time.\n    tracking: record\n    attributes:\n      label: { type: string }\n"
+             "      sort: { type: Sort, optional: true }\n    states:\n      OPEN: { description: Open., category: live }\n"
+             "      CLOSED: { description: Ended., category: closed, final: true }\n"
+             "    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [sort] }\n"
+             "      close: { kind: external, from: OPEN, to: CLOSED }\n")
+    kinds = p(p(sorts, "      sort: {", "      kind: {"), "optional_inputs: [sort]", "optional_inputs: [kind]")
+
+    def periods(entry):
+        return p(kinds, "  Span:\n", "  Period:\n") + (
+            f"migration:\n  description: A span is a period.\n  moved_types:\n    Span: [ {{ to: Period{entry} }} ]\n")
+    reads = "the move of Span to Period reads 'sort'; a move reads the old object's own members and literals"
+    behind = ("the move of Span to Period leaves Span.sort behind, and Period.kind, of its type, takes nothing: if it is "
+              "the same, give it in the move's attributes, or its values stay behind")
+    given, where = ", attributes: { kind: sort }", ", where: 'sort == Sort.A'"
+    cases = [
+        ("its attribute reading what the version before lacks", kinds, periods(given), False, [reads], None),
+        ("its attribute reading what the installed version lacks", kinds, periods(given), True, [], None),
+        ("its where reading what the installed version lacks", kinds, periods(where), True, [reads], None),
+        ("leaving an attribute behind where the target adds one of its type", sorts, periods(""), False, [], behind),
+        ("carrying the attribute by its name", kinds, periods(""), False, [], None),
+    ]
+    ok = True
+    for name, before, text, installed, want, notice in cases:
+        found, notes = check([("spans.yaml", text)], {"spans.yaml": before}, installed=installed)
+        got = sorted(x[4] for x in found)
+        noted = [x[4] for x in notes if x[4] == notice] if notice else [x[4] for x in notes if "behind" in x[4]]
+        hit = got == sorted(want) and (noted == [notice] if notice else not noted)
+        ok &= hit
+        print(f"  a move {name}: {'as expected' if hit else 'NOT: ' + str(got) + ' ' + str(noted)}")
+    return ok
+
+
 def trim_plants():
     """`trim`, the string without the white space around it (ADR-0249): a guard reading it is clean, a value other than
     a string is refused, and an indexed derivation calling it is refused, since its generated column's SQL trims spaces
@@ -11893,6 +11957,7 @@ def main():
     ok &= moved_type_plants(people)
     ok &= renamed_enumeration_plants()
     ok &= moved_state_plants()
+    ok &= moved_attribute_plants()
     ok &= actor_move_plants()
     ok &= value_plants()
     ok &= trim_plants()

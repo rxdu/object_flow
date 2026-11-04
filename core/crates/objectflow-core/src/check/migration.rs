@@ -19,7 +19,7 @@ use super::steps::sources;
 use super::view::{View, bases, types};
 
 /// A backfill reads the object's own members and literals (§6.6).
-const BACKFILL_READS: &[&str] = &["state", "this"];
+pub(crate) const BACKFILL_READS: &[&str] = &["state", "this"];
 
 /// Whether an attribute's change of type is a reference following a moved
 /// type, which keeps its values (`check-flows.py`'s `follows_move`,
@@ -1047,6 +1047,8 @@ pub fn migration_pair_errors(
             }
         }
     }
+    // every type a module of the version moves, which a reference follows
+    let every_moved = moved;
     // a type the version removes: moved, retired, or noticed (ADR-0229)
     let moved = obj(&m, "moved_types").clone();
     let retired = obj(&m, "retired_types").clone();
@@ -1126,7 +1128,15 @@ pub fn migration_pair_errors(
                 }
             }
             let given = obj(e, "attributes");
-            for expr in e.get("where").into_iter().chain(given.values()) {
+            // a `where` decides which entry takes an object, so it reads what
+            // the old type has over any store; an attribute's expression
+            // reading what a store's installed version lacks is the publish's
+            // notice, the attribute carried by its name (ADR-0256)
+            let unread = e
+                .get("where")
+                .into_iter()
+                .chain(given.values().filter(|_| !installed));
+            for expr in unread {
                 for r in super::doc::reads(&py_str(expr)).difference(&members) {
                     fatal.push(finding(
                         here.clone(),
@@ -1193,6 +1203,47 @@ pub fn migration_pair_errors(
                         here.clone(),
                         "names",
                         format!("the move of {tn} to {to} carries {a}, personal in {tn}, into {to}.{a}, which is not; a personal value reaches no attribute that is not (the model's check 10)"),
+                    ));
+                }
+            }
+            // an old attribute the entry carries into no attribute of the
+            // target and gives none from, where the target has one of its
+            // type that takes nothing, is noticed as the same drop in place
+            // is, which may be a rename (ADR-0256 decision 4)
+            let read: BTreeSet<String> = given
+                .values()
+                .flat_map(|x| super::doc::reads(&py_str(x)))
+                .collect();
+            let carried = |a: &str, spec: &Value| {
+                oattrs.get(a).is_some_and(|was| {
+                    pair(was) == pair(spec)
+                        || follows_move(every_moved, was, spec)
+                        || follows_rename(enum_renames, was, spec)
+                })
+            };
+            let takes_nothing: Vec<(&String, &Value)> = tattrs
+                .iter()
+                .filter(|(a, spec)| !given.contains_key(*a) && !carried(a, spec))
+                .collect();
+            let mut behind: Vec<(&String, &Value)> = oattrs
+                .iter()
+                .filter(|(d, _)| {
+                    !read.contains(*d) && !tattrs.get(*d).is_some_and(|spec| carried(d, spec))
+                })
+                .collect();
+            behind.sort_by(|x, y| x.0.cmp(y.0));
+            for (d, was) in behind {
+                let mut alike: Vec<&String> = takes_nothing
+                    .iter()
+                    .filter(|(_, spec)| pair(spec) == pair(was))
+                    .map(|(a, _)| *a)
+                    .collect();
+                alike.sort();
+                for a in alike {
+                    notes.push(finding(
+                        ext(&here, segs!["attributes", a]),
+                        "migration",
+                        format!("the move of {tn} to {to} leaves {tn}.{d} behind, and {to}.{a}, of its type, takes nothing: if it is the same, give it in the move's attributes, or its values stay behind"),
                     ));
                 }
             }

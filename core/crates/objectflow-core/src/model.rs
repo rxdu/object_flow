@@ -1351,6 +1351,10 @@ pub struct MovedTo {
     pub where_: Option<Expr>,
     /// Each attribute of the target and the expression giving it.
     pub attributes: Vec<(String, Expr)>,
+    /// The members each attribute's expression reads, as the checker reads
+    /// them, so a publish over an installed version lacking one gives the
+    /// attribute nothing (ADR-0256 decision 1).
+    pub reads: BTreeMap<String, BTreeSet<String>>,
     /// Each old state and the target's state its objects enter.
     pub states: Vec<(String, String)>,
 }
@@ -1397,14 +1401,19 @@ impl Reader<'_> {
                 let Some(to) = e.get("to").and_then(Node::text) else {
                     return self.error(e, "a moved type's entry names the type it moves to");
                 };
-                let mut attributes = Vec::new();
+                let (mut attributes, mut reads) = (Vec::new(), BTreeMap::new());
                 for (a, x) in e.get("attributes").map(Node::entries).unwrap_or_default() {
                     attributes.push((a.clone(), self.expression(x)?));
+                    reads.insert(
+                        a.clone(),
+                        x.text().map(crate::check::member_reads).unwrap_or_default(),
+                    );
                 }
                 out.push(MovedTo {
                     to: to.to_string(),
                     where_: e.get("where").map(|w| self.expression(w)).transpose()?,
                     attributes,
+                    reads,
                     states: e
                         .get("states")
                         .map(Node::entries)

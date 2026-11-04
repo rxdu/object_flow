@@ -662,12 +662,30 @@ pub(crate) fn renamed_member(m: &crate::model::Migration, v: Value) -> Value {
     }
 }
 
-/// Each rename, removed state, removed member and move's mapped state naming
-/// what the installed version lacks, a notice: the entry has nothing to act
-/// on, and changes nothing, so one source serves a store without it, a new
-/// one or one the mapping already reached (ADR-0230 decision 2, ADR-0252). The checker leaves these
-/// to the publish (`check::checked_installed`); a type the installed
-/// version does not hold is `moves`'s.
+/// The members a move's expression for one attribute reads, as the checker
+/// reads them, that the old type `ot` lacks: over a store whose installed
+/// version lacks one, the entry gives the attribute nothing, and the move
+/// carries it by its name (ADR-0256 decision 1).
+fn lacked<'r>(ot: &crate::model::Type, reads: Option<&'r BTreeSet<String>>) -> Vec<&'r str> {
+    reads
+        .into_iter()
+        .flatten()
+        .filter(|r| {
+            ot.attribute(r).is_none()
+                && !ot.derived.iter().any(|(n, _)| n == *r)
+                && !crate::check::BACKFILL_READS.contains(&r.as_str())
+        })
+        .map(String::as_str)
+        .collect()
+}
+
+/// Each rename, removed state, removed member, move's mapped state and
+/// move's attribute naming what the installed version lacks, a notice: the
+/// entry has nothing to act on, and changes nothing, so one source serves a
+/// store without it, a new one or one the mapping already reached (ADR-0230
+/// decision 2, ADR-0252, ADR-0256). The checker leaves these to the publish
+/// (`check::checked_installed`); a type the installed version does not hold
+/// is `moves`'s.
 fn not_applicable(old: &Library, m: &crate::model::Migration, found: &mut Found) {
     let v = old.version;
     let held = |tn: &str| old.type_(tn).filter(|t| !t.retired);
@@ -724,6 +742,24 @@ fn not_applicable(old: &Library, m: &crate::model::Migration, found: &mut Found)
                 ),
             );
         }
+        // a move's attribute reading what the installed old type lacks, over
+        // a store already past it, gives nothing, and the attribute is
+        // carried by its name (ADR-0256 decision 1)
+        for e in entries {
+            for (a, _) in &e.attributes {
+                let lacks = lacked(t, e.reads.get(a));
+                if !lacks.is_empty() {
+                    notice(
+                        format!("migration_not_applicable:moved_types:{tn}.{}.{a}", e.to),
+                        format!(
+                            "the move of {tn} to {} gives {a} from {}, which the installed version, {v}, does not have: the entry gives it nothing, and {a} is carried by its name",
+                            e.to,
+                            lacks.join(", ")
+                        ),
+                    );
+                }
+            }
+        }
     }
     for (en, x, _) in &m.removed_members {
         // a member of an enumeration the version renames is mapped under the
@@ -739,6 +775,70 @@ fn not_applicable(old: &Library, m: &crate::model::Migration, found: &mut Found)
                     "the migration maps {en}.{x}, which the installed version, {v}, does not have: the entry moves nothing"
                 ),
             );
+        }
+    }
+}
+
+/// A move leaving an old attribute behind, carried into no attribute of its
+/// target and given from none, where the target has an attribute of its
+/// type that takes nothing: noticed as the same drop in place is, which may
+/// be a rename (ADR-0256 decision 4). Read over the installed old type, so
+/// an entry giving from what it lacks gives nothing here either.
+fn moved_attribute_notices(old: &Library, new: &Library, found: &mut Found) {
+    let m = &new.migration;
+    for (tn, entries) in &m.moved_types {
+        let Some(ot) = old.type_(tn).filter(|t| !t.retired) else {
+            continue;
+        };
+        for e in entries {
+            let Some(nt) = new.type_(&e.to).filter(|t| !t.retired) else {
+                continue;
+            };
+            let gives = |a: &str| {
+                e.attributes.iter().any(|(n, _)| n == a) && lacked(ot, e.reads.get(a)).is_empty()
+            };
+            let read: BTreeSet<&str> = e
+                .attributes
+                .iter()
+                .filter(|(a, _)| gives(a))
+                .flat_map(|(a, _)| e.reads.get(a).into_iter().flatten().map(String::as_str))
+                .collect();
+            let carried = |a: &str, spec: &crate::model::Attribute| {
+                ot.attribute(a).is_some_and(|was| {
+                    (was.declared == spec.declared && was.many == spec.many)
+                        || carries(m, was, spec)
+                })
+            };
+            for (d, was) in ot.attributes.iter().filter(|(_, w)| !w.derived_end()) {
+                if read.contains(d.as_str()) || nt.attribute(d).is_some_and(|spec| carried(d, spec))
+                {
+                    continue;
+                }
+                let alike: Vec<String> = nt
+                    .attributes
+                    .iter()
+                    .filter(|(a, spec)| {
+                        !spec.derived_end()
+                            && !gives(a)
+                            && !carried(a, spec)
+                            && spec.declared == was.declared
+                            && spec.many == was.many
+                    })
+                    .map(|(a, _)| format!("{}.{a}", e.to))
+                    .collect();
+                if !alike.is_empty() {
+                    found.add(
+                        Severity::Notice,
+                        format!("possible_rename:{tn}.{d}"),
+                        format!(
+                            "the move of {tn} to {} leaves {tn}.{d} behind where {}, of its type, takes nothing, which may be a rename",
+                            e.to,
+                            alike.join(", ")
+                        ),
+                        None,
+                    );
+                }
+            }
         }
     }
 }
@@ -897,7 +997,14 @@ fn moves(
                 if spec.derived_end() || (erased && spec.personal) {
                     continue;
                 }
-                let v = match e.attributes.iter().find(|(n, _)| n == a) {
+                // an expression reading what the installed old type lacks
+                // gives nothing, `not_applicable`'s notice (ADR-0256)
+                let given = e
+                    .attributes
+                    .iter()
+                    .find(|(n, _)| n == a)
+                    .filter(|_| lacked(ot, e.reads.get(a)).is_empty());
+                let v = match given {
                     Some((_, x)) => match fitted(spec, renamed_member(m, ev.eval(x)?)) {
                         Ok(v) => v,
                         Err(why) => {
@@ -1076,6 +1183,7 @@ fn impact(
     }
     let m = new.migration.clone();
     not_applicable(old, &m, &mut found);
+    moved_attribute_notices(old, &new, &mut found);
     // the objects as the mappings leave them, read under the new version:
     // each the store's own, shared with the world it was read in, until a
     // mapping writes it, which copies it then, where every object was
@@ -8093,6 +8201,113 @@ types:
                 ("Period", "CANCELLED"),
                 "{path:?}"
             );
+        }
+    }
+
+    /// Spans with a sort, an optional enumeration; [`sorted`] renames it
+    /// `kind` at version 2 and moves `Span` to `Period` at version 3.
+    const SORTED_V1: &str = r#"
+module: spans
+categories: [live, closed]
+enumerations:
+  Sort: [A, B]
+types:
+  Span:
+    description: A span of time.
+    tracking: record
+    attributes:
+      label: { type: string }
+      sort: { type: Sort, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      CLOSED: { description: Ended., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [sort] }
+      close: { kind: external, from: OPEN, to: CLOSED }
+"#;
+
+    /// The sorted spans' version `n`: 2 renames `sort` `kind`, and 3 moves
+    /// `Span` to `Period`, its move giving `kind` from `sort` where `given`.
+    fn sorted(n: u8, given: bool) -> String {
+        let kind = SORTED_V1
+            .replace("      sort: {", "      kind: {")
+            .replace("optional_inputs: [sort]", "optional_inputs: [kind]");
+        if n == 2 {
+            return kind
+                + "migration:\n  description: A span's sort is its kind.\n  renamed_attributes:\n    Span: { sort: kind }\n";
+        }
+        let gives = if given {
+            ", attributes: { kind: sort }"
+        } else {
+            ""
+        };
+        format!(
+            "{}migration:\n  description: A span is a period.\n  moved_types:\n    Span: [ {{ to: Period{gives} }} ]\n",
+            kind.replace("  Span:\n", "  Period:\n")
+        )
+    }
+
+    /// One source moving a type carries an attribute an earlier version
+    /// renamed, over a store at either version. Giving `kind` from `sort`,
+    /// over a store at version 1 the move gives it, and over one at version
+    /// 2, which has no `sort`, the entry gives nothing, a notice, and `kind`
+    /// is carried by its name. The move alone carries `kind` over version 2
+    /// and over version 1 leaves `sort` behind, noticed as a drop in place is
+    /// (ADR-0256, issue #68).
+    #[test]
+    fn a_moves_attribute_over_a_store_past_a_rename_is_a_notice_and_one_left_behind_noticed() {
+        let given_nothing = "migration_not_applicable:moved_types:Span.Period.kind";
+        for given in [true, false] {
+            for path in [&[3u8][..], &[2, 3]] {
+                let lib = Library::load(&[("spans.yaml".into(), SORTED_V1.into())]).unwrap();
+                let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+                let span = created(&req(
+                    &mut s,
+                    "open",
+                    ("Span", true),
+                    json!({"label": "a", "sort": "A"}),
+                ));
+                let mut report = None;
+                for &n in path {
+                    report = Some(spans_published(&mut s, &sorted(n, given)));
+                }
+                let report = report.unwrap();
+                let past = path.len() == 2;
+                let case = format!("given {given}, over version {}", path.len());
+                assert_eq!(
+                    notice(&report, given_nothing),
+                    given && past,
+                    "{case}: {:#?}",
+                    report.findings
+                );
+                let behind = !given && !past;
+                assert_eq!(
+                    notice(&report, "possible_rename:Span.sort"),
+                    behind,
+                    "{case}: {:#?}",
+                    report.findings
+                );
+                assert_eq!(
+                    report.findings.iter().any(|f| f.code == "check:migration"
+                        && f.message
+                            .contains("leaves Span.sort behind, and Period.kind")),
+                    behind,
+                    "{case}: {:#?}",
+                    report.findings
+                );
+                let w = s.snapshot().unwrap();
+                let o = w.whole(&span).unwrap().unwrap();
+                let kind = if behind {
+                    Value::Absent
+                } else {
+                    member("Sort", "A")
+                };
+                assert_eq!(
+                    (o.type_.as_str(), o.attr("kind")),
+                    ("Period", kind),
+                    "{case}"
+                );
+            }
         }
     }
 

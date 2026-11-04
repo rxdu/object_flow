@@ -21,6 +21,10 @@ mod model;
 mod names;
 // an expression's direct subexpressions, which the metric read walks too
 pub(crate) use names::children as children_of;
+// what a move's or a backfill's expression reads, which the publish reads
+// as the checker does (ADR-0256)
+pub(crate) use doc::reads as member_reads;
+pub(crate) use migration::BACKFILL_READS;
 mod notices;
 mod optional;
 mod raw;

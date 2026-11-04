@@ -1,0 +1,17 @@
+module: spans
+categories: [live, closed]
+enumerations:
+  Sort: [A, B]
+types:
+  Span:
+    description: A span of time.
+    tracking: record
+    attributes:
+      label: { type: string }
+      kind: { type: Sort, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      CLOSED: { description: Ended., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [kind] }
+      close: { kind: external, from: OPEN, to: CLOSED }
