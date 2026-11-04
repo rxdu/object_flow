@@ -605,6 +605,65 @@ impl TypesThen<'_, '_> {
         };
         Ok(crate::request::type_then(moves, now, version))
     }
+
+    /// Each name an event's payload holds, in its `inputs` and its `wrote`,
+    /// that a later version renamed, mapped to the installed version's
+    /// name, a chain of renames composed: each version's
+    /// `renamed_attributes` for the type the object was of under it, a
+    /// base's reaching its family as in a publish; a version that moved the
+    /// object renames none of its names, a moved object taking its target's
+    /// by name. Empty where nothing was renamed, as for every event written
+    /// under the installed version (ADR-0250).
+    pub fn renamed(
+        &mut self,
+        id: &str,
+        version: i64,
+        payload: &serde_json::Value,
+    ) -> Result<BTreeMap<String, String>, crate::eval::NotRun> {
+        let mut out = BTreeMap::new();
+        let world = self.world;
+        let now = world.lib.version;
+        if version >= now
+            || !(version + 1..=now)
+                .any(|k| !world.library_at(k).migration.renamed_attributes.is_empty())
+        {
+            return Ok(out);
+        }
+        let names: BTreeSet<&str> = ["inputs", "wrote"]
+            .iter()
+            .filter_map(|part| payload.get(*part).and_then(serde_json::Value::as_object))
+            .flat_map(|o| o.keys().map(String::as_str))
+            .collect();
+        if names.is_empty() {
+            return Ok(out);
+        }
+        let mut types = Vec::new();
+        for k in version..=now {
+            types.push(self.of(id, k)?);
+        }
+        for n in names {
+            let mut name = n.to_string();
+            for (i, k) in (version + 1..=now).enumerate() {
+                let (before, then) = (&types[i], &types[i + 1]);
+                if before != then {
+                    continue;
+                }
+                let lib = world.library_at(k);
+                if let Some((_, _, to)) = lib
+                    .migration
+                    .renamed_attributes
+                    .iter()
+                    .find(|(owner, from, _)| *from == name && lib.is_a(then, owner))
+                {
+                    name.clone_from(to);
+                }
+            }
+            if name != n {
+                out.insert(n.to_string(), name);
+            }
+        }
+        Ok(out)
+    }
 }
 
 /// The objects of a store, and the time a request reads.

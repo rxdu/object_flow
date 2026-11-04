@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-11-03 under the author's direction ("go with your recommendations"), on the recommendation given the same day for issue #61; decision 3 was recommended there as a probe and a fix if the export filtered by the current type, which it did. Built the same day.
 - **Date:** 2026-11-03
+- **Refined by:** ADR-0250 — beside each event's `declaration_type` and `declaration_version`, `renamed` maps each name of its payload a later version renamed to the installed version's.
 - **Refines:** ADR-0229 decision 3 (a move's event names the type it left), ADR-0094 §3 (an export omits personal values)
 - **Relates to:** ADR-0146 decision 2 (a value personal under the version that wrote it stays so); ADR-0206 decision 5 (the gateway filters what reads answer); ADR-0209 decision 2 (an erasure judges what an event wrote as its version declared it); ADR-0196 decision 6 (a version may stop marking an attribute personal); `docs/research/naming-the-schema-a-record-was-written-under.md`
 

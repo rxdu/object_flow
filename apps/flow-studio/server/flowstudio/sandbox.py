@@ -60,6 +60,9 @@ ROW_MEMBER_TYPES = {
 EVENT_NOT_COMPUTED = [
     "object_seq", "source", "principal", "context", "cause", "taint_version",
     "txn", "payload", "reads", "consulted", "as_of", "flags",
+    # what a later version renamed of its payload's names, which the runner
+    # keeps no payload to give (ADR-0250)
+    "renamed",
 ]
 
 

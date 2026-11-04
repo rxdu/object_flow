@@ -2524,11 +2524,19 @@ fn events_json<'e>(
     let mut then = world.types_then();
     events
         .into_iter()
-        .map(|e| Ok(event(e, &then.of(&e.object_id, e.declaration_version)?)))
+        .map(|e| {
+            let declaration_type = then.of(&e.object_id, e.declaration_version)?;
+            let renamed = then.renamed(&e.object_id, e.declaration_version, &e.payload)?;
+            Ok(event(e, &declaration_type, &renamed))
+        })
         .collect()
 }
 
-fn event(e: &Event, declaration_type: &str) -> J {
+fn event(
+    e: &Event,
+    declaration_type: &str,
+    renamed: &std::collections::BTreeMap<String, String>,
+) -> J {
     // what its guards consulted, the verdict or value each was given by the
     // reference with its bindings, and its as-of time, each by guard, as the
     // library's `Event` carries them (`library-api.md` §5, D562)
@@ -2542,7 +2550,7 @@ fn event(e: &Event, declaration_type: &str) -> J {
             consulted.insert(rule, c.get("values").cloned().unwrap_or(J::Null));
         }
     }
-    json!({
+    let mut out = json!({
         "position": e.position, "object_id": e.object_id, "transition": e.transition,
         "from_state": e.from_state, "to_state": e.to_state, "changes_state": e.changes_state,
         "actor_id": e.actor_id, "actor_kind": e.actor_kind, "principal": e.principal,
@@ -2562,7 +2570,13 @@ fn event(e: &Event, declaration_type: &str) -> J {
         "retries": e.retries,
         // the batch its request came in, by its first event (ADR-0228)
         "batch": e.batch,
-    })
+    });
+    // each name its payload holds that a later version renamed, and the
+    // installed version's name for it, where any was (ADR-0250)
+    if !renamed.is_empty() {
+        out["renamed"] = json!(renamed);
+    }
+    out
 }
 
 const EVENT_NOT_COMPUTED: [&str; 3] = ["taint_version", "txn", "flags"];
@@ -4422,7 +4436,11 @@ async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let events = found
             .iter()
             .map(|e| match e {
-                Some(e) => Ok(event(e, &then.of(&e.object_id, e.declaration_version)?)),
+                Some(e) => {
+                    let declaration_type = then.of(&e.object_id, e.declaration_version)?;
+                    let renamed = then.renamed(&e.object_id, e.declaration_version, &e.payload)?;
+                    Ok(event(e, &declaration_type, &renamed))
+                }
                 None => Ok(J::Null),
             })
             .collect::<Result<Vec<_>, Fault>>()?;

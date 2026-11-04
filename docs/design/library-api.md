@@ -393,6 +393,7 @@ class Event:
     cause: int | None
     declaration_version: int
     declaration_type: str                 # the type its object was of under that version (ADR-0244)
+    renamed: dict[str, str]               # each name its payload holds a later version renamed, to today's (ADR-0250)
     taint_version: int
     txn: int                              # the writing transaction, a number (ADR-0089, ADR-0106)
     recorded_at: datetime

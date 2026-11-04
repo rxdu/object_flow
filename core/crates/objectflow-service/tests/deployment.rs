@@ -9551,6 +9551,186 @@ fn read_as_written(s: &Service, genre: &str, subscription: &str, installed: i64)
     }
 }
 
+/// A memo whose `a` versions 2 and 3 rename to `b` and then `c`.
+const MEMO_V1: &str = r#"module: memos
+categories: [live, closed]
+types:
+  Memo:
+    description: A memo.
+    tracking: record
+    attributes:
+      title: { type: string }
+      a: { type: string, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [title], optional_inputs: [a], description: Adds a memo. }
+      set_a: { kind: internal, from: OPEN, required_inputs: [a], description: Sets a. }
+      close: { kind: external, from: OPEN, to: DONE, description: Closes it. }
+"#;
+
+/// The memo as the version naming its `a` as `to` declares it, renamed from
+/// `from`.
+fn memo_named(from: &str, to: &str) -> String {
+    MEMO_V1
+        .replace("      a: { type: string, optional: true }\n", &format!("      {to}: {{ type: string, optional: true }}\n"))
+        .replace("optional_inputs: [a]", &format!("optional_inputs: [{to}]"))
+        .replace("set_a: { kind: internal, from: OPEN, required_inputs: [a], description: Sets a. }", &format!("set_{to}: {{ kind: internal, from: OPEN, required_inputs: [{to}], description: Sets {to}. }}"))
+        + &format!("migration:\n  description: {from} is {to}.\n  renamed_attributes:\n    Memo: {{ {from}: {to} }}\n")
+}
+
+/// After versions renaming an attribute, each event read answers, beside
+/// its payload as written, `renamed`: each name it holds that a later
+/// version renamed and the installed version's name for it, a chain
+/// composed; `history`, `events`, `pull` and `export` alike, before a
+/// restart and after it, and an event written under the installed version
+/// none (issue #62, ADR-0250).
+fn a_renamed_attributes_events_say_its_installed_name(args: &[String]) {
+    let op = json!({"id": "operator"});
+    let body = |extra: Value| {
+        let mut b = json!({"actor": {"id": "operator"}});
+        b.as_object_mut()
+            .expect("a body")
+            .extend(extra.as_object().expect("an object").clone());
+        b
+    };
+    let read = |s: &Service, memo: &str, subscription: &str| {
+        let history = post(s, "/v1/history", &body(json!({"id": memo})));
+        let renamed = |events: &Value| -> Vec<Value> {
+            events
+                .as_array()
+                .expect("events")
+                .iter()
+                .filter(|e| e["object_id"] == memo)
+                .map(|e| e["renamed"].clone())
+                .collect()
+        };
+        let want = vec![
+            json!({"a": "c"}),
+            json!({"a": "c"}),
+            json!({"b": "c"}),
+            Value::Null,
+        ];
+        assert_eq!(renamed(&history["events"]), want, "{history}");
+        // the payload as written, under the names it had
+        assert_eq!(
+            history["events"][0]["payload"]["wrote"]["a"], "x",
+            "{history}"
+        );
+        let positions: Vec<Value> = history["events"]
+            .as_array()
+            .expect("events")
+            .iter()
+            .map(|e| e["position"].clone())
+            .collect();
+        let events = post(s, "/v1/events", &body(json!({"positions": positions})));
+        assert_eq!(renamed(&events["events"]), want, "{events}");
+        let pulled = post(s, "/v1/pull", &body(json!({"subscription": subscription})));
+        assert_eq!(renamed(&pulled["events"]), want, "{pulled}");
+        let exported = post(s, "/v1/export", &body(json!({"source": "log"})));
+        let rows: Vec<Value> = exported["lines"]
+            .as_array()
+            .expect("lines")
+            .iter()
+            .map(|l| serde_json::from_str::<Value>(l.as_str().expect("a line")).expect("a row"))
+            .filter(|r| r["object_id"] == memo)
+            .map(|r| r["renamed"].clone())
+            .collect();
+        assert_eq!(rows, want, "{exported}");
+    };
+    let (memo, subscription) = {
+        let created: Vec<&str> = args.iter().map(String::as_str).collect();
+        let s = start(&created);
+        publish(&s, &json!({"memos": MEMO_V1}));
+        let subscription = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Subscription", "transition": "subscribe", "inputs": {"target_type": "Memo"}}),
+        );
+        assert_eq!(subscription["kind"], "satisfied", "{subscription}");
+        let subscription = subscription["object_id"]
+            .as_str()
+            .expect("an id")
+            .to_string();
+        let added = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Memo", "transition": "add", "inputs": {"title": "T", "a": "x"}}),
+        );
+        let memo = added["object_id"].as_str().expect("the memo").to_string();
+        let set = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "object_id": memo, "transition": "set_a", "inputs": {"a": "y"}}),
+        );
+        assert_eq!(set["kind"], "satisfied", "{set}");
+        publish(&s, &json!({"memos": memo_named("a", "b")}));
+        let set = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "object_id": memo, "transition": "set_b", "inputs": {"b": "z"}}),
+        );
+        assert_eq!(set["kind"], "satisfied", "{set}");
+        let third = memo_named("a", "b").replace(
+            "migration:\n  description: a is b.\n  renamed_attributes:\n    Memo: { a: b }\n",
+            "",
+        );
+        let third = third
+            .replace(
+                "      b: { type: string, optional: true }\n",
+                "      c: { type: string, optional: true }\n",
+            )
+            .replace("optional_inputs: [b]", "optional_inputs: [c]")
+            .replace(
+                "set_b: { kind: internal, from: OPEN, required_inputs: [b], description: Sets b. }",
+                "set_c: { kind: internal, from: OPEN, required_inputs: [c], description: Sets c. }",
+            )
+            + "migration:\n  description: b is c.\n  renamed_attributes:\n    Memo: { b: c }\n";
+        publish(&s, &json!({"memos": third}));
+        let closed = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "object_id": memo, "transition": "close", "inputs": {}}),
+        );
+        assert_eq!(closed["kind"], "satisfied", "{closed}");
+        read(&s, &memo, &subscription);
+        (memo, subscription)
+    };
+    let again: Vec<&str> = args
+        .iter()
+        .map(String::as_str)
+        .filter(|a| *a != "--create")
+        .collect();
+    let s = start(&again);
+    read(&s, &memo, &subscription);
+}
+
+#[test]
+fn a_renamed_attributes_events_say_its_installed_name_on_sqlite() {
+    let file = fresh_store("renamed-reads");
+    let args = [
+        "--store",
+        file.to_str().expect("a path"),
+        "--create",
+        "--port",
+        "0",
+    ];
+    a_renamed_attributes_events_say_its_installed_name(&args.map(str::to_string));
+    let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
+}
+
+#[test]
+fn a_renamed_attributes_events_say_its_installed_name_on_postgresql() {
+    let Some((admin, args, schema)) = served_on_postgresql("renamed_reads") else {
+        return;
+    };
+    a_renamed_attributes_events_say_its_installed_name(&args);
+    admin
+        .execute_batch(&format!("DROP SCHEMA {schema} CASCADE"))
+        .expect("the schema dropped");
+}
+
 #[test]
 fn a_moved_objects_reads_name_the_declaration_it_was_written_under_on_sqlite() {
     let file = fresh_store("moved-reads");

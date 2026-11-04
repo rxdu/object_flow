@@ -484,7 +484,10 @@ fn event_row(world: &World<'_>, then: &mut TypesThen<'_, '_>, e: &Event) -> Resu
         });
         payload["wrote"]["inputs"] = Json::String(Json::Object(held).to_string());
     }
-    Ok(json!({
+    // each name the row's payload holds that a later version renamed, where
+    // any was (ADR-0250)
+    let renamed = then.renamed(&e.object_id, e.declaration_version, &payload)?;
+    let mut row = json!({
         "position": e.position,
         "object_id": e.object_id,
         "object_seq": e.object_seq,
@@ -506,7 +509,11 @@ fn event_row(world: &World<'_>, then: &mut TypesThen<'_, '_>, e: &Event) -> Resu
         "reads": e.reads,
         "context": e.context,
         "batch": e.batch,
-    }))
+    });
+    if !renamed.is_empty() {
+        row["renamed"] = json!(renamed);
+    }
+    Ok(row)
 }
 
 /// Whether an input an event's payload holds is personal under the

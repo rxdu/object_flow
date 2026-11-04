@@ -6605,6 +6605,102 @@ types:
         }
     }
 
+    /// A genre's event's names after a version merging genres into
+    /// categories, which renames a category's alias in the same version,
+    /// and a later version renaming a category's name: the move renames
+    /// none of the genre's names, its object taking its target's by name,
+    /// and the later rename reaches it as a category (issue #62, ADR-0250).
+    #[test]
+    fn an_events_renamed_names_follow_its_object_through_a_move() {
+        const CATALOG: &str = r#"module: catalog
+categories: [live]
+types:
+  Genre:
+    description: A genre.
+    tracking: record
+    attributes:
+      name: { type: string }
+      alias: { type: string, optional: true }
+    states:
+      LISTED: { description: Listed., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LISTED, required_inputs: [name], optional_inputs: [alias], description: Adds a genre. }
+      drop: { kind: external, from: LISTED, to: DROPPED, description: Drops it. }
+  Category:
+    description: A category.
+    tracking: record
+    attributes:
+      name: { type: string }
+      alias: { type: string, optional: true }
+    states:
+      LISTED: { description: Listed., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LISTED, required_inputs: [name], optional_inputs: [alias], description: Adds a category. }
+      drop: { kind: external, from: LISTED, to: DROPPED, description: Drops it. }
+"#;
+        let lib = Library::load(&[("catalog.yaml".into(), CATALOG.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let genre = created(&req(
+            &mut s,
+            "add",
+            ("Genre", true),
+            json!({"name": "Ada", "alias": "A"}),
+        ));
+        let category = created(&req(
+            &mut s,
+            "add",
+            ("Category", true),
+            json!({"name": "Bo", "alias": "B"}),
+        ));
+        let category_only = CATALOG.split("  Category:\n").nth(1).unwrap();
+        let header = CATALOG.split("  Genre:\n").next().unwrap();
+        let merged = format!(
+            "{header}  Category:\n{}",
+            category_only
+                .replace(
+                    "      alias: { type: string, optional: true }\n",
+                    "      nickname: { type: string, optional: true }\n"
+                )
+                .replace("optional_inputs: [alias]", "optional_inputs: [nickname]")
+        ) + "migration:\n  description: A genre is a category, an alias a nickname.\n  renamed_attributes:\n    Category: { alias: nickname }\n  moved_types:\n    Genre:\n      - to: Category\n";
+        published_as(&mut s, "catalog", &[&merged]);
+        let titled = merged
+            .split("migration:\n")
+            .next()
+            .unwrap()
+            .replace(
+                "      name: { type: string }\n",
+                "      title: { type: string }\n",
+            )
+            .replace("required_inputs: [name]", "required_inputs: [title]")
+            + "migration:\n  description: A name is a title.\n  renamed_attributes:\n    Category: { name: title }\n";
+        published_as(&mut s, "catalog", &[&titled]);
+        assert_eq!(s.lib.version, 3);
+        let w = s.snapshot().unwrap();
+        let mut then = w.types_then();
+        let renamed = |then: &mut crate::world::TypesThen<'_, '_>, id: &str| {
+            let first = &s.history(id).unwrap()[0];
+            then.renamed(id, first.declaration_version, &first.payload)
+                .unwrap()
+        };
+        // the genre's alias is no category's alias: the merge took none of
+        // its names, and the later rename of the name reaches it
+        assert_eq!(
+            renamed(&mut then, &genre),
+            BTreeMap::from([("name".to_string(), "title".to_string())])
+        );
+        // the category's own alias was renamed beside the merge
+        assert_eq!(
+            renamed(&mut then, &category),
+            BTreeMap::from([
+                ("alias".to_string(), "nickname".to_string()),
+                ("name".to_string(), "title".to_string())
+            ])
+        );
+    }
+
     /// Two modules of a version, the catalog moving its genre to a
     /// category and the shelf's book referencing it there (issue #60).
     const GENRE_CATALOG: &str = r#"module: catalog

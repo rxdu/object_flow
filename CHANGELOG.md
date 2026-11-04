@@ -7,6 +7,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Added
 
 - An expression may call `trim(<string>)`, the string without the white space around it, Unicode's `White_Space` characters alone, and `unknown` for an absent value, so a guard `trim(inputs.reason) != ""` refuses a reason of white space alone from every writer. What is written stays as sent. An `indexed` derivation may not call it (ADR-0249, issue #63).
+- Each event read, `history`, `events` and `pull`, and each row of `export`'s log answers `renamed` beside its payload: each name the payload holds that a later version renamed, mapped to the installed version's name, a chain composed, and none where nothing was renamed. The payload stays as written, under the declaration its `declaration_type` and `declaration_version` name (ADR-0250, issue #62).
 
 ## 0.14.0, 2026-11-04
 
