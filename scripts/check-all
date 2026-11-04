@@ -59,7 +59,8 @@ OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
 
 # One gate: its command run to its end, bounded; its line names its elapsed
-# seconds and its output's last line, and a failure's last 40 lines follow.
+# seconds and its output's last line, and a failure's last 40 lines follow,
+# a timeout's after the tests still running at it.
 run() {
   local name="$1"; shift
   local log; log="$(mktemp -p "$OUT")"
@@ -72,6 +73,7 @@ run() {
   else
     if [ "$rc" -eq 124 ]; then
       printf 'FAILED  %s | %s s | timed out after %s s\n' "$name" "$took" "$GATE_TIMEOUT"
+      still_running "$log" | sed 's/^/        /'
     else
       printf 'FAILED  %s | %s s | exit %s | %s\n' "$name" "$took" "$rc" "$(tail -1 "$log" | cut -c1-120)"
     fi
@@ -81,21 +83,38 @@ run() {
   rm -f "$log"
 }
 
+# The tests a timed-out gate's log shows still running at its bound: each one
+# libtest warned has run over 60 s with no result line of it after, named
+# with the binary cargo last said it ran. Read from `cargo test` without
+# `-q`, where cargo names each binary as it starts it and libtest each test
+# as it ends; a quiet run names neither, its warned tests that ended telling
+# nothing apart from one still running, so it gives no test here.
+still_running() {
+  awk '
+    /^ *Running / { bin = $0; sub(/^ *Running /, "", bin); sub(/ \(.*$/, "", bin) }
+    bin != "" && match($0, /test [^ ]+ has been running for over/) { slow[bin SUBSEP substr($0, RSTART + 5, RLENGTH - 31)] = 1 }
+    /^test [^ ]+ \.\.\. / { delete slow[bin SUBSEP $2] }
+    END { for (k in slow) { split(k, p, SUBSEP); print "still running at the bound: " p[2] " (" p[1] ")" } }
+  ' "$1" | sort
+}
+
 # The core's tests on PostgreSQL, the arguments given passed to each test
 # binary: the harness one seed of each sample there, its fork a copy of the
-# store's schema for every request it takes, where SQLite's run holds six;
-# each failing test's header and panic printed before the summary, which alone
-# was kept, so a failure on CI named no test (2026-10-18). Four tests at a
-# time on any machine: each test's store writes serialisable transactions on
-# the one server, whose predicate locks a committed one keeps while an
-# overlapping one runs, so eight at once filled the server's table at its
-# defaults (`53200 out of shared memory`); four peaked at a sixth of it
+# store's schema for every request it takes, where SQLite's run holds six.
+# The tests' output goes to the gate's log as they run, so a timeout names
+# the tests still running, which a summary written after the run could not
+# (`v0.16.0`'s tag, 2026-11-04); each failing test's header and panic follow,
+# then the summary, since the summary alone named no test on CI (2026-10-18).
+# Four tests at a time on any machine: each test's store writes serialisable
+# transactions on the one server, whose predicate locks a committed one keeps
+# while an overlapping one runs, so eight at once filled the server's table at
+# its defaults (`53200 out of shared memory`); four peaked at a sixth of it
 # (2026-10-23).
 on_postgres() {
   local name="$1"; shift
   local args="$*"
   run "$name" env OBJECTFLOW_SANDBOX_POSTGRES="$OBJECTFLOW_CHECK_POSTGRES" OBJECTFLOW_HARNESS_SEEDS=1 RUST_TEST_THREADS=4 \
-    bash -c "cd '$ROOT/core' && out=\$(mktemp) && { '$CARGO' test -q --all-features -- $args > \"\$out\" 2>&1; rc=\$?; { grep -E -A6 '^---- ' \"\$out\"; grep -E '^test .* FAILED|^error' \"\$out\"; } | head -80; awk '/^test result/ {p += \$4; f += \$6; l = 0} /^failures:\$/ {l = 1} l && /^    [A-Za-z0-9_:]+\$/ {n = n \" \" \$1} END {print p \" passed, \" f \" failed on PostgreSQL\" (n ? \":\" n : \"\")}' \"\$out\"; p=\$(awk '/^test result/ {p += \$4} END {print p + 0}' \"\$out\"); rm -f \"\$out\"; [ \$rc -ne 0 ] && exit \$rc; [ \$p -ge 1 ] || { echo 'no test ran'; exit 1; }; }"
+    bash -c "cd '$ROOT/core' && out=\$(mktemp -p '$OUT') && { '$CARGO' test --all-features -- $args 2>&1 | tee \"\$out\"; rc=\${PIPESTATUS[0]}; { grep -E -A6 '^---- ' \"\$out\"; grep -E '^test .* FAILED|^error' \"\$out\"; } | head -80; awk '/^test result/ {p += \$4; f += \$6; l = 0} /^failures:\$/ {l = 1} l && /^    [A-Za-z0-9_:]+\$/ {n = n \" \" \$1} END {print p \" passed, \" f \" failed on PostgreSQL\" (n ? \":\" n : \"\")}' \"\$out\"; p=\$(awk '/^test result/ {p += \$4} END {print p + 0}' \"\$out\"); rm -f \"\$out\"; [ \$rc -ne 0 ] && exit \$rc; [ \$p -ge 1 ] || { echo 'no test ran'; exit 1; }; }"
 }
 
 # The builds every lane after them reads, one at a time.

@@ -13,7 +13,10 @@ permissions:
 jobs:
   check-all:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # above the gates' 67 min on a typical runner, a runner a third slower
+    # (about 90 min, `v0.16.0`'s tag) and one gate hung to its GATE_TIMEOUT
+    # below, so a gate's timeout, which names it, ends a run before this does
+    timeout-minutes: 150
     # PostgreSQL 16, the floor ADR-0213 sets, its text compared by bytes as
     # the store needs; pinned by digest, as an action is by commit
     services:
@@ -86,4 +89,9 @@ jobs:
       # release.yml reads it, until the jobs are split by lane (ADR-0245
       # decision 4)
       - name: Every gate
+        env:
+          # each gate's bound, above the 1,800 s a local run keeps: the core's
+          # tests on PostgreSQL take 870 to 1,270 s here, and reached 1,800 s
+          # on a runner a third slower (`v0.16.0`'s tag, TODO.md)
+          GATE_TIMEOUT: "2700"
         run: scripts/check-all --serial
