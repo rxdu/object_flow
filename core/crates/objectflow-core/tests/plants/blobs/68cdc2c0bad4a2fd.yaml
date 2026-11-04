@@ -1,0 +1,16 @@
+module: labels
+categories: [live, closed]
+enumerations:
+  Format: [PRINT]
+types:
+  Label:
+    description: A label.
+    tracking: record
+    attributes:
+      kind: { type: Format }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [kind] }
+      remove: { kind: external, from: ON, to: OFF }

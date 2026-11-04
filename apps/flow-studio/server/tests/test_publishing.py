@@ -4707,6 +4707,93 @@ def test_a_reference_to_a_type_another_module_moves_follows_it(tee):
     alike(tee)
 
 
+FORMAT_SHELF = """module: shelf
+categories: [live]
+enumerations:
+  Format: [HARDCOVER, PAPERBACK]
+types:
+  Book:
+    description: A book.
+    tracking: record
+    attributes:
+      title: { type: string }
+      format: { type: Format }
+      formats: { type: "Format[]", optional: true }
+    states:
+      ON_SHELF: { description: On the shelf., category: live }
+      GONE: { description: Given away., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON_SHELF, required_inputs: [title, format], optional_inputs: [formats], description: Adds a book. }
+      give: { kind: external, from: ON_SHELF, to: GONE, description: Gives it away. }
+"""
+
+
+def test_a_version_renaming_an_enumeration_keeps_its_values_alike(tee):
+    """A version renaming an enumeration, and dropping a member it maps under
+    the new name, carries every value typed by it through either backend
+    alike: a book holding the dropped member takes the mapped one, and a book
+    holding neither keeps its value with no migration of its own (issue #58,
+    ADR-0247 decision 1)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "shelf.yaml", "text": FORMAT_SHELF}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    dune = made(tee, "Book", "add", title="Dune", format="HARDCOVER", formats=["HARDCOVER", "PAPERBACK"])
+    emma = made(tee, "Book", "add", title="Emma", format="PAPERBACK")
+    kim = made(tee, "Book", "add", title="Kim", format="HARDCOVER")
+    kim_history = tee.post("/v1/history", {"id": kim})["events"]
+    tee.found.clear()
+    shelf = FORMAT_SHELF
+    for old, new in [("  Format: [HARDCOVER, PAPERBACK]\n", "  Binding: [HARDCOVER]\n"),
+                     ("      format: { type: Format }\n", "      format: { type: Binding }\n"),
+                     ('"Format[]"', '"Binding[]"')]:
+        assert shelf.count(old) == 1, old
+        shelf = shelf.replace(old, new)
+    shelf += ("migration:\n  description: A format is a binding, and a paperback hard bound.\n"
+              "  renamed_enumerations:\n    Format: Binding\n"
+              "  removed_members:\n    Binding: { PAPERBACK: HARDCOVER }\n")
+    c, codes = dry_run(tee, {"shelf": shelf})
+    assert not [x for x in codes if x.startswith(("check:migration", "type_changed:", "required_absent:"))], codes
+    assert "mapping:removed_members:Binding.PAPERBACK" in codes, codes
+    approved(tee, c)
+    assert tee.post("/v1/get", {"id": dune})["attributes"]["formats"] == ["HARDCOVER"]
+    assert tee.post("/v1/get", {"id": emma})["attributes"]["format"] == "HARDCOVER"
+    assert tee.post("/v1/get", {"id": kim})["attributes"]["format"] == "HARDCOVER"
+    assert tee.post("/v1/history", {"id": kim})["events"] == kim_history
+    made(tee, "Book", "add", title="Odes", format="HARDCOVER")
+    alike(tee)
+
+
+def test_a_reference_renamed_as_its_referents_type_moves_alike(tee):
+    """A reference renamed in the version that moves its referent's type is
+    carried through either backend alike, where both checkers refused it as a
+    change of type (issue #58, ADR-0247 decision 2)."""
+    assert tee.post("/sandbox/load", {"files": [
+        {"name": "catalog.yaml", "text": GENRE_CATALOG},
+        {"name": "shelf.yaml", "text": GENRE_SHELF}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    genre = made(tee, "Genre", "add", name="Fiction")
+    book = made(tee, "Book", "add", title="Dune", genre=genre)
+    tee.found.clear()
+    catalog = GENRE_CATALOG.replace("  Genre:\n    description: A genre.\n",
+                                    "  Category:\n    description: A category.\n")
+    catalog += ("migration:\n  description: A genre is a category.\n"
+                "  moved_types:\n    Genre:\n      - to: Category\n")
+    shelf = GENRE_SHELF
+    for old, new in [("[Genre]", "[Category]"),
+                     ("      genre: { reference: Genre }\n", "      category: { reference: Category }\n"),
+                     ("required_inputs: [title, genre]", "required_inputs: [title, category]")]:
+        assert shelf.count(old) == 1, old
+        shelf = shelf.replace(old, new)
+    shelf += ("migration:\n  description: A book's genre is its category.\n"
+              "  renamed_attributes:\n    Book: { genre: category }\n")
+    c, codes = dry_run(tee, {"catalog": catalog, "shelf": shelf})
+    assert "check:names" not in codes and "check:migration" not in codes, codes
+    approved(tee, c)
+    got = tee.post("/v1/get", {"id": book})["attributes"]
+    assert got.get("category") == genre and "genre" not in got, got
+    assert tee.post("/v1/get", {"id": genre})["type"] == "Category"
+    alike(tee)
+
+
 def test_a_moved_objects_reads_name_the_type_it_was_of_alike(tee):
     """After a version merges `Genre` into a `Category` the version before
     declared too, `get`, `history` and `events` answer beside each

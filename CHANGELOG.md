@@ -2,6 +2,13 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Added
+
+- A version may rename an enumeration, `migration.renamed_enumerations: { <Old>: <New> }`, in the module that declares the new one. Every attribute typed by it, in any module of the version, keeps its values, intervals and history, each member by its name, and the publish writes no row for it. A member the version also drops is mapped by `removed_members` under the new name. Over a store whose installed version lacks the old enumeration, the entry renames nothing, a notice, `migration_not_applicable:renamed_enumerations:<Old>`. Where 0.13.0 noticed each such attribute as a change of type, its values starting absent, and refused a required one (ADR-0247, issue #58).
+- A rename whose only change of type the publish carries is accepted: a reference following a type the version moves, or an enumeration the version renames. Its optionality must still be unchanged, and any other change of type is refused, as before (ADR-0247 decision 2, issue #58).
+
 ## 0.13.0, 2026-11-03
 
 A release before 1.0.0, as 0.12.0 was (ADR-0214), with issues #59, #60 and #61. Every read that answers a `declaration_version` names the type the object was of under it, and `export` leaves out what was personal when it was written (ADR-0244). A store of 0.12.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step carrying the write index a renamed set or end left under its old name (ADR-0246); a store of 0.11.0 takes 0.12.0's step first. Three changes may refuse what 0.12.0 accepted, listed under their heading.

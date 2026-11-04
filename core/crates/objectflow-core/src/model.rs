@@ -1206,6 +1206,10 @@ pub struct Migration {
     pub removed_states: Vec<(String, String, String)>,
     /// An enumeration, a member it removes, and the member it maps to.
     pub removed_members: Vec<(String, String, String)>,
+    /// An enumeration the version renames, its old name and its new, every
+    /// attribute typed by it carried with its values, each member kept by
+    /// its name (ADR-0247 decision 1).
+    pub renamed_enumerations: Vec<(String, String)>,
     /// A type, an attribute's old name, and its new one.
     pub renamed_attributes: Vec<(String, String, String)>,
     /// A type the version removes, and the entries that move its objects
@@ -1226,6 +1230,7 @@ impl Migration {
     fn extend(&mut self, other: Migration) {
         self.removed_states.extend(other.removed_states);
         self.removed_members.extend(other.removed_members);
+        self.renamed_enumerations.extend(other.renamed_enumerations);
         self.renamed_attributes.extend(other.renamed_attributes);
         self.moved_types.extend(other.moved_types);
         self.retired_types.extend(other.retired_types);
@@ -1235,6 +1240,24 @@ impl Migration {
 
     pub fn is_empty(&self) -> bool {
         *self == Migration::default()
+    }
+
+    /// The name an enumeration of the version before takes in this one: its
+    /// new name where the version renames it (ADR-0247 decision 1).
+    pub fn enumeration_now<'m>(&'m self, was: &'m str) -> &'m str {
+        self.renamed_enumerations
+            .iter()
+            .find(|(old, _)| old == was)
+            .map_or(was, |(_, new)| new.as_str())
+    }
+
+    /// The name this version's enumeration had in the version before: its
+    /// old name where the version renames it.
+    pub fn enumeration_was<'m>(&'m self, now: &'m str) -> &'m str {
+        self.renamed_enumerations
+            .iter()
+            .find(|(_, new)| new == now)
+            .map_or(now, |(old, _)| old.as_str())
     }
 
     /// The entries that move a type's objects, where the version moves it.
@@ -1283,6 +1306,13 @@ impl Reader<'_> {
         };
         m.removed_states = pairs("removed_states");
         m.removed_members = pairs("removed_members");
+        m.renamed_enumerations = node
+            .get("renamed_enumerations")
+            .map(Node::entries)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|(old, new)| new.text().map(|n| (old.clone(), n.to_string())))
+            .collect();
         m.renamed_attributes = pairs("renamed_attributes");
         for (tn, entries) in node
             .get("moved_types")

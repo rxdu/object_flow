@@ -764,6 +764,7 @@ do delete ACTIVE -> DELETED {
 ```text
 removed state  Robot.LEGACY_HOLD -> AVAILABLE
 removed member RetirementReason.OBSOLETE -> FAILED
+renamed enum   ReasonCode -> RetirementReason
 renamed attr   Robot.old_name -> new_name
 backfill       Robot.manufacturer_serial := "UNKNOWN"
 admit          Robot.one_open_engagement because OverrideReason.LEGACY_DATA
@@ -782,7 +783,8 @@ A publish that drops a state carries its mapping. A dropped attribute merely hid
 - **a migration is checked against every invariant** (ADR-0105), and **a publish leaves no object in a violation nobody admitted** (ADR-0146), a violation being resolved by the objects' own transitions before the publish, by a mapping or a `backfill`, or by an **`admit`**, the preferred placeholder; over which objects, and when, is `publish-and-import.md` §1's (check 23, ADR-0148);
 - **`admit <Type>.<invariant> because <Enum>.<MEMBER>`** records an admission, with the reason, a member of a declared enum as an assertion's reason is, so overrides stay countable per reason, on each object that violates the invariant after the publish, on that object's migration event — an object no other mapping changes receives a `migrated` event carrying only the admission. It is an override, authorised by the publish's approval: `exceptions(type)` lists the object and `override_counts` counts it (§6.11). An `admit` naming an invariant the publish does not leave violated on any object is reported, and one naming no invariant of the closure, or a reason that is no member of a declared enum, is refused (check 19). An `admit` of an invariant compiled to a database constraint drops the constraint before the migration writes, since a constraint cannot yield for one row, and the invariant stays uncompiled while any admission of it stands (`storage-schema.md` §8, §10, ADR-0074);
 - a member the publish makes **tracked** — a new enum attribute or singular stored reference, or one newly declared on an existing type — is tracked from the publish: its current interval opens, for every object, at the event that first gives it a value in the publish, the object's migration where a backfill writes it and else the publish event, and time before it is not tracked; a member a publish stops tracking has its open intervals closed at the publish event (DESIGN.md §7, ADR-0106, ADR-0146);
-- a **rename** keeps its attribute's type and optionality and carries its values and history, its intervals included, unchanged, and never names an observation kind's field; a mapping into a **superseding** state is refused, since it would leave its objects superseded by nothing, and one into a final state drives no cascade, so objects it would leave with stranded parts refuse the publish (check 23, ADR-0146).
+- a **rename** keeps its attribute's optionality, and its type but for a change the publish carries, a reference following a type the version moves or an enumeration it renames, and carries its values and history, its intervals included, unchanged, and never names an observation kind's field (ADR-0247 decision 2);
+- a **renamed enumeration** names one the version before had and a name it lacked, declared by the module carrying the line, and the old name no module of the version declares; every attribute typed by it, in any module, keeps its values, each member by its name, with their intervals and history, writing no row and recording no event, and a member the version also drops is mapped by its `removed member` line under the new name (check 23, ADR-0247); a mapping into a **superseding** state is refused, since it would leave its objects superseded by nothing, and one into a final state drives no cascade, so objects it would leave with stranded parts refuse the publish (check 23, ADR-0146).
 
 ### 6.7 `this_event` and extension
 
@@ -1460,6 +1462,7 @@ summary      <member>, …
 derive       <name> = <expression> [indexed]
 removed state  <Type>.<STATE> -> <STATE>                          # §6.6, at the top level of a publish
 removed member <Enum>.<MEMBER> -> <MEMBER>
+renamed enum   <Enum> -> <Enum>
 renamed attr   <Type>.<name> -> <name>
 backfill       <Type>.<attribute> := <expression>
 admit          <Type>.<invariant> because <Enum>.<MEMBER>

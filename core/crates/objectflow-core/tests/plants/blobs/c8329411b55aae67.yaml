@@ -1,0 +1,20 @@
+module: shelf
+imports: { catalog: [Category] }
+categories: [live, closed]
+types:
+  Book:
+    description: A book.
+    tracking: record
+    attributes:
+      title: { type: string }
+      category: { reference: Category }
+    states:
+      ON_SHELF: { description: On the shelf., category: live }
+      GONE: { description: Given away., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON_SHELF, required_inputs: [title, category] }
+      give: { kind: external, from: ON_SHELF, to: GONE }
+migration:
+  description: A book's genre is its category.
+  renamed_attributes:
+    Book: { genre: category }

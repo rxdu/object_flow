@@ -53,6 +53,125 @@ pub fn moved_types(files: &[(String, String)]) -> BTreeSet<String> {
         .collect()
 }
 
+/// Whether an attribute's change of type is an enumeration a module of the
+/// version renames, which keeps its values, each member by its name
+/// (`check-flows.py`'s `follows_rename`, ADR-0247 decision 1). `renamed`
+/// maps each old name to its new one.
+fn follows_rename(renamed: &BTreeMap<String, String>, was: &Value, now: &Value) -> bool {
+    let (before, after) = (str_or(was, "type", ""), str_or(now, "type", ""));
+    !before.is_empty()
+        && !after.is_empty()
+        && before != after
+        && before.ends_with("[]") == after.ends_with("[]")
+        && renamed
+            .get(before.trim_end_matches(['[', ']']))
+            .is_some_and(|n| n == after.trim_end_matches(['[', ']']))
+}
+
+/// The modules of a version that parse, each with its file.
+fn modules_of(files: &[(String, String)]) -> Vec<(String, Value)> {
+    files
+        .iter()
+        .filter_map(|(f, text)| crate::yaml::load(text).ok().map(|n| (f.clone(), n)))
+        .map(|(f, node)| (f, super::schema::typed(&node)))
+        .filter(|(_, doc)| doc.get("module").is_some() && doc.get("examples_for").is_none())
+        .collect()
+}
+
+/// Each enumeration a module of the version renames, as (file, old, new),
+/// read from each before any is checked, so an attribute in any module
+/// follows the rename (`check-flows.py`'s `renamed_enumerations`, ADR-0247
+/// decision 1). A source that does not parse renames nothing here; the check
+/// of it says why.
+pub fn renamed_enumerations(files: &[(String, String)]) -> Vec<(String, String, String)> {
+    modules_of(files)
+        .into_iter()
+        .flat_map(|(f, doc)| {
+            obj(
+                doc.get("migration").unwrap_or(&Value::Null),
+                "renamed_enumerations",
+            )
+            .iter()
+            .map(|(old, new)| (f.clone(), old.clone(), py_str(new)))
+            .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Each module of a version and the enumerations it declares, as (file,
+/// module, names).
+pub fn version_enumerations(files: &[(String, String)]) -> Vec<(String, String, BTreeSet<String>)> {
+    modules_of(files)
+        .into_iter()
+        .map(|(f, doc)| {
+            let module = doc.get("module").map(py_str).unwrap_or_default();
+            (f, module, keys(&doc, "enumerations").into_iter().collect())
+        })
+        .collect()
+}
+
+/// An enumeration rename against the other modules of the version: the old
+/// enumeration declared by none, and no other module renaming it or renaming
+/// another to the same name, since a rename does not merge two enumerations
+/// (`check-flows.py`'s `renamed_enumeration_errors`, ADR-0247 decision 1).
+pub fn renamed_enumeration_errors(
+    file: &str,
+    renames: &[(String, String, String)],
+    declared: &[(String, String, BTreeSet<String>)],
+) -> Found {
+    let mut out = Found::new();
+    for (g, old, new) in renames {
+        if g != file {
+            continue;
+        }
+        let here = segs!["migration", "renamed_enumerations", old];
+        for (h, module, names) in declared {
+            if h != file && names.contains(old) {
+                out.push(finding(
+                    here.clone(),
+                    "names",
+                    format!("the migration renames the enumeration {old}, which the module {module} still declares"),
+                ));
+            }
+        }
+        for (h, o, n) in renames {
+            if h == file {
+                continue;
+            }
+            if o == old {
+                out.push(finding(
+                    here.clone(),
+                    "names",
+                    format!("the migration renames the enumeration {old}, which another module's migration renames too"),
+                ));
+            } else if n == new {
+                out.push(finding(
+                    here.clone(),
+                    "names",
+                    format!("the migration renames {old} to {new}, as another module's migration renames {o}; a rename does not merge two enumerations"),
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// Every enumeration a module of the version before declares.
+pub fn previous_enumerations(previous: &BTreeMap<String, String>) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for text in previous.values() {
+        let Ok(doc) = crate::yaml::load(text) else {
+            continue;
+        };
+        let doc = super::schema::typed(&doc);
+        if doc.get("module").is_none() || doc.get("examples_for").is_some() {
+            continue;
+        }
+        out.extend(keys(&doc, "enumerations"));
+    }
+    out
+}
+
 /// Why a type does not move, or take moved objects, yet, or none
 /// (`check-flows.py`'s `unmovable`, ADR-0229 decision 6).
 fn unmovable(tn: &str, t: &Value, kinds: &Obj) -> Option<&'static str> {
@@ -195,6 +314,33 @@ pub fn migration_errors(doc: &Value, v: &Value) -> Found {
                     ),
                 ));
             }
+        }
+    }
+    let mut targets: BTreeSet<String> = BTreeSet::new();
+    for (old, new) in obj(m, "renamed_enumerations") {
+        let (here, new) = (segs!["migration", "renamed_enumerations", old], py_str(new));
+        if !enums.contains_key(&new) {
+            out.push(finding(
+                here.clone(),
+                "names",
+                format!("the migration renames the enumeration {old} to {new}, which this module does not declare"),
+            ));
+        }
+        if enums.contains_key(old) {
+            out.push(finding(
+                here.clone(),
+                "names",
+                format!(
+                    "the migration renames the enumeration {old}, which this version still declares"
+                ),
+            ));
+        }
+        if !targets.insert(new.clone()) {
+            out.push(finding(
+                here,
+                "names",
+                format!("the migration renames two enumerations to {new}; a rename does not merge two enumerations"),
+            ));
         }
     }
     for (tn, maps) in mapping(m, "renamed_attributes") {
@@ -522,7 +668,11 @@ pub fn previous_types(previous: &BTreeMap<String, String>, file: &str, library: 
 /// module's previous text lacks it. Where `prev` is a store's installed
 /// version, `installed`, a mapping naming a state, a member or an attribute
 /// it lacks is left to the publish, which notices it (ADR-0230 decision 2).
-/// `moved` is every type a module of the version moves ([`moved_types`]).
+/// `moved` is every type a module of the version moves ([`moved_types`]);
+/// `renamed` maps each enumeration a module of the version renames to its new
+/// name ([`renamed_enumerations`]), and `enums_before` holds every
+/// enumeration of the version before (ADR-0247 decision 1).
+#[allow(clippy::too_many_arguments)]
 pub fn migration_pair_errors(
     prev: &Value,
     doc: &Value,
@@ -530,6 +680,8 @@ pub fn migration_pair_errors(
     before: &Obj,
     installed: bool,
     moved: &BTreeSet<String>,
+    enum_renames: &BTreeMap<String, String>,
+    enums_before: &BTreeSet<String>,
 ) -> (Found, Found) {
     let pv = View::new(prev, library);
     let v = View::new(doc, library);
@@ -541,6 +693,30 @@ pub fn migration_pair_errors(
     let new = obj(&v.doc, "types").clone();
     let m = doc.get("migration").cloned().unwrap_or(Value::Null);
     let (mut fatal, mut notes) = (Found::new(), Found::new());
+    let own: BTreeMap<String, String> = obj(&m, "renamed_enumerations")
+        .iter()
+        .map(|(o, n)| (o.clone(), py_str(n)))
+        .collect();
+    // an enumeration renamed: one the version before had, into a name it did
+    // not, since a rename does not merge two enumerations (ADR-0247 decision 1)
+    for (old, new) in &own {
+        let here = segs!["migration", "renamed_enumerations", old];
+        if !enums_before.contains(old) {
+            if !installed {
+                fatal.push(finding(
+                    here,
+                    "names",
+                    format!("the migration renames the enumeration {old}, which the previous version did not have"),
+                ));
+            }
+        } else if enums_before.contains(new) {
+            fatal.push(finding(
+                here,
+                "names",
+                format!("the migration renames the enumeration {old} to {new}, which the previous version declares already; a rename does not merge two enumerations"),
+            ));
+        }
+    }
     // `(m.get(section) or {}).get(name, {})`, its values as text
     let as_map = |section: &str, name: &str| -> BTreeMap<String, String> {
         super::doc::as_obj(obj(&m, section).get(name).unwrap_or(&Value::Null))
@@ -612,7 +788,15 @@ pub fn migration_pair_errors(
             ) else {
                 continue;
             };
-            if sig(before) != sig(after) {
+            // a change of type the publish carries, a reference following a
+            // moved type or an enumeration renamed, is still a rename
+            // (ADR-0247 decision 2)
+            let (was, now) = (sig(before), sig(after));
+            if was.1 != now.1
+                || (was.0 != now.0
+                    && !follows_move(moved, before, after)
+                    && !follows_rename(enum_renames, before, after))
+            {
                 fatal.push(finding(
                     segs!["migration", "renamed_attributes", tn, a],
                     "names",
@@ -690,7 +874,10 @@ pub fn migration_pair_errors(
             .collect::<BTreeSet<_>>()
         {
             let (now_spec, was_spec) = (&new_attrs[a], &old_attrs[a]);
-            if type_of(now_spec) != type_of(was_spec) && !follows_move(moved, was_spec, now_spec) {
+            if type_of(now_spec) != type_of(was_spec)
+                && !follows_move(moved, was_spec, now_spec)
+                && !follows_rename(enum_renames, was_spec, now_spec)
+            {
                 notes.push(finding(
                     ext(&here, segs!["attributes", a]),
                     "migration",
@@ -953,8 +1140,17 @@ pub fn migration_pair_errors(
             }
         }
     }
-    let old_enums = enums_of(prev);
+    let mut old_enums = enums_of(prev);
     let new_enums = enums_of(doc);
+    // a renamed enumeration's members against the old one's, mapped under
+    // the new name (ADR-0247 decision 1)
+    for (o, n) in &own {
+        if let Some(members) = old_enums.get(o).cloned()
+            && !old_enums.contains_key(n)
+        {
+            old_enums.insert(n.clone(), members);
+        }
+    }
     for (en, members) in &new_enums {
         let Some(was) = old_enums.get(en) else {
             continue;

@@ -1726,6 +1726,16 @@
             }
           }
         },
+        "renamed_enumerations": {
+          "type": "object",
+          "description": "Each enumeration renamed, from its old name to its new one, in the module that declares the new one: every attribute typed by it, in any module of the version, keeps its values, each member by its name.",
+          "propertyNames": {
+            "$ref": "#/definitions/typeName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/typeName"
+          }
+        },
         "renamed_attributes": {
           "type": "object",
           "description": "For each type, each attribute renamed, from its old name to its new one.",

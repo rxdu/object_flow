@@ -270,6 +270,15 @@ pub fn checked_as(
     // every type a module of the version moves, which a reference in any
     // module follows (`flow-format.md` §4.16, issue #60)
     let moved = migration::moved_types(files);
+    // every enumeration a module of the version renames, which an attribute
+    // in any module follows (ADR-0247)
+    let renames = migration::renamed_enumerations(files);
+    let enum_renames: BTreeMap<String, String> = renames
+        .iter()
+        .map(|(_, o, n)| (o.clone(), n.clone()))
+        .collect();
+    let enum_modules = migration::version_enumerations(files);
+    let enums_before = migration::previous_enumerations(previous);
     for (index, (file, text)) in files.iter().enumerate() {
         let fatal = |found: &mut Vec<Finding>, line: usize, code: &str, message: String| {
             found.push(Finding {
@@ -546,6 +555,8 @@ pub fn checked_as(
                 &before,
                 installed,
                 &moved,
+                &enum_renames,
+                &enums_before,
             ),
             None if moving => migration::migration_pair_errors(
                 &Value::Object(doc::Obj::new()),
@@ -554,6 +565,8 @@ pub fn checked_as(
                 &before,
                 installed,
                 &moved,
+                &enum_renames,
+                &enums_before,
             ),
             None => (Vec::new(), Vec::new()),
         };
@@ -575,6 +588,11 @@ pub fn checked_as(
             .chain(view::taken_by_errors(&v.doc))
             .chain(view::column_errors(&v.doc))
             .chain(migration::migration_errors(&doc, &v.doc))
+            .chain(migration::renamed_enumeration_errors(
+                file,
+                &renames,
+                &enum_modules,
+            ))
             .chain(pair);
         let mut seen: BTreeSet<(Vec<Seg>, String)> = BTreeSet::new();
         for (p, code, mut message) in fatal_found {

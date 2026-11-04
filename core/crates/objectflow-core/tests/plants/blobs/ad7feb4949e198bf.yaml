@@ -1,0 +1,15 @@
+module: shelf
+imports: { catalog: [Format] }
+categories: [live, closed]
+types:
+  Copy:
+    description: A copy.
+    tracking: record
+    attributes:
+      as: { type: Format }
+    states:
+      IN: { description: In., category: live }
+      OUT: { description: Out., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: IN, required_inputs: [as] }
+      lend: { kind: external, from: IN, to: OUT }

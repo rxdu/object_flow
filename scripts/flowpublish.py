@@ -290,7 +290,7 @@ class Version:
         self.source = dict(files)
         # the mappings each module carries, from the version before it (flow-format.md §4.16)
         self.migration = {"renamed_attributes": {}, "removed_members": {}, "removed_states": {}, "backfill": {},
-                          "admit": [], "moved_types": {}, "retired_types": {}}
+                          "admit": [], "moved_types": {}, "retired_types": {}, "renamed_enumerations": {}}
         for m in modules.values():
             mig = m.get("migration") or {}
             for k in ("renamed_attributes", "removed_members", "removed_states", "backfill"):
@@ -300,6 +300,9 @@ class Version:
             # a removed type's moves and retirement, each named in one module (ADR-0229)
             self.migration["moved_types"].update(mig.get("moved_types") or {})
             self.migration["retired_types"].update(mig.get("retired_types") or {})
+            # an enumeration renamed, in the module declaring its new name (ADR-0247 decision 1)
+            self.migration["renamed_enumerations"].update(
+                {old: str(new) for old, new in (mig.get("renamed_enumerations") or {}).items()})
 
 
 def import_order(flows, files):
@@ -479,6 +482,32 @@ def follows_move(m, was, now):
         and before.removesuffix("[]") in m["moved_types"]
 
 
+def follows_rename(m, was, now):
+    """Whether an attribute's change of type is an enumeration the version renames, which keeps its values, each member
+    by its name (ADR-0247 decision 1), as the core's `follows_rename`."""
+    (before, many), (after, now_many) = declared_as(was), declared_as(now)
+    return many == now_many and before != after and m["renamed_enumerations"].get(before) == after
+
+
+def carries(m, was, now):
+    """Whether the publish carries an attribute's values across its change of type: a reference following a moved type
+    or an enumeration renamed, as the core's `carries`."""
+    return follows_move(m, was, now) or follows_rename(m, was, now)
+
+
+def renamed_member(m, v):
+    """A value under the names the version gives: a member of an enumeration it renames, alone or in a set, under the
+    enumeration's new name, its member kept; any other value as it is (ADR-0247 decision 1)."""
+    names = m["renamed_enumerations"]
+    if not names:
+        return v
+    if isinstance(v, tuple) and len(v) == 3 and v[0] == "enum":
+        return ("enum", names.get(v[1], v[1]), v[2])
+    if isinstance(v, tuple):
+        return tuple(renamed_member(m, i) for i in v)
+    return v
+
+
 def fitted(spec, v, kind=None):
     """A mapping's value as its attribute holds it, as the core's `fit_value` fits one: its kind and scale as a
     request's write fits them (`flowrun.at_declared_scale`), a decimal within its digits and the 18 a value holds, an
@@ -549,9 +578,17 @@ def not_applicable(store, m, found):
                 found.add("notice", f"migration_not_applicable:removed_states:{tn}.{st}",
                           f"the migration maps {tn}.{st}, which the installed version, {v}, does not have: the entry "
                           "moves nothing")
+    # an enumeration rename over a store whose installed version lacks the old one renames nothing (ADR-0247)
+    for old in m["renamed_enumerations"]:
+        if old not in store.enums:
+            found.add("notice", f"migration_not_applicable:renamed_enumerations:{old}",
+                      f"the migration renames the enumeration {old}, which the installed version, {v}, does not have: "
+                      "the entry renames nothing")
+    # a member of an enumeration the version renames is mapped under the new name, renames applying first
+    was_named = {new: old for old, new in m["renamed_enumerations"].items()}
     for en, maps in m["removed_members"].items():
         for x in maps or {}:
-            if x not in (store.enums.get(en) or ()):
+            if x not in (store.enums.get(was_named.get(en, en)) or ()):
                 found.add("notice", f"migration_not_applicable:removed_members:{en}.{x}",
                           f"the migration maps {en}.{x}, which the installed version, {v}, does not have: the entry "
                           "moves nothing")
@@ -620,12 +657,12 @@ def moves(store, sim, kinds, retired, m, found):
                 if a in given:
                     # fitted to the target's attribute, one it cannot hold refusing the publish, as the core's
                     tree = flowrun.parsed(str(given[a]))
-                    v, why = fitted(spec, ev.value(tree, {}), ev.held_kind(tree, ev.kinds_here({}), {}))
+                    v, why = fitted(spec, renamed_member(m, ev.value(tree, {})), ev.held_kind(tree, ev.kinds_here({}), {}))
                     if why is not None:
                         found.add("fatal", f"mapping:moved_types:{tn}.{to}.{a}",
                                   f"the move of {tn} to {to} gives {a} what it cannot hold: {why}", oid)
                         continue
-                elif was is not None and (declared_as(was) == declared_as(spec) or follows_move(m, was, spec)):
+                elif was is not None and (declared_as(was) == declared_as(spec) or carries(m, was, spec)):
                     v = o.attrs.get(a, flowrun.ABSENT)
                 else:
                     v = flowrun.ABSENT
@@ -721,6 +758,14 @@ def impact(store, new, found, actor, change_id, ran=None):
         before = store.objects[oid]
         # a moved object holds its target's names, values and state already
         nt, ot = kinds[o.type], (old_kinds.get(o.type) or {}) if oid not in moving else {}
+        # an enumeration the version renames: each value of it, and each interval's, under the new name, its member
+        # kept, which writes nothing (ADR-0247 decision 1)
+        if m["renamed_enumerations"]:
+            o.attrs = {a: renamed_member(m, v) for a, v in o.attrs.items()}
+            for rows in o.spans.values():
+                for row in rows:
+                    if "value" in row:
+                        row["value"] = renamed_member(m, row["value"])
         # renames first, which write nothing of their own and carry the attribute's history
         for tn, maps in m["renamed_attributes"].items():
             if is_a(kinds, o.type, tn) and oid not in moving:
@@ -737,7 +782,7 @@ def impact(store, new, found, actor, change_id, ran=None):
         # a moved type keeps its values (ADR-0229 decision 5)
         for a, spec in (ot.get("attributes") or {}).items():
             now = (nt.get("attributes") or {}).get(a)
-            if now is not None and declared_as(now) != declared_as(spec) and not follows_move(m, spec, now):
+            if now is not None and declared_as(now) != declared_as(spec) and not carries(m, spec, now):
                 o.attrs.pop(a, None)
                 o.spans.pop(a, None)
         # an observation is born final, and no migration reaches one
@@ -842,8 +887,10 @@ def impact(store, new, found, actor, change_id, ran=None):
                                   f"a mapping gives objects of {o.type} by {a}, a reference to {target}, objects it cannot "
                                   "hold", oid)
                     break
-    removed = [(en, mem) for en, members in old_enums.items() for mem in members
-               if mem not in (new.enums.get(en) or [])]
+    # each by the name the version gives the enumeration, a renamed one's members the new one lacks among them
+    names = m["renamed_enumerations"]
+    removed = [(names.get(en, en), mem) for en, members in old_enums.items() for mem in members
+               if mem not in (new.enums.get(names.get(en, en)) or [])]
     for oid, o in sim.objects.items():
         if o.type in BUILT_IN or o.type in retired or o.type not in kinds:
             continue
@@ -1057,8 +1104,9 @@ def attribute_notices(old, new, retired, m, found, store=None):
         nattrs, oattrs = nt.get("attributes") or {}, ot.get("attributes") or {}
         for a, spec in oattrs.items():
             now = nattrs.get(a)
-            if now is not None and follows_move(m, spec, now):
-                continue            # a reference following a moved type keeps its values (ADR-0229 decision 5)
+            if now is not None and carries(m, spec, now):
+                continue            # a reference following a moved type keeps its values (ADR-0229 decision 5), as an
+                # enumeration renamed does (ADR-0247)
             if now is not None and declared_as(now) != declared_as(spec):
                 code = f"type_changed:{tn}.{a}"
                 message = f"{tn}.{a} changes its type, a drop and an add of the same name"
@@ -1228,7 +1276,8 @@ def install(store, installed, report, change_id, identity, kind):
             source = {to: frm for tn, maps in new.migration["renamed_attributes"].items()
                       if is_a(kinds, x.type, tn) and x.type == was.type for frm, to in (maps or {}).items()}
             for a, v in x.attrs.items():
-                if v != was.attrs.get(source.get(a, a), ABSENT):
+                # a member of an enumeration renamed written by none of them (ADR-0247 decision 1)
+                if v != renamed_member(new.migration, was.attrs.get(source.get(a, a), ABSENT)):
                     x.migrated[a] = (position, new_version)
             event(oid, x.type, "migrate", was.state, x.state, old_version, payload, publish)
             x.version += 1

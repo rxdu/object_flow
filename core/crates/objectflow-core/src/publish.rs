@@ -599,6 +599,51 @@ pub(crate) fn follows_move(
         )
 }
 
+/// Whether an attribute's change of type is an enumeration the version
+/// renames, which keeps its values, each member by its name (ADR-0247
+/// decision 1).
+pub(crate) fn follows_rename(
+    m: &crate::model::Migration,
+    was: &crate::model::Attribute,
+    now: &crate::model::Attribute,
+) -> bool {
+    was.many == now.many
+        && matches!(
+            (&was.declared, &now.declared),
+            (Declared::Scalar(from), Declared::Scalar(to)) if from != to && m.enumeration_now(from) == to
+        )
+}
+
+/// Whether the publish carries an attribute's values across its change of
+/// type: a reference following a moved type, or an enumeration renamed.
+pub(crate) fn carries(
+    m: &crate::model::Migration,
+    was: &crate::model::Attribute,
+    now: &crate::model::Attribute,
+) -> bool {
+    follows_move(m, was, now) || follows_rename(m, was, now)
+}
+
+/// A value under the names the version gives: a member of an enumeration it
+/// renames, alone or in a set, under the enumeration's new name, its member
+/// kept; any other value as it is (ADR-0247 decision 1).
+pub(crate) fn renamed_member(m: &crate::model::Migration, v: Value) -> Value {
+    if m.renamed_enumerations.is_empty() {
+        return v;
+    }
+    match v {
+        Value::Member {
+            enumeration,
+            member,
+        } => Value::Member {
+            enumeration: m.enumeration_now(&enumeration).to_string(),
+            member,
+        },
+        Value::Set(items) => Value::Set(items.into_iter().map(|i| renamed_member(m, i)).collect()),
+        other => other,
+    }
+}
+
 /// Each rename, removed state and removed member naming what the installed
 /// version lacks, a notice: the entry has nothing to act on, and changes
 /// nothing, so one source serves a store without it, a new one or one the
@@ -621,6 +666,19 @@ fn not_applicable(old: &Library, m: &crate::model::Migration, found: &mut Found)
             );
         }
     }
+    // an enumeration rename over a store whose installed version lacks the
+    // old one, a new store or one the rename reached, renames nothing
+    // (ADR-0247 decision 1)
+    for (from, _) in &m.renamed_enumerations {
+        if !old.enumerations.contains_key(from) {
+            notice(
+                format!("migration_not_applicable:renamed_enumerations:{from}"),
+                format!(
+                    "the migration renames the enumeration {from}, which the installed version, {v}, does not have: the entry renames nothing"
+                ),
+            );
+        }
+    }
     for (tn, st, _) in &m.removed_states {
         if held(tn).is_none_or(|t| t.state(st).is_none()) {
             notice(
@@ -632,9 +690,11 @@ fn not_applicable(old: &Library, m: &crate::model::Migration, found: &mut Found)
         }
     }
     for (en, x, _) in &m.removed_members {
+        // a member of an enumeration the version renames is mapped under the
+        // new name, since renames apply first (ADR-0247 decision 1)
         if old
             .enumerations
-            .get(en)
+            .get(m.enumeration_was(en))
             .is_none_or(|members| !members.contains(x))
         {
             notice(
@@ -802,7 +862,7 @@ fn moves(
                     continue;
                 }
                 let v = match e.attributes.iter().find(|(n, _)| n == a) {
-                    Some((_, x)) => match fitted(spec, ev.eval(x)?) {
+                    Some((_, x)) => match fitted(spec, renamed_member(m, ev.eval(x)?)) {
                         Ok(v) => v,
                         Err(why) => {
                             found.add(
@@ -819,7 +879,7 @@ fn moves(
                     },
                     None if ot.attribute(a).is_some_and(|oa| {
                         (oa.declared == spec.declared && oa.many == spec.many)
-                            || follows_move(m, oa, spec)
+                            || carries(m, oa, spec)
                     }) =>
                     {
                         o.attr(a)
@@ -1015,6 +1075,38 @@ fn impact(
             mapped.insert(o.id.clone(), x);
             continue;
         };
+        // an enumeration the version renames: each value of it, and each
+        // interval's, under the new name, its member kept, which writes
+        // nothing, a stored member being its name (ADR-0247 decision 1)
+        if !m.renamed_enumerations.is_empty() {
+            let renamed: Vec<(String, Value)> = x
+                .attrs
+                .iter()
+                .filter_map(|(a, v)| {
+                    let r = renamed_member(&m, v.clone());
+                    (r != *v).then(|| (a.clone(), r))
+                })
+                .collect();
+            if !renamed.is_empty() {
+                let w = Rc::make_mut(&mut x);
+                for (a, v) in renamed {
+                    w.attrs.insert(a, v);
+                }
+            }
+            if x.held_parts()?
+                .spans
+                .values()
+                .flatten()
+                .any(|sp| renamed_member(&m, sp.value.clone()) != sp.value)
+            {
+                for spans in Rc::make_mut(&mut x).parts_mut()?.spans.values_mut() {
+                    for sp in spans {
+                        sp.value =
+                            renamed_member(&m, std::mem::replace(&mut sp.value, Value::Absent));
+                    }
+                }
+            }
+        }
         // renames first, which write nothing of their own; a moved object
         // holds its target's names already
         for (tn, from, to) in &m.renamed_attributes {
@@ -1059,8 +1151,7 @@ fn impact(
         if let Some(ot) = old.type_(&o.type_).filter(|_| from.is_none()) {
             for (a, spec) in &ot.attributes {
                 if nt.attribute(a).is_some_and(|na| {
-                    (na.declared != spec.declared || na.many != spec.many)
-                        && !follows_move(&m, spec, na)
+                    (na.declared != spec.declared || na.many != spec.many) && !carries(&m, spec, na)
                 }) && (x.attrs.contains_key(a) || x.held_parts()?.spans.contains_key(a.as_str()))
                 {
                     let w = Rc::make_mut(&mut x);
@@ -1184,7 +1275,10 @@ fn impact(
             if sim.parts(o)?.erased && t.attribute(attr).is_some_and(|a| a.personal) {
                 continue;
             }
-            let v = Evaluator::new(&sim, Some(t), Some(&id)).eval(e)?;
+            let v = renamed_member(
+                &new.migration,
+                Evaluator::new(&sim, Some(t), Some(&id)).eval(e)?,
+            );
             // a backfill writes what its attribute holds, an integer to a
             // decimal at its scale; a value it cannot hold refuses the
             // publish, where it was written as it came (the audit's values
@@ -1314,14 +1408,17 @@ fn impact(
         }
     }
     // what the mapped objects hold that the version cannot
+    // each by the name the version gives the enumeration, a renamed one's
+    // members the new one lacks among them (ADR-0247 decision 1)
     let removed_members: Vec<(String, String)> = old
         .enumerations
         .iter()
         .flat_map(|(en, members)| {
+            let en = new.migration.enumeration_now(en);
             members
                 .iter()
                 .filter(|mem| new.enumerations.get(en).is_none_or(|ms| !ms.contains(mem)))
-                .map(|mem| (en.clone(), mem.clone()))
+                .map(|mem| (en.to_string(), mem.clone()))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -1811,7 +1908,8 @@ fn attribute_notices(world: &World<'_>, new: &Library, found: &mut Found) -> Res
             match nt.attribute(a) {
                 // a reference following a moved type keeps its values
                 // (ADR-0229 decision 5)
-                Some(now) if follows_move(&new.migration, spec, now) => {}
+                // and an enumeration renamed keeps them (ADR-0247)
+                Some(now) if carries(&new.migration, spec, now) => {}
                 Some(now) if now.declared != spec.declared || now.many != spec.many => {
                     let code = format!("type_changed:{tn}.{a}");
                     let message =
@@ -5739,6 +5837,519 @@ types:
         assert_eq!(writes(&s), was);
         let after = req(&mut s, "close", (&memo, false), json!({}));
         assert!(matches!(after, Verdict::Satisfied { .. }), "{after:?}");
+    }
+
+    /// A shelf whose books are bound in a format, which the next version
+    /// renames a binding (issue #58).
+    const FORMAT_SHELF: &str = r#"module: shelf
+categories: [live]
+enumerations:
+  Format: [HARDCOVER, PAPERBACK]
+types:
+  Book:
+    description: A book.
+    tracking: record
+    attributes:
+      title: { type: string }
+      format: { type: Format }
+      formats: { type: "Format[]", optional: true }
+    states:
+      ON_SHELF: { description: On the shelf., category: live }
+      GONE: { description: Given away., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON_SHELF, required_inputs: [title, format], optional_inputs: [formats], description: Adds a book. }
+      give: { kind: external, from: ON_SHELF, to: GONE, description: Gives it away. }
+"#;
+
+    /// The shelf with its format renamed a binding of `members`, an
+    /// invariant reading the new name in a book's value and its intervals,
+    /// which a book holding a member under the old name in either fails,
+    /// and `migration`'s entries.
+    fn bound_shelf(members: &str, migration: &str) -> String {
+        let mut text = FORMAT_SHELF.to_string();
+        for (old, new) in [
+            ("  Format: [HARDCOVER, PAPERBACK]\n", format!("  Binding: [{members}]\n")),
+            ("      format: { type: Format }\n", "      format: { type: Binding }\n".into()),
+            ("      formats: { type: \"Format[]\", optional: true }\n", "      formats: { type: \"Binding[]\", optional: true }\n".into()),
+            (
+                "    transitions:\n",
+                "    invariants:\n      bound: { description: A book is hard bound but Emma., expression: '(format == Binding.HARDCOVER and count(i in this.intervals(format) where i.value == Binding.HARDCOVER) > 0) or title == \"Emma\"' }\n    transitions:\n".into(),
+            ),
+        ] {
+            assert_eq!(text.matches(old).count(), 1, "{old}");
+            text = text.replace(old, &new);
+        }
+        text.push_str(&format!(
+            "migration:\n  description: A format is a binding.\n{migration}"
+        ));
+        text
+    }
+
+    const RENAMING: &str = "  renamed_enumerations:\n    Format: Binding\n";
+
+    fn member(enumeration: &str, member: &str) -> Value {
+        Value::Member {
+            enumeration: enumeration.into(),
+            member: member.into(),
+        }
+    }
+
+    /// A store of the shelf holding Dune, hard bound and in both formats,
+    /// and Emma, a paperback.
+    fn format_shelf() -> (Store, String, String) {
+        let lib = Library::load(&[("shelf.yaml".into(), FORMAT_SHELF.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let dune = created(&req(
+            &mut s,
+            "add",
+            ("Book", true),
+            json!({"title": "Dune", "format": "HARDCOVER", "formats": ["HARDCOVER", "PAPERBACK"]}),
+        ));
+        let emma = created(&req(
+            &mut s,
+            "add",
+            ("Book", true),
+            json!({"title": "Emma", "format": "PAPERBACK"}),
+        ));
+        (s, dune, emma)
+    }
+
+    /// What a book holds and has held: its values, its intervals, its write
+    /// index and its history.
+    #[allow(clippy::type_complexity)]
+    fn book_as_held(
+        s: &Store,
+        id: &str,
+    ) -> (
+        BTreeMap<String, Value>,
+        BTreeMap<crate::world::Name, Vec<crate::world::Span>>,
+        BTreeMap<crate::world::Name, i64>,
+        Vec<crate::store::Event>,
+    ) {
+        let w = s.snapshot().unwrap();
+        let o = w.whole(id).unwrap().unwrap();
+        let parts = o.held_parts().unwrap();
+        (
+            o.attrs.clone(),
+            parts.spans.clone(),
+            parts.writes.clone(),
+            s.history(id).unwrap(),
+        )
+    }
+
+    /// A version renaming an enumeration carries every attribute typed by
+    /// it, a set of it among them: each value and each interval as it was,
+    /// its member kept under the new name, no write and no event of its own,
+    /// and an invariant reading the new name holding over each object in
+    /// the dry run, as it would not over a member left under the old name
+    /// (ADR-0247 decision 1, issue #58).
+    #[test]
+    fn a_version_renaming_an_enumeration_keeps_every_value_and_interval() {
+        let (mut s, dune, emma) = format_shelf();
+        let was: Vec<_> = [&dune, &emma].iter().map(|b| book_as_held(&s, b)).collect();
+        let (change, report) = drafted_on(
+            &mut s,
+            "shelf",
+            &bound_shelf("HARDCOVER, PAPERBACK", RENAMING),
+        );
+        assert!(report.accepted, "{:#?}", report.findings);
+        let codes: Vec<&str> = report.findings.iter().map(|f| f.code.as_str()).collect();
+        for code in &codes {
+            assert!(
+                !code.starts_with("check:migration")
+                    && !code.starts_with("type_changed:")
+                    && !code.starts_with("required_absent:")
+                    && !code.starts_with("invariant:"),
+                "{codes:?}"
+            );
+        }
+        let (verdict, report) = submitted_and_approved(&mut s, &change);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        assert_eq!(s.lib.version, 2);
+        let renaming = crate::model::Migration {
+            renamed_enumerations: vec![("Format".into(), "Binding".into())],
+            ..Default::default()
+        };
+        for (id, (attrs, spans, writes, history)) in [&dune, &emma].into_iter().zip(was) {
+            let (attrs_now, spans_now, writes_now, history_now) = book_as_held(&s, id);
+            let renamed: BTreeMap<String, Value> = attrs
+                .into_iter()
+                .map(|(a, v)| (a, renamed_member(&renaming, v)))
+                .collect();
+            assert_eq!(attrs_now, renamed, "{id}");
+            let spans: BTreeMap<_, Vec<crate::world::Span>> = spans
+                .into_iter()
+                .map(|(d, rows)| {
+                    let rows = rows
+                        .into_iter()
+                        .map(|mut sp| {
+                            sp.value = renamed_member(&renaming, sp.value);
+                            sp
+                        })
+                        .collect();
+                    (d, rows)
+                })
+                .collect();
+            assert_eq!(spans_now, spans, "{id}");
+            assert_eq!(writes_now, writes, "{id}");
+            assert_eq!(history_now, history, "{id}: no migration of its own");
+        }
+        let (dune_now, ..) = book_as_held(&s, &dune);
+        assert_eq!(dune_now["format"], member("Binding", "HARDCOVER"));
+        assert_eq!(
+            dune_now["formats"],
+            Value::Set(vec![
+                member("Binding", "HARDCOVER"),
+                member("Binding", "PAPERBACK")
+            ])
+        );
+        let after = req(
+            &mut s,
+            "add",
+            ("Book", true),
+            json!({"title": "Emma", "format": "PAPERBACK"}),
+        );
+        assert!(matches!(after, Verdict::Satisfied { .. }), "{after:?}");
+    }
+
+    /// A member the renamed enumeration drops is mapped under its new name,
+    /// renames applying first; with no mapping, the objects holding it are
+    /// refused, named under the new name. A book holding none of it, which
+    /// no mapping reaches, keeps its value and its intervals through the
+    /// table's rebuild (ADR-0247 decision 1).
+    #[test]
+    fn a_renamed_enumerations_dropped_member_is_mapped_under_its_new_name() {
+        let (mut s, dune, emma) = format_shelf();
+        let kim = created(&req(
+            &mut s,
+            "add",
+            ("Book", true),
+            json!({"title": "Kim", "format": "HARDCOVER"}),
+        ));
+        let kim_was = book_as_held(&s, &kim);
+        let (_, unmapped) = drafted_on(&mut s, "shelf", &bound_shelf("HARDCOVER", RENAMING));
+        assert!(!unmapped.accepted);
+        let mut refused = ids(&unmapped, "removed_member:Binding.PAPERBACK");
+        refused.sort();
+        let mut both = vec![dune.clone(), emma.clone()];
+        both.sort();
+        assert_eq!(refused, both, "{:#?}", unmapped.findings);
+        let mapped =
+            format!("{RENAMING}  removed_members:\n    Binding: {{ PAPERBACK: HARDCOVER }}\n");
+        let (change, report) = drafted_on(&mut s, "shelf", &bound_shelf("HARDCOVER", &mapped));
+        assert!(report.accepted, "{:#?}", report.findings);
+        let mut mapped_ids = ids(&report, "mapping:removed_members:Binding.PAPERBACK");
+        mapped_ids.sort();
+        assert_eq!(mapped_ids, both);
+        assert!(!notice(
+            &report,
+            "migration_not_applicable:removed_members:Binding.PAPERBACK"
+        ));
+        let (verdict, report) = submitted_and_approved(&mut s, &change);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let (dune_now, ..) = book_as_held(&s, &dune);
+        let (emma_now, ..) = book_as_held(&s, &emma);
+        assert_eq!(
+            dune_now["formats"],
+            Value::Set(vec![member("Binding", "HARDCOVER")])
+        );
+        assert_eq!(emma_now["format"], member("Binding", "HARDCOVER"));
+        let kim_now = book_as_held(&s, &kim);
+        assert_eq!(kim_now.0["format"], member("Binding", "HARDCOVER"));
+        let renamed_spans: Vec<crate::world::Span> = kim_was.1["format"]
+            .iter()
+            .cloned()
+            .map(|mut sp| {
+                sp.value = member("Binding", "HARDCOVER");
+                sp
+            })
+            .collect();
+        assert_eq!(kim_now.1["format"], renamed_spans);
+        assert_eq!(kim_now.3, kim_was.3, "no migration of its own");
+        // each migration wrote what its mapping changed, and not a member
+        // only renamed with its enumeration
+        let wrote = |id: &str| {
+            let history = s.history(id).unwrap();
+            let last = history.last().unwrap();
+            assert_eq!(last.transition, "migrate", "{id}");
+            last.payload["wrote"]
+                .as_object()
+                .map(|w| w.keys().cloned().collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
+        assert_eq!(wrote(&dune), vec!["formats".to_string()]);
+        assert_eq!(wrote(&emma), vec!["format".to_string()]);
+    }
+
+    /// One source serves a store that took the rename: the entry renames
+    /// nothing, a notice, and every value stays as it is (ADR-0230 decision
+    /// 2, ADR-0247 decision 1).
+    #[test]
+    fn an_enumeration_rename_over_a_store_that_took_it_renames_nothing() {
+        let (mut s, dune, _) = format_shelf();
+        let v2 = bound_shelf("HARDCOVER, PAPERBACK", RENAMING);
+        published_as(&mut s, "shelf", &[&v2]);
+        let was = book_as_held(&s, &dune);
+        let v3 = v2.replace(
+            "description: A book.\n",
+            "description: A book of the shelf.\n",
+        );
+        let (change, report) = drafted_on(&mut s, "shelf", &v3);
+        assert!(
+            report.accepted
+                && notice(
+                    &report,
+                    "migration_not_applicable:renamed_enumerations:Format"
+                ),
+            "{:#?}",
+            report.findings
+        );
+        let (verdict, report) = submitted_and_approved(&mut s, &change);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let now = book_as_held(&s, &dune);
+        assert_eq!((now.0, now.1, now.2), (was.0, was.1, was.2));
+    }
+
+    /// An approval of a rename that fails installs nothing: the version, each
+    /// value, interval and event as before, and the same change, once the
+    /// fault is gone, applied (PRD F2, ADR-0247 decision 1).
+    #[test]
+    fn a_failed_enumeration_rename_installs_nothing() {
+        let (mut s, dune, emma) = format_shelf();
+        let was: Vec<_> = [&dune, &emma].iter().map(|b| book_as_held(&s, b)).collect();
+        // the member dropped changes the table's check, so the approval
+        // rebuilds it, into a copy the store already holds
+        let mapped =
+            format!("{RENAMING}  removed_members:\n    Binding: {{ PAPERBACK: HARDCOVER }}\n");
+        let (change, report) = drafted_on(&mut s, "shelf", &bound_shelf("HARDCOVER", &mapped));
+        assert!(report.accepted, "{:#?}", report.findings);
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let v = s
+            .snapshot()
+            .unwrap()
+            .whole(&change)
+            .unwrap()
+            .unwrap()
+            .version;
+        s.conn()
+            .execute_batch("CREATE TABLE t_book__rebuild (planted INTEGER);")
+            .unwrap();
+        assert!(s.publish(OPERATOR, &change, v).is_err());
+        assert_eq!(s.lib.version, 1);
+        for (id, held) in [&dune, &emma].into_iter().zip(&was) {
+            assert_eq!(&book_as_held(&s, id), held, "{id}");
+        }
+        s.conn()
+            .execute_batch("DROP TABLE t_book__rebuild;")
+            .unwrap();
+        let (verdict, report) = approve(&mut s, &change, v);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let (emma_now, ..) = book_as_held(&s, &emma);
+        assert_eq!(emma_now["format"], member("Binding", "HARDCOVER"));
+    }
+
+    /// The catalog's genre, bound in a format, which the next version moves
+    /// to a category and renames a binding (issue #58).
+    const FORMAT_CATALOG: &str = r#"module: catalog
+categories: [live]
+enumerations:
+  Format: [HARDCOVER, PAPERBACK]
+types:
+  Genre:
+    description: A genre.
+    tracking: record
+    attributes:
+      name: { type: string }
+      format: { type: Format, optional: true }
+    states:
+      LISTED: { description: Listed., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LISTED, required_inputs: [name], optional_inputs: [format], description: Adds a genre. }
+      drop: { kind: external, from: LISTED, to: DROPPED, description: Drops it. }
+"#;
+
+    /// A move gives an attribute of a renamed enumeration from the old
+    /// one's value by its member, and carries one of its name alike, where
+    /// both were refused as what the target cannot hold (ADR-0247 decision
+    /// 1, issue #58).
+    #[test]
+    fn a_move_gives_a_renamed_enumerations_value_by_its_member() {
+        let lib = Library::load(&[("catalog.yaml".into(), FORMAT_CATALOG.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let genre = created(&req(
+            &mut s,
+            "add",
+            ("Genre", true),
+            json!({"name": "Fiction", "format": "PAPERBACK"}),
+        ));
+        let mut v2 = FORMAT_CATALOG.to_string();
+        for (old, new) in [
+            (
+                "  Format: [HARDCOVER, PAPERBACK]\n",
+                "  Binding: [HARDCOVER, PAPERBACK]\n",
+            ),
+            (
+                "  Genre:\n    description: A genre.\n",
+                "  Category:\n    description: A category.\n",
+            ),
+            (
+                "      format: { type: Format, optional: true }\n",
+                "      format: { type: Binding, optional: true }\n      binding: { type: Binding, optional: true }\n",
+            ),
+            (
+                "optional_inputs: [format]",
+                "optional_inputs: [format, binding]",
+            ),
+        ] {
+            assert_eq!(v2.matches(old).count(), 1, "{old}");
+            v2 = v2.replace(old, new);
+        }
+        v2.push_str("migration:\n  description: A genre is a category, its format a binding.\n  renamed_enumerations:\n    Format: Binding\n  moved_types:\n    Genre:\n      - to: Category\n        attributes: { binding: format }\n");
+        let (change, report) = drafted_on(&mut s, "catalog", &v2);
+        assert!(report.accepted, "{:#?}", report.findings);
+        let (verdict, report) = submitted_and_approved(&mut s, &change);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let w = s.snapshot().unwrap();
+        let moved = w.whole(&genre).unwrap().unwrap();
+        assert_eq!(moved.type_, "Category");
+        assert_eq!(moved.attr("binding"), member("Binding", "PAPERBACK"));
+        assert_eq!(moved.attr("format"), member("Binding", "PAPERBACK"));
+    }
+
+    /// A reference renamed in the version that moves its referent's type
+    /// is carried, as one keeping its name follows the move, and a referent
+    /// landing in a type the renamed reference does not take is refused,
+    /// `moved_reference` (ADR-0247 decision 2, ADR-0229 decision 5, issue
+    /// #58).
+    #[test]
+    fn a_reference_renamed_as_its_referents_type_moves_is_carried() {
+        let lib = Library::load(&[
+            ("catalog.yaml".into(), GENRE_CATALOG.into()),
+            ("shelf.yaml".into(), GENRE_SHELF.into()),
+        ])
+        .unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let fiction = created(&req(
+            &mut s,
+            "add",
+            ("Genre", true),
+            json!({"name": "Fiction"}),
+        ));
+        let verse = created(&req(
+            &mut s,
+            "add",
+            ("Genre", true),
+            json!({"name": "Verse"}),
+        ));
+        let dune = created(&req(
+            &mut s,
+            "add",
+            ("Book", true),
+            json!({"title": "Dune", "genre": fiction}),
+        ));
+        let odes = created(&req(
+            &mut s,
+            "add",
+            ("Book", true),
+            json!({"title": "Odes", "genre": verse}),
+        ));
+        let category = GENRE_CATALOG.replace(
+            "  Genre:\n    description: A genre.\n",
+            "  Category:\n    description: A category.\n",
+        );
+        let mut shelf = GENRE_SHELF.to_string();
+        for (old, new) in [
+            (
+                "imports: { catalog: [Genre] }",
+                "imports: { catalog: [Category] }",
+            ),
+            (
+                "      genre: { reference: Genre }\n",
+                "      category: { reference: Category }\n",
+            ),
+            (
+                "required_inputs: [title, genre]",
+                "required_inputs: [title, category]",
+            ),
+        ] {
+            assert_eq!(shelf.matches(old).count(), 1, "{old}");
+            shelf = shelf.replace(old, new);
+        }
+        shelf.push_str("migration:\n  description: A book's genre is its category.\n  renamed_attributes:\n    Book: { genre: category }\n");
+        let draft = |s: &mut Store, catalog: &str| {
+            let change = created(&req(
+                s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"catalog": catalog, "shelf": shelf}, "source_ref": "git:shelf@2"}),
+            ));
+            let w = s.snapshot().unwrap();
+            let source = [
+                ("catalog".to_string(), catalog.to_string()),
+                ("shelf".to_string(), shelf.clone()),
+            ];
+            let report = dry_run(
+                &w,
+                &Draft {
+                    change_id: Some(&change),
+                    source: &source,
+                    source_ref: Some("git:shelf@2"),
+                    source_digest: None,
+                    actor: OPERATOR,
+                },
+            )
+            .unwrap();
+            (change, report)
+        };
+        // a split whose verse lands in a topic, which the category does not take
+        let topic = category.split("types:\n").nth(1).unwrap().replace(
+            "  Category:\n    description: A category.\n",
+            "  Topic:\n    description: A topic.\n",
+        );
+        let split = format!(
+            "{category}{topic}migration:\n  description: A genre is a category, or verse a topic.\n  moved_types:\n    Genre:\n      - to: Category\n        where: 'name == \"Fiction\"'\n      - to: Topic\n        where: 'name != \"Fiction\"'\n"
+        );
+        let (_, report) = draft(&mut s, &split);
+        assert!(!report.accepted);
+        assert_eq!(
+            ids(&report, "moved_reference:Book.category"),
+            vec![odes.clone()],
+            "{:#?}",
+            report.findings
+        );
+        let moving = format!(
+            "{category}migration:\n  description: A genre is a category.\n  moved_types:\n    Genre:\n      - to: Category\n"
+        );
+        let (change, report) = draft(&mut s, &moving);
+        assert!(report.accepted, "{:#?}", report.findings);
+        let (verdict, report) = submitted_and_approved(&mut s, &change);
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let w = s.snapshot().unwrap();
+        for (book, genre) in [(&dune, &fiction), (&odes, &verse)] {
+            let b = w.whole(book).unwrap().unwrap();
+            assert_eq!(b.attr("category"), Value::Object(genre.clone()), "{book}");
+            assert!(b.attr("genre").is_absent());
+            assert_eq!(w.whole(genre).unwrap().unwrap().type_, "Category");
+        }
     }
 
     /// Two modules of a version, the catalog moving its genre to a

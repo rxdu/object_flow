@@ -29500,6 +29500,573 @@
   "could_violate": {}
  },
  {
+  "label": "renamed_enumeration_plants: an enumeration renamed",
+  "files": [
+   [
+    "catalog.yaml",
+    "ba8a96e9d7dfc744"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e"
+  },
+  "findings": [],
+  "analysed": {
+   "Book": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: an enumeration renamed with no rename",
+  "files": [
+   [
+    "catalog.yaml",
+    "8b2dcaa6e30b54d8"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e"
+  },
+  "findings": [
+   [
+    "catalog.yaml",
+    11,
+    "notice",
+    "migration",
+    "Book.format changed its type: that is a drop and an add of the same name, every object's value starting absent (ADR-0147)"
+   ],
+   [
+    "catalog.yaml",
+    12,
+    "notice",
+    "migration",
+    "Book.formats changed its type: that is a drop and an add of the same name, every object's value starting absent (ADR-0147)"
+   ]
+  ],
+  "analysed": {
+   "Book": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: renamed, a member dropped and mapped under the new name",
+  "files": [
+   [
+    "catalog.yaml",
+    "b5dace47be69654f"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e"
+  },
+  "findings": [],
+  "analysed": {
+   "Book": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: renamed, a member dropped with no mapping",
+  "files": [
+   [
+    "catalog.yaml",
+    "6003afcf745d5851"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e"
+  },
+  "findings": [
+   [
+    "catalog.yaml",
+    4,
+    "notice",
+    "migration",
+    "Binding.PAPERBACK is gone: a publish needs a mapping for it if live objects hold it, and is refused if an observation does"
+   ]
+  ],
+  "analysed": {
+   "Book": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: renamed, the old one still declared",
+  "files": [
+   [
+    "catalog.yaml",
+    "950df3361452db4e"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e"
+  },
+  "findings": [
+   [
+    "catalog.yaml",
+    23,
+    "fatal",
+    "names",
+    "the migration renames the enumeration Format, which this version still declares"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: renamed to one this module does not declare",
+  "files": [
+   [
+    "catalog.yaml",
+    "ed8f0a5006d3b233"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e"
+  },
+  "findings": [
+   [
+    "catalog.yaml",
+    11,
+    "notice",
+    "migration",
+    "Book.format changed its type: that is a drop and an add of the same name, every object's value starting absent (ADR-0147)"
+   ],
+   [
+    "catalog.yaml",
+    12,
+    "notice",
+    "migration",
+    "Book.formats changed its type: that is a drop and an add of the same name, every object's value starting absent (ADR-0147)"
+   ],
+   [
+    "catalog.yaml",
+    22,
+    "fatal",
+    "names",
+    "the migration renames the enumeration Format to Cover, which this module does not declare"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: two renamed into one",
+  "files": [
+   [
+    "catalog.yaml",
+    "f657270828229c40"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3fb344bfff7a31d9"
+  },
+  "findings": [
+   [
+    "catalog.yaml",
+    23,
+    "fatal",
+    "names",
+    "the migration renames two enumerations to Binding; a rename does not merge two enumerations"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: renamed, which the version before did not have",
+  "files": [
+   [
+    "catalog.yaml",
+    "ba8a96e9d7dfc744"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "8b2dcaa6e30b54d8"
+  },
+  "findings": [
+   [
+    "catalog.yaml",
+    22,
+    "fatal",
+    "names",
+    "the migration renames the enumeration Format, which the previous version did not have"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: renamed over a store that took the rename",
+  "files": [
+   [
+    "catalog.yaml",
+    "ba8a96e9d7dfc744"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "8b2dcaa6e30b54d8"
+  },
+  "findings": [],
+  "analysed": {
+   "Book": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "installed": true
+ },
+ {
+  "label": "renamed_enumeration_plants: renamed into one the version before had",
+  "files": [
+   [
+    "catalog.yaml",
+    "ba8a96e9d7dfc744"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "0108a0f2d0fea710"
+  },
+  "findings": [
+   [
+    "catalog.yaml",
+    22,
+    "fatal",
+    "names",
+    "the migration renames the enumeration Format to Binding, which the previous version declares already; a rename does not merge two enumerations"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: renamed, another module still declaring it",
+  "files": [
+   [
+    "catalog.yaml",
+    "ba8a96e9d7dfc744"
+   ],
+   [
+    "labels.yaml",
+    "68cdc2c0bad4a2fd"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e",
+   "labels.yaml": "68cdc2c0bad4a2fd"
+  },
+  "findings": [
+   [
+    "catalog.yaml",
+    22,
+    "fatal",
+    "names",
+    "the migration renames the enumeration Format, which the module labels still declares"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: renamed by two modules",
+  "files": [
+   [
+    "catalog.yaml",
+    "ba8a96e9d7dfc744"
+   ],
+   [
+    "labels.yaml",
+    "03da2aac2b5ab33f"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e",
+   "labels.yaml": "68cdc2c0bad4a2fd"
+  },
+  "findings": [
+   [
+    "catalog.yaml",
+    11,
+    "notice",
+    "migration",
+    "Book.format changed its type: that is a drop and an add of the same name, every object's value starting absent (ADR-0147)"
+   ],
+   [
+    "catalog.yaml",
+    12,
+    "notice",
+    "migration",
+    "Book.formats changed its type: that is a drop and an add of the same name, every object's value starting absent (ADR-0147)"
+   ],
+   [
+    "catalog.yaml",
+    22,
+    "fatal",
+    "names",
+    "the migration renames the enumeration Format, which another module's migration renames too"
+   ],
+   [
+    "labels.yaml",
+    20,
+    "fatal",
+    "names",
+    "the migration renames the enumeration Format, which another module's migration renames too"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: an attribute of another module following the rename",
+  "files": [
+   [
+    "catalog.yaml",
+    "ba8a96e9d7dfc744"
+   ],
+   [
+    "shelf.yaml",
+    "3602b255086e53b8"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e",
+   "shelf.yaml": "ad7feb4949e198bf"
+  },
+  "findings": [],
+  "analysed": {
+   "Book": [
+    0,
+    0
+   ],
+   "Copy": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: an attribute of another module following the rename, checked first",
+  "files": [
+   [
+    "shelf.yaml",
+    "3602b255086e53b8"
+   ],
+   [
+    "catalog.yaml",
+    "ba8a96e9d7dfc744"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e",
+   "shelf.yaml": "ad7feb4949e198bf"
+  },
+  "findings": [
+   [
+    "shelf.yaml",
+    2,
+    "notice",
+    "imports",
+    "catalog is not among the files checked, so steps 2 and 3 cannot check what is imported from it"
+   ]
+  ],
+  "analysed": {
+   "Book": [
+    0,
+    0
+   ],
+   "Copy": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: an attribute renamed with its enumeration",
+  "files": [
+   [
+    "catalog.yaml",
+    "115822baf36f7b18"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e"
+  },
+  "findings": [],
+  "analysed": {
+   "Book": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: an attribute renamed with its enumeration, made optional",
+  "files": [
+   [
+    "catalog.yaml",
+    "c51057fafb213315"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e"
+  },
+  "findings": [
+   [
+    "catalog.yaml",
+    22,
+    "fatal",
+    "names",
+    "the migration renames Book.format to binding, which changes its type or whether it is optional; a rename carries the values and their history unchanged (ADR-0146)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: an attribute renamed to another type",
+  "files": [
+   [
+    "catalog.yaml",
+    "7f20744918b51911"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "3b6fea345c28fd4e"
+  },
+  "findings": [
+   [
+    "catalog.yaml",
+    22,
+    "fatal",
+    "names",
+    "the migration renames Book.format to binding, which changes its type or whether it is optional; a rename carries the values and their history unchanged (ADR-0146)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: a reference renamed as its referent's type moves",
+  "files": [
+   [
+    "catalog.yaml",
+    "e6c9201495a56def"
+   ],
+   [
+    "shelf.yaml",
+    "c8329411b55aae67"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "664ae62785d1ff2a",
+   "shelf.yaml": "a3b40d3a51388b82"
+  },
+  "findings": [],
+  "analysed": {
+   "Book": [
+    0,
+    0
+   ],
+   "Category": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: a reference renamed as its referent's type moves, made optional",
+  "files": [
+   [
+    "catalog.yaml",
+    "e6c9201495a56def"
+   ],
+   [
+    "shelf.yaml",
+    "289614e34a9d94ad"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "664ae62785d1ff2a",
+   "shelf.yaml": "a3b40d3a51388b82"
+  },
+  "findings": [
+   [
+    "shelf.yaml",
+    20,
+    "fatal",
+    "names",
+    "the migration renames Book.genre to category, which changes its type or whether it is optional; a rename carries the values and their history unchanged (ADR-0146)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "renamed_enumeration_plants: a reference renamed to a type no module moves",
+  "files": [
+   [
+    "catalog.yaml",
+    "12005bb0fec0ee7a"
+   ],
+   [
+    "shelf.yaml",
+    "c8329411b55aae67"
+   ]
+  ],
+  "previous": {
+   "catalog.yaml": "664ae62785d1ff2a",
+   "shelf.yaml": "a3b40d3a51388b82"
+  },
+  "findings": [
+   [
+    "shelf.yaml",
+    20,
+    "fatal",
+    "names",
+    "the migration renames Book.genre to category, which changes its type or whether it is optional; a rename carries the values and their history unchanged (ADR-0146)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "metric_plants",
   "files": [
    [

@@ -4786,7 +4786,8 @@ impl Store {
                 // key made to name what it now references by the table's
                 // rebuild below; a stored reference is single, a set of them
                 // being derived from its opposite (ADR-0229 decision 5)
-                if crate::publish::follows_move(m, a, na) {
+                // and an enumeration renamed keeps them (ADR-0247)
+                if crate::publish::carries(m, a, na) {
                     continue;
                 }
                 // its intervals set aside under the name its column takes,
@@ -5068,7 +5069,14 @@ impl Store {
                         .push((x.id.clone(), n.clone(), position, reason.clone()));
                 }
                 // what its mappings wrote (ADR-0209 decision 1)
-                let wrote = crate::world::wrote_between(&was.attrs, &x.attrs);
+                // a member of an enumeration renamed written by none of them,
+                // its stored name unchanged (ADR-0247 decision 1)
+                let was_attrs: BTreeMap<String, Value> = was
+                    .attrs
+                    .iter()
+                    .map(|(a, v)| (a.clone(), crate::publish::renamed_member(m, v.clone())))
+                    .collect();
+                let wrote = crate::world::wrote_between(&was_attrs, &x.attrs);
                 let mut payload = serde_json::json!({
                     "mappings": codes,
                     "admits": admits.iter().map(|(n, _)| n).collect::<Vec<_>>(),

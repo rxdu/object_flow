@@ -1611,6 +1611,83 @@ def moved_types(files):
     return moved
 
 
+def follows_rename(renamed, was, now):
+    """Whether an attribute's change of type is an enumeration a module of the version renames, which keeps its values,
+    each member by its name (ADR-0247 decision 1). `renamed` maps each old name to its new one."""
+    before, after = str(was.get("type", "")), str(now.get("type", ""))
+    return bool(before and after) and before != after and before.endswith("[]") == after.endswith("[]") \
+        and renamed.get(before.rstrip("[]")) == after.rstrip("[]")
+
+
+def renamed_enumerations(files):
+    """Each enumeration a module of the version renames, as (file, old, new), read from each before any is checked, so
+    an attribute in any module follows the rename (ADR-0247 decision 1). A source that does not parse renames nothing
+    here; the check of it says why."""
+    out = []
+    for f, text in files:
+        try:
+            shallow(text)
+            doc = load(text)
+        except Exception:   # refused, and named, where the module is checked
+            continue
+        if not isinstance(doc, dict) or "module" not in doc or "examples_for" in doc:
+            continue
+        migration = doc.get("migration")
+        entries = migration.get("renamed_enumerations") if isinstance(migration, dict) else None
+        if isinstance(entries, dict):
+            out += [(f, old, str(new)) for old, new in entries.items()]
+    return out
+
+
+def version_enumerations(files):
+    """Each module of a version and the enumerations it declares, as (file, module, names)."""
+    out = []
+    for f, text in files:
+        try:
+            shallow(text)
+            doc = load(text)
+        except Exception:
+            continue
+        if isinstance(doc, dict) and "module" in doc and "examples_for" not in doc:
+            out.append((f, str(doc["module"]), set(doc.get("enumerations") or {})))
+    return out
+
+
+def renamed_enumeration_errors(f, renames, declared):
+    """An enumeration rename against the other modules of the version: the old enumeration declared by none, and no
+    other module renaming it or renaming another to the same name, since a rename does not merge two enumerations
+    (ADR-0247 decision 1)."""
+    out = []
+    for g, old, new in renames:
+        if g != f:
+            continue
+        where = ("migration", "renamed_enumerations", old)
+        for h, module, names in declared:
+            if h != f and old in names:
+                out.append((where, "names", f"the migration renames the enumeration {old}, which the module {module} still declares"))
+        for h, o, n in renames:
+            if h == f:
+                continue
+            if o == old:
+                out.append((where, "names", f"the migration renames the enumeration {old}, which another module's migration renames too"))
+            elif n == new:
+                out.append((where, "names", f"the migration renames {old} to {new}, as another module's migration renames {o}; a rename does not merge two enumerations"))
+    return out
+
+
+def previous_enumerations(previous):
+    """Every enumeration a module of the version before declares."""
+    out = set()
+    for _name, text in sorted((previous or {}).items()):
+        try:
+            doc = load(text)
+        except Exception:
+            continue
+        if isinstance(doc, dict) and "module" in doc and "examples_for" not in doc:
+            out |= set(doc.get("enumerations") or {})
+    return out
+
+
 def unmovable(tn, t, kinds):
     """Why a type does not move, or take moved objects, yet, or None (ADR-0229 decision 6)."""
     attrs = (t.get("attributes") or {}).values()
@@ -1668,6 +1745,16 @@ def migration_errors(doc, v):
                 out.append((where + (old,), "names", f"the migration maps {en}.{old}, which this version still has"))
             if new not in enums[en]:
                 out.append((where + (old,), "names", f"the migration maps {en}.{old} to {new}, which is not a member of {en}"))
+    targets = set()
+    for old, new in (m.get("renamed_enumerations") or {}).items():
+        where, new = ("migration", "renamed_enumerations", old), str(new)
+        if new not in enums:
+            out.append((where, "names", f"the migration renames the enumeration {old} to {new}, which this module does not declare"))
+        if old in enums:
+            out.append((where, "names", f"the migration renames the enumeration {old}, which this version still declares"))
+        if new in targets:
+            out.append((where, "names", f"the migration renames two enumerations to {new}; a rename does not merge two enumerations"))
+        targets.add(new)
     for tn, maps in (m.get("renamed_attributes") or {}).items():
         where = ("migration", "renamed_attributes", tn)
         if tn not in kinds:
@@ -1788,7 +1875,8 @@ def previous_types(previous, file, library):
     return out
 
 
-def migration_pair_errors(prev, doc, library, before=None, installed=False, moved=None):
+def migration_pair_errors(prev, doc, library, before=None, installed=False, moved=None, enum_renames=None,
+                          enums_before=None):
     """This version against the one before it: every state it removes from a
     type is mapped, every mapping names what the previous version had, and a
     field added to an observation kind is optional (the model's checks 22 and
@@ -1800,7 +1888,10 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
     `prev` is a store's installed version, `installed`, a mapping naming a
     state, a member or an attribute it lacks is left to the publish, which
     notices it (ADR-0230 decision 2). `moved` is every type a module of the
-    version moves (`moved_types`), this module's own where it is not given."""
+    version moves (`moved_types`), this module's own where it is not given;
+    `enum_renames` maps each enumeration a module of the version renames to its
+    new name, this module's own where it is not given, and `enums_before` holds
+    every enumeration of the version before (ADR-0247 decision 1)."""
     before = before or {}
     pv, _ = view(prev, library)
     v, _ = view(doc, library)
@@ -1808,7 +1899,21 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
     old, new = dict(types(pv)), dict(types(v))
     m = doc.get("migration") or {}
     moved = set(m.get("moved_types") or {}) if moved is None else moved
+    own = {o: str(n) for o, n in (m.get("renamed_enumerations") or {}).items()}
+    enum_renames = own if enum_renames is None else enum_renames
+    enums_before = set(prev.get("enumerations") or {}) if enums_before is None else enums_before
     fatal, notes = [], []
+    # an enumeration renamed: one the version before had, into a name it did not, since a rename does not merge two
+    # enumerations (ADR-0247 decision 1)
+    for was_named, now_named in sorted(own.items()):
+        if was_named not in enums_before:
+            if not installed:
+                fatal.append((("migration", "renamed_enumerations", was_named), "names",
+                              f"the migration renames the enumeration {was_named}, which the previous version did not have"))
+        elif now_named in enums_before:
+            fatal.append((("migration", "renamed_enumerations", was_named), "names",
+                          f"the migration renames the enumeration {was_named} to {now_named}, which the previous version "
+                          "declares already; a rename does not merge two enumerations"))
     for tn, t in new.items():
         if tn in machines or tn not in old:
             continue
@@ -1827,8 +1932,11 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
         for a, b in sorted(renamed.items()):
             # named apart from `before`, the version before's other modules' types, which the moves read below
             was, now = (ot.get("attributes") or {}).get(a), (t.get("attributes") or {}).get(b)
-            if was and now and (str(was.get("type", was.get("reference"))), optional(was)) != \
-                    (str(now.get("type", now.get("reference"))), optional(now)):
+            # a change of type the publish carries, a reference following a moved type or an enumeration renamed, is
+            # still a rename (ADR-0247 decision 2)
+            if was and now and (optional(was) != optional(now) or (
+                    str(was.get("type", was.get("reference"))) != str(now.get("type", now.get("reference")))
+                    and not follows_move(moved, was, now) and not follows_rename(enum_renames, was, now))):
                 fatal.append((("migration", "renamed_attributes", tn, a), "names",
                               f"the migration renames {tn}.{a} to {b}, which changes its type or whether it is optional; a rename "
                               "carries the values and their history unchanged (ADR-0146)"))
@@ -1858,7 +1966,7 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
         for a in sorted(set(t.get("attributes") or {}) & set(ot.get("attributes") or {})):
             now_spec, was_spec = t["attributes"][a] or {}, ot["attributes"][a] or {}
             if str(now_spec.get("type", now_spec.get("reference"))) != str(was_spec.get("type", was_spec.get("reference"))) \
-                    and not follows_move(moved, was_spec, now_spec):
+                    and not follows_move(moved, was_spec, now_spec) and not follows_rename(enum_renames, was_spec, now_spec):
                 notes.append((here + ("attributes", a), "migration", f"{tn}.{a} changed its type: that is a drop and an add of the "
                                                                     "same name, every object's value starting absent (ADR-0147)"))
             elif optional(was_spec) and not optional(now_spec) and a not in filled and not str(now_spec.get("reference", "")).endswith("[]"):
@@ -1958,6 +2066,10 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
                                                "which transitions those are, so what the metric counts changes from this version on"))
     old_enums = {n: set(x) for n, x in (prev.get("enumerations") or {}).items()}
     new_enums = {n: set(x) for n, x in (doc.get("enumerations") or {}).items()}
+    # a renamed enumeration's members against the old one's, mapped under the new name (ADR-0247 decision 1)
+    for o, n in sorted(own.items()):
+        if o in old_enums and n not in old_enums:
+            old_enums[n] = old_enums[o]
     for en, members in new_enums.items():
         if en not in old_enums:
             continue
@@ -5370,6 +5482,8 @@ def to_text(doc, library=None):
     for en, maps in (mig.get("removed_members") or {}).items():
         for old, new in maps.items():
             emit(f"removed member {en}.{old} -> {new}", ("migration", "removed_members", en, old))
+    for old, new in (mig.get("renamed_enumerations") or {}).items():
+        emit(f"renamed enum   {old} -> {new}", ("migration", "renamed_enumerations", old))
     for tn, maps in (mig.get("renamed_attributes") or {}).items():
         for old, new in maps.items():
             emit(f"renamed attr   {tn}.{old} -> {new}", ("migration", "renamed_attributes", tn, old))
@@ -6110,6 +6224,11 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     agents, opened = [], []     # the agent kinds of actor declared, and each module's transitions open to them (ADR-0189)
     # every type a module of the version moves, which a reference in any module follows (flow-format.md §4.16, issue #60)
     moved = moved_types(files)
+    # every enumeration a module of the version renames, which an attribute in any module follows (ADR-0247)
+    renames = renamed_enumerations(files)
+    enum_renames = {old: new for _f, old, new in renames}
+    enum_modules = version_enumerations(files)
+    enums_before = previous_enumerations(previous)
     for f, text in files:
         # a source shows what it says: a bidirectional control or an invisible formatting character can make it read
         # otherwise than it shows (fifth production review, ADR-0190 decision 9)
@@ -6220,11 +6339,11 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
         if (previous or {}).get(f) or moving:
             before = previous_types(previous, f, library) if moving else {}
             pair, pair_notes = migration_pair_errors(load(previous[f]) if previous.get(f) else {}, doc, library, before,
-                                                     installed, moved)
+                                                     installed, moved, enum_renames, enums_before)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
         for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + acts_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc)
                         + name_errors(v, library, ordered=False) + taken_by_errors(v) + column_errors(v)
-                        + migration_errors(doc, v) + pair):
+                        + migration_errors(doc, v) + renamed_enumeration_errors(f, renames, enum_modules) + pair):
             p = back(p)
             if p is not None and p[0] == "machines" and "'" in m:
                 # a machine's attributes, always quoted, are the ones it requires of its binders
@@ -10886,6 +11005,157 @@ def moved_type_plants(people):
     return ok
 
 
+def renamed_enumeration_plants():
+    """A version renaming an enumeration, checked against the one before (ADR-0247 decision 1): every attribute typed by
+    it, in any module, follows the rename; a member it also drops is mapped under the new name; and a rename that is no
+    rename is refused: the old one still declared, here or in another module, the new one not declared here, two renamed
+    into one, one the version before lacked, or one into an enumeration it had. A rename whose change of type the
+    publish carries, a reference following a moved type or an enumeration renamed, is still a rename (decision 2)."""
+    def p(text, old, new):
+        assert old in text, old
+        return text.replace(old, new, 1)
+    books = ("module: catalog\ncategories: [live, closed]\nenumerations:\n  Format: [HARDCOVER, PAPERBACK]\ntypes:\n"
+             "  Book:\n    description: A book.\n    tracking: record\n    attributes:\n      title: { type: string }\n"
+             "      format: { type: Format }\n      formats: { type: \"Format[]\" }\n    states:\n"
+             "      ON_SHELF: { description: On the shelf., category: live }\n"
+             "      GONE: { description: Given away., category: closed, final: true }\n"
+             "    transitions:\n      add: { kind: initial, to: ON_SHELF, required_inputs: [title, format] }\n"
+             "      give: { kind: external, from: ON_SHELF, to: GONE }\n")
+    bound = p(p(p(books, "  Format: [HARDCOVER, PAPERBACK]\n", "  Binding: [HARDCOVER, PAPERBACK]\n"),
+                "      format: { type: Format }\n", "      format: { type: Binding }\n"),
+              "      formats: { type: \"Format[]\" }\n", "      formats: { type: \"Binding[]\" }\n")
+    renaming = "migration:\n  description: A format is a binding.\n  renamed_enumerations:\n    Format: Binding\n"
+    renamed = bound + renaming
+    narrowed = p(bound, "  Binding: [HARDCOVER, PAPERBACK]\n", "  Binding: [HARDCOVER]\n")
+    changed = ["Book.format changed its type: that is a drop and an add of the same name, every object's value starting "
+               "absent (ADR-0147)",
+               "Book.formats changed its type: that is a drop and an add of the same name, every object's value starting "
+               "absent (ADR-0147)"]
+    sizes = p(books, "  Format: [HARDCOVER, PAPERBACK]\n", "  Format: [HARDCOVER, PAPERBACK]\n  Size: [SMALL, LARGE]\n")
+    both = p(books, "  Format: [HARDCOVER, PAPERBACK]\n", "  Format: [HARDCOVER, PAPERBACK]\n  Binding: [HARDCOVER, PAPERBACK]\n")
+    labels = ("module: labels\ncategories: [live, closed]\nenumerations:\n  Format: [PRINT]\ntypes:\n  Label:\n"
+              "    description: A label.\n    tracking: record\n    attributes:\n      kind: { type: Format }\n    states:\n"
+              "      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+              "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [kind] }\n"
+              "      remove: { kind: external, from: ON, to: OFF }\n")
+    covers = p(p(labels, "  Format: [PRINT]\n", "  Cover: [PRINT]\n"), "      kind: { type: Format }\n",
+               "      kind: { type: Cover }\n") + "migration:\n  description: A format is a cover.\n  renamed_enumerations:\n    Format: Cover\n"
+    shelf = ("module: shelf\nimports: { catalog: [Format] }\ncategories: [live, closed]\ntypes:\n  Copy:\n"
+             "    description: A copy.\n    tracking: record\n    attributes:\n      as: { type: Format }\n    states:\n"
+             "      IN: { description: In., category: live }\n      OUT: { description: Out., category: closed, final: true }\n"
+             "    transitions:\n      add: { kind: initial, to: IN, required_inputs: [as] }\n"
+             "      lend: { kind: external, from: IN, to: OUT }\n")
+    shelved = p(p(shelf, "imports: { catalog: [Format] }\n", "imports: { catalog: [Binding] }\n"),
+                "      as: { type: Format }\n", "      as: { type: Binding }\n")
+    imported = ["catalog is not among the files checked, so steps 2 and 3 cannot check what is imported from it"]
+    cases = [
+        ("an enumeration renamed", [("catalog.yaml", renamed)], {"catalog.yaml": books}, False, []),
+        ("an enumeration renamed with no rename", [("catalog.yaml", bound)], {"catalog.yaml": books}, False, changed),
+        ("renamed, a member dropped and mapped under the new name",
+         [("catalog.yaml", p(narrowed + renaming, "    Format: Binding\n",
+                             "    Format: Binding\n  removed_members:\n    Binding: { PAPERBACK: HARDCOVER }\n"))],
+         {"catalog.yaml": books}, False, []),
+        ("renamed, a member dropped with no mapping", [("catalog.yaml", narrowed + renaming)], {"catalog.yaml": books}, False,
+         ["Binding.PAPERBACK is gone: a publish needs a mapping for it if live objects hold it, and is refused if an "
+          "observation does"]),
+        ("renamed, the old one still declared",
+         [("catalog.yaml", p(renamed, "  Binding: [HARDCOVER, PAPERBACK]\n", "  Binding: [HARDCOVER, PAPERBACK]\n  Format: [HARDCOVER, PAPERBACK]\n"))],
+         {"catalog.yaml": books}, False,
+         ["the migration renames the enumeration Format, which this version still declares"]),
+        ("renamed to one this module does not declare", [("catalog.yaml", p(renamed, "    Format: Binding\n", "    Format: Cover\n"))],
+         {"catalog.yaml": books}, False,
+         ["the migration renames the enumeration Format to Cover, which this module does not declare"] + changed),
+        ("two renamed into one", [("catalog.yaml", p(renamed, "    Format: Binding\n", "    Format: Binding\n    Size: Binding\n"))],
+         {"catalog.yaml": sizes}, False,
+         ["the migration renames two enumerations to Binding; a rename does not merge two enumerations"]),
+        ("renamed, which the version before did not have", [("catalog.yaml", renamed)], {"catalog.yaml": bound}, False,
+         ["the migration renames the enumeration Format, which the previous version did not have"]),
+        ("renamed over a store that took the rename", [("catalog.yaml", renamed)], {"catalog.yaml": bound}, True, []),
+        ("renamed into one the version before had", [("catalog.yaml", renamed)], {"catalog.yaml": both}, False,
+         ["the migration renames the enumeration Format to Binding, which the previous version declares already; a "
+          "rename does not merge two enumerations"]),
+        ("renamed, another module still declaring it", [("catalog.yaml", renamed), ("labels.yaml", labels)],
+         {"catalog.yaml": books, "labels.yaml": labels}, False,
+         ["the migration renames the enumeration Format, which the module labels still declares"]),
+        ("renamed by two modules", [("catalog.yaml", renamed), ("labels.yaml", covers)],
+         {"catalog.yaml": books, "labels.yaml": labels}, False,
+         # the version's renames name the one its last module gives, here Cover, so the catalog's attributes are
+         # noticed too, where the rename is refused already
+         ["the migration renames the enumeration Format, which another module's migration renames too",
+          "the migration renames the enumeration Format, which another module's migration renames too"] + changed),
+        ("an attribute of another module following the rename", [("catalog.yaml", renamed), ("shelf.yaml", shelved)],
+         {"catalog.yaml": books, "shelf.yaml": shelf}, False, []),
+        ("an attribute of another module following the rename, checked first",
+         [("shelf.yaml", shelved), ("catalog.yaml", renamed)], {"catalog.yaml": books, "shelf.yaml": shelf}, False, imported),
+        ("an attribute renamed with its enumeration",
+         [("catalog.yaml", p(p(p(renamed, "      format: { type: Binding }\n", "      binding: { type: Binding }\n"),
+                               "required_inputs: [title, format]", "required_inputs: [title, binding]"),
+                             "  renamed_enumerations:\n", "  renamed_attributes:\n    Book: { format: binding }\n  renamed_enumerations:\n"))],
+         {"catalog.yaml": books}, False, []),
+        ("an attribute renamed with its enumeration, made optional",
+         [("catalog.yaml", p(p(p(renamed, "      format: { type: Binding }\n", "      binding: { type: Binding, optional: true }\n"),
+                               "required_inputs: [title, format]", "required_inputs: [title], optional_inputs: [binding]"),
+                             "  renamed_enumerations:\n", "  renamed_attributes:\n    Book: { format: binding }\n  renamed_enumerations:\n"))],
+         {"catalog.yaml": books}, False,
+         ["the migration renames Book.format to binding, which changes its type or whether it is optional; a rename "
+          "carries the values and their history unchanged (ADR-0146)"]),
+        ("an attribute renamed to another type",
+         [("catalog.yaml", p(p(p(renamed, "      format: { type: Binding }\n", "      binding: { type: string }\n"),
+                               "required_inputs: [title, format]", "required_inputs: [title, binding]"),
+                             "  renamed_enumerations:\n", "  renamed_attributes:\n    Book: { format: binding }\n  renamed_enumerations:\n"))],
+         {"catalog.yaml": books}, False,
+         ["the migration renames Book.format to binding, which changes its type or whether it is optional; a rename "
+          "carries the values and their history unchanged (ADR-0146)"]),
+    ]
+    # a reference renamed in the version that moves its referent's type (decision 2, issue #58)
+    genres = ("module: catalog\ncategories: [live, closed]\ntypes:\n  Genre:\n    description: A genre.\n"
+              "    tracking: record\n    attributes:\n      name: { type: string }\n    states:\n"
+              "      LISTED: { description: Listed., category: live }\n"
+              "      DROPPED: { description: Dropped., category: closed, final: true }\n"
+              "    transitions:\n      add: { kind: initial, to: LISTED, required_inputs: [name] }\n"
+              "      drop: { kind: external, from: LISTED, to: DROPPED }\n")
+    moving = p(genres, "  Genre:\n    description: A genre.\n", "  Category:\n    description: A category.\n") \
+        + "migration:\n  description: A genre is a category.\n  moved_types:\n    Genre:\n      - to: Category\n"
+    shelf = ("module: shelf\nimports: { catalog: [Genre] }\ncategories: [live, closed]\ntypes:\n  Book:\n"
+             "    description: A book.\n    tracking: record\n    attributes:\n      title: { type: string }\n"
+             "      genre: { reference: Genre }\n    states:\n"
+             "      ON_SHELF: { description: On the shelf., category: live }\n"
+             "      GONE: { description: Given away., category: closed, final: true }\n"
+             "    transitions:\n      add: { kind: initial, to: ON_SHELF, required_inputs: [title, genre] }\n"
+             "      give: { kind: external, from: ON_SHELF, to: GONE }\n")
+    def recategorised(spec):
+        return p(p(p(shelf, "imports: { catalog: [Genre] }\n", "imports: { catalog: [Category] }\n"),
+                   "      genre: { reference: Genre }\n", f"      category: {spec}\n"),
+                 "required_inputs: [title, genre]", "required_inputs: [title, category]") \
+            + "migration:\n  description: A book's genre is its category.\n  renamed_attributes:\n    Book: { genre: category }\n"
+    before = {"catalog.yaml": genres, "shelf.yaml": shelf}
+    cases += [
+        ("a reference renamed as its referent's type moves",
+         [("catalog.yaml", moving), ("shelf.yaml", recategorised("{ reference: Category }"))], before, False, []),
+        ("a reference renamed as its referent's type moves, made optional",
+         [("catalog.yaml", moving), ("shelf.yaml", p(recategorised("{ reference: Category, optional: true }"),
+                                                     "required_inputs: [title, category]",
+                                                     "required_inputs: [title], optional_inputs: [category]"))],
+         before, False,
+         ["the migration renames Book.genre to category, which changes its type or whether it is optional; a rename "
+          "carries the values and their history unchanged (ADR-0146)"]),
+        ("a reference renamed to a type no module moves",
+         [("catalog.yaml", genres + moving.split("types:\n", 1)[1].split("migration:\n", 1)[0]),
+          ("shelf.yaml", recategorised("{ reference: Category }"))],
+         before, False,
+         ["the migration renames Book.genre to category, which changes its type or whether it is optional; a rename "
+          "carries the values and their history unchanged (ADR-0146)"]),
+    ]
+    ok = True
+    for name, files, previous, installed, want in cases:
+        found, notes = check(files, previous, installed=installed)
+        got = sorted(x[4] for x in found + notes)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a renamed enumeration, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def this_checker():
     """This module, as the checker a `publish` step's dry run calls back into, however it was loaded: run as a script,
     imported, or loaded by path under a name `sys.modules` does not hold, as the studio loads it; its `check` the one in
@@ -11083,6 +11353,7 @@ def main():
     ok &= abstract_summary_plant(people)
     ok &= migration_plants(people)
     ok &= moved_type_plants(people)
+    ok &= renamed_enumeration_plants()
     ok &= metric_plants(people)
     ok &= range_plant(people)
     ok &= erasure_plants(people)
