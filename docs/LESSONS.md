@@ -1043,3 +1043,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** On 2026-11-04, a probe of #59's empty copy made PostgreSQL sandboxes of 600 types, about 1,200 tables each, on the check database. Each one's drop failed `53200: out of shared memory`, as did `DROP SCHEMA … CASCADE` by hand and `DROP TABLE` in batches of 100, at the server's default `max_locks_per_transaction` of 64. The orphans stayed, and every later sandbox there failed at its start with `53200`, since a sandbox drops the orphaned ones as it opens. They went only once dropped referencing tables first, 20 a transaction, without `CASCADE`.
 - **Correction:** After a probe that makes more than a few hundred tables in a sandbox, count the `sandbox_%` schemas left on the check database, and drop each large one that way before running the suite. A store test failing `53200` as its sandbox opens points at such an orphan, not at the test.
 - **Context:** ObjectFlow's PostgreSQL sandboxes (`db.rs`, `drop_orphaned_sandboxes`) on `scripts/setup/postgres-check-db`.
+
+### A directory staged whole takes in the file that is never committed
+- **Pattern:** On 2026-11-04, the commit for #58 staged `docs/design` as a directory, with `git add`, and took in the untracked `docs/design/jira-flows.html`, which is never committed. It was seen in the commit's file list before any push, and the commit was amended at the author's word.
+- **Correction:** Stage each changed file by name, from `git status --short`, and never a directory that holds `docs/design/jira-flows.html`. Read the commit's file list, `git show --stat`, before pushing it.
+- **Context:** this repository's working tree, where `docs/design/jira-flows.html` stays untracked.
