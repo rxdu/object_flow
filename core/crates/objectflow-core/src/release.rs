@@ -166,6 +166,14 @@ pub const RELEASES: &[Release] = &[
         builtins_changed: false,
         migrate: renamed_write_index,
     },
+    Release {
+        name: "objectflow-core 0.14.0",
+        from: &["objectflow-core 0.13.0"],
+        fingerprint: "sha256:d0f96b39a4fa49d8caee7600745e7235fc1694f79ca2a72063cde808a4a4d74e",
+        changes: "nothing in the store's own tables or its built-ins, which are 0.13.0's: the step records the release alone",
+        builtins_changed: false,
+        migrate: |_, _| Ok(()),
+    },
 ];
 
 /// 0.12.0 to 0.13.0: the write index of each stored set and each end without

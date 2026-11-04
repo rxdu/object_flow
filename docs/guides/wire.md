@@ -254,8 +254,8 @@ A service started on a store an earlier release made answers every operation but
 POST /v1/upgrade
 {"actor": {"id": "operator"}, "dry_run": true}
 
-{"from": "objectflow-core 0.12.0", "to": "objectflow-core 0.13.0", "dry_run": true, "upgraded": false,
- "steps": [{"release": "objectflow-core 0.13.0", "changes": "the write index of each stored set and each end without a column a version renamed, which 0.12.0 and the releases before left under the old name, carried to the new, so `changed_since` of it reads the writes made before the rename (ADR-0246)"}],
+{"from": "objectflow-core 0.13.0", "to": "objectflow-core 0.14.0", "dry_run": true, "upgraded": false,
+ "steps": [{"release": "objectflow-core 0.14.0", "changes": "nothing in the store's own tables or its built-ins, which are 0.13.0's: the step records the release alone"}],
  "restored": null}
 ```
 

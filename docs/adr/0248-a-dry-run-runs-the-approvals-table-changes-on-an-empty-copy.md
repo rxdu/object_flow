@@ -1,6 +1,6 @@
 # ADR-0248: A dry run runs the approval's table changes on an empty copy, and on PostgreSQL counts their locks
 
-- **Status:** **Decided** 2026-11-04 under the author's direction ("go with your recommendations"), on the recommendations given the same day with the measured cost, for issue #59's second ask and for the lock-table defect found measuring it. Decision 2 is a notice where the recommendation said a refusal, for the reason it gives; the deviation is the author's to confirm. Built the same day.
+- **Status:** **Decided** 2026-11-04 under the author's direction ("go with your recommendations"), on the recommendations given the same day with the measured cost, for issue #59's second ask and for the lock-table defect found measuring it. Decision 2 is a notice where the recommendation said a refusal, for the reason it gives, and the author confirmed it so the same day ("go with your recommendations"). Built the same day.
 - **Date:** 2026-11-04
 - **Refines:** ADR-0195 decision 1 (a change's dry run runs under its slot and its deadline, its impact on a read); `publish-and-import.md` §1 step 3 (the dry run)
 - **Relates to:** issue #59; ADR-0213 (PostgreSQL in the release); `docs/research/dry-running-table-changes.md`
