@@ -631,6 +631,9 @@ A **value** is a group of fields a module declares once, which an attribute or a
 | `attributes` | yes | its fields, at least one, each with a `type`, `optional` where it may be absent, and a `description`; a field's type is `string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `date`, `duration` or an enumeration the module declares (step 2, `schema`; step 3, `names`) |
 
 ```yaml
+module: bookings
+categories: [live, closed]
+
 values:
   DayRange:
     description: A span of days, its first no later than its last.
@@ -638,11 +641,29 @@ values:
       first: { type: date }
       last:  { type: date }
       note:  { type: string, optional: true }
+
 types:
   Booking:
+    description: A booking of some days, and a proposal of others.
+    tracking: record
     attributes:
       days:     { type: DayRange }
       proposed: { type: DayRange, optional: true }
+    states:
+      OPEN: { description: Held., category: live }
+      DONE: { description: Over., category: closed, final: true }
+    conditions:
+      in_order: { description: The first day is no later than the last., expression: days.first <= days.last, remedy: self_serviceable }
+    transitions:
+      book: { kind: initial, to: OPEN, required_inputs: [days], guards: { in_order: deny } }
+      propose: { kind: internal, from: [OPEN], required_inputs: [proposed] }
+      accept:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - assign: { location: days, expr: proposed }
+          - clear: [proposed]
+      finish: { kind: external, from: [OPEN], to: DONE }
 ```
 
 A value is held whole: it is absent, or present with every field it requires. A request gives it as an object of its fields, each written as its type is (`guides/wire.md`). A key that names no field is refused `wrong_type`, and a required field left out `malformed`. An expression reads a field through its holder, as `days.first` or `inputs.proposed.first`. Two values of one declaration compare with `==` and `!=` alone (step 3, `names`; the model's check 24). An effect assigns a value whole from another of its declaration, and `clear` removes it whole (the model's check 17). An event's payload and every read answer a value as an object of its fields, an absent field as `null`.
