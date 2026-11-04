@@ -935,6 +935,42 @@ impl Expr {
 }
 
 /// The tree of an expression written as text.
+/// A value's invariant as an attribute `holder` holding the value holds it
+/// (ADR-0255): each field `fields` names, read bare and not called, read
+/// through the holder, and the whole holding where the value is absent,
+/// `<holder> is null or (…)`; its text otherwise as written, a string's
+/// content untouched (`flowexpr.py`'s `held_through`).
+pub fn held_through(
+    text: &str,
+    fields: &std::collections::BTreeSet<String>,
+    holder: &str,
+) -> Result<String, ParseError> {
+    let tokens = tokenize(text)?;
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    let mut at = 0;
+    for (k, t) in tokens.iter().enumerate() {
+        if t.kind != Kind::Name || !fields.contains(&t.text) || KEYWORDS.contains(&t.text.as_str())
+        {
+            continue;
+        }
+        let after_dot = k > 0 && tokens[k - 1].kind == Kind::Op && tokens[k - 1].text == ".";
+        let called = tokens
+            .get(k + 1)
+            .is_some_and(|n| n.kind == Kind::Op && n.text == "(");
+        if after_dot || called {
+            continue;
+        }
+        out.extend(&chars[at..t.pos]);
+        out.push_str(holder);
+        out.push('.');
+        out.push_str(&t.text);
+        at = t.pos + t.text.chars().count();
+    }
+    out.extend(&chars[at..]);
+    Ok(format!("{holder} is null or ({out})"))
+}
+
 pub fn parse(text: &str) -> Result<Expr, ParseError> {
     parsed(text, false)
 }

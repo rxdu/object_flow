@@ -93,6 +93,11 @@ pub(super) const TAKEN: &str = "_taken_by";
 /// (ADR-0254).
 pub(super) const FIELDS: &str = "_fields";
 
+/// On an invariant a value's invariant gives an attribute holding it: the
+/// value and its invariant, `[<Value>, <invariant>]`, where a finding on it
+/// is reported (ADR-0255).
+pub(super) const VALUE_OF: &str = "_value";
+
 /// A type's attributes and its transitions' declared inputs typed by a value
 /// `values` holds, each given the value's fields beside it (ADR-0254).
 fn with_fields(t: Value, values: &Obj) -> Value {
@@ -115,6 +120,37 @@ fn with_fields(t: Value, values: &Obj) -> Value {
         .iter()
         .map(|(n, spec)| (n.clone(), give(spec)))
         .collect();
+    // each value's invariant, held by each attribute holding the value as
+    // the type's invariant `<attribute>_<invariant>`, after the type's own;
+    // one the type declares itself is left as declared, which
+    // `declared_value_errors` reports (ADR-0255)
+    let mut invariants = obj(&Value::Object(t.clone()), "invariants").clone();
+    for (a, spec) in &attrs {
+        let typ = spec.get("type").and_then(Value::as_str).unwrap_or_default();
+        let Some(v) = values.get(typ) else { continue };
+        let fields: std::collections::BTreeSet<String> =
+            obj(v, "attributes").keys().cloned().collect();
+        for (i, inv) in obj(v, "invariants") {
+            let name = format!("{a}_{i}");
+            let text = inv.get("expression").map(py_str).unwrap_or_default();
+            let Ok(expression) = crate::expr::held_through(&text, &fields, a) else {
+                continue;
+            };
+            if !invariants.contains_key(&name) {
+                invariants.insert(
+                    name,
+                    json!({
+                        "description": inv.get("description").cloned().unwrap_or(Value::Null),
+                        "expression": expression,
+                        VALUE_OF: [typ, i],
+                    }),
+                );
+            }
+        }
+    }
+    if !invariants.is_empty() {
+        t.insert("invariants".into(), Value::Object(invariants));
+    }
     if !attrs.is_empty() {
         t.insert(
             "attributes".into(),
@@ -435,6 +471,23 @@ impl View {
             && inherited(kind, k, n)
         {
             return None;
+        }
+        // an invariant a value gives its holder is reported at the value's
+        // own (ADR-0255)
+        if let (Some(Seg::Key(k)), Some(Seg::Key(n))) = (path.get(2), path.get(3))
+            && k == "invariants"
+            && let Some(Value::Array(of)) =
+                obj(kind, "invariants").get(n).and_then(|i| i.get(VALUE_OF))
+            && let [Value::String(vn), Value::String(i)] = of.as_slice()
+        {
+            let mut out: Path = vec![
+                Seg::Key("values".into()),
+                Seg::Key(vn.clone()),
+                Seg::Key("invariants".into()),
+                Seg::Key(i.clone()),
+            ];
+            out.extend(path[4..].iter().cloned());
+            return Some(out);
         }
         if self.machines.contains(name) {
             let mut out: Path = vec![Seg::Key("machines".into()), Seg::Key(name.clone())];

@@ -1521,6 +1521,16 @@
           "additionalProperties": {
             "$ref": "#/definitions/field"
           }
+        },
+        "invariants": {
+          "description": "What holds of every value of it, over its own fields; each attribute holding it holds it as its type's invariant <attribute>_<invariant> (ADR-0255).",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/invariant"
+          }
         }
       }
     },

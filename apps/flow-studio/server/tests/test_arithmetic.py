@@ -633,3 +633,50 @@ def test_a_value_of_several_fields_is_held_and_read_alike(tee):
     assert (held["days"], held["proposed"]) == (proposed, None), held
     tee.post("/v1/history", {"id": b})
     alike(tee)
+
+
+SPANS = """module: spans
+categories: [live, closed]
+values:
+  DayRange:
+    description: A span of days.
+    attributes:
+      first: { type: date }
+      last: { type: date }
+    invariants:
+      in_order: { description: The first day is no later than the last., expression: first <= last }
+types:
+  Booking:
+    description: A booking and a proposal of other days.
+    tracking: record
+    attributes:
+      days: { type: DayRange }
+      proposed: { type: DayRange, optional: true }
+    states:
+      OPEN: { description: Held., category: live }
+      DONE: { description: Over., category: closed, final: true }
+    transitions:
+      book: { kind: initial, to: OPEN, required_inputs: [days] }
+      propose: { kind: internal, from: [OPEN], required_inputs: [proposed] }
+      finish: { kind: external, from: [OPEN], to: DONE }
+"""
+
+
+def test_a_values_invariant_holds_on_each_holder_alike(tee):
+    """A value's invariant holds for each attribute holding it, as that
+    attribute's invariant <attribute>_<invariant>: a write breaking it is
+    refused naming it, and an absent value holds it, alike on both runners
+    (ADR-0255)."""
+    tee.found.clear()
+    load(tee, "spans", SPANS)
+    v = tee.post("/v1/request", {"transition": "book", "actor": OP, "type": "Booking",
+                                 "inputs": {"days": {"first": "2026-11-05", "last": "2026-11-04"}}})
+    assert v["kind"] == "invariant_violated", v
+    assert [f["invariant"] for f in v["failures"]] == ["days_in_order"], v
+    b = made(tee, "Booking", "book", days={"first": "2026-11-02", "last": "2026-11-04"})
+    v = tee.post("/v1/request", {"transition": "propose", "actor": OP, "object_id": b,
+                                 "inputs": {"proposed": {"first": "2026-11-12", "last": "2026-11-09"}}})
+    assert [f["invariant"] for f in v.get("failures", [])] == ["proposed_in_order"], v
+    took(tee, b, "propose", proposed={"first": "2026-11-09", "last": "2026-11-12"})
+    alike(tee)
+

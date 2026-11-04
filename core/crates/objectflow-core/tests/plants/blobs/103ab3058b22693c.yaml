@@ -1,0 +1,33 @@
+module: bookings
+categories: [live, closed]
+values:
+  DayRange:
+    description: A span of days, its first no later than its last.
+    attributes:
+      first: { type: date }
+      last: { type: date }
+      note: { type: string, optional: true }
+    invariants:
+      in_order: { description: In order., expression: 'first <= last and now > last' }
+types:
+  Booking:
+    description: A booking of some days, and a proposal of others.
+    tracking: record
+    attributes:
+      days: { type: DayRange }
+      proposed: { type: DayRange, optional: true }
+    states:
+      OPEN: { description: Held., category: live }
+      DONE: { description: Over., category: closed, final: true }
+    conditions:
+      days_in_order: { description: The first day is no later than the last., expression: days.first <= days.last, remedy: self_serviceable }
+    transitions:
+      book: { kind: initial, to: OPEN, required_inputs: [days], guards: { days_in_order: deny } }
+      propose: { kind: internal, from: [OPEN], required_inputs: [proposed] }
+      accept:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - assign: { location: days, expr: proposed }
+          - clear: [proposed]
+      finish: { kind: external, from: [OPEN], to: DONE }

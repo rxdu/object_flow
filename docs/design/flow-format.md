@@ -629,6 +629,7 @@ A **value** is a group of fields a module declares once, which an attribute or a
 |---|---|---|
 | `description` | yes | what the value is |
 | `attributes` | yes | its fields, at least one, each with a `type`, `optional` where it may be absent, and a `description`; a field's type is `string`, `bool`, `int`, `decimal(p,s)`, `money(ccy)`, `timestamp`, `date`, `duration` or an enumeration the module declares (step 2, `schema`; step 3, `names`) |
+| `invariants` | no | what holds of every value of it, each a `description` and an `expression` over its own fields (below) |
 
 ```yaml
 module: bookings
@@ -641,6 +642,8 @@ values:
       first: { type: date }
       last:  { type: date }
       note:  { type: string, optional: true }
+    invariants:
+      in_order: { description: The first day is no later than the last., expression: first <= last }
 
 types:
   Booking:
@@ -677,7 +680,7 @@ The store keeps each field in a column of the holder's table, `<attribute>__<fie
 - a module uses the values it declares, and a type of another module holding one is imported with its fields;
 - a later version changes no published value's fields, and no attribute's type to or from a value.
 
-A value declares its fields alone in this release. A rule over its fields is a condition or an invariant of the type holding it.
+**A value's invariant holds for each attribute holding it** (ADR-0255). It is that type's invariant `<attribute>_<invariant>`, such as `days_in_order` above, and holds where the value is absent: `days is null or (days.first <= days.last)`. A write breaking it is refused `invariant_violated`, naming it, and `may_admit` and `admit` name it as any invariant of the type. A value's invariant reads its own fields, literals and enumeration members, and calls `length` or `trim` alone (step 3, `names`). A finding on it is reported at the value. A type declares no invariant named `<attribute>_<invariant>` for a value it holds (step 3, `names`). A value's conditions, which a guard would name, are to be decided with their slice (ADR-0254 decision 9).
 
 ## 5. Expressions
 

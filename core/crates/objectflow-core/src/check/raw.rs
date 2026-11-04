@@ -922,6 +922,9 @@ pub fn type_name_errors(doc: &Value) -> Found {
     out
 }
 
+static VALUE_STRING: LazyLock<Regex> = LazyLock::new(|| re(r#""(?:[^"\\]|\\.)*""#));
+static VALUE_CALL: LazyLock<Regex> = LazyLock::new(|| re(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\("));
+
 /// What a value's field takes in this release (ADR-0254 decision 1).
 const FIELD_TYPES: &[&str] = &[
     "string",
@@ -951,6 +954,33 @@ pub fn declared_value_errors(doc: &Value) -> Found {
     let mut out = Found::new();
     let enums: BTreeSet<String> = keys(doc, "enumerations").into_iter().collect();
     for (vn, v) in values {
+        // a value's invariant reads its own fields, calling length or trim
+        // alone, since each attribute holding it reads it through itself
+        // (ADR-0255)
+        let fields: BTreeSet<String> = keys(v, "attributes").into_iter().collect();
+        for (i, inv) in obj(v, "invariants") {
+            let text = inv.get("expression").map(py_str).unwrap_or_default();
+            let at = segs!["values", vn, "invariants", i, "expression"];
+            for r in super::doc::reads(&text).difference(&fields) {
+                out.push(finding(at.clone(), "names", format!("the invariant {vn}.{i} reads {r}, which is no field of {vn}; a value's invariant reads its own fields (ADR-0255)")));
+            }
+            let bare = VALUE_STRING.replace_all(&text, "\"\"");
+            let mut called: BTreeSet<String> = VALUE_CALL
+                .captures_iter(&bare)
+                .map(|c| c[1].to_string())
+                .collect();
+            // a keyword before a bracket, as `not (…)`, calls nothing
+            called.retain(|c| {
+                ![
+                    "length", "trim", "and", "or", "not", "implies", "in", "is", "null", "if",
+                    "then", "else", "true", "false",
+                ]
+                .contains(&c.as_str())
+            });
+            for c in called {
+                out.push(finding(at.clone(), "names", format!("the invariant {vn}.{i} calls {c}; a value's invariant reads its own fields, calling length or trim alone (ADR-0255)")));
+            }
+        }
         for (f, spec) in obj(v, "attributes") {
             let typ = spec.get("type").map(py_str).unwrap_or_default();
             let head = TYPE_HEAD
@@ -1008,6 +1038,15 @@ pub fn declared_value_errors(doc: &Value) -> Found {
                             "{tn}.{a} is a {vn}, which takes no {k} in this release (ADR-0254)"
                         ),
                     ));
+                }
+                for i in keys(&values[&vn], "invariants") {
+                    if obj(t, "invariants").contains_key(&format!("{a}_{i}")) {
+                        out.push(finding(
+                            ext(&base, segs!["invariants", &format!("{a}_{i}")]),
+                            "names",
+                            format!("{tn}.{a}_{i} is the invariant {a} holds of its value {vn}'s {i}; name the type's invariant otherwise (ADR-0255)"),
+                        ));
+                    }
                 }
                 for f in keys(&values[&vn], "attributes") {
                     let col = format!("{a}__{f}");

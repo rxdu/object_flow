@@ -30720,6 +30720,263 @@
   "could_violate": {}
  },
  {
+  "label": "value_plants: an invariant over its own fields",
+  "files": [
+   [
+    "bookings.yaml",
+    "b48a470a8bee9249"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    31,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {
+   "Booking": [
+    0,
+    1
+   ]
+  },
+  "forms": {
+   "Booking.days_in_order": "local",
+   "Booking.proposed_in_order": "local"
+  },
+  "could_violate": {
+   "Booking.days_in_order": [
+    "Booking.accept",
+    "Booking.book"
+   ],
+   "Booking.proposed_in_order": [
+    "Booking.accept",
+    "Booking.book",
+    "Booking.propose"
+   ]
+  }
+ },
+ {
+  "label": "value_plants: an invariant reading what is no field",
+  "files": [
+   [
+    "bookings.yaml",
+    "103ab3058b22693c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    11,
+    "fatal",
+    "names",
+    "Booking's invariant 'days_in_order' reads now, the clock; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
+   ],
+   [
+    "bookings.yaml",
+    11,
+    "fatal",
+    "names",
+    "Booking's invariant 'proposed_in_order' reads now, the clock; the clock moves without a write, so no check after one can enforce it, and a rule about time is a guard (the model's check 32)"
+   ],
+   [
+    "bookings.yaml",
+    11,
+    "fatal",
+    "names",
+    "invariant days_in_order does not type: it compares a timestamp with a date (the model's check 24)"
+   ],
+   [
+    "bookings.yaml",
+    11,
+    "fatal",
+    "names",
+    "invariant proposed_in_order does not type: it compares a timestamp with a date (the model's check 24)"
+   ],
+   [
+    "bookings.yaml",
+    11,
+    "fatal",
+    "names",
+    "the invariant DayRange.in_order reads now, which is no field of DayRange; a value's invariant reads its own fields (ADR-0255)"
+   ],
+   [
+    "bookings.yaml",
+    31,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Booking.days_in_order": "local",
+   "Booking.proposed_in_order": "local"
+  },
+  "could_violate": {
+   "Booking.days_in_order": [
+    "Booking.accept",
+    "Booking.book"
+   ],
+   "Booking.proposed_in_order": [
+    "Booking.accept",
+    "Booking.book",
+    "Booking.propose"
+   ]
+  }
+ },
+ {
+  "label": "value_plants: an invariant calling a metric",
+  "files": [
+   [
+    "bookings.yaml",
+    "476d95b6969d7772"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    11,
+    "fatal",
+    "names",
+    "invariant days_in_order does not type: max is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+   ],
+   [
+    "bookings.yaml",
+    11,
+    "fatal",
+    "names",
+    "invariant proposed_in_order does not type: max is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+   ],
+   [
+    "bookings.yaml",
+    11,
+    "fatal",
+    "names",
+    "the invariant DayRange.in_order calls max; a value's invariant reads its own fields, calling length or trim alone (ADR-0255)"
+   ],
+   [
+    "bookings.yaml",
+    31,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Booking.days_in_order": "local",
+   "Booking.proposed_in_order": "local"
+  },
+  "could_violate": {
+   "Booking.days_in_order": [
+    "Booking.accept",
+    "Booking.book"
+   ],
+   "Booking.proposed_in_order": [
+    "Booking.accept",
+    "Booking.book",
+    "Booking.propose"
+   ]
+  }
+ },
+ {
+  "label": "value_plants: an invariant that does not type",
+  "files": [
+   [
+    "bookings.yaml",
+    "c79836489f9878f8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    11,
+    "fatal",
+    "names",
+    "invariant days_in_order does not type: it adds a date and a number (the model's check 24)"
+   ],
+   [
+    "bookings.yaml",
+    11,
+    "fatal",
+    "names",
+    "invariant proposed_in_order does not type: it adds a date and a number (the model's check 24)"
+   ],
+   [
+    "bookings.yaml",
+    31,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Booking.days_in_order": "local",
+   "Booking.proposed_in_order": "local"
+  },
+  "could_violate": {
+   "Booking.days_in_order": [
+    "Booking.accept",
+    "Booking.book"
+   ],
+   "Booking.proposed_in_order": [
+    "Booking.accept",
+    "Booking.book",
+    "Booking.propose"
+   ]
+  }
+ },
+ {
+  "label": "value_plants: a type's invariant of a held one's name",
+  "files": [
+   [
+    "bookings.yaml",
+    "f6f5f8f66d4326b9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    23,
+    "fatal",
+    "names",
+    "Booking.days_in_order is the invariant days holds of its value DayRange's in_order; name the type's invariant otherwise (ADR-0255)"
+   ],
+   [
+    "bookings.yaml",
+    33,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Booking.days_in_order": "local",
+   "Booking.proposed_in_order": "local"
+  },
+  "could_violate": {
+   "Booking.days_in_order": [
+    "Booking.accept",
+    "Booking.book"
+   ],
+   "Booking.proposed_in_order": [
+    "Booking.accept",
+    "Booking.book",
+    "Booking.propose"
+   ]
+  }
+ },
+ {
   "label": "value_plants: an imported value",
   "files": [
    [

@@ -7909,6 +7909,90 @@ types:
         assert_eq!(held(&s, "proposed"), json!(null), "cleared whole");
     }
 
+    /// A value's invariant holds for each attribute holding it, as that
+    /// attribute's invariant `<attribute>_<invariant>`: a write breaking it
+    /// is refused naming it, and an absent value holds it (ADR-0255).
+    #[test]
+    fn a_values_invariant_holds_for_each_attribute_holding_it() {
+        const SPANS: &str = r#"
+module: spans
+categories: [live, closed]
+values:
+  DayRange:
+    description: A span of days.
+    attributes:
+      first: { type: date }
+      last: { type: date }
+      label: { type: string, optional: true }
+    invariants:
+      in_order: { description: The first day is no later than the last., expression: 'first <= last and label != "first"' }
+types:
+  Booking:
+    attributes:
+      days: { type: DayRange }
+      proposed: { type: DayRange, optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      book: { kind: initial, to: OPEN, required_inputs: [days], optional_inputs: [proposed] }
+      propose: { kind: internal, from: [OPEN], required_inputs: [proposed] }
+"#;
+        let lib = Library::load(&[("spans.yaml".into(), SPANS.into())]).unwrap();
+        let t = lib.type_("Booking").unwrap();
+        let names: Vec<&str> = t.invariants.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["days_in_order", "proposed_in_order"]);
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let broken = |v: &Verdict| match v {
+            Verdict::InvariantViolated { failures, .. } => {
+                failures.iter().map(|f| f.invariant.clone()).collect()
+            }
+            _ => Vec::new(),
+        };
+        let v = req(
+            &mut s,
+            "book",
+            OPERATOR,
+            ("Booking", true),
+            json!({"days": {"first": "2026-11-05", "last": "2026-11-04"}}),
+        );
+        assert_eq!(broken(&v), ["days_in_order"], "{v:?}");
+        // a string holding a field's name is the string, not the field
+        let v = req(
+            &mut s,
+            "book",
+            OPERATOR,
+            ("Booking", true),
+            json!({"days": {"first": "2026-11-02", "last": "2026-11-04", "label": "first"}}),
+        );
+        assert_eq!(broken(&v), ["days_in_order"], "{v:?}");
+        let b = created(&req(
+            &mut s,
+            "book",
+            OPERATOR,
+            ("Booking", true),
+            json!({"days": {"first": "2026-11-02", "last": "2026-11-04"}}),
+        ));
+        let v = req(
+            &mut s,
+            "propose",
+            OPERATOR,
+            (&b, false),
+            json!({"proposed": {"first": "2026-11-12", "last": "2026-11-09"}}),
+        );
+        assert_eq!(broken(&v), ["proposed_in_order"], "{v:?}");
+        assert!(matches!(
+            req(
+                &mut s,
+                "propose",
+                OPERATOR,
+                (&b, false),
+                json!({"proposed": {"first": "2026-11-09", "last": "2026-11-12"}})
+            ),
+            Verdict::Satisfied { .. }
+        ));
+    }
+
     /// A creation's guard reads a member the creation takes as an input as
     /// the value supplied, its object having none before it, by its bare
     /// name and as `this.<member>`; a member the creation writes only in its

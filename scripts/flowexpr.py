@@ -74,6 +74,25 @@ def tokenize(text):
 MAX_NESTING, MAX_DEPTH = 64, 128
 
 
+def held_through(text, fields, holder):
+    """A value's invariant as an attribute `holder` holding the value holds it (ADR-0255): each field `fields` names,
+    read bare and not called, read through the holder, and the whole holding where the value is absent,
+    `<holder> is null or (…)`; its text otherwise as written, a string's content untouched, as the core's."""
+    toks = tokenize(text)
+    out, at = [], 0
+    for k, (kind, value, pos) in enumerate(toks):
+        if kind != "name" or value not in fields or value in KEYWORDS:
+            continue
+        if k > 0 and toks[k - 1][:2] == ("op", "."):
+            continue
+        if toks[k + 1][:2] == ("op", "("):
+            continue
+        out += [text[at:pos], f"{holder}.{value}"]
+        at = pos + len(value)
+    out.append(text[at:])
+    return f"{holder} is null or ({''.join(out)})"
+
+
 def depth(node):
     """The depth of a tree, every node a level, counted without recursion."""
     deepest, stack = 0, [(node, 1)]

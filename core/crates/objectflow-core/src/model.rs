@@ -83,6 +83,10 @@ pub struct ValueType {
     /// Its fields in the order declared, each a built-in type or an
     /// enumeration.
     pub fields: Vec<(String, Attribute)>,
+    /// Its invariants, each by its name and its expression as written over
+    /// its own fields, which each attribute holding it holds as
+    /// `<attribute>_<invariant>` (ADR-0255).
+    pub invariants: Vec<(String, String)>,
     /// Its declaration as written, as a type's `source` is.
     pub source: serde_json::Value,
 }
@@ -1165,6 +1169,22 @@ impl Reader<'_> {
             {
                 fields.push((f.clone(), self.attribute(field)?));
             }
+            let mut invariants = Vec::new();
+            for (i, inv) in spec
+                .get("invariants")
+                .map(Node::entries)
+                .unwrap_or_default()
+            {
+                let Some(e) = inv.get("expression") else {
+                    return self.error(inv, "an invariant has an expression");
+                };
+                let text = match (e.boolean(), e.integer()) {
+                    (Some(b), _) => b.to_string(),
+                    (_, Some(n)) => n.to_string(),
+                    _ => self.text(e, "an expression")?,
+                };
+                invariants.push((i.clone(), text));
+            }
             values.push(ValueType {
                 name: n.clone(),
                 module: name.to_string(),
@@ -1174,6 +1194,7 @@ impl Reader<'_> {
                     .unwrap_or_default()
                     .to_string(),
                 fields,
+                invariants,
                 source: spec.to_json(),
             });
         }
@@ -2436,6 +2457,55 @@ impl Library {
                     as_value(&mut i.declared);
                 }
             }
+        }
+        // each value's invariant, held by each attribute holding the value
+        // as its type's invariant `<attribute>_<invariant>`, after the type's
+        // own and before a subtype inherits it (ADR-0255)
+        let declared_values = lib.values.clone();
+        for t in lib.types.values_mut() {
+            let mut held = Vec::new();
+            for (a, attr) in &t.attributes {
+                let Declared::Value(vn) = &attr.declared else {
+                    continue;
+                };
+                let Some(vt) = declared_values.get(vn) else {
+                    continue;
+                };
+                let fields: BTreeSet<String> = vt.fields.iter().map(|(f, _)| f.clone()).collect();
+                for (i, text) in &vt.invariants {
+                    let name = format!("{a}_{i}");
+                    let at = |message: String| {
+                        let (file, line) = files
+                            .iter()
+                            .find(|(_, text)| {
+                                crate::source::name_of(text).as_deref() == Some(t.module.as_str())
+                            })
+                            .map_or((String::new(), 1), |(f, text)| {
+                                (f.clone(), declared_line(text, &t.name))
+                            });
+                        LoadError {
+                            file,
+                            line,
+                            message,
+                        }
+                    };
+                    if t.invariants.iter().any(|(n, _)| *n == name) {
+                        return Err(at(format!(
+                            "{}.{name} is the invariant {a} holds of its value {vn}'s {i}; name the type's invariant otherwise (ADR-0255)",
+                            t.name
+                        )));
+                    }
+                    let expr = expr::held_through(text, &fields, a)
+                        .and_then(|e| expr::parse(&e))
+                        .map_err(|e| {
+                            at(format!(
+                                "{vn}.{i}: {e}: not an expression of declaration-syntax.md §8"
+                            ))
+                        })?;
+                    held.push((name, expr));
+                }
+            }
+            t.invariants.extend(held);
         }
         // what each transition's taken_by generates, once each binder holds
         // its machine's transitions and before a subtype inherits it

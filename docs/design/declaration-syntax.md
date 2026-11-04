@@ -488,11 +488,12 @@ A traversal invariant may read through any relationship end, its far end declare
 ```text
 value <Name> version <v> {
   field <name> : <type>[?]
+  invariant <name>: <bool expression over its fields>
 }
 attr <name> <Name>[?]
 ```
 
-A **value** is a group of fields declared once, which an attribute names as its type. It is equal by its fields, with no id, state or events of its own (ADR-0254). A field holds one scalar of §3.1, but `identity` and `actor_kind`, or one member of an enum. An expression reads a field through its holder, `days.first`, and two values of one declaration compare with `==` and `!=` alone (check 24). An outcome sets a value whole from another of its declaration, and clears it whole (check 17). `flow-format.md` §4.20 writes it, and says what this release does not yet take.
+A **value** is a group of fields declared once, which an attribute names as its type. It is equal by its fields, with no id, state or events of its own (ADR-0254). A field holds one scalar of §3.1, but `identity` and `actor_kind`, or one member of an enum. An expression reads a field through its holder, `days.first`, and two values of one declaration compare with `==` and `!=` alone (check 24). An outcome sets a value whole from another of its declaration, and clears it whole (check 17). A value's invariant reads its own fields, and holds for each attribute holding the value as that type's invariant `<attribute>_<invariant>`, which holds where the value is absent (ADR-0255). `flow-format.md` §4.20 writes it, and says what this release does not yet take.
 
 ## 4. Machines and transitions
 

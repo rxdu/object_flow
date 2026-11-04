@@ -277,6 +277,7 @@ def inherited(t, key, name):
 
 TAKEN = "_taken_by"     # on a member a transition's taken_by generates: the transition (ADR-0176)
 FIELDS = "_fields"      # beside an attribute or an input typed by a value: the value's fields (ADR-0254)
+VALUE_OF = "_value"     # on an invariant a value gives an attribute holding it: [value, invariant] (ADR-0255)
 
 
 def with_fields(t, values):
@@ -292,6 +293,25 @@ def with_fields(t, values):
     t = dict(t)
     if t.get("attributes"):
         t["attributes"] = {n: give(s) for n, s in t["attributes"].items()}
+        # each value's invariant, held by each attribute holding the value as the type's invariant
+        # `<attribute>_<invariant>`, after the type's own; one the type declares itself is left as declared, which
+        # declared_value_errors reports (ADR-0255)
+        invariants = dict(t.get("invariants") or {})
+        for a, spec in t["attributes"].items():
+            typ = spec.get("type") if isinstance(spec, dict) else None
+            v = values.get(typ) if isinstance(typ, str) else None
+            if not v:
+                continue
+            fields = set(v.get("attributes") or {})
+            for i, inv in (v.get("invariants") or {}).items():
+                try:
+                    expression = flowexpr.held_through(str(inv.get("expression", "")), fields, a)
+                except flowexpr.ParseError:
+                    continue
+                invariants.setdefault(f"{a}_{i}", {"description": inv.get("description"), "expression": expression,
+                                                    VALUE_OF: [typ, i]})
+        if invariants:
+            t["invariants"] = invariants
     if t.get("transitions"):
         t["transitions"] = {xn: (dict(x, inputs={n: give(s) for n, s in x["inputs"].items()}) if x.get("inputs") else x)
                             for xn, x in t["transitions"].items()}
@@ -391,6 +411,11 @@ def view(doc, library=None):
         if len(path) < 2 or path[0] != "types":
             return path
         name = path[1]
+        # an invariant a value gives its holder is reported at the value's own (ADR-0255)
+        if len(path) >= 4 and path[2] == "invariants":
+            of = (((kinds.get(name) or {}).get("invariants") or {}).get(path[3]) or {}).get(VALUE_OF)
+            if of:
+                return ("values", of[0], "invariants", of[1]) + tuple(path[4:])
         origin = (kinds.get(name) or {}).get("_from") or {}
         if len(path) >= 4 and (path[2], path[3]) in origin:
             return None
@@ -4141,6 +4166,20 @@ def declared_value_errors(doc):
     values, out = doc.get("values") or {}, []
     enums = set(doc.get("enumerations") or {})
     for vn, v in values.items():
+        # a value's invariant reads its own fields, calling length or trim alone, since each attribute holding it
+        # reads it through itself (ADR-0255)
+        fields = set(v.get("attributes") or {})
+        for i, inv in (v.get("invariants") or {}).items():
+            text = str((inv or {}).get("expression", ""))
+            at = ("values", vn, "invariants", i, "expression")
+            for r in sorted(reads(text) - fields):
+                out.append((at, "names", f"the invariant {vn}.{i} reads {r}, which is no field of {vn}; a value's "
+                                         "invariant reads its own fields (ADR-0255)"))
+            bare = re.sub(r'"(?:[^"\\]|\\.)*"', '""', text)
+            called = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", bare)) - {"length", "trim"} - flowexpr.KEYWORDS
+            for c in sorted(called):
+                out.append((at, "names", f"the invariant {vn}.{i} calls {c}; a value's invariant reads its own fields, "
+                                         "calling length or trim alone (ADR-0255)"))
         for f, spec in (v.get("attributes") or {}).items():
             typ = str((spec or {}).get("type", ""))
             head = re.match(r"[A-Za-z_][A-Za-z0-9_]*", typ)
@@ -4177,6 +4216,12 @@ def declared_value_errors(doc):
                                                          "several fields in this release (ADR-0254)"))
                 for k in sorted(k for k in spec if k not in VALUE_MARKINGS):
                     out.append((at + (k,), "names", f"{tn}.{a} is a {vn}, which takes no {k} in this release (ADR-0254)"))
+                for i in values[vn].get("invariants") or {}:
+                    held_as = f"{a}_{i}"
+                    if held_as in (t.get("invariants") or {}):
+                        out.append((base + ("invariants", held_as), "names",
+                                    f"{tn}.{held_as} is the invariant {a} holds of its value {vn}'s {i}; name the type's "
+                                    "invariant otherwise (ADR-0255)"))
                 for f in values[vn].get("attributes") or {}:
                     col = f"{a}__{f}"
                     if col in members:
@@ -5595,6 +5640,8 @@ def to_text(doc, library=None):
         emit(f"value {vn} version 1 {{", V)
         for fn, spec in (v.get("attributes") or {}).items():
             emit(f"  field {fn} : {spec['type']}{'?' if optional(spec) else ''}", V + ("attributes", fn))
+        for i, inv in (v.get("invariants") or {}).items():
+            emit(f"  invariant {i}: {' '.join(str(inv.get('expression', '')).split())}", V + ("invariants", i))
         emit("}", V)
     for sq, spec in (doc.get("sequences") or {}).items():
         emit(f"# {spec['description']}", ("sequences", sq))
@@ -11516,6 +11563,29 @@ def value_plants():
               "      OUT: { description: Left., category: closed, final: true }\n    transitions:\n"
               "      arrive: { kind: initial, to: IN, required_inputs: [booking] }\n"
               "      leave: { kind: external, from: [IN], to: OUT }\n")
+    # a value's invariant, held by each attribute holding the value as `<attribute>_<invariant>` (ADR-0255)
+    note = "      note: { type: string, optional: true }\n"
+    def held(expression, extra=None):
+        text = p(base, note, note + f"    invariants:\n      in_order: {{ description: In order., expression: '{expression}' }}\n")
+        return p(text, *extra) if extra else text
+    cases += [
+        ("an invariant over its own fields", [("bookings.yaml", held('first <= last and not (note == \"first\")'))], None, []),
+        ("an invariant reading what is no field", [("bookings.yaml", held("first <= last and now > last"))], None,
+         ["the invariant DayRange.in_order reads now, which is no field of DayRange; a value's invariant reads its own fields (ADR-0255)"]
+         + [f"Booking's invariant '{a}_in_order' reads now, the clock; the clock moves without a write, so no check after one can "
+            "enforce it, and a rule about time is a guard (the model's check 32)" for a in ("days", "proposed")]
+         + [f"invariant {a}_in_order does not type: it compares a timestamp with a date (the model's check 24)" for a in ("days", "proposed")]),
+        ("an invariant calling a metric", [("bookings.yaml", held("first <= last and length(note) < 9 and max(first, last) == last"))], None,
+         ["the invariant DayRange.in_order calls max; a value's invariant reads its own fields, calling length or trim alone (ADR-0255)"]
+         + [f"invariant {a}_in_order does not type: max is no function the language has: it has length, date, entered_at and "
+            "time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+            for a in ("days", "proposed")]),
+        ("an invariant that does not type", [("bookings.yaml", held("first + 1 > last"))], None,
+         ["invariant days_in_order does not type: it adds a date and a number (the model's check 24)",
+          "invariant proposed_in_order does not type: it adds a date and a number (the model's check 24)"]),
+        ("a type's invariant of a held one's name", [("bookings.yaml", held("first <= last", ("    conditions:\n", "    invariants:\n      days_in_order: { description: Mine., expression: days is not null }\n    conditions:\n")))], None,
+         ["Booking.days_in_order is the invariant days holds of its value DayRange's in_order; name the type's invariant otherwise (ADR-0255)"]),
+    ]
     cases.append(("an imported value", [("bookings.yaml", base), ("stays.yaml", holder)], None,
                   ["imports 'DayRange' from bookings, a value, which a module uses where it is declared in this release; a type of bookings holding it imports it with its fields (ADR-0254)"]))
     ok = True
