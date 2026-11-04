@@ -3,7 +3,7 @@
 - **Status:** **Decided** 2026-10-24 under the author's direction ("go with your recommendations"), after the review of issue #31.
 - **Date:** 2026-10-24
 - **Superseded in part by:** ADR-0230 — decision 7's refusal of a moved or retired type that no module of the installed version declares, or one it holds retired: such an entry is a notice and moves nothing.
-- **Refined by:** ADR-0244 — every read answering a moved object's `declaration_version` answers beside it the type the object was of under that version, as decision 3's move event gives it. ADR-0247 — decision 5's reference following a move is carried under a rename too, its optionality unchanged.
+- **Refined by:** ADR-0244 — every read answering a moved object's `declaration_version` answers beside it the type the object was of under that version, as decision 3's move event gives it. ADR-0247 — decision 5's reference following a move is carried under a rename too, its optionality unchanged. ADR-0253 — decision 6's actor's type moves as a rename, one entry into a new type, its identity kept.
 - **Refines:** ADR-0099 §7 (a removed type is retired), ADR-0027 decision 4 (a removal needs a mapping), ADR-0147 (the order a publish applies its mappings), ADR-0148 (an attribute whose type changed starts absent)
 - **Relates to:** PRD F2 and F5 (revised in revision 26 to name a removed type); ADR-0018 and ADR-0226 (an object's id), ADR-0101 (no migration reaches an observation), ADR-0105 (a migration is F2's own route), ADR-0146 (one migration transition per object), ADR-0161 (a version carries every module it imports from), ADR-0163 (a type's name is unique across the store), ADR-0209 (an object's events folded give its row); `docs/research/moving-objects-between-types.md`
 

@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Added
+
+- A version may rename an actor's type by a move: one entry without a `where`, into a type new in the version that no other type moves into, whose identity attribute keeps the old one's name and `actor_kind` and is `unique`. Each actor keeps its id, its identity and its kind, and acts after the publish as before it. A split, a merge, a renamed identity, a change of kind and a given identity stay refused, each naming why (#66, ADR-0253).
+
 ### Changed
 
 - A move's `states` naming a state the installed version's old type lacks is a notice in a publish, `migration_not_applicable:moved_types:<Type>.<state>`, and carries nothing for it, so one source moving a type serves a store that still has a state an earlier version renamed and one already past it (#67, ADR-0252). Given `--previous`, the checker still refuses it.

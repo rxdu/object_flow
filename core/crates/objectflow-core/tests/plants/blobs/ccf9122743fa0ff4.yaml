@@ -1,0 +1,31 @@
+module: members
+categories: [live, closed]
+types:
+  Account:
+    description: A person who signs in.
+    tracking: record
+    attributes:
+      principal_id: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { description: Signs in., category: live }
+      ARCHIVED: { description: Gone., category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ACTIVE, required_inputs: [principal_id] }
+      archive: { kind: external, from: ACTIVE, to: ARCHIVED }
+  Guest:
+    description: A person who signs in.
+    tracking: record
+    attributes:
+      guest_id: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { description: Signs in., category: live }
+      ARCHIVED: { description: Gone., category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ACTIVE, required_inputs: [guest_id] }
+      archive: { kind: external, from: ACTIVE, to: ARCHIVED }
+migration:
+  description: Members are accounts.
+  moved_types:
+    Member:
+      - { to: Account, where: 'principal_id != "g"' }
+      - { to: Guest, where: 'principal_id == "g"' }

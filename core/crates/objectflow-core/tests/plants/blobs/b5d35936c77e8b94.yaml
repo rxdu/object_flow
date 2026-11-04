@@ -1,0 +1,14 @@
+module: members
+categories: [live, closed]
+types:
+  Member:
+    description: A person who signs in.
+    tracking: record
+    attributes:
+      principal_id: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { description: Signs in., category: live }
+      ARCHIVED: { description: Gone., category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ACTIVE, required_inputs: [principal_id] }
+      archive: { kind: external, from: ACTIVE, to: ARCHIVED }

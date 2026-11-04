@@ -172,8 +172,64 @@ pub fn previous_enumerations(previous: &BTreeMap<String, String>) -> BTreeSet<St
     out
 }
 
+/// The attribute an actor's type names its actors by, its name, its
+/// `actor_kind` and whether it is `unique`; none for another type.
+fn actor_identity(t: &Value) -> Option<(String, String, bool)> {
+    obj(t, "attributes").iter().find_map(|(a, sp)| {
+        super::doc::text(sp, "actor_kind").map(|k| (a.clone(), k.to_string(), flag(sp, "unique")))
+    })
+}
+
+/// Why a move of an actor's type, from `tn` to `to`, is not a rename: an
+/// actor's type moves whole into a type new in the version that no other
+/// type moves into, its identity attribute kept by name, kind and
+/// uniqueness and carried, so each actor resolves as before and no event
+/// changes (ADR-0253). `entries` are `tn`'s, `e` the one to `to`, `t` the
+/// target, and `merges` whether the version before declared it or another
+/// type of the version moves into it too.
+fn actor_move_errors(
+    tn: &str,
+    ot: &Value,
+    entries: &[Value],
+    e: &Value,
+    to: &str,
+    t: &Value,
+    merges: bool,
+) -> Vec<String> {
+    let (was, now) = (actor_identity(ot), actor_identity(t));
+    let mut out = Vec::new();
+    let (Some((wa, wk, _)), Some((na, nk, unique))) = (&was, &now) else {
+        if was.is_some() {
+            out.push(format!("the migration moves {tn}, an actor's type, to {to}, which is not one, so its actors would resolve to no object (ADR-0253)"));
+        } else if now.is_some() {
+            out.push(format!("the migration moves {tn} to {to}, an actor's type, which takes the objects of an actor's type alone (ADR-0253)"));
+        }
+        return out;
+    };
+    if entries.len() > 1 || super::doc::has(e, "where") {
+        out.push(format!("the migration splits {tn}, an actor's type; an actor's type moves whole, by one entry without a where (ADR-0253)"));
+    }
+    if merges {
+        out.push(format!("the migration merges {tn} into {to}; an actor's type moves into a type new in this version that no other type moves into (ADR-0253)"));
+    }
+    if wa != na {
+        out.push(format!("the migration moves {tn} to {to}, whose actors' identity is {to}.{na} where it was {tn}.{wa}; a move keeps the identity's name (ADR-0253)"));
+    }
+    if wk != nk {
+        out.push(format!("the migration moves {tn}'s {wk} actors to {to}, whose actors are {nk}; a move keeps the actors' kind (ADR-0253)"));
+    }
+    if !unique {
+        out.push(format!("the migration moves {tn} to {to}, whose identity {to}.{na} is not unique; an actor's identity moves into a unique one (ADR-0253)"));
+    }
+    if obj(e, "attributes").contains_key(na) {
+        out.push(format!("the move of {tn} to {to} gives {to}.{na}, the identity each event names its actor by; a move carries it (ADR-0253)"));
+    }
+    out
+}
+
 /// Why a type does not move, or take moved objects, yet, or none
-/// (`check-flows.py`'s `unmovable`, ADR-0229 decision 6).
+/// (`check-flows.py`'s `unmovable`, ADR-0229 decision 6). An actor's type
+/// moves by [`actor_move_errors`]'s rules (ADR-0253).
 fn unmovable(tn: &str, t: &Value, kinds: &Obj) -> Option<&'static str> {
     let attrs = obj(t, "attributes");
     let composite = |sp: &Value| super::doc::text(sp, "aggregation") == Some("composite");
@@ -182,9 +238,6 @@ fn unmovable(tn: &str, t: &Value, kinds: &Obj) -> Option<&'static str> {
     }
     if flag(t, "abstract") {
         return Some("an abstract type");
-    }
-    if attrs.values().any(|sp| flag(sp, "actor_kind")) {
-        return Some("an actor's type, whose objects every event names as its actor");
     }
     if flag(t, "inherited_parts") || attrs.values().any(composite) {
         return Some("a whole in a composition, whose parts follow it");
@@ -1012,6 +1065,18 @@ pub fn migration_pair_errors(
         for (i, e) in entries.iter().enumerate() {
             let here = segs!["migration", "moved_types", tn, i];
             let to = str_or(e, "to", "");
+            if let Some(t) = new.get(&to) {
+                let merged = moved.iter().any(|(other, es)| {
+                    other != tn
+                        && es
+                            .as_array()
+                            .is_some_and(|es| es.iter().any(|x| str_or(x, "to", "") == to))
+                });
+                let merges = merged || old.contains_key(&to) || before.contains_key(&to);
+                for why in actor_move_errors(tn, ot, entries, e, &to, t, merges) {
+                    fatal.push(finding(ext(&here, segs!["to"]), "names", why));
+                }
+            }
             let given = obj(e, "attributes");
             for expr in e.get("where").into_iter().chain(given.values()) {
                 for r in super::doc::reads(&py_str(expr)).difference(&members) {

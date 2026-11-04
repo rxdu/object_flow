@@ -1002,6 +1002,59 @@ def test_a_moves_state_map_over_a_store_past_the_state_alike(tee, past):
     alike(tee)
 
 
+MEMBERS_V1 = """module: members
+categories: [live, closed]
+types:
+  Member:
+    description: A person who signs in.
+    tracking: record
+    attributes:
+      principal_id: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { category: live }
+      ARCHIVED: { category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ACTIVE, required_inputs: [principal_id] }
+      archive: { kind: external, from: [ACTIVE], to: ARCHIVED }
+  Note:
+    description: A note a member writes.
+    tracking: record
+    attributes:
+      text: { type: string }
+    states:
+      KEPT: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text] }
+      drop: { kind: external, from: [KEPT], to: GONE }
+"""
+
+
+def test_a_move_renames_an_actors_type_alike(tee):
+    """A version renaming an actor's type by a move publishes, each actor
+    keeping its id, its identity and its state, and acting after it as
+    before, alike through both backends (ADR-0253, issue #66)."""
+    load(tee, "members", MEMBERS_V1)
+    u7 = made(tee, "Member", "join", principal_id="u7")
+    u8 = made(tee, "Member", "join", principal_id="u8")
+    took(tee, u8, "archive")
+    write = {"transition": "write", "type": "Note", "inputs": {"text": "x"}}
+    assert tee.post("/v1/request", {**write, "actor": {"id": "u7"}})["kind"] == "satisfied"
+    tee.found.clear()
+    c, codes = dry_run(tee, {"members": MEMBERS_V1.replace("  Member:\n", "  Account:\n") + (
+        "migration:\n  description: A member is an account.\n"
+        "  moved_types:\n    Member: [ { to: Account } ]\n")})
+    assert not {code for code in codes if code.startswith("check:")}, codes
+    approved(tee, c)
+    for oid, state in [(u7, "ACTIVE"), (u8, "ARCHIVED")]:
+        held = tee.post("/v1/get", {"id": oid})
+        assert (held["type"], held["state"]) == ("Account", state), held
+    assert tee.post("/v1/request", {**write, "actor": {"id": "u7"}})["kind"] == "satisfied"
+    gone = tee.post("/v1/request", {**write, "actor": {"id": "u8"}})
+    assert (gone["kind"], gone.get("clause")) == ("unsatisfied", "actor_active"), gone
+    alike(tee)
+
+
 @pytest.mark.parametrize("store", ["behind", "kept", "new", "retired"])
 def test_one_source_serves_a_store_behind_kept_or_new_alike(tee, store):
     """One source carrying a rename, a removed state and member, a move and

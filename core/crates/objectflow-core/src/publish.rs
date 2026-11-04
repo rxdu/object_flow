@@ -8031,6 +8031,139 @@ types:
         }
     }
 
+    /// Members, the actors, and the notes they write; [`members_v2`] renames
+    /// `Member` `Account` by a move.
+    const MEMBERS_V1: &str = r#"
+module: members
+categories: [live, closed]
+types:
+  Member:
+    description: A person who signs in.
+    tracking: record
+    attributes:
+      principal_id: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { description: Signs in., category: live }
+      ARCHIVED: { description: Gone., category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ACTIVE, required_inputs: [principal_id] }
+      archive: { kind: external, from: ACTIVE, to: ARCHIVED }
+  Note:
+    description: A note a member writes.
+    tracking: record
+    attributes:
+      text: { type: string }
+    states:
+      KEPT: { description: Kept., category: live }
+      GONE: { description: Gone., category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text] }
+      drop: { kind: external, from: KEPT, to: GONE }
+"#;
+
+    fn members_v2() -> String {
+        MEMBERS_V1.replace("  Member:\n", "  Account:\n")
+            + "migration:\n  description: A member is an account.\n  moved_types:\n    Member: [ { to: Account } ]\n"
+    }
+
+    /// A note written by the actor `who` names, its verdict.
+    fn written_by(s: &mut Store, who: &str, text: &str) -> Verdict {
+        let r = Request {
+            transition: "write".into(),
+            actor: who.into(),
+            object_id: None,
+            type_: Some("Note".into()),
+            inputs: [("text".to_string(), json!(text))].into_iter().collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        request(s, &r).unwrap().unwrap()
+    }
+
+    /// A version renames an actor's type by a move, approved by an actor it
+    /// moves: each actor keeps its id, its identity and its state, the
+    /// approver among them, and acts after the publish as before it; a
+    /// move changing the actors' kind is still refused (ADR-0253, issue
+    /// #66).
+    #[test]
+    fn a_move_renames_an_actors_type_and_its_actors_act_as_before() {
+        let lib = Library::load(&[("members.yaml".into(), MEMBERS_V1.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let u7 = created(&req(
+            &mut s,
+            "join",
+            ("Member", true),
+            json!({"principal_id": "u7"}),
+        ));
+        let u8 = created(&req(
+            &mut s,
+            "join",
+            ("Member", true),
+            json!({"principal_id": "u8"}),
+        ));
+        created(&req(&mut s, "archive", (&u8, false), json!({})));
+        created(&written_by(&mut s, "u7", "before"));
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"members": members_v2()}, "source_ref": "git:members@2"}),
+        ));
+        created(&req(&mut s, "submit", (&change, false), json!({})));
+        let v = s
+            .snapshot()
+            .unwrap()
+            .whole(&change)
+            .unwrap()
+            .unwrap()
+            .version;
+        let (verdict, report) = s.publish("u7", &change, v).unwrap().unwrap();
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+        let w = s.snapshot().unwrap();
+        for (id, state) in [(&u7, "ACTIVE"), (&u8, "ARCHIVED")] {
+            let o = w.whole(id).unwrap().unwrap();
+            assert_eq!(
+                (o.type_.as_str(), o.state.as_str()),
+                ("Account", state),
+                "{id}"
+            );
+        }
+        drop(w);
+        created(&written_by(&mut s, "u7", "after"));
+        assert!(
+            matches!(written_by(&mut s, "u8", "gone"), Verdict::Unsatisfied { ref clause, .. } if clause == "actor_active"),
+            "an archived actor stays unable to act"
+        );
+        assert!(
+            matches!(written_by(&mut s, "u9", "unknown"), Verdict::Unsatisfied { ref clause, .. } if clause == "actor_known"),
+            "an identity no actor holds stays unknown"
+        );
+        // a move changing the actors' kind stays refused, at the submit
+        let kind = MEMBERS_V1
+            .replace("  Member:\n", "  Bot:\n")
+            .replace("actor_kind: human", "actor_kind: agent")
+            + "migration:\n  description: An account is a bot.\n  moved_types:\n    Account: [ { to: Bot } ]\n";
+        let change = created(&req(
+            &mut s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"members": kind}, "source_ref": "git:members@3"}),
+        ));
+        assert_eq!(
+            req(&mut s, "submit", (&change, false), json!({})),
+            refused("dry_run_clean")
+        );
+    }
+
     /// A backfill the installed version's migration holds, unchanged, does
     /// not run again, a notice; changed, it runs (ADR-0230 decision 4).
     #[test]

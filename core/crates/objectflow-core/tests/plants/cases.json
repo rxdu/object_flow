@@ -29235,7 +29235,7 @@
   "could_violate": {}
  },
  {
-  "label": "moved_type_plants: another module's type that does not move yet",
+  "label": "moved_type_plants: another module's actor type moved to types that are not",
   "files": [
    [
     "grants.yaml",
@@ -29249,10 +29249,17 @@
   "findings": [
    [
     "grants.yaml",
-    44,
+    45,
     "fatal",
     "names",
-    "the migration moves RoleGrant, an actor's type, whose objects every event names as its actor; such a type does not move yet (ADR-0229)"
+    "the migration moves RoleGrant, an actor's type, to AccessGrant, which is not one, so its actors would resolve to no object (ADR-0253)"
+   ],
+   [
+    "grants.yaml",
+    50,
+    "fatal",
+    "names",
+    "the migration moves RoleGrant, an actor's type, to AdminGrant, which is not one, so its actors would resolve to no object (ADR-0253)"
    ]
   ],
   "analysed": {},
@@ -30104,6 +30111,278 @@
   "forms": {},
   "could_violate": {},
   "installed": true
+ },
+ {
+  "label": "actor_move_plants: the plain rename",
+  "files": [
+   [
+    "members.yaml",
+    "551be02f852d7c33"
+   ]
+  ],
+  "previous": {
+   "members.yaml": "b5d35936c77e8b94"
+  },
+  "findings": [],
+  "analysed": {
+   "Account": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "actor_move_plants: a split",
+  "files": [
+   [
+    "members.yaml",
+    "ccf9122743fa0ff4"
+   ]
+  ],
+  "previous": {
+   "members.yaml": "b5d35936c77e8b94"
+  },
+  "findings": [
+   [
+    "members.yaml",
+    30,
+    "fatal",
+    "names",
+    "the migration splits Member, an actor's type; an actor's type moves whole, by one entry without a where (ADR-0253)"
+   ],
+   [
+    "members.yaml",
+    31,
+    "fatal",
+    "names",
+    "the migration moves Member to Guest, whose actors' identity is Guest.guest_id where it was Member.principal_id; a move keeps the identity's name (ADR-0253)"
+   ],
+   [
+    "members.yaml",
+    31,
+    "fatal",
+    "names",
+    "the migration splits Member, an actor's type; an actor's type moves whole, by one entry without a where (ADR-0253)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "actor_move_plants: a merge into a type the version before declared",
+  "files": [
+   [
+    "members.yaml",
+    "551be02f852d7c33"
+   ]
+  ],
+  "previous": {
+   "members.yaml": "bb7b207417ede186"
+  },
+  "findings": [
+   [
+    "members.yaml",
+    18,
+    "fatal",
+    "names",
+    "the migration merges Member into Account; an actor's type moves into a type new in this version that no other type moves into (ADR-0253)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "actor_move_plants: two types merged into a new one",
+  "files": [
+   [
+    "members.yaml",
+    "08894e30f4c21c13"
+   ]
+  ],
+  "previous": {
+   "members.yaml": "cf1924b9debed445"
+  },
+  "findings": [
+   [
+    "members.yaml",
+    18,
+    "fatal",
+    "names",
+    "the migration merges Member into Account; an actor's type moves into a type new in this version that no other type moves into (ADR-0253)"
+   ],
+   [
+    "members.yaml",
+    19,
+    "fatal",
+    "names",
+    "the migration merges Staff into Account; an actor's type moves into a type new in this version that no other type moves into (ADR-0253)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "actor_move_plants: a renamed identity",
+  "files": [
+   [
+    "members.yaml",
+    "4d6f9c14bfb96194"
+   ]
+  ],
+  "previous": {
+   "members.yaml": "b5d35936c77e8b94"
+  },
+  "findings": [
+   [
+    "members.yaml",
+    18,
+    "fatal",
+    "names",
+    "the migration moves Member to Account, whose actors' identity is Account.login where it was Member.principal_id; a move keeps the identity's name (ADR-0253)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "actor_move_plants: a change of kind",
+  "files": [
+   [
+    "members.yaml",
+    "b75ed2dba733acbb"
+   ]
+  ],
+  "previous": {
+   "members.yaml": "b5d35936c77e8b94"
+  },
+  "findings": [
+   [
+    "members.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Account (2), since the version declares an agent kind of actor (Account.principal_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "members.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Account.principal_id) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "members.yaml",
+    18,
+    "fatal",
+    "names",
+    "the migration moves Member's human actors to Account, whose actors are agent; a move keeps the actors' kind (ADR-0253)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "actor_move_plants: an identity not unique",
+  "files": [
+   [
+    "members.yaml",
+    "2fb52d29ab53bdb2"
+   ]
+  ],
+  "previous": {
+   "members.yaml": "b5d35936c77e8b94"
+  },
+  "findings": [
+   [
+    "members.yaml",
+    18,
+    "fatal",
+    "names",
+    "the migration moves Member to Account, whose identity Account.principal_id is not unique; an actor's identity moves into a unique one (ADR-0253)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "actor_move_plants: a given identity",
+  "files": [
+   [
+    "members.yaml",
+    "9e01872faea331ed"
+   ]
+  ],
+  "previous": {
+   "members.yaml": "b5d35936c77e8b94"
+  },
+  "findings": [
+   [
+    "members.yaml",
+    18,
+    "fatal",
+    "names",
+    "the move of Member to Account gives Account.principal_id, the identity each event names its actor by; a move carries it (ADR-0253)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "actor_move_plants: an actor's type into another",
+  "files": [
+   [
+    "members.yaml",
+    "681b7c77aaf998a2"
+   ]
+  ],
+  "previous": {
+   "members.yaml": "b5d35936c77e8b94"
+  },
+  "findings": [
+   [
+    "members.yaml",
+    18,
+    "fatal",
+    "names",
+    "the migration moves Member, an actor's type, to Account, which is not one, so its actors would resolve to no object (ADR-0253)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "actor_move_plants: another type into an actor's",
+  "files": [
+   [
+    "members.yaml",
+    "551be02f852d7c33"
+   ]
+  ],
+  "previous": {
+   "members.yaml": "2997c4f02e15cdc0"
+  },
+  "findings": [
+   [
+    "members.yaml",
+    18,
+    "fatal",
+    "names",
+    "the migration moves Member to Account, an actor's type, which takes the objects of an actor's type alone (ADR-0253)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "trim_plants: a guard reading a trimmed input",

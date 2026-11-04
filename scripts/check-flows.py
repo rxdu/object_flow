@@ -1688,15 +1688,60 @@ def previous_enumerations(previous):
     return out
 
 
+def actor_identity(t):
+    """The attribute an actor's type names its actors by, its name, its `actor_kind` and whether it is `unique`; None
+    for another type."""
+    for a, sp in (t.get("attributes") or {}).items():
+        if (sp or {}).get("actor_kind"):
+            return a, sp["actor_kind"], bool(sp.get("unique"))
+    return None
+
+
+def actor_move_errors(tn, ot, entries, e, to, t, merges):
+    """Why a move of an actor's type, from `tn` to `to`, is not a rename: an actor's type moves whole into a type new
+    in the version that no other type moves into, its identity attribute kept by name, kind and uniqueness and carried,
+    so each actor resolves as before and no event changes (ADR-0253), as the core's `actor_move_errors`. `merges` is
+    whether the version before declared the target or another type of the version moves into it too."""
+    was, now = actor_identity(ot), actor_identity(t)
+    if was is None or now is None:
+        if was is not None:
+            return [f"the migration moves {tn}, an actor's type, to {to}, which is not one, so its actors would resolve to "
+                    "no object (ADR-0253)"]
+        if now is not None:
+            return [f"the migration moves {tn} to {to}, an actor's type, which takes the objects of an actor's type alone "
+                    "(ADR-0253)"]
+        return []
+    (wa, wk, _), (na, nk, unique) = was, now
+    out = []
+    if len(entries) > 1 or "where" in e:
+        out.append(f"the migration splits {tn}, an actor's type; an actor's type moves whole, by one entry without a "
+                   "where (ADR-0253)")
+    if merges:
+        out.append(f"the migration merges {tn} into {to}; an actor's type moves into a type new in this version that no "
+                   "other type moves into (ADR-0253)")
+    if wa != na:
+        out.append(f"the migration moves {tn} to {to}, whose actors' identity is {to}.{na} where it was {tn}.{wa}; a move "
+                   "keeps the identity's name (ADR-0253)")
+    if wk != nk:
+        out.append(f"the migration moves {tn}'s {wk} actors to {to}, whose actors are {nk}; a move keeps the actors' "
+                   "kind (ADR-0253)")
+    if not unique:
+        out.append(f"the migration moves {tn} to {to}, whose identity {to}.{na} is not unique; an actor's identity "
+                   "moves into a unique one (ADR-0253)")
+    if na in (e.get("attributes") or {}):
+        out.append(f"the move of {tn} to {to} gives {to}.{na}, the identity each event names its actor by; a move "
+                   "carries it (ADR-0253)")
+    return out
+
+
 def unmovable(tn, t, kinds):
-    """Why a type does not move, or take moved objects, yet, or None (ADR-0229 decision 6)."""
+    """Why a type does not move, or take moved objects, yet, or None (ADR-0229 decision 6). An actor's type moves by
+    `actor_move_errors`'s rules (ADR-0253)."""
     attrs = (t.get("attributes") or {}).values()
     if t.get("mirror"):
         return "a mirror, which only the import writes"
     if t.get("abstract"):
         return "an abstract type"
-    if any((sp or {}).get("actor_kind") for sp in attrs):
-        return "an actor's type, whose objects every event names as its actor"
     if t.get("inherited_parts") or any((sp or {}).get("aggregation") == "composite" for sp in attrs):
         return "a whole in a composition, whose parts follow it"
     if any((sp or {}).get("aggregation") == "composite" and str(sp.get("reference", "")).rstrip("[]") == tn
@@ -2014,6 +2059,10 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
         for i, e in enumerate(entries):
             here = ("migration", "moved_types", tn, i)
             to = e["to"]
+            if to in new:
+                merged = any(other != tn and any(x.get("to") == to for x in (es or ())) for other, es in moved.items())
+                for why in actor_move_errors(tn, ot, entries, e, to, new[to], merged or to in old or to in before):
+                    fatal.append((here + ("to",), "names", why))
             given = e.get("attributes") or {}
             for expr in ([e["where"]] if "where" in e else []) + list(given.values()):
                 for r in sorted(reads(expr) - members):
@@ -10954,12 +11003,14 @@ def moved_type_plants(people):
          {"roles.yaml": p(roles, "    tracking: record\n", "    tracking: serial\n"), "grants.yaml": GRANTS_KEPT}, GRANTS_V2,
          ["the migration moves RoleGrant, tracked by serial, to AccessGrant, tracked by record; a move keeps its tracking (ADR-0229)",
           "the migration moves RoleGrant, tracked by serial, to AdminGrant, tracked by record; a move keeps its tracking (ADR-0229)"]),
-        ("another module's type that does not move yet",
+        ("another module's actor type moved to types that are not",
          {"roles.yaml": p(roles, "      person: { type: string, indexed: true }\n",
                           "      person: { type: string, indexed: true }\n      login: { type: identity, actor_kind: human }\n"),
           "grants.yaml": GRANTS_KEPT}, GRANTS_V2,
-         ["the migration moves RoleGrant, an actor's type, whose objects every event names as its actor; such a type does "
-          "not move yet (ADR-0229)"]),
+         ["the migration moves RoleGrant, an actor's type, to AccessGrant, which is not one, so its actors would resolve "
+          "to no object (ADR-0253)",
+          "the migration moves RoleGrant, an actor's type, to AdminGrant, which is not one, so its actors would resolve "
+          "to no object (ADR-0253)"]),
         ("a part in another module's composition", {"roles.yaml": roles, "holders.yaml": holder, "grants.yaml": GRANTS_KEPT},
          GRANTS_V2,
          ["the migration moves RoleGrant, a part in a composition, which follows its whole; such a type does not move yet "
@@ -11164,6 +11215,73 @@ def renamed_enumeration_plants():
         hit = got == sorted(want)
         ok &= hit
         print(f"  a renamed enumeration, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
+def actor_move_plants():
+    """An actor's type renamed by a move: the plain rename passes, and a split, a merge, a renamed identity, a change of
+    kind, an identity not unique, a given identity, and a move between an actor's type and another each refuse, naming
+    why (ADR-0253, issue #66)."""
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new)
+    def member(name="Member", ident="principal_id: { type: identity, actor_kind: human, unique: true }"):
+        return (f"  {name}:\n    description: A person who signs in.\n    tracking: record\n    attributes:\n"
+                f"      {ident}\n    states:\n      ACTIVE: {{ description: Signs in., category: live }}\n"
+                "      ARCHIVED: { description: Gone., category: closed, final: true }\n    transitions:\n"
+                f"      join: {{ kind: initial, to: ACTIVE, required_inputs: [{ident.split(':')[0]}] }}\n"
+                "      archive: { kind: external, from: ACTIVE, to: ARCHIVED }\n")
+    head = "module: members\ncategories: [live, closed]\ntypes:\n"
+    v1 = head + member()
+    def moved(types, entries):
+        return head + types + "migration:\n  description: Members are accounts.\n  moved_types:\n" + entries
+    plain = "    Member: [ { to: Account } ]\n"
+    cases = [
+        ("the plain rename", v1, moved(member("Account"), plain), []),
+        ("a split", v1, moved(member("Account") + member("Guest", "guest_id: { type: identity, actor_kind: human, unique: true }"),
+                              "    Member:\n      - { to: Account, where: 'principal_id != \"g\"' }\n"
+                              "      - { to: Guest, where: 'principal_id == \"g\"' }\n"),
+         ["the migration splits Member, an actor's type; an actor's type moves whole, by one entry without a where "
+          "(ADR-0253)"] * 2 + [
+          "the migration moves Member to Guest, whose actors' identity is Guest.guest_id where it was "
+          "Member.principal_id; a move keeps the identity's name (ADR-0253)"]),
+        ("a merge into a type the version before declared", head + member() + member("Account"),
+         moved(member("Account"), plain),
+         ["the migration merges Member into Account; an actor's type moves into a type new in this version that no "
+          "other type moves into (ADR-0253)"]),
+        ("two types merged into a new one", head + member() + member("Staff"),
+         moved(member("Account"), plain + "    Staff: [ { to: Account } ]\n"),
+         ["the migration merges Member into Account; an actor's type moves into a type new in this version that no "
+          "other type moves into (ADR-0253)",
+          "the migration merges Staff into Account; an actor's type moves into a type new in this version that no "
+          "other type moves into (ADR-0253)"]),
+        ("a renamed identity", v1, moved(member("Account", "login: { type: identity, actor_kind: human, unique: true }"), plain),
+         ["the migration moves Member to Account, whose actors' identity is Account.login where it was "
+          "Member.principal_id; a move keeps the identity's name (ADR-0253)"]),
+        ("a change of kind", v1, moved(member("Account", "principal_id: { type: identity, actor_kind: agent, unique: true }"), plain),
+         ["the migration moves Member's human actors to Account, whose actors are agent; a move keeps the actors' kind "
+          "(ADR-0253)"]),
+        ("an identity not unique", v1, moved(member("Account", "principal_id: { type: identity, actor_kind: human }"), plain),
+         ["the migration moves Member to Account, whose identity Account.principal_id is not unique; an actor's "
+          "identity moves into a unique one (ADR-0253)"]),
+        ("a given identity", v1, moved(member("Account"), "    Member: [ { to: Account, attributes: { principal_id: '\"x\"' } } ]\n"),
+         ["the move of Member to Account gives Account.principal_id, the identity each event names its actor by; a move "
+          "carries it (ADR-0253)"]),
+        ("an actor's type into another", v1, moved(member("Account", "principal_id: { type: string, unique: true }"), plain),
+         ["the migration moves Member, an actor's type, to Account, which is not one, so its actors would resolve to no "
+          "object (ADR-0253)"]),
+        ("another type into an actor's", head + member("Member", "principal_id: { type: string, unique: true }"),
+         moved(member("Account"), plain),
+         ["the migration moves Member to Account, an actor's type, which takes the objects of an actor's type alone "
+          "(ADR-0253)"]),
+    ]
+    ok = True
+    for name, before, text, want in cases:
+        found, notes = check([("members.yaml", text)], {"members.yaml": before})
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  an actor's type moved, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
     return ok
 
 
@@ -11462,6 +11580,7 @@ def main():
     ok &= moved_type_plants(people)
     ok &= renamed_enumeration_plants()
     ok &= moved_state_plants()
+    ok &= actor_move_plants()
     ok &= trim_plants()
     ok &= creation_read_plants()
     ok &= metric_plants(people)
