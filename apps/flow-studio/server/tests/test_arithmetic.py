@@ -476,3 +476,41 @@ def test_a_write_the_checker_cannot_type_is_fitted_as_the_core_fits_it():
     assert fit({"type": "duration"}, Fraction(60), "b-1") == 60
     assert fit({"type": "Level"}, ("enum", "Level", "HIGH"), "b-1") == \
         ("enum", "Level", "HIGH")
+
+
+CARDS = """module: cards
+categories: [live, closed]
+types:
+  Card:
+    description: A card, closed with a reason said.
+    tracking: record
+    attributes:
+      title: { type: string }
+      reason: { type: string, optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    conditions:
+      reason_said: { description: A reason is said., expression: 'inputs.reason is not null and trim(inputs.reason) != ""', remedy: self_serviceable }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [title] }
+      close: { kind: external, from: [OPEN], to: DONE, optional_inputs: [reason], guards: { reason_said: deny } }
+"""
+
+
+def test_a_text_of_white_space_alone_is_refused_by_trim_alike(tee):
+    """`trim` takes Unicode's White_Space around a string away, and no
+    other character, on both runners alike: a reason of white space alone is
+    refused, one with a word in it applies and is written as sent, and U+001C,
+    which Python's `strip` would take, is no white space (issue #63,
+    ADR-0249)."""
+    tee.found.clear()
+    load(tee, "cards", CARDS)
+    for reason, applies in [("   ", False), ("\t\n　", False), ("", False), (" a ", True), ("\u001c", True)]:
+        card = made(tee, "Card", "add", title="T")
+        v = tee.post("/v1/request", {"transition": "close", "actor": OP, "object_id": card,
+                                     "inputs": {"reason": reason}})
+        assert (v["kind"] == "satisfied") == applies, (reason, v)
+        if applies:
+            assert tee.post("/v1/get", {"id": card})["attributes"]["reason"] == reason
+    alike(tee)

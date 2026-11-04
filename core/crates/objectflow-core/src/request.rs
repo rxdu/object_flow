@@ -5608,7 +5608,7 @@ impl Walk<'_> {
                 let Expr::Name(n) = f.as_ref() else {
                     return Err(());
                 };
-                if !["length", "entered_at", "intervals"].contains(&n.as_str()) {
+                if !["length", "trim", "entered_at", "intervals"].contains(&n.as_str()) {
                     return Err(());
                 }
                 for a in args {
@@ -5833,7 +5833,7 @@ fn reads_only_this(lib: &Library, t: &Type, e: &Expr, seen: &mut BTreeSet<String
             _ => false,
         },
         Expr::Call(f, args) => {
-            matches!(f.as_ref(), Expr::Name(n) if ["length", "entered_at", "intervals"].contains(&n.as_str()))
+            matches!(f.as_ref(), Expr::Name(n) if ["length", "trim", "entered_at", "intervals"].contains(&n.as_str()))
                 && args.iter().all(|a| reads_only_this(lib, t, a, seen))
         }
         Expr::Agg { .. } | Expr::Metric { .. } => false,
@@ -7761,6 +7761,84 @@ types:
             Verdict::Satisfied { object_id, .. } => object_id.clone(),
             other => panic!("{other:?}"),
         }
+    }
+
+    /// `trim` takes the white space around a string away, Unicode's
+    /// White_Space and no other, so a guard refuses a text that is only white
+    /// space for every writer; what the request writes is as it was sent, and
+    /// an absent reason is unknown, which the guard refuses (issue #63,
+    /// ADR-0249).
+    #[test]
+    fn a_guard_refuses_a_text_of_white_space_alone_by_trim() {
+        const CARDS: &str = r#"
+module: cards
+categories: [live, closed]
+types:
+  Card:
+    attributes:
+      title: { type: string }
+      reason: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    conditions:
+      reason_said: { expression: 'trim(inputs.reason) != ""', remedy: self_serviceable }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [title] }
+      close: { kind: external, from: [OPEN], to: DONE, optional_inputs: [reason], guards: { reason_said: deny } }
+"#;
+        let lib = Library::load(&[("cards.yaml".into(), CARDS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let said = |v: &Verdict| matches!(v, Verdict::Unsatisfied { clause, .. } if clause == "reason_said");
+        for (reason, applies) in [
+            (json!("   "), false),
+            (json!("\t\n\u{3000}"), false),
+            (json!(""), false),
+            (json!(" a "), true),
+            // U+001C, which Python's strip takes and Unicode's White_Space does not
+            (json!("\u{1c}"), true),
+        ] {
+            let card = created(&req(
+                &mut s,
+                "add",
+                OPERATOR,
+                ("Card", true),
+                json!({"title": "T"}),
+            ));
+            let v = req(
+                &mut s,
+                "close",
+                OPERATOR,
+                (&card, false),
+                json!({"reason": reason}),
+            );
+            if applies {
+                assert!(matches!(v, Verdict::Satisfied { .. }), "{reason}: {v:?}");
+                let held = s
+                    .snapshot()
+                    .unwrap()
+                    .whole(&card)
+                    .unwrap()
+                    .unwrap()
+                    .attr("reason");
+                assert_eq!(
+                    held,
+                    Value::Text(reason.as_str().unwrap().to_string()),
+                    "written as sent"
+                );
+            } else {
+                assert!(said(&v), "{reason}: {v:?}");
+            }
+        }
+        let card = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Card", true),
+            json!({"title": "T"}),
+        ));
+        let v = req(&mut s, "close", OPERATOR, (&card, false), json!({}));
+        assert!(said(&v), "absent: {v:?}");
     }
 
     /// A database of its own on the server `base` names, dropped with this,

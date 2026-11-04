@@ -3847,6 +3847,19 @@ impl Typing<'_> {
                         }
                         Some(Ty::Int)
                     }
+                    "trim" => {
+                        let arg = if args.len() == 1 {
+                            self.of(&args[0], tn, x, env, seen)
+                        } else {
+                            None
+                        };
+                        if let Some(arg) = arg
+                            && !matches!(arg, Ty::Str)
+                        {
+                            self.fail(format!("trim takes a string, and is given {}", arg.text()));
+                        }
+                        Some(Ty::Str)
+                    }
                     "entered_at" => Some(Ty::Timestamp),
                     "time_in" => Some(Ty::Duration),
                     "date" => Some(Ty::Date),
@@ -5934,6 +5947,7 @@ pub fn children(e: &Expr) -> Vec<&Expr> {
 
 static FLOW_DATA_READ: LazyLock<Regex> =
     LazyLock::new(|| re(r"\b(?:time_in|entered_at)\(|\bthis\.(?:intervals|transitions)\b"));
+static TRIM_CALL: LazyLock<Regex> = LazyLock::new(|| re(r"\btrim\("));
 
 /// An indexed derived attribute reads only this object's stored, indexed
 /// values (the model's check 46).
@@ -5971,6 +5985,11 @@ fn indexed_errors(tn: &str, t: &Value, library: &Obj) -> Found {
         }
         if FLOW_DATA_READ.is_match(&text) {
             why.push("reads the object's flow data".into());
+        }
+        // its generated column's SQL trims spaces alone (storage-schema.md
+        // §3.4, ADR-0249)
+        if TRIM_CALL.is_match(&text) {
+            why.push("calls trim, which its generated column's SQL does not compute alike".into());
         }
         for w in why {
             out.push(finding(
@@ -7327,7 +7346,7 @@ fn evaluator_errors(doc: &Value, tn: &str, t: &Value) -> Found {
 
 /// The functions an expression may call, and the member functions
 /// (`declaration-syntax.md` §8.3).
-const FUNCTIONS: [&str; 4] = ["length", "date", "entered_at", "time_in"];
+const FUNCTIONS: [&str; 5] = ["length", "trim", "date", "entered_at", "time_in"];
 /// The functions a metric alone calls, which check 56 refuses elsewhere.
 const METRIC_ONLY_FUNCTIONS: [&str; 8] = [
     "avg",

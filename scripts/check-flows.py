@@ -3036,6 +3036,11 @@ class Typing:
                 if arg is not None and arg[0] not in ("string", "values"):
                     self.fail(f"length takes a string or a set of values, and is given {type_text(arg)}")
                 return ("int",)
+            if f == ("name", "trim"):
+                arg = self.of(e[2][0], tn, x, env, seen) if len(e[2]) == 1 else None
+                if arg is not None and arg[0] != "string":
+                    self.fail(f"trim takes a string, and is given {type_text(arg)}")
+                return ("string",)
             return {"entered_at": ("timestamp",), "time_in": ("duration",), "date": ("date",)}.get(f[1] if f[0] == "name" else None)
         if k == "changed":
             # the event it reads is one no type here names, so a value of a type it can tell is not one, where an int
@@ -3935,6 +3940,9 @@ def indexed_errors(tn, t, library):
                 why.append(f"reads '{r}', which is not indexed")
         if re.search(r"\b(?:time_in|entered_at)\(|\bthis\.(?:intervals|transitions)\b", text):
             why.append("reads the object's flow data")
+        # its generated column's SQL trims spaces alone (storage-schema.md §3.4, ADR-0249)
+        if re.search(r"\btrim\(", text):
+            why.append("calls trim, which its generated column's SQL does not compute alike")
         out += [(("types", tn, "derived_attributes", d, "indexed"), "names", f"derived attribute '{d}' is indexed and {w}") for w in why]
     return out
 
@@ -4618,7 +4626,7 @@ NO_MEMBERS = {"number", "int", "decimal", "money", "duration", "timestamp", "dat
 # the members of a file, its media type and its size in bytes (ADR-0239 decision 4)
 FILE_MEMBERS = {"media_type": ("string",), "size": ("int",)}
 # the functions an expression may call, and the member functions (declaration-syntax.md §8.3)
-FUNCTIONS = {"length", "date", "entered_at", "time_in"}
+FUNCTIONS = {"length", "trim", "date", "entered_at", "time_in"}
 # the functions a metric alone calls, which check 56 refuses elsewhere
 METRIC_ONLY_FUNCTIONS = {"avg", "median", "percentile", "day", "week", "month", "quarter", "year"}
 MEMBER_FUNCTIONS = {"intervals", "entered_at", "time_in", "held"}
@@ -11156,6 +11164,37 @@ def renamed_enumeration_plants():
     return ok
 
 
+def trim_plants():
+    """`trim`, the string without the white space around it (ADR-0249): a guard reading it is clean, a value other than
+    a string is refused, and an indexed derivation calling it is refused, since its generated column's SQL trims spaces
+    alone (storage-schema.md §3.4)."""
+    base = ("module: cards\ncategories: [live, closed]\ntypes:\n  Card:\n    description: A card.\n    tracking: record\n"
+            "    attributes:\n      title: { type: string }\n      code: { type: string, indexed: true }\n"
+            "      reason: { type: string, optional: true }\n      count: { type: int, optional: true }\n"
+            "    states:\n      OPEN: { description: Open., category: live }\n"
+            "      DONE: { description: Done., category: closed, final: true }\n{derived}    conditions:\n"
+            "      said: { description: A reason is said., expression: '{expr}', remedy: self_serviceable }\n"
+            "    transitions:\n      add: { kind: initial, to: OPEN, required_inputs: [title, code] }\n"
+            "      close: { kind: external, from: OPEN, to: DONE, optional_inputs: [reason, count], guards: { said: deny } }\n")
+    def module(expr, derived=""):
+        return base.replace("{expr}", expr).replace("{derived}", derived)
+    cases = [
+        ("a guard reading a trimmed input", module('trim(inputs.reason) != ""'), []),
+        ("a trimmed number", module('trim(count) != ""'), ["condition said does not type: trim takes a string, and is given an int (the model's check 24)"]),
+        ("an indexed derivation calling trim",
+         module('trim(inputs.reason) != ""', "    derived_attributes:\n      bare: { description: The bare code., expression: trim(code), indexed: true }\n"),
+         ["derived attribute 'bare' is indexed and calls trim, which its generated column's SQL does not compute alike"]),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, notes = check([("cards.yaml", text)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  trim, {name}: {'as expected' if hit else 'NOT: ' + str(got) + ' ' + str([x[4] for x in notes])}")
+    return ok
+
+
 def this_checker():
     """This module, as the checker a `publish` step's dry run calls back into, however it was loaded: run as a script,
     imported, or loaded by path under a name `sys.modules` does not hold, as the studio loads it; its `check` the one in
@@ -11354,6 +11393,7 @@ def main():
     ok &= migration_plants(people)
     ok &= moved_type_plants(people)
     ok &= renamed_enumeration_plants()
+    ok &= trim_plants()
     ok &= metric_plants(people)
     ok &= range_plant(people)
     ok &= erasure_plants(people)

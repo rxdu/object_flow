@@ -1,0 +1,21 @@
+module: cards
+categories: [live, closed]
+types:
+  Card:
+    description: A card.
+    tracking: record
+    attributes:
+      title: { type: string }
+      code: { type: string, indexed: true }
+      reason: { type: string, optional: true }
+      count: { type: int, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    derived_attributes:
+      bare: { description: The bare code., expression: trim(code), indexed: true }
+    conditions:
+      said: { description: A reason is said., expression: 'trim(inputs.reason) != ""', remedy: self_serviceable }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [title, code] }
+      close: { kind: external, from: OPEN, to: DONE, optional_inputs: [reason, count], guards: { said: deny } }

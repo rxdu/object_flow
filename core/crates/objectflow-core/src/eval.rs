@@ -1658,6 +1658,14 @@ impl<'a> Evaluator<'a> {
                 Value::Set(items) => Value::Int(i64::try_from(items.len()).unwrap_or(i64::MAX)),
                 other => return not_run(format!("the length of {}", other.kind())),
             }),
+            // the string without the white space around it, Unicode's
+            // White_Space characters, unknown for an absent value, as
+            // `length` is (ADR-0249)
+            ("trim", [a]) => Ok(match self.value(a, env)? {
+                Value::Absent => Value::Absent,
+                Value::Text(s) => Value::Text(s.trim().to_string()),
+                other => return not_run(format!("the trim of {}", other.kind())),
+            }),
             ("date", [a]) => Ok(match self.value(a, env)? {
                 Value::Absent => Value::Absent,
                 Value::Date(d) => Value::Date(d),
@@ -2677,6 +2685,27 @@ fn span_duration(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The white space `trim` takes away is Unicode's White_Space property,
+    /// which Rust's `char::is_whitespace` is and which the reference runner
+    /// holds as its `WHITE_SPACE` (`flowrun.py`), so the two runners trim
+    /// alike (ADR-0249).
+    #[test]
+    fn trim_takes_unicodes_white_space_alone() {
+        let reference: Vec<u32> = (0x09..=0x0D)
+            .chain([0x20, 0x85, 0xA0, 0x1680])
+            .chain(0x2000..=0x200A)
+            .chain([0x2028, 0x2029, 0x202F, 0x205F, 0x3000])
+            .collect();
+        let rust: Vec<u32> = (0..=0x10_FFFF_u32)
+            .filter_map(char::from_u32)
+            .filter(|c| c.is_whitespace())
+            .map(u32::from)
+            .collect();
+        assert_eq!(rust, reference);
+        assert_eq!(" \u{3000}a b\u{2029} ".trim(), "a b");
+        assert_eq!("\u{1c}a\u{1c}".trim(), "\u{1c}a\u{1c}");
+    }
     use crate::expr::parse;
     use crate::model::Library;
 

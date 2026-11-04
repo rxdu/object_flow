@@ -284,7 +284,9 @@ fn beyond_own_fields(expr: &str) -> bool {
         use crate::expr::Expr;
         match e {
             Expr::Agg { .. } | Expr::Metric { .. } => true,
-            Expr::Call(f, _) if !matches!(f.as_ref(), Expr::Name(n) if n == "length") => true,
+            Expr::Call(f, _) if !matches!(f.as_ref(), Expr::Name(n) if n == "length" || n == "trim") => {
+                true
+            }
             _ => e.children().into_iter().any(reaches),
         }
     }

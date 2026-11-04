@@ -186,6 +186,11 @@ class Shared:
         return self
 
 
+# Unicode's White_Space property, the characters `trim` removes, as Rust's `str::trim` does; Python's `str.strip()`
+# strips U+001C to U+001F besides, which it is not (ADR-0249)
+WHITE_SPACE = "".join(map(chr, [*range(0x09, 0x0E), 0x20, 0x85, 0xA0, 0x1680, *range(0x2000, 0x200B), 0x2028, 0x2029,
+                                0x202F, 0x205F, 0x3000]))
+
 def is_set(v):
     """Whether a value is a set: a tuple, but not one of the tagged tuples a state, an enumeration member or a file
     is. A set of strings whose first is one of the tags would be misread, and no example writes one."""
@@ -1437,6 +1442,9 @@ class Evaluator:
         if fn == ("name", "length") and len(args) == 1:
             v = self.value(args[0], env)
             return ABSENT if v is ABSENT else len(v)
+        if fn == ("name", "trim") and len(args) == 1:
+            v = self.value(args[0], env)            # Unicode's White_Space alone, as Rust's `trim` (ADR-0249)
+            return ABSENT if v is ABSENT else v.strip(WHITE_SPACE)
         if fn[0] == "name" and fn[1] in BUCKETS and len(args) == 1:
             v = self.value(args[0], env)
             return ABSENT if v is ABSENT else bucket(fn[1], v)

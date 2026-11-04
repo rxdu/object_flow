@@ -30067,6 +30067,91 @@
   "could_violate": {}
  },
  {
+  "label": "trim_plants: a guard reading a trimmed input",
+  "files": [
+   [
+    "cards.yaml",
+    "5b9654f837d4ef78"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    19,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through inputs.reason (the input reason is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {
+   "Card": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "trim_plants: a trimmed number",
+  "files": [
+   [
+    "cards.yaml",
+    "cb5d0ed98424c030"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    16,
+    "fatal",
+    "names",
+    "condition said does not type: trim takes a string, and is given an int (the model's check 24)"
+   ],
+   [
+    "cards.yaml",
+    19,
+    "notice",
+    "before",
+    "said reads count, which close takes as an input: a guard runs before the transition writes it, so it reads the value count had before the request; inputs.count is the value supplied"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "trim_plants: an indexed derivation calling trim",
+  "files": [
+   [
+    "cards.yaml",
+    "86d4c5a0afb946ae"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    16,
+    "fatal",
+    "names",
+    "derived attribute 'bare' is indexed and calls trim, which its generated column's SQL does not compute alike"
+   ],
+   [
+    "cards.yaml",
+    21,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through inputs.reason (the input reason is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "metric_plants",
   "files": [
    [
