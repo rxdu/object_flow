@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-11-04 under the author's direction ("go with your recommendations"), on the recommendation given the same day for issue #67. Built the same day.
 - **Date:** 2026-11-04
+- **Refined by:** ADR-0256 — a move's `attributes` entry reading what the installed version lacks is the same publish's notice, `migration_not_applicable:moved_types:<Type>.<Target>.<attribute>`, the attribute carried by its name, and a move's `where` so reading stays fatal.
 - **Refines:** ADR-0230 decision 2 (an entry with nothing to act on is a notice), which listed no move's state map
 - **Relates to:** PRD F2; ADR-0229 decision 2 (a move's `states`); issue #67
 
