@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# A release checked once its tag's release run has published it (TODO.md, F,
+# The release): the archive against its SHA-256 and reporting the version and the
+# tagged commit; its CHANGELOG.md, LICENSE and SECURITY.md the tag's;
+# flow.schema.json the tag's and the one served at its $id, so the release is the
+# latest; and the published binary upgrading the stores the release before's
+# published service makes on PostgreSQL (upgrade-check.py), and a store the
+# published 0.12.0 made through each step on both backends (repair-check.py).
+#
+# Usage: scripts/release/verify [<version>] [--previous <version>] [--work <dir>]
+#   <version>   the release (core/Cargo.toml's)
+#   --previous  the release before (the latest tag before v<version>)
+#   --work      its downloads and logs (${TMPDIR:-/tmp}/objectflow-verify-<version>)
+# Needs Docker, gh authenticated for the repository, and scripts/.venv. Exits 0
+# where every check held.
+set -uo pipefail
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+PY=$ROOT/scripts/.venv/bin/python
+VERSION=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$ROOT/core/Cargo.toml")
+[ $# -gt 0 ] && [ "${1#--}" = "$1" ] && { VERSION=$1; shift; }
+PREVIOUS=$(git -C "$ROOT" describe --tags --abbrev=0 --match 'v*' "v$VERSION^" 2>/dev/null | sed 's/^v//')
+WORK=${TMPDIR:-/tmp}/objectflow-verify-$VERSION
+while [ $# -gt 0 ]; do
+  case $1 in
+    --previous) PREVIOUS=$2; shift 2 ;;
+    --work) WORK=$2; shift 2 ;;
+    *) echo "verify: unknown option $1" >&2; exit 2 ;;
+  esac
+done
+mkdir -p "$WORK"
+WORK=$(cd "$WORK" && pwd)
+fail=0
+check() { if [ "$2" = 0 ]; then echo "ok    $1"; else echo "FAIL  $1"; fail=1; fi; }
+TAG=v$VERSION
+COMMIT=$(git -C "$ROOT" rev-parse "$TAG^{commit}") || { echo "verify: no tag $TAG here; git fetch --tags" >&2; exit 2; }
+NAME=objectflow-service-$VERSION-x86_64-linux
+BIN=$("$ROOT/scripts/release/published" "$VERSION" "$WORK/pub" 2> "$WORK/pub.log")
+check "$TAG fetched, the archive against its SHA-256, the binary reporting $VERSION" $?
+grep -E ": OK$|FAILED" "$WORK/pub.log" | sed 's/^/      /'
+v=$("$BIN" --version 2>/dev/null); echo "      $v"
+case "$v" in *", commit $COMMIT") check "the binary built from $TAG's commit, ${COMMIT:0:7}" 0 ;;
+  *) check "the binary built from $TAG's commit, ${COMMIT:0:7}" 1 ;; esac
+for f in CHANGELOG.md LICENSE SECURITY.md; do
+  cmp -s "$WORK/pub/x/$NAME/$f" <(git -C "$ROOT" show "$TAG:$f"); check "$f as tagged" $?
+done
+cmp -s "$WORK/pub/dl/flow.schema.json" <(git -C "$ROOT" show "$TAG:docs/design/flow-format/flow.schema.json")
+check "flow.schema.json as tagged" $?
+id=$("$PY" -I -c "import json,sys; print(json.load(open(sys.argv[1]))['\$id'])" "$WORK/pub/dl/flow.schema.json")
+mkdir -p "$WORK/id"
+curl -sSfL -A "objectflow-release-verify" -o "$WORK/id/flow.schema.json" "$id" &&
+  cmp -s "$WORK/id/flow.schema.json" "$WORK/pub/dl/flow.schema.json"
+check "the schema served at its \$id, $id, is this release's" $?
+"$ROOT/scripts/setup/postgres-check-db" > "$WORK/check-db.log" 2>&1; check "the check database" $?
+old=$("$ROOT/scripts/release/published" "$PREVIOUS" "$WORK/pub-$PREVIOUS" 2> "$WORK/pub-$PREVIOUS.log") &&
+  "$PY" "$ROOT/scripts/release/upgrade-check.py" "$old" "$BIN" "objectflow-core $VERSION" > "$WORK/upgrade.log" 2>&1
+check "the published binary upgrades the stores $PREVIOUS's published service makes, on PostgreSQL" $?
+grep -v NOTICE "$WORK/upgrade.log" | sed 's/^/      /'
+older=$("$ROOT/scripts/release/published" 0.12.0 "$WORK/pub-0.12.0" 2> "$WORK/pub-0.12.0.log") &&
+  "$PY" "$ROOT/scripts/release/repair-check.py" "$older" "$BIN" "$WORK/repair" > "$WORK/repair.log" 2>&1 &&
+  "$PY" "$ROOT/scripts/release/repair-check.py" "$older" "$BIN" "$WORK/repair" "host=localhost port=5432 user=objectflow" \
+    >> "$WORK/repair.log" 2>&1
+check "the published binary takes 0.12.0's store through each step, on both backends" $?
+grep -E "all held|FAILED|EXPECTED" "$WORK/repair.log" | sed 's/^/      /'
+docker stop objectflow-check-db >/dev/null 2>&1
+rm -rf "$WORK"/pub*/x
+if [ "$fail" = 0 ]; then echo "verified"; else echo "NOT verified"; fi
+exit "$fail"

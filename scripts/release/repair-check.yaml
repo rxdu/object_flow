@@ -1,0 +1,46 @@
+module: cards
+categories: [live]
+types:
+  Card:
+    description: A card, signed off before it is closed.
+    tracking: record
+    attributes:
+      title: { type: string }
+      tags: { type: "string[]", optional: true }
+      signed_at: { type: event, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    conditions:
+      fresh:
+        description: It is signed off, and neither its title nor its tags changed since.
+        expression: signed_at is not null and not changed_since([title, tags], signed_at)
+        remedy: delegable
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title], description: Opens a card. }
+      retitle: { kind: internal, from: OPEN, required_inputs: [title], description: Retitles it. }
+      tag: { kind: internal, from: OPEN, required_inputs: [tags], description: Sets its tags. }
+      sign:
+        kind: internal
+        from: OPEN
+        description: Signs the card off as it stands.
+        effect:
+          - assign: { location: signed_at, expr: this_event }
+      close:
+        kind: external
+        from: OPEN
+        to: DONE
+        description: Closes a signed-off card.
+        guards:
+          fresh: deny
+  Memo:
+    description: A memo, its tags a count.
+    tracking: record
+    attributes:
+      tags: { type: int }
+    states:
+      FILED: { description: Filed., category: live }
+      BINNED: { description: Binned., category: closed, final: true }
+    transitions:
+      file: { kind: initial, to: FILED, required_inputs: [tags], description: Files a memo. }
+      bin: { kind: external, from: FILED, to: BINNED, description: Bins it. }

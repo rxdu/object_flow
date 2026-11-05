@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# A release's gate, run on the release commit before it is pushed and tagged
+# (TODO.md, F. The release gate), in this order on an idle machine:
+#   build          the release build, stamped with the commit
+#   gates          Gates P and I on both backends (scripts/release/gates)
+#   upgrade        the stores the release before's published service makes,
+#                  upgraded on PostgreSQL by the build (upgrade-check.py)
+#   repair         a store the published 0.12.0 made, taken through each step
+#                  on both backends (repair-check.py, ADR-0246)
+#   release-tests  the release job's tests as an optimised build
+#   timing         each test with a timing precondition alone, with --release
+#                  (docs/LESSONS.md), each to report 1 passed
+#   check-all      scripts/check-all on both backends
+# Each stage prints its exit and the lines that say its result; a failed build
+# stops the run. OBJECTFLOW_COMMIT is set for every cargo command, since the
+# build reruns when it changes, so the binary the gates measured is the one the
+# later stages test.
+#
+# Usage: scripts/release/gate [options] [-- <scripts/release/gates options>]
+#   --previous <version>  the release before (the latest tag before HEAD)
+#   --work <dir>          its stores, downloads and logs
+#                         (${TMPDIR:-/tmp}/objectflow-release-<version>)
+#   --stages <stage,...>  the stages to run (all); run again after a pause, it
+#                         takes the stages not yet passed, the build kept
+# Needs Docker, gh authenticated for the repository, and scripts/.venv
+# (scripts/setup/python-env). Exits 0 where every stage it ran exited 0.
+set -uo pipefail
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+PY=$ROOT/scripts/.venv/bin/python
+VERSION=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$ROOT/core/Cargo.toml")
+PREVIOUS=$(git -C "$ROOT" describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null | sed 's/^v//')
+WORK=${TMPDIR:-/tmp}/objectflow-release-$VERSION
+STAGES=build,gates,upgrade,repair,release-tests,timing,check-all
+GATES_ARGS=()
+while [ $# -gt 0 ]; do
+  case $1 in
+    --previous) PREVIOUS=$2; shift 2 ;;
+    --work) WORK=$2; shift 2 ;;
+    --stages) STAGES=$2; shift 2 ;;
+    --) shift; GATES_ARGS=("$@"); break ;;
+    *) echo "gate: unknown option $1" >&2; exit 2 ;;
+  esac
+done
+[ "$PREVIOUS" != "$VERSION" ] || { echo "gate: HEAD is tagged v$VERSION already; give --previous" >&2; exit 2; }
+mkdir -p "$WORK"
+WORK=$(cd "$WORK" && pwd)
+export PATH="$HOME/.cargo/bin:$PATH"
+COMMIT=$(git -C "$ROOT" rev-parse HEAD)
+export OBJECTFLOW_COMMIT=$COMMIT
+BIN=$ROOT/core/target/release/objectflow-service
+CHECK_PG="host=localhost port=5432 user=objectflow password=objectflow dbname=objectflow"
+# the tests with a timing precondition, run alone with --release (docs/LESSONS.md)
+TIMING=(an_erasure_beside_a_long_dry_run_leaves_the_files a_submits_dry_run_holds_no_write
+  a_held_writer_is_seen_in_health_and_metrics reads_and_writes_a_second_measured
+  the_metrics_listener_answers_beside_a_busy_main_one reads_answer_beside_a_write_waiting_on_the_lock
+  writes_stalled_behind_another_lock_are_said_by_health a_stall_is_said_in_the_log_as_it_waits)
+wants() { case ",$STAGES," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
+stage() { echo "== $1 $(date +%T)"; }
+said() { echo "   $1 exit $2"; [ "$2" -eq 0 ] || failed+=("$1"); }
+check_db() { "$ROOT/scripts/setup/postgres-check-db" > "$WORK/check-db.log" 2>&1; }
+failed=()
+echo "release $VERSION from $PREVIOUS, commit $COMMIT, work in $WORK"
+if wants build; then
+  stage build
+  (cd "$ROOT/core" && cargo build --release --locked -p objectflow-service) > "$WORK/build.log" 2>&1 ||
+    { echo "   build failed: $(tail -3 "$WORK/build.log")"; exit 1; }
+fi
+case "$("$BIN" --version 2>/dev/null)" in
+  "objectflow-service $VERSION, "*"commit $COMMIT") "$BIN" --version ;;
+  *) echo "gate: $BIN is not the release build of $COMMIT; run the build stage" >&2; exit 1 ;;
+esac
+if wants gates; then
+  stage gates
+  "$ROOT/scripts/release/gates" "$BIN" "$WORK/gates" "${GATES_ARGS[@]}" > "$WORK/gates.log" 2>&1
+  rc=$?
+  grep -E "attempt|^== |^   (the|no) " "$WORK/gates.log" | grep -v "^== done"
+  said gates $rc
+fi
+if wants upgrade; then
+  stage upgrade
+  old=$("$ROOT/scripts/release/published" "$PREVIOUS" "$WORK/pub-$PREVIOUS" 2> "$WORK/pub-$PREVIOUS.log") &&
+    check_db && "$PY" "$ROOT/scripts/release/upgrade-check.py" "$old" "$BIN" "objectflow-core $VERSION" \
+      > "$WORK/upgrade.log" 2>&1
+  rc=$?
+  grep -v NOTICE "$WORK/upgrade.log" | sed 's/^/   /'
+  said upgrade $rc
+fi
+if wants repair; then
+  stage repair
+  older=$("$ROOT/scripts/release/published" 0.12.0 "$WORK/pub-0.12.0" 2> "$WORK/pub-0.12.0.log") && check_db &&
+    "$PY" "$ROOT/scripts/release/repair-check.py" "$older" "$BIN" "$WORK/repair" > "$WORK/repair.log" 2>&1 &&
+    "$PY" "$ROOT/scripts/release/repair-check.py" "$older" "$BIN" "$WORK/repair" "host=localhost port=5432 user=objectflow" \
+      >> "$WORK/repair.log" 2>&1
+  rc=$?
+  grep -E "all held|FAILED|EXPECTED" "$WORK/repair.log" | sed 's/^/   /'
+  said repair $rc
+fi
+if wants release-tests; then
+  stage release-tests
+  (cd "$ROOT/core" && cargo test --release --locked -p objectflow-core -p objectflow-service) > "$WORK/release-tests.log" 2>&1
+  rc=$?
+  grep -E "^test result" "$WORK/release-tests.log" | awk '{p+=$4; f+=$6} END {print "   passed", p, "failed", f}'
+  said release-tests $rc
+fi
+if wants timing; then
+  stage timing
+  rc=0
+  for t in "${TIMING[@]}"; do
+    out=$(cd "$ROOT/core" && cargo test --release --locked -p objectflow-service --test deployment -- --exact "$t" 2>&1)
+    line=$(grep -E "^test result" <<< "$out" | tail -1)
+    echo "   $t: ${line:-no result}"
+    grep -q "^test result: ok. 1 passed" <<< "$line" || rc=1
+  done
+  said timing $rc
+fi
+if wants check-all; then
+  stage check-all
+  check_db && (cd "$ROOT" && OBJECTFLOW_CHECK_POSTGRES="$CHECK_PG" scripts/check-all) > "$WORK/check-all.log" 2>&1
+  rc=$?
+  grep -E "^(FAIL|fail|timeout)|every gate passed|gate failed" "$WORK/check-all.log" | sed 's/^/   /'
+  said check-all $rc
+fi
+docker stop objectflow-check-db >/dev/null 2>&1
+rm -rf "$WORK"/pub-*/dl "$WORK"/pub-*/x
+stage done
+if [ ${#failed[@]} -eq 0 ]; then echo "every stage run passed"; else echo "failed: ${failed[*]}"; exit 1; fi

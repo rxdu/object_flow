@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Fetch a published release and check it: the archive against the SHA-256 beside
+# it, and the binary reporting its version. It prints the binary's path, last.
+# The release gate fetches the release before, whose stores it upgrades, and
+# 0.12.0, whose store the repair check takes through each step (ADR-0246); the
+# release's own verification fetches it once published (scripts/release/verify).
+# Needs gh, authenticated for the repository.
+#
+# Usage: scripts/release/published <version> <dir>
+#   the archive goes to <dir>/dl and is extracted in <dir>/x, each replaced.
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+v=${1:?usage: scripts/release/published <version> <dir>}
+mkdir -p "${2:?usage: scripts/release/published <version> <dir>}"
+dir=$(cd "$2" && pwd)
+name=objectflow-service-$v-x86_64-linux
+rm -rf "$dir/dl" "$dir/x"
+mkdir -p "$dir/dl" "$dir/x"
+(cd "$ROOT" && gh release download "v$v" -D "$dir/dl") >&2
+(cd "$dir/dl" && sha256sum -c "$name.tar.gz.sha256") >&2
+tar xzf "$dir/dl/$name.tar.gz" -C "$dir/x"
+bin=$dir/x/$name/objectflow-service
+case "$("$bin" --version)" in
+  "objectflow-service $v, "*) ;;
+  *) echo "published: $bin does not report objectflow-service $v" >&2; exit 1 ;;
+esac
+echo "$bin"

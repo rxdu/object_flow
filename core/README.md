@@ -47,10 +47,19 @@ core/scripts/check     # rustfmt, clippy with every warning an error, and the te
 scripts/check-all      # every gate of the repository, the core's among them, its lanes at once after the builds
 ```
 
-`scripts/check-all` builds first, then runs its lanes at once, the core's tests on SQLite and on PostgreSQL, the Flow Studio, the design's checks and the scenarios, then the tests a load can fail, one at a time (ADR-0245). `--lane <name>` runs one lane, and `--serial` runs the lanes in turn. CI (`.github/workflows/check.yml`) runs `scripts/check-all --serial` on every push and pull request, with `RUSTFLAGS="-D warnings"`, and checks the core's dependencies against the RustSec advisory database (ADR-0183 decision 2).
+`scripts/check-all` builds first, then runs its lanes at once, the core's tests on SQLite and on PostgreSQL, the Flow Studio, the design's checks and the scenarios, then the tests a load can fail, one at a time (ADR-0245). `--lane <name>` runs one lane, and `--serial` runs the lanes in turn. Its PostgreSQL lane runs only where `OBJECTFLOW_CHECK_POSTGRES` names a database, and its last line says when it did not. A push is checked on both backends:
+
+```sh
+scripts/setup/postgres-check-db    # Docker: the database CI's image makes, on 127.0.0.1:5432; again, afresh
+OBJECTFLOW_CHECK_POSTGRES="host=localhost port=5432 user=objectflow password=objectflow dbname=objectflow" scripts/check-all
+```
+
+A machine runs the gate once it holds what the script's header names: rustup, `scripts/.venv` (`scripts/setup/python-env`), the Flow Studio's environments (its README's *Quick start*), and Docker for PostgreSQL. CI (`.github/workflows/check.yml`) runs `scripts/check-all --serial` on every push and pull request, with `RUSTFLAGS="-D warnings"`, and checks the core's dependencies against the RustSec advisory database (ADR-0183 decision 2).
 
 ## Releases
 
 A release is the author's act: the version raised in `core/Cargo.toml`'s `[workspace.package]`, `CHANGELOG.md`'s section for it written, the commit's check passed, and the commit tagged `v<version>` and pushed. The tag's workflow (`.github/workflows/release.yml`) refuses a tag whose commit's `check-all` has not passed, runs the core's and the service's tests on the oldest supported Ubuntu, builds the service from the tag there, refuses a tag that names another version than the binary's, and publishes the archive and its SHA-256 checksum as the tag's GitHub release. A vulnerability is reported as `SECURITY.md` says.
+
+The release gate runs on the release commit before it is pushed, on a machine kept quiet: `scripts/release/gate` builds the release and runs Gates P and I on both backends, the upgrade from the release before's published service, a store the published 0.12.0 made taken through each step, the release job's tests, each test with a timing precondition alone, and `scripts/check-all` on both backends. Once the tag's workflow has published the release, `scripts/release/verify` checks the archive, its files and schema against the tag, and the published binary's upgrades. Each script's header gives its stages and options, and `TODO.md`'s *F. The release gate* records each release's results. Both need Docker and `gh` authenticated for the repository.
 
 The tests hold the core to the reference: `tests/checker_oracle.rs` replays every check the flow checker makes on its planted fixtures (`scripts/check-flows.py --export-plants` writes them), and the Flow Studio's server tests play every example of the design's modules through both the core and the runner and compare each answer whole.
