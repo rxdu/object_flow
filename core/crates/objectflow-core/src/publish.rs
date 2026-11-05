@@ -6092,6 +6092,51 @@ types:
         }
     }
 
+    /// A version marking a text `not_blank` over a store holding one blank:
+    /// the invariant it generates is a new invariant, the object holding the
+    /// blank text a decision, so the change is not submitted and installs
+    /// no violation nobody admitted, and an object holding a text is not
+    /// named (ADR-0257 decision 3, ADR-0146).
+    #[test]
+    fn a_version_marking_a_text_not_blank_decides_each_blank_one_held() {
+        const NOTES: &str = r#"
+module: notes
+categories: [live, closed]
+types:
+  Note:
+    attributes:
+      text: { type: string }
+    states:
+      KEPT: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text] }
+      drop: { kind: external, from: [KEPT], to: GONE }
+"#;
+        let lib = Library::load(&[("notes.yaml".into(), NOTES.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let blank = created(&req(&mut s, "write", ("Note", true), json!({"text": "  "})));
+        created(&req(&mut s, "write", ("Note", true), json!({"text": "a"})));
+        let marked = NOTES.replace(
+            "text: { type: string }",
+            "text: { type: string, not_blank: true }",
+        );
+        let (change, report) = drafted_on(&mut s, "notes", &marked);
+        assert_eq!(
+            ids(&report, "invariant:Note.text_not_blank"),
+            vec![blank],
+            "{:#?}",
+            report.findings
+        );
+        assert!(!report.accepted, "{:#?}", report.findings);
+        // so the change is not submitted, its dry run unclean
+        let v = req(&mut s, "submit", (&change, false), json!({}));
+        assert!(
+            matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "dry_run_clean"),
+            "{v:?}"
+        );
+    }
+
     /// A new invariant reading `changed_since` of a renamed attribute is
     /// judged on the writes the rename carries, for each kind of attribute:
     /// an object changed after its sign-off is a decision, as it is where

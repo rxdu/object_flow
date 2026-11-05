@@ -516,6 +516,66 @@ def test_a_text_of_white_space_alone_is_refused_by_trim_alike(tee):
     alike(tee)
 
 
+NOTES = """module: notes
+categories: [live, closed]
+types:
+  Note:
+    description: A note, its text never blank.
+    tracking: record
+    attributes:
+      text: { type: string, not_blank: true }
+      memo: { type: string, optional: true, not_blank: true }
+    states:
+      KEPT: { category: live, description: Kept. }
+      GONE: { category: closed, final: true, description: Gone. }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text], optional_inputs: [memo] }
+      blur:
+        kind: internal
+        from: [KEPT]
+        inputs:
+          with: { type: string }
+        effect:
+          - assign: { location: memo, expr: inputs.with }
+      close:
+        kind: external
+        from: [KEPT]
+        to: GONE
+        proposable: true
+        inputs:
+          reason: { type: string, not_blank: true }
+"""
+
+
+def test_a_text_marked_not_blank_is_never_written_blank_alike(tee):
+    """A text marked `not_blank` is refused `malformed` empty once trimmed,
+    an attribute's input and a transition's own alike, a text that is not
+    blank written as sent, and an effect writing it blank refused by the
+    invariant it generates, on both runners alike (issue #69, ADR-0257)."""
+    tee.found.clear()
+    load(tee, "notes", NOTES)
+    for blank in ("", "   ", "\t\n\u3000"):
+        v = tee.post("/v1/request", {"transition": "write", "actor": OP, "type": "Note",
+                                     "inputs": {"text": blank}})
+        assert (v["kind"], v.get("reasons")) == ("invalid_input", {"text": "malformed"}), (blank, v)
+        v = tee.post("/v1/request", {"transition": "write", "actor": OP, "type": "Note",
+                                     "inputs": {"text": "a", "memo": blank}})
+        assert (v["kind"], v.get("reasons")) == ("invalid_input", {"memo": "malformed"}), (blank, v)
+    for text in (" a ", "\u001c"):
+        note = made(tee, "Note", "write", text=text)
+        assert tee.post("/v1/get", {"id": note})["attributes"]["text"] == text
+    v = tee.post("/v1/request", {"transition": "blur", "actor": OP, "object_id": note,
+                                 "inputs": {"with": "  "}})
+    assert v["kind"] == "invariant_violated", v
+    assert [f["invariant"] for f in v["failures"]] == ["memo_not_blank"], v
+    for propose in (False, True):
+        v = tee.post("/v1/request", {"transition": "close", "actor": OP, "object_id": note,
+                                     "propose": propose, "inputs": {"reason": " "}})
+        assert (v["kind"], v.get("reasons")) == ("invalid_input", {"reason": "malformed"}), (propose, v)
+    took(tee, note, "close", reason="done")
+    alike(tee)
+
+
 GRANTS = """module: grants
 categories: [live, closed]
 types:

@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Added
+
+- A `string` attribute or declared input may be marked `not_blank: true`: a text empty once trimmed, as `trim` reads white space, is never written. Its input, sent, passed by a call, given by a default or filed in a proposal, is refused `invalid_input`, `malformed`, the input named, and an attribute so marked holds the invariant `<attribute>_not_blank`, so an effect's write is refused `invariant_violated` and a publish over objects already holding a blank text decides each. The text written stays as sent. The text language writes it `not blank` (#69, ADR-0257).
+
 ### Changed
 
 - A move's `attributes` entry whose expression reads a member the installed version's old type lacks is a notice in a publish, `migration_not_applicable:moved_types:<Type>.<Target>.<attribute>`, and the attribute is carried by its name, so one source moving a type gives an attribute from the name an earlier version renamed over a store before the rename and one past it. Given `--previous`, the checker still refuses it, and a `where` so reading stays refused over any store. A move that carries an old attribute into no attribute of its target, where the target adds one of its type that takes nothing, is noticed as the same drop in place is: the checker's `migration` notice, and the publish's `possible_rename:<Type>.<attribute>` (#68, ADR-0256).

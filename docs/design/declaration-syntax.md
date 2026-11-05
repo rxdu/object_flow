@@ -250,6 +250,7 @@ References are `ref`, `part` or `owner`, never an attribute type. Inputs may be 
 | `external "<source>"` | Owned by another system; uniqueness per source is automatic and partial over absent values |
 | `personal` | Subject to erasure. A required attribute may not be `personal` (check 9), since erasure writes absence. An invariant may read one; erasure admits every invariant that reads what it erased, and records the admission (§6.4) |
 | `indexed` | Available to query filters and type-scan predicates. `.state` and stored relationship ends are always available, so marking one is rejected rather than merely redundant (§8.1, check 7) |
+| `not blank` | On a `string`: a text empty once trimmed, as `trim` reads white space (§9), is never written. An input taking it is refused `invalid input`, and every write is held by the invariant `<attribute>_not_blank`, which the engine generates, so a publish over objects holding a blank text decides each. The text written is as sent (ADR-0257) |
 | `default <expr>` | Sugar the checker expands into a `set` at the head of every creation that does not write the attribute, so it appears in the rule set and in the event like any other write. It never writes an object that already exists, including when a publish adds the attribute (§6.6, ADR-0099) |
 | `actor <kind>` | On an `identity` attribute: this attribute holds the id of the actor the object stands for, and `<kind>` — `human`, `agent` or `service` — is the kind of every actor of this type. A request's actor is the object, in whatever state, whose actor identity its descriptor names, and its kind is this one, never the descriptor's (ADR-0110). An `assignee` reference to this type compares against it (§6.10, checks 59 and 62) |
 
@@ -640,7 +641,7 @@ It says nothing about being *owned*. A whole with a terminal transition whose pa
 
 An input may be **set-valued**, written `<type>[]`, and a set may be of a reference type — which is how a transition takes a selection, such as the slots to move to a new delivery. The `admits` input of an assertion is the same form over `invariant`.
 
-An input may be marked **`personal`**: erasure then redacts it from every payload that recorded it, whether or not it was written to an attribute, and a write of it into a non-personal attribute is rejected like any personal value (check 10, ADR-0078). An input that flows into a personal attribute is personal without the marking.
+An input may be marked **`personal`**: erasure then redacts it from every payload that recorded it, whether or not it was written to an attribute, and a write of it into a non-personal attribute is rejected like any personal value (check 10, ADR-0078). An input that flows into a personal attribute is personal without the marking. An input of type `string` may be marked **`not blank`**: a text empty once trimmed is then refused `invalid input`, whoever gives it (ADR-0257).
 
 **`accepts`** declares that these attributes are supplied by the caller and written directly. `accepts comment` is exactly `input comment : <the attribute's type>` plus `set comment := inputs.comment`, optionality included. It is available on `create`, `do` and `act`, and it accepts a reference as readily as an attribute.
 

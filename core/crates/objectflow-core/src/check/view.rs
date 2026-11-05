@@ -98,6 +98,45 @@ pub(super) const FIELDS: &str = "_fields";
 /// is reported (ADR-0255).
 pub(super) const VALUE_OF: &str = "_value";
 
+/// On an invariant a text's `not_blank` generates: the attribute marked,
+/// where a finding on it is reported (ADR-0257).
+pub(super) const NOT_BLANK: &str = "_not_blank";
+
+/// A type with the invariant each string attribute it marks `not_blank`
+/// generates, `<attribute>_not_blank`, after the type's own; one the type
+/// declares itself is left as declared, which `not_blank_errors` reports
+/// (ADR-0257 decision 3), as `check-flows.py`'s `with_not_blank`.
+fn with_not_blank(t: Value) -> Value {
+    let marked: Vec<String> = obj(&t, "attributes")
+        .iter()
+        .filter(|(_, spec)| {
+            spec.get("not_blank").and_then(Value::as_bool) == Some(true)
+                && spec.get("type").map(py_str).as_deref() == Some("string")
+        })
+        .map(|(a, _)| a.clone())
+        .collect();
+    if marked.is_empty() {
+        return t;
+    }
+    let mut t = as_obj(&t).clone();
+    let mut invariants = obj(&Value::Object(t.clone()), "invariants").clone();
+    for a in marked {
+        let name = format!("{a}_not_blank");
+        if !invariants.contains_key(&name) {
+            invariants.insert(
+                name,
+                json!({
+                    "description": format!("{a} is not blank, as its not_blank marks it (ADR-0257)."),
+                    "expression": format!("{a} is null or trim({a}) != \"\""),
+                    NOT_BLANK: a,
+                }),
+            );
+        }
+    }
+    t.insert("invariants".into(), Value::Object(invariants));
+    Value::Object(t)
+}
+
 /// A type's attributes and its transitions' declared inputs typed by a value
 /// `values` holds, each given the value's fields beside it (ADR-0254).
 fn with_fields(t: Value, values: &Obj) -> Value {
@@ -432,7 +471,10 @@ impl View {
                 t.insert("transitions".into(), Value::Object(transitions));
                 (
                     tn,
-                    with_fields(with_taken_by(Value::Object(t)), obj(doc, "values")),
+                    with_not_blank(with_fields(
+                        with_taken_by(Value::Object(t)),
+                        obj(doc, "values"),
+                    )),
                 )
             })
             .collect();
@@ -488,6 +530,22 @@ impl View {
             ];
             out.extend(path[4..].iter().cloned());
             return Some(out);
+        }
+        // an invariant a text's not_blank generates is reported at the
+        // marking (ADR-0257)
+        if let (Some(Seg::Key(k)), Some(Seg::Key(n))) = (path.get(2), path.get(3))
+            && k == "invariants"
+            && let Some(Value::String(a)) = obj(kind, "invariants")
+                .get(n)
+                .and_then(|i| i.get(NOT_BLANK))
+        {
+            return Some(vec![
+                Seg::Key("types".into()),
+                Seg::Key(name.clone()),
+                Seg::Key("attributes".into()),
+                Seg::Key(a.clone()),
+                Seg::Key("not_blank".into()),
+            ]);
         }
         if self.machines.contains(name) {
             let mut out: Path = vec![Seg::Key("machines".into()), Seg::Key(name.clone())];

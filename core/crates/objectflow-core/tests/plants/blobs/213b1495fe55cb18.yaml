@@ -1,0 +1,21 @@
+module: notes
+categories: [live, closed]
+types:
+  Note:
+    description: A note.
+    tracking: record
+    attributes:
+      text: { type: string, not_blank: true }
+    states:
+      KEPT: { description: Kept., category: live }
+      GONE: { description: Gone., category: closed, final: true }
+    invariants:
+      text_not_blank: { description: Said., expression: 'length(text) > 0' }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text] }
+      close:
+        kind: external
+        from: KEPT
+        to: GONE
+        inputs:
+          reason: { type: string, not_blank: true }

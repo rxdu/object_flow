@@ -2897,6 +2897,11 @@ class Runner:
                 missing.append((k, "missing"))
         if missing:
             raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in missing], reasons=[w for _, w in missing])
+        # a text marked `not_blank`, its own or its attribute's, is refused empty once trimmed, whether a request sent
+        # it, a caller passed it or a default gave it; it is written as sent where it is not (ADR-0257 decisions 2 and 4)
+        blank = [k for k, v in sorted(inputs.items()) if blank_fault(declared[k] if k in declared else attrs.get(k), v)]
+        if blank:
+            raise Refused("invalid_input", remedy="self_serviceable", inputs=blank, reasons=["malformed"] * len(blank))
         if x["kind"] == "assertion":
             o = work.objects[oid]
             if inputs.get("to") not in (x.get("to") if isinstance(x.get("to"), list) else [x.get("to")]) or inputs.get("to") == o.state:
@@ -4401,7 +4406,7 @@ def file_proposal(runner, store, st, aliases):
             if k not in taken:
                 continue
             v, spec = given_inputs[k], declared.get(k) if k in declared else attrs.get(k)
-            why = input_fault(spec, v, runner.enums, runner.kinds) or media_fault(spec, v)
+            why = input_fault(spec, v, runner.enums, runner.kinds) or media_fault(spec, v) or blank_fault(spec, v)
             if why is None and "reference" in (spec or {}) and not all(
                     a in aliases and store.is_a(store.type_of(aliases[a]), spec["reference"].rstrip("[]"))
                     for a in (v if isinstance(v, (list, tuple)) else [v])):
@@ -4660,6 +4665,13 @@ def file_fault(v):
     if not (isinstance(v["media_type"], str) and re.fullmatch(f"{MEDIA_TOKEN}/{MEDIA_TOKEN}", v["media_type"])):
         return "malformed"
     return None
+
+
+def blank_fault(spec, v):
+    """"malformed" for a text an input marked `not_blank`, by its own declaration or its attribute's, is given empty once
+    trimmed, as `trim` reads white space; else None, as the core refuses it (ADR-0257)."""
+    blank = isinstance(v, str) and not v.strip(WHITE_SPACE)
+    return "malformed" if blank and (spec or {}).get("not_blank") is True else None
 
 
 def input_fault(spec, v, enums, kinds=None):

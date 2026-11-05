@@ -1376,6 +1376,15 @@ fn input_type<'t>(
     }
 }
 
+/// Whether an input is marked `not_blank`, by its own declaration or, an
+/// input named after an attribute, by the attribute's (ADR-0257).
+fn not_blank_input(t: &Type, x: &Transition, k: &str) -> bool {
+    match x.inputs.iter().find(|(n, _)| n == k) {
+        Some((_, spec)) => spec.not_blank,
+        None => t.attribute(k).is_some_and(|a| a.not_blank),
+    }
+}
+
 /// Whether a value is one a list of media types takes (ADR-0239): a file
 /// by its media type, a set by each of its elements, any other value as it
 /// is.
@@ -1553,6 +1562,22 @@ fn take_unwound(
     if !missing.is_empty() {
         return refused(Verdict::invalid_input(
             missing.into_iter().map(|k| (k, InputReason::Missing)),
+        ));
+    }
+    // a text marked `not_blank`, its own or its attribute's, is refused
+    // empty once trimmed, as `trim` reads white space, whether a request
+    // sent it, a caller passed it or a default gave it; it is written as
+    // sent where it is not (ADR-0257 decisions 2 and 4)
+    let blank: Vec<String> = inputs
+        .iter()
+        .filter(|(k, v)| {
+            matches!(v, Value::Text(s) if s.trim().is_empty()) && not_blank_input(t, x, k)
+        })
+        .map(|(k, _)| k.clone())
+        .collect();
+    if !blank.is_empty() {
+        return refused(Verdict::invalid_input(
+            blank.into_iter().map(|k| (k, InputReason::Malformed)),
         ));
     }
     // an assertion's `to` is a state it lists, other than the one the object
@@ -3454,6 +3479,11 @@ fn file(
         match wire::decode(raw, declared, many, lib) {
             Ok(v) if !media_taken(media, &v) => {
                 wrong.push((k.clone(), InputReason::WrongMediaType));
+            }
+            // a text marked `not_blank` is refused blank as the request would
+            // be (ADR-0257)
+            Ok(Value::Text(s)) if s.trim().is_empty() && not_blank_input(t, x, k) => {
+                wrong.push((k.clone(), InputReason::Malformed));
             }
             Ok(v) => {
                 if let Declared::Reference(target) = declared {
@@ -8109,6 +8139,177 @@ types:
         ));
         let v = req(&mut s, "change", OPERATOR, (&grant, false), json!({}));
         assert!(refused_by(&v, "person_active"), "{v:?}");
+    }
+
+    /// A text marked `not_blank` is never written blank: its input, an
+    /// attribute's or a transition's own, refused `malformed` empty once
+    /// trimmed, as `trim` reads white space, whether a request sends it, a
+    /// call passes it, a default gives it or a proposal is filed with it, an
+    /// optional one left out taken;
+    /// an effect writing it blank refused by the invariant the library
+    /// generates, `<attribute>_not_blank`; and a text that is not blank
+    /// written as sent (issue #69, ADR-0257).
+    #[test]
+    fn a_text_marked_not_blank_is_never_written_blank() {
+        const NOTES: &str = r#"
+module: notes
+categories: [live, closed]
+types:
+  Note:
+    attributes:
+      text: { type: string, not_blank: true }
+      memo: { type: string, optional: true, not_blank: true }
+    states:
+      KEPT: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text], optional_inputs: [memo] }
+      blur:
+        kind: internal
+        from: [KEPT]
+        inputs:
+          with: { type: string }
+        effect:
+          - assign: { location: memo, expr: inputs.with }
+      annotate:
+        kind: internal
+        from: [KEPT]
+        inputs:
+          why: { type: string, not_blank: true }
+      relay:
+        kind: internal
+        from: [KEPT]
+        effect:
+          - call: { target: this, transition: annotate, inputs: { why: '"  "' } }
+      stamp:
+        kind: internal
+        from: [KEPT]
+        inputs:
+          tag: { type: string, not_blank: true, default: '"  "' }
+      close:
+        kind: external
+        from: [KEPT]
+        to: GONE
+        proposable: true
+        inputs:
+          reason: { type: string, not_blank: true }
+          aside: { type: string, optional: true, not_blank: true }
+"#;
+        let lib = Library::load(&[("notes.yaml".into(), NOTES.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let malformed = |v: &Verdict, input: &str| {
+            matches!(v, Verdict::InvalidInput { inputs, reasons }
+                if inputs == &[input.to_string()] && reasons == &[InputReason::Malformed])
+        };
+        let held = |s: &mut Store, id: &str, a: &str| {
+            s.snapshot().unwrap().whole(id).unwrap().unwrap().attr(a)
+        };
+        for blank in ["", "   ", "\t\n\u{3000}"] {
+            let v = req(
+                &mut s,
+                "write",
+                OPERATOR,
+                ("Note", true),
+                json!({"text": blank}),
+            );
+            assert!(malformed(&v, "text"), "text {blank:?}: {v:?}");
+            let v = req(
+                &mut s,
+                "write",
+                OPERATOR,
+                ("Note", true),
+                json!({"text": "a", "memo": blank}),
+            );
+            assert!(malformed(&v, "memo"), "memo {blank:?}: {v:?}");
+        }
+        // a text that is not blank is written as sent, U+001C among them,
+        // which Unicode's White_Space does not hold
+        for text in [" a ", "\u{1c}"] {
+            let note = created(&req(
+                &mut s,
+                "write",
+                OPERATOR,
+                ("Note", true),
+                json!({"text": text}),
+            ));
+            assert_eq!(held(&mut s, &note, "text"), Value::Text(text.into()));
+            assert_eq!(held(&mut s, &note, "memo"), Value::Absent, "left out");
+        }
+        let note = created(&req(
+            &mut s,
+            "write",
+            OPERATOR,
+            ("Note", true),
+            json!({"text": "a"}),
+        ));
+        // an effect writing it blank breaks the invariant it holds
+        let v = req(
+            &mut s,
+            "blur",
+            OPERATOR,
+            (&note, false),
+            json!({"with": "  "}),
+        );
+        assert!(
+            matches!(v, Verdict::InvariantViolated { .. })
+                && v.clause().as_deref() == Some("memo_not_blank"),
+            "{v:?}"
+        );
+        assert_eq!(
+            held(&mut s, &note, "memo"),
+            Value::Absent,
+            "nothing written"
+        );
+        created(&req(
+            &mut s,
+            "blur",
+            OPERATOR,
+            (&note, false),
+            json!({"with": "m"}),
+        ));
+        // a call passing a blank text is refused as a request sending it is,
+        // and so is a default giving one
+        let v = req(&mut s, "relay", OPERATOR, (&note, false), json!({}));
+        assert!(
+            matches!(&v, Verdict::CallRefused { verdict, .. } if malformed(verdict, "why")),
+            "the call: {v:?}"
+        );
+        let v = req(&mut s, "stamp", OPERATOR, (&note, false), json!({}));
+        assert!(malformed(&v, "tag"), "the default: {v:?}");
+        // a proposal of it is refused as the request would be, when it is
+        // filed, not when it is decided
+        let proposal = Request {
+            transition: "close".into(),
+            actor: OPERATOR.into(),
+            object_id: Some(note.clone()),
+            type_: None,
+            inputs: [("reason".to_string(), json!("  "))].into_iter().collect(),
+            occurred_at: None,
+            propose: true,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let v = request(&mut s, &proposal).unwrap().unwrap();
+        assert!(malformed(&v, "reason"), "the proposal: {v:?}");
+        // a transition's own inputs, required and optional
+        for (inputs, input) in [
+            (json!({"reason": " "}), "reason"),
+            (json!({"reason": "done", "aside": ""}), "aside"),
+        ] {
+            let v = req(&mut s, "close", OPERATOR, (&note, false), inputs);
+            assert!(malformed(&v, input), "{input}: {v:?}");
+        }
+        created(&req(
+            &mut s,
+            "close",
+            OPERATOR,
+            (&note, false),
+            json!({"reason": "done"}),
+        ));
     }
 
     /// `trim` takes the white space around a string away, Unicode's

@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-11-04 under the author's direction ("go with your recommendations"), on the recommendation given the same day for issue #63. Built the same day.
 - **Date:** 2026-11-04
+- **Refined by:** ADR-0257 — a `string` attribute or input marked `not_blank` is refused blank, as `trim` reads white space, without a guard on each act.
 - **Refines:** ADR-0103 decision 3 (text bounded by `length`); `declaration-syntax.md` §9, which left trimming to the caller's edge or an evaluator
 - **Relates to:** issue #63; `storage-schema.md` §3.4 (an indexed derivation's generated column)
 

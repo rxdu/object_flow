@@ -1258,6 +1258,10 @@
         "personal": {
           "type": "boolean"
         },
+        "not_blank": {
+          "type": "boolean",
+          "description": "On a string: true if a text empty once trimmed is never written, its input refused malformed and every write held by the invariant <attribute>_not_blank (ADR-0257)."
+        },
         "media_types": {
           "type": "array",
           "minItems": 1,
@@ -1577,6 +1581,10 @@
         "personal": {
           "type": "boolean",
           "description": "true if erasure redacts the input from every event that recorded it."
+        },
+        "not_blank": {
+          "type": "boolean",
+          "description": "On a string: true if a text empty once trimmed is refused malformed (ADR-0257)."
         },
         "media_types": {
           "type": "array",

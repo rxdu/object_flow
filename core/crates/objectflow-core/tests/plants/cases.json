@@ -30234,6 +30234,171 @@
   "could_violate": {}
  },
  {
+  "label": "not_blank_plants: a string attribute and a string input",
+  "files": [
+   [
+    "notes.yaml",
+    "6ffa8cf845a7bf35"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Note": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Note.text_not_blank": "local"
+  },
+  "could_violate": {
+   "Note.text_not_blank": [
+    "Note.write"
+   ]
+  }
+ },
+ {
+  "label": "not_blank_plants: an int",
+  "files": [
+   [
+    "notes.yaml",
+    "c59033428e2fcbdf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    9,
+    "fatal",
+    "names",
+    "Note.count is marked not_blank and is of the type int; not_blank marks one string in this release (ADR-0257)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Note.text_not_blank": "local"
+  },
+  "could_violate": {
+   "Note.text_not_blank": [
+    "Note.write"
+   ]
+  }
+ },
+ {
+  "label": "not_blank_plants: a set of strings",
+  "files": [
+   [
+    "notes.yaml",
+    "bf0a78ab868e9a75"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    9,
+    "fatal",
+    "names",
+    "Note.tags is marked not_blank and is of the type string[]; not_blank marks one string in this release (ADR-0257)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Note.text_not_blank": "local"
+  },
+  "could_violate": {
+   "Note.text_not_blank": [
+    "Note.write"
+   ]
+  }
+ },
+ {
+  "label": "not_blank_plants: an int input",
+  "files": [
+   [
+    "notes.yaml",
+    "822f8db2dcdc2d13"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    19,
+    "fatal",
+    "names",
+    "close's input reason is marked not_blank and is of the type int; not_blank marks one string in this release (ADR-0257)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Note.text_not_blank": "local"
+  },
+  "could_violate": {
+   "Note.text_not_blank": [
+    "Note.write"
+   ]
+  }
+ },
+ {
+  "label": "not_blank_plants: an observation's field",
+  "files": [
+   [
+    "notes.yaml",
+    "52cf202397ab986b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    14,
+    "fatal",
+    "names",
+    "the observation seen's field by is marked not_blank; an observation's field takes no not_blank in this release (ADR-0257)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Note.text_not_blank": "local"
+  },
+  "could_violate": {
+   "Note.text_not_blank": [
+    "Note.write"
+   ]
+  }
+ },
+ {
+  "label": "not_blank_plants: a type's invariant of the name it generates",
+  "files": [
+   [
+    "notes.yaml",
+    "213b1495fe55cb18"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    13,
+    "fatal",
+    "names",
+    "Note.text_not_blank is the invariant text's not_blank generates; name the type's invariant otherwise (ADR-0257)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Note.text_not_blank": "local"
+  },
+  "could_violate": {
+   "Note.text_not_blank": [
+    "Note.write"
+   ]
+  }
+ },
+ {
   "label": "actor_move_plants: the plain rename",
   "files": [
    [

@@ -606,6 +606,7 @@ pub fn checked_as(
             .chain(raw::decimal_errors(&doc))
             .chain(raw::type_name_errors(&doc))
             .chain(raw::declared_value_errors(&doc))
+            .chain(raw::not_blank_errors(&doc))
             .chain(names::name_errors(&v.doc, &library))
             .chain(view::taken_by_errors(&v.doc))
             .chain(view::column_errors(&v.doc))

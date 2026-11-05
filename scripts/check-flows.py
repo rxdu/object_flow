@@ -278,6 +278,23 @@ def inherited(t, key, name):
 TAKEN = "_taken_by"     # on a member a transition's taken_by generates: the transition (ADR-0176)
 FIELDS = "_fields"      # beside an attribute or an input typed by a value: the value's fields (ADR-0254)
 VALUE_OF = "_value"     # on an invariant a value gives an attribute holding it: [value, invariant] (ADR-0255)
+NOT_BLANK = "_not_blank"    # on an invariant a text's not_blank generates: the attribute marked (ADR-0257)
+
+
+def with_not_blank(t):
+    """A type with the invariant each string attribute it marks `not_blank` generates, `<attribute>_not_blank`, after
+    the type's own; one the type declares itself is left as declared, which not_blank_errors reports (ADR-0257
+    decision 3), as the core's `with_not_blank`."""
+    marked = [a for a, spec in (t.get("attributes") or {}).items()
+              if isinstance(spec, dict) and spec.get("not_blank") is True and spec.get("type") == "string"]
+    if not marked:
+        return t
+    invariants = dict(t.get("invariants") or {})
+    for a in marked:
+        invariants.setdefault(f"{a}_not_blank", {
+            "description": f"{a} is not blank, as its not_blank marks it (ADR-0257).",
+            "expression": f'{a} is null or trim({a}) != ""', NOT_BLANK: a})
+    return dict(t, invariants=invariants)
 
 
 def with_fields(t, values):
@@ -395,9 +412,9 @@ def view(doc, library=None):
     machines = doc.get("machines") or {}
     kinds = {mn: machine_as_type(m) for mn, m in machines.items()}
     kinds.update({tn: bound(t, machines) for tn, t in (doc.get("types") or {}).items()})
-    kinds = {tn: with_fields(with_taken_by(dict(t, transitions={xn: resolve_any(x, t.get("states"))
-                                                                for xn, x in (t.get("transitions") or {}).items()})),
-                             doc.get("values") or {})
+    kinds = {tn: with_not_blank(with_fields(with_taken_by(dict(t, transitions={xn: resolve_any(x, t.get("states"))
+                                                                               for xn, x in (t.get("transitions") or {}).items()})),
+                                            doc.get("values") or {}))
              for tn, t in kinds.items()}
     everything = dict(library or {})
     everything.update(kinds)
@@ -416,6 +433,10 @@ def view(doc, library=None):
             of = (((kinds.get(name) or {}).get("invariants") or {}).get(path[3]) or {}).get(VALUE_OF)
             if of:
                 return ("values", of[0], "invariants", of[1]) + tuple(path[4:])
+            # an invariant a text's not_blank generates is reported at the marking (ADR-0257)
+            marked = (((kinds.get(name) or {}).get("invariants") or {}).get(path[3]) or {}).get(NOT_BLANK)
+            if marked:
+                return ("types", name, "attributes", marked, "not_blank")
         origin = (kinds.get(name) or {}).get("_from") or {}
         if len(path) >= 4 and (path[2], path[3]) in origin:
             return None
@@ -4180,6 +4201,48 @@ FIELD_TYPES = ("string", "bool", "int", "decimal", "money", "timestamp", "date",
 VALUE_MARKINGS = ("type", "optional", "description")
 
 
+def not_blank_errors(doc):
+    """A text marked `not_blank` (ADR-0257): one string, an attribute of a type or a transition's declared input, a
+    machine's or a type's; no observation's field and no machine's required attribute; and no invariant of the type
+    named as the one it generates, `<attribute>_not_blank`. The core's `not_blank_errors`."""
+    out = []
+
+    def marked(spec):
+        return isinstance(spec, dict) and spec.get("not_blank") is True
+
+    def typ(spec):
+        return str(spec["type"]) if "type" in spec else "a reference"
+    for kind in ("types", "machines"):
+        for tn, t in (doc.get(kind) or {}).items():
+            for a, spec in (t.get("attributes") or {}).items():
+                if not marked(spec):
+                    continue
+                at = (kind, tn, "attributes", a, "not_blank")
+                if kind == "machines":
+                    out.append((at, "names", f"the machine {tn} requires {a} marked not_blank; a machine requires no not_blank in this "
+                                             "release, which the type binding it declares (ADR-0257)"))
+                elif spec.get("type") != "string":
+                    out.append((at, "names", f"{tn}.{a} is marked not_blank and is of the type {typ(spec)}; not_blank marks one string in "
+                                             "this release (ADR-0257)"))
+                elif (generated := f"{a}_not_blank") in (t.get("invariants") or {}):
+                    out.append(((kind, tn, "invariants", generated), "names", f"{tn}.{a}_not_blank is the invariant {a}'s "
+                                                                                     "not_blank generates; name the type's invariant "
+                                                                                     "otherwise (ADR-0257)"))
+            for o, ob in (t.get("observations") or {}).items():
+                for f, spec in ((ob or {}).get("attributes") or {}).items():
+                    if marked(spec):
+                        out.append(((kind, tn, "observations", o, "attributes", f, "not_blank"), "names",
+                                    f"the observation {o}'s field {f} is marked not_blank; an observation's field takes no not_blank in "
+                                    "this release (ADR-0257)"))
+            for xn, x in (t.get("transitions") or {}).items():
+                for i, spec in ((x or {}).get("inputs") or {}).items():
+                    if marked(spec) and spec.get("type") != "string":
+                        out.append(((kind, tn, "transitions", xn, "inputs", i, "not_blank"), "names",
+                                    f"{xn}'s input {i} is marked not_blank and is of the type {typ(spec)}; not_blank marks one string "
+                                    "in this release (ADR-0257)"))
+    return out
+
+
 def declared_value_errors(doc):
     """A value's fields, and where a value may stand, in this release (ADR-0254 decisions 1, 2, 6 and 9): a field is one
     value of a built-in type or an enumeration; an attribute of a type holds one value, marked only optional; a declared
@@ -5542,6 +5605,8 @@ def markings(spec):
     if "default" in spec:
         marks.append("default " + " ".join(str(spec["default"]).split()))
     marks += [m for m in ("indexed", "personal") if spec.get(m)]
+    if spec.get("not_blank") is True:
+        marks.append("not blank")       # ADR-0257
     u = spec.get("unique")
     if u is True:
         marks.append("unique")
@@ -5618,7 +5683,8 @@ def transition_lines(xn, x, t, X, T):
         line = f"input {i} : {kind}" + ("?" if spec.get("optional") else "")
         if "default" in spec:
             line += f" default {' '.join(spec['default'].split())}"
-        body.append((line + (" personal" if spec.get("personal") else ""), X + ("inputs", i)))
+        body.append((line + (" personal" if spec.get("personal") else "") + (" not blank" if spec.get("not_blank") is True else ""),
+                     X + ("inputs", i)))
     if x["kind"] == "assertion":
         # the target and the admissions are the request's inputs (declaration-syntax.md §6.3, check 38)
         body.append(("input to : state", X + ("to",)))
@@ -6645,7 +6711,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
             pair, pair_notes = migration_pair_errors(load(previous[f]) if previous.get(f) else {}, doc, library, before,
                                                      installed, moved, enum_renames, enums_before)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
-        for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + acts_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc) + declared_value_errors(doc)
+        for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + acts_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc) + declared_value_errors(doc) + not_blank_errors(doc)
                         + name_errors(v, library, ordered=False) + taken_by_errors(v) + column_errors(v)
                         + migration_errors(doc, v) + renamed_enumeration_errors(f, renames, enum_modules) + pair):
             p = back(p)
@@ -11692,6 +11758,45 @@ def moved_attribute_plants():
     return ok
 
 
+def not_blank_plants():
+    """A text marked `not_blank` (ADR-0257, issue #69): a string attribute and a declared string input so marked are
+    clean; the marking on another type, on a set, on an input of another type and on an observation's field is
+    refused; and a type's own invariant of the name the marking generates is refused."""
+    base = ("module: notes\ncategories: [live, closed]\ntypes:\n  Note:\n    description: A note.\n    tracking: record\n"
+            "    attributes:\n      text: { type: string, not_blank: true }\n{more}    states:\n"
+            "      KEPT: { description: Kept., category: live }\n      GONE: { description: Gone., category: closed, final: true }\n"
+            "{invariants}    transitions:\n      write: { kind: initial, to: KEPT, required_inputs: [text] }\n"
+            "      close:\n        kind: external\n        from: KEPT\n        to: GONE\n        inputs:\n"
+            "          reason: { type: {reason}, not_blank: true }\n")
+
+    def module(more="", reason="string", invariants=""):
+        return base.replace("{more}", more).replace("{reason}", reason).replace("{invariants}", invariants)
+    seen = ("    observations:\n      seen:\n        kind: Sighting\n        description: Seen.\n        attributes:\n"
+            "          by: { type: string, not_blank: true }\n")
+    cases = [
+        ("a string attribute and a string input", module(), []),
+        ("an int", module("      count: { type: int, not_blank: true }\n"),
+         ["Note.count is marked not_blank and is of the type int; not_blank marks one string in this release (ADR-0257)"]),
+        ("a set of strings", module("      tags: { type: 'string[]', not_blank: true }\n"),
+         ["Note.tags is marked not_blank and is of the type string[]; not_blank marks one string in this release (ADR-0257)"]),
+        ("an int input", module(reason="int"),
+         ["close's input reason is marked not_blank and is of the type int; not_blank marks one string in this release (ADR-0257)"]),
+        ("an observation's field", module(seen),
+         ["the observation seen's field by is marked not_blank; an observation's field takes no not_blank in this release (ADR-0257)"]),
+        ("a type's invariant of the name it generates",
+         module(invariants="    invariants:\n      text_not_blank: { description: Said., expression: 'length(text) > 0' }\n"),
+         ["Note.text_not_blank is the invariant text's not_blank generates; name the type's invariant otherwise (ADR-0257)"]),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, notes = check([("notes.yaml", text)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  not_blank, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def trim_plants():
     """`trim`, the string without the white space around it (ADR-0249): a guard reading it is clean, a value other than
     a string is refused, and an indexed derivation calling it is refused, since its generated column's SQL trims spaces
@@ -11958,6 +12063,7 @@ def main():
     ok &= renamed_enumeration_plants()
     ok &= moved_state_plants()
     ok &= moved_attribute_plants()
+    ok &= not_blank_plants()
     ok &= actor_move_plants()
     ok &= value_plants()
     ok &= trim_plants()

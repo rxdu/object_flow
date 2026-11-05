@@ -147,6 +147,10 @@ pub struct Attribute {
     pub unique: Unique,
     pub assignee: bool,
     pub personal: bool,
+    /// `not_blank: true`, on a string: a text empty once trimmed is never
+    /// written, by its input or by the invariant `<attribute>_not_blank`
+    /// the library generates (ADR-0257).
+    pub not_blank: bool,
     /// On a file or a set of files, the media types it takes, each
     /// `type/subtype` or `type/*`; empty where it takes any (ADR-0239).
     pub media_types: Vec<String>,
@@ -228,6 +232,9 @@ pub struct Input {
     /// A personal value, which the attempt log names and withholds
     /// (ADR-0105).
     pub personal: bool,
+    /// `not_blank: true`, on a string: a text empty once trimmed is refused
+    /// `malformed` (ADR-0257).
+    pub not_blank: bool,
     /// On a file or a set of files, the media types it takes; empty where
     /// it takes any (ADR-0239).
     pub media_types: Vec<String>,
@@ -625,6 +632,7 @@ impl Reader<'_> {
             },
             assignee: self.flag(node, "assignee")?,
             personal: self.flag(node, "personal")?,
+            not_blank: self.flag(node, "not_blank")?,
             media_types: self.names(node.get("media_types"))?,
             external: node
                 .get("external")
@@ -690,6 +698,7 @@ impl Reader<'_> {
                 .map(|d| self.expression(d))
                 .transpose()?,
             personal: self.flag(node, "personal")?,
+            not_blank: self.flag(node, "not_blank")?,
             media_types: self.names(node.get("media_types"))?,
         })
     }
@@ -984,6 +993,7 @@ impl Reader<'_> {
             unique: Unique::No,
             assignee: false,
             personal: false,
+            not_blank: false,
             media_types: Vec::new(),
             actor_kind: None,
             identifier: None,
@@ -1071,6 +1081,7 @@ impl Reader<'_> {
                 optional: false,
                 default: None,
                 personal: false,
+                not_blank: false,
                 media_types: Vec::new(),
             };
             transitions.push((
@@ -1556,6 +1567,7 @@ fn taken_by(t: &mut Type) -> Result<(), String> {
                 unique: Unique::No,
                 assignee: false,
                 personal: false,
+                not_blank: false,
                 media_types: Vec::new(),
                 actor_kind: None,
                 identifier: None,
@@ -1775,6 +1787,7 @@ fn operator_type() -> Type {
                 unique: Unique::Yes,
                 assignee: false,
                 personal: false,
+                not_blank: false,
                 media_types: Vec::new(),
                 actor_kind: Some("human".to_string()),
                 identifier: None,
@@ -1865,6 +1878,7 @@ fn proposal_type() -> Type {
         unique: Unique::No,
         assignee: false,
         personal: false,
+        not_blank: false,
         media_types: Vec::new(),
         actor_kind: None,
         identifier: None,
@@ -2054,6 +2068,7 @@ fn label_type() -> Type {
         unique: Unique::No,
         assignee: false,
         personal,
+        not_blank: false,
         media_types: Vec::new(),
         actor_kind: None,
         identifier: None,
@@ -2096,6 +2111,7 @@ fn label_type() -> Type {
         optional: false,
         default: None,
         personal: false,
+        not_blank: false,
         media_types: Vec::new(),
     };
     Type {
@@ -2200,6 +2216,7 @@ fn subscription_type() -> Type {
         unique: Unique::No,
         assignee: false,
         personal: false,
+        not_blank: false,
         media_types: Vec::new(),
         actor_kind: None,
         identifier: None,
@@ -2513,6 +2530,41 @@ impl Library {
                         })?;
                     held.push((name, expr));
                 }
+            }
+            t.invariants.extend(held);
+        }
+        // each text marked `not_blank`, held by the invariant
+        // `<attribute>_not_blank`, after the type's own and before a subtype
+        // inherits it, so every write and a publish over the values held are
+        // checked as any invariant is (ADR-0257 decision 3)
+        for t in lib.types.values_mut() {
+            let mut held = Vec::new();
+            for (a, _) in t.attributes.iter().filter(|(_, x)| x.not_blank) {
+                let name = format!("{a}_not_blank");
+                let at = |message: String| {
+                    let (file, line) = files
+                        .iter()
+                        .find(|(_, text)| {
+                            crate::source::name_of(text).as_deref() == Some(t.module.as_str())
+                        })
+                        .map_or((String::new(), 1), |(f, text)| {
+                            (f.clone(), declared_line(text, &t.name))
+                        });
+                    LoadError {
+                        file,
+                        line,
+                        message,
+                    }
+                };
+                if t.invariants.iter().any(|(n, _)| *n == name) {
+                    return Err(at(format!(
+                        "{}.{name} is the invariant {a}'s not_blank generates; name the type's invariant otherwise (ADR-0257)",
+                        t.name
+                    )));
+                }
+                let expr = expr::parse(&format!("{a} is null or trim({a}) != \"\""))
+                    .map_err(|e| at(format!("{}.{name}: {e}", t.name)))?;
+                held.push((name, expr));
             }
             t.invariants.extend(held);
         }

@@ -1,0 +1,20 @@
+module: notes
+categories: [live, closed]
+types:
+  Note:
+    description: A note.
+    tracking: record
+    attributes:
+      text: { type: string, not_blank: true }
+      tags: { type: 'string[]', not_blank: true }
+    states:
+      KEPT: { description: Kept., category: live }
+      GONE: { description: Gone., category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text] }
+      close:
+        kind: external
+        from: KEPT
+        to: GONE
+        inputs:
+          reason: { type: string, not_blank: true }

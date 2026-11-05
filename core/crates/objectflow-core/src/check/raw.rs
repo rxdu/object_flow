@@ -937,6 +937,58 @@ const FIELD_TYPES: &[&str] = &[
     "duration",
 ];
 
+/// A text marked `not_blank` (ADR-0257): one string, an attribute of a type
+/// or a transition's declared input, a machine's or a type's; no observation's
+/// field and no machine's required attribute; and no invariant of the type
+/// named as the one it generates, `<attribute>_not_blank`.
+pub fn not_blank_errors(doc: &Value) -> Found {
+    let mut out = Found::new();
+    let marked = |spec: &Value| spec.get("not_blank").and_then(Value::as_bool) == Some(true);
+    let typ = |spec: &Value| {
+        spec.get("type")
+            .map(py_str)
+            .unwrap_or_else(|| "a reference".into())
+    };
+    let one_string = |spec: &Value| spec.get("type").map(py_str).as_deref() == Some("string");
+    for kind in ["types", "machines"] {
+        for (tn, t) in obj(doc, kind) {
+            let base = segs![kind, tn];
+            for (a, spec) in obj(t, "attributes") {
+                if !marked(spec) {
+                    continue;
+                }
+                let at = ext(&base, segs!["attributes", a, "not_blank"]);
+                if kind == "machines" {
+                    out.push(finding(at, "names", format!("the machine {tn} requires {a} marked not_blank; a machine requires no not_blank in this release, which the type binding it declares (ADR-0257)")));
+                } else if !one_string(spec) {
+                    out.push(finding(at, "names", format!("{tn}.{a} is marked not_blank and is of the type {}; not_blank marks one string in this release (ADR-0257)", typ(spec))));
+                } else if obj(t, "invariants").contains_key(&format!("{a}_not_blank")) {
+                    out.push(finding(
+                        ext(&base, segs!["invariants", &format!("{a}_not_blank")]),
+                        "names",
+                        format!("{tn}.{a}_not_blank is the invariant {a}'s not_blank generates; name the type's invariant otherwise (ADR-0257)"),
+                    ));
+                }
+            }
+            for (o, ob) in obj(t, "observations") {
+                for (f, spec) in obj(ob, "attributes") {
+                    if marked(spec) {
+                        out.push(finding(ext(&base, segs!["observations", o, "attributes", f, "not_blank"]), "names", format!("the observation {o}'s field {f} is marked not_blank; an observation's field takes no not_blank in this release (ADR-0257)")));
+                    }
+                }
+            }
+            for (xn, x) in obj(t, "transitions") {
+                for (i, spec) in obj(x, "inputs") {
+                    if marked(spec) && !one_string(spec) {
+                        out.push(finding(ext(&base, segs!["transitions", xn, "inputs", i, "not_blank"]), "names", format!("{xn}'s input {i} is marked not_blank and is of the type {}; not_blank marks one string in this release (ADR-0257)", typ(spec))));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// What an attribute typed by a value takes beside its type in this
 /// release (ADR-0254 decision 9).
 const VALUE_MARKINGS: &[&str] = &["type", "optional", "description"];
