@@ -563,6 +563,11 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Read the gates' summary in one call; commit in the next, only on "every gate passed". Never chain `git commit` after a command whose output decides whether to commit.
 - **Context:** ObjectFlow's `scripts/check-all` before each commit, run in the background; 2026-10-12.
 
+### A commit's gates are the design checks too, not a chosen few
+- **Pattern:** Committing #68 (2026-11-04), I ran the core's tests, the Python checker's self-test, the Studio's publishing tests, `check-flow-format-doc` and `check-flow-docs`, and committed. The commit added ADR-0256, which refines ADR-0229 and ADR-0252, and neither header named it; `check-corpus`, which I had not run, refuses that. The full gate found it on the next change's run, after the commit.
+- **Correction:** Before committing a change that touches the design record, an ADR, `flow-format.md` or a guide, run every design check: the `checks` lane, `scripts/check-all --lane checks`, which runs them all in a few minutes. A hand-picked subset is chosen from what the change was meant to touch, and the checks exist for what it touched besides.
+- **Context:** This repository's `scripts/check-*.py`, `check-corpus` among them, which reads each ADR's Refines line against the refined ADR's header.
+
 ### A mutation that matched nothing passed as a surviving mutant
 - **Pattern:** A mutant applied with `sed` against a line `cargo fmt` had since rewrapped matched nothing, so the file was unchanged and its test passed, read at first as a mutant the test missed (2026-10-12, the fourth review's minors).
 - **Correction:** Apply every mutant by a script that asserts its pattern matched once, as the Python edits do, and match across whitespace (`\s*`) where a formatter may have wrapped the line; a mutant that did not apply is reported, never run.
