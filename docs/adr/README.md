@@ -258,4 +258,5 @@
 | [0255](0255-a-values-invariant-is-held-as-its-holders-attribute-invariant.md) | A value's invariant is its holder's invariant `<attribute>_<invariant>` | Decided under the author's direction; built |
 | [0256](0256-a-moves-attribute-reading-what-the-installed-version-lacks-is-a-notice.md) | A move's attribute reading what the installed version lacks is a notice, and a move noticed where it leaves an attribute behind | Decided under the author's direction; built |
 | [0257](0257-a-text-declared-not-blank-is-never-written-blank.md) | A text declared `not_blank` is never written blank | Decided under the author's direction; built |
+| [0258](0258-gates-p-and-i-keep-their-machine.md) | Gates P and I keep their machine, and development moves off it | Decided under the author's direction |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

@@ -52,4 +52,4 @@ The first consumer is a case study (ADR-0149), and its details stay out of this 
 
 - Keep disk use bounded. Delete a scratch build, a profile store, a measurement's database or a downloaded release once its result is recorded. At the end of a release, check `du -sh core/target`, and run `cargo clean --profile dev` past tens of gigabytes.
 - Never delete another project's files, Docker images or containers.
-- Gates P and I measure on a quiet machine: a run that other work shared is not decided (ADR-0235, ADR-0236). Which machine runs them is in `TODO.md`, *F*.
+- Gates P and I measure on a quiet machine: a run that other work shared is not decided (ADR-0235, ADR-0236). They run on the machine ADR-0258 keeps for them, with no other work beside a gate.
