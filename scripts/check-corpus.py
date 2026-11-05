@@ -40,6 +40,7 @@ def docs():
     yield from sorted(ROOT.glob("docs/**/*.md"))
     yield ROOT / "README.md"
     yield ROOT / "TODO.md"
+    yield ROOT / "CLAUDE.md"
 
 
 def adr_numbers():
