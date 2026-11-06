@@ -3,7 +3,7 @@
 - **Status:** **Decided** 2026-11-06 under the author's direction ("review and address issue #70"), on the recommendation formed the same day for issue #70, accepted in advance as the author directed for a confident recommendation. Built the same day.
 - **Date:** 2026-11-06
 - **Refines:** ADR-0220 decision 1 (a type's invariants judged personal as a query's filter is); ADR-0206 decision 2 (`available`, `availability` and `check` refused `personal` where an invariant deciding the answer reads a personal member)
-- **Refined by:** ADR-0261 — its reasoning extended to a declared invariant `<attribute> is not null` over a stored scalar, which no input writes absent; a creation's inputs counted as its caller's.
+- **Refined by:** ADR-0261 — its reasoning extended to a declared invariant `<attribute> is not null` over a stored scalar, which no input writes absent; a creation's inputs counted as its caller's. ADR-0263 — an input marked `not_blank` that the request passes a personal value makes the answer personal, its refusal telling the value.
 - **Relates to:** ADR-0257 decisions 2 and 3 (an input refused blank, and the invariant `<attribute>_not_blank`); ADR-0146 decision 1 (a publish leaves no violation nobody admitted); ADR-0054 (an admission lets a violation stand); ADR-0240 decision 5 (`availability` refused where any offer of the object is decided by a personal member); issue #70
 
 ## Context

@@ -1432,6 +1432,47 @@ fn always_given(x: &Transition, k: &str) -> bool {
     }
 }
 
+/// Whether an input may be refused by the value it is given, where a call,
+/// a creation or a cascade passes it one read from a personal member: left
+/// absent where it is always given, blank where it is marked `not_blank`,
+/// naming no object of its type where it is a reference, of a media type
+/// its list does not take where it is a file, and past its digits where it
+/// is a decimal or money (ADR-0263 decision 2).
+pub(crate) fn refused_by_value(t: &Type, x: &Transition, k: &str) -> bool {
+    always_given(x, k)
+        || not_blank_input(t, x, k)
+        || input_type(t, x, k).is_some_and(|(declared, _, media)| {
+            !media.is_empty()
+                || match declared {
+                    Declared::Reference(_) => true,
+                    Declared::Scalar(ty) => ty.starts_with("decimal(") || ty.starts_with("money("),
+                    Declared::Value(_) => false,
+                }
+        })
+}
+
+/// Whether a transition writes the attribute from the input: the input of
+/// its name, or an `assign` of it, a `foreach`'s steps included.
+pub(crate) fn writes_from_input(x: &Transition, k: &str, a: &str) -> bool {
+    fn assigns(steps: &[Step], k: &str, a: &str) -> bool {
+        steps.iter().any(|st| match st {
+            Step::Assign { location, expr } => {
+                location == a
+                    && matches!(expr, Expr::Path(base, n)
+                        if n == k && matches!(base.as_ref(), Expr::Name(i) if i == "inputs"))
+            }
+            Step::Foreach { steps, .. } => assigns(steps, k, a),
+            _ => false,
+        })
+    }
+    (k == a
+        && x.required_inputs
+            .iter()
+            .chain(&x.optional_inputs)
+            .any(|n| n == a))
+        || assigns(&x.effect, k, a)
+}
+
 /// Whether a transition of the type may write the attribute absent from a
 /// value an object holds: by a `clear` of it, by a clearable input of it
 /// (ADR-0262), or by an `assign` to it of anything but an input always

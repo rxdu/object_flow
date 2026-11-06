@@ -12,6 +12,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 - A personal attribute's invariant `<attribute> is not null`, over a stored scalar, no longer makes its type's `available`, `availability` and `check` need `reads_personal`, where no transition of the type may write the attribute absent from a value an object holds: by a `clear`, by an update's `assign` of anything but an input it always takes, or by a creation's `assign` of anything but an input (ADR-0261). The reimbursement sample's `Claim.has_title` made every offer of `Claim` personal; they are answered without the opt-in.
 
+### Changed, and may refuse what 0.18.0 accepted
+
+- `available`, `availability` and `check` without `reads_personal` are refused `personal` where a value read from a personal member decides the answer through what the request passes on (ADR-0263): an input a call, a creation or a cascade passes it, read by a guard or refused by its own check of absence, blank, object, media type or digits, and a call's target or a `foreach`'s array read from one. 0.18.0 answered each, and its answer told the value. A personal value passed only to an input nothing refuses, such as an optional text, still decides nothing.
+
 ## 0.18.0, 2026-11-06
 
 A release before 1.0.0, as 0.17.0 was (ADR-0214), with issue #70 and two defects found building it. A personal text marked `not_blank` makes no offer personal that its invariant cannot refuse (ADR-0259). `available`, `availability` and `check` are judged by every guard and invariant their request may evaluate (ADR-0260). A subtype holds the invariants its bases' attributes generate. A store of 0.17.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that records the release alone; a store of 0.16.0 takes 0.17.0's step first. Some reads 0.17.0 answered without `reads_personal` are refused `personal`, and a subtype's invariant named as one its base's attribute generates is refused, as listed below.

@@ -3,7 +3,7 @@
 - **Status:** **Decided** 2026-11-06 under the author's direction ("address the two follow-ups"), on the follow-up `TODO.md` recorded building issue #70, accepted in advance as the author directed for a confident recommendation. Built the same day.
 - **Date:** 2026-11-06
 - **Refines:** ADR-0259 (a text's `not_blank` decides no answer it cannot refuse), whose reasoning this extends to one shape of declared invariant; ADR-0220 decision 1 (a type's invariants judged personal as a query's filter is); ADR-0206 decision 2 (`available`, `availability` and `check` refused `personal` where an invariant deciding the answer reads a personal member)
-- **Refined by:** ADR-0262 — a clearable input writes its attribute absent, so a transition listing one may write it absent.
+- **Refined by:** ADR-0262 — a clearable input writes its attribute absent, so a transition listing one may write it absent. ADR-0263 — a creation the request passes a personal value for the attribute is judged by its invariant, its inputs not its caller's alone.
 - **Relates to:** ADR-0260 decision 1 (the invariants a request may evaluate); ADR-0054 (an admission lets a violation stand); ADR-0146 decision 1 (a publish leaves no violation nobody admitted); ADR-0209 decision 5 (a plain read of an absent value clears an optional attribute); `flow-format.md` §4.8 and §4.17
 
 ## Context

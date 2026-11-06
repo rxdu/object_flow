@@ -3,6 +3,7 @@
 - **Status:** **Decided** 2026-11-06 as recommended, under the author's direction ("go with your recommendations"), on the recommendation put the same day in `TODO.md` once building #70 found the defect. Decision 1's third part, an invariant of another type, was found while building the recommendation and is accepted in advance as the author directed for a confident recommendation. Built the same day.
 - **Date:** 2026-11-06
 - **Refines:** ADR-0220 (a transition's guards and its type's invariants judged personal by type); ADR-0206 decision 2 (`available`, `availability` and `check` refused `personal` where a guard or an invariant deciding the answer reads a personal member)
+- **Refined by:** ADR-0263 — decision 3's input is personal too where the request passes it a personal value, and a call's target, a supersession's successor and a `foreach`'s array read from one make the answer personal.
 - **Relates to:** ADR-0259 (the invariant a `not_blank` generates); `design/audit/personal-data.md` R15 and R17; `DESIGN.md` §5.6 (the invariants a request checks)
 
 ## Context

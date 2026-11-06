@@ -6936,6 +6936,73 @@ fn a_clearable_input_sent_null_clears_its_attribute() {
     assert!(!note("visit_touch").to_string().contains("null"), "{tools}");
 }
 
+/// A check whose answer a value read from a personal member decides is
+/// refused `personal` without the opt-in, where it answered by that value
+/// (ADR-0263): a desk's pin passed to a guard on its owner's input, its
+/// secret passed to an input refused blank, a call on its personal buddy,
+/// and a `foreach` over its personal nicks, whose limit refused three and
+/// took two. With the opt-in each is answered as before; a value passed
+/// that is not personal is answered without it. In a sandbox, so on
+/// PostgreSQL too in that lane.
+#[test]
+fn a_check_a_personal_value_passed_on_decides_is_opted_into() {
+    const DESKS: &str = "module: probe\ncategories: [live, closed]\ntypes:\n  Staff:\n    description: A member of staff.\n    tracking: record\n    attributes:\n      note: { type: string, personal: true, optional: true }\n      busy: { type: bool, default: \"true\" }\n    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n    conditions:\n      small: { description: Under 100., expression: inputs.amount < 100, remedy: unreachable_from_here }\n      free: { description: Not busy., expression: busy == false, remedy: unreachable_from_here }\n    transitions:\n      join: { kind: initial, to: ON }\n      promote: { kind: internal, from: [ON], inputs: { amount: { type: int } }, guards: { small: deny } }\n      jot: { kind: internal, from: [ON], inputs: { text: { type: string, not_blank: true } }, effect: [ { assign: { location: note, expr: inputs.text } } ] }\n      poke: { kind: internal, from: [ON], guards: { free: deny } }\n      leave: { kind: external, from: [ON], to: OFF }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Desk:\n    description: A desk.\n    tracking: record\n    attributes:\n      owner: { reference: Staff }\n      pin: { type: int, personal: true, optional: true }\n      secret: { type: string, personal: true, optional: true }\n      buddy: { reference: Staff, personal: true, optional: true }\n      nicks: { type: \"string[]\", personal: true }\n      plain: { type: int, optional: true }\n    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n    transitions:\n      add: { kind: initial, to: ON, required_inputs: [owner, nicks], optional_inputs: [pin, secret, buddy, plain] }\n      reward: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: promote, inputs: { amount: pin } } } ] }\n      tell: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: jot, inputs: { text: secret } } } ] }\n      ping: { kind: internal, from: [ON], effect: [ { call: { target: buddy, transition: poke } } ] }\n      sweep:\n        kind: internal\n        from: [ON]\n        effect:\n          - foreach: { item: n, array: nicks, limit: 2, steps: [ { call: { target: owner, transition: promote, inputs: { amount: plain } } } ] }\n      give: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: promote, inputs: { amount: plain } } } ] }\n      leave: { kind: external, from: [ON], to: OFF }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+    let s = start(&["--port", "0"]);
+    let loaded = post(
+        &s,
+        "/sandbox/load",
+        &json!({"files": [{"name": "probe.yaml", "text": DESKS}]}),
+    );
+    assert_eq!(loaded["loaded"], json!(true), "{loaded}");
+    let op = json!({"id": "operator"});
+    let made = |tn: &str, inputs: Value| {
+        let v = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": tn, "transition": if tn == "Staff" { "join" } else { "add" }, "inputs": inputs}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        v["object_id"].as_str().expect("its id").to_string()
+    };
+    let owner = made("Staff", json!({}));
+    let low = made(
+        "Desk",
+        json!({"owner": owner, "pin": 3, "secret": "kept", "buddy": owner, "nicks": ["a", "b"], "plain": 5}),
+    );
+    let high = made(
+        "Desk",
+        json!({"owner": owner, "pin": 500, "secret": "  ", "nicks": ["a", "b", "c"], "plain": 5}),
+    );
+    let check = |id: &str, xn: &str, opted: bool| {
+        let mut body = json!({"actor": op, "object_id": id, "transition": xn});
+        if opted {
+            body["reads_personal"] = json!(true);
+        }
+        post(&s, "/v1/check", &body)
+    };
+    // each was answered by the personal value: refused without the opt-in,
+    // and answered with it, by the value as before
+    for (xn, low_kind, high_kind) in [
+        ("reward", "satisfied", "call_refused"),
+        ("tell", "satisfied", "call_refused"),
+        ("ping", "call_refused", "satisfied"),
+        ("sweep", "satisfied", "over_limit"),
+    ] {
+        for (id, kind) in [(&low, low_kind), (&high, high_kind)] {
+            let refused = check(id, xn, false);
+            assert_eq!(refused["refused"], "personal", "{xn}: {refused}");
+            let answered = check(id, xn, true);
+            assert_eq!(answered["verdict"]["kind"], kind, "{xn}: {answered}");
+        }
+    }
+    // a value passed that is not personal: answered without the opt-in
+    let given = check(&low, "give", false);
+    assert_eq!(given["verdict"]["kind"], "satisfied", "{given}");
+    // the desk's offers, decided by them, opted into
+    let offers = post(&s, "/v1/availability", &json!({"actor": op, "id": low}));
+    assert_eq!(offers["refused"], "personal", "{offers}");
+}
+
 /// A check is judged by every guard and invariant its request may
 /// evaluate, so one decided by a personal member through a call or another
 /// type's invariant is refused `personal` without the opt-in, where a
