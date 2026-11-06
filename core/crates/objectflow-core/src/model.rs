@@ -468,6 +468,21 @@ impl Type {
         (generated == *expression).then_some(a)
     }
 
+    /// The attribute an invariant `<attribute> is not null` holds present,
+    /// where the attribute is one stored scalar of the type, which no input
+    /// writes absent and no other type's transition writes (ADR-0261).
+    pub fn presence_of<'e>(&self, expression: &'e Expr) -> Option<&'e str> {
+        let Expr::IsNull(e, true) = expression else {
+            return None;
+        };
+        let Expr::Name(a) = e.as_ref() else {
+            return None;
+        };
+        self.attribute(a)
+            .is_some_and(|s| matches!(s.declared, Declared::Scalar(_)) && !s.many)
+            .then_some(a.as_str())
+    }
+
     pub fn state(&self, name: &str) -> Option<&State> {
         self.states.iter().find(|(n, _)| n == name).map(|(_, s)| s)
     }

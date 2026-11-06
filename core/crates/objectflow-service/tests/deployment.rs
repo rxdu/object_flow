@@ -6706,6 +6706,131 @@ fn a_personal_text_marked_not_blank_leaves_its_offers_unopted() {
     }
 }
 
+/// A personal attribute's `<attribute> is not null` leaves its type's
+/// offers, checks and worklists answered without `reads_personal` where no
+/// transition may write it absent from a value an object holds, where
+/// `available` refused every object of the type (ADR-0261). A creation
+/// leaving it out is still refused, checked or requested, by its required
+/// input's guard or, taking it as optional, by the invariant, and an erasure removing it is admitted, so the erased object takes its
+/// transitions as before; where a transition may write it absent, by an
+/// `assign` of an input it may leave out, the reads are refused `personal`
+/// as before. In a sandbox, so on PostgreSQL too in that
+/// lane.
+#[test]
+fn a_personal_attributes_presence_leaves_its_offers_unopted() {
+    const CLAIMS: &str = "module: claims\ncategories: [live, closed]\ntypes:\n  Claim:\n    description: A claim.\n    tracking: record\n    attributes:\n      title: { type: string, personal: true, optional: true }\n    states:\n      OPEN: { description: Open., category: live }\n      DONE: { description: Done., category: closed, final: true }\n    invariants:\n      has_title: { description: Every claim has a title until erasure removes it., expression: title is not null }\n    transitions:\n      draft: { kind: initial, to: OPEN, required_inputs: [title] }\n      jot: { kind: initial, to: OPEN, optional_inputs: [title] }\n      retitle: { kind: internal, from: [OPEN], optional_inputs: [title] }\n      close: { kind: external, from: [OPEN], to: DONE }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Draft:\n    description: A draft whose title a rename may leave out.\n    tracking: record\n    attributes:\n      title: { type: string, personal: true, optional: true }\n    states:\n      OPEN: { description: Open., category: live }\n      DONE: { description: Done., category: closed, final: true }\n    invariants:\n      has_title: { description: Every draft has a title., expression: title is not null }\n    transitions:\n      draft: { kind: initial, to: OPEN, required_inputs: [title] }\n      rename:\n        kind: internal\n        from: [OPEN]\n        inputs:\n          to: { type: string, personal: true, optional: true }\n        effect:\n          - assign: { location: title, expr: inputs.to }\n      close: { kind: external, from: [OPEN], to: DONE }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+    let s = start(&["--port", "0"]);
+    let loaded = post(
+        &s,
+        "/sandbox/load",
+        &json!({"files": [{"name": "claims.yaml", "text": CLAIMS}]}),
+    );
+    assert_eq!(loaded["loaded"], json!(true), "{loaded}");
+    let op = json!({"id": "operator"});
+    let made = |tn: &str, title: &str| {
+        let v = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": tn, "transition": "draft", "inputs": {"title": title}}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        v["object_id"].as_str().expect("its id").to_string()
+    };
+    let claim = made("Claim", "Taxi to the airport");
+    let erased = made("Claim", "Lunch with a client");
+    let draft = made("Draft", "Hotel");
+    // the claim's reads answered without the opt-in
+    let offers = post(&s, "/v1/availability", &json!({"actor": op, "id": claim}));
+    let offered: Vec<&str> = offers
+        .as_array()
+        .unwrap_or_else(|| panic!("offers: {offers}"))
+        .iter()
+        .filter_map(|o| o["transition"].as_str())
+        .collect();
+    assert!(
+        offered.contains(&"retitle") && offered.contains(&"close"),
+        "{offers}"
+    );
+    let checked = post(
+        &s,
+        "/v1/check",
+        &json!({"actor": op, "object_id": claim, "transition": "close"}),
+    );
+    assert_eq!(checked["verdict"]["kind"], "satisfied", "{checked}");
+    let page = post(
+        &s,
+        "/v1/available",
+        &json!({"actor": op, "type": "Claim", "transition": "close"}),
+    );
+    assert_ne!(page["refused"], "personal", "{page}");
+    assert!(page.to_string().contains(&claim), "{page}");
+    // a creation leaving the title out refused, checked or requested, by its
+    // required input's guard or, taking it as optional, by the invariant,
+    // and nothing made
+    for (xn, kind, clause) in [
+        ("draft", "unsatisfied", "title_provided"),
+        ("jot", "invariant_violated", "has_title"),
+    ] {
+        let untitled = json!({"actor": op, "type": "Claim", "transition": xn, "inputs": {}});
+        for path in ["/v1/check", "/v1/request"] {
+            let refused = post(&s, path, &untitled);
+            let verdict = refused.get("verdict").unwrap_or(&refused);
+            assert_eq!(verdict["kind"], kind, "{xn} {path}: {refused}");
+            assert!(refused.to_string().contains(clause), "{refused}");
+        }
+    }
+    let claims = post(
+        &s,
+        "/v1/query",
+        &json!({"actor": op, "type": "Claim", "reads_personal": true}),
+    );
+    assert_eq!(
+        claims["items"].as_array().map(Vec::len),
+        Some(2),
+        "{claims}"
+    );
+    // an erasure removes the title, the invariant it breaks admitted, and
+    // the erased claim takes its transitions, checked without the opt-in
+    let forgot = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": erased, "transition": "forget", "inputs": {"reason": "asked"}}),
+    );
+    assert_eq!(forgot["kind"], "satisfied", "{forgot}");
+    let after = post(
+        &s,
+        "/v1/check",
+        &json!({"actor": op, "object_id": erased, "transition": "close"}),
+    );
+    assert_eq!(after["verdict"]["kind"], "satisfied", "{after}");
+    let closed = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": erased, "transition": "close"}),
+    );
+    assert_eq!(closed["kind"], "satisfied", "{closed}");
+    // a title a transition may write absent: refused without the opt-in,
+    // and answered with it
+    for (path, body) in [
+        ("/v1/availability", json!({"actor": op, "id": draft})),
+        (
+            "/v1/check",
+            json!({"actor": op, "object_id": draft, "transition": "close"}),
+        ),
+        (
+            "/v1/available",
+            json!({"actor": op, "type": "Draft", "transition": "close"}),
+        ),
+    ] {
+        let refused = post(&s, path, &body);
+        assert_eq!(refused["refused"], "personal", "{path}: {refused}");
+        let mut opted = body.clone();
+        opted["reads_personal"] = json!(true);
+        let answered = post(&s, path, &opted);
+        assert_ne!(answered["refused"], "personal", "{path}: {answered}");
+    }
+}
+
 /// A check is judged by every guard and invariant its request may
 /// evaluate, so one decided by a personal member through a call or another
 /// type's invariant is refused `personal` without the opt-in, where a

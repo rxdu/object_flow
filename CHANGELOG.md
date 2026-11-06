@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Changed
+
+- A personal attribute's invariant `<attribute> is not null`, over a stored scalar, no longer makes its type's `available`, `availability` and `check` need `reads_personal`, where no transition of the type may write the attribute absent from a value an object holds: by a `clear`, by an update's `assign` of anything but an input it always takes, or by a creation's `assign` of anything but an input (ADR-0261). The reimbursement sample's `Claim.has_title` made every offer of `Claim` personal; they are answered without the opt-in.
+
 ## 0.18.0, 2026-11-06
 
 A release before 1.0.0, as 0.17.0 was (ADR-0214), with issue #70 and two defects found building it. A personal text marked `not_blank` makes no offer personal that its invariant cannot refuse (ADR-0259). `available`, `availability` and `check` are judged by every guard and invariant their request may evaluate (ADR-0260). A subtype holds the invariants its bases' attributes generate. A store of 0.17.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that records the release alone; a store of 0.16.0 takes 0.17.0's step first. Some reads 0.17.0 answered without `reads_personal` are refused `personal`, and a subtype's invariant named as one its base's attribute generates is refused, as listed below.

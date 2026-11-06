@@ -1384,12 +1384,16 @@ pub fn transition_reads_personal(lib: &Library, type_: &str, transition: &str) -
         if written.contains_key(&u.name) {
             // the invariant a text's `not_blank` generates refuses only a
             // blank written into the text, so where no transition of the
-            // type may write one it decides no answer (issue #70, ADR-0259)
+            // type may write one it decides no answer (issue #70, ADR-0259);
+            // and `<attribute> is not null` only an absence written from a
+            // value an object holds (ADR-0261)
             u.invariants
                 .iter()
                 .filter(|(n, i)| {
                     u.not_blank_of(n, i)
                         .is_none_or(|a| crate::request::may_write_blank(u, a))
+                        && u.presence_of(i)
+                            .is_none_or(|a| crate::request::may_write_absent(u, a))
                 })
                 .any(|(_, i)| personal.reads(u, i, &Bound::new()))
         } else {
@@ -3147,6 +3151,284 @@ types:
         assert!(!personal("Cell", "add"));
         assert!(personal("Suite", "add"));
         assert!(personal("Booth", "add"));
+    }
+
+    /// A personal attribute's `<attribute> is not null` decides no answer
+    /// where no transition of its type may write it absent from a value an
+    /// object holds (ADR-0261): an input never writes it absent, an
+    /// erasure admits what it erases, and a creation's inputs are its
+    /// caller's, so a creation leaving it out is refused by the invariant
+    /// without its deciding anything held. Where a transition may, by a
+    /// `clear`, an `assign` of an input not always given on an update, an
+    /// optional or a defaulted one, or of a value read elsewhere, on a
+    /// creation or in a `foreach` too, it is judged by what it reads, for
+    /// every transition of the type; so is an invariant of another shape,
+    /// `is null` among them, and one over a reference.
+    #[test]
+    fn a_personal_attributes_presence_decides_no_offer_it_cannot_refuse() {
+        const CLAIMS: &str = r#"
+module: claims
+categories: [live, closed]
+types:
+  Person:
+    attributes:
+      nick: { type: string, personal: true, optional: true }
+    states:
+      ON: { category: live }
+    transitions:
+      join: { kind: initial, to: ON, optional_inputs: [nick] }
+  Claim:
+    attributes:
+      title: { type: string, personal: true, optional: true }
+      memo: { type: string, optional: true }
+    invariants:
+      has_title: { expression: title is not null }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      draft: { kind: initial, to: OPEN, required_inputs: [title] }
+      retitle: { kind: internal, from: [OPEN], optional_inputs: [title] }
+      rename:
+        kind: internal
+        from: [OPEN]
+        inputs:
+          to: { type: string, personal: true }
+        effect:
+          - assign: { location: title, expr: inputs.to }
+      note: { kind: internal, from: [OPEN], optional_inputs: [memo] }
+      close: { kind: external, from: [OPEN], to: DONE }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Opened:
+    attributes:
+      title: { type: string, personal: true, optional: true }
+    invariants:
+      has_title: { expression: title is not null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      open:
+        kind: initial
+        to: OPEN
+        inputs:
+          named: { type: string, personal: true, optional: true }
+        effect:
+          - assign: { location: title, expr: inputs.named }
+      tidy: { kind: internal, from: [OPEN] }
+  Wipe:
+    attributes:
+      title: { type: string, personal: true, optional: true }
+    invariants:
+      has_title: { expression: title is not null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      draft: { kind: initial, to: OPEN, required_inputs: [title] }
+      wipe:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - clear: [title]
+      tidy: { kind: internal, from: [OPEN] }
+  Loose:
+    attributes:
+      title: { type: string, personal: true, optional: true }
+    invariants:
+      has_title: { expression: title is not null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      draft: { kind: initial, to: OPEN, required_inputs: [title] }
+      rename:
+        kind: internal
+        from: [OPEN]
+        inputs:
+          to: { type: string, personal: true, optional: true }
+        effect:
+          - assign: { location: title, expr: inputs.to }
+      tidy: { kind: internal, from: [OPEN] }
+  Copy:
+    attributes:
+      owner: { reference: Person }
+      title: { type: string, personal: true, optional: true }
+    invariants:
+      has_title: { expression: title is not null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      draft:
+        kind: initial
+        to: OPEN
+        required_inputs: [owner]
+        effect:
+          - assign: { location: title, expr: owner.nick }
+      tidy: { kind: internal, from: [OPEN] }
+  Looped:
+    attributes:
+      titles: { type: "string[]", personal: true }
+      title: { type: string, personal: true, optional: true }
+    invariants:
+      has_title: { expression: title is not null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      draft: { kind: initial, to: OPEN, required_inputs: [titles, title] }
+      repeat:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - foreach:
+              item: t
+              array: titles
+              limit: 5
+              steps:
+                - assign: { location: title, expr: t }
+  Either:
+    attributes:
+      title: { type: string, personal: true, optional: true }
+      memo: { type: string, optional: true }
+    invariants:
+      named: { expression: title is not null or memo is not null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      draft: { kind: initial, to: OPEN, required_inputs: [title] }
+      tidy: { kind: internal, from: [OPEN] }
+  Kept:
+    attributes:
+      keeper: { reference: Person, personal: true, optional: true }
+    invariants:
+      kept: { expression: keeper is not null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      take: { kind: initial, to: OPEN, required_inputs: [keeper] }
+      tidy: { kind: internal, from: [OPEN] }
+  Absent:
+    attributes:
+      title: { type: string, personal: true, optional: true }
+    invariants:
+      untitled: { expression: title is null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [title] }
+      tidy: { kind: internal, from: [OPEN] }
+  Defaulted:
+    attributes:
+      title: { type: string, personal: true, optional: true }
+      memo: { type: string, personal: true, optional: true }
+    invariants:
+      has_title: { expression: title is not null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      draft: { kind: initial, to: OPEN, required_inputs: [title], optional_inputs: [memo] }
+      rename:
+        kind: internal
+        from: [OPEN]
+        inputs:
+          to: { type: string, personal: true, default: memo }
+        effect:
+          - assign: { location: title, expr: inputs.to }
+  Required:
+    attributes:
+      title: { type: string, personal: true, optional: true }
+      alias: { type: string, personal: true, optional: true }
+    invariants:
+      has_title: { expression: title is not null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      draft: { kind: initial, to: OPEN, required_inputs: [title] }
+      rename:
+        kind: internal
+        from: [OPEN]
+        required_inputs: [alias]
+        effect:
+          - assign: { location: title, expr: inputs.alias }
+  Optional:
+    attributes:
+      title: { type: string, personal: true, optional: true }
+      alias: { type: string, personal: true, optional: true }
+    invariants:
+      has_title: { expression: title is not null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      draft: { kind: initial, to: OPEN, required_inputs: [title] }
+      rename:
+        kind: internal
+        from: [OPEN]
+        optional_inputs: [alias]
+        effect:
+          - assign: { location: title, expr: inputs.alias }
+  Public:
+    attributes:
+      title: { type: string, optional: true }
+    invariants:
+      has_title: { expression: title is not null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      draft: { kind: initial, to: OPEN, required_inputs: [title] }
+      wipe:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - clear: [title]
+  Paper:
+    abstract: true
+    attributes:
+      title: { type: string, personal: true, optional: true }
+    invariants:
+      has_title: { expression: title is not null }
+  Letter:
+    extends: Paper
+    states:
+      OPEN: { category: live }
+    transitions:
+      draft: { kind: initial, to: OPEN, required_inputs: [title] }
+      retitle: { kind: internal, from: [OPEN], optional_inputs: [title] }
+"#;
+        let lib = Library::load(&[("claims.yaml".into(), CLAIMS.into())]).unwrap();
+        let personal = |ty: &str, x: &str| transition_reads_personal(&lib, ty, x);
+        // written by inputs alone, an assign of one always given among them,
+        // and erased: no transition is decided by it
+        for x in ["draft", "retitle", "rename", "note", "close", "forget"] {
+            assert!(!personal("Claim", x), "Claim.{x}");
+        }
+        // a creation assigning an input it may leave out, and an update
+        // assigning an attribute input it requires
+        assert!(!personal("Opened", "open"));
+        assert!(!personal("Opened", "tidy"));
+        assert!(!personal("Required", "rename"));
+        assert!(!personal("Required", "draft"));
+        // a clear, an update's assign of an input it may leave out, a
+        // creation's of a value read elsewhere, and a foreach's: every
+        // transition of the type
+        for (ty, xs) in [
+            ("Wipe", ["draft", "wipe", "tidy"].as_slice()),
+            ("Loose", ["draft", "rename", "tidy"].as_slice()),
+            ("Copy", ["draft", "tidy"].as_slice()),
+            ("Looped", ["draft", "repeat"].as_slice()),
+            ("Defaulted", ["draft", "rename"].as_slice()),
+            ("Optional", ["draft", "rename"].as_slice()),
+        ] {
+            for x in xs {
+                assert!(personal(ty, x), "{ty}.{x}");
+            }
+        }
+        // another shape, absence among them, and a reference, judged by
+        // what each reads
+        assert!(personal("Either", "tidy"));
+        assert!(personal("Absent", "tidy"));
+        assert!(personal("Kept", "tidy"));
+        // an attribute not personal, as before, though cleared
+        assert!(!personal("Public", "wipe"));
+        // a subtype holding the invariant it inherits
+        assert!(!personal("Letter", "draft"));
+        assert!(!personal("Letter", "retitle"));
     }
 
     /// A transition's answer is judged by every guard and invariant its

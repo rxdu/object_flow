@@ -3,7 +3,7 @@
 - **Status:** **Decided** 2026-10-19 under the author's direction ("address the two follow-ups in TODO"), the follow-up ADR-0219 decision 4 recorded.
 - **Date:** 2026-10-19
 - **Refines:** ADR-0219 decision 4 (a transition's guards judged by name); ADR-0206 decision 2 (`available`, `availability` and `check` refused `personal` by a guard or an invariant)
-- **Refined by:** ADR-0259 — decision 1's invariant a `not_blank` generates decides no answer where no transition of its type may write the text blank. ADR-0260 — decision 1's guards and invariants are every one the request may evaluate, not the transition's own and its type's alone.
+- **Refined by:** ADR-0259 — decision 1's invariant a `not_blank` generates decides no answer where no transition of its type may write the text blank. ADR-0260 — decision 1's guards and invariants are every one the request may evaluate, not the transition's own and its type's alone. ADR-0261 — decision 1's invariant `<attribute> is not null`, over a stored scalar, decides no answer where no transition of its type may write the attribute absent from a value an object holds.
 - **Relates to:** ADR-0206 decision 1 (what a personal member is); ADR-0203 decision 1 (a copy of an identity is the identity)
 
 ## Context

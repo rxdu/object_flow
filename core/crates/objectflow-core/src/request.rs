@@ -1415,6 +1415,45 @@ pub(crate) fn may_write_blank(t: &Type, attribute: &str) -> bool {
     })
 }
 
+/// Whether an input is always given before an effect runs: a declared
+/// input neither optional nor defaulted, refused `missing` where it is left
+/// out, or an attribute input the transition requires, refused by its
+/// `<attribute>_provided` (`take_unwound`).
+fn always_given(x: &Transition, k: &str) -> bool {
+    match x.inputs.iter().find(|(n, _)| n == k) {
+        Some((_, spec)) => !spec.optional && spec.default.is_none(),
+        None => x.required_inputs.iter().any(|n| n == k),
+    }
+}
+
+/// Whether a transition of the type may write the attribute absent from a
+/// value an object holds: by a `clear` of it, or by an `assign` to it of
+/// anything but an input always given, a `foreach`'s steps included; on a
+/// creation, by an `assign` of anything but an input, since a creation's
+/// inputs are its caller's. No input writes an attribute absent, one sent
+/// null not being supplied and a call passing no absent value, and an
+/// erasure admits the invariants it breaks, so where none may, the
+/// attribute's `<attribute> is not null` decides no answer by a value an
+/// object holds (ADR-0261).
+pub(crate) fn may_write_absent(t: &Type, attribute: &str) -> bool {
+    fn writes(steps: &[Step], x: &Transition, a: &str) -> bool {
+        steps.iter().any(|st| match st {
+            Step::Clear(locations) => locations.iter().any(|l| l == a),
+            Step::Assign { location, expr } if location == a => !matches!(
+                expr,
+                Expr::Path(base, n)
+                    if matches!(base.as_ref(), Expr::Name(i) if i == "inputs")
+                        && (x.kind == Kind::Initial || always_given(x, n))
+            ),
+            Step::Foreach { steps, .. } => writes(steps, x, a),
+            _ => false,
+        })
+    }
+    t.transitions
+        .iter()
+        .any(|(_, x)| writes(&x.effect, x, attribute))
+}
+
 /// Whether a value is one a list of media types takes (ADR-0239): a file
 /// by its media type, a set by each of its elements, any other value as it
 /// is.
