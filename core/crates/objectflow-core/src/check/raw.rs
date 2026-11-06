@@ -986,6 +986,28 @@ pub fn not_blank_errors(doc: &Value) -> Found {
             }
         }
     }
+    // a subtype's own invariant named as the one a base's marked text
+    // generates, which takes its place in the subtype; a text the subtype
+    // declares again is its own (ADR-0257 decision 3)
+    let kinds = obj(doc, "types");
+    for (tn, t) in kinds {
+        for b in super::view::bases(tn, kinds) {
+            for (a, spec) in obj(&kinds[&b], "attributes") {
+                let name = format!("{a}_not_blank");
+                if marked(spec)
+                    && one_string(spec)
+                    && !obj(t, "attributes").contains_key(a)
+                    && obj(t, "invariants").contains_key(&name)
+                {
+                    out.push(finding(
+                        segs!["types", tn, "invariants", &name],
+                        "names",
+                        format!("{tn}.{name} is the invariant {b}.{a}'s not_blank generates, which {tn} inherits; name the type's invariant otherwise (ADR-0257)"),
+                    ));
+                }
+            }
+        }
+    }
     out
 }
 
@@ -1141,6 +1163,32 @@ pub fn declared_value_errors(doc: &Value) -> Found {
             for (n, spec) in obj(fun, "arguments") {
                 if let Some((vn, _)) = value_of(spec) {
                     out.push(finding(segs!["evaluators", e, "functions", f, "arguments", n, "type"], "names", format!("the argument {n} of {e}.{f} is a {vn}; an evaluator takes no value of several fields in this release (ADR-0254)")));
+                }
+            }
+        }
+    }
+    // a subtype's own invariant named as one a base's value generates, which
+    // takes its place in the subtype; an attribute the subtype declares again
+    // is its own (ADR-0255)
+    let kinds = obj(doc, "types");
+    for (tn, t) in kinds {
+        for b in super::view::bases(tn, kinds) {
+            for (a, spec) in obj(&kinds[&b], "attributes") {
+                let Some((vn, false)) = value_of(spec) else {
+                    continue;
+                };
+                if obj(t, "attributes").contains_key(a) {
+                    continue;
+                }
+                for i in keys(&values[&vn], "invariants") {
+                    let name = format!("{a}_{i}");
+                    if obj(t, "invariants").contains_key(&name) {
+                        out.push(finding(
+                            segs!["types", tn, "invariants", &name],
+                            "names",
+                            format!("{tn}.{name} is the invariant {b}.{a} holds of its value {vn}'s {i}, which {tn} inherits; name the type's invariant otherwise (ADR-0255)"),
+                        ));
+                    }
                 }
             }
         }

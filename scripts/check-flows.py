@@ -4240,6 +4240,18 @@ def not_blank_errors(doc):
                         out.append(((kind, tn, "transitions", xn, "inputs", i, "not_blank"), "names",
                                     f"{xn}'s input {i} is marked not_blank and is of the type {typ(spec)}; not_blank marks one string "
                                     "in this release (ADR-0257)"))
+    # a subtype's own invariant named as the one a base's marked text generates, which takes its place in the subtype; a
+    # text the subtype declares again is its own (ADR-0257 decision 3)
+    kinds = doc.get("types") or {}
+    for tn, t in kinds.items():
+        for b in bases(tn, kinds):
+            for a, spec in (kinds[b].get("attributes") or {}).items():
+                name = f"{a}_not_blank"
+                if (marked(spec) and spec.get("type") == "string" and a not in (t.get("attributes") or {})
+                        and name in (t.get("invariants") or {})):
+                    out.append((("types", tn, "invariants", name), "names",
+                                f"{tn}.{name} is the invariant {b}.{a}'s not_blank generates, which {tn} inherits; name the "
+                                "type's invariant otherwise (ADR-0257)"))
     return out
 
 
@@ -4343,6 +4355,22 @@ def declared_value_errors(doc):
                     out.append((("evaluators", e, "functions", fn, "arguments", n, "type"), "names",
                                 f"the argument {n} of {e}.{fn} is a {got[0]}; an evaluator takes no value of several "
                                 "fields in this release (ADR-0254)"))
+    # a subtype's own invariant named as one a base's value generates, which takes its place in the subtype; an attribute
+    # the subtype declares again is its own (ADR-0255)
+    kinds = doc.get("types") or {}
+    for tn, t in kinds.items():
+        for b in bases(tn, kinds):
+            for a, spec in (kinds[b].get("attributes") or {}).items():
+                got = value_of(spec)
+                if got is None or got[1] or a in (t.get("attributes") or {}):
+                    continue
+                vn = got[0]
+                for i in values[vn].get("invariants") or {}:
+                    name = f"{a}_{i}"
+                    if name in (t.get("invariants") or {}):
+                        out.append((("types", tn, "invariants", name), "names",
+                                    f"{tn}.{name} is the invariant {b}.{a} holds of its value {vn}'s {i}, which {tn} "
+                                    "inherits; name the type's invariant otherwise (ADR-0255)"))
     return out
 
 
@@ -11677,6 +11705,23 @@ def value_plants():
     ]
     cases.append(("an imported value", [("bookings.yaml", base), ("stays.yaml", holder)], None,
                   ["imports 'DayRange' from bookings, a value, which a module uses where it is declared in this release; a type of bookings holding it imports it with its fields (ADR-0254)"]))
+    # a subtype's own invariant of the name a base's value generates, which took its place in the subtype (ADR-0255)
+    family = ("module: bookings\ncategories: [live, closed]\nvalues:\n  DayRange:\n    description: A span of days.\n"
+              "    attributes:\n      first: { type: date }\n      last: { type: date }\n    invariants:\n"
+              "      in_order: { description: In order., expression: 'first <= last' }\ntypes:\n  Stay:\n"
+              "    description: A stay.\n    abstract: true\n    attributes:\n      days: { type: DayRange }\n"
+              "  Booking:\n    description: A booking.\n    extends: Stay\n    tracking: record\n    states:\n"
+              "      OPEN: { description: Held., category: live }\n      DONE: { description: Over., category: closed, final: true }\n"
+              "{invariants}    transitions:\n      book: { kind: initial, to: OPEN, required_inputs: [days] }\n"
+              "      end: { kind: external, from: [OPEN], to: DONE }\n")
+    cases += [
+        ("a subtype of a value's holder", [("bookings.yaml", family.replace("{invariants}", ""))], None, []),
+        ("a subtype's invariant of the name its base's value generates",
+         [("bookings.yaml", family.replace("{invariants}", "    invariants:\n      days_in_order: { description: Mine., "
+                                                            "expression: days is not null }\n"))], None,
+         ["Booking.days_in_order is the invariant Stay.days holds of its value DayRange's in_order, which Booking inherits; "
+          "name the type's invariant otherwise (ADR-0255)"]),
+    ]
     ok = True
     for name, files, previous, want in cases:
         found, notes = check(files, previous)
@@ -11786,6 +11831,26 @@ def not_blank_plants():
         ("a type's invariant of the name it generates",
          module(invariants="    invariants:\n      text_not_blank: { description: Said., expression: 'length(text) > 0' }\n"),
          ["Note.text_not_blank is the invariant text's not_blank generates; name the type's invariant otherwise (ADR-0257)"]),
+    ]
+    # a subtype's own invariant of the name its base's marked text generates, which took its place in the subtype; a text
+    # the subtype declares again is its own (ADR-0257 decision 3)
+    family = ("module: notes\ncategories: [live, closed]\ntypes:\n  Jotting:\n    description: A jotting.\n    abstract: true\n"
+              "    attributes:\n      memo: { type: string, optional: true, not_blank: true }\n"
+              "  Note:\n    description: A note.\n    extends: Jotting\n    tracking: record\n{own}    states:\n"
+              "      KEPT: { description: Kept., category: live }\n      GONE: { description: Gone., category: closed, final: true }\n"
+              "{invariants}    transitions:\n      write: { kind: initial, to: KEPT, optional_inputs: [memo] }\n"
+              "      close: { kind: external, from: KEPT, to: GONE }\n")
+    mine = "    invariants:\n      memo_not_blank: { description: Not x., expression: 'memo != \"x\"' }\n"
+    again = "    attributes:\n      memo: { type: string, optional: true }\n"
+    cases += [
+        ("a subtype of a marked text", family.replace("{own}", "").replace("{invariants}", ""), []),
+        ("a subtype's invariant of the name its base's text generates",
+         family.replace("{own}", "").replace("{invariants}", mine),
+         ["Note.memo_not_blank is the invariant Jotting.memo's not_blank generates, which Note inherits; name the type's "
+          "invariant otherwise (ADR-0257)"]),
+        ("a subtype declaring the text again, refused as a member declared twice and not again for its invariant",
+         family.replace("{own}", again).replace("{invariants}", mine),
+         ["Note declares 'memo', which it inherits from Jotting; a member has one declaration"]),
     ]
     ok = True
     for name, text, want in cases:

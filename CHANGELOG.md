@@ -11,6 +11,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Changed, and may refuse what 0.17.0 accepted
 
 - `available`, `availability` and `check` are refused `personal` without `reads_personal` where the request may evaluate a guard or an invariant reading a personal member through what it takes or reaches. That is a guard of a transition a `call`, a `create` or a cascade takes, an invariant of a type those write, or another type's invariant reaching what they write. Only the transition's own guards and its type's invariants were judged. So a check of a transition calling another type's transition guarded on a personal salary was answered by that salary, and a member's raise under a team's budget over its members' salaries recovered the others' sum by halving the input (ADR-0260).
+- A type's own invariant named as one an inherited attribute generates, a marked text's `<attribute>_not_blank` or a value's `<attribute>_<invariant>`, is refused by both checkers and when the library is read, as one named after the type's own attribute was. It took the generated invariant's place in the subtype, so a text marked `not_blank` was written blank there, and a value's rule was not held (ADR-0257 decision 3, ADR-0255).
 
 ## 0.17.0, 2026-11-05
 

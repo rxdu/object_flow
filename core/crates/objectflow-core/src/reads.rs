@@ -3018,9 +3018,10 @@ types:
     /// attributes (issue #70, ADR-0259). Where one transition may, by an
     /// input not so refused or by a value read elsewhere, inside a `foreach`
     /// too, it is judged by what it reads, for every transition of the type;
-    /// so is an invariant of its name a subtype declares otherwise, and the
-    /// one a subtype inherits over the text it declares again unmarked, whose
-    /// input is then not refused blank.
+    /// so is an invariant of its name a subtype declaring the text again
+    /// holds otherwise, though nothing writes the text, and the one a subtype
+    /// inherits over the text it declares again unmarked, whose input is then
+    /// not refused blank.
     #[test]
     fn a_personal_texts_not_blank_decides_no_offer_it_cannot_refuse() {
         const DESK: &str = r#"
@@ -3107,12 +3108,15 @@ types:
       add: { kind: initial, to: OPEN, optional_inputs: [memo] }
   Suite:
     extends: Space
+    attributes:
+      memo: { type: string, personal: true, optional: true }
+      nick: { type: string, personal: true, optional: true }
     invariants:
-      memo_not_blank: { expression: memo != "x" }
+      memo_not_blank: { expression: memo != nick }
     states:
       OPEN: { category: live }
     transitions:
-      add: { kind: initial, to: OPEN, optional_inputs: [memo] }
+      add: { kind: initial, to: OPEN, optional_inputs: [nick] }
   Booth:
     extends: Space
     attributes:
@@ -3137,9 +3141,9 @@ types:
         assert!(personal("Echo", "repeat"));
         // a text not personal, as before
         assert!(!personal("Badge", "write"));
-        // a subtype holding the marking it inherits, one holding an
-        // invariant of its name of its own, and one declaring the text again
-        // unmarked
+        // a subtype holding the marking it inherits, one declaring the text
+        // again with an invariant of its name of its own, and one declaring
+        // the text again unmarked
         assert!(!personal("Cell", "add"));
         assert!(personal("Suite", "add"));
         assert!(personal("Booth", "add"));

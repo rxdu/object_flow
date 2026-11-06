@@ -1,0 +1,18 @@
+module: notes
+categories: [live, closed]
+types:
+  Jotting:
+    description: A jotting.
+    abstract: true
+    attributes:
+      memo: { type: string, optional: true, not_blank: true }
+  Note:
+    description: A note.
+    extends: Jotting
+    tracking: record
+    states:
+      KEPT: { description: Kept., category: live }
+      GONE: { description: Gone., category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: KEPT, optional_inputs: [memo] }
+      close: { kind: external, from: KEPT, to: GONE }

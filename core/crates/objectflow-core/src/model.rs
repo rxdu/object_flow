@@ -2501,6 +2501,65 @@ impl Library {
                 }
             }
         }
+        // a type's own invariant named as one a base's attribute generates,
+        // `<attribute>_not_blank` or a value's `<attribute>_<invariant>`, is
+        // refused as one named after its own attribute's is, where it took
+        // the generated one's place in the subtype and a text marked never
+        // blank was written blank there; an attribute the type declares
+        // again is its own (ADR-0257 decision 3, ADR-0255)
+        for t in lib.types.values() {
+            for b in bases(&t.name, &lib.types) {
+                let Some(bt) = lib.types.get(&b) else {
+                    continue;
+                };
+                for (a, attr) in &bt.attributes {
+                    if t.attributes.iter().any(|(n, _)| n == a) {
+                        continue;
+                    }
+                    // each name, and what generates it, as the checkers say
+                    let mut generated = Vec::new();
+                    if attr.not_blank {
+                        generated.push((
+                            format!("{a}_not_blank"),
+                            format!("{b}.{a}'s not_blank generates"),
+                            "ADR-0257",
+                        ));
+                    }
+                    if let Declared::Value(vn) = &attr.declared
+                        && let Some(vt) = lib.values.get(vn)
+                    {
+                        for (i, _) in &vt.invariants {
+                            generated.push((
+                                format!("{a}_{i}"),
+                                format!("{b}.{a} holds of its value {vn}'s {i}"),
+                                "ADR-0255",
+                            ));
+                        }
+                    }
+                    for (name, from, adr) in generated {
+                        if t.invariants.iter().any(|(n, _)| *n == name) {
+                            let (file, line) = files
+                                .iter()
+                                .find(|(_, text)| {
+                                    crate::source::name_of(text).as_deref()
+                                        == Some(t.module.as_str())
+                                })
+                                .map_or((String::new(), 1), |(f, text)| {
+                                    (f.clone(), declared_line(text, &t.name))
+                                });
+                            return Err(LoadError {
+                                file,
+                                line,
+                                message: format!(
+                                    "{}.{name} is the invariant {from}, which {} inherits; name the type's invariant otherwise ({adr})",
+                                    t.name, t.name
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+        }
         // each value's invariant, held by each attribute holding the value
         // as its type's invariant `<attribute>_<invariant>`, after the type's
         // own and before a subtype inherits it (ADR-0255)

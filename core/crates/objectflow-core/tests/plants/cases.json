@@ -30399,6 +30399,89 @@
   }
  },
  {
+  "label": "not_blank_plants: a subtype of a marked text",
+  "files": [
+   [
+    "notes.yaml",
+    "2556030411e34ccf"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Note": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Jotting.memo_not_blank": "local"
+  },
+  "could_violate": {
+   "Jotting.memo_not_blank": []
+  }
+ },
+ {
+  "label": "not_blank_plants: a subtype's invariant of the name its base's text generates",
+  "files": [
+   [
+    "notes.yaml",
+    "287451e70aef77f1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    17,
+    "fatal",
+    "names",
+    "Note.memo_not_blank is the invariant Jotting.memo's not_blank generates, which Note inherits; name the type's invariant otherwise (ADR-0257)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Jotting.memo_not_blank": "local",
+   "Note.memo_not_blank": "local"
+  },
+  "could_violate": {
+   "Jotting.memo_not_blank": [],
+   "Note.memo_not_blank": [
+    "Note.write"
+   ]
+  }
+ },
+ {
+  "label": "not_blank_plants: a subtype declaring the text again, refused as a member declared twice and not again for its invariant",
+  "files": [
+   [
+    "notes.yaml",
+    "286edb1c21f3a40d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    14,
+    "fatal",
+    "names",
+    "Note declares 'memo', which it inherits from Jotting; a member has one declaration"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Jotting.memo_not_blank": "local",
+   "Note.memo_not_blank": "local"
+  },
+  "could_violate": {
+   "Jotting.memo_not_blank": [],
+   "Note.memo_not_blank": [
+    "Note.write"
+   ]
+  }
+ },
+ {
   "label": "actor_move_plants: the plain rename",
   "files": [
    [
@@ -31308,6 +31391,59 @@
   "analysed": {},
   "forms": {},
   "could_violate": {}
+ },
+ {
+  "label": "value_plants: a subtype of a value's holder",
+  "files": [
+   [
+    "bookings.yaml",
+    "1aa61413dd8ee643"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Booking": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Stay.days_in_order": "local"
+  },
+  "could_violate": {
+   "Stay.days_in_order": []
+  }
+ },
+ {
+  "label": "value_plants: a subtype's invariant of the name its base's value generates",
+  "files": [
+   [
+    "bookings.yaml",
+    "7117fe61861e3da1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    25,
+    "fatal",
+    "names",
+    "Booking.days_in_order is the invariant Stay.days holds of its value DayRange's in_order, which Booking inherits; name the type's invariant otherwise (ADR-0255)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Booking.days_in_order": "local",
+   "Stay.days_in_order": "local"
+  },
+  "could_violate": {
+   "Booking.days_in_order": [
+    "Booking.book"
+   ],
+   "Stay.days_in_order": []
+  }
  },
  {
   "label": "trim_plants: a guard reading a trimmed input",

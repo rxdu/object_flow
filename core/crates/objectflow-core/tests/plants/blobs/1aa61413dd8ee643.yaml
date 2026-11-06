@@ -1,0 +1,26 @@
+module: bookings
+categories: [live, closed]
+values:
+  DayRange:
+    description: A span of days.
+    attributes:
+      first: { type: date }
+      last: { type: date }
+    invariants:
+      in_order: { description: In order., expression: 'first <= last' }
+types:
+  Stay:
+    description: A stay.
+    abstract: true
+    attributes:
+      days: { type: DayRange }
+  Booking:
+    description: A booking.
+    extends: Stay
+    tracking: record
+    states:
+      OPEN: { description: Held., category: live }
+      DONE: { description: Over., category: closed, final: true }
+    transitions:
+      book: { kind: initial, to: OPEN, required_inputs: [days] }
+      end: { kind: external, from: [OPEN], to: DONE }

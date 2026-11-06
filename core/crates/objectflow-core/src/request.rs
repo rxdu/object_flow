@@ -7860,6 +7860,104 @@ types:
         Store::sandbox(lib, 1_767_225_600).unwrap()
     }
 
+    /// A subtype's own invariant named as one its base's attribute
+    /// generates, a marked text's `<attribute>_not_blank` or a value's
+    /// `<attribute>_<invariant>`, is refused when the library is read, as one
+    /// named after the type's own attribute is, where it took the generated
+    /// one's place in the subtype and the text was written blank there; a
+    /// subtype without one holds the inherited invariant, a blank written by
+    /// an effect refused `invariant_violated` and nothing written (ADR-0257
+    /// decision 3, ADR-0255). On both backends.
+    #[test]
+    fn a_subtype_holds_the_invariants_its_bases_attributes_generate() {
+        const SPACES: &str = r#"
+module: spaces
+categories: [live, closed]
+values:
+  Span:
+    attributes:
+      first: { type: int }
+      last: { type: int }
+    invariants:
+      in_order: { expression: first <= last }
+types:
+  Space:
+    abstract: true
+    attributes:
+      memo: { type: string, optional: true, not_blank: true }
+      span: { type: Span, optional: true }
+  Cell:
+    extends: Space
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON }
+      write:
+        kind: internal
+        from: [ON]
+        inputs:
+          text: { type: string }
+        effect:
+          - assign: { location: memo, expr: inputs.text }
+{own}"#;
+        let suite = |invariant: &str| {
+            SPACES.replace(
+                "{own}",
+                &format!(
+                    "  Suite:\n    extends: Space\n    states:\n      ON: {{ category: live }}\n    invariants:\n      {invariant}: {{ expression: memo != \"x\" }}\n    transitions:\n      add: {{ kind: initial, to: ON }}\n"
+                ),
+            )
+        };
+        for (name, from) in [
+            ("memo_not_blank", "Space.memo's not_blank generates"),
+            (
+                "span_in_order",
+                "Space.span holds of its value Span's in_order",
+            ),
+        ] {
+            let refused = Library::load(&[("spaces.yaml".into(), suite(name))])
+                .err()
+                .unwrap_or_else(|| panic!("{name} was taken"));
+            assert_eq!(
+                refused.message,
+                format!(
+                    "Suite.{name} is the invariant {from}, which Suite inherits; name the type's invariant otherwise ({})",
+                    if name == "memo_not_blank" {
+                        "ADR-0257"
+                    } else {
+                        "ADR-0255"
+                    }
+                ),
+                "{name}"
+            );
+        }
+        // an invariant of another name is the subtype's own
+        Library::load(&[("spaces.yaml".into(), suite("memo_said"))]).unwrap();
+        let lib = Library::load(&[("spaces.yaml".into(), SPACES.replace("{own}", ""))]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let cell = created(&req(&mut s, "add", OPERATOR, ("Cell", true), json!({})));
+        let v = req(
+            &mut s,
+            "write",
+            OPERATOR,
+            (&cell, false),
+            json!({"text": "  "}),
+        );
+        assert!(
+            matches!(&v, Verdict::InvariantViolated { failures, .. }
+                if failures.iter().any(|f| f.invariant == "memo_not_blank")),
+            "{v:?}"
+        );
+        let held = s
+            .snapshot()
+            .unwrap()
+            .whole(&cell)
+            .unwrap()
+            .unwrap()
+            .attr("memo");
+        assert!(held.is_absent(), "{held:?}");
+    }
+
     fn req(s: &mut Store, xn: &str, actor: &str, target: (&str, bool), inputs: Json) -> Verdict {
         let (name, is_type) = target;
         let r = Request {
