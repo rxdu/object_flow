@@ -1,0 +1,29 @@
+module: visits
+categories: [live, closed]
+types:
+  Person:
+    description: A person.
+    tracking: record
+    attributes:
+      name: { type: string }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      join: { kind: initial, to: ON, required_inputs: [name] }
+      leave: { kind: external, from: [ON], to: OFF }
+  Visit:
+    description: A visit.
+    tracking: record
+    attributes:
+      days: { type: int, optional: true }
+      note: { type: string, optional: true }
+      size: { type: int, default: '1' }
+      host: { reference: Person, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [days, note, size, host] }
+      edit: { kind: internal, from: [OPEN], optional_inputs: [days, note, size, host], clearable_inputs: [note, size] }
+      close: { kind: external, from: [OPEN], to: DONE }

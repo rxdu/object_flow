@@ -2532,6 +2532,12 @@ class Runner:
                     wrong.append((k, "wrong_type"))
                 continue
             spec = declared.get(k) if k in declared else attrs.get(k)
+            # a null is not supplied (ADR-0122 decision 10), as the core decodes it, but where the transition lists the
+            # input clearable, which clears its attribute (ADR-0262)
+            if v is None:
+                if k in (x.get("clearable_inputs") or []):
+                    inputs[k] = ABSENT
+                continue
             why = input_fault(spec, v, self.enums, self.kinds) or media_fault(spec, v)
             if why:
                 wrong.append((k, why))
@@ -2874,6 +2880,8 @@ class Runner:
         wrong = []
         for k in sorted(inputs):
             spec = declared.get(k) if k in declared else attrs.get(k)
+            if inputs[k] is ABSENT:
+                continue                    # a clearable input given null names nothing: it clears (ADR-0262)
             if "reference" in (spec or {}):
                 want = spec["reference"].rstrip("[]")
                 if not all(ref in work.objects and (want == ANY_TYPE or work.is_a(work.type_of(ref), want))
@@ -3032,7 +3040,9 @@ class Runner:
             elif x["kind"] == "erasure":
                 self.erase(ctx, o)
         for k in x.get("required_inputs", []) + x.get("optional_inputs", []):
-            if k in inputs:
+            if k in inputs and inputs[k] is ABSENT:
+                o.attrs.pop(k, None)        # a clearable input given null clears, as `clear` does (ADR-0262)
+            elif k in inputs:
                 o.attrs[k] = at_declared_scale(attrs.get(k), inputs[k], o.id)
         if oid is None:
             self.mint(ctx, o, attrs)
@@ -4406,6 +4416,8 @@ def file_proposal(runner, store, st, aliases):
             if k not in taken:
                 continue
             v, spec = given_inputs[k], declared.get(k) if k in declared else attrs.get(k)
+            if v is None:
+                continue            # a null is not supplied, or clears a clearable input, as the core files it (ADR-0262)
             why = input_fault(spec, v, runner.enums, runner.kinds) or media_fault(spec, v) or blank_fault(spec, v)
             if why is None and "reference" in (spec or {}) and not all(
                     a in aliases and store.is_a(store.type_of(aliases[a]), spec["reference"].rstrip("[]"))

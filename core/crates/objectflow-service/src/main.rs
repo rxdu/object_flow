@@ -2590,6 +2590,9 @@ fn offer(o: &Offer, actor_dependent: bool) -> J {
     json!({
         "transition": o.transition, "creates": o.creates, "binds": o.binds, "availability": o.availability.text(),
         "verdict": o.verdict.as_ref().map(|v| verdict_told(v, Some(&o.told))), "inputs": inputs,
+        // the inputs a null clears, a form's fields to send null from
+        // (ADR-0262)
+        "clearable": o.clearable,
         "unevaluated": o.unevaluated, "flags": flags(&o.flags),
         // it may be refused for who takes it (ADR-0173 decision 1)
         "actor_dependent": actor_dependent,

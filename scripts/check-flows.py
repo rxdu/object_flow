@@ -2626,6 +2626,20 @@ def name_errors(doc, library=None, ordered=True):
                 if a in always and "default" not in (attrs.get(a) or {}):
                     out.append((base + ("optional_inputs",), "names",
                                 f"{tn}.{xn} lists '{a}' as an optional input, but the attribute is neither optional nor defaulted, so the input is required"))
+            # an optional input a null clears, as `clear` does, on a transition from a state, clearing what `clear` may: an
+            # optional, singular attribute or stored reference that is no composite end (ADR-0262, the model's check 17)
+            for a in x.get("clearable_inputs", []):
+                at = base + ("clearable_inputs",)
+                spec = attrs.get(a)
+                if a not in x.get("optional_inputs", []):
+                    out.append((at, "names", f"{tn}.{xn} lists '{a}' as a clearable input and not as an optional input; a "
+                                             "clearable input is an optional input a null clears"))
+                elif x["kind"] == "initial":
+                    out.append((at, "names", f"{tn}.{xn} lists '{a}' as a clearable input, and a creation has nothing to clear"))
+                elif spec is not None and (not spec.get("optional") or str(spec.get("reference", "")).endswith("[]")
+                                           or str(spec.get("type", "")).endswith("[]") or spec.get("aggregation") == "composite"):
+                    out.append((at, "names", f"{tn}.{xn} lists '{a}' as a clearable input, which clears it, and '{a}' is not an "
+                                             "optional, singular attribute or reference that clear may clear (the model's check 17)"))
             written = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | {loc for _e, loc in assigns(x)}
             for a in sorted(written & set(cleared(x))):
                 out.append((base + ("effect",), "names", f"{tn}.{xn} both writes and clears '{a}'"))
@@ -2818,6 +2832,9 @@ def required_errors(tn, xn, x, required, always, library=None):
     for s in into:
         for a in sorted(required.get(s, set()) & set(cleared(x))):
             out.append((base + ("effect",), "required", f"{tn}.{xn} clears '{a}', which state {s} requires"))
+        # a clearable input clears it where a request gives it null (ADR-0262)
+        for a in sorted(required.get(s, set()) & set(x.get("clearable_inputs") or [])):
+            out.append((base + ("clearable_inputs",), "required", f"{tn}.{xn} lists '{a}' as a clearable input, which state {s} requires"))
     if x["kind"] == "internal":
         return out
     supplied = set(x.get("required_inputs", [])) | always
@@ -6202,9 +6219,9 @@ def example_errors(doc, kinds, modules):
             elif k == "to":
                 if v not in targets(x):
                     errs.append((path + ("inputs", k), "names", f"'{v}' is not a state {tn}.{r['transition']} may put an object in"))
-            elif k != "admits":
+            elif k != "admits" and v is not None:      # a null is not supplied, or clears a clearable input (ADR-0262)
                 errs += value_errors(v, own.get(k) if k in own else attrs.get(k), env, path + ("inputs", k), k)
-        left = required_input_names(x) - set(given)
+        left = required_input_names(x) - {k for k, v in given.items() if v is not None}
         # a required input of an optional or defaulted attribute left out is refused by its generated guard, after the
         # generated guards before it; any other is invalid input (flow-format.md §4.8, §6)
         unprovided = [i for i in x.get("required_inputs", []) if i in left and i not in own
@@ -11897,6 +11914,50 @@ def inherited_name_plants():
     return ok
 
 
+def clearable_plants():
+    """An optional input a null clears (ADR-0262, issue #71): listed in `clearable_inputs`, a text and a reference are
+    clean; one not taken as optional, one on a creation, an attribute that is not optional, and one a state requires
+    are refused."""
+    base = ("module: visits\ncategories: [live, closed]\ntypes:\n  Person:\n    description: A person.\n    tracking: record\n"
+            "    attributes:\n      name: { type: string }\n    states:\n      ON: { description: On., category: live }\n"
+            "      OFF: { description: Off., category: closed, final: true }\n"
+            "    transitions:\n      join: { kind: initial, to: ON, required_inputs: [name] }\n"
+            "      leave: { kind: external, from: [ON], to: OFF }\n"
+            "  Visit:\n    description: A visit.\n    tracking: record\n    attributes:\n"
+            "      days: { type: int, optional: true }\n      note: { type: string, optional: true }\n"
+            "      size: { type: int, default: '1' }\n      host: { reference: Person, optional: true }\n    states:\n"
+            "      OPEN: { description: Open., category: live{required} }\n      DONE: { description: Done., category: closed, final: true }\n"
+            "    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [days, note, size, host]{opened} }\n"
+            "      edit: { kind: internal, from: [OPEN], optional_inputs: [days, note, size, host], clearable_inputs: [{edited}] }\n"
+            "      close: { kind: external, from: [OPEN], to: DONE }\n")
+
+    def module(edited="note, host", opened="", required=""):
+        return base.replace("{edited}", edited).replace("{opened}", opened).replace("{required}", required)
+    cases = [
+        ("a text and a reference", module(), []),
+        ("one not taken as optional", module(edited="note, name"),
+         ["Visit.edit lists 'name' as a clearable input and not as an optional input; a clearable input is an optional "
+          "input a null clears"]),
+        ("one on a creation", module(opened=", clearable_inputs: [note]"),
+         ["Visit.open lists 'note' as a clearable input, and a creation has nothing to clear"]),
+        ("a defaulted attribute that is not optional", module(edited="note, size"),
+         ["Visit.edit lists 'size' as a clearable input, which clears it, and 'size' is not an optional, singular attribute "
+          "or reference that clear may clear (the model's check 17)"]),
+        ("one a state requires", module(edited="days", required=", required_attributes: [days]")
+         .replace("open: { kind: initial, to: OPEN, optional_inputs: [days, note, size, host]",
+                  "open: { kind: initial, to: OPEN, required_inputs: [days], optional_inputs: [note, size, host]"),
+         ["Visit.edit lists 'days' as a clearable input, which state OPEN requires"]),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, notes = check([("visits.yaml", text)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a clearable input, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def trim_plants():
     """`trim`, the string without the white space around it (ADR-0249): a guard reading it is clean, a value other than
     a string is refused, and an indexed derivation calling it is refused, since its generated column's SQL trims spaces
@@ -12165,6 +12226,7 @@ def main():
     ok &= moved_attribute_plants()
     ok &= not_blank_plants()
     ok &= inherited_name_plants()
+    ok &= clearable_plants()
     ok &= actor_move_plants()
     ok &= value_plants()
     ok &= trim_plants()

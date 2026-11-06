@@ -24,8 +24,25 @@ setups:
     given: a_story_in_progress
     steps:
       - request: { object: story, transition: review, after: 1 day }
+  a_story_assigned_and_due:
+    description: The story, assigned to Ben and given a due date.
+    given: a_story_in_progress
+    steps:
+      - request: { object: story, transition: edit, inputs: { assignee: ben, due_date: "2030-01-15T00:00Z" } }
 
 examples:
+  an_edit_sent_null_clears_the_due_date:
+    description: An edit that sends the due date as null clears it, and the assignee it leaves out is kept (ADR-0262).
+    given: a_story_assigned_and_due
+    request: { object: story, transition: edit, inputs: { due_date: null } }
+    expect: { verdict: applied, state: IN_PROGRESS, values: { due_date: null, assignee: ben } }
+
+  an_edit_sent_null_unassigns_the_work_item:
+    description: An edit that sends the assignee as null unassigns the work item, as Jira's unassigned does, and keeps its due date.
+    given: a_story_assigned_and_due
+    request: { object: story, transition: edit, inputs: { assignee: null } }
+    expect: { verdict: applied, state: IN_PROGRESS, values: { assignee: null, due_date: "2030-01-15T00:00Z" } }
+
   work_items_are_numbered_in_their_space:
     description: The first work item of a space is numbered after its key.
     given: a_space
@@ -135,7 +152,7 @@ examples:
       - request: { type: WorkItem, transition: create, as: bug, inputs: { space: web, work_type: WorkType.BUG, summary: Cart is empty, reporter: ben } }
       - request: { type: WorkItemLink, transition: link, inputs: { source: bug, target: story, link_type: LinkType.BLOCKS } }
     request: { object: story, transition: start }
-    expect: { verdict: applied, state: IN_PROGRESS, warned: [] }
+    expect: { verdict: applied, state: IN_PROGRESS, warned: [not_blocked] }
 
   starting_work_a_closed_bug_blocked:
     description: Once the blocking bug is done, starting the story is not warned of.

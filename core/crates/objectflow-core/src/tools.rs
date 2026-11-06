@@ -214,6 +214,14 @@ fn inputs_schema(t: &Type, x: &Transition, lib: &Library) -> Json {
             || json!({"type": "string"}),
             |(_, a)| schema_of(&a.declared, a.many, None, lib),
         );
+        // a clearable input takes null too, which clears its attribute,
+        // where one left out keeps it (ADR-0262)
+        let schema = if x.clearable_inputs.contains(name) {
+            json!({"anyOf": [schema, {"type": "null"}],
+                   "description": format!("null clears {name}; left out, it is kept")})
+        } else {
+            schema
+        };
         props.insert(name.clone(), schema);
     }
     for (name, i) in &x.inputs {

@@ -195,7 +195,7 @@ types:
         remedy: self_serviceable
       points_changed:
         description: The estimate is changed, as Jira's field-has-been-modified validator requires, a first estimate included.
-        expression: story_points is null or inputs.story_points != story_points
+        expression: inputs.story_points != story_points
         remedy: self_serviceable
       one_component:
         description: At most one component is chosen, as Jira's field-has-single-value validator requires.
@@ -284,8 +284,9 @@ types:
       edit:
         kind: internal
         from: [TO_DO, IN_PROGRESS, IN_REVIEW]
-        description: Edits the work item's details; a done work item is not editable.
+        description: Edits the work item's details, an assignee, a due date or an epic sent as null clearing it; a done work item is not editable.
         optional_inputs: [assignee, priority, due_date, epic]
+        clearable_inputs: [assignee, due_date, epic]
       re_estimate:
         kind: internal
         from: [TO_DO, IN_PROGRESS]
@@ -503,7 +504,7 @@ types:
               where: w.state.category != closed
               limit: 1000
               steps:
-                - call: { target: w, transition: plan }
+                - call: { target: w, transition: plan, inputs: { sprint: inputs.next } }
       reopen: { kind: external, from: CLOSED, to: ACTIVE }
       delete: { kind: external, from: [FUTURE, CLOSED], to: DELETED }
 

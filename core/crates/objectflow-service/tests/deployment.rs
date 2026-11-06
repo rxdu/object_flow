@@ -6831,6 +6831,111 @@ fn a_personal_attributes_presence_leaves_its_offers_unopted() {
     }
 }
 
+/// An optional input a transition lists in `clearable_inputs` clears its
+/// attribute where a request sends it null, and keeps it where it is left
+/// out (issue #71, ADR-0262). `availability` names the clearable inputs of
+/// each offer, a transition's tool takes null for each, and the history records
+/// the clear as a write; a transition not listing the input keeps the
+/// value, and a module listing an input clearable that it does not take as
+/// optional is refused. In a sandbox, so on PostgreSQL too in that lane.
+#[test]
+fn a_clearable_input_sent_null_clears_its_attribute() {
+    const VISITS: &str = "module: visits\ncategories: [live, closed]\ntypes:\n  Visit:\n    description: A visit to the front desk.\n    tracking: record\n    attributes:\n      days: { type: int, optional: true }\n      note: { type: string, optional: true }\n      marked: { type: string, optional: true, not_blank: true }\n    states:\n      OPEN: { description: Open., category: live }\n      DONE: { description: Done., category: closed, final: true }\n    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [days, note, marked] }\n      edit: { kind: internal, from: [OPEN], optional_inputs: [days, note, marked], clearable_inputs: [note, marked] }\n      touch: { kind: internal, from: [OPEN], optional_inputs: [note] }\n      close: { kind: external, from: [OPEN], to: DONE }\n";
+    let s = start(&["--port", "0"]);
+    let bad = post(
+        &s,
+        "/sandbox/load",
+        &json!({"files": [{"name": "visits.yaml", "text": VISITS.replace("clearable_inputs: [note, marked]", "clearable_inputs: [note, marked, days, close]")}]}),
+    );
+    assert_eq!(bad["loaded"], json!(false), "{bad}");
+    assert!(
+        bad.to_string()
+            .contains("Visit.edit lists 'close' as a clearable input and not as an optional input"),
+        "{bad}"
+    );
+    let loaded = post(
+        &s,
+        "/sandbox/load",
+        &json!({"files": [{"name": "visits.yaml", "text": VISITS}]}),
+    );
+    assert_eq!(loaded["loaded"], json!(true), "{loaded}");
+    let op = json!({"id": "operator"});
+    let opened = |s: &Service| {
+        let v = post(
+            s,
+            "/v1/request",
+            &json!({"actor": op, "type": "Visit", "transition": "open",
+                    "inputs": {"days": 1, "note": "first", "marked": "first"}}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        v["object_id"].as_str().expect("its id").to_string()
+    };
+    let (a, b) = (opened(&s), opened(&s));
+    // each offer names the inputs a null clears
+    let offers = post(&s, "/v1/availability", &json!({"actor": op, "id": a}));
+    let clearable = |xn: &str| {
+        offers
+            .as_array()
+            .and_then(|o| o.iter().find(|o| o["transition"] == xn))
+            .map(|o| o["clearable"].clone())
+    };
+    assert_eq!(
+        clearable("edit"),
+        Some(json!(["note", "marked"])),
+        "{offers}"
+    );
+    assert_eq!(clearable("touch"), Some(json!([])), "{offers}");
+    // a null clears, and the history records the write
+    let attr = |s: &Service, id: &str, a: &str| {
+        let got = post(s, "/v1/get", &json!({"actor": op, "id": id}));
+        got["attributes"].get(a).cloned().unwrap_or(Value::Null)
+    };
+    let edit = |s: &Service, id: &str, inputs: Value| {
+        let v = post(
+            s,
+            "/v1/request",
+            &json!({"actor": op, "object_id": id, "transition": "edit", "inputs": inputs}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+    };
+    edit(&s, &a, json!({"note": null, "marked": null}));
+    assert_eq!(attr(&s, &a, "note"), Value::Null);
+    assert_eq!(attr(&s, &a, "marked"), Value::Null);
+    assert_eq!(attr(&s, &a, "days"), json!(1));
+    let history = post(&s, "/v1/history", &json!({"actor": op, "id": a}));
+    assert!(history.to_string().contains(r#""note":null"#), "{history}");
+    // left out, kept; on a transition not listing it, a null kept too
+    edit(&s, &b, json!({"days": 2}));
+    assert_eq!(attr(&s, &b, "note"), json!("first"));
+    let touched = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": b, "transition": "touch", "inputs": {"note": null}}),
+    );
+    assert_eq!(touched["kind"], "satisfied", "{touched}");
+    assert_eq!(attr(&s, &b, "note"), json!("first"));
+    // a tool takes null for a clearable input alone
+    let tools = post(
+        &s,
+        "/v1/tools",
+        &json!({"actor": op, "actor_kind": "human"}),
+    );
+    let note = |name: &str| {
+        tools["tools"]
+            .as_array()
+            .and_then(|t| t.iter().find(|t| t["name"] == name))
+            .map(|t| t["input_schema"]["properties"]["inputs"]["properties"]["note"].clone())
+            .unwrap_or(Value::Null)
+    };
+    assert!(
+        note("visit_edit")
+            .to_string()
+            .contains(r#"{"type":"null"}"#),
+        "{tools}"
+    );
+    assert!(!note("visit_touch").to_string().contains("null"), "{tools}");
+}
+
 /// A check is judged by every guard and invariant its request may
 /// evaluate, so one decided by a personal member through a call or another
 /// type's invariant is refused `personal` without the opt-in, where a

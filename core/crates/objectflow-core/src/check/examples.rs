@@ -308,7 +308,9 @@ impl Checker {
                         ),
                     ));
                 }
-            } else if k != "admits" {
+            } else if k != "admits" && !v.is_null() {
+                // a null is not supplied, or clears a clearable input
+                // (ADR-0262)
                 let spec = if own.contains_key(k) {
                     own.get(k)
                 } else {
@@ -317,7 +319,11 @@ impl Checker {
                 errs.extend(self.value_errors(v, spec, env, &here, k));
             }
         }
-        let given_names: BTreeSet<String> = given.keys().cloned().collect();
+        let given_names: BTreeSet<String> = given
+            .iter()
+            .filter(|(_, v)| !v.is_null())
+            .map(|(k, _)| k.clone())
+            .collect();
         let left: BTreeSet<String> = required_input_names(&x)
             .difference(&given_names)
             .cloned()

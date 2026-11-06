@@ -974,7 +974,14 @@ class Sandbox:
                     ((self.runner.kinds.get(tn) or {}).get("transitions")
                      or {}).get(xn) or {}, xn)
                 if refusal else None,
-                "inputs": schema, "unevaluated": unevaluated,
+                "inputs": schema,
+                # the inputs a null clears, the object's own transitions'
+                # alone (ADR-0262)
+                "clearable": list(
+                    (((self.runner.kinds.get(tn) or {}).get("transitions")
+                      or {}).get(xn) or {}).get("clearable_inputs") or [])
+                if creates is None else [],
+                "unevaluated": unevaluated,
                 "flags": [{"clause": c, "remedy": rem, "unknown": u,
                            "objects": list(objs)}
                           for c, rem, u, objs in flags],

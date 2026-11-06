@@ -284,8 +284,9 @@ types:
       edit:
         kind: internal
         from: [TO_DO, IN_PROGRESS, IN_REVIEW]
-        description: Edits the work item's details; a done work item is not editable.
+        description: Edits the work item's details, an assignee, a due date or an epic sent as null clearing it; a done work item is not editable.
         optional_inputs: [assignee, priority, due_date, epic]
+        clearable_inputs: [assignee, due_date, epic]
       re_estimate:
         kind: internal
         from: [TO_DO, IN_PROGRESS]

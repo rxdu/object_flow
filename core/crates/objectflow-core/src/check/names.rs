@@ -511,6 +511,39 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
                     ));
                 }
             }
+            // an optional input a null clears, as `clear` does, on a
+            // transition from a state, clearing what `clear` may: an
+            // optional, singular attribute or stored reference that is no
+            // composite end (ADR-0262, the model's check 17)
+            for a in strings(x, "clearable_inputs") {
+                let at = ext(&base, segs!["clearable_inputs"]);
+                if !opt_inputs.contains(&a) {
+                    out.push(finding(
+                        at,
+                        "names",
+                        format!("{tn}.{xn} lists '{a}' as a clearable input and not as an optional input; a clearable input is an optional input a null clears"),
+                    ));
+                } else if kind(x) == "initial" {
+                    out.push(finding(
+                        at,
+                        "names",
+                        format!("{tn}.{xn} lists '{a}' as a clearable input, and a creation has nothing to clear"),
+                    ));
+                } else if let Some(spec) = attrs.get(&a) {
+                    let set = str_or(spec, "reference", "").ends_with("[]")
+                        || str_or(spec, "type", "").ends_with("[]");
+                    if !flag(spec, "optional")
+                        || set
+                        || text(spec, "aggregation") == Some("composite")
+                    {
+                        out.push(finding(
+                            at,
+                            "names",
+                            format!("{tn}.{xn} lists '{a}' as a clearable input, which clears it, and '{a}' is not an optional, singular attribute or reference that clear may clear (the model's check 17)"),
+                        ));
+                    }
+                }
+            }
             let mut written: BTreeSet<String> = req_inputs
                 .iter()
                 .chain(opt_inputs.iter())
@@ -2961,6 +2994,7 @@ fn required_errors(
         None => src.clone(),
     };
     let cl: BTreeSet<String> = cleared(x).into_iter().collect();
+    let clearable: BTreeSet<String> = strings(x, "clearable_inputs").into_iter().collect();
     let none = BTreeSet::new();
     for s in &into {
         for a in required.get(s).unwrap_or(&none).intersection(&cl) {
@@ -2968,6 +3002,15 @@ fn required_errors(
                 ext(&base, segs!["effect"]),
                 "required",
                 format!("{tn}.{xn} clears '{a}', which state {s} requires"),
+            ));
+        }
+        // a clearable input clears it where a request gives it null
+        // (ADR-0262)
+        for a in required.get(s).unwrap_or(&none).intersection(&clearable) {
+            out.push(finding(
+                ext(&base, segs!["clearable_inputs"]),
+                "required",
+                format!("{tn}.{xn} lists '{a}' as a clearable input, which state {s} requires"),
             ));
         }
     }

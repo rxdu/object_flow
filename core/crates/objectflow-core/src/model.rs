@@ -293,6 +293,10 @@ pub struct Transition {
     pub proposable: bool,
     pub required_inputs: Vec<String>,
     pub optional_inputs: Vec<String>,
+    /// The optional inputs that clear their attribute where a request gives
+    /// them as null, as `clear` does; one left out keeps the value
+    /// (ADR-0262).
+    pub clearable_inputs: Vec<String>,
     pub inputs: Vec<(String, Input)>,
     pub guards: Vec<(String, Enforce)>,
     /// The writes it makes, in order (`flow-format.md` §4.8).
@@ -864,6 +868,7 @@ impl Reader<'_> {
             proposable: self.flag(node, "proposable")?,
             required_inputs: self.names(node.get("required_inputs"))?,
             optional_inputs: self.names(node.get("optional_inputs"))?,
+            clearable_inputs: self.names(node.get("clearable_inputs"))?,
             inputs,
             guards,
             effect: self.steps(node.get("effect"))?,
@@ -1088,6 +1093,7 @@ impl Reader<'_> {
                 proposable: false,
                 required_inputs: required.clone(),
                 optional_inputs: optional.clone(),
+                clearable_inputs: Vec::new(),
                 inputs: Vec::new(),
                 guards: Vec::new(),
                 effect: Vec::new(),
@@ -1128,6 +1134,7 @@ impl Reader<'_> {
                     proposable: false,
                     required_inputs: Vec::new(),
                     optional_inputs: Vec::new(),
+                    clearable_inputs: Vec::new(),
                     inputs: vec![("reason".into(), reason)],
                     guards: Vec::new(),
                     effect: Vec::new(),
@@ -1794,6 +1801,7 @@ fn operator_transition(kind: Kind, from: Option<From>, to: &str) -> Transition {
         proposable: false,
         required_inputs: Vec::new(),
         optional_inputs: Vec::new(),
+        clearable_inputs: Vec::new(),
         inputs: Vec::new(),
         guards: Vec::new(),
         effect: Vec::new(),
@@ -2128,6 +2136,7 @@ fn label_type() -> Type {
             proposable: false,
             required_inputs: required.iter().map(|s| s.to_string()).collect(),
             optional_inputs: optional.iter().map(|s| s.to_string()).collect(),
+            clearable_inputs: Vec::new(),
             inputs,
             guards: Vec::new(),
             effect: Vec::new(),
@@ -2278,6 +2287,7 @@ fn subscription_type() -> Type {
                 proposable: false,
                 required_inputs: required.iter().map(|s| s.to_string()).collect(),
                 optional_inputs: optional.iter().map(|s| s.to_string()).collect(),
+                clearable_inputs: Vec::new(),
                 inputs: Vec::new(),
                 guards: Vec::new(),
                 effect: Vec::new(),

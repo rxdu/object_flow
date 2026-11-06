@@ -1261,28 +1261,28 @@
    ],
    [
     "issues.yaml",
-    "2fd1ee78c5ef09cb"
+    "dcad7b1a57cda72c"
    ],
    [
     "issues.examples.yaml",
-    "fb22fcfe42d1cdd2"
+    "77ac3f0e9ebb6b6a"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "issues.examples.yaml",
-    28,
+    33,
     "notice",
     "coverage",
     "no example requests 9 transitions of issues as the request under test, which only a setup, a step or an expected cascade takes: Document.create, Document.revise, Document.submit, Space.create, Sprint.complete_to_backlog, Sprint.create, Subtask.archive, WorkItem.add_subtask, WorkItemLink.link"
    ],
    [
     "issues.examples.yaml",
-    28,
+    33,
     "notice",
     "coverage",
-    "no example takes 27 transitions of issues, by its request, a step, a setup or a cascade it expects: Document.archive, Epic.archive, Epic.done, Epic.start, Epic.to_do, Space.archive, Sprint.delete, Sprint.reopen, Subtask.create, Subtask.done, Subtask.start, Subtask.to_do, Version.archive, Version.create, Version.delete, Version.release, Version.release_moving_unresolved, Version.unarchive, Version.unrelease, WorkItem.assign_to_lead, WorkItem.assign_to_reporter, WorkItem.auto_resolve, WorkItem.edit, WorkItem.remove_label, WorkItem.set_fix_version, WorkItem.to_do, WorkItem.unplan"
+    "no example takes 26 transitions of issues, by its request, a step, a setup or a cascade it expects: Document.archive, Epic.archive, Epic.done, Epic.start, Epic.to_do, Space.archive, Sprint.delete, Sprint.reopen, Subtask.create, Subtask.done, Subtask.start, Subtask.to_do, Version.archive, Version.create, Version.delete, Version.release, Version.release_moving_unresolved, Version.unarchive, Version.unrelease, WorkItem.assign_to_lead, WorkItem.assign_to_reporter, WorkItem.auto_resolve, WorkItem.remove_label, WorkItem.set_fix_version, WorkItem.to_do, WorkItem.unplan"
    ],
    [
     "issues.yaml",
@@ -19528,32 +19528,32 @@
    ],
    [
     "module.yaml",
-    "2fd1ee78c5ef09cb"
+    "dcad7b1a57cda72c"
    ],
    [
     "module.examples.yaml",
-    "e763b02a2ee1e408"
+    "bc92e8cf7db14d03"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "module.examples.yaml",
-    28,
+    33,
     "notice",
     "coverage",
     "no example requests 9 transitions of issues as the request under test, which only a setup, a step or an expected cascade takes: Document.create, Document.revise, Document.submit, Space.create, Sprint.complete_to_backlog, Sprint.create, Subtask.archive, WorkItem.add_subtask, WorkItemLink.link"
    ],
    [
     "module.examples.yaml",
-    28,
+    33,
     "notice",
     "coverage",
-    "no example takes 27 transitions of issues, by its request, a step, a setup or a cascade it expects: Document.archive, Epic.archive, Epic.done, Epic.start, Epic.to_do, Space.archive, Sprint.delete, Sprint.reopen, Subtask.create, Subtask.done, Subtask.start, Subtask.to_do, Version.archive, Version.create, Version.delete, Version.release, Version.release_moving_unresolved, Version.unarchive, Version.unrelease, WorkItem.assign_to_lead, WorkItem.assign_to_reporter, WorkItem.auto_resolve, WorkItem.edit, WorkItem.remove_label, WorkItem.set_fix_version, WorkItem.to_do, WorkItem.unplan"
+    "no example takes 26 transitions of issues, by its request, a step, a setup or a cascade it expects: Document.archive, Epic.archive, Epic.done, Epic.start, Epic.to_do, Space.archive, Sprint.delete, Sprint.reopen, Subtask.create, Subtask.done, Subtask.start, Subtask.to_do, Version.archive, Version.create, Version.delete, Version.release, Version.release_moving_unresolved, Version.unarchive, Version.unrelease, WorkItem.assign_to_lead, WorkItem.assign_to_reporter, WorkItem.auto_resolve, WorkItem.remove_label, WorkItem.set_fix_version, WorkItem.to_do, WorkItem.unplan"
    ],
    [
     "module.examples.yaml",
-    130,
+    147,
     "fatal",
     "example",
     "starting_blocked_work_warns: expected the request to warn of nothing, and it warns of ['not_blocked']"
@@ -21208,25 +21208,25 @@
    ],
    [
     "issues.yaml",
-    "2fd1ee78c5ef09cb"
+    "dcad7b1a57cda72c"
    ],
    [
     "issues.examples.yaml",
-    "c8bcd1fcc86ae065"
+    "d7990338b6a33b37"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "issues.examples.yaml",
-    179,
+    196,
     "fatal",
     "names",
     "names objects of Subtask WorkItem.clone creates, and its effect creates only WorkItem, WorkItemLink"
    ],
    [
     "issues.examples.yaml",
-    180,
+    197,
     "fatal",
     "names",
     "requests Subtask.unlink, which Subtask does not declare"
@@ -23974,7 +23974,7 @@
    ],
    [
     "module.yaml",
-    "72576dee723c4cc3"
+    "89bbca88d236ffab"
    ]
   ],
   "previous": {},
@@ -24023,7 +24023,7 @@
    ],
    [
     "module.yaml",
-    294,
+    295,
     "notice",
     "unknown",
     "points_changed can be unknown when re_estimate is requested, through story_points (WorkItem.story_points is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
@@ -24121,7 +24121,7 @@
    ],
    [
     "module.yaml",
-    "c9f4f6687f2f3674"
+    "b5b18aefbb2eb65b"
    ]
   ],
   "previous": {},
@@ -24170,14 +24170,14 @@
    ],
    [
     "module.yaml",
-    306,
+    307,
     "notice",
     "before",
     "due_within_window reads start_date, which schedule takes as an input: a guard runs before the transition writes it, so it reads the value start_date had before the request; inputs.start_date is the value supplied"
    ],
    [
     "module.yaml",
-    306,
+    307,
     "notice",
     "unknown",
     "due_within_window can be unknown when schedule is requested, through start_date (WorkItem.start_date is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
@@ -24619,7 +24619,7 @@
    ],
    [
     "module.yaml",
-    "a9f082e63c85ecf1"
+    "c2f3a5506daf7b08"
    ]
   ],
   "previous": {},
@@ -24668,7 +24668,7 @@
    ],
    [
     "module.yaml",
-    506,
+    507,
     "fatal",
     "names",
     "Sprint.complete_to_sprint calls WorkItem.plan without the input 'sprint', which it requires"
@@ -24721,7 +24721,7 @@
    ],
    [
     "module.yaml",
-    "6eb02e385de7d35f"
+    "cd75c6687d3b81f2"
    ]
   ],
   "previous": {},
@@ -24770,7 +24770,7 @@
    ],
    [
     "module.yaml",
-    506,
+    507,
     "fatal",
     "names",
     "Sprint.complete_to_sprint calls Epic.plan, which is not a transition of Epic"
@@ -30564,6 +30564,117 @@
     "Room.rename"
    ]
   }
+ },
+ {
+  "label": "clearable_plants: a text and a reference",
+  "files": [
+   [
+    "visits.yaml",
+    "45461f9c3c52b526"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Person": [
+    0,
+    0
+   ],
+   "Visit": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "clearable_plants: one not taken as optional",
+  "files": [
+   [
+    "visits.yaml",
+    "7e976f72ccad64f2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "visits.yaml",
+    28,
+    "fatal",
+    "names",
+    "Visit.edit lists 'name' as a clearable input and not as an optional input; a clearable input is an optional input a null clears"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "clearable_plants: one on a creation",
+  "files": [
+   [
+    "visits.yaml",
+    "285954c3356dbb10"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "visits.yaml",
+    27,
+    "fatal",
+    "names",
+    "Visit.open lists 'note' as a clearable input, and a creation has nothing to clear"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "clearable_plants: a defaulted attribute that is not optional",
+  "files": [
+   [
+    "visits.yaml",
+    "4f865edbd8a8be24"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "visits.yaml",
+    28,
+    "fatal",
+    "names",
+    "Visit.edit lists 'size' as a clearable input, which clears it, and 'size' is not an optional, singular attribute or reference that clear may clear (the model's check 17)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "clearable_plants: one a state requires",
+  "files": [
+   [
+    "visits.yaml",
+    "9570326e803d8e8a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "visits.yaml",
+    28,
+    "fatal",
+    "required",
+    "Visit.edit lists 'days' as a clearable input, which state OPEN requires"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "actor_move_plants: the plain rename",

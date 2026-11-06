@@ -2048,6 +2048,7 @@ fn creation_offer(
             .into_iter()
             .filter(|(n, _)| n != bound)
             .collect(),
+        clearable: Vec::new(),
         unevaluated: Vec::new(),
         flags: Vec::new(),
         told: Told::default(),
@@ -2151,6 +2152,9 @@ pub struct Offer {
     pub verdict: Option<Verdict>,
     /// Each input by name, with the type a caller supplies.
     pub inputs: Vec<(String, String)>,
+    /// The inputs a null clears (ADR-0262): none but the object's own
+    /// transitions'.
+    pub clearable: Vec<String>,
     pub unevaluated: Vec<String>,
     pub flags: Vec<Flag>,
     /// What its refusal tells beside it: the objects its clause names,
@@ -2394,6 +2398,7 @@ fn offers_of(
             availability: Availability::Unavailable,
             verdict: Some(v),
             inputs,
+            clearable: x.clearable_inputs.clone(),
             unevaluated,
             flags: Vec::new(),
             told,
@@ -2516,6 +2521,7 @@ fn offers_of(
             },
             verdict: None,
             inputs,
+            clearable: x.clearable_inputs.clone(),
             unevaluated,
             flags,
             told: Told::default(),
@@ -2548,6 +2554,7 @@ fn offers_of(
                 },
                 verdict,
                 inputs: Vec::new(),
+                clearable: Vec::new(),
                 unevaluated: Vec::new(),
                 flags: Vec::new(),
                 told: Told::default(),
@@ -2626,6 +2633,7 @@ fn offers_of(
             ),
             verdict: refusal,
             inputs,
+            clearable: Vec::new(),
             unevaluated: Vec::new(),
             flags: Vec::new(),
         });
@@ -3155,15 +3163,16 @@ types:
 
     /// A personal attribute's `<attribute> is not null` decides no answer
     /// where no transition of its type may write it absent from a value an
-    /// object holds (ADR-0261): an input never writes it absent, an
-    /// erasure admits what it erases, and a creation's inputs are its
-    /// caller's, so a creation leaving it out is refused by the invariant
-    /// without its deciding anything held. Where a transition may, by a
-    /// `clear`, an `assign` of an input not always given on an update, an
-    /// optional or a defaulted one, or of a value read elsewhere, on a
-    /// creation or in a `foreach` too, it is judged by what it reads, for
-    /// every transition of the type; so is an invariant of another shape,
-    /// `is null` among them, and one over a reference.
+    /// object holds (ADR-0261): no input but a clearable one writes it
+    /// absent, an erasure admits what it erases, and a creation's inputs are
+    /// its caller's, so a creation leaving it out is refused by the
+    /// invariant without its deciding anything held. Where a transition
+    /// may, by a `clear`, a clearable input (ADR-0262), an `assign` of an
+    /// input not always given on an update, an optional or a defaulted one,
+    /// or of a value read elsewhere, on a creation or in a `foreach` too, it
+    /// is judged by what it reads, for every transition of the type; so is
+    /// an invariant of another shape, `is null` among them, and one over a
+    /// reference.
     #[test]
     fn a_personal_attributes_presence_decides_no_offer_it_cannot_refuse() {
         const CLAIMS: &str = r#"
@@ -3230,6 +3239,16 @@ types:
         effect:
           - clear: [title]
       tidy: { kind: internal, from: [OPEN] }
+  Cleared:
+    attributes:
+      title: { type: string, personal: true, optional: true }
+    invariants:
+      has_title: { expression: title is not null }
+    states:
+      OPEN: { category: live }
+    transitions:
+      draft: { kind: initial, to: OPEN, required_inputs: [title] }
+      retitle: { kind: internal, from: [OPEN], optional_inputs: [title], clearable_inputs: [title] }
   Loose:
     attributes:
       title: { type: string, personal: true, optional: true }
@@ -3409,6 +3428,7 @@ types:
         // transition of the type
         for (ty, xs) in [
             ("Wipe", ["draft", "wipe", "tidy"].as_slice()),
+            ("Cleared", ["draft", "retitle"].as_slice()),
             ("Loose", ["draft", "rename", "tidy"].as_slice()),
             ("Copy", ["draft", "tidy"].as_slice()),
             ("Looped", ["draft", "repeat"].as_slice()),

@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Added
+
+- A transition may list in `clearable_inputs` the optional inputs a null clears: sent as `null`, each clears its attribute as `clear` does, and left out, the attribute keeps its value, so one edit can set some fields and clear others (issue #71, ADR-0262). Each is one of the transition's `optional_inputs`, on a transition from a state, over an attribute `clear` may clear. `availability` names them in each offer's `clearable`, and a transition's tool takes `null` for each. Every other input sent `null` is still not supplied.
+
 ### Changed
 
 - A personal attribute's invariant `<attribute> is not null`, over a stored scalar, no longer makes its type's `available`, `availability` and `check` need `reads_personal`, where no transition of the type may write the attribute absent from a value an object holds: by a `clear`, by an update's `assign` of anything but an input it always takes, or by a creation's `assign` of anything but an input (ADR-0261). The reimbursement sample's `Claim.has_title` made every offer of `Claim` personal; they are answered without the opt-in.

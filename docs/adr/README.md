@@ -262,4 +262,5 @@
 | [0259](0259-a-texts-not-blank-decides-no-answer-it-cannot-refuse.md) | A text's `not_blank` decides no answer it cannot refuse | Decided under the author's direction; built |
 | [0260](0260-a-transitions-answer-is-judged-by-all-its-request-may-evaluate.md) | A transition's answer is judged by all its request may evaluate | Decided under the author's direction; built |
 | [0261](0261-an-attributes-presence-decides-no-answer-it-cannot-refuse.md) | An attribute's presence decides no answer it cannot refuse | Decided under the author's direction; built |
+| [0262](0262-an-optional-input-may-clear-its-attribute-when-sent-null.md) | An optional input may clear its attribute when sent null | Decided under the author's direction; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

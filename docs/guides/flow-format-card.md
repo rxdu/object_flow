@@ -236,6 +236,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 | `corrects` | the attributes a correction writes, exactly | 4.13 |
 | `may_admit` | on an assertion, the invariants a request may admit breaking | 4.13 |
 | `required_inputs`, `optional_inputs` | attributes the caller supplies, each written to its name | 4.8 |
+| `clearable_inputs` | optional inputs a `null` clears; one left out keeps its value | 4.8 |
 | `inputs` | declared inputs, read as `inputs.<name>`: `type` or `reference`, `optional`, `personal`, `not_blank`, `media_types`, `default`, `description` | 4.8 |
 | `guards` | condition names, in order, each `deny`, `audit` or `warn` | 4.8 |
 | `effect` | the steps below, in order | 4.8 |

@@ -676,6 +676,10 @@
           "$ref": "#/definitions/names",
           "description": "Attributes the caller may supply; each is written if supplied, and a null is not supplied. A defaulted attribute left out of a creation takes its default."
         },
+        "clearable_inputs": {
+          "$ref": "#/definitions/names",
+          "description": "Optional inputs a null clears: each, given as null, clears its attribute as clear does; left out, the attribute keeps its value. Each is one of optional_inputs, on a transition from a state."
+        },
         "inputs": {
           "description": "Declared inputs that write no attribute of their own name, by name; read in expressions as inputs.<name>.",
           "type": "object",

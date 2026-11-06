@@ -1092,7 +1092,13 @@ fn decide_or_stop(
             return stop_not_run(format!("the input {k}, which names no attribute of {tn}"));
         };
         match wire::decode(raw, declared, many, lib) {
-            Ok(Value::Absent) => {}
+            // a null is not supplied, but where the transition lists the
+            // input clearable, which clears its attribute (ADR-0262)
+            Ok(Value::Absent) => {
+                if x.clearable_inputs.iter().any(|n| n == k) {
+                    inputs.insert(k.clone(), Value::Absent);
+                }
+            }
             // a file of a media type its list does not take (ADR-0239)
             Ok(v) if !media_taken(media, &v) => {
                 wrong.push((k.clone(), InputReason::WrongMediaType));
@@ -1427,14 +1433,15 @@ fn always_given(x: &Transition, k: &str) -> bool {
 }
 
 /// Whether a transition of the type may write the attribute absent from a
-/// value an object holds: by a `clear` of it, or by an `assign` to it of
-/// anything but an input always given, a `foreach`'s steps included; on a
-/// creation, by an `assign` of anything but an input, since a creation's
-/// inputs are its caller's. No input writes an attribute absent, one sent
-/// null not being supplied and a call passing no absent value, and an
-/// erasure admits the invariants it breaks, so where none may, the
-/// attribute's `<attribute> is not null` decides no answer by a value an
-/// object holds (ADR-0261).
+/// value an object holds: by a `clear` of it, by a clearable input of it
+/// (ADR-0262), or by an `assign` to it of anything but an input always
+/// given, a `foreach`'s steps included; on a creation, by an `assign` of
+/// anything but an input, since a creation's inputs are its caller's. No
+/// other input writes an attribute absent, one sent null not being
+/// supplied and a call passing no absent value, and an erasure admits the
+/// invariants it breaks, so where none may, the attribute's
+/// `<attribute> is not null` decides no answer by a value an object holds
+/// (ADR-0261).
 pub(crate) fn may_write_absent(t: &Type, attribute: &str) -> bool {
     fn writes(steps: &[Step], x: &Transition, a: &str) -> bool {
         steps.iter().any(|st| match st {
@@ -1449,9 +1456,9 @@ pub(crate) fn may_write_absent(t: &Type, attribute: &str) -> bool {
             _ => false,
         })
     }
-    t.transitions
-        .iter()
-        .any(|(_, x)| writes(&x.effect, x, attribute))
+    t.transitions.iter().any(|(_, x)| {
+        writes(&x.effect, x, attribute) || x.clearable_inputs.iter().any(|n| n == attribute)
+    })
 }
 
 /// Whether a value is one a list of media types takes (ADR-0239): a file
@@ -1568,6 +1575,10 @@ fn take_unwound(
     // wire decoded it (ADR-0239)
     let mut wrong = Vec::new();
     for (k, v) in &inputs {
+        // a clearable input given null names nothing: it clears (ADR-0262)
+        if v.is_absent() {
+            continue;
+        }
         if depth > 0
             && let Some((_, _, media)) = input_type(t, x, k)
             && !media_taken(media, v)
@@ -2348,9 +2359,17 @@ fn take_unwound(
         o.state = to.clone();
     }
     for k in x.required_inputs.iter().chain(&x.optional_inputs) {
-        if let Some(v) = inputs.get(k) {
-            o.attrs
-                .insert(k.clone(), at_declared_scale(t, k, v.clone(), &o.id)?);
+        match inputs.get(k) {
+            // a clearable input given as null clears its attribute, as
+            // `clear` does, a write the event records (ADR-0262)
+            Some(Value::Absent) => {
+                o.attrs.remove(k);
+            }
+            Some(v) => {
+                o.attrs
+                    .insert(k.clone(), at_declared_scale(t, k, v.clone(), &o.id)?);
+            }
+            None => {}
         }
     }
     // the event records every input the transition took, those that write
@@ -7995,6 +8014,149 @@ types:
             .unwrap()
             .attr("memo");
         assert!(held.is_absent(), "{held:?}");
+    }
+
+    /// An optional input the transition lists in `clearable_inputs`, given
+    /// as null, clears its attribute as `clear` does, a write its event
+    /// records; left out, the attribute keeps its value (issue #71,
+    /// ADR-0262). It clears a text marked `not_blank`, whose blank is still
+    /// refused, and a reference, which names no object. An input a
+    /// transition does not list clearable keeps its value given null, as
+    /// before, and a call passing an absent value clears nothing, since a
+    /// call passes none. On both backends.
+    #[test]
+    fn a_clearable_input_given_null_clears_its_attribute() {
+        const VISITS: &str = r#"
+module: visits
+categories: [live, closed]
+types:
+  Person:
+    attributes:
+      name: { type: string }
+    states:
+      ON: { category: live }
+    transitions:
+      join: { kind: initial, to: ON, required_inputs: [name] }
+  Visit:
+    attributes:
+      days: { type: int, optional: true }
+      note: { type: string, optional: true }
+      marked: { type: string, optional: true, not_blank: true }
+      host: { reference: Person, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [days, note, marked, host] }
+      edit: { kind: internal, from: [OPEN], optional_inputs: [days, note, marked, host], clearable_inputs: [note, marked, host] }
+      touch: { kind: internal, from: [OPEN], optional_inputs: [note] }
+  Desk:
+    attributes:
+      visit: { reference: Visit }
+      memo: { type: string, optional: true }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [visit], optional_inputs: [memo] }
+      relay:
+        kind: internal
+        from: [ON]
+        effect:
+          - call: { target: visit, transition: edit, inputs: { note: memo } }
+"#;
+        let lib = Library::load(&[("visits.yaml".into(), VISITS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let host = created(&req(
+            &mut s,
+            "join",
+            OPERATOR,
+            ("Person", true),
+            json!({"name": "Lee"}),
+        ));
+        let mut visit = || {
+            created(&req(
+                &mut s,
+                "open",
+                OPERATOR,
+                ("Visit", true),
+                json!({"days": 1, "note": "first", "marked": "first", "host": host}),
+            ))
+        };
+        let (a, b, c) = (visit(), visit(), visit());
+        let satisfied = |v: &Verdict| assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+        let held = |s: &Store, id: &str, a: &str| {
+            s.snapshot().unwrap().whole(id).unwrap().unwrap().attr(a)
+        };
+        // a null clears the text, a write the event records; the rest kept
+        satisfied(&req(
+            &mut s,
+            "edit",
+            OPERATOR,
+            (&a, false),
+            json!({"note": null}),
+        ));
+        assert!(held(&s, &a, "note").is_absent());
+        assert_eq!(held(&s, &a, "marked"), Value::Text("first".into()));
+        let last = s.history(&a).unwrap().last().unwrap().clone();
+        assert_eq!(last.payload["wrote"], json!({"note": null}), "{last:?}");
+        assert_eq!(last.payload["inputs"], json!({"note": null}), "{last:?}");
+        // left out, kept
+        satisfied(&req(
+            &mut s,
+            "edit",
+            OPERATOR,
+            (&b, false),
+            json!({"days": 3}),
+        ));
+        assert_eq!(held(&s, &b, "note"), Value::Text("first".into()));
+        assert_eq!(held(&s, &b, "days"), Value::Int(3));
+        // a text marked not_blank cleared, its blank still refused
+        let blank = req(
+            &mut s,
+            "edit",
+            OPERATOR,
+            (&b, false),
+            json!({"marked": "  "}),
+        );
+        assert!(
+            matches!(&blank, Verdict::InvalidInput { inputs, .. } if inputs == &["marked".to_string()]),
+            "{blank:?}"
+        );
+        satisfied(&req(
+            &mut s,
+            "edit",
+            OPERATOR,
+            (&b, false),
+            json!({"marked": null}),
+        ));
+        assert!(held(&s, &b, "marked").is_absent());
+        // a reference cleared, naming no object
+        satisfied(&req(
+            &mut s,
+            "edit",
+            OPERATOR,
+            (&c, false),
+            json!({"host": null}),
+        ));
+        assert!(held(&s, &c, "host").is_absent());
+        // not clearable on another transition: a null kept as not supplied
+        satisfied(&req(
+            &mut s,
+            "touch",
+            OPERATOR,
+            (&b, false),
+            json!({"note": null}),
+        ));
+        assert_eq!(held(&s, &b, "note"), Value::Text("first".into()));
+        // a call passing an absent value clears nothing
+        let desk = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Desk", true),
+            json!({"visit": c}),
+        ));
+        satisfied(&req(&mut s, "relay", OPERATOR, (&desk, false), json!({})));
+        assert_eq!(held(&s, &c, "note"), Value::Text("first".into()));
     }
 
     fn req(s: &mut Store, xn: &str, actor: &str, target: (&str, bool), inputs: Json) -> Verdict {

@@ -90,6 +90,9 @@ def inputs_schema(t, x, enums):
     props, required = {}, []
     for name in list(x.get("required_inputs") or []) + list(x.get("optional_inputs") or []):
         props[name] = schema_of(attrs.get(name), enums)
+        if name in (x.get("clearable_inputs") or []):
+            # a clearable input takes null too, which clears its attribute, where one left out keeps it (ADR-0262)
+            props[name] = {"anyOf": [props[name], {"type": "null"}], "description": f"null clears {name}; left out, it is kept"}
     required += list(x.get("required_inputs") or [])
     for name, spec in (x.get("inputs") or {}).items():
         props[name] = schema_of(spec, enums)
