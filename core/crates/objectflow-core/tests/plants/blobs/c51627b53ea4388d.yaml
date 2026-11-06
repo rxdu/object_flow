@@ -1,0 +1,24 @@
+module: rooms
+categories: [live, closed]
+types:
+  Space:
+    description: A space.
+    abstract: true
+    attributes:
+      code: { type: string, unique: true }
+      nick: { type: string, optional: true }
+  Room:
+    description: A room.
+    extends: Space
+    tracking: record
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    invariants:
+      code_unique: { description: Named., expression: nick is not null }
+    conditions:
+      nick_not_z: { description: Not z., expression: 'inputs.nick != "z"', remedy: self_serviceable }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [code, nick] }
+      rename: { kind: internal, from: [ON], required_inputs: [nick], guards: { nick_not_z: deny } }
+      close: { kind: external, from: [ON], to: OFF }

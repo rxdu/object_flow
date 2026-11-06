@@ -30482,6 +30482,90 @@
   }
  },
  {
+  "label": "inherited_name_plants: names of their own",
+  "files": [
+   [
+    "rooms.yaml",
+    "6815125005a7daa7"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Room": [
+    1,
+    1
+   ]
+  },
+  "forms": {
+   "Room.named": "local"
+  },
+  "could_violate": {
+   "Room.named": [
+    "Room.add",
+    "Room.rename"
+   ]
+  }
+ },
+ {
+  "label": "inherited_name_plants: an invariant named as an inherited attribute's uniqueness",
+  "files": [
+   [
+    "rooms.yaml",
+    "c51627b53ea4388d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "rooms.yaml",
+    18,
+    "fatal",
+    "names",
+    "'code_unique' is the name of the invariant a unique attribute or a one-to-one end generates; choose another name"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Room.code_unique": "local"
+  },
+  "could_violate": {
+   "Room.code_unique": [
+    "Room.add",
+    "Room.rename"
+   ]
+  }
+ },
+ {
+  "label": "inherited_name_plants: a condition named as an inherited attribute's required input's guard",
+  "files": [
+   [
+    "rooms.yaml",
+    "767ccb790c70a4a6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "rooms.yaml",
+    20,
+    "fatal",
+    "names",
+    "'nick_provided' is the name of the guard generated for a required input; choose another name"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Room.named": "local"
+  },
+  "could_violate": {
+   "Room.named": [
+    "Room.add",
+    "Room.rename"
+   ]
+  }
+ },
+ {
   "label": "actor_move_plants: the plain rename",
   "files": [
    [

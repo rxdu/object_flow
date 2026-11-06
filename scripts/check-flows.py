@@ -11862,6 +11862,41 @@ def not_blank_plants():
     return ok
 
 
+def inherited_name_plants():
+    """A subtype's invariant named `<attribute>_unique`, and its condition named `<attribute>_provided`, for an
+    attribute it inherits, are refused as for its own: each name check reads the type with what its bases give it
+    (`inherit`), so a refusal naming either says which rule it was. The same rules under names of their own are
+    clean."""
+    family = ("module: rooms\ncategories: [live, closed]\ntypes:\n  Space:\n    description: A space.\n    abstract: true\n"
+              "    attributes:\n      code: { type: string, unique: true }\n      nick: { type: string, optional: true }\n"
+              "  Room:\n    description: A room.\n    extends: Space\n    tracking: record\n    states:\n"
+              "      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+              "    invariants:\n      {invariant}: { description: Named., expression: nick is not null }\n"
+              "    conditions:\n      {condition}: { description: Not z., expression: 'inputs.nick != \"z\"', remedy: self_serviceable }\n"
+              "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [code, nick] }\n"
+              "      rename: { kind: internal, from: [ON], required_inputs: [nick], guards: { {condition}: deny } }\n"
+              "      close: { kind: external, from: [ON], to: OFF }\n")
+
+    def module(invariant="named", condition="nick_not_z"):
+        return family.replace("{invariant}", invariant).replace("{condition}", condition)
+    cases = [
+        ("names of their own", module(), []),
+        ("an invariant named as an inherited attribute's uniqueness", module(invariant="code_unique"),
+         ["'code_unique' is the name of the invariant a unique attribute or a one-to-one end generates; choose another "
+          "name"]),
+        ("a condition named as an inherited attribute's required input's guard", module(condition="nick_provided"),
+         ["'nick_provided' is the name of the guard generated for a required input; choose another name"]),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, notes = check([("rooms.yaml", text)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a subtype's generated names, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def trim_plants():
     """`trim`, the string without the white space around it (ADR-0249): a guard reading it is clean, a value other than
     a string is refused, and an indexed derivation calling it is refused, since its generated column's SQL trims spaces
@@ -12129,6 +12164,7 @@ def main():
     ok &= moved_state_plants()
     ok &= moved_attribute_plants()
     ok &= not_blank_plants()
+    ok &= inherited_name_plants()
     ok &= actor_move_plants()
     ok &= value_plants()
     ok &= trim_plants()
