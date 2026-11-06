@@ -1385,6 +1385,36 @@ fn not_blank_input(t: &Type, x: &Transition, k: &str) -> bool {
     }
 }
 
+/// Whether a transition of the type may write a blank text into the
+/// attribute: by an input of its name, or an `assign` of an input, that
+/// `not_blank_input` does not refuse blank, or by an `assign` of any other
+/// value. An object's attribute is written by its own type's transitions
+/// alone, by its input or an `assign` to it, so where none may, the
+/// attribute's `<attribute>_not_blank` decides no answer by a value an
+/// object holds (ADR-0259).
+pub(crate) fn may_write_blank(t: &Type, attribute: &str) -> bool {
+    fn assigns(steps: &[Step], t: &Type, x: &Transition, a: &str) -> bool {
+        steps.iter().any(|st| match st {
+            Step::Assign { location, expr } if location == a => !matches!(
+                expr,
+                Expr::Path(base, n)
+                    if matches!(base.as_ref(), Expr::Name(i) if i == "inputs")
+                        && not_blank_input(t, x, n)
+            ),
+            Step::Foreach { steps, .. } => assigns(steps, t, x, a),
+            _ => false,
+        })
+    }
+    t.transitions.iter().any(|(_, x)| {
+        (x.required_inputs
+            .iter()
+            .chain(&x.optional_inputs)
+            .any(|n| n == attribute)
+            && !not_blank_input(t, x, attribute))
+            || assigns(&x.effect, t, x, attribute)
+    })
+}
+
 /// Whether a value is one a list of media types takes (ADR-0239): a file
 /// by its media type, a set by each of its elements, any other value as it
 /// is.

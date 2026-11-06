@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Changed
+
+- A personal text marked `not_blank` no longer makes its type's `available`, `availability` and `check` need `reads_personal`, where every transition of the type writes the text by an input refused blank, its own or one marked `not_blank`. Its generated invariant then refuses no request by a value an object holds. Where a transition may write the text blank, by an input not so refused or by any other value, the reads are refused `personal` without the opt-in, as before (#70, ADR-0259).
+
 ## 0.17.0, 2026-11-05
 
 A release before 1.0.0, as 0.16.0 was (ADR-0214), with issues #68 and #69. A move's attribute reading what a store's installed version lacks is a notice, and a move leaving an attribute behind is noticed (ADR-0256), and a text may be declared never blank (ADR-0257). A store of 0.16.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that records the release alone; a store of 0.15.0 takes 0.16.0's step first. Nothing it changes refuses what 0.16.0 accepted of a module that does not mark a text `not_blank`.

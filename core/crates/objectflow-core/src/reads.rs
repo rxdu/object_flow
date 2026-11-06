@@ -1347,9 +1347,17 @@ pub fn transition_reads_personal(lib: &Library, type_: &str, transition: &str) -
         .iter()
         .filter(|(n, _)| guards.contains(n))
         .any(|(_, c)| personal.reads(t, &c.expression, &Bound::new()));
+    // the invariant a text's `not_blank` generates refuses only a blank
+    // written into the text, so where no transition of the type may write
+    // one it decides no answer, where it made every offer of a type with a
+    // personal text so marked personal (issue #70, ADR-0259)
     let by_invariant = t
         .invariants
         .iter()
+        .filter(|(n, i)| {
+            t.not_blank_of(n, i)
+                .is_none_or(|a| crate::request::may_write_blank(t, a))
+        })
         .any(|(_, i)| personal.reads(t, i, &Bound::new()));
     by_guard || by_invariant
 }
@@ -2865,6 +2873,141 @@ types:
         // an invariant of the type, by what it reads
         assert!(!personal("Desk", "add"));
         assert!(personal("Locker", "add"));
+    }
+
+    /// The invariant a personal text's `not_blank` generates decides no
+    /// answer where no transition of its type may write the text blank: each
+    /// writes it by an input refused blank, the attribute's own or one
+    /// marked `not_blank`, so the text it reads is never blank but where an
+    /// admission lets it stand, whatever the type writes into its other
+    /// attributes (issue #70, ADR-0259). Where one transition may, by an
+    /// input not so refused or by a value read elsewhere, inside a `foreach`
+    /// too, it is judged by what it reads, for every transition of the type;
+    /// so is an invariant of its name a subtype declares otherwise, and the
+    /// one a subtype inherits over the text it declares again unmarked, whose
+    /// input is then not refused blank.
+    #[test]
+    fn a_personal_texts_not_blank_decides_no_offer_it_cannot_refuse() {
+        const DESK: &str = r#"
+module: desk
+categories: [live, closed]
+types:
+  Visit:
+    attributes:
+      host: { type: string }
+      note: { type: string, personal: true, optional: true, not_blank: true }
+      aside: { type: string, personal: true, optional: true, not_blank: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [host], optional_inputs: [note] }
+      annotate:
+        kind: internal
+        from: [OPEN]
+        inputs:
+          why: { type: string, not_blank: true }
+        effect:
+          - assign: { location: aside, expr: inputs.why }
+      tidy:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - assign: { location: host, expr: '"front desk"' }
+  Jot:
+    attributes:
+      memo: { type: string, personal: true, optional: true, not_blank: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add: { kind: initial, to: OPEN }
+      write:
+        kind: internal
+        from: [OPEN]
+        inputs:
+          text: { type: string }
+        effect:
+          - assign: { location: memo, expr: inputs.text }
+      tidy: { kind: internal, from: [OPEN] }
+  Echo:
+    attributes:
+      titles: { type: "string[]" }
+      memo: { type: string, personal: true, optional: true, not_blank: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [titles], optional_inputs: [memo] }
+      repeat:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - foreach:
+              item: t
+              array: titles
+              limit: 5
+              steps:
+                - assign: { location: memo, expr: t }
+  Badge:
+    attributes:
+      label: { type: string, not_blank: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add: { kind: initial, to: OPEN }
+      write:
+        kind: internal
+        from: [OPEN]
+        inputs:
+          text: { type: string }
+        effect:
+          - assign: { location: label, expr: inputs.text }
+  Space:
+    abstract: true
+    attributes:
+      memo: { type: string, personal: true, optional: true, not_blank: true }
+  Cell:
+    extends: Space
+    states:
+      OPEN: { category: live }
+    transitions:
+      add: { kind: initial, to: OPEN, optional_inputs: [memo] }
+  Suite:
+    extends: Space
+    invariants:
+      memo_not_blank: { expression: memo != "x" }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add: { kind: initial, to: OPEN, optional_inputs: [memo] }
+  Booth:
+    extends: Space
+    attributes:
+      memo: { type: string, personal: true, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add: { kind: initial, to: OPEN, optional_inputs: [memo] }
+"#;
+        let lib = Library::load(&[("desk.yaml".into(), DESK.into())]).unwrap();
+        let personal = |ty: &str, x: &str| transition_reads_personal(&lib, ty, x);
+        // written by its own input, and by an input marked not_blank
+        for x in ["open", "annotate", "tidy"] {
+            assert!(!personal("Visit", x), "Visit.{x}");
+        }
+        // written by an input not refused blank, or by a value read
+        // elsewhere: every transition of the type
+        for x in ["add", "write", "tidy"] {
+            assert!(personal("Jot", x), "Jot.{x}");
+        }
+        assert!(personal("Echo", "add"));
+        assert!(personal("Echo", "repeat"));
+        // a text not personal, as before
+        assert!(!personal("Badge", "write"));
+        // a subtype holding the marking it inherits, one holding an
+        // invariant of its name of its own, and one declaring the text again
+        // unmarked
+        assert!(!personal("Cell", "add"));
+        assert!(personal("Suite", "add"));
+        assert!(personal("Booth", "add"));
     }
 
     /// A filter's parameters are stated as data, each read as the member it

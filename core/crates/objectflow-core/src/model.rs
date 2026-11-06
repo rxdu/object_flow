@@ -443,12 +443,29 @@ impl Attribute {
     }
 }
 
+/// The expression of the invariant `<attribute>_not_blank` that an
+/// attribute's `not_blank` generates (ADR-0257 decision 3).
+fn not_blank_expression(attribute: &str) -> String {
+    format!("{attribute} is null or trim({attribute}) != \"\"")
+}
+
 impl Type {
     pub fn attribute(&self, name: &str) -> Option<&Attribute> {
         self.attributes
             .iter()
             .find(|(n, _)| n == name)
             .map(|(_, a)| a)
+    }
+
+    /// The attribute an invariant holds never blank, where it is the one a
+    /// `not_blank` generates: named `<attribute>_not_blank`, its expression
+    /// the one the marking generates, so an invariant of that name a subtype
+    /// declares otherwise is not taken for it (ADR-0257 decision 3,
+    /// ADR-0259).
+    pub fn not_blank_of<'i>(&self, invariant: &'i str, expression: &Expr) -> Option<&'i str> {
+        let a = invariant.strip_suffix("_not_blank")?;
+        let generated = expr::parse(&not_blank_expression(a)).ok()?;
+        (generated == *expression).then_some(a)
     }
 
     pub fn state(&self, name: &str) -> Option<&State> {
@@ -2562,7 +2579,7 @@ impl Library {
                         t.name
                     )));
                 }
-                let expr = expr::parse(&format!("{a} is null or trim({a}) != \"\""))
+                let expr = expr::parse(&not_blank_expression(a))
                     .map_err(|e| at(format!("{}.{name}: {e}", t.name)))?;
                 held.push((name, expr));
             }

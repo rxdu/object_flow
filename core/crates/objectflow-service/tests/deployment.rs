@@ -6618,6 +6618,93 @@ fn a_read_by_a_personal_value_is_opted_into() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
+/// A personal text marked `not_blank` leaves its type's offers, checks and
+/// worklists answered without `reads_personal` where every transition
+/// writes it by an input refused blank, a blank one refused `invalid_input`
+/// as before and nothing written, where `availability` refused every object
+/// of the type (issue #70, ADR-0259); where a transition may write it blank,
+/// by an input not so refused, they are refused `personal` as before. In a
+/// sandbox, so on PostgreSQL too in that lane.
+#[test]
+fn a_personal_text_marked_not_blank_leaves_its_offers_unopted() {
+    const VISITS: &str = "module: visits\ncategories: [live, closed]\ntypes:\n  Visit:\n    description: A visit to the front desk.\n    tracking: record\n    attributes:\n      host: { type: string }\n      note: { type: string, personal: true, optional: true, not_blank: true }\n    states:\n      OPEN: { description: Open., category: live }\n      DONE: { description: Done., category: closed, final: true }\n    transitions:\n      arrive: { kind: initial, to: OPEN, required_inputs: [host], optional_inputs: [note] }\n      annotate: { kind: internal, from: [OPEN], required_inputs: [note] }\n      leave: { kind: external, from: [OPEN], to: DONE }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Jot:\n    description: A note copied from what was typed.\n    tracking: record\n    attributes:\n      memo: { type: string, personal: true, optional: true, not_blank: true }\n    states:\n      OPEN: { description: Open., category: live }\n      DONE: { description: Done., category: closed, final: true }\n    transitions:\n      add: { kind: initial, to: OPEN }\n      write:\n        kind: internal\n        from: [OPEN]\n        inputs:\n          text: { type: string, personal: true }\n        effect:\n          - assign: { location: memo, expr: inputs.text }\n      close: { kind: external, from: [OPEN], to: DONE }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+    let s = start(&["--port", "0"]);
+    let loaded = post(
+        &s,
+        "/sandbox/load",
+        &json!({"files": [{"name": "visits.yaml", "text": VISITS}]}),
+    );
+    assert_eq!(loaded["loaded"], json!(true), "{loaded}");
+    let op = json!({"id": "operator"});
+    let made = |tn: &str, xn: &str, inputs: Value| {
+        let v = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": tn, "transition": xn, "inputs": inputs}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        v["object_id"].as_str().expect("its id").to_string()
+    };
+    let visit = made(
+        "Visit",
+        "arrive",
+        json!({"host": "Lee", "note": "Asked for parking"}),
+    );
+    let jot = made("Jot", "add", json!({}));
+    // the visit's reads answered without the opt-in
+    let offers = post(&s, "/v1/availability", &json!({"actor": op, "id": visit}));
+    let offered: Vec<&str> = offers
+        .as_array()
+        .unwrap_or_else(|| panic!("offers: {offers}"))
+        .iter()
+        .filter_map(|o| o["transition"].as_str())
+        .collect();
+    assert!(
+        offered.contains(&"annotate") && offered.contains(&"leave"),
+        "{offers}"
+    );
+    let annotate = |note: &str| json!({"actor": op, "object_id": visit, "transition": "annotate", "inputs": {"note": note}});
+    let checked = post(&s, "/v1/check", &annotate("Left at noon"));
+    assert_eq!(checked["verdict"]["kind"], "satisfied", "{checked}");
+    let page = post(
+        &s,
+        "/v1/available",
+        &json!({"actor": op, "type": "Visit", "transition": "leave"}),
+    );
+    assert_ne!(page["refused"], "personal", "{page}");
+    assert!(page.to_string().contains(&visit), "{page}");
+    // a blank one refused at its input, checked or requested, nothing written
+    for path in ["/v1/check", "/v1/request"] {
+        let refused = post(&s, path, &annotate(" \t "));
+        // a check's verdict, or a request's answer
+        let verdict = refused.get("verdict").unwrap_or(&refused);
+        assert_eq!(verdict["kind"], "invalid_input", "{path}: {refused}");
+        assert!(refused.to_string().contains("malformed"), "{refused}");
+    }
+    let held = post(&s, "/v1/get", &json!({"actor": op, "id": visit}));
+    assert!(held.to_string().contains("Asked for parking"), "{held}");
+    // a text a transition may write blank: refused without the opt-in, and
+    // answered with it
+    for (path, body) in [
+        ("/v1/availability", json!({"actor": op, "id": jot})),
+        (
+            "/v1/check",
+            json!({"actor": op, "object_id": jot, "transition": "close"}),
+        ),
+        (
+            "/v1/available",
+            json!({"actor": op, "type": "Jot", "transition": "close"}),
+        ),
+    ] {
+        let refused = post(&s, path, &body);
+        assert_eq!(refused["refused"], "personal", "{path}: {refused}");
+        let mut opted = body.clone();
+        opted["reads_personal"] = json!(true);
+        let answered = post(&s, path, &opted);
+        assert_ne!(answered["refused"], "personal", "{path}: {answered}");
+    }
+}
+
 /// A query's and a metric's filters take their values as `params`, an
 /// object by name, at the wire: each bound as the member or the row's field
 /// it meets is typed, a parameter params does not give refused
