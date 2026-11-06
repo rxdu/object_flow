@@ -1134,6 +1134,10 @@ struct Personal<'l> {
     /// The inputs of that transition a call, a creation or a cascade of the
     /// request passes a personal value (ADR-0263 decision 1).
     passed: BTreeSet<String>,
+    /// Whether an input is personal by those alone, as a value an effect
+    /// computes or writes is judged: the request's own inputs are its
+    /// caller's, whose refusal tells nothing held (ADR-0264).
+    passed_only: bool,
 }
 
 /// The names an expression binds, each to the type its objects are of,
@@ -1149,6 +1153,7 @@ impl<'l> Personal<'l> {
             anywhere: personal_members(lib),
             inputs: None,
             passed: BTreeSet::new(),
+            passed_only: false,
         };
         loop {
             let mut grew = false;
@@ -1189,6 +1194,9 @@ impl<'l> Personal<'l> {
         let Some((t, x)) = self.inputs else {
             return self.anywhere.contains(m);
         };
+        if self.passed_only {
+            return self.passed.contains(m);
+        }
         self.passed.contains(m)
             || crate::request::input_personal(self.lib, t, x, m)
             || (self.identities
@@ -1386,17 +1394,35 @@ pub fn transition_reads_personal(lib: &Library, type_: &str, transition: &str) -
         if personal
             .passed
             .iter()
-            .any(|k| crate::request::refused_by_value(tt, xx, k))
+            .any(|k| crate::request::refused_by_value(lib, tt, xx, k))
         {
             return true;
         }
-        // what a call, a supersession or a foreach reads to choose what it
-        // reaches, which decides what is taken and refused (decision 3)
-        if reaches(lib, &personal, tt, xn)
-            .iter()
-            .any(|r| r.chooses.iter().any(|e| personal.reads(tt, e, &r.bound)))
-        {
-            return true;
+        for r in reaches(lib, &personal, tt, xn) {
+            // what a call, a supersession or a foreach reads to choose what
+            // it reaches, which decides what is taken and refused (ADR-0263
+            // decision 3)
+            if r.chooses.iter().any(|e| personal.reads(tt, e, &r.bound)) {
+                return true;
+            }
+            // an argument computed from a personal value, whose evaluation
+            // may refuse past a bound, and a write of one its attribute may
+            // refuse, all but a plain read assigned to an attribute taking
+            // every value of its kind; an input personal here only as the
+            // request passes it one (ADR-0264 decisions 2 and 3)
+            personal.passed_only = true;
+            let written = r.writes.is_some_and(|(location, e, assign)| {
+                personal.reads(tt, e, &r.bound)
+                    && !(assign && plain(e) && crate::request::takes_every_read(lib, tt, location))
+            });
+            let computed = r
+                .passes
+                .iter()
+                .any(|(_, e)| !plain(e) && personal.reads(tt, e, &r.bound));
+            personal.passed_only = false;
+            if written || computed {
+                return true;
+            }
         }
     }
     // each invariant of a type written, and each of another type that
@@ -1466,7 +1492,20 @@ struct Reach<'l> {
     takes: Vec<(String, String)>,
     passes: &'l [(String, Expr)],
     chooses: Vec<&'l Expr>,
+    /// An `assign`'s, an `add`'s or a `remove`'s location and value, and
+    /// whether it is an `assign` (ADR-0263 decision 5).
+    writes: Option<(&'l str, &'l Expr, bool)>,
     bound: Bound,
+}
+
+/// Whether an expression is a plain read, a name or a path of them, which
+/// evaluates without refusing: an absent one is not passed, or clears.
+fn plain(e: &Expr) -> bool {
+    match e {
+        Expr::Name(_) => true,
+        Expr::Path(base, _) => plain(base),
+        _ => false,
+    }
 }
 
 /// What a transition's effect and its type's cascades on it reach. A
@@ -1505,6 +1544,7 @@ fn reaches<'l>(
                     takes: vec![(type_.clone(), transition.clone())],
                     passes: inputs,
                     chooses: Vec::new(),
+                    writes: None,
                     bound: bound.clone(),
                 }),
                 Step::Call {
@@ -1527,6 +1567,7 @@ fn reaches<'l>(
                         takes,
                         passes: inputs,
                         chooses: vec![target],
+                        writes: None,
                         bound: bound.clone(),
                     });
                 }
@@ -1542,6 +1583,7 @@ fn reaches<'l>(
                         takes: Vec::new(),
                         passes: &[],
                         chooses: array.iter().chain(range).collect(),
+                        writes: None,
                         bound: bound.clone(),
                     });
                     let mut within = bound.clone();
@@ -1556,15 +1598,31 @@ fn reaches<'l>(
                             takes: Vec::new(),
                             passes: &[],
                             chooses: vec![f],
+                            writes: None,
                             bound: within.clone(),
                         });
                     }
                     steps(lib, personal, t, inner, &within, out);
                 }
+                Step::Assign { location, expr } => out.push(Reach {
+                    takes: Vec::new(),
+                    passes: &[],
+                    chooses: Vec::new(),
+                    writes: Some((location, expr, true)),
+                    bound: bound.clone(),
+                }),
+                Step::Add { location, expr } | Step::Remove { location, expr } => out.push(Reach {
+                    takes: Vec::new(),
+                    passes: &[],
+                    chooses: Vec::new(),
+                    writes: Some((location, expr, false)),
+                    bound: bound.clone(),
+                }),
                 Step::Supersede(successor) => out.push(Reach {
                     takes: Vec::new(),
                     passes: &[],
                     chooses: vec![successor],
+                    writes: None,
                     bound: bound.clone(),
                 }),
                 _ => {}
@@ -1594,6 +1652,7 @@ fn reaches<'l>(
                 takes,
                 passes: &clause.inputs,
                 chooses: Vec::new(),
+                writes: None,
                 bound: Bound::new(),
             });
         }
@@ -3622,10 +3681,13 @@ types:
     /// creation or a cascade passes it, to the end, is personal in the
     /// guards that read it, and makes the answer personal where its own
     /// check may refuse it, required, `not_blank`, a reference, a file of
-    /// listed media types or a decimal; a creation of a presence it may
-    /// leave absent is judged by its invariant; and a call's target or a
-    /// `foreach`'s array read from one is personal. A personal value
-    /// reaching only an input nothing refuses, and a value not personal,
+    /// listed media types or a decimal, failing closed; a creation of a
+    /// presence it may leave absent is judged by its invariant; a call's
+    /// target or a `foreach`'s array read from one is personal; and so is an
+    /// argument computed from one, and a write of one its attribute may
+    /// refuse, an input passed one among them. A personal value read plainly
+    /// into an input or an attribute taking every value of its kind, a write
+    /// computed from the request's own input, and a value not personal,
     /// decide nothing, as before.
     #[test]
     fn a_value_passed_from_a_personal_member_is_judged_where_it_decides() {
@@ -3640,6 +3702,7 @@ types:
       busy: { type: bool, optional: true }
       scan: { type: file, personal: true, optional: true, media_types: [application/pdf] }
       fee: { type: "decimal(4,2)", personal: true, optional: true }
+      count: { type: int, personal: true, optional: true }
     conditions:
       small: { expression: inputs.amount < 100, remedy: unreachable_from_here }
       free: { expression: busy == false, remedy: unreachable_from_here }
@@ -3660,6 +3723,14 @@ types:
       attach: { kind: internal, from: [ON], optional_inputs: [scan] }
       charge: { kind: internal, from: [ON], optional_inputs: [fee] }
       remark: { kind: internal, from: [ON], optional_inputs: [memo] }
+      tally: { kind: internal, from: [ON], optional_inputs: [count] }
+      twice:
+        kind: internal
+        from: [ON]
+        inputs:
+          n: { type: int, optional: true }
+        effect:
+          - assign: { location: count, expr: inputs.n * 2 }
       poke: { kind: internal, from: [ON], guards: { free: deny } }
   Aide:
     attributes:
@@ -3696,10 +3767,28 @@ types:
       nicks: { type: "string[]", personal: true }
       tags: { type: "string[]" }
       plain: { type: int, optional: true }
+      pin2: { type: int, personal: true, optional: true }
+      cost2: { type: "decimal(2,1)", personal: true, optional: true }
+      memo2: { type: string, personal: true, optional: true }
+      seen: { type: "string[]", personal: true }
     states:
       ON: { category: live }
     transitions:
-      add: { kind: initial, to: ON, required_inputs: [owner, nicks, tags] }
+      add: { kind: initial, to: ON, required_inputs: [owner, nicks, tags, seen] }
+      tally_up: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: tally, inputs: { count: pin * 1000 } } } ] }
+      tally_plain: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: tally, inputs: { count: pin } } } ] }
+      double: { kind: internal, from: [ON], effect: [ { assign: { location: pin2, expr: pin * 2 } } ] }
+      reprice: { kind: internal, from: [ON], effect: [ { assign: { location: cost2, expr: cost } } ] }
+      collect: { kind: internal, from: [ON], effect: [ { add: { location: seen, expr: secret } } ] }
+      copy_note: { kind: internal, from: [ON], effect: [ { assign: { location: memo2, expr: secret } } ] }
+      relay_twice: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: twice, inputs: { n: pin } } } ] }
+      double_own:
+        kind: internal
+        from: [ON]
+        inputs:
+          n: { type: int, personal: true }
+        effect:
+          - assign: { location: pin2, expr: inputs.n * 2 }
       reward: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: promote, inputs: { amount: pin } } } ] }
       tell: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: jot, inputs: { text: secret } } } ] }
       hail: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: greet, inputs: { name: secret } } } ] }
@@ -3770,11 +3859,29 @@ types:
         ] {
             assert!(personal("Desk", x), "Desk.{x}");
         }
+        // failing closed: an argument computed from a personal value, which
+        // may refuse past its bound as it is evaluated, and a write of one
+        // its attribute may refuse, by its digits, a computation or a set's
+        // element (ADR-0263 decisions 2 and 5)
+        for x in ["tally_up", "double", "reprice", "collect", "relay_twice"] {
+            assert!(personal("Desk", x), "Desk.{x}");
+        }
+        // a write computed from the request's own input, its caller's, and
+        // the same transition taken on its own
+        assert!(!personal("Desk", "double_own"));
+        assert!(!personal("Staff", "twice"));
         assert!(personal("Folder", "shut"));
         // a personal value reaching an input nothing refuses; a value not
         // personal; a foreach over a set not personal; a creation passed a
         // value not personal
-        for x in ["copy", "give", "stroll", "file_plain"] {
+        for x in [
+            "copy",
+            "give",
+            "stroll",
+            "file_plain",
+            "tally_plain",
+            "copy_note",
+        ] {
             assert!(!personal("Desk", x), "Desk.{x}");
         }
         // the transitions taken on their own, as before

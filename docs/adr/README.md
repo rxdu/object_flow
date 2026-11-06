@@ -264,4 +264,5 @@
 | [0261](0261-an-attributes-presence-decides-no-answer-it-cannot-refuse.md) | An attribute's presence decides no answer it cannot refuse | Decided under the author's direction; built |
 | [0262](0262-an-optional-input-may-clear-its-attribute-when-sent-null.md) | An optional input may clear its attribute when sent null | Decided under the author's direction; built |
 | [0263](0263-a-value-an-effect-passes-from-a-personal-member-is-judged-where-it-decides.md) | A value an effect passes from a personal member is judged where it decides | Decided under the author's direction; built |
+| [0264](0264-a-personal-value-passed-on-decides-nothing-only-where-nothing-can-refuse-it.md) | A personal value passed on decides nothing only where nothing can refuse it | Decided under the author's direction; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

@@ -3,6 +3,7 @@
 - **Status:** **Decided** 2026-11-06 as recommended, under the author's direction ("go with your recommendation on the new finding"), on the recommendation put the same day in `TODO.md`. Decision 3, a call's target and a `foreach`'s array, was found while deciding it and is accepted in advance as the author directed for a confident recommendation. Built the same day.
 - **Date:** 2026-11-06
 - **Refines:** ADR-0260 decision 3 (an input a guard reads judged by the guard's own transition); ADR-0220 decision 2 (an input judged by its transition's declaration); ADR-0261 (a creation's inputs are its caller's)
+- **Refined by:** ADR-0264 — decision 2 fails closed: an input passed a personal value decides nothing only where it is optional, not `not_blank`, and of a kind every value fits; an argument computed from one, and a write of one, make the answer personal.
 - **Relates to:** ADR-0206 decision 2 (`available`, `availability` and `check` refused `personal` where a personal member decides the answer); ADR-0259 (a text's `not_blank`); the model's check 10 (a personal value reaches only a personal attribute)
 
 ## Context

@@ -14,7 +14,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Changed, and may refuse what 0.18.0 accepted
 
-- `available`, `availability` and `check` without `reads_personal` are refused `personal` where a value read from a personal member decides the answer through what the request passes on (ADR-0263): an input a call, a creation or a cascade passes it, read by a guard or refused by its own check of absence, blank, object, media type or digits, and a call's target or a `foreach`'s array read from one. 0.18.0 answered each, and its answer told the value. A personal value passed only to an input nothing refuses, such as an optional text, still decides nothing.
+- `available`, `availability` and `check` without `reads_personal` are refused `personal` where a value read from a personal member decides the answer through what the request passes on (ADR-0263): an input a call, a creation or a cascade passes it, read by a guard or refused by its own checks; a call's target or a `foreach`'s array read from one; an argument computed from one; and a write of one (ADR-0263, ADR-0264). 0.18.0 answered each, and its answer told the value. A personal value read plainly into an optional input or attribute of one string, integer, boolean, date, timestamp or enumeration member, which takes every such value, still decides nothing.
 
 ## 0.18.0, 2026-11-06
 

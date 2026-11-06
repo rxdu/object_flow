@@ -1432,23 +1432,37 @@ fn always_given(x: &Transition, k: &str) -> bool {
     }
 }
 
-/// Whether an input may be refused by the value it is given, where a call,
-/// a creation or a cascade passes it one read from a personal member: left
-/// absent where it is always given, blank where it is marked `not_blank`,
-/// naming no object of its type where it is a reference, of a media type
-/// its list does not take where it is a file, and past its digits where it
-/// is a decimal or money (ADR-0263 decision 2).
-pub(crate) fn refused_by_value(t: &Type, x: &Transition, k: &str) -> bool {
-    always_given(x, k)
-        || not_blank_input(t, x, k)
-        || input_type(t, x, k).is_some_and(|(declared, _, media)| {
-            !media.is_empty()
-                || match declared {
-                    Declared::Reference(_) => true,
-                    Declared::Scalar(ty) => ty.starts_with("decimal(") || ty.starts_with("money("),
-                    Declared::Value(_) => false,
-                }
-        })
+/// Whether a value of its declared kind always fits: one string, integer,
+/// boolean, date, timestamp or enumeration member, which a plain read of a
+/// value of that kind gives whole. A reference, a file, a decimal, money, a
+/// value of several fields and a set may each refuse one, by its object,
+/// its media type, its digits, its fields or its elements (ADR-0263).
+fn takes_every(lib: &Library, declared: &Declared, many: bool) -> bool {
+    !many
+        && matches!(declared, Declared::Scalar(ty)
+            if matches!(ty.as_str(), "string" | "int" | "bool" | "date" | "timestamp")
+                || lib.enumerations.contains_key(ty))
+}
+
+/// Whether an input may refuse a value a call, a creation or a cascade
+/// passes it read from a personal member, so that the refusal tells the
+/// value: every input but an optional one, not marked `not_blank`, of a
+/// kind every value fits (`takes_every`), the checker holding the passed
+/// value's kind to the input's (ADR-0263 decision 2). It fails closed.
+pub(crate) fn refused_by_value(lib: &Library, t: &Type, x: &Transition, k: &str) -> bool {
+    if always_given(x, k) || not_blank_input(t, x, k) {
+        return true;
+    }
+    input_type(t, x, k).is_none_or(|(declared, many, _)| !takes_every(lib, declared, many))
+}
+
+/// Whether an attribute takes every value a plain read of its kind assigns
+/// it: optional, so an absent one clears it, and of a kind every value fits
+/// (ADR-0263 decision 5).
+pub(crate) fn takes_every_read(lib: &Library, t: &Type, a: &str) -> bool {
+    t.attribute(a).is_some_and(|spec| {
+        spec.optional && !spec.not_blank && takes_every(lib, &spec.declared, spec.many)
+    })
 }
 
 /// Whether a transition writes the attribute from the input: the input of
