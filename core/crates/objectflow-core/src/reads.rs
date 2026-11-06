@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::eval::{Evaluator, NotRun, truth};
 use crate::expr::{BinOp, Expr};
-use crate::model::{Declared, Enforce, Kind, Library, Remedy, Transition, Type};
+use crate::model::{Declared, Enforce, Kind, Library, Remedy, Step, Transition, Type};
 use crate::request::{names_read, resolve_actor, takes_from};
 use crate::value::Value;
 use crate::verdict::{Flag, Told, Verdict};
@@ -1322,44 +1322,179 @@ pub fn query_reads_personal(
     filtered || ordered
 }
 
-/// Whether a transition's answer is decided by a personal member: a guard
-/// it enforces, or an invariant of its type, reading one, which `check`,
-/// `availability` and `available` then opt into or are refused
+/// Whether a transition's answer is decided by a personal member, which
+/// `check`, `availability` and `available` then opt into or are refused
 /// `personal`, where an agent's `available` listed the people a salary
 /// guard passed (the audit's personal data R5, R15, R17; ADR-0206
-/// decision 2). Each member is judged as a query's is, by the type it
-/// belongs to, and an input by the transition's own declaration, where a
-/// name personal in any type or transition made a guard on a room's own
-/// `name`, or on an input named like another transition's personal one,
-/// refused to every caller without the opt-in (ADR-0220).
+/// decision 2). Its request may evaluate a guard of each transition it
+/// takes, through calls, creations and cascades, and an invariant of each
+/// type those write or that reaches what they write, where its own guards
+/// and its own type's invariants alone were judged, so a call or a team's
+/// sum over its members' salaries answered unopted (ADR-0260). Each member
+/// is judged as a query's is, by the type it belongs to, and an input by
+/// the transition whose guard or request reads it (ADR-0220).
 pub fn transition_reads_personal(lib: &Library, type_: &str, transition: &str) -> bool {
     let Some(t) = lib.type_(type_) else {
         return false;
     };
-    let x = t.transition(transition);
     let mut personal = Personal::of(lib);
-    personal.inputs = x.map(|x| (t, x));
-    let guards = x
-        .map(|x| x.guards.iter().map(|(g, _)| g.clone()).collect::<Vec<_>>())
-        .unwrap_or_default();
-    let by_guard = t
-        .conditions
-        .iter()
-        .filter(|(n, _)| guards.contains(n))
-        .any(|(_, c)| personal.reads(t, &c.expression, &Bound::new()));
-    // the invariant a text's `not_blank` generates refuses only a blank
-    // written into the text, so where no transition of the type may write
-    // one it decides no answer, where it made every offer of a type with a
-    // personal text so marked personal (issue #70, ADR-0259)
-    let by_invariant = t
-        .invariants
-        .iter()
-        .filter(|(n, i)| {
-            t.not_blank_of(n, i)
-                .is_none_or(|a| crate::request::may_write_blank(t, a))
-        })
-        .any(|(_, i)| personal.reads(t, i, &Bound::new()));
-    by_guard || by_invariant
+    let Some(x) = t.transition(transition) else {
+        // a transition the type does not declare: its type's invariants, as
+        // ever, its inputs by name
+        return t
+            .invariants
+            .iter()
+            .any(|(_, i)| personal.reads(t, i, &Bound::new()));
+    };
+    let taken = taken_by(lib, &personal, t, transition);
+    // each guard a transition taken enforces, its inputs by that transition
+    for (tn, xn) in &taken {
+        let Some((tt, xx)) = lib
+            .type_(tn)
+            .and_then(|tt| tt.transition(xn).map(|xx| (tt, xx)))
+        else {
+            continue;
+        };
+        personal.inputs = Some((tt, xx));
+        let read = tt
+            .conditions
+            .iter()
+            .filter(|(n, _)| xx.guards.iter().any(|(g, _)| g == n))
+            .any(|(_, c)| personal.reads(tt, &c.expression, &Bound::new()));
+        if read {
+            return true;
+        }
+    }
+    // each invariant of a type written, and each of another type that
+    // reaches one and does not read its own object alone, which on an object
+    // no request writes holds or stands admitted; its inputs by the
+    // transition requested
+    personal.inputs = Some((t, x));
+    // each type written, and whether an object of it may be updated, by a
+    // transition taken that is not its creation
+    let mut written: BTreeMap<String, bool> = BTreeMap::new();
+    for (tn, xn) in &taken {
+        let updates = lib
+            .type_(tn)
+            .and_then(|tt| tt.transition(xn))
+            .is_some_and(|xx| xx.kind != Kind::Initial);
+        *written.entry(tn.clone()).or_default() |= updates;
+    }
+    lib.types.values().any(|u| {
+        if written.contains_key(&u.name) {
+            // the invariant a text's `not_blank` generates refuses only a
+            // blank written into the text, so where no transition of the
+            // type may write one it decides no answer (issue #70, ADR-0259)
+            u.invariants
+                .iter()
+                .filter(|(n, i)| {
+                    u.not_blank_of(n, i)
+                        .is_none_or(|a| crate::request::may_write_blank(u, a))
+                })
+                .any(|(_, i)| personal.reads(u, i, &Bound::new()))
+        } else {
+            u.observation_on.is_none()
+                && u.invariants.iter().any(|(_, i)| {
+                    !crate::request::reads_its_object_alone(lib, u, i)
+                        && personal.reads(u, i, &Bound::new())
+                })
+                && crate::request::invariants_reach(lib, u, &written)
+        }
+    })
+}
+
+/// Each transition a request for one may take, by its type's name and its
+/// own: itself and, to the end, each that a `create` or a `call` of one's
+/// effect takes, or a cascade of its type's composite ends on it (ADR-0260
+/// decision 1). A call's target the expression tells the type of takes that
+/// type's family's transition of the name; one it does not tell, every
+/// type's (decision 2).
+fn taken_by(
+    lib: &Library,
+    personal: &Personal<'_>,
+    t: &Type,
+    transition: &str,
+) -> BTreeSet<(String, String)> {
+    fn of_family(lib: &Library, base: &str, xn: &str, out: &mut Vec<(String, String)>) {
+        for u in lib.types.values() {
+            if lib.is_a(&u.name, base) && u.transition(xn).is_some() {
+                out.push((u.name.clone(), xn.to_string()));
+            }
+        }
+    }
+    fn steps<'l>(
+        lib: &'l Library,
+        personal: &Personal<'l>,
+        t: &'l Type,
+        effect: &[Step],
+        bound: &Bound,
+        out: &mut Vec<(String, String)>,
+    ) {
+        for st in effect {
+            match st {
+                Step::Create {
+                    type_, transition, ..
+                } => out.push((type_.clone(), transition.clone())),
+                Step::Call {
+                    target, transition, ..
+                } => match personal.type_of(t, target, bound) {
+                    Some(tt) => of_family(lib, &tt.name, transition, out),
+                    None => {
+                        for u in lib.types.values() {
+                            if u.transition(transition).is_some() {
+                                out.push((u.name.clone(), transition.clone()));
+                            }
+                        }
+                    }
+                },
+                Step::Foreach {
+                    item,
+                    array,
+                    steps: inner,
+                    ..
+                } => {
+                    let mut within = bound.clone();
+                    let of = array
+                        .as_ref()
+                        .and_then(|a| personal.element_type(t, a, bound))
+                        .map(|et| et.name.clone());
+                    within.insert(item.clone(), of);
+                    steps(lib, personal, t, inner, &within, out);
+                }
+                _ => {}
+            }
+        }
+    }
+    let first = (t.name.clone(), transition.to_string());
+    let mut taken = BTreeSet::from([first.clone()]);
+    let mut todo = vec![first];
+    while let Some((tn, xn)) = todo.pop() {
+        let Some(tt) = lib.type_(&tn) else {
+            continue;
+        };
+        let Some(x) = tt.transition(&xn) else {
+            continue;
+        };
+        let mut next = Vec::new();
+        steps(lib, personal, tt, &x.effect, &Bound::new(), &mut next);
+        for (_, end) in &tt.attributes {
+            let Declared::Reference(part) = &end.declared else {
+                continue;
+            };
+            if !end.composite {
+                continue;
+            }
+            for clause in end.cascade.iter().filter(|c| c.on.contains(&xn)) {
+                of_family(lib, part, &clause.transition, &mut next);
+            }
+        }
+        for n in next {
+            if taken.insert(n.clone()) {
+                todo.push(n);
+            }
+        }
+    }
+    taken
 }
 
 /// Whether a refusal's clause decides by the holder of a personal value: a
@@ -3008,6 +3143,237 @@ types:
         assert!(!personal("Cell", "add"));
         assert!(personal("Suite", "add"));
         assert!(personal("Booth", "add"));
+    }
+
+    /// A transition's answer is judged by every guard and invariant its
+    /// request may evaluate (ADR-0260): the guards of each transition it
+    /// takes, by a call on a reference's family, in a `foreach` and on a
+    /// target whose type the expression does not tell, by a creation and by
+    /// a cascade; the invariants of each type those write; and each other
+    /// type's invariant that reaches what they write, a type updated by any
+    /// end, one only created by an end whose opposite it holds, and one
+    /// holding a reference to the referred type by a referrer's end. Where
+    /// only its own guards and its type's invariants
+    /// were judged, a desk's call into its owner's salary guard and a
+    /// member's raise under its team's budget over the members' salaries
+    /// were answered without the opt-in. An invariant of a type no request
+    /// writes reading its own object alone, which holds or stands admitted,
+    /// a creation that only a plain reference reaches, and a call into a
+    /// transition no guard of which reads a personal member decide nothing.
+    #[test]
+    fn a_transitions_answer_is_judged_by_all_its_request_may_evaluate() {
+        const WORKS: &str = r#"
+module: works
+categories: [live, closed]
+types:
+  Worker:
+    abstract: true
+    attributes:
+      salary: { type: int, personal: true, optional: true }
+  Staff:
+    extends: Worker
+    conditions:
+      underpaid: { expression: salary is not null and salary < 100 }
+    states:
+      ON: { category: live }
+    transitions:
+      join: { kind: initial, to: ON, optional_inputs: [salary] }
+      promote: { kind: internal, from: [ON], guards: { underpaid: deny } }
+      greet: { kind: internal, from: [ON] }
+  Desk:
+    attributes:
+      owner: { reference: Worker }
+      crew: { reference: "Worker[]" }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [owner, crew] }
+      reward:
+        kind: internal
+        from: [ON]
+        effect:
+          - call: { target: owner, transition: promote }
+      wave:
+        kind: internal
+        from: [ON]
+        effect:
+          - call: { target: owner, transition: greet }
+      reward_all:
+        kind: internal
+        from: [ON]
+        effect:
+          - foreach:
+              item: s
+              array: crew
+              limit: 5
+              steps:
+                - call: { target: s, transition: promote }
+      reward_whom:
+        kind: internal
+        from: [ON]
+        inputs:
+          whom: { reference: Worker }
+        effect:
+          - call: { target: inputs.whom, transition: promote }
+  Badge:
+    attributes:
+      holder: { type: string, personal: true, optional: true }
+    invariants:
+      not_x: { expression: holder is null or holder != "x" }
+    states:
+      ON: { category: live }
+    transitions:
+      issue: { kind: initial, to: ON, optional_inputs: [holder] }
+  Office:
+    attributes:
+      code: { type: string }
+    states:
+      ON: { category: live }
+    transitions:
+      open: { kind: initial, to: ON, required_inputs: [code] }
+      badge:
+        kind: internal
+        from: [ON]
+        effect:
+          - create: { type: Badge, transition: issue }
+      tidy: { kind: internal, from: [ON] }
+  Order:
+    attributes:
+      lines:
+        reference: "Line[]"
+        aggregation: composite
+        opposite: order
+        cascade:
+          - { on: [close], transition: settle, limit: 10 }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      place: { kind: initial, to: OPEN }
+      close: { kind: external, from: [OPEN], to: DONE }
+  Line:
+    attributes:
+      order: { reference: Order, opposite: lines }
+      buyer: { type: string, personal: true, optional: true }
+    conditions:
+      unnamed: { expression: buyer is null }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [order], optional_inputs: [buyer] }
+      settle: { kind: external, from: [OPEN], to: DONE, guards: { unnamed: deny } }
+  Team:
+    attributes:
+      budget: { type: int }
+      members: { reference: "Member[]", opposite: team }
+    invariants:
+      within_budget: { expression: "sum(m in members: m.salary) <= budget" }
+    states:
+      ON: { category: live }
+    transitions:
+      form: { kind: initial, to: ON, required_inputs: [budget] }
+  Member:
+    attributes:
+      team: { reference: Team, opposite: members }
+      salary: { type: int, personal: true, optional: true }
+      nick: { type: string, optional: true }
+    states:
+      ON: { category: live }
+    transitions:
+      join: { kind: initial, to: ON, required_inputs: [team], optional_inputs: [salary] }
+      rename: { kind: internal, from: [ON], optional_inputs: [nick] }
+  Guest:
+    attributes:
+      name: { type: string, personal: true, optional: true }
+    states:
+      IN: { category: live }
+    transitions:
+      arrive: { kind: initial, to: IN, optional_inputs: [name] }
+      rename: { kind: internal, from: [IN], optional_inputs: [name] }
+  Locker:
+    attributes:
+      guest: { reference: Guest }
+    invariants:
+      guest_named: { expression: guest.name != "" }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [guest] }
+  Club:
+    attributes:
+      motto: { type: string, personal: true, optional: true }
+      fans: { reference: "Fan[]", opposite: club }
+    invariants:
+      motto_said: { expression: motto is null or motto != "" }
+      few_fans: { expression: "count(f in fans) <= 100" }
+    states:
+      ON: { category: live }
+    transitions:
+      found: { kind: initial, to: ON, optional_inputs: [motto] }
+  Fan:
+    attributes:
+      club: { reference: Club, opposite: fans }
+    states:
+      ON: { category: live }
+    transitions:
+      join: { kind: initial, to: ON, required_inputs: [club] }
+      cheer: { kind: internal, from: [ON] }
+  Plaque:
+    attributes:
+      motto: { type: string, personal: true, optional: true }
+    invariants:
+      hung_or_said: { expression: "count(r in referrers) < 5 or motto is not null" }
+    states:
+      ON: { category: live }
+    transitions:
+      make: { kind: initial, to: ON, optional_inputs: [motto] }
+  Wall:
+    attributes:
+      code: { type: string }
+    states:
+      ON: { category: live }
+    transitions:
+      build: { kind: initial, to: ON, required_inputs: [code] }
+  Hook:
+    attributes:
+      plaque: { reference: Plaque }
+    states:
+      ON: { category: live }
+    transitions:
+      fix: { kind: initial, to: ON, required_inputs: [plaque] }
+"#;
+        let lib = Library::load(&[("works.yaml".into(), WORKS.into())]).unwrap();
+        let personal = |ty: &str, x: &str| transition_reads_personal(&lib, ty, x);
+        // a call into a guard on a personal member, through a reference's
+        // family, in a foreach, and on a target no expression types
+        assert!(personal("Desk", "reward"));
+        assert!(personal("Desk", "reward_all"));
+        assert!(personal("Desk", "reward_whom"));
+        assert!(!personal("Desk", "wave"));
+        assert!(!personal("Desk", "add"));
+        // a creation of a type whose invariant reads one, and a cascade into
+        // a part's guard reading one
+        assert!(personal("Office", "badge"));
+        assert!(!personal("Office", "tidy"));
+        assert!(personal("Order", "close"));
+        assert!(!personal("Order", "place"));
+        // another type's invariant over a personal member it reaches: a type
+        // updated, and one created holding the end's opposite
+        assert!(personal("Member", "rename"));
+        assert!(personal("Member", "join"));
+        assert!(personal("Team", "form"));
+        // a plain reference reaches an object updated, not one created
+        assert!(personal("Guest", "rename"));
+        assert!(!personal("Guest", "arrive"));
+        // an invariant reaching what is written and reading nothing personal,
+        // beside one reading its own object alone
+        assert!(!personal("Fan", "join"));
+        assert!(!personal("Fan", "cheer"));
+        // a referrer's end, which a type written holding a reference to the
+        // referred type may be, and no other
+        assert!(personal("Hook", "fix"));
+        assert!(!personal("Wall", "build"));
     }
 
     /// A filter's parameters are stated as data, each read as the member it

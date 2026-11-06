@@ -6705,6 +6705,94 @@ fn a_personal_text_marked_not_blank_leaves_its_offers_unopted() {
     }
 }
 
+/// A check is judged by every guard and invariant its request may
+/// evaluate, so one decided by a personal member through a call or another
+/// type's invariant is refused `personal` without the opt-in, where a
+/// desk's call into its owner's salary guard answered `satisfied` or
+/// `call_refused` by the owner's salary, and a member's raise under its
+/// team's budget over the members' salaries recovered the others' sum by
+/// halving (ADR-0260, the audit's R15 and R17). With the opt-in each is
+/// answered as before; a check its request decides by no personal member
+/// is answered without it. In a sandbox, so on PostgreSQL too in that lane.
+#[test]
+fn a_check_is_judged_by_all_its_request_may_evaluate() {
+    const WORKS: &str = "module: probe\ncategories: [live, closed]\ntypes:\n  Staff:\n    description: A member of staff.\n    tracking: record\n    attributes:\n      salary: { type: int, personal: true, optional: true }\n    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n    conditions:\n      underpaid: { description: Paid under 100., expression: salary is not null and salary < 100, remedy: unreachable_from_here }\n    transitions:\n      join: { kind: initial, to: ON, optional_inputs: [salary] }\n      promote: { kind: internal, from: [ON], guards: { underpaid: deny } }\n      leave: { kind: external, from: [ON], to: OFF }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Desk:\n    description: A desk someone owns.\n    tracking: record\n    attributes:\n      owner: { reference: Staff }\n    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n    transitions:\n      add: { kind: initial, to: ON, required_inputs: [owner] }\n      reward:\n        kind: internal\n        from: [ON]\n        effect:\n          - call: { target: owner, transition: promote }\n      remove: { kind: external, from: [ON], to: OFF }\n";
+    const TEAMS: &str = "module: teams\ncategories: [live, closed]\ntypes:\n  Team:\n    description: A team with a budget.\n    tracking: record\n    attributes:\n      budget: { type: int }\n      members:\n        reference: \"Member[]\"\n        opposite: team\n    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n    invariants:\n      within_budget: { description: Pay within the budget., expression: \"sum(m in members: m.salary) <= budget\" }\n    transitions:\n      form: { kind: initial, to: ON, required_inputs: [budget] }\n      fold: { kind: external, from: [ON], to: OFF }\n  Member:\n    description: A member of a team.\n    tracking: record\n    attributes:\n      team: { reference: Team, opposite: members }\n      salary: { type: int, personal: true, optional: true }\n    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [team], optional_inputs: [salary] }\n      raise: { kind: internal, from: [ON], inputs: { to: { type: int, personal: true } }, effect: [ { assign: { location: salary, expr: inputs.to } } ] }\n      leave: { kind: external, from: [ON], to: OFF }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
+    let s = start(&["--port", "0"]);
+    let loaded = post(
+        &s,
+        "/sandbox/load",
+        &json!({"files": [{"name": "probe.yaml", "text": WORKS}, {"name": "teams.yaml", "text": TEAMS}]}),
+    );
+    assert_eq!(loaded["loaded"], json!(true), "{loaded}");
+    let op = json!({"id": "operator"});
+    let made = |tn: &str, xn: &str, inputs: Value| {
+        let v = post(
+            &s,
+            "/v1/request",
+            &json!({"actor": op, "type": tn, "transition": xn, "inputs": inputs}),
+        );
+        assert_eq!(v["kind"], "satisfied", "{v}");
+        v["object_id"].as_str().expect("its id").to_string()
+    };
+    let low = made("Staff", "join", json!({"salary": 50}));
+    let high = made("Staff", "join", json!({"salary": 500}));
+    let low_desk = made("Desk", "add", json!({"owner": low}));
+    let high_desk = made("Desk", "add", json!({"owner": high}));
+    let team = made("Team", "form", json!({"budget": 1000}));
+    made("Member", "join", json!({"team": team, "salary": 700}));
+    let bo = made("Member", "join", json!({"team": team, "salary": 100}));
+    let opted = |mut body: Value| {
+        body["reads_personal"] = json!(true);
+        body
+    };
+    let kind = |v: &Value| {
+        v["verdict"]["kind"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    };
+    // decided through a call, and through the team's invariant: refused
+    // without the opt-in, and answered as before with it
+    for (body, answer) in [
+        (
+            json!({"actor": op, "object_id": low_desk, "transition": "reward"}),
+            "satisfied",
+        ),
+        (
+            json!({"actor": op, "object_id": high_desk, "transition": "reward"}),
+            "call_refused",
+        ),
+        (
+            json!({"actor": op, "object_id": bo, "transition": "raise", "inputs": {"to": 300}}),
+            "satisfied",
+        ),
+        (
+            json!({"actor": op, "object_id": bo, "transition": "raise", "inputs": {"to": 301}}),
+            "invariant_violated",
+        ),
+    ] {
+        let refused = post(&s, "/v1/check", &body);
+        assert_eq!(refused["refused"], "personal", "{body}: {refused}");
+        let answered = post(&s, "/v1/check", &opted(body.clone()));
+        assert_eq!(kind(&answered), answer, "{body}: {answered}");
+    }
+    // and the desk's offers, decided by its call
+    let offers = post(
+        &s,
+        "/v1/availability",
+        &json!({"actor": op, "id": low_desk}),
+    );
+    assert_eq!(offers["refused"], "personal", "{offers}");
+    // a check its request decides by no personal member, answered unopted
+    let removed = post(
+        &s,
+        "/v1/check",
+        &json!({"actor": op, "object_id": low_desk, "transition": "remove"}),
+    );
+    assert_eq!(kind(&removed), "satisfied", "{removed}");
+}
+
 /// A query's and a metric's filters take their values as `params`, an
 /// object by name, at the wire: each bound as the member or the row's field
 /// it meets is typed, a parameter params does not give refused

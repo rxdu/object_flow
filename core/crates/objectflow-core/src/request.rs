@@ -5869,6 +5869,50 @@ fn back_from(work: &World<'_>, step: &Hop, w: &Object) -> Result<BTreeSet<String
     Ok(out)
 }
 
+/// Whether a write of an object of one of these types may make an object of
+/// type `u` one a request checks the invariants of, as `affected_by_writes`
+/// finds them (ADR-0260 decision 1). `u`'s invariants read what no chain
+/// tells, or a chain of relationship ends one reads reaches one of the
+/// types: a type the request updates by any end, a type it only creates by
+/// an end whose opposite the new object holds, since no object yet refers
+/// to it otherwise, and a type declaring a reference that may hold the
+/// referred type's object by a referrer's end. `written` maps each
+/// type to whether the request may update an object of it, and not only
+/// create one. A uniqueness's key is not counted: its refusal names no
+/// holder without the opt-in (ADR-0206 decision 3).
+pub(crate) fn invariants_reach(lib: &Library, u: &Type, written: &BTreeMap<String, bool>) -> bool {
+    match invariant_reach(lib, u) {
+        Reach::Itself => false,
+        Reach::Anything => true,
+        Reach::Related { chains, .. } => chains.iter().flatten().any(|hop| match hop {
+            Hop::End { from, attr, to } => written.iter().any(|(w, updated)| {
+                lib.is_a(w, to)
+                    && (*updated
+                        || lib
+                            .type_(from)
+                            .and_then(|f| f.attribute(attr))
+                            .is_some_and(|end| end.opposite.is_some()))
+            }),
+            // a written object's own references, as `back_from` follows them
+            Hop::Referrers { of } => written.keys().any(|w| {
+                lib.type_(w).is_some_and(|wt| {
+                    wt.attributes.iter().any(|(_, a)| {
+                        matches!(&a.declared, Declared::Reference(r)
+                            if lib.is_a(of, r) || lib.is_a(r, of))
+                    })
+                })
+            }),
+        }),
+    }
+}
+
+/// Whether an invariant of a type reads its own object alone, so that it
+/// holds, or stands admitted, on an object a request does not write
+/// (ADR-0260 decision 1).
+pub(crate) fn reads_its_object_alone(lib: &Library, t: &Type, e: &Expr) -> bool {
+    reads_only_this(lib, t, e, &mut BTreeSet::new())
+}
+
 /// Whether an expression on an object of a type reads that object alone:
 /// its stored values, state and flow data, constants, and derived
 /// attributes that read it alone. A reference end with an opposite, which

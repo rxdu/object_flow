@@ -8,6 +8,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 - A personal text marked `not_blank` no longer makes its type's `available`, `availability` and `check` need `reads_personal`, where every transition of the type writes the text by an input refused blank, its own or one marked `not_blank`. Its generated invariant then refuses no request by a value an object holds. Where a transition may write the text blank, by an input not so refused or by any other value, the reads are refused `personal` without the opt-in, as before (#70, ADR-0259).
 
+### Changed, and may refuse what 0.17.0 accepted
+
+- `available`, `availability` and `check` are refused `personal` without `reads_personal` where the request may evaluate a guard or an invariant reading a personal member through what it takes or reaches. That is a guard of a transition a `call`, a `create` or a cascade takes, an invariant of a type those write, or another type's invariant reaching what they write. Only the transition's own guards and its type's invariants were judged. So a check of a transition calling another type's transition guarded on a personal salary was answered by that salary, and a member's raise under a team's budget over its members' salaries recovered the others' sum by halving the input (ADR-0260).
+
 ## 0.17.0, 2026-11-05
 
 A release before 1.0.0, as 0.16.0 was (ADR-0214), with issues #68 and #69. A move's attribute reading what a store's installed version lacks is a notice, and a move leaving an attribute behind is noticed (ADR-0256), and a text may be declared never blank (ADR-0257). A store of 0.16.0, a file or a PostgreSQL database, is upgraded by `/v1/upgrade`, a step that records the release alone; a store of 0.15.0 takes 0.16.0's step first. Nothing it changes refuses what 0.16.0 accepted of a module that does not mark a text `not_blank`.
