@@ -18,6 +18,7 @@ import tempfile
 import threading
 
 import pytest
+import yaml
 
 from flowstudio import core as flowcore
 from replay import Wire
@@ -212,3 +213,48 @@ def test_a_go_live_version_leaves_out_metrics_over_dropped_transitions():
             capture_output=True, text=True)
         assert checked.returncode == 0, checked.stdout
 
+
+
+TAKEN = """module: desk
+categories: [live, closed]
+types:
+  Visitor:
+    description: A visitor at the front desk.
+    tracking: record
+    taken_by: [human, service]
+    attributes:
+      name: { type: string, personal: true, optional: true }
+    states:
+      IN: { description: In., category: live }
+      OUT: { description: Out., category: closed, final: true }
+    transitions:
+      arrive: { kind: initial, to: IN, optional_inputs: [name], description: Arrives. }
+      leave: { kind: external, from: IN, to: OUT, description: Leaves. }
+      forget:
+        kind: erasure
+        description: Erases the visitor's name.
+        inputs:
+          reason: { type: string }
+"""
+
+
+def test_a_go_live_version_keeps_who_may_take_a_type():
+    """A type's `taken_by` says who may take the erasure its mirror keeps,
+    which declares none of its own (flow-format.md §4.2), so the go-live
+    version keeps the key, where the format declares it, and checks clean
+    (issue #75: it was written last, and refused at `order`)."""
+    made = subprocess.run(
+        [str(ROOT / "scripts/.venv/bin/python"),
+         str(ROOT / "scripts/mirror-version.py"), "-", "Visitor"],
+        input=TAKEN, capture_output=True, text=True, check=True)
+    assert list(yaml.safe_load(made.stdout)["types"]["Visitor"]) == [
+        "description", "mirror", "tracking", "taken_by", "attributes",
+        "states", "transitions"], made.stdout
+    with tempfile.TemporaryDirectory() as tmp:
+        golive = pathlib.Path(tmp) / "desk-golive.yaml"
+        golive.write_text(made.stdout)
+        checked = subprocess.run(
+            [str(ROOT / "scripts/.venv/bin/python"),
+             str(ROOT / "scripts/check-flows.py"), str(golive)],
+            capture_output=True, text=True)
+        assert checked.returncode == 0, checked.stdout

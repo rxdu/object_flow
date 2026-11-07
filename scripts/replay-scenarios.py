@@ -161,9 +161,9 @@ def duration(text):
     return datetime.timedelta(seconds=int(m.group(1)) * UNITS[m.group(2)]) if m else None
 
 
-# a type's keys in the order flow-format.md §10 lists them, which the checker holds a module to
-TYPE_KEYS = ["description", "abstract", "extends", "mirror", "tracking", "attributes", "inherited_parts", "observations",
-             "states", "derived_attributes", "summary", "invariants", "conditions", "transitions", "metrics"]
+# a type's keys in the order the checker holds a module to (flow-format.md §3 rule 2), the checker's own list, where a
+# copy of it lacked `taken_by` and wrote that key last (#75); a mirror declares its states, never a machine
+TYPE_KEYS = [k for k in flows.TYPE_ORDER if k != "state_machine"]
 
 
 def port_version(doc, machines):
