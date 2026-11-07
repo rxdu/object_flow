@@ -31,6 +31,10 @@ updates:
       # alone gave (#38, 2026-10-24), and test/react.test.ts fails it
       react:
         patterns: ["react", "react-dom"]
+      # one for both: @tailwindcss/vite depends on its own release of tailwindcss, so a bump of the plugin alone left
+      # two in the tree, the plugin's and the app's own pin (#77 and #81, 2026-11-07)
+      tailwind:
+        patterns: ["tailwindcss", "@tailwindcss/*"]
     ignore:
       # its types describe one major of Node's APIs, so a major moves with the Node the Studio is built and tested on,
       # never as a weekly bump: #50 offered 26 while CI ran 24 and the tree pins 22 (2026-11-01)
