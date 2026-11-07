@@ -37,9 +37,10 @@ the modules as 0.13.0 shipped them, those under release-0.14.0/ by the service p
 service published as v0.15.0, built at 1e938eb and checked against its SHA-256, from the modules as 0.15.0 shipped
 them, those under release-0.16.0/ by the service published as v0.16.0, built at 19ecf70 and checked against its
 SHA-256, from the modules as 0.16.0 shipped them, those under release-0.17.0/ by the service published as v0.17.0,
-built at c61d83a and checked against its SHA-256, from the modules as 0.17.0 shipped them, and those under
+built at c61d83a and checked against its SHA-256, from the modules as 0.17.0 shipped them, those under
 release-0.18.0/ by the service published as v0.18.0, built at 32c18b3 and checked against its SHA-256, from the
-modules as 0.18.0 shipped them.
+modules as 0.18.0 shipped them, and those under release-0.19.0/ by the service published as v0.19.0, built at
+4d125be and checked against its SHA-256, from the modules as 0.19.0 shipped them.
 """
 import json
 import pathlib
