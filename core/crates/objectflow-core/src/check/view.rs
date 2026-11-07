@@ -297,43 +297,82 @@ fn with_taken_by(t: Value) -> Value {
     Value::Object(out)
 }
 
-/// A transition marked `taken_by` is one a request takes, with an effect:
-/// an initial, external or internal one; and what it generates is not a
-/// name its type declares (ADR-0176 decision 1). Over the view.
+/// The columns every row of a type's table has beside `id`, `state` and
+/// `declaration_version`, which no member is named (`flow-format.md` §3),
+/// and those an observation kind's has beside `occurred_at`, which check 54
+/// keeps (`storage-schema.md` §3, ADR-0265).
+const ROW_COLUMNS: &[&str] = &["version", "last_event", "state_source", "superseded_by"];
+const OBSERVATION_COLUMNS: &[&str] = &["subject_id", "corrects_id"];
+
 /// No attribute of a type is named `<reference>_id` beside a single
 /// reference of that name, its own or inherited: the store keeps the
 /// reference in a column of that name, so it could not store the type
 /// (`storage-schema.md` §3.2, D578; `check-flows.py`'s `column_errors`).
+/// Nor is one the store keeps under its own name, a single value that is no
+/// reference, named as a column every row of its table has, an observation
+/// kind's included (ADR-0265, issue #72). Over the view.
 pub fn column_errors(doc: &Value) -> Found {
+    let at = |segs: &[&str]| -> Path { segs.iter().map(|k| Seg::Key((*k).to_string())).collect() };
+    // a single value kept under its own name: neither a reference, kept as
+    // `<name>_id`, nor a set, kept in a table of its own
+    let own_column = |spec: &Value| {
+        spec.get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|t| !t.ends_with("[]"))
+    };
     let mut out = Found::new();
     for (tn, t) in types(doc) {
         let attrs = obj(t, "attributes");
-        for a in attrs.keys() {
-            let Some(base) = a.strip_suffix("_id") else {
-                continue;
-            };
-            let single = attrs
-                .get(base)
-                .and_then(|r| r.get("reference"))
-                .and_then(Value::as_str)
-                .is_some_and(|r| !r.ends_with("[]"));
+        for (a, spec) in attrs {
+            let single = a.strip_suffix("_id").is_some_and(|base| {
+                attrs
+                    .get(base)
+                    .and_then(|r| r.get("reference"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|r| !r.ends_with("[]"))
+            });
             if single {
+                let base = &a[..a.len() - "_id".len()];
                 out.push((
-                    ["types", tn.as_str(), "attributes", a.as_str()]
-                        .iter()
-                        .map(|k| Seg::Key((*k).to_string()))
-                        .collect(),
+                    at(&["types", tn.as_str(), "attributes", a.as_str()]),
                     "names".into(),
                     format!(
                         "{tn}.{a} is the column the store keeps the reference {base} in; name the attribute otherwise (storage-schema.md §3.2, D578)"
                     ),
                 ));
+            } else if ROW_COLUMNS.contains(&a.as_str()) && own_column(spec) {
+                out.push((
+                    at(&["types", tn.as_str(), "attributes", a.as_str()]),
+                    "names".into(),
+                    format!(
+                        "{tn}.{a} is a column every row of {tn}'s table has; name the attribute otherwise (storage-schema.md §3.2, ADR-0265)"
+                    ),
+                ));
+            }
+        }
+        for (on, o) in obj(t, "observations") {
+            let kind = o.get("kind").and_then(Value::as_str).unwrap_or_default();
+            for (a, spec) in obj(o, "attributes") {
+                let column =
+                    ROW_COLUMNS.contains(&a.as_str()) || OBSERVATION_COLUMNS.contains(&a.as_str());
+                if column && own_column(spec) {
+                    out.push((
+                        at(&["types", tn.as_str(), "observations", on.as_str(), "attributes", a.as_str()]),
+                        "names".into(),
+                        format!(
+                            "{kind}.{a} is a column every row of {kind}'s table has; name the attribute otherwise (storage-schema.md §3, ADR-0265)"
+                        ),
+                    ));
+                }
             }
         }
     }
     out
 }
 
+/// A transition marked `taken_by` is one a request takes, with an effect:
+/// an initial, external or internal one; and what it generates is not a
+/// name its type declares (ADR-0176 decision 1). Over the view.
 pub fn taken_by_errors(doc: &Value) -> Found {
     let mut out = Found::new();
     for (tn, t) in types(doc) {

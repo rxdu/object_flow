@@ -389,11 +389,25 @@ def taken_by_errors(doc):
     return out
 
 
+# the store's own types, each kept in a table named by its name in lower case, which no type or observation kind of a
+# module is named as, ignoring case (DESIGN.md §9, ADR-0265)
+BUILT_IN_TABLES = {n.lower(): n for n in ("Operator", "Proposal", "DeclarationChange", "Subscription", "label")}
+# the columns every row of a type's table has beside `id`, `state` and `declaration_version`, which no member is named
+# (§3), and those an observation kind's has beside `occurred_at`, which check 54 keeps (storage-schema.md §3, ADR-0265)
+ROW_COLUMNS = ("version", "last_event", "state_source", "superseded_by")
+OBSERVATION_COLUMNS = ROW_COLUMNS + ("subject_id", "corrects_id")
+
+
 def column_errors(doc):
     """No attribute of a type is named `<reference>_id` beside a single reference of that name, its own or inherited:
     the store keeps the reference in a column of that name, so it could not store the type (storage-schema.md §3.2,
-    D578). Over the view."""
+    D578). Nor is one the store keeps under its own name, a single value that is no reference, named as a column every
+    row of its table has, an observation kind's included (ADR-0265, issue #72). Over the view."""
     out = []
+
+    def own_column(spec):
+        typ = spec.get("type") if isinstance(spec, dict) else None
+        return isinstance(typ, str) and not typ.endswith("[]")
     for tn, t in types(doc):
         attrs = t.get("attributes") or {}
         for a in attrs:
@@ -402,6 +416,17 @@ def column_errors(doc):
                 out.append((("types", tn, "attributes", a), "names",
                             f"{tn}.{a} is the column the store keeps the reference {a[:-len('_id')]} in; name the "
                             f"attribute otherwise (storage-schema.md §3.2, D578)"))
+            elif a in ROW_COLUMNS and own_column(attrs[a]):
+                out.append((("types", tn, "attributes", a), "names",
+                            f"{tn}.{a} is a column every row of {tn}'s table has; name the attribute otherwise "
+                            f"(storage-schema.md §3.2, ADR-0265)"))
+        for on, o in (t.get("observations") or {}).items():
+            kind = (o or {}).get("kind")
+            for a, spec in ((o or {}).get("attributes") or {}).items():
+                if a in OBSERVATION_COLUMNS and own_column(spec):
+                    out.append((("types", tn, "observations", on, "attributes", a), "names",
+                                f"{kind}.{a} is a column every row of {kind}'s table has; name the attribute otherwise "
+                                f"(storage-schema.md §3, ADR-0265)"))
     return out
 
 
@@ -6628,6 +6653,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     machines = set()            # every machine declared, a type of the view that no object has
     modules, example_files = {}, []
     stored = {}                 # module -> its types, enumerations and machines, which one store holds together
+    tables = {}                 # a type's or an observation kind's name in lower case -> it, its module and whether a type
     unfolded = {}               # derived attribute name -> the most it unfolds to, and its deepest, in the modules checked so far
     approvers = {}              # module -> the kinds that approve a version, where it declares them (ADR-0187)
     agents, opened = [], []     # the agent kinds of actor declared, and each module's transitions open to them (ADR-0189)
@@ -6741,6 +6767,31 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
                 found.append((f, line_of(idx, (mine[n], n)), "fatal", "names",
                               f"{n} is also declared by {m}, which is checked with this module; a store holds one "
                               f"type, enumeration, value or machine of a name (ADR-0163)"))
+        # a store keeps each type's objects, an observation kind's among them, in a table named by its name in lower
+        # case, so no two are named alike ignoring case, and none as a built-in type (ADR-0265); two types named alike
+        # are refused above, as the closure's or as a store's
+        named = [(tn, ("types", tn), True) for tn in (doc.get("types") or {})]
+        named += [(o["kind"], ("types", tn, "observations", on, "kind"), False)
+                  for tn, t in (doc.get("types") or {}).items() for on, o in ((t or {}).get("observations") or {}).items()
+                  if isinstance(o, dict) and isinstance(o.get("kind"), str)]
+        for n, where, is_type in named:
+            low = n.lower()
+            if low in BUILT_IN_TABLES:
+                found.append((f, line_of(idx, where), "fatal", "names",
+                              f"{n} is named as the built-in type {BUILT_IN_TABLES[low]}, ignoring case; a store keeps each "
+                              f"type's objects, an observation kind's among them, in a table named by its name in lower "
+                              f"case (ADR-0265)"))
+            elif low in tables:
+                other, m, other_type = tables[low]
+                if not (is_type and other_type and other == n and m != doc["module"]):
+                    by = "" if m == doc["module"] else f", which {m} declares"
+                    named_as = f"is declared again as a type or an observation kind{by}" if other == n else \
+                        f"is named as {other}{by}, ignoring case"
+                    found.append((f, line_of(idx, where), "fatal", "names",
+                                  f"{n} {named_as}; a store keeps each type's objects, an observation kind's among them, "
+                                  f"in a table named by its name in lower case (ADR-0265)"))
+            else:
+                tables[low] = (n, doc["module"], is_type)
         stored[doc["module"]] = held
         declared[doc["module"]] = set(mine)
         modules[doc["module"]] = doc
@@ -11450,8 +11501,8 @@ def renamed_enumeration_plants():
                "absent (ADR-0147)"]
     sizes = p(books, "  Format: [HARDCOVER, PAPERBACK]\n", "  Format: [HARDCOVER, PAPERBACK]\n  Size: [SMALL, LARGE]\n")
     both = p(books, "  Format: [HARDCOVER, PAPERBACK]\n", "  Format: [HARDCOVER, PAPERBACK]\n  Binding: [HARDCOVER, PAPERBACK]\n")
-    labels = ("module: labels\ncategories: [live, closed]\nenumerations:\n  Format: [PRINT]\ntypes:\n  Label:\n"
-              "    description: A label.\n    tracking: record\n    attributes:\n      kind: { type: Format }\n    states:\n"
+    labels = ("module: labels\ncategories: [live, closed]\nenumerations:\n  Format: [PRINT]\ntypes:\n  Sticker:\n"
+              "    description: A sticker.\n    tracking: record\n    attributes:\n      kind: { type: Format }\n    states:\n"
               "      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
               "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [kind] }\n"
               "      remove: { kind: external, from: ON, to: OFF }\n")
@@ -11958,6 +12009,73 @@ def clearable_plants():
     return ok
 
 
+def store_name_plants():
+    """A name the store keeps a table or a column under (ADR-0265, issue #72): an attribute kept under its own name,
+    an observation's among them, named as a column every row of its table has, is refused, and a reference or a set of
+    such a name, kept otherwise, is clean; a type or an observation kind named as another, ignoring case, or as a
+    built-in type, is refused, and two types of one name in two modules are refused once, as ADR-0163 refuses them."""
+    head = "module: {m}\ncategories: [live, closed]\ntypes:\n"
+
+    def thing(tn="Thing", attrs="", observations=""):
+        return (f"  {tn}:\n    description: One thing.\n    tracking: record\n"
+                + (f"    attributes:\n{attrs}" if attrs else "")
+                + (f"    observations:\n      notes:\n        kind: {observations}\n        description: A note.\n"
+                   f"        attributes:\n          text: {{ type: string }}\n" if observations else "")
+                + "    states:\n      OPEN: { description: Open., category: live }\n"
+                  "      DONE: { description: Done., category: closed, final: true }\n    transitions:\n"
+                  "      add: { kind: initial, to: OPEN }\n      finish: { kind: external, from: [OPEN], to: DONE }\n")
+
+    def module(*types, m="things"):
+        return [(f"{m}.yaml", head.replace("{m}", m) + "".join(types))]
+    noted = thing(observations="Note").replace("          text: { type: string }\n",
+                                               "          text: { type: string }\n          {field}: { type: string, optional: true }\n")
+    column = "a column every row of {t}'s table has; name the attribute otherwise (storage-schema.md §3{s}, ADR-0265)"
+    table = "a store keeps each type's objects, an observation kind's among them, in a table named by its name in lower case (ADR-0265)"
+    cases = [
+        ("a reference and a set named as columns", module(thing(attrs="      superseded_by: { reference: Thing, optional: true }\n"
+                                                                      "      version: { type: 'string[]', optional: true }\n")), []),
+        ("an attribute named version", module(thing(attrs="      version: { type: string, optional: true }\n")),
+         ["Thing.version is " + column.format(t="Thing", s=".2")]),
+        ("a counter named last_event", module(thing(attrs="      last_event: { type: counter }\n")),
+         ["Thing.last_event is " + column.format(t="Thing", s=".2")]),
+        ("an attribute named state_source", module(thing(attrs="      state_source: { type: int, optional: true }\n")),
+         ["Thing.state_source is " + column.format(t="Thing", s=".2")]),
+        ("an attribute named superseded_by, no state superseding", module(thing(attrs="      superseded_by: { type: string, optional: true }\n")),
+         ["Thing.superseded_by is " + column.format(t="Thing", s=".2")]),
+        ("an observation's attribute named version", module(noted.replace("{field}", "version")),
+         ["Note.version is " + column.format(t="Note", s="")]),
+        ("an observation's attribute named subject_id", module(noted.replace("{field}", "subject_id")),
+         ["Note.subject_id is " + column.format(t="Note", s="")]),
+        ("an observation's attribute named corrects_id", module(noted.replace("{field}", "corrects_id")),
+         ["Note.corrects_id is " + column.format(t="Note", s="")]),
+        ("two types named alike but for case", module(thing("ThingA"), thing("Thinga")),
+         ["Thinga is named as ThingA, ignoring case; " + table]),
+        ("an observation kind named as a type", module(thing(observations="Other"), thing("Other")),
+         ["Other is declared again as a type or an observation kind; " + table]),
+        ("one observation kind on two types", module(thing(observations="Note"), thing("Other", observations="Note")),
+         ["Note is declared again as a type or an observation kind; " + table]),
+        ("a type named as the built-in Operator", module(thing("Operator")),
+         ["Operator is named as the built-in type Operator, ignoring case; " + table]),
+        ("a type named as the built-in label but for case", module(thing("Label")),
+         ["Label is named as the built-in type label, ignoring case; " + table]),
+        ("an observation kind named as the built-in DeclarationChange", module(thing(observations="DeclarationChange")),
+         ["DeclarationChange is named as the built-in type DeclarationChange, ignoring case; " + table]),
+        ("two modules' types named alike but for case", module(thing("Thing"), m="here") + module(thing("THING"), m="there"),
+         ["THING is named as Thing, which here declares, ignoring case; " + table]),
+        ("two modules' types of one name", module(thing("Thing"), m="here") + module(thing("Thing"), m="there"),
+         ["Thing is also declared by here, which is checked with this module; a store holds one type, enumeration, value "
+          "or machine of a name (ADR-0163)"]),
+    ]
+    ok = True
+    for name, files, want in cases:
+        found, notes = check(files)
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a name the store keeps, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def named_to_plants():
     """An input named `to` or `admits` on a transition that is no assertion is its own input, as the request path takes
     it (issue #74): an example giving each its value is clean, and a value not of the input's type is refused as any
@@ -12277,6 +12395,7 @@ def main():
     ok &= not_blank_plants()
     ok &= inherited_name_plants()
     ok &= clearable_plants()
+    ok &= store_name_plants()
     ok &= named_to_plants()
     ok &= actor_move_plants()
     ok &= value_plants()

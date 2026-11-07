@@ -66,6 +66,17 @@ pub struct Finding {
     pub message: String,
 }
 
+/// The store's own types, each kept in a table named by its name in lower
+/// case, which no type or observation kind of a module is named as,
+/// ignoring case (`DESIGN.md` §9, ADR-0265).
+const BUILT_IN_TABLES: &[&str] = &[
+    crate::model::OPERATOR_TYPE,
+    crate::model::PROPOSAL,
+    crate::model::DECLARATION_CHANGE,
+    crate::model::SUBSCRIPTION,
+    crate::model::LABEL,
+];
+
 /// The kinds of declaration a module names, by the key that holds them.
 const DECLARES: &[&str] = &[
     "enumerations",
@@ -275,6 +286,10 @@ pub fn checked_as(
     // each module's types, enumerations and machines, which one store holds
     // together (ADR-0163 decision 5)
     let mut stored: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // each type's and observation kind's name in lower case, the table a
+    // store keeps its objects in, with the name, its module and whether it
+    // is a type (ADR-0265)
+    let mut tables: BTreeMap<String, (String, String, bool)> = BTreeMap::new();
     // every type a module of the version moves, which a reference in any
     // module follows (`flow-format.md` §4.16, issue #60)
     let moved = migration::moved_types(files);
@@ -537,6 +552,72 @@ pub fn checked_as(
                         "{n} is also declared by {m}, which is checked with this module; a store holds one type, enumeration, value or machine of a name (ADR-0163)"
                     ),
                 );
+            }
+        }
+        // a store keeps each type's objects, an observation kind's among
+        // them, in a table named by its name in lower case, so no two are
+        // named alike ignoring case, and none as a built-in type
+        // (ADR-0265); two types named alike are refused above, as the
+        // closure's or as a store's
+        // every type, then every observation kind, as `check-flows.py` names them
+        let mut named: Vec<(String, Vec<Seg>, bool)> = doc::obj(&doc, "types")
+            .keys()
+            .map(|tn| {
+                (
+                    tn.clone(),
+                    vec![Seg::Key("types".into()), Seg::Key(tn.clone())],
+                    true,
+                )
+            })
+            .collect();
+        for (tn, t) in doc::obj(&doc, "types") {
+            for (on, o) in doc::obj(t, "observations") {
+                if let Some(kind) = o.get("kind").and_then(Value::as_str) {
+                    named.push((
+                        kind.to_string(),
+                        ["types", tn.as_str(), "observations", on.as_str(), "kind"]
+                            .iter()
+                            .map(|k| Seg::Key((*k).to_string()))
+                            .collect(),
+                        false,
+                    ));
+                }
+            }
+        }
+        for (n, at, is_type) in named {
+            let low = n.to_lowercase();
+            if let Some(built_in) = BUILT_IN_TABLES.iter().find(|b| b.to_lowercase() == low) {
+                fatal(
+                    found,
+                    node.line_at(&at),
+                    "names",
+                    format!(
+                        "{n} is named as the built-in type {built_in}, ignoring case; a store keeps each type's objects, an observation kind's among them, in a table named by its name in lower case (ADR-0265)"
+                    ),
+                );
+            } else if let Some((other, m, other_type)) = tables.get(&low) {
+                if !(is_type && *other_type && *other == n && *m != module) {
+                    let by = if *m == module {
+                        String::new()
+                    } else {
+                        format!(", which {m} declares")
+                    };
+                    let named_as = if *other == n {
+                        format!("is declared again as a type or an observation kind{by}")
+                    } else {
+                        format!("is named as {other}{by}, ignoring case")
+                    };
+                    fatal(
+                        found,
+                        node.line_at(&at),
+                        "names",
+                        format!(
+                            "{n} {named_as}; a store keeps each type's objects, an observation kind's among them, in a table named by its name in lower case (ADR-0265)"
+                        ),
+                    );
+                }
+            } else {
+                tables.insert(low, (n, module.clone(), is_type));
             }
         }
         stored.insert(module.clone(), held);

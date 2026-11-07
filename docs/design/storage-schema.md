@@ -152,6 +152,8 @@ Every declared type gets one table. Its identity columns are the same in every o
 | `superseded_by` | the store | present only on a type with a `superseding` state, and indexed, `t_<type>_superseded_by_ix`; `get(id, follow)` walks it (ADR-0028), and erasure follows it (ADR-0087), finding each member's predecessors by the index, where it read every superseding type whole for each member; a store opened that lacks the index is given it (ADR-0191 decision 5) |
 | `state_source` | the store | the `source` of the event that last **changed** `state`, a migration's excepted: `observed`, `asserted`, or `imported` for the import's state change. A migration leaves it as it was, even where its mapping moves the state, which is why `migrated` is not a value, and an object an assertion put in its state stays listed by `exceptions` until a transition changes it (ADR-0105, ADR-0146). Indexed; an action leaves it alone. `exceptions(type)` reads `asserted` (ADR-0083) |
 
+No attribute is named as one of these columns, and no two types are named alike ignoring case, since `t_<type>` is the type's name in lower case (`flow-format.md` §3, ADR-0265).
+
 There is no `last_part_event` column. A part relationship's last event is a row of `of_attribute_write` keyed by the relationship's name, so a guard naming `checklist_items` is not invalidated by a change to `approvals` (ADR-0082, repairing D202).
 
 **Absence is SQL `NULL` and never a sentinel** (ADR-0051). That is not a stylistic choice: the erasure marker must collide with no uniqueness constraint and must read as unknown, and a sentinel does neither. It follows that every uniqueness over a `personal` or `external` attribute is **partial**, ignoring absent values.

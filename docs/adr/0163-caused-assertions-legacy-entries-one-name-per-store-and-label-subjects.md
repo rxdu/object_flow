@@ -3,6 +3,7 @@
 - **Status:** Decided by the author, 2026-10-07 ("go with your recommendations on 1 to 5"), on recommendations stated with the questions (`TODO.md`, D529).
 - **Date:** 2026-10-07
 - **Refines:** ADR-0040 (assertion), ADR-0078 (erasure reaches legacy history), ADR-0146 and ADR-0147 (the import's classes), ADR-0154 (the import's interface)
+- **Refined by:** ADR-0265 — decision 5's one name per store holds ignoring case for a type and an observation kind, whose objects a store keeps in a table named by the name in lower case, and no module's type takes a built-in type's name.
 - **Relates to:** `design/flow-format.md` §4.8, §5; `design/publish-and-import.md` §4, §6; `design/library-api.md` §5; `design/storage-schema.md` §6, §9; `design/defects.md` D529
 
 ## Context

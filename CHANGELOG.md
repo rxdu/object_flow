@@ -6,8 +6,15 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Fixed
 
+- A module could declare a type named as one of the store's built-in types, `Operator`, `Proposal`, `DeclarationChange` or `Subscription`, which `DESIGN.md` §9 says are not user-definable. Both checkers and the dry run passed it. A version declaring `Operator` was published, and every request after it was answered `500`, the store's operator no longer readable. Step 3 refuses it now (ADR-0265).
 - The examples' checkers read an input named `to` as an assertion's target state, and skipped the value of one named `admits`, on every kind of transition, where the request path holds both to an assertion. So an example of a transition taking its own input `to` could not be written (issue #74).
 - `scripts/mirror-version.py` wrote a type's `taken_by` after its other keys, and the checker refused its output at `order`. It now writes the type's keys in the checker's own order (issue #75).
+
+### Changed, and may refuse what 0.19.0 accepted
+
+- Step 3 refuses a name the store keeps a table or a column under, which the publish refused only in the store's words, or not at all (ADR-0265, issue #72):
+  - an attribute kept under its own name named `version`, `last_event`, `state_source` or `superseded_by`, on every type, and an observation kind's named `subject_id` or `corrects_id`;
+  - a type or an observation kind named as another, ignoring case, or as a built-in type, `label` among them.
 
 ## 0.19.0, 2026-11-06
 

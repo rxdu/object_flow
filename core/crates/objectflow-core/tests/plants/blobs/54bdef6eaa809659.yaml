@@ -1,0 +1,14 @@
+module: things
+categories: [live, closed]
+types:
+  Thing:
+    description: One thing.
+    tracking: record
+    attributes:
+      superseded_by: { type: string, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: OPEN }
+      finish: { kind: external, from: [OPEN], to: DONE }

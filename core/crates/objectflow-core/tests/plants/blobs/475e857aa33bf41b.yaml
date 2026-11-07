@@ -1,0 +1,19 @@
+module: things
+categories: [live, closed]
+types:
+  Thing:
+    description: One thing.
+    tracking: record
+    observations:
+      notes:
+        kind: Note
+        description: A note.
+        attributes:
+          text: { type: string }
+          subject_id: { type: string, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: OPEN }
+      finish: { kind: external, from: [OPEN], to: DONE }

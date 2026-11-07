@@ -1,16 +1,20 @@
 module: labels
 categories: [live, closed]
 enumerations:
-  Format: [PRINT]
+  Cover: [PRINT]
 types:
-  Label:
-    description: A label.
+  Sticker:
+    description: A sticker.
     tracking: record
     attributes:
-      kind: { type: Format }
+      kind: { type: Cover }
     states:
       ON: { description: On., category: live }
       OFF: { description: Off., category: closed, final: true }
     transitions:
       add: { kind: initial, to: ON, required_inputs: [kind] }
       remove: { kind: external, from: ON, to: OFF }
+migration:
+  description: A format is a cover.
+  renamed_enumerations:
+    Format: Cover

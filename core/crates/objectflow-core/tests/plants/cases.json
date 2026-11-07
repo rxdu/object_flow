@@ -29771,12 +29771,12 @@
    ],
    [
     "labels.yaml",
-    "68cdc2c0bad4a2fd"
+    "ff3509c503f3ed48"
    ]
   ],
   "previous": {
    "catalog.yaml": "3b6fea345c28fd4e",
-   "labels.yaml": "68cdc2c0bad4a2fd"
+   "labels.yaml": "ff3509c503f3ed48"
   },
   "findings": [
    [
@@ -29800,12 +29800,12 @@
    ],
    [
     "labels.yaml",
-    "03da2aac2b5ab33f"
+    "6439dd5325d08053"
    ]
   ],
   "previous": {
    "catalog.yaml": "3b6fea345c28fd4e",
-   "labels.yaml": "68cdc2c0bad4a2fd"
+   "labels.yaml": "ff3509c503f3ed48"
   },
   "findings": [
    [
@@ -30670,6 +30670,399 @@
     "fatal",
     "required",
     "Visit.edit lists 'days' as a clearable input, which state OPEN requires"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: a reference and a set named as columns",
+  "files": [
+   [
+    "things.yaml",
+    "34d2c5f454322b88"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    8,
+    "notice",
+    "unwritten",
+    "Thing.superseded_by is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "things.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Thing.version is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: an attribute named version",
+  "files": [
+   [
+    "things.yaml",
+    "c3e6a7a3a3f16b03"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    8,
+    "fatal",
+    "names",
+    "Thing.version is a column every row of Thing's table has; name the attribute otherwise (storage-schema.md §3.2, ADR-0265)"
+   ],
+   [
+    "things.yaml",
+    8,
+    "notice",
+    "unwritten",
+    "Thing.version is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: a counter named last_event",
+  "files": [
+   [
+    "things.yaml",
+    "b51442d93ca8044e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    8,
+    "fatal",
+    "names",
+    "Thing.last_event is a column every row of Thing's table has; name the attribute otherwise (storage-schema.md §3.2, ADR-0265)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: an attribute named state_source",
+  "files": [
+   [
+    "things.yaml",
+    "2470dcefc83cc163"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    8,
+    "fatal",
+    "names",
+    "Thing.state_source is a column every row of Thing's table has; name the attribute otherwise (storage-schema.md §3.2, ADR-0265)"
+   ],
+   [
+    "things.yaml",
+    8,
+    "notice",
+    "unwritten",
+    "Thing.state_source is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: an attribute named superseded_by, no state superseding",
+  "files": [
+   [
+    "things.yaml",
+    "54bdef6eaa809659"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    8,
+    "fatal",
+    "names",
+    "Thing.superseded_by is a column every row of Thing's table has; name the attribute otherwise (storage-schema.md §3.2, ADR-0265)"
+   ],
+   [
+    "things.yaml",
+    8,
+    "notice",
+    "unwritten",
+    "Thing.superseded_by is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: an observation's attribute named version",
+  "files": [
+   [
+    "things.yaml",
+    "d828a713ede91af6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    13,
+    "fatal",
+    "names",
+    "Note.version is a column every row of Note's table has; name the attribute otherwise (storage-schema.md §3, ADR-0265)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: an observation's attribute named subject_id",
+  "files": [
+   [
+    "things.yaml",
+    "475e857aa33bf41b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    13,
+    "fatal",
+    "names",
+    "Note.subject_id is a column every row of Note's table has; name the attribute otherwise (storage-schema.md §3, ADR-0265)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: an observation's attribute named corrects_id",
+  "files": [
+   [
+    "things.yaml",
+    "f81e17518476629e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    13,
+    "fatal",
+    "names",
+    "Note.corrects_id is a column every row of Note's table has; name the attribute otherwise (storage-schema.md §3, ADR-0265)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: two types named alike but for case",
+  "files": [
+   [
+    "things.yaml",
+    "f5187c0378931db7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    13,
+    "fatal",
+    "names",
+    "Thinga is named as ThingA, ignoring case; a store keeps each type's objects, an observation kind's among them, in a table named by its name in lower case (ADR-0265)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: an observation kind named as a type",
+  "files": [
+   [
+    "things.yaml",
+    "9949084722032374"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    9,
+    "fatal",
+    "names",
+    "Other is declared again as a type or an observation kind; a store keeps each type's objects, an observation kind's among them, in a table named by its name in lower case (ADR-0265)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: one observation kind on two types",
+  "files": [
+   [
+    "things.yaml",
+    "bcf122fb158af59a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    24,
+    "fatal",
+    "names",
+    "Note is declared again as a type or an observation kind; a store keeps each type's objects, an observation kind's among them, in a table named by its name in lower case (ADR-0265)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: a type named as the built-in Operator",
+  "files": [
+   [
+    "things.yaml",
+    "810f5442c4927d9f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    4,
+    "fatal",
+    "names",
+    "Operator is named as the built-in type Operator, ignoring case; a store keeps each type's objects, an observation kind's among them, in a table named by its name in lower case (ADR-0265)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: a type named as the built-in label but for case",
+  "files": [
+   [
+    "things.yaml",
+    "9925706df6fe0393"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    4,
+    "fatal",
+    "names",
+    "Label is named as the built-in type label, ignoring case; a store keeps each type's objects, an observation kind's among them, in a table named by its name in lower case (ADR-0265)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: an observation kind named as the built-in DeclarationChange",
+  "files": [
+   [
+    "things.yaml",
+    "bc5ac836da71452f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.yaml",
+    9,
+    "fatal",
+    "names",
+    "DeclarationChange is named as the built-in type DeclarationChange, ignoring case; a store keeps each type's objects, an observation kind's among them, in a table named by its name in lower case (ADR-0265)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: two modules' types named alike but for case",
+  "files": [
+   [
+    "here.yaml",
+    "b48b1eed73b5e5cc"
+   ],
+   [
+    "there.yaml",
+    "8cb39961ce947cb2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "there.yaml",
+    4,
+    "fatal",
+    "names",
+    "THING is named as Thing, which here declares, ignoring case; a store keeps each type's objects, an observation kind's among them, in a table named by its name in lower case (ADR-0265)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "store_name_plants: two modules' types of one name",
+  "files": [
+   [
+    "here.yaml",
+    "b48b1eed73b5e5cc"
+   ],
+   [
+    "there.yaml",
+    "5df11a00190eeba8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "there.yaml",
+    4,
+    "fatal",
+    "names",
+    "Thing is also declared by here, which is checked with this module; a store holds one type, enumeration, value or machine of a name (ADR-0163)"
    ]
   ],
   "analysed": {},
