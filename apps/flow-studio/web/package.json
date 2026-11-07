@@ -20,7 +20,7 @@
     "@codemirror/lint": "6.9.7",
     "@codemirror/state": "6.7.6",
     "@codemirror/view": "6.43.15",
-    "mermaid": "12.2.0",
+    "mermaid": "12.3.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
