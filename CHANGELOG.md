@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Changed, and may refuse what 0.20.0 accepted
+
+- Step 3 refuses an attribute the store indexes, marked `indexed` or `external`, named so that its index takes a name the store gives another: `asserted`, `<a>_key` beside a unique `a`, or `<a>_fold` beside the actor identity `a`. The first two were published with an index lost, the actor identity's folded one among them; the third was refused by the dry run in the store's words (ADR-0267).
+
 ## 0.20.0, 2026-11-07
 
 A release before 1.0.0, as 0.19.0 was (ADR-0214), with issues #72 to #75 and a defect found addressing #72: a module could name a type as one of the store's built-in types, and a store that published `Operator` answered every request `500` after it. Step 3 now refuses a name the store keeps a table or a column under, a built-in type's among them (ADR-0265), and a loop over every object of a type, which no request could run (ADR-0266). The examples' checkers take an input named `to` as the transition's own, and `scripts/mirror-version.py` writes `taken_by` where the format declares it.

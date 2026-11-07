@@ -402,12 +402,35 @@ def column_errors(doc):
     """No attribute of a type is named `<reference>_id` beside a single reference of that name, its own or inherited:
     the store keeps the reference in a column of that name, so it could not store the type (storage-schema.md §3.2,
     D578). Nor is one the store keeps under its own name, a single value that is no reference, named as a column every
-    row of its table has, an observation kind's included (ADR-0265, issue #72). Over the view."""
+    row of its table has, an observation kind's included (ADR-0265, issue #72). Nor is one the store indexes by its own
+    name, marked `indexed` or `external`, named so that its index takes a name the store gives another (ADR-0267).
+    Over the view."""
     out = []
 
     def own_column(spec):
         typ = spec.get("type") if isinstance(spec, dict) else None
         return isinstance(typ, str) and not typ.endswith("[]")
+
+    def indexed(spec):
+        return own_column(spec) and bool(spec.get("indexed") or spec.get("external"))
+
+    def index_taken(tn, a, attrs):
+        """What already holds the index name `t_<type>_<a>_ix` (storage-schema.md §5): the store's index on the state's
+        source, a uniqueness's key index, `t_<type>_<b>_key_ix`, or the actor identity's folded one,
+        `t_<type>_<b>_fold_ix`."""
+        if a == "asserted":
+            return f"the store's index on {tn}.state_source"
+        base, _, suffix = a.rpartition("_")
+        spec = attrs.get(base)
+        if suffix == "key" and isinstance(spec, dict) and spec.get("unique"):
+            return f"the key index of {tn}.{base}'s uniqueness"
+        if suffix == "fold" and isinstance(spec, dict) and spec.get("actor_kind"):
+            return f"the folded index of {tn}.{base}, its actor identity"
+        return None
+
+    def index_error(path, tn, a, taken):
+        return (path, "names", f"{tn}.{a} is indexed, and its index would take the name of {taken}; name the attribute "
+                               f"otherwise (storage-schema.md §5, ADR-0267)")
     for tn, t in types(doc):
         attrs = t.get("attributes") or {}
         for a in attrs:
@@ -420,6 +443,8 @@ def column_errors(doc):
                 out.append((("types", tn, "attributes", a), "names",
                             f"{tn}.{a} is a column every row of {tn}'s table has; name the attribute otherwise "
                             f"(storage-schema.md §3.2, ADR-0265)"))
+            elif indexed(attrs[a]) and (taken := index_taken(tn, a, attrs)):
+                out.append(index_error(("types", tn, "attributes", a), tn, a, taken))
         for on, o in (t.get("observations") or {}).items():
             kind = (o or {}).get("kind")
             for a, spec in ((o or {}).get("attributes") or {}).items():
@@ -12080,6 +12105,48 @@ def store_name_plants():
     return ok
 
 
+def index_name_plants():
+    """An attribute the store indexes by its own name is not named so that its index takes a name the store gives
+    another (ADR-0267): an indexed `asserted`, an indexed `<a>_key` beside a unique `a`, and an indexed `<a>_fold`
+    beside the actor identity `a` are refused; each name unindexed, or beside no such attribute, is clean. An
+    observation kind's attribute is never indexed (step 3), so its index takes no name."""
+    base = ("module: desk\ncategories: [live, closed]\ntypes:\n  Member:\n    description: A member.\n"
+            "    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true, indexed: true }\n"
+            "      code: { type: string, optional: true{unique} }\n{attrs}{observations}    states:\n"
+            "      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+            "    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login] }\n"
+            "      leave: { kind: external, from: [ON], to: OFF }\n")
+
+    def module(attrs="", unique=", unique: true", observations=""):
+        return [("desk.yaml", base.replace("{attrs}", attrs).replace("{unique}", unique)
+                 .replace("{observations}", observations))]
+    noted = ("    observations:\n      notes:\n        kind: Note\n        description: A note.\n        attributes:\n"
+             "          text: { type: string }\n          asserted: { type: string, optional: true }\n")
+    words = "is indexed, and its index would take the name of {what}; name the attribute otherwise (storage-schema.md §5, ADR-0267)"
+    cases = [
+        ("each name unindexed", module("      asserted: { type: string, optional: true }\n"
+                                       "      code_key: { type: string, optional: true }\n"
+                                       "      login_fold: { type: string, optional: true }\n",
+                                       observations=noted), []),
+        ("an indexed name of no index the store gives", module("      asserted_by: { type: string, optional: true, indexed: true }\n"), []),
+        ("an indexed code_key beside a code with no uniqueness", module("      code_key: { type: string, optional: true, indexed: true }\n", unique=""), []),
+        ("an indexed asserted", module("      asserted: { type: string, optional: true, indexed: true }\n"),
+         ["Member.asserted " + words.format(what="the store's index on Member.state_source")]),
+        ("an indexed code_key beside a unique code", module("      code_key: { type: string, optional: true, indexed: true }\n"),
+         ["Member.code_key " + words.format(what="the key index of Member.code's uniqueness")]),
+        ("an indexed login_fold beside the actor identity login", module("      login_fold: { type: string, optional: true, indexed: true }\n"),
+         ["Member.login_fold " + words.format(what="the folded index of Member.login, its actor identity")]),
+    ]
+    ok = True
+    for name, files, want in cases:
+        found, notes = check(files)
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  an index's name, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def type_loop_plants():
     """A loop runs over a set or a range, never over every object of a type, which neither the core nor the runner
     runs (ADR-0266, issue #73): a loop over a type is refused, and one over a set input is clean."""
@@ -12429,6 +12496,7 @@ def main():
     ok &= inherited_name_plants()
     ok &= clearable_plants()
     ok &= store_name_plants()
+    ok &= index_name_plants()
     ok &= type_loop_plants()
     ok &= named_to_plants()
     ok &= actor_move_plants()

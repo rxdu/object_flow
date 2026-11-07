@@ -31070,6 +31070,230 @@
   "could_violate": {}
  },
  {
+  "label": "index_name_plants: each name unindexed",
+  "files": [
+   [
+    "desk.yaml",
+    "c29b0cafc4791870"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Member.code is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "desk.yaml",
+    10,
+    "notice",
+    "unwritten",
+    "Member.asserted is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "desk.yaml",
+    11,
+    "notice",
+    "unwritten",
+    "Member.code_key is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "desk.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Member.login_fold is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Member": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "index_name_plants: an indexed name of no index the store gives",
+  "files": [
+   [
+    "desk.yaml",
+    "554689dd5f7cd650"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Member.code is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "desk.yaml",
+    10,
+    "notice",
+    "unwritten",
+    "Member.asserted_by is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Member": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "index_name_plants: an indexed code_key beside a code with no uniqueness",
+  "files": [
+   [
+    "desk.yaml",
+    "b9c1c5237cc1e8a8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Member.code is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "desk.yaml",
+    10,
+    "notice",
+    "unwritten",
+    "Member.code_key is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Member": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "index_name_plants: an indexed asserted",
+  "files": [
+   [
+    "desk.yaml",
+    "6838df6f72c33bb3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Member.code is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "desk.yaml",
+    10,
+    "fatal",
+    "names",
+    "Member.asserted is indexed, and its index would take the name of the store's index on Member.state_source; name the attribute otherwise (storage-schema.md §5, ADR-0267)"
+   ],
+   [
+    "desk.yaml",
+    10,
+    "notice",
+    "unwritten",
+    "Member.asserted is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "index_name_plants: an indexed code_key beside a unique code",
+  "files": [
+   [
+    "desk.yaml",
+    "9e1b750eea0e77b0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Member.code is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "desk.yaml",
+    10,
+    "fatal",
+    "names",
+    "Member.code_key is indexed, and its index would take the name of the key index of Member.code's uniqueness; name the attribute otherwise (storage-schema.md §5, ADR-0267)"
+   ],
+   [
+    "desk.yaml",
+    10,
+    "notice",
+    "unwritten",
+    "Member.code_key is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "index_name_plants: an indexed login_fold beside the actor identity login",
+  "files": [
+   [
+    "desk.yaml",
+    "c629b1f4cdb9ac9e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "desk.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Member.code is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "desk.yaml",
+    10,
+    "fatal",
+    "names",
+    "Member.login_fold is indexed, and its index would take the name of the folded index of Member.login, its actor identity; name the attribute otherwise (storage-schema.md §5, ADR-0267)"
+   ],
+   [
+    "desk.yaml",
+    10,
+    "notice",
+    "unwritten",
+    "Member.login_fold is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "type_loop_plants: a loop over a set input",
   "files": [
    [

@@ -3,6 +3,7 @@
 - **Status:** **Decided** 2026-11-07 under the author's direction ("review latest open issues and address them properly"), on the recommendation formed the same day for issue #72 and the defects found addressing it, accepted in advance as the author directed for a confident recommendation. Built the same day.
 - **Date:** 2026-11-07
 - **Refines:** `flow-format.md` §3 rule 3 (the names a member may not take); ADR-0163 decision 5 (a store holds one type of a name)
+- **Refined by:** ADR-0267 — an attribute the store indexes is not named so that its index takes a name the store gives another, the index names this record found and left to the author.
 - **Relates to:** D578 (an attribute named as a reference's column); ADR-0254 decision 6 (a value's field columns); ADR-0082 (an observation kind is a type); `DESIGN.md` §9 (the built-in types are not user-definable); issue #72
 
 ## Context

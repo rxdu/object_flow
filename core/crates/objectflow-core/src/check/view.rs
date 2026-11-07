@@ -310,7 +310,9 @@ const OBSERVATION_COLUMNS: &[&str] = &["subject_id", "corrects_id"];
 /// (`storage-schema.md` §3.2, D578; `check-flows.py`'s `column_errors`).
 /// Nor is one the store keeps under its own name, a single value that is no
 /// reference, named as a column every row of its table has, an observation
-/// kind's included (ADR-0265, issue #72). Over the view.
+/// kind's included (ADR-0265, issue #72). Nor is one the store indexes by
+/// its own name, marked `indexed` or `external`, named so that its index
+/// takes a name the store gives another (ADR-0267). Over the view.
 pub fn column_errors(doc: &Value) -> Found {
     let at = |segs: &[&str]| -> Path { segs.iter().map(|k| Seg::Key((*k).to_string())).collect() };
     // a single value kept under its own name: neither a reference, kept as
@@ -319,6 +321,37 @@ pub fn column_errors(doc: &Value) -> Found {
         spec.get("type")
             .and_then(Value::as_str)
             .is_some_and(|t| !t.ends_with("[]"))
+    };
+    let indexed =
+        |spec: &Value| own_column(spec) && (flag(spec, "indexed") || flag(spec, "external"));
+    // what already holds the index name `t_<type>_<a>_ix`
+    // (`storage-schema.md` §5): the store's index on the state's source, a
+    // uniqueness's key index, `t_<type>_<b>_key_ix`, or the actor identity's
+    // folded one, `t_<type>_<b>_fold_ix`
+    let index_taken = |tn: &str, a: &str, attrs: &Obj| -> Option<String> {
+        if a == "asserted" {
+            return Some(format!("the store's index on {tn}.state_source"));
+        }
+        let (base, suffix) = a.rsplit_once('_')?;
+        let spec = attrs.get(base)?;
+        match suffix {
+            "key" if flag(spec, "unique") => {
+                Some(format!("the key index of {tn}.{base}'s uniqueness"))
+            }
+            "fold" if flag(spec, "actor_kind") => Some(format!(
+                "the folded index of {tn}.{base}, its actor identity"
+            )),
+            _ => None,
+        }
+    };
+    let index_error = |path: Path, tn: &str, a: &str, taken: &str| {
+        (
+            path,
+            "names".to_string(),
+            format!(
+                "{tn}.{a} is indexed, and its index would take the name of {taken}; name the attribute otherwise (storage-schema.md §5, ADR-0267)"
+            ),
+        )
     };
     let mut out = Found::new();
     for (tn, t) in types(doc) {
@@ -347,6 +380,15 @@ pub fn column_errors(doc: &Value) -> Found {
                     format!(
                         "{tn}.{a} is a column every row of {tn}'s table has; name the attribute otherwise (storage-schema.md §3.2, ADR-0265)"
                     ),
+                ));
+            } else if indexed(spec)
+                && let Some(taken) = index_taken(tn.as_str(), a, attrs)
+            {
+                out.push(index_error(
+                    at(&["types", tn.as_str(), "attributes", a.as_str()]),
+                    tn.as_str(),
+                    a,
+                    &taken,
                 ));
             }
         }
