@@ -1,0 +1,18 @@
+examples_for: points
+setups:
+  two:
+    description: Two things.
+    steps:
+      - request: { type: Thing, transition: add, as: a }
+      - request: { type: Thing, transition: add, as: b }
+examples:
+  it_is_reassigned:
+    description: A points at b.
+    given: two
+    request: { object: a, transition: reassign, inputs: { to: b, admits: 2 } }
+    expect: { verdict: applied, state: OPEN }
+  it_is_held:
+    description: A is put in HELD.
+    given: two
+    request: { object: a, transition: correct_state, inputs: { to: DONE, reason: Reason.MIS_KEYED } }
+    expect: { verdict: applied, state: HELD }

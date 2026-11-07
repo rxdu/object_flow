@@ -1,0 +1,35 @@
+module: points
+categories: [live, closed]
+enumerations:
+  Reason: [MIS_KEYED]
+types:
+  Thing:
+    description: One thing.
+    tracking: record
+    attributes:
+      points_at: { reference: Thing, optional: true }
+      count: { type: int, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      HELD: { description: Held., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: OPEN, description: Adds it. }
+      reassign:
+        kind: internal
+        from: [OPEN]
+        description: Points it at another.
+        inputs:
+          to: { reference: Thing }
+          admits: { type: int, optional: true }
+        effect:
+          - assign: { location: points_at, expr: inputs.to }
+          - assign: { location: count, expr: inputs.admits }
+      correct_state:
+        kind: assertion
+        to: [OPEN, HELD]
+        description: Puts it in the state it is really in.
+        inputs:
+          reason: { type: Reason }
+      hold: { kind: external, from: [OPEN], to: HELD, description: Holds it. }
+      finish: { kind: external, from: [OPEN, HELD], to: DONE, description: Finishes it. }

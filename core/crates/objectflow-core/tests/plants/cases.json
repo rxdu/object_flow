@@ -30677,6 +30677,122 @@
   "could_violate": {}
  },
  {
+  "label": "named_to_plants: an internal transition's inputs named to and admits",
+  "files": [
+   [
+    "points.yaml",
+    "60f2caaa914e596c"
+   ],
+   [
+    "points.examples.yaml",
+    "7d905800a81748de"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "points.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example requests 1 transition of points as the request under test, which only a setup, a step or an expected cascade takes: Thing.add"
+   ],
+   [
+    "points.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of points, by its request, a step, a setup or a cascade it expects: Thing.finish, Thing.hold"
+   ]
+  ],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "named_to_plants: a value of to that is no alias",
+  "files": [
+   [
+    "points.yaml",
+    "60f2caaa914e596c"
+   ],
+   [
+    "points.examples.yaml",
+    "f7b86e9c6157c693"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "points.examples.yaml",
+    12,
+    "fatal",
+    "names",
+    "'to' is a reference to Thing, and 'nobody' is not an alias an earlier step gave one"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "named_to_plants: a value of admits that is no integer",
+  "files": [
+   [
+    "points.yaml",
+    "60f2caaa914e596c"
+   ],
+   [
+    "points.examples.yaml",
+    "52373163c63b5448"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "points.examples.yaml",
+    12,
+    "fatal",
+    "names",
+    "'admits' is an int"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "named_to_plants: an assertion's to that is no target state",
+  "files": [
+   [
+    "points.yaml",
+    "60f2caaa914e596c"
+   ],
+   [
+    "points.examples.yaml",
+    "f79eed5abca3fdde"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "points.examples.yaml",
+    17,
+    "fatal",
+    "names",
+    "'DONE' is not a state Thing.correct_state may put an object in"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "actor_move_plants: the plain rename",
   "files": [
    [

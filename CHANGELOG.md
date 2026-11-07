@@ -6,6 +6,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Fixed
 
+- The examples' checkers read an input named `to` as an assertion's target state, and skipped the value of one named `admits`, on every kind of transition, where the request path holds both to an assertion. So an example of a transition taking its own input `to` could not be written (issue #74).
 - `scripts/mirror-version.py` wrote a type's `taken_by` after its other keys, and the checker refused its output at `order`. It now writes the type's keys in the checker's own order (issue #75).
 
 ## 0.19.0, 2026-11-06

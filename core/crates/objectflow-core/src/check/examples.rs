@@ -297,7 +297,9 @@ impl Checker {
                     "names",
                     format!("{tn}.{xn} takes no input '{k}'"),
                 ));
-            } else if k == "to" {
+            } else if k == "to" && builtin.contains("to") {
+                // an assertion's target; another transition's `to` is its
+                // own input, as the request path takes it (#74)
                 if !targets(&x).contains(&py_str(v)) {
                     errs.push(finding(
                         here,
@@ -308,7 +310,7 @@ impl Checker {
                         ),
                     ));
                 }
-            } else if k != "admits" && !v.is_null() {
+            } else if !builtin.contains(k.as_str()) && !v.is_null() {
                 // a null is not supplied, or clears a clearable input
                 // (ADR-0262)
                 let spec = if own.contains_key(k) {

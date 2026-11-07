@@ -6216,10 +6216,10 @@ def example_errors(doc, kinds, modules):
         for k, v in given.items():
             if k not in taken(x) | builtin:
                 errs.append((path + ("inputs", k), "names", f"{tn}.{r['transition']} takes no input '{k}'"))
-            elif k == "to":
+            elif k == "to" and k in builtin:     # an assertion's target; another transition's `to` is its own (#74)
                 if v not in targets(x):
                     errs.append((path + ("inputs", k), "names", f"'{v}' is not a state {tn}.{r['transition']} may put an object in"))
-            elif k != "admits" and v is not None:      # a null is not supplied, or clears a clearable input (ADR-0262)
+            elif k not in builtin and v is not None:      # a null is not supplied, or clears a clearable input (ADR-0262)
                 errs += value_errors(v, own.get(k) if k in own else attrs.get(k), env, path + ("inputs", k), k)
         left = required_input_names(x) - {k for k, v in given.items() if v is not None}
         # a required input of an optional or defaulted attribute left out is refused by its generated guard, after the
@@ -11958,6 +11958,56 @@ def clearable_plants():
     return ok
 
 
+def named_to_plants():
+    """An input named `to` or `admits` on a transition that is no assertion is its own input, as the request path takes
+    it (issue #74): an example giving each its value is clean, and a value not of the input's type is refused as any
+    input's; an assertion's `to` is still a target state."""
+    module = ("module: points\ncategories: [live, closed]\nenumerations:\n  Reason: [MIS_KEYED]\ntypes:\n  Thing:\n    description: One thing.\n"
+              "    tracking: record\n    attributes:\n      points_at: { reference: Thing, optional: true }\n"
+              "      count: { type: int, optional: true }\n    states:\n      OPEN: { description: Open., category: live }\n"
+              "      HELD: { description: Held., category: live }\n"
+              "      DONE: { description: Done., category: closed, final: true }\n    transitions:\n"
+              "      add: { kind: initial, to: OPEN, description: Adds it. }\n"
+              "      reassign:\n        kind: internal\n        from: [OPEN]\n        description: Points it at another.\n"
+              "        inputs:\n          to: { reference: Thing }\n          admits: { type: int, optional: true }\n"
+              "        effect:\n          - assign: { location: points_at, expr: inputs.to }\n"
+              "          - assign: { location: count, expr: inputs.admits }\n"
+              "      correct_state:\n        kind: assertion\n        to: [OPEN, HELD]\n"
+              "        description: Puts it in the state it is really in.\n        inputs:\n          reason: { type: Reason }\n"
+              "      hold: { kind: external, from: [OPEN], to: HELD, description: Holds it. }\n"
+              "      finish: { kind: external, from: [OPEN, HELD], to: DONE, description: Finishes it. }\n")
+    examples = ("examples_for: points\nsetups:\n  two:\n    description: Two things.\n    steps:\n"
+                "      - request: { type: Thing, transition: add, as: a }\n"
+                "      - request: { type: Thing, transition: add, as: b }\n"
+                "examples:\n  it_is_reassigned:\n    description: A points at b.\n    given: two\n"
+                "    request: { object: a, transition: reassign, inputs: { {given} } }\n"
+                "    expect: { verdict: applied, state: OPEN }\n"
+                "  it_is_held:\n    description: A is put in HELD.\n    given: two\n"
+                "    request: { object: a, transition: correct_state, inputs: { {asserted} } }\n"
+                "    expect: { verdict: applied, state: HELD }\n")
+
+    def files(given="to: b, admits: 2", asserted="to: HELD, reason: Reason.MIS_KEYED"):
+        return [("points.yaml", module),
+                ("points.examples.yaml", examples.replace("{given}", given).replace("{asserted}", asserted))]
+    cases = [
+        ("an internal transition's inputs named to and admits", files(), []),
+        ("a value of to that is no alias", files(given="to: nobody"),
+         ["'to' is a reference to Thing, and 'nobody' is not an alias an earlier step gave one"]),
+        ("a value of admits that is no integer", files(given="to: b, admits: many"),
+         ["'admits' is an int"]),
+        ("an assertion's to that is no target state", files(asserted="to: DONE, reason: Reason.MIS_KEYED"),
+         ["'DONE' is not a state Thing.correct_state may put an object in"]),
+    ]
+    ok = True
+    for name, given, want in cases:
+        found, notes = check(given)
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  an input named to, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def trim_plants():
     """`trim`, the string without the white space around it (ADR-0249): a guard reading it is clean, a value other than
     a string is refused, and an indexed derivation calling it is refused, since its generated column's SQL trims spaces
@@ -12227,6 +12277,7 @@ def main():
     ok &= not_blank_plants()
     ok &= inherited_name_plants()
     ok &= clearable_plants()
+    ok &= named_to_plants()
     ok &= actor_move_plants()
     ok &= value_plants()
     ok &= trim_plants()
