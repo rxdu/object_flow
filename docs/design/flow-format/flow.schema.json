@@ -1905,6 +1905,23 @@
             }
           }
         },
+        "clear": {
+          "type": "object",
+          "description": "For each type, each optional attribute whose value a live object loses, and the condition over the object's own members and literals on which it loses it, run after the backfills (ADR-0268).",
+          "propertyNames": {
+            "$ref": "#/definitions/typeName"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+              "$ref": "#/definitions/memberName"
+            },
+            "additionalProperties": {
+              "$ref": "#/definitions/expression"
+            }
+          }
+        },
         "admit": {
           "type": "array",
           "minItems": 1,

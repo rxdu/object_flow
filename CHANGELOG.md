@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Added
+
+- A version's migration may `clear` an attribute where a condition holds, as `clear: { Thing: { code: 'code == ""' } }`, so a store that kept an empty text for "none" can move its objects to an optional text marked `not_blank` (issue #82, ADR-0268). It clears what an effect's `clear` may, its condition a `bool` reading what a backfill reads. Clears run after the backfills, so a backfill trimming a text may be followed by a clear of what is left blank. Each object cleared is named under `mapping:clear:<Type>.<attribute>`, and a clear runs once on a store, as a backfill does. A module without the key behaves as before.
+
 ### Changed, and may refuse what 0.20.0 accepted
 
 - Step 3 refuses an attribute the store indexes, marked `indexed` or `external`, named so that its index takes a name the store gives another: `asserted`, `<a>_key` beside a unique `a`, or `<a>_fold` beside the actor identity `a`. The first two were published with an index lost, the actor identity's folded one among them; the third was refused by the dry run in the store's words (ADR-0267).

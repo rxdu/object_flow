@@ -1,0 +1,27 @@
+module: family
+categories: [live, closed]
+types:
+  Item:
+    description: An item.
+    abstract: true
+    tracking: record
+    attributes:
+      code: { type: string }
+  Thing:
+    description: One thing.
+    extends: Item
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [code] }
+      scrap: { kind: external, from: [ON], to: OFF }
+  Gadget:
+    description: One gadget.
+    extends: Item
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [code] }
+      scrap: { kind: external, from: [ON], to: OFF }

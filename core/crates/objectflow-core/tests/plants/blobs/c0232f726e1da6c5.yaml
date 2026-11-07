@@ -1,0 +1,33 @@
+examples_for: codes
+setups:
+  three:
+    description: Three things.
+    steps:
+      - request: { type: Thing, transition: add, as: empty, inputs: { code: "" } }
+      - request: { type: Thing, transition: add, as: spaced, inputs: { code: "  " } }
+      - request: { type: Thing, transition: add, as: coded, inputs: { code: A } }
+      - publish: { source: [codes-v2.yaml] }
+examples:
+  an_empty_code_is_cleared:
+    description: The empty code has none.
+    given: three
+    request: { object: empty, transition: scrap }
+    expect: { verdict: applied, state: OFF, values: { code: null } }
+  a_code_of_white_space_is_trimmed_and_cleared:
+    description: The backfill runs first.
+    given: three
+    request: { object: spaced, transition: scrap }
+    expect: { verdict: applied, state: OFF, values: { code: null } }
+  a_code_is_kept:
+    description: A is kept.
+    given: three
+    request: { object: coded, transition: scrap }
+    expect: { verdict: applied, state: OFF, values: { code: A } }
+  a_kept_clear_runs_no_more:
+    description: X written under version 2 stays.
+    given: three
+    steps:
+      - request: { type: Thing, transition: add, as: later, inputs: { code: X } }
+      - publish: { source: [codes-v3.yaml] }
+    request: { object: later, transition: scrap }
+    expect: { verdict: applied, state: OFF, values: { code: X } }

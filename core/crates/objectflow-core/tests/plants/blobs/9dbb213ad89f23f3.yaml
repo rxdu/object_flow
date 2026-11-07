@@ -1,0 +1,19 @@
+examples_for: family
+setups:
+  two:
+    description: A thing and a gadget.
+    steps:
+      - request: { type: Thing, transition: add, as: thing, inputs: { code: "" } }
+      - request: { type: Gadget, transition: add, as: gadget, inputs: { code: "" } }
+      - publish: { source: [family-v2.yaml] }
+examples:
+  a_thing_is_cleared:
+    description: The thing's code is none.
+    given: two
+    request: { object: thing, transition: scrap }
+    expect: { verdict: applied, state: OFF, values: { code: null } }
+  a_gadget_is_cleared:
+    description: The gadget's code is none.
+    given: two
+    request: { object: gadget, transition: scrap }
+    expect: { verdict: applied, state: OFF, values: { code: null } }

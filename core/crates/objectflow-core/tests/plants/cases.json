@@ -31294,6 +31294,1148 @@
   "could_violate": {}
  },
  {
+  "label": "clear_plants: an optional text, an enumeration and a reference, each on a condition",
+  "files": [
+   [
+    "codes.yaml",
+    "4a974e62cd11f954"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Part": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "clear_plants: a type the module does not declare",
+  "files": [
+   [
+    "codes.yaml",
+    "9a16c49053c602ae"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "codes.yaml",
+    32,
+    "fatal",
+    "names",
+    "the migration clears Ghost, which this module does not declare"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "clear_plants: no stored attribute",
+  "files": [
+   [
+    "codes.yaml",
+    "2fd7f0936ae1d8b1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "codes.yaml",
+    32,
+    "fatal",
+    "names",
+    "the migration clears Thing.label, which is not a stored attribute of Thing"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "clear_plants: a required attribute",
+  "files": [
+   [
+    "codes.yaml",
+    "0e0861afe200b473"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "codes.yaml",
+    32,
+    "fatal",
+    "names",
+    "the migration clears Thing.name, which is not an optional, singular attribute or reference that clear may clear (the model's check 17)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "clear_plants: a condition reading the clock",
+  "files": [
+   [
+    "codes.yaml",
+    "97db131d35b7c6e5"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "codes.yaml",
+    32,
+    "fatal",
+    "names",
+    "the clear of Thing.code reads 'now'; a clear's condition reads the object's own members and literals"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "clear_plants: a condition naming no member",
+  "files": [
+   [
+    "codes.yaml",
+    "6ace5beee1f0ac45"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "codes.yaml",
+    32,
+    "fatal",
+    "names",
+    "the clear of Thing.grade names Grade.C, and Grade has no C"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "clear_plants: a condition that is no bool",
+  "files": [
+   [
+    "codes.yaml",
+    "ee1a676068041b52"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "codes.yaml",
+    32,
+    "fatal",
+    "names",
+    "the clear of Thing.code does not type: it is a string, not a bool (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "c0232f726e1da6c5"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "c0232f726e1da6c5"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "c0232f726e1da6c5"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "c0232f726e1da6c5"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "c0232f726e1da6c5"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "c0232f726e1da6c5"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "c0232f726e1da6c5"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "c0232f726e1da6c5"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "884f92766ca8b66a"
+   ]
+  ],
+  "previous": {
+   "codes": "0674a621da502c43"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "884f92766ca8b66a"
+   ]
+  ],
+  "previous": {
+   "codes": "0674a621da502c43"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "clear_plants: run by the reference runner's examples",
+  "files": [
+   [
+    "codes.yaml",
+    "4c418a8bb7c58ff8"
+   ],
+   [
+    "codes.examples.yaml",
+    "c0232f726e1da6c5"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "codes.examples.yaml",
+    10,
+    "notice",
+    "coverage",
+    "no example requests 1 transition of codes as the request under test, which only a setup, a step or an expected cascade takes: Thing.add"
+   ],
+   [
+    "codes.examples.yaml",
+    10,
+    "notice",
+    "coverage",
+    "no example takes 1 transition of codes, by its request, a step, a setup or a cascade it expects: Thing.scrap"
+   ]
+  ],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "reads": {
+   "codes-v2.yaml": "0674a621da502c43",
+   "codes-v3.yaml": "884f92766ca8b66a"
+  }
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "4b61e944b039b623"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "4b61e944b039b623"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "4b61e944b039b623"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "4b61e944b039b623"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "4b61e944b039b623"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "4b61e944b039b623"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "4b61e944b039b623"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "0674a621da502c43"
+   ]
+  ],
+  "previous": {
+   "codes": "4c418a8bb7c58ff8",
+   "codes.examples": "4b61e944b039b623"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "884f92766ca8b66a"
+   ]
+  ],
+  "previous": {
+   "codes": "0674a621da502c43"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "codes",
+    "884f92766ca8b66a"
+   ]
+  ],
+  "previous": {
+   "codes": "0674a621da502c43"
+  },
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Thing.code_not_blank": "local"
+  },
+  "could_violate": {
+   "Thing.code_not_blank": [
+    "Thing.add"
+   ]
+  },
+  "installed": true
+ },
+ {
+  "label": "clear_plants: run by the reference runner's examples",
+  "files": [
+   [
+    "codes.yaml",
+    "4c418a8bb7c58ff8"
+   ],
+   [
+    "codes.examples.yaml",
+    "4b61e944b039b623"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "codes.examples.yaml",
+    10,
+    "notice",
+    "coverage",
+    "no example requests 1 transition of codes as the request under test, which only a setup, a step or an expected cascade takes: Thing.add"
+   ],
+   [
+    "codes.examples.yaml",
+    10,
+    "notice",
+    "coverage",
+    "no example takes 1 transition of codes, by its request, a step, a setup or a cascade it expects: Thing.scrap"
+   ],
+   [
+    "codes.examples.yaml",
+    26,
+    "fatal",
+    "example",
+    "a_kept_clear_runs_no_more: expected code to hold Y, and it holds X"
+   ]
+  ],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "reads": {
+   "codes-v2.yaml": "0674a621da502c43",
+   "codes-v3.yaml": "884f92766ca8b66a"
+  }
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "family",
+    "7de9c275bde97727"
+   ]
+  ],
+  "previous": {
+   "family": "e9d92907c14cdac4",
+   "family.examples": "9dbb213ad89f23f3"
+  },
+  "findings": [],
+  "analysed": {
+   "Gadget": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "family",
+    "7de9c275bde97727"
+   ]
+  ],
+  "previous": {
+   "family": "e9d92907c14cdac4",
+   "family.examples": "9dbb213ad89f23f3"
+  },
+  "findings": [],
+  "analysed": {
+   "Gadget": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "family",
+    "7de9c275bde97727"
+   ]
+  ],
+  "previous": {
+   "family": "e9d92907c14cdac4",
+   "family.examples": "9dbb213ad89f23f3"
+  },
+  "findings": [],
+  "analysed": {
+   "Gadget": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "family",
+    "7de9c275bde97727"
+   ]
+  ],
+  "previous": {
+   "family": "e9d92907c14cdac4",
+   "family.examples": "9dbb213ad89f23f3"
+  },
+  "findings": [],
+  "analysed": {
+   "Gadget": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "installed": true
+ },
+ {
+  "label": "clear_plants: keyed by an abstract base",
+  "files": [
+   [
+    "family.yaml",
+    "e9d92907c14cdac4"
+   ],
+   [
+    "family.examples.yaml",
+    "9dbb213ad89f23f3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "family.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of family as the request under test, which only a setup, a step or an expected cascade takes: Gadget.add, Thing.add"
+   ],
+   [
+    "family.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of family, by its request, a step, a setup or a cascade it expects: Gadget.scrap, Thing.scrap"
+   ]
+  ],
+  "analysed": {
+   "Gadget": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "reads": {
+   "family-v2.yaml": "7de9c275bde97727"
+  }
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "family",
+    "7de9c275bde97727"
+   ]
+  ],
+  "previous": {
+   "family": "e9d92907c14cdac4",
+   "family.examples": "11dcdabc0bb93fdf"
+  },
+  "findings": [],
+  "analysed": {
+   "Gadget": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "family",
+    "7de9c275bde97727"
+   ]
+  ],
+  "previous": {
+   "family": "e9d92907c14cdac4",
+   "family.examples": "11dcdabc0bb93fdf"
+  },
+  "findings": [],
+  "analysed": {
+   "Gadget": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "family",
+    "7de9c275bde97727"
+   ]
+  ],
+  "previous": {
+   "family": "e9d92907c14cdac4",
+   "family.examples": "11dcdabc0bb93fdf"
+  },
+  "findings": [],
+  "analysed": {
+   "Gadget": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "installed": true
+ },
+ {
+  "label": "simulate",
+  "files": [
+   [
+    "family",
+    "7de9c275bde97727"
+   ]
+  ],
+  "previous": {
+   "family": "e9d92907c14cdac4",
+   "family.examples": "11dcdabc0bb93fdf"
+  },
+  "findings": [],
+  "analysed": {
+   "Gadget": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "installed": true
+ },
+ {
+  "label": "clear_plants: keyed by an abstract base",
+  "files": [
+   [
+    "family.yaml",
+    "e9d92907c14cdac4"
+   ],
+   [
+    "family.examples.yaml",
+    "11dcdabc0bb93fdf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "family.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of family as the request under test, which only a setup, a step or an expected cascade takes: Gadget.add, Thing.add"
+   ],
+   [
+    "family.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of family, by its request, a step, a setup or a cascade it expects: Gadget.scrap, Thing.scrap"
+   ],
+   [
+    "family.examples.yaml",
+    10,
+    "fatal",
+    "example",
+    "a_thing_is_cleared: expected code to hold , and it holds absent"
+   ],
+   [
+    "family.examples.yaml",
+    15,
+    "fatal",
+    "example",
+    "a_gadget_is_cleared: expected code to hold , and it holds absent"
+   ]
+  ],
+  "analysed": {
+   "Gadget": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {},
+  "reads": {
+   "family-v2.yaml": "7de9c275bde97727"
+  }
+ },
+ {
   "label": "type_loop_plants: a loop over a set input",
   "files": [
    [

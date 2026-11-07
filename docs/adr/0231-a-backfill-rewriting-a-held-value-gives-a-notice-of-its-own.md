@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-26 under the author's direction ("go with your recommendations"), after the comment on issue #41.
 - **Date:** 2026-10-26
+- **Refined by:** ADR-0268 — a migration's clear removes a held value, and names its objects under a notice of its own, not under `backfill_rewrites`.
 - **Refines:** ADR-0147 (a backfill and the order of a publish's mappings); ADR-0230 decision 4 (a backfill runs once on a store)
 - **Relates to:** PRD F2; `docs/research/moving-objects-between-types.md` §7
 

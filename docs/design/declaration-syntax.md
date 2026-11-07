@@ -780,6 +780,7 @@ removed member RetirementReason.OBSOLETE -> FAILED
 renamed enum   ReasonCode -> RetirementReason
 renamed attr   Robot.old_name -> new_name
 backfill       Robot.manufacturer_serial := "UNKNOWN"
+clear          Robot.label_printed_at where manufacturer_serial == "UNKNOWN"
 admit          Robot.one_open_engagement because OverrideReason.LEGACY_DATA
 ```
 
@@ -792,6 +793,7 @@ A publish that drops a state carries its mapping. A dropped attribute merely hid
 - a new required singular **reference** is filled by `backfill` in the same way, from an expression the object's own members yield; a new required singular **part** on a type with live objects is refused, since filling it means creating an object per whole, so it is declared optional or set-valued (check 23, ADR-0101);
 - a migration reaches **every object the change affects, terminal ones included**, a mirror's too, and every object of a family where a mapping names its abstract base, a concrete type's mapping naming an inherited member as well; a retired type's objects are not migrated (ADR-0147): it is the publish's own recorded change, not a transition the object takes, and so the second exception, beside erasure, to a terminal state admitting nothing further (ADR-0101). It never reaches an **observation**, which is born final (PRD D4), so a publish removing an enum member any observation holds is refused (check 23);
 - a `backfill` expression is a write like any other for check 10, so it may not copy a personal value into a non-personal attribute;
+- **`clear <Type>.<attribute> where <condition>`** gives the attribute no value on each object where the condition holds, after every backfill, the condition reading what a backfill reads and the object as the backfills left it; it clears what an outcome's `clear` may, and runs once on a store, as a backfill does (`flow-format.md` §4.16, ADR-0268);
 - a removed **type** or **observation kind** is retired: nothing is created in it and no transition applies but its erasure, so the personal data its objects hold can still be erased, and its objects, table and history stay readable under the versions that wrote them; *(corrected 2026-10-14: its erasure was dropped with its other transitions, so nothing could erase what it held; the audit's personal data S14)* a removed type holding an object not in a final state is retired only where the version says so, and a version may instead move its objects into types of its own, each keeping its id, which the flow format writes as `retired_types` and `moved_types` (`flow-format.md` §4.16, ADR-0229);
 - **a migration is checked against every invariant** (ADR-0105), and **a publish leaves no object in a violation nobody admitted** (ADR-0146), a violation being resolved by the objects' own transitions before the publish, by a mapping or a `backfill`, or by an **`admit`**, the preferred placeholder; over which objects, and when, is `publish-and-import.md` §1's (check 23, ADR-0148);
 - **`admit <Type>.<invariant> because <Enum>.<MEMBER>`** records an admission, with the reason, a member of a declared enum as an assertion's reason is, so overrides stay countable per reason, on each object that violates the invariant after the publish, on that object's migration event — an object no other mapping changes receives a `migrated` event carrying only the admission. It is an override, authorised by the publish's approval: `exceptions(type)` lists the object and `override_counts` counts it (§6.11). An `admit` naming an invariant the publish does not leave violated on any object is reported, and one naming no invariant of the closure, or a reason that is no member of a declared enum, is refused (check 19). An `admit` of an invariant compiled to a database constraint drops the constraint before the migration writes, since a constraint cannot yield for one row, and the invariant stays uncompiled while any admission of it stands (`storage-schema.md` §8, §10, ADR-0074);
@@ -1479,6 +1481,7 @@ removed member <Enum>.<MEMBER> -> <MEMBER>
 renamed enum   <Enum> -> <Enum>
 renamed attr   <Type>.<name> -> <name>
 backfill       <Type>.<attribute> := <expression>
+clear          <Type>.<attribute> where <expression>
 admit          <Type>.<invariant> because <Enum>.<MEMBER>
 ```
 

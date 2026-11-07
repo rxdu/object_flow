@@ -1486,6 +1486,50 @@ fn impact(
             }
         }
     }
+    // then clears, in the order written, each condition reading the object
+    // as the backfills left it, clearing a value it holds where the
+    // condition is true; one the installed version's migration holds,
+    // unchanged, runs once on a store, as a backfill does (ADR-0268)
+    for (tn, attr, e) in &m.clear {
+        if old
+            .migration
+            .clear
+            .iter()
+            .any(|c| (&c.0, &c.1, &c.2) == (tn, attr, e))
+        {
+            found.add(
+                Severity::Notice,
+                format!("migration_applied:clear:{tn}.{attr}"),
+                format!(
+                    "the installed version, {}, ran this clear of {tn}.{attr} unchanged, and a clear runs once on a store: it clears nothing",
+                    old.version
+                ),
+                None,
+            );
+            continue;
+        }
+        let ids: Vec<String> = sim.of_type(tn)?.iter().map(|o| o.id.clone()).collect();
+        for id in ids {
+            let Some(o) = sim.get(&id)? else { continue };
+            let Some(t) = new.type_(&o.type_).filter(|t| t.observation_on.is_none()) else {
+                continue;
+            };
+            if o.attr(attr).is_absent()
+                || Evaluator::new(&sim, Some(t), Some(&id)).eval(e)? != Value::Bool(true)
+            {
+                continue;
+            }
+            found.add(
+                Severity::Notice,
+                format!("mapping:clear:{tn}.{attr}"),
+                format!("the clear of {tn}.{attr} removes the value these objects hold"),
+                Some(&id),
+            );
+            if let Some(o) = sim.get_mut(&id)? {
+                o.attrs.remove(attr);
+            }
+        }
+    }
     // a reference holds an object of the type it references: one a mapping
     // wrote, given, carried or backfilled, its value fitted by its kind
     // alone, and one to an object that moves, where its type references a
@@ -8665,6 +8709,168 @@ migration:
             "{:#?}",
             again.findings
         );
+    }
+
+    /// The things' codes, first version: `code` a required text, which
+    /// `make` takes, and `note`, which none is given.
+    const CODES_V1: &str = r#"
+module: things
+categories: [live, closed]
+types:
+  Thing:
+    description: A thing.
+    tracking: record
+    attributes:
+      code: { type: string }
+      note: { type: string, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      make: { kind: initial, to: OPEN, required_inputs: [code], optional_inputs: [note] }
+      shut: { kind: external, from: OPEN, to: DONE }
+"#;
+
+    /// A migration's `clear` gives an attribute no value where its
+    /// condition holds: the second version makes `code` optional and never
+    /// blank, trims each code and clears each left empty, a white-space code
+    /// among them, since clears run after the backfills; each cleared object
+    /// is named and its migration records the write, and `A`, whose
+    /// condition is unknown, is kept. Kept
+    /// unchanged, the clear runs no more on the store; changed, it runs
+    /// (ADR-0268, issue #82).
+    #[test]
+    fn a_migrations_clear_gives_an_attribute_no_value_where_its_condition_holds() {
+        let lib = Library::load(&[("things.yaml".into(), CODES_V1.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let mut make = |code: &str| {
+            created(&req(
+                &mut s,
+                "make",
+                ("Thing", true),
+                json!({ "code": code }),
+            ))
+        };
+        let (empty, spaced, coded) = (make(""), make("  "), make("A"));
+        let v2 = |description: &str, condition: &str| {
+            CODES_V1
+                .replace(
+                    "description: A thing.",
+                    &format!("description: {description}"),
+                )
+                .replace(
+                    "code: { type: string }",
+                    "code: { type: string, optional: true, not_blank: true }",
+                )
+                .replace(
+                    "required_inputs: [code], optional_inputs: [note]",
+                    "optional_inputs: [code, note]",
+                )
+                + &format!(
+                    "migration:\n  description: An empty code is none.\n  backfill:\n    Thing: {{ code: 'trim(code)' }}\n  clear:\n    Thing: {{ code: '{condition}' }}\n"
+                )
+        };
+        // `A`'s condition is unknown, its note absent, and clears nothing
+        let kept = "code == \"\" or note == \"n\"";
+        let report = things_published(&mut s, &v2("A thing.", kept));
+        assert_eq!(
+            ids(&report, "mapping:backfill:Thing.code"),
+            vec![spaced.clone()]
+        );
+        assert_eq!(
+            ids(&report, "mapping:clear:Thing.code"),
+            vec![empty.clone(), spaced.clone()],
+            "{:#?}",
+            report.findings
+        );
+        let code = |s: &Store, id: &str| {
+            s.snapshot()
+                .unwrap()
+                .whole(id)
+                .unwrap()
+                .unwrap()
+                .attr("code")
+        };
+        assert_eq!(code(&s, &empty), Value::Absent);
+        assert_eq!(code(&s, &spaced), Value::Absent);
+        assert_eq!(code(&s, &coded), Value::Text("A".into()));
+        let migrated = s
+            .history(&empty)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.transition == "migrate")
+            .expect("the clear's migration");
+        assert_eq!(
+            migrated.payload["wrote"]["code"],
+            json!(null),
+            "{:#?}",
+            migrated.payload
+        );
+        assert!(
+            migrated.payload["wrote"]
+                .as_object()
+                .is_some_and(|w| w.contains_key("code")),
+            "{:#?}",
+            migrated.payload
+        );
+        assert_eq!(
+            migrated.payload["mappings"],
+            json!(["mapping:clear:Thing.code"])
+        );
+        // kept, it runs no more
+        let again = things_published(&mut s, &v2("A thing, kept.", kept));
+        assert!(
+            notice(&again, "migration_applied:clear:Thing.code"),
+            "{:#?}",
+            again.findings
+        );
+        assert!(ids(&again, "mapping:clear:Thing.code").is_empty());
+        // changed, it runs
+        let changed = things_published(&mut s, &v2("A thing, changed.", "code == \"A\""));
+        assert_eq!(
+            ids(&changed, "mapping:clear:Thing.code"),
+            vec![coded.clone()]
+        );
+        assert_eq!(code(&s, &coded), Value::Absent);
+    }
+
+    /// A clear keyed by an abstract base reaches every type of its family,
+    /// as a backfill does (ADR-0268 decision 7).
+    #[test]
+    fn a_clear_keyed_by_an_abstract_base_reaches_its_family() {
+        let sub = |n: &str| {
+            format!(
+                "  {n}:\n    description: One {n}.\n    extends: Item\n    states:\n      OPEN: {{ description: Open., category: live }}\n      DONE: {{ description: Done., category: closed, final: true }}\n    transitions:\n      make: {{ kind: initial, to: OPEN, required_inputs: [code] }}\n      shut: {{ kind: external, from: OPEN, to: DONE }}\n"
+            )
+        };
+        let v1 = format!(
+            "module: things\ncategories: [live, closed]\ntypes:\n  Item:\n    description: An item.\n    abstract: true\n    tracking: record\n    attributes:\n      code: {{ type: string }}\n{}{}",
+            sub("Thing"),
+            sub("Gadget")
+        );
+        let lib = Library::load(&[("things.yaml".into(), v1.clone())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let thing = created(&req(&mut s, "make", ("Thing", true), json!({ "code": "" })));
+        let gadget = created(&req(
+            &mut s,
+            "make",
+            ("Gadget", true),
+            json!({ "code": "" }),
+        ));
+        let v2 = v1.replace(
+            "code: { type: string }",
+            "code: { type: string, optional: true }",
+        ) + "migration:\n  description: An empty code is none.\n  clear:\n    Item: { code: 'code == \"\"' }\n";
+        let report = things_published(&mut s, &v2);
+        let mut cleared = ids(&report, "mapping:clear:Item.code");
+        cleared.sort();
+        let mut both = vec![thing.clone(), gadget.clone()];
+        both.sort();
+        assert_eq!(cleared, both, "{:#?}", report.findings);
+        let w = s.snapshot().unwrap();
+        for id in [&thing, &gadget] {
+            assert_eq!(w.whole(id).unwrap().unwrap().attr("code"), Value::Absent);
+        }
     }
 
     /// A value a move carried into its target is held there, so a backfill

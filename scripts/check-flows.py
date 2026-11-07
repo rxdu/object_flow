@@ -1943,6 +1943,30 @@ def migration_errors(doc, v):
             for owner, value in re.findall(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b", str(expr)):
                 if owner in enums and value not in enums[owner]:
                     out.append((where + (a,), "names", f"the backfill of {tn}.{a} names {owner}.{value}, and {owner} has no {value}"))
+    # a clear gives no value where its condition holds, clearing what `clear` may: an optional, singular attribute or
+    # stored reference that is no composite end, its condition reading what a backfill reads (ADR-0268, the model's
+    # check 17)
+    for tn, maps in (m.get("clear") or {}).items():
+        where = ("migration", "clear", tn)
+        if tn not in kinds:
+            out.append((where, "names", f"the migration clears {tn}, which this module does not declare"))
+            continue
+        t = kinds[tn]
+        members = set(t.get("attributes") or {}) | set(t.get("derived_attributes") or {}) | BACKFILL_READS
+        for a, expr in maps.items():
+            spec = (t.get("attributes") or {}).get(a)
+            if spec is None:
+                out.append((where + (a,), "names", f"the migration clears {tn}.{a}, which is not a stored attribute of {tn}"))
+            elif (not spec.get("optional") or str(spec.get("reference", "")).endswith("[]")
+                  or str(spec.get("type", "")).endswith("[]") or spec.get("aggregation") == "composite"):
+                out.append((where + (a,), "names", f"the migration clears {tn}.{a}, which is not an optional, singular "
+                                                   "attribute or reference that clear may clear (the model's check 17)"))
+            for r in sorted(reads(expr) - members):
+                out.append((where + (a,), "names", f"the clear of {tn}.{a} reads '{r}'; a clear's condition reads the "
+                                                   "object's own members and literals"))
+            for owner, value in re.findall(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b", str(expr)):
+                if owner in enums and value not in enums[owner]:
+                    out.append((where + (a,), "names", f"the clear of {tn}.{a} names {owner}.{value}, and {owner} has no {value}"))
     moved, retired = m.get("moved_types") or {}, m.get("retired_types") or {}
     for tn in sorted(set(moved) & set(retired)):
         out.append((("migration", "retired_types", tn), "names", f"the migration both moves and retires {tn}; its objects are moved or retired, not both"))
@@ -3708,6 +3732,10 @@ def expression_type_errors(doc, library):
     for tn, given in ((doc.get("migration") or {}).get("backfill") or {}).items():
         for a, e in (given or {}).items():
             check(("migration", "backfill", tn, a), f"the backfill of {tn}.{a}", e, tn, None)
+    # a clear's condition, a bool (ADR-0268)
+    for tn, given in ((doc.get("migration") or {}).get("clear") or {}).items():
+        for a, e in (given or {}).items():
+            check(("migration", "clear", tn, a), f"the clear of {tn}.{a}", e, tn, None, want=("bool",))
     return out
 
 
@@ -5952,6 +5980,9 @@ def to_text(doc, library=None):
     for tn, maps in (mig.get("backfill") or {}).items():
         for a, expr in maps.items():
             emit(f"backfill       {tn}.{a} := {' '.join(str(expr).split())}", ("migration", "backfill", tn, a))
+    for tn, maps in (mig.get("clear") or {}).items():
+        for a, expr in maps.items():
+            emit(f"clear          {tn}.{a} where {' '.join(str(expr).split())}", ("migration", "clear", tn, a))
     for i, adm in enumerate(mig.get("admit") or []):
         emit(f"admit          {adm['invariant']} because {adm['reason']}", ("migration", "admit", i))
     return "\n".join(lines) + "\n", paths
@@ -12147,6 +12178,116 @@ def index_name_plants():
     return ok
 
 
+def clear_plants():
+    """A migration's clear gives an attribute no value where its condition holds (ADR-0268, issue #82): an optional
+    text, an enumeration and a reference cleared on a condition are clean; a clear of a type or an attribute the module
+    does not declare, of a required attribute, of a condition reading beyond the object or naming no member, or of a
+    condition that is no bool, is refused."""
+    base = ("module: codes\ncategories: [live, closed]\nenumerations:\n  Grade: [A, B]\ntypes:\n"
+            "  Part:\n    description: A part.\n    tracking: record\n    states:\n"
+            "      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+            "    transitions:\n      add: { kind: initial, to: ON }\n      scrap: { kind: external, from: [ON], to: OFF }\n"
+            "  Thing:\n    description: One thing.\n    tracking: record\n    attributes:\n"
+            "      name: { type: string }\n      code: { type: string, optional: true }\n"
+            "      grade: { type: Grade, optional: true }\n      part: { reference: Part, optional: true }\n    states:\n"
+            "      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+            "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [name], optional_inputs: [code, grade, part] }\n"
+            "      scrap: { kind: external, from: [ON], to: OFF }\n"
+            "migration:\n  description: Clears.\n  clear:\n")
+
+    def module(entries):
+        by = {}
+        for tn, a, e in entries:
+            by.setdefault(tn, []).append(f"{a}: '{e}'")
+        return [("codes.yaml", base + "".join(f"    {tn}: {{ {', '.join(es)} }}\n" for tn, es in by.items()))]
+    may = "which is not an optional, singular attribute or reference that clear may clear (the model's check 17)"
+    cases = [
+        ("an optional text, an enumeration and a reference, each on a condition",
+         [("Thing", "code", 'code == ""'), ("Thing", "grade", "grade == Grade.B"), ("Thing", "part", "code is null")], []),
+        ("a type the module does not declare", [("Ghost", "code", "true")],
+         ["the migration clears Ghost, which this module does not declare"]),
+        ("no stored attribute", [("Thing", "label", "true")],
+         ["the migration clears Thing.label, which is not a stored attribute of Thing"]),
+        ("a required attribute", [("Thing", "name", 'name == ""')], [f"the migration clears Thing.name, {may}"]),
+        ("a condition reading the clock", [("Thing", "code", "now is not null")],
+         ["the clear of Thing.code reads 'now'; a clear's condition reads the object's own members and literals"]),
+        ("a condition naming no member", [("Thing", "grade", "grade == Grade.C")],
+         ["the clear of Thing.grade names Grade.C, and Grade has no C"]),
+        ("a condition that is no bool", [("Thing", "code", "code")],
+         ["the clear of Thing.code does not type: it is a string, not a bool (the model's check 24)"]),
+    ]
+    ok = True
+    for name, entries, want in cases:
+        found, notes = check(module(entries))
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a migration's clear, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    # run by the reference runner through examples: version 2 trims each code and clears what is left empty, or `X`,
+    # after the backfill, `A`'s condition unknown, its note absent, clearing nothing; version 3, the clear kept, runs it
+    # no more, so an `X` written under version 2 stays
+    v1 = ("module: codes\ncategories: [live, closed]\ntypes:\n  Thing:\n    description: One thing.\n    tracking: record\n"
+          "    attributes:\n      code: { type: string }\n      note: { type: string, optional: true }\n    states:\n"
+          "      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+          "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [code], optional_inputs: [note] }\n"
+          "      scrap: { kind: external, from: [ON], to: OFF }\n")
+    v2 = (v1.replace("code: { type: string }", "code: { type: string, optional: true, not_blank: true }")
+          .replace("required_inputs: [code], optional_inputs: [note]", "optional_inputs: [code, note]")
+          + "migration:\n  description: An empty code is none.\n  backfill:\n    Thing: { code: 'trim(code)' }\n"
+            "  clear:\n    Thing: { code: 'code == \"\" or code == \"X\" or note == \"n\"' }\n")
+    versions = {"codes-v2.yaml": v2, "codes-v3.yaml": v2.replace("description: One thing.", "description: One thing, kept.")}
+    examples = ("examples_for: codes\nsetups:\n  three:\n    description: Three things.\n    steps:\n"
+                "      - request: { type: Thing, transition: add, as: empty, inputs: { code: \"\" } }\n"
+                "      - request: { type: Thing, transition: add, as: spaced, inputs: { code: \"  \" } }\n"
+                "      - request: { type: Thing, transition: add, as: coded, inputs: { code: A } }\n"
+                "      - publish: { source: [codes-v2.yaml] }\n"
+                "examples:\n"
+                + "".join(f"  {n}:\n    description: {d}\n    given: three\n{steps}"
+                          f"    request: {{ object: {o}, transition: scrap }}\n"
+                          f"    expect: {{ verdict: applied, state: OFF, values: {{ code: {v} }} }}\n"
+                          for n, d, steps, o, v in [
+                              ("an_empty_code_is_cleared", "The empty code has none.", "", "empty", "null"),
+                              ("a_code_of_white_space_is_trimmed_and_cleared", "The backfill runs first.", "", "spaced", "null"),
+                              ("a_code_is_kept", "A is kept.", "", "coded", "A"),
+                              ("a_kept_clear_runs_no_more", "X written under version 2 stays.",
+                               "    steps:\n      - request: { type: Thing, transition: add, as: later, inputs: { code: X } }\n"
+                               "      - publish: { source: [codes-v3.yaml] }\n", "later", "X")]))
+    name = "run by the reference runner's examples"
+    found, notes = check([("codes.yaml", v1), ("codes.examples.yaml", examples)], read=versions.get)
+    # and run, each expectation borne out: one changed fails its example
+    wrong, _notes = check([("codes.yaml", v1), ("codes.examples.yaml", examples.replace("values: { code: X }", "values: { code: Y }"))],
+                          read=versions.get)
+    hit = found == [] and [x[3] for x in wrong] == ["example"] and "a_kept_clear_runs_no_more" in wrong[0][4]
+    ok &= hit
+    print(f"  a migration's clear, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    # keyed by an abstract base, it reaches every type of its family, as a backfill does
+    sub = lambda n: (f"  {n}:\n    description: One {n.lower()}.\n    extends: Item\n    states:\n"
+                     "      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+                     "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [code] }\n"
+                     "      scrap: { kind: external, from: [ON], to: OFF }\n")
+    family = ("module: family\ncategories: [live, closed]\ntypes:\n  Item:\n    description: An item.\n    abstract: true\n"
+              "    tracking: record\n    attributes:\n      code: { type: string }\n" + sub("Thing") + sub("Gadget"))
+    versions = {"family-v2.yaml": family.replace("code: { type: string }", "code: { type: string, optional: true }")
+                + "migration:\n  description: An empty code is none.\n  clear:\n    Item: { code: 'code == \"\"' }\n"}
+    examples = ("examples_for: family\nsetups:\n  two:\n    description: A thing and a gadget.\n    steps:\n"
+                "      - request: { type: Thing, transition: add, as: thing, inputs: { code: \"\" } }\n"
+                "      - request: { type: Gadget, transition: add, as: gadget, inputs: { code: \"\" } }\n"
+                "      - publish: { source: [family-v2.yaml] }\nexamples:\n"
+                + "".join(f"  a_{o}_is_cleared:\n    description: The {o}'s code is none.\n    given: two\n"
+                          f"    request: {{ object: {o}, transition: scrap }}\n"
+                          f"    expect: {{ verdict: applied, state: OFF, values: {{ code: {{v}} }} }}\n"
+                          for o in ("thing", "gadget")))
+    name = "keyed by an abstract base"
+    found, notes = check([("family.yaml", family), ("family.examples.yaml", examples.replace("{v}", "null"))],
+                         read=versions.get)
+    wrong, _notes = check([("family.yaml", family), ("family.examples.yaml", examples.replace("{v}", '""'))],
+                          read=versions.get)
+    hit = found == [] and [x[3] for x in wrong] == ["example", "example"]
+    ok &= hit
+    print(f"  a migration's clear, {name}: {'as expected' if hit else 'NOT: ' + str(found or wrong)}")
+    return ok
+
+
 def type_loop_plants():
     """A loop runs over a set or a range, never over every object of a type, which neither the core nor the runner
     runs (ADR-0266, issue #73): a loop over a type is refused, and one over a set input is clean."""
@@ -12497,6 +12638,7 @@ def main():
     ok &= clearable_plants()
     ok &= store_name_plants()
     ok &= index_name_plants()
+    ok &= clear_plants()
     ok &= type_loop_plants()
     ok &= named_to_plants()
     ok &= actor_move_plants()

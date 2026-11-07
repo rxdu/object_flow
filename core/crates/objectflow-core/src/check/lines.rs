@@ -578,6 +578,17 @@ fn lines(docs: &[Value], all: &[Decl], world: &BTreeMap<&str, &Decl>) -> Vec<Lin
                 });
             }
         }
+        for (tn, maps) in obj(&mig, "clear") {
+            for (a, e) in super::doc::as_obj(maps) {
+                out.push(Line {
+                    text: format!("clear          {tn}.{a} where {}", one(e)),
+                    continues: None,
+                    block: block.clone(),
+                    module,
+                    path: segs!["migration", "clear", tn, a],
+                });
+            }
+        }
     }
     out
 }

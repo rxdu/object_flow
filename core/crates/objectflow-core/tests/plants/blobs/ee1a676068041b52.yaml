@@ -1,0 +1,32 @@
+module: codes
+categories: [live, closed]
+enumerations:
+  Grade: [A, B]
+types:
+  Part:
+    description: A part.
+    tracking: record
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON }
+      scrap: { kind: external, from: [ON], to: OFF }
+  Thing:
+    description: One thing.
+    tracking: record
+    attributes:
+      name: { type: string }
+      code: { type: string, optional: true }
+      grade: { type: Grade, optional: true }
+      part: { reference: Part, optional: true }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [name], optional_inputs: [code, grade, part] }
+      scrap: { kind: external, from: [ON], to: OFF }
+migration:
+  description: Clears.
+  clear:
+    Thing: { code: 'code' }

@@ -290,10 +290,10 @@ class Version:
         self.source = dict(files)
         # the mappings each module carries, from the version before it (flow-format.md §4.16)
         self.migration = {"renamed_attributes": {}, "removed_members": {}, "removed_states": {}, "backfill": {},
-                          "admit": [], "moved_types": {}, "retired_types": {}, "renamed_enumerations": {}}
+                          "clear": {}, "admit": [], "moved_types": {}, "retired_types": {}, "renamed_enumerations": {}}
         for m in modules.values():
             mig = m.get("migration") or {}
-            for k in ("renamed_attributes", "removed_members", "removed_states", "backfill"):
+            for k in ("renamed_attributes", "removed_members", "removed_states", "backfill", "clear"):
                 for owner, maps in (mig.get(k) or {}).items():
                     self.migration[k].setdefault(owner, {}).update(maps or {})
             self.migration["admit"] += list(mig.get("admit") or [])
@@ -410,8 +410,9 @@ def simulate(store, change_id, flows, actor):
         new = None
     if new is not None:
         try:
-            # the backfills the installed version ran, each run once on a store (ADR-0230 decision 4)
-            ran = Version(flows, dict(store.source)).migration["backfill"] if store.source else {}
+            # the backfills and clears the installed version ran, each run once on a store (ADR-0230 decision 4,
+            # ADR-0268)
+            ran = Version(flows, dict(store.source)).migration if store.source else {}
             proposals_invalidated, installed = impact(store, new, found, actor, change_id, ran, flows.reads)
         except NotRunnable as e:
             if not refused:
@@ -777,7 +778,7 @@ def declared_as(spec):
 def impact(store, new, found, actor, change_id, ran=None, reads=None):
     """Steps 2 and 3 (publish-and-import.md §1): every object as the mappings leave it, read under the new version,
     into the report's categories; returns how many pending proposals the version invalidates. `ran` holds the
-    backfills the installed version ran, by type and attribute; `reads` is the checker's, the members an expression
+    installed version's migration, whose backfills and clears it ran; `reads` is the checker's, the members an expression
     reads (ADR-0256)."""
     reads = reads or (lambda _expr: set())
     import copy
@@ -894,7 +895,7 @@ def impact(store, new, found, actor, change_id, ran=None, reads=None):
         for attr, text in maps.items():
             # one the installed version's migration holds, unchanged, ran at that version's publish, and runs once on a
             # store, as the core's (ADR-0230 decision 4)
-            held = ((ran or {}).get(tn) or {}).get(attr)
+            held = (((ran or {}).get("backfill") or {}).get(tn) or {}).get(attr)
             if held is not None and flowrun.parsed(str(held)) == flowrun.parsed(str(text)):
                 found.add("notice", f"migration_applied:backfill:{tn}.{attr}",
                           f"the installed version, {store.version}, ran this backfill of {tn}.{attr} unchanged, and a "
@@ -928,6 +929,27 @@ def impact(store, new, found, actor, change_id, ran=None, reads=None):
                         o.attrs.pop(attr, None)
                     else:
                         o.attrs[attr] = v
+    # then clears, in the order written, each condition reading the object as the backfills left it, clearing a value
+    # it holds where the condition is true; one the installed version's migration holds, unchanged, runs once on a
+    # store, as a backfill does and as the core's (ADR-0268)
+    for tn, maps in m["clear"].items():
+        for attr, text in maps.items():
+            held = (((ran or {}).get("clear") or {}).get(tn) or {}).get(attr)
+            if held is not None and flowrun.parsed(str(held)) == flowrun.parsed(str(text)):
+                found.add("notice", f"migration_applied:clear:{tn}.{attr}",
+                          f"the installed version, {store.version}, ran this clear of {tn}.{attr} unchanged, and a "
+                          "clear runs once on a store: it clears nothing")
+                continue
+            for oid, o in sim.objects.items():
+                if o.type in BUILT_IN or o.type in retired or o.type in new.observations or not is_a(kinds, o.type, tn):
+                    continue
+                if o.attrs.get(attr, flowrun.ABSENT) is flowrun.ABSENT:
+                    continue
+                if flowrun.Evaluator(sim, o.type, oid).value(flowrun.parsed(str(text)), {}) is not True:
+                    continue
+                found.add("notice", f"mapping:clear:{tn}.{attr}", f"the clear of {tn}.{attr} removes the value these "
+                          "objects hold", oid)
+                o.attrs.pop(attr, None)
     # a reference holds an object of the type it references: one a mapping wrote, given, carried or backfilled, and
     # one to an object that moves, where its type references a type the object no longer is, a retired type's, whose
     # declaration stays, among them (ADR-0229 decision 5), as the core judges it

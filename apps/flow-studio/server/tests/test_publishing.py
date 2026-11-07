@@ -178,17 +178,21 @@ types:
 """
 
 
-def fleet_v2(map_hold: bool, backfill: bool, admit: bool) -> str:
+def fleet_v2(map_hold: bool, backfill: bool, admit: bool,
+             clear: bool = False) -> str:
     """The fleet's second version, as the core's tests write it: HOLD and
     Grade.OLD removed, a required `site`, an invariant the robots meet
     differently, `graded` enforced, and no `hold`; each part of the
-    migration switched on or off."""
+    migration switched on or off, `clear` giving a robot graded B no grade
+    once the removed grade is mapped to B (ADR-0268)."""
     migration = ("migration:\n  description: The fleet without holds.\n"
                  "  removed_members:\n    Grade: { OLD: B }\n")
     if map_hold:
         migration += "  removed_states:\n    Robot: { HOLD: READY }\n"
     if backfill:
         migration += "  backfill:\n    Robot: { site: '\"north\"' }\n"
+    if clear:
+        migration += "  clear:\n    Robot: { grade: 'grade == Grade.B' }\n"
     if admit:
         migration += ("  admit:\n    - { invariant: Robot.graded_when_ready, "
                       "reason: OverrideReason.LEGACY }\n")
@@ -318,19 +322,21 @@ def read_back(tee, ids: dict) -> None:
         tee.post("/v1/availability", {"actor": OP, "id": oid})
 
 
-@pytest.mark.parametrize("map_hold,backfill,admit",
-                         [(True, True, True), (True, True, False),
-                          (False, True, True)])
-def test_a_fleets_approval_installs_alike(tee, map_hold, backfill, admit):
+@pytest.mark.parametrize("map_hold,backfill,admit,clear",
+                         [(True, True, True, False), (True, True, False, False),
+                          (False, True, True, False), (True, True, True, True),
+                          (True, True, False, True)])
+def test_a_fleets_approval_installs_alike(tee, map_hold, backfill, admit,
+                                          clear):
     """A second version approved, or refused, through both backends: a
     stale approval refused, then the approval, installing every migration,
-    admission, interval, superseded change and invalidated proposal, or
-    refused as a decision unresolved; what the fleet holds after compared
-    whole (publish-and-import.md §1 step 5)."""
+    admission, interval, superseded change and invalidated proposal, a
+    clear's among them, or refused as a decision unresolved; what the fleet
+    holds after compared whole (publish-and-import.md §1 step 5)."""
     ids = fleet(tee)
     tee.found.clear()
     c = change(tee, "draft",
-               source={"fleet": fleet_v2(map_hold, backfill, admit)},
+               source={"fleet": fleet_v2(map_hold, backfill, admit, clear)},
                source_ref="git:fleet@2")["object_id"]
     ids["change"] = c
     submitted = tee.post("/v1/request", {"transition": "submit", "actor": OP,
@@ -350,6 +356,13 @@ def test_a_fleets_approval_installs_alike(tee, map_hold, backfill, admit):
                                        "keep": ["state"]})
         assert [r["dimensions"]["state"] for r in page["rows"]] == [
             "READY", "RETIRED", "HOLD"], page["rows"]
+        # the clear gives the robots graded B no grade, the held one's
+        # removed grade mapped to B first, and keeps A (ADR-0268)
+        grades = {n: tee.post("/v1/get", {"id": ids[n]})["attributes"].get(
+            "grade") for n in ("graded", "held", "retired")}
+        assert grades == ({"graded": "A", "held": None, "retired": None}
+                          if clear else
+                          {"graded": "A", "held": "B", "retired": "B"}), grades
     elif submitted["kind"] == "satisfied":
         assert approved["verdict"].get("clause") == "decision_unresolved", \
             approved

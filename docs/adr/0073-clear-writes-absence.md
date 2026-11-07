@@ -2,7 +2,7 @@
 
 - **Status:** **Accepted** — confirmed by the author 2026-09-08, having been found by re-expressing the case studies
 - **Date:** 2026-09-08
-- **Refined by:** ADR-0099 — `clear` also writes absence to an optional, singular, stored `ref` end.
+- **Refined by:** ADR-0099 — `clear` also writes absence to an optional, singular, stored `ref` end. ADR-0268 — a version's migration clears what `clear` may, where a condition holds.
 - **Refines:** ADR-0052, ADR-0053
 
 ## Context

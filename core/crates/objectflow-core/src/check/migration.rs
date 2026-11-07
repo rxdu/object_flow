@@ -468,6 +468,63 @@ pub fn migration_errors(doc: &Value, v: &Value) -> Found {
             }
         }
     }
+    // a clear gives no value where its condition holds, clearing what
+    // `clear` may: an optional, singular attribute or stored reference that
+    // is no composite end, its condition reading what a backfill reads
+    // (ADR-0268, the model's check 17)
+    for (tn, maps) in mapping(m, "clear") {
+        let at = segs!["migration", "clear", &tn];
+        let Some(t) = kinds.get(&tn) else {
+            out.push(finding(
+                at,
+                "names",
+                format!("the migration clears {tn}, which this module does not declare"),
+            ));
+            continue;
+        };
+        let mut members: BTreeSet<String> = keys(t, "attributes").into_iter().collect();
+        members.extend(keys(t, "derived_attributes"));
+        members.extend(BACKFILL_READS.iter().map(|s| s.to_string()));
+        let attrs = obj(t, "attributes");
+        for (a, expr) in maps {
+            let here = ext(&at, segs![&a]);
+            match attrs.get(&a) {
+                None => out.push(finding(
+                    here.clone(),
+                    "names",
+                    format!(
+                        "the migration clears {tn}.{a}, which is not a stored attribute of {tn}"
+                    ),
+                )),
+                Some(spec)
+                    if !flag(spec, "optional")
+                        || str_or(spec, "reference", "").ends_with("[]")
+                        || str_or(spec, "type", "").ends_with("[]")
+                        || str_or(spec, "aggregation", "") == "composite" =>
+                {
+                    out.push(finding(
+                        here.clone(),
+                        "names",
+                        format!("the migration clears {tn}.{a}, which is not an optional, singular attribute or reference that clear may clear (the model's check 17)"),
+                    ));
+                }
+                Some(_) => {}
+            }
+            for r in reads(&expr).difference(&members) {
+                out.push(finding(
+                    here.clone(),
+                    "names",
+                    format!("the clear of {tn}.{a} reads '{r}'; a clear's condition reads the object's own members and literals"),
+                ));
+            }
+            for c in QUALIFIED.captures_iter(&expr) {
+                let (owner, value) = (&c[1], &c[2]);
+                if enums.get(owner).is_some_and(|e| !e.contains(value)) {
+                    out.push(finding(here.clone(), "names", format!("the clear of {tn}.{a} names {owner}.{value}, and {owner} has no {value}")));
+                }
+            }
+        }
+    }
     let moved = obj(m, "moved_types");
     let retired = obj(m, "retired_types");
     let mut both: Vec<&String> = moved

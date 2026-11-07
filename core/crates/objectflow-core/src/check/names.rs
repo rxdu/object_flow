@@ -5214,6 +5214,22 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
             );
         }
     }
+    // a clear's condition, a bool (ADR-0268)
+    for (tn, given) in obj(&migration, "clear") {
+        for (a, e) in as_obj(given) {
+            check(
+                &mut typing,
+                &mut out,
+                segs!["migration", "clear", tn, a],
+                &format!("the clear of {tn}.{a}"),
+                &py_str(e),
+                tn,
+                None,
+                &TyEnv::new(),
+                &["bool"],
+            );
+        }
+    }
     out
 }
 

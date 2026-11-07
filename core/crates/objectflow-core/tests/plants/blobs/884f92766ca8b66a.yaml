@@ -1,0 +1,21 @@
+module: codes
+categories: [live, closed]
+types:
+  Thing:
+    description: One thing, kept.
+    tracking: record
+    attributes:
+      code: { type: string, optional: true, not_blank: true }
+      note: { type: string, optional: true }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, optional_inputs: [code, note] }
+      scrap: { kind: external, from: [ON], to: OFF }
+migration:
+  description: An empty code is none.
+  backfill:
+    Thing: { code: 'trim(code)' }
+  clear:
+    Thing: { code: 'code == "" or code == "X" or note == "n"' }

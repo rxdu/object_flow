@@ -1,0 +1,15 @@
+module: codes
+categories: [live, closed]
+types:
+  Thing:
+    description: One thing.
+    tracking: record
+    attributes:
+      code: { type: string }
+      note: { type: string, optional: true }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [code], optional_inputs: [note] }
+      scrap: { kind: external, from: [ON], to: OFF }

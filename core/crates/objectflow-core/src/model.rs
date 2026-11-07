@@ -1344,6 +1344,10 @@ pub struct Migration {
     /// A type, an attribute, and the value written to it, in the order
     /// written.
     pub backfill: Vec<(String, String, Expr)>,
+    /// A type, an attribute, and the condition on which an object's value
+    /// of it is cleared, in the order written, after the backfills
+    /// (ADR-0268).
+    pub clear: Vec<(String, String, Expr)>,
     /// An invariant, `Type.name`, a violation of which is admitted, and the
     /// reason, an enumeration member written `Enum.MEMBER`.
     pub admit: Vec<(String, String)>,
@@ -1358,6 +1362,7 @@ impl Migration {
         self.moved_types.extend(other.moved_types);
         self.retired_types.extend(other.retired_types);
         self.backfill.extend(other.backfill);
+        self.clear.extend(other.clear);
         self.admit.extend(other.admit);
     }
 
@@ -1486,6 +1491,11 @@ impl Reader<'_> {
             for (a, e) in map.entries() {
                 m.backfill
                     .push((tn.clone(), a.clone(), self.expression(e)?));
+            }
+        }
+        for (tn, map) in node.get("clear").map(Node::entries).unwrap_or_default() {
+            for (a, e) in map.entries() {
+                m.clear.push((tn.clone(), a.clone(), self.expression(e)?));
             }
         }
         for item in node.get("admit").map(Node::items).unwrap_or_default() {
