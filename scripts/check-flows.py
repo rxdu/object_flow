@@ -3672,8 +3672,12 @@ def expression_type_errors(doc, library):
                         verb = "adds" if kind == "add" else "removes"
                         out.append((where, "names", f"{tn}.{xn} {verb} {st[kind]['expr']}, {misfit} (the model's check 17)"))
                 if kind == "foreach" and st["foreach"].get("array") is not None:
-                    loose = typed_loop_error(typing, st["foreach"], tn, x, env)
-                    if loose:
+                    array = " ".join(str(st["foreach"]["array"]).split())
+                    # a type scan as a loop's collection, which neither the core nor the runner runs (ADR-0266, #73)
+                    if array in kinds:
+                        out.append((where, "names", f"{tn}.{xn} loops over {array}, a type: a loop runs over a set or a "
+                                                    f"range, never over every object of a type (ADR-0266)"))
+                    elif loose := typed_loop_error(typing, st["foreach"], tn, x, env):
                         out.append((where, "names", f"{tn}.{xn} loops over {st['foreach']['array']}, {loose} (the model's check 24)"))
         out += metric_type_errors(typing, tn, t, enums)
     for tn, given in ((doc.get("migration") or {}).get("backfill") or {}).items():
@@ -12076,6 +12080,35 @@ def store_name_plants():
     return ok
 
 
+def type_loop_plants():
+    """A loop runs over a set or a range, never over every object of a type, which neither the core nor the runner
+    runs (ADR-0266, issue #73): a loop over a type is refused, and one over a set input is clean."""
+    module = ("module: sweeps\ncategories: [live, closed]\ntypes:\n  Thing:\n    description: One thing.\n"
+              "    tracking: record\n    states:\n"
+              "      OPEN: { description: Open., category: live }\n      DONE: { description: Done., category: closed, final: true }\n"
+              "    transitions:\n      add: { kind: initial, to: OPEN }\n"
+              "      sweep:\n        kind: internal\n        from: [OPEN]\n{inputs}        effect:\n          - foreach:\n"
+              "              item: other\n              array: {array}\n              limit: 10\n              steps:\n"
+              "                - call: { target: other, transition: mark }\n"
+              "      mark: { kind: internal, from: [OPEN], only_via: [Thing.sweep] }\n"
+              "      finish: { kind: external, from: [OPEN], to: DONE }\n")
+    cases = [
+        ("a loop over a set input", module.replace("{array}", "inputs.others")
+         .replace("{inputs}", "        inputs:\n          others: { reference: 'Thing[]' }\n"), []),
+        ("a loop over a type", module.replace("{array}", "Thing").replace("{inputs}", ""),
+         ["Thing.sweep loops over Thing, a type: a loop runs over a set or a range, never over every object of a type "
+          "(ADR-0266)"]),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, notes = check([("sweeps.yaml", text)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a loop, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def named_to_plants():
     """An input named `to` or `admits` on a transition that is no assertion is its own input, as the request path takes
     it (issue #74): an example giving each its value is clean, and a value not of the input's type is refused as any
@@ -12396,6 +12429,7 @@ def main():
     ok &= inherited_name_plants()
     ok &= clearable_plants()
     ok &= store_name_plants()
+    ok &= type_loop_plants()
     ok &= named_to_plants()
     ok &= actor_move_plants()
     ok &= value_plants()

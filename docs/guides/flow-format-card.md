@@ -249,7 +249,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 | `add`, `remove: { location, expr }` | adds a value to a set, or removes one |
 | `call: { target: <path>, transition: <name>, inputs: { … } }` | takes another object's transition, its guards evaluated, its own event recorded |
 | `create: { type: <Type>, transition: <initial>, inputs: { … }, result: <name> }` | creates an object, `result` naming it for the steps after |
-| `foreach: { item: <name>, array: <expression>, where: <expression>, limit: <n>, steps: [ … ] }` | runs steps per element, or per number with `range` in place of `array`; more than `limit` refuses `over-limit` |
+| `foreach: { item: <name>, array: <expression>, where: <expression>, limit: <n>, steps: [ … ] }` | runs steps per element of a set, never every object of a type, or per number with `range` in place of `array`; more than `limit` refuses `over-limit` |
 | `supersede: <successor>` | names the object superseding this one, into a `superseding` state (§4.19) |
 
 ## A metric

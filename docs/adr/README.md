@@ -266,4 +266,5 @@
 | [0263](0263-a-value-an-effect-passes-from-a-personal-member-is-judged-where-it-decides.md) | A value an effect passes from a personal member is judged where it decides | Decided under the author's direction; built |
 | [0264](0264-a-personal-value-passed-on-decides-nothing-only-where-nothing-can-refuse-it.md) | A personal value passed on decides nothing only where nothing can refuse it | Decided under the author's direction; built |
 | [0265](0265-a-name-the-store-keeps-a-table-or-a-column-under-is-refused-at-step-3.md) | A name the store keeps a table or a column under is refused at step 3 | Decided under the author's direction; built |
+| [0266](0266-a-loop-runs-over-a-set-or-a-range-never-over-a-type.md) | A loop runs over a set or a range, never over a type | Decided under the author's direction; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

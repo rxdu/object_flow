@@ -1,0 +1,25 @@
+module: sweeps
+categories: [live, closed]
+types:
+  Thing:
+    description: One thing.
+    tracking: record
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: OPEN }
+      sweep:
+        kind: internal
+        from: [OPEN]
+        inputs:
+          others: { reference: 'Thing[]' }
+        effect:
+          - foreach:
+              item: other
+              array: inputs.others
+              limit: 10
+              steps:
+                - call: { target: other, transition: mark }
+      mark: { kind: internal, from: [OPEN], only_via: [Thing.sweep] }
+      finish: { kind: external, from: [OPEN], to: DONE }

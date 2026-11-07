@@ -5170,7 +5170,18 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
                         ),
                     ));
                 }
-                if step.kind == "foreach"
+                let array = squash(&body_text(step.body(), "array"));
+                // a type scan as a loop's collection, which neither the core
+                // nor the runner runs (ADR-0266, #73)
+                if step.kind == "foreach" && kinds.contains_key(&array) {
+                    out.push(finding(
+                        where_.clone(),
+                        "names",
+                        format!(
+                            "{tn}.{xn} loops over {array}, a type: a loop runs over a set or a range, never over every object of a type (ADR-0266)"
+                        ),
+                    ));
+                } else if step.kind == "foreach"
                     && step.body().get("array").is_some_and(|a| !a.is_null())
                     && let Some(loose) = typed_loop_error(&mut typing, step.body(), &tn, x, &env)
                 {

@@ -31070,6 +31070,47 @@
   "could_violate": {}
  },
  {
+  "label": "type_loop_plants: a loop over a set input",
+  "files": [
+   [
+    "sweeps.yaml",
+    "e51a4cda2966b40e"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "type_loop_plants: a loop over a type",
+  "files": [
+   [
+    "sweeps.yaml",
+    "9f7bbee33b915410"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "sweeps.yaml",
+    16,
+    "fatal",
+    "names",
+    "Thing.sweep loops over Thing, a type: a loop runs over a set or a range, never over every object of a type (ADR-0266)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "named_to_plants: an internal transition's inputs named to and admits",
   "files": [
    [

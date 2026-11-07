@@ -15,6 +15,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 - Step 3 refuses a name the store keeps a table or a column under, which the publish refused only in the store's words, or not at all (ADR-0265, issue #72):
   - an attribute kept under its own name named `version`, `last_event`, `state_source` or `superseded_by`, on every type, and an observation kind's named `subject_id` or `corrects_id`;
   - a type or an observation kind named as another, ignoring case, or as a built-in type, `label` among them.
+- Step 3 refuses a `foreach` over a type, every object of it, which neither the core nor the reference runner runs: every request reaching it was answered `501 not_run`. A loop runs over a set or a range; a client reaches every object of a type by `available` and `batch` (ADR-0266, issue #73).
 
 ## 0.19.0, 2026-11-06
 
