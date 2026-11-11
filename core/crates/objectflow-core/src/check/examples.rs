@@ -17,7 +17,8 @@ use super::doc::{
     Found, Obj, Path, ext, finding, flag, keys, list, obj, optional, py_str, re, segs, squash,
     str_or, strings,
 };
-use super::steps::{kind, required_input_names, sources, taken, targets};
+use super::names::{binders, call_target, composite_parts};
+use super::steps::{kind, required_input_names, sources, taken, targets, walk};
 use super::view::bases;
 
 /// Each transition an examples file's examples request, as its type and
@@ -58,6 +59,72 @@ static DATE: LazyLock<Regex> =
 static TIMESTAMP: LazyLock<Regex> = LazyLock::new(|| {
     re(r"^(now( [+-] [0-9]+ (s|min|h|days?|weeks?))?|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z)$")
 });
+
+/// Transitions, each as its type and its name.
+type Pairs = Vec<(String, String)>;
+
+/// The transitions a request of `tn.xn` reaches beyond its own: those its
+/// cascades drive, at any depth, whose refusal is the request's own, its
+/// clause qualified; and those past a call or a creation, whose refusal is
+/// answered `call_refused` (`DESIGN.md` §5.5, issue #83).
+fn beyond(kinds: &Obj, tn: &str, xn: &str) -> (Pairs, Pairs) {
+    let (mut cascaded, mut called) = (Vec::new(), Vec::new());
+    let start = (tn.to_string(), xn.to_string(), false);
+    let mut todo = std::collections::VecDeque::from([start.clone()]);
+    let mut seen = BTreeSet::from([start]);
+    while let Some((k, t, past)) = todo.pop_front() {
+        let Some(x) = kinds
+            .get(&k)
+            .and_then(|v| v.get("transitions"))
+            .and_then(|v| v.get(&t))
+        else {
+            continue;
+        };
+        let mut nexts: Vec<(Option<String>, String, bool)> = Vec::new();
+        for (spec, clauses, _here) in composite_parts(&k, kinds) {
+            for c in &clauses {
+                if list(c, "on").iter().any(|o| py_str(o) == t) {
+                    let part = spec.get("reference").map(py_str).unwrap_or_default();
+                    nexts.push((
+                        Some(part.trim_end_matches(['[', ']']).to_string()),
+                        c.get("transition").map(py_str).unwrap_or_default(),
+                        past,
+                    ));
+                }
+            }
+        }
+        for step in walk(x.get("effect")) {
+            if matches!(step.kind, "call" | "create") {
+                let body = step.body();
+                let target = if step.kind == "call" {
+                    call_target(
+                        kinds,
+                        &kinds[k.as_str()],
+                        &k,
+                        x,
+                        body,
+                        &binders(kinds, &k, x, &step.path),
+                    )
+                } else {
+                    body.get("type").map(py_str)
+                };
+                let transition = body.get("transition").map(py_str).unwrap_or_default();
+                nexts.push((target, transition, true));
+            }
+        }
+        for (target, transition, past) in nexts {
+            let Some(target) = target.filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            let n = (target, transition, past);
+            if seen.insert(n.clone()) {
+                (if past { &mut called } else { &mut cascaded }).push((n.0.clone(), n.1.clone()));
+                todo.push_back(n);
+            }
+        }
+    }
+    (cascaded, called)
+}
 
 fn is_a(tn: &str, want: &str, kinds: &Obj) -> bool {
     tn == want || bases(tn, kinds).iter().any(|b| b == want)
@@ -1319,7 +1386,28 @@ fn expect_errors(
                         .iter()
                         .any(|f| re(&format!(r"\b{}\(", regex::escape(f))).is_match(&text))
             };
-            if ct == tn && obj(x, "guards").contains_key(&cn) {
+            // the refusal names the transition's own guard bare, and a guard of
+            // a part a cascade drives qualified by its type; a guard past a
+            // call or a creation refuses the request as call_refused (issue #83)
+            let kinds = &c.kinds;
+            let (cascaded, called) = beyond(kinds, tn, xn);
+            let transition = |k: &str, t: &str| {
+                kinds
+                    .get(k)
+                    .and_then(|v| v.get("transitions"))
+                    .and_then(|v| v.get(t))
+                    .cloned()
+                    .unwrap_or(Value::Null)
+            };
+            let guards = |k: &str, t: &str| obj(&transition(k, t), "guards").contains_key(&cn);
+            let generated = |k: &str, t: &str| {
+                GENERATED_GUARDS.contains(&cn.as_str())
+                    || strings(&transition(k, t), "required_inputs")
+                        .iter()
+                        .any(|a| format!("{a}_provided") == cn)
+            };
+            let bare = !clause.contains('.');
+            if bare && obj(x, "guards").contains_key(&cn) {
                 let declared = conds
                     .get(&cn)
                     .map(|c| str_or(c, "remedy", ""))
@@ -1334,21 +1422,52 @@ fn expect_errors(
                         format!("{tn}.{cn} declares the remedy {d}, not {remedy}"),
                     ));
                 }
-            } else if ct != tn && conds.contains_key(&cn) {
-                let declared = str_or(&conds[&cn], "remedy", "None");
-                if declared != remedy && !asks(conds.get(&cn)) {
-                    c.out.push(finding(
-                        ext(here, segs!["remedy"]),
-                        "names",
-                        format!("{ct}.{cn} declares the remedy {declared}, not {remedy}"),
-                    ));
+            } else if !bare
+                && cascaded
+                    .iter()
+                    .any(|(k, t)| *k == ct && (guards(k, t) || generated(k, t)))
+            {
+                if let Some(cond) = conds.get(&cn) {
+                    let declared = str_or(cond, "remedy", "None");
+                    if declared != remedy && !asks(Some(cond)) {
+                        c.out.push(finding(
+                            ext(here, segs!["remedy"]),
+                            "names",
+                            format!("{ct}.{cn} declares the remedy {declared}, not {remedy}"),
+                        ));
+                    }
                 }
-            } else if !GENERATED_GUARDS.contains(&cn.as_str()) && !provided.contains(&cn) {
-                c.out.push(finding(
-                    ext(here, segs!["clause"]),
-                    "names",
-                    format!("{clause} is not a guard of {tn}.{xn}, a generated guard, or a condition of a type its effect reaches"),
-                ));
+            } else if !(bare && (GENERATED_GUARDS.contains(&cn.as_str()) || provided.contains(&cn)))
+            {
+                let mut by_call: Vec<&(String, String)> = called
+                    .iter()
+                    .filter(|(k, t)| (bare || *k == ct) && guards(k, t))
+                    .collect();
+                by_call.sort();
+                let mut by_part: Vec<&(String, String)> = cascaded
+                    .iter()
+                    .filter(|(k, t)| bare && guards(k, t))
+                    .collect();
+                by_part.sort();
+                let why = if !bare && ct == tn && obj(x, "guards").contains_key(&cn) {
+                    format!(
+                        "{clause} is {tn}.{xn}'s own guard, which a refusal names unqualified, as {cn}"
+                    )
+                } else if let Some((k, t)) = by_call.first() {
+                    format!(
+                        "{clause} is a guard of {k}.{t}, which {tn}.{xn} reaches by a call or a creation, so the request is refused as call_refused, with the clause {k}.{cn}"
+                    )
+                } else if let Some((k, t)) = by_part.first() {
+                    format!(
+                        "{clause} is a guard of {k}.{t}, which a cascade of {tn}.{xn} drives, and a refusal names it qualified, as {k}.{cn}"
+                    )
+                } else {
+                    format!(
+                        "{clause} is not a guard of {tn}.{xn}, a generated guard, or a guard of a part a cascade of it drives, written <Type>.<condition>"
+                    )
+                };
+                c.out
+                    .push(finding(ext(here, segs!["clause"]), "names", why));
             }
         }
         "invariant_violated" => {

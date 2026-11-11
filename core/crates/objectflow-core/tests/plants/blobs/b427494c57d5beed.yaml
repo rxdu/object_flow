@@ -1,0 +1,36 @@
+examples_for: things
+setups:
+  base:
+    description: Two things, another, and a whole whose piece is not ready.
+    steps:
+      - request: { type: Thing, transition: add, as: b, inputs: { limit: 1 } }
+      - request: { type: Thing, transition: add, as: a, inputs: { next: b } }
+      - request: { type: Other, transition: add, as: o, inputs: { thing: b } }
+      - request: { type: Whole, transition: add, as: w }
+      - request: { object: w, transition: add_piece, inputs: { ready: false, bit_ready: true } }
+  deep:
+    description: A whole whose piece is ready and its bit not.
+    steps:
+      - request: { type: Whole, transition: add, as: w }
+      - request: { object: w, transition: add_piece, inputs: { ready: true, bit_ready: false } }
+examples:
+  own:
+    description: The case.
+    given: base
+    request: { object: b, transition: begin, inputs: { limit: 0 } }
+    expect: { verdict: unsatisfied, clause: a_positive_limit, remedy: self_serviceable }
+  part:
+    description: The case.
+    given: base
+    request: { object: w, transition: close }
+    expect: { verdict: unsatisfied, clause: Piece.piece_ready, remedy: dependent }
+  bit:
+    description: The case.
+    given: deep
+    request: { object: w, transition: close }
+    expect: { verdict: unsatisfied, clause: Piece.piece_ready, remedy: dependent }
+  called:
+    description: The case.
+    given: base
+    request: { object: a, transition: finish, inputs: { next_limit: 0 } }
+    expect: { verdict: call_refused, clause: Thing.a_positive_limit }

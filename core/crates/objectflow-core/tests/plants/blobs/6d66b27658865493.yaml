@@ -1,0 +1,116 @@
+module: things
+categories: [live, closed]
+types:
+  Thing:
+    description: One thing.
+    tracking: record
+    attributes:
+      limit: { type: int, optional: true }
+      next: { reference: Thing, optional: true }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    conditions:
+      a_positive_limit:
+        description: The limit is positive.
+        expression: inputs.limit > 0
+        remedy: self_serviceable
+    transitions:
+      add: { kind: initial, to: ON, optional_inputs: [limit, next] }
+      open_limited: { kind: initial, to: ON, required_inputs: [limit], guards: { a_positive_limit: deny } }
+      begin: { kind: internal, from: ON, required_inputs: [limit], guards: { a_positive_limit: deny } }
+      finish:
+        kind: internal
+        from: ON
+        inputs: { next_limit: { type: int, description: The next thing's limit. } }
+        effect:
+          - call: { target: next, transition: begin, inputs: { limit: inputs.next_limit } }
+      spawn:
+        kind: internal
+        from: ON
+        inputs: { child_limit: { type: int, description: The child's limit. } }
+        effect:
+          - create: { type: Thing, transition: open_limited, inputs: { limit: inputs.child_limit } }
+      scrap: { kind: external, from: [ON], to: OFF }
+  Other:
+    description: Another thing.
+    tracking: record
+    attributes:
+      thing: { reference: Thing }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [thing] }
+      go:
+        kind: internal
+        from: ON
+        inputs: { lim: { type: int, description: The limit to begin with. } }
+        effect:
+          - call: { target: thing, transition: begin, inputs: { limit: inputs.lim } }
+      scrap: { kind: external, from: [ON], to: OFF }
+  Whole:
+    description: A whole with parts.
+    tracking: record
+    attributes:
+      pieces:
+        reference: "Piece[]"
+        aggregation: composite
+        opposite: whole
+        cascade:
+          - { on: [close], transition: stop, limit: 10 }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON }
+      add_piece:
+        kind: internal
+        from: ON
+        inputs:
+          ready: { type: bool, description: Whether the piece is ready. }
+          bit_ready: { type: bool, description: Whether its bit is ready. }
+        effect:
+          - create: { type: Piece, transition: add, inputs: { whole: this, ready: inputs.ready, bit_ready: inputs.bit_ready } }
+      close: { kind: external, from: [ON], to: OFF }
+  Piece:
+    description: A part of a whole.
+    tracking: record
+    attributes:
+      whole: { reference: Whole, opposite: pieces }
+      ready: { type: bool }
+      bits:
+        reference: "Bit[]"
+        aggregation: composite
+        opposite: piece
+        cascade:
+          - { on: [stop], transition: stop, limit: 10 }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    conditions:
+      piece_ready: { description: The piece is ready., expression: ready, remedy: dependent }
+    transitions:
+      add:
+        kind: initial
+        to: ON
+        required_inputs: [whole, ready]
+        only_via: [Whole.add_piece]
+        inputs: { bit_ready: { type: bool, description: Whether its bit is ready. } }
+        effect:
+          - create: { type: Bit, transition: add, inputs: { piece: this, ready: inputs.bit_ready } }
+      stop: { kind: external, from: [ON], to: OFF, only_via: [Whole.close], guards: { piece_ready: deny } }
+  Bit:
+    description: A part of a piece.
+    tracking: record
+    attributes:
+      piece: { reference: Piece, opposite: bits }
+      ready: { type: bool }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    conditions:
+      bit_ready: { description: The bit is ready., expression: ready, remedy: dependent }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [piece, ready], only_via: [Piece.add] }
+      stop: { kind: external, from: [ON], to: OFF, only_via: [Piece.stop], guards: { bit_ready: deny } }

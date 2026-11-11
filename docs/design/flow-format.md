@@ -946,7 +946,7 @@ A derived attribute's expected value is written as a value of the type its expre
 | `expect` key | Value |
 |---|---|
 | `verdict` | `applied`, or the refusal: `unsatisfied`, `unavailable`, `invalid_input`, `not_requestable`, `over_limit`, `invariant_violated` or `call_refused` (`DESIGN.md` §5.5) |
-| `clause` | for `unsatisfied`, the clause that refuses first: a guard of the transition, a generated guard, or `<Type>.<condition>` of a part a cascade drives; for `invariant_violated`, the invariant, qualified where it is another type's; for `call_refused`, optional, the refused call's or creation's clause, always qualified |
+| `clause` | for `unsatisfied`, the clause that refuses first: a guard of the transition or a generated guard, written bare, or `<Type>.<condition>`, a guard of a part a cascade of the transition drives, at any depth; a guard a call or a creation reaches gives `call_refused` instead (step 3, `names`); for `invariant_violated`, the invariant, qualified where it is another type's; for `call_refused`, optional, the refused call's or creation's clause, always qualified |
 | `remedy` | for `unsatisfied`, the refusing clause's remedy class; for `invariant_violated`, optional, the remedy `DESIGN.md` §5.5 infers for the first invariant named; for `call_refused`, optional, the refused call's |
 | `state` | for `applied`, the state the object is in afterwards |
 | `values` | for `applied`, optional: attributes, derived attributes, the members every object has (§5), and an observation's own, `occurred_at`, `recorded_at`, `recorded_by_kind`, `subject` and `corrects`, and the values they hold afterwards, written as §11.3's values (ADR-0147, ADR-0148) |

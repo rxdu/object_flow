@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Changed, and may refuse what 0.21.0 accepted
+
+- The examples' checkers take an `unsatisfied` example's clause only as the request's refusal names it: the transition's own guard or a generated guard bare, or `<Type>.<condition>`, a guard of a part a cascade of the transition drives, at any depth (issue #83). They took any other type's condition, and the own guard qualified, so such an example passed the checks and failed only when it ran. A guard a call or a creation reaches refuses the request as `call_refused`; the finding now says so and names the clause it takes.
+
 ## 0.21.0, 2026-11-07
 
 A release before 1.0.0, as 0.20.0 was (ADR-0214), with issue #82: a version's migration may clear an attribute where a condition holds (ADR-0268). Step 3 also refuses an attribute the store indexes named so that its index takes a name the store gives another, found addressing #72 (ADR-0267).

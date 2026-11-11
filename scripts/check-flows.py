@@ -1251,6 +1251,44 @@ def reparent_errors(doc, library):
     return out
 
 
+def composite_parts(tn, kinds):
+    """Each composite end of a type, its own or inherited, with its cascade clauses and where they are given."""
+    t = kinds.get(tn) or {}
+    out = [(spec, spec.get("cascade") or [], ("types", tn, "attributes", an))
+           for an, spec in (t.get("attributes") or {}).items() if spec.get("aggregation") == "composite"]
+    inherited = {an: spec for b in reversed(bases(tn, kinds)) for an, spec in (kinds[b].get("attributes") or {}).items()
+                 if spec.get("aggregation") == "composite"}
+    return out + [(inherited[an], (ip or {}).get("cascade") or [], ("types", tn, "inherited_parts", an))
+                  for an, ip in (t.get("inherited_parts") or {}).items() if an in inherited]
+
+
+def beyond(kinds, tn, xn):
+    """The transitions a request of tn.xn reaches beyond its own, as (type, transition): those its cascades drive,
+    at any depth, whose refusal is the request's own, its clause qualified; and those past a call or a creation,
+    whose refusal is answered call_refused (DESIGN.md §5.5, issue #83)."""
+    cascaded, called = [], []
+    todo, seen = [(tn, xn, False)], {(tn, xn, False)}
+    while todo:
+        k, t, past = todo.pop(0)
+        x = ((kinds.get(k) or {}).get("transitions") or {}).get(t)
+        if x is None:
+            continue
+        nexts = [(str(spec.get("reference", "")).rstrip("[]"), c.get("transition"), past)
+                 for spec, clauses, _here in composite_parts(k, kinds) for c in clauses if t in (c.get("on") or [])]
+        for st, kind, path, _depth in walk(x.get("effect")):
+            if kind in ("call", "create"):
+                body = st[kind]
+                target = (call_target(kinds, kinds[k], k, x, body, binders(kinds, k, x, path)) if kind == "call"
+                          else body.get("type"))
+                nexts.append((target, body.get("transition"), True))
+        for n in nexts:
+            if n[0] and n not in seen:
+                seen.add(n)
+                todo.append(n)
+                (called if n[2] else cascaded).append(n[:2])
+    return cascaded, called
+
+
 def personal_inputs(kinds, tn, x):
     """The inputs of a transition that are personal values (the model's check 10, ADR-0078): marked `personal`, an
     attribute input of a personal attribute, or read by a write of its effect into a personal attribute, as the
@@ -1306,16 +1344,6 @@ def personal_errors(doc, library):
                 return f"the personal value in the derived {u}.{d}"
         return None
 
-    def parts(tn):
-        """Each composite end of a type, its own or inherited, with its cascade clauses and where they are given."""
-        t = kinds.get(tn) or {}
-        out = [(spec, spec.get("cascade") or [], ("types", tn, "attributes", an))
-               for an, spec in (t.get("attributes") or {}).items() if spec.get("aggregation") == "composite"]
-        inherited = {an: spec for b in reversed(bases(tn, kinds)) for an, spec in (kinds[b].get("attributes") or {}).items()
-                     if spec.get("aggregation") == "composite"}
-        return out + [(inherited[an], (ip or {}).get("cascade") or [], ("types", tn, "inherited_parts", an))
-                      for an, ip in (t.get("inherited_parts") or {}).items() if an in inherited]
-
     def passes(tn, x):
         """Each argument a transition passes, as (expression, its loops' items, target type, transition, input, where)."""
         t = kinds.get(tn) or {}
@@ -1332,7 +1360,7 @@ def personal_errors(doc, library):
     def cascades(tn, xn):
         """Each argument a cascade clause on a transition passes, as passes gives it, where the clause is."""
         return [(e, {}, str(spec.get("reference", "")).rstrip("[]"), c.get("transition"), j, here + ("cascade", i))
-                for spec, clauses, here in parts(tn) for i, c in enumerate(clauses) if xn in (c.get("on") or [])
+                for spec, clauses, here in composite_parts(tn, kinds) for i, c in enumerate(clauses) if xn in (c.get("on") or [])
                 for j, e in (c.get("inputs") or {}).items()]
 
     def leak(k, ct, j, seen=frozenset()):
@@ -6621,16 +6649,39 @@ def example_errors(doc, kinds, modules):
                 # an evaluator not answering, or answering too old, refuses with temporal whatever is declared (ADR-0148)
                 text = " ".join(str((cond or {}).get("expression", "")).split())
                 return remedy == "temporal" and any(re.search(rf"\b{re.escape(f)}\(", text) for f in functions)
-            if ct == tn and cn in (x.get("guards") or {}):
+            # the refusal names the transition's own guard bare, and a guard of a part a cascade drives qualified by
+            # its type; a guard past a call or a creation refuses the request as call_refused (issue #83)
+            cascaded, called = beyond(kinds, tn, xn)
+
+            def guards(k, t):
+                return (((kinds.get(k) or {}).get("transitions") or {}).get(t) or {}).get("guards") or {}
+
+            def generated(k, t):
+                y = ((kinds.get(k) or {}).get("transitions") or {}).get(t) or {}
+                return GENERATED_GUARDS | {f"{a}_provided" for a in y.get("required_inputs", [])}
+            bare = "." not in clause
+            if bare and cn in (x.get("guards") or {}):
                 declared = conds.get(cn, {}).get("remedy")
                 if declared and declared != remedy and not asks(conds.get(cn)):
                     out.append((here + ("remedy",), "names", f"{tn}.{cn} declares the remedy {declared}, not {remedy}"))
-            elif ct != tn and cn in conds:
-                if conds[cn].get("remedy") != remedy and not asks(conds[cn]):
+            elif not bare and any(k == ct and (cn in guards(k, t) or cn in generated(k, t)) for k, t in cascaded):
+                if cn in conds and conds[cn].get("remedy") != remedy and not asks(conds[cn]):
                     out.append((here + ("remedy",), "names", f"{ct}.{cn} declares the remedy {conds[cn].get('remedy')}, not {remedy}"))
-            elif cn not in GENERATED_GUARDS | provided:
-                out.append((here + ("clause",), "names", f"{clause} is not a guard of {tn}.{xn}, a generated guard, "
-                                                         "or a condition of a type its effect reaches"))
+            elif not (bare and cn in GENERATED_GUARDS | provided):
+                by_call = sorted((k, t) for k, t in called if (bare or k == ct) and cn in guards(k, t))
+                by_part = sorted((k, t) for k, t in cascaded if bare and cn in guards(k, t))
+                if not bare and ct == tn and cn in (x.get("guards") or {}):
+                    why = f"{clause} is {tn}.{xn}'s own guard, which a refusal names unqualified, as {cn}"
+                elif by_call:
+                    why = (f"{clause} is a guard of {by_call[0][0]}.{by_call[0][1]}, which {tn}.{xn} reaches by a call "
+                           f"or a creation, so the request is refused as call_refused, with the clause {by_call[0][0]}.{cn}")
+                elif by_part:
+                    why = (f"{clause} is a guard of {by_part[0][0]}.{by_part[0][1]}, which a cascade of {tn}.{xn} drives, "
+                           f"and a refusal names it qualified, as {by_part[0][0]}.{cn}")
+                else:
+                    why = (f"{clause} is not a guard of {tn}.{xn}, a generated guard, or a guard of a part a cascade of "
+                           f"it drives, written <Type>.<condition>")
+                out.append((here + ("clause",), "names", why))
         elif verdict == "invariant_violated":
             clause = want.get("clause")
             if clause is None:
@@ -12288,6 +12339,134 @@ def clear_plants():
     return ok
 
 
+def unsatisfied_clause_plants():
+    """An unsatisfied example names its clause as the request's refusal does (issue #83, flow-format.md §11): the
+    transition's own guard bare, and a guard of a part a cascade drives qualified, at any depth, are clean and run as
+    written. A guard a call or a creation reaches, which refuses the request as call_refused, a part's guard no cascade
+    drives, the own guard qualified and a part's guard bare are refused, each finding naming the form the refusal
+    takes."""
+    state = ("    states:\n      ON: { description: On., category: live }\n"
+             "      OFF: { description: Off., category: closed, final: true }\n")
+    module = (
+        "module: things\ncategories: [live, closed]\ntypes:\n"
+        "  Thing:\n    description: One thing.\n    tracking: record\n    attributes:\n"
+        "      limit: { type: int, optional: true }\n      next: { reference: Thing, optional: true }\n" + state +
+        "    conditions:\n      a_positive_limit:\n        description: The limit is positive.\n"
+        "        expression: inputs.limit > 0\n        remedy: self_serviceable\n"
+        "    transitions:\n      add: { kind: initial, to: ON, optional_inputs: [limit, next] }\n"
+        "      open_limited: { kind: initial, to: ON, required_inputs: [limit], guards: { a_positive_limit: deny } }\n"
+        "      begin: { kind: internal, from: ON, required_inputs: [limit], guards: { a_positive_limit: deny } }\n"
+        "      finish:\n        kind: internal\n        from: ON\n"
+        "        inputs: { next_limit: { type: int, description: The next thing's limit. } }\n"
+        "        effect:\n          - call: { target: next, transition: begin, inputs: { limit: inputs.next_limit } }\n"
+        "      spawn:\n        kind: internal\n        from: ON\n"
+        "        inputs: { child_limit: { type: int, description: The child's limit. } }\n"
+        "        effect:\n          - create: { type: Thing, transition: open_limited, inputs: { limit: inputs.child_limit } }\n"
+        "      scrap: { kind: external, from: [ON], to: OFF }\n"
+        "  Other:\n    description: Another thing.\n    tracking: record\n    attributes:\n"
+        "      thing: { reference: Thing }\n" + state +
+        "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [thing] }\n"
+        "      go:\n        kind: internal\n        from: ON\n"
+        "        inputs: { lim: { type: int, description: The limit to begin with. } }\n"
+        "        effect:\n          - call: { target: thing, transition: begin, inputs: { limit: inputs.lim } }\n"
+        "      scrap: { kind: external, from: [ON], to: OFF }\n"
+        "  Whole:\n    description: A whole with parts.\n    tracking: record\n    attributes:\n"
+        "      pieces:\n        reference: \"Piece[]\"\n        aggregation: composite\n        opposite: whole\n"
+        "        cascade:\n          - { on: [close], transition: stop, limit: 10 }\n" + state +
+        "    transitions:\n      add: { kind: initial, to: ON }\n"
+        "      add_piece:\n        kind: internal\n        from: ON\n        inputs:\n"
+        "          ready: { type: bool, description: Whether the piece is ready. }\n"
+        "          bit_ready: { type: bool, description: Whether its bit is ready. }\n"
+        "        effect:\n          - create: { type: Piece, transition: add, inputs: { whole: this, ready: inputs.ready, "
+        "bit_ready: inputs.bit_ready } }\n"
+        "      close: { kind: external, from: [ON], to: OFF }\n"
+        "  Piece:\n    description: A part of a whole.\n    tracking: record\n    attributes:\n"
+        "      whole: { reference: Whole, opposite: pieces }\n      ready: { type: bool }\n"
+        "      bits:\n        reference: \"Bit[]\"\n        aggregation: composite\n        opposite: piece\n"
+        "        cascade:\n          - { on: [stop], transition: stop, limit: 10 }\n" + state +
+        "    conditions:\n      piece_ready: { description: The piece is ready., expression: ready, remedy: dependent }\n"
+        "    transitions:\n      add:\n        kind: initial\n        to: ON\n        required_inputs: [whole, ready]\n"
+        "        only_via: [Whole.add_piece]\n"
+        "        inputs: { bit_ready: { type: bool, description: Whether its bit is ready. } }\n"
+        "        effect:\n          - create: { type: Bit, transition: add, inputs: { piece: this, ready: inputs.bit_ready } }\n"
+        "      stop: { kind: external, from: [ON], to: OFF, only_via: [Whole.close], guards: { piece_ready: deny } }\n"
+        "  Bit:\n    description: A part of a piece.\n    tracking: record\n    attributes:\n"
+        "      piece: { reference: Piece, opposite: bits }\n      ready: { type: bool }\n" + state +
+        "    conditions:\n      bit_ready: { description: The bit is ready., expression: ready, remedy: dependent }\n"
+        "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [piece, ready], only_via: [Piece.add] }\n"
+        "      stop: { kind: external, from: [ON], to: OFF, only_via: [Piece.stop], guards: { bit_ready: deny } }\n")
+    setups = ("examples_for: things\nsetups:\n"
+              "  base:\n    description: Two things, another, and a whole whose piece is not ready.\n    steps:\n"
+              "      - request: { type: Thing, transition: add, as: b, inputs: { limit: 1 } }\n"
+              "      - request: { type: Thing, transition: add, as: a, inputs: { next: b } }\n"
+              "      - request: { type: Other, transition: add, as: o, inputs: { thing: b } }\n"
+              "      - request: { type: Whole, transition: add, as: w }\n"
+              "      - request: { object: w, transition: add_piece, inputs: { ready: false, bit_ready: true } }\n"
+              "  deep:\n    description: A whole whose piece is ready and its bit not.\n    steps:\n"
+              "      - request: { type: Whole, transition: add, as: w }\n"
+              "      - request: { object: w, transition: add_piece, inputs: { ready: true, bit_ready: false } }\n"
+              "examples:\n")
+
+    def example(name, request, expect, given="base"):
+        return (f"  {name}:\n    description: The case.\n    given: {given}\n"
+                f"    request: {request}\n    expect: {expect}\n")
+    finish = "{ object: a, transition: finish, inputs: { next_limit: 0 } }"
+    go = "{ object: o, transition: go, inputs: { lim: 0 } }"
+    begin = "{ object: b, transition: begin, inputs: { limit: 0 } }"
+    close = "{ object: w, transition: close }"
+    limit = "remedy: self_serviceable"
+    call = ("{} is a guard of Thing.{}, which {} reaches by a call or a creation, so the request is refused as "
+            "call_refused, with the clause Thing.a_positive_limit")
+    cases = [
+        ("a call of the same type's transition", finish, f"{{ verdict: unsatisfied, clause: Thing.a_positive_limit, {limit} }}",
+         [call.format("Thing.a_positive_limit", "begin", "Thing.finish")]),
+        ("a call's guard named bare", finish, f"{{ verdict: unsatisfied, clause: a_positive_limit, {limit} }}",
+         [call.format("a_positive_limit", "begin", "Thing.finish")]),
+        ("a creation", "{ object: a, transition: spawn, inputs: { child_limit: 0 } }",
+         f"{{ verdict: unsatisfied, clause: Thing.a_positive_limit, {limit} }}",
+         [call.format("Thing.a_positive_limit", "open_limited", "Thing.spawn")]),
+        ("a call of another type's transition", go, f"{{ verdict: unsatisfied, clause: Thing.a_positive_limit, {limit} }}",
+         [call.format("Thing.a_positive_limit", "begin", "Other.go")]),
+        ("a part's guard no cascade of the transition drives", go,
+         "{ verdict: unsatisfied, clause: Piece.piece_ready, remedy: dependent }",
+         ["Piece.piece_ready is not a guard of Other.go, a generated guard, or a guard of a part a cascade of it drives, "
+          "written <Type>.<condition>"]),
+        ("the transition's own guard qualified", begin, f"{{ verdict: unsatisfied, clause: Thing.a_positive_limit, {limit} }}",
+         ["Thing.a_positive_limit is Thing.begin's own guard, which a refusal names unqualified, as a_positive_limit"]),
+        ("a part's guard named bare", close, "{ verdict: unsatisfied, clause: piece_ready, remedy: dependent }",
+         ["piece_ready is a guard of Piece.stop, which a cascade of Whole.close drives, and a refusal names it "
+          "qualified, as Piece.piece_ready"]),
+        ("the transition's own guard bare", begin, f"{{ verdict: unsatisfied, clause: a_positive_limit, {limit} }}", []),
+        ("a part's guard a cascade drives", close, "{ verdict: unsatisfied, clause: Piece.piece_ready, remedy: dependent }", []),
+        ("a guard two cascades down", close, "{ verdict: unsatisfied, clause: Bit.bit_ready, remedy: dependent }", []),
+        ("a call's guard as call_refused", finish, "{ verdict: call_refused, clause: Thing.a_positive_limit }", []),
+    ]
+    ok = True
+    for name, request, expect, want in cases:
+        given = "deep" if "Bit." in expect else "base"
+        found, _notes = check([("things.yaml", module),
+                               ("things.examples.yaml", setups + example("case", request, expect, given))])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  an unsatisfied example's clause, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    # run by the reference runner, each clean form answered as written; one expecting the piece where its bit refuses
+    # passes step 3 and fails its run
+    runs = (setups + example("own", begin, f"{{ verdict: unsatisfied, clause: a_positive_limit, {limit} }}")
+            + example("part", close, "{ verdict: unsatisfied, clause: Piece.piece_ready, remedy: dependent }")
+            + example("bit", close, "{ verdict: unsatisfied, clause: Bit.bit_ready, remedy: dependent }", "deep")
+            + example("called", finish, "{ verdict: call_refused, clause: Thing.a_positive_limit }"))
+    found, _notes = check([("things.yaml", module), ("things.examples.yaml", runs)])
+    wrong, _notes = check([("things.yaml", module), ("things.examples.yaml", runs.replace(
+        "given: deep\n    request: { object: w, transition: close }\n    expect: { verdict: unsatisfied, clause: Bit.bit_ready",
+        "given: deep\n    request: { object: w, transition: close }\n    expect: { verdict: unsatisfied, clause: Piece.piece_ready"))])
+    hit = found == [] and [x[3] for x in wrong] == ["example"] and "bit:" in wrong[0][4]
+    ok &= hit
+    print(f"  an unsatisfied example's clause, run by the reference runner's examples: "
+          f"{'as expected' if hit else 'NOT: ' + str(found or wrong)}")
+    return ok
+
+
 def type_loop_plants():
     """A loop runs over a set or a range, never over every object of a type, which neither the core nor the runner
     runs (ADR-0266, issue #73): a loop over a type is refused, and one over a set input is clean."""
@@ -12639,6 +12818,7 @@ def main():
     ok &= store_name_plants()
     ok &= index_name_plants()
     ok &= clear_plants()
+    ok &= unsatisfied_clause_plants()
     ok &= type_loop_plants()
     ok &= named_to_plants()
     ok &= actor_move_plants()

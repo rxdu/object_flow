@@ -16785,7 +16785,7 @@
     62,
     "fatal",
     "names",
-    "photo_missing is not a guard of ServiceJob.finish, a generated guard, or a condition of a type its effect reaches"
+    "photo_missing is not a guard of ServiceJob.finish, a generated guard, or a guard of a part a cascade of it drives, written <Type>.<condition>"
    ],
    [
     "service.yaml",
@@ -32434,6 +32434,701 @@
   "reads": {
    "family-v2.yaml": "7de9c275bde97727"
   }
+ },
+ {
+  "label": "unsatisfied_clause_plants: a call of the same type's transition",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "61e0e516edd72774"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    21,
+    "fatal",
+    "names",
+    "Thing.a_positive_limit is a guard of Thing.begin, which Thing.finish reaches by a call or a creation, so the request is refused as call_refused, with the clause Thing.a_positive_limit"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unsatisfied_clause_plants: a call's guard named bare",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "b2be74e502cbd26f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    21,
+    "fatal",
+    "names",
+    "a_positive_limit is a guard of Thing.begin, which Thing.finish reaches by a call or a creation, so the request is refused as call_refused, with the clause Thing.a_positive_limit"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unsatisfied_clause_plants: a creation",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "c894ef6b900c47f7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    21,
+    "fatal",
+    "names",
+    "Thing.a_positive_limit is a guard of Thing.open_limited, which Thing.spawn reaches by a call or a creation, so the request is refused as call_refused, with the clause Thing.a_positive_limit"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unsatisfied_clause_plants: a call of another type's transition",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "7837bfd07636a7ec"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    21,
+    "fatal",
+    "names",
+    "Thing.a_positive_limit is a guard of Thing.begin, which Other.go reaches by a call or a creation, so the request is refused as call_refused, with the clause Thing.a_positive_limit"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unsatisfied_clause_plants: a part's guard no cascade of the transition drives",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "55f101a3a07c640f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    21,
+    "fatal",
+    "names",
+    "Piece.piece_ready is not a guard of Other.go, a generated guard, or a guard of a part a cascade of it drives, written <Type>.<condition>"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unsatisfied_clause_plants: the transition's own guard qualified",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "92913c23b98f26d3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    21,
+    "fatal",
+    "names",
+    "Thing.a_positive_limit is Thing.begin's own guard, which a refusal names unqualified, as a_positive_limit"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unsatisfied_clause_plants: a part's guard named bare",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "8d14533b9cfded9c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    21,
+    "fatal",
+    "names",
+    "piece_ready is a guard of Piece.stop, which a cascade of Whole.close drives, and a refusal names it qualified, as Piece.piece_ready"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unsatisfied_clause_plants: the transition's own guard bare",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "cc9ac54f75309511"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    16,
+    "notice",
+    "coverage",
+    "no example requests 4 transitions of things as the request under test, which only a setup, a step or an expected cascade takes: Other.add, Thing.add, Whole.add, Whole.add_piece"
+   ],
+   [
+    "things.examples.yaml",
+    16,
+    "notice",
+    "coverage",
+    "no example takes 11 transitions of things, by its request, a step, a setup or a cascade it expects: Bit.add, Bit.stop, Other.go, Other.scrap, Piece.add, Piece.stop, Thing.finish, Thing.open_limited, Thing.scrap, Thing.spawn, Whole.close"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Bit": [
+    1,
+    1
+   ],
+   "Other": [
+    0,
+    0
+   ],
+   "Piece": [
+    1,
+    1
+   ],
+   "Thing": [
+    2,
+    2
+   ],
+   "Whole": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unsatisfied_clause_plants: a part's guard a cascade drives",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "94a6c4507d2da4b4"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    16,
+    "notice",
+    "coverage",
+    "no example requests 4 transitions of things as the request under test, which only a setup, a step or an expected cascade takes: Other.add, Thing.add, Whole.add, Whole.add_piece"
+   ],
+   [
+    "things.examples.yaml",
+    16,
+    "notice",
+    "coverage",
+    "no example takes 11 transitions of things, by its request, a step, a setup or a cascade it expects: Bit.add, Bit.stop, Other.go, Other.scrap, Piece.add, Piece.stop, Thing.begin, Thing.finish, Thing.open_limited, Thing.scrap, Thing.spawn"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Bit": [
+    1,
+    1
+   ],
+   "Other": [
+    0,
+    0
+   ],
+   "Piece": [
+    1,
+    1
+   ],
+   "Thing": [
+    2,
+    2
+   ],
+   "Whole": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unsatisfied_clause_plants: a guard two cascades down",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "f33a095553743e17"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    16,
+    "notice",
+    "coverage",
+    "no example requests 4 transitions of things as the request under test, which only a setup, a step or an expected cascade takes: Other.add, Thing.add, Whole.add, Whole.add_piece"
+   ],
+   [
+    "things.examples.yaml",
+    16,
+    "notice",
+    "coverage",
+    "no example takes 11 transitions of things, by its request, a step, a setup or a cascade it expects: Bit.add, Bit.stop, Other.go, Other.scrap, Piece.add, Piece.stop, Thing.begin, Thing.finish, Thing.open_limited, Thing.scrap, Thing.spawn"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Bit": [
+    1,
+    1
+   ],
+   "Other": [
+    0,
+    0
+   ],
+   "Piece": [
+    1,
+    1
+   ],
+   "Thing": [
+    2,
+    2
+   ],
+   "Whole": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unsatisfied_clause_plants: a call's guard as call_refused",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "733932a3735b7482"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    16,
+    "notice",
+    "coverage",
+    "no example requests 4 transitions of things as the request under test, which only a setup, a step or an expected cascade takes: Other.add, Thing.add, Whole.add, Whole.add_piece"
+   ],
+   [
+    "things.examples.yaml",
+    16,
+    "notice",
+    "coverage",
+    "no example takes 11 transitions of things, by its request, a step, a setup or a cascade it expects: Bit.add, Bit.stop, Other.go, Other.scrap, Piece.add, Piece.stop, Thing.begin, Thing.open_limited, Thing.scrap, Thing.spawn, Whole.close"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Bit": [
+    1,
+    1
+   ],
+   "Other": [
+    0,
+    0
+   ],
+   "Piece": [
+    1,
+    1
+   ],
+   "Thing": [
+    2,
+    2
+   ],
+   "Whole": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unsatisfied_clause_plants: a call's guard as call_refused",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "91342ea50ab8a21d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    16,
+    "notice",
+    "coverage",
+    "no example requests 4 transitions of things as the request under test, which only a setup, a step or an expected cascade takes: Other.add, Thing.add, Whole.add, Whole.add_piece"
+   ],
+   [
+    "things.examples.yaml",
+    16,
+    "notice",
+    "coverage",
+    "no example takes 9 transitions of things, by its request, a step, a setup or a cascade it expects: Bit.add, Bit.stop, Other.go, Other.scrap, Piece.add, Piece.stop, Thing.open_limited, Thing.scrap, Thing.spawn"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Bit": [
+    1,
+    1
+   ],
+   "Other": [
+    0,
+    0
+   ],
+   "Piece": [
+    1,
+    1
+   ],
+   "Thing": [
+    2,
+    2
+   ],
+   "Whole": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unsatisfied_clause_plants: a call's guard as call_refused",
+  "files": [
+   [
+    "things.yaml",
+    "6d66b27658865493"
+   ],
+   [
+    "things.examples.yaml",
+    "b427494c57d5beed"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "things.examples.yaml",
+    16,
+    "notice",
+    "coverage",
+    "no example requests 4 transitions of things as the request under test, which only a setup, a step or an expected cascade takes: Other.add, Thing.add, Whole.add, Whole.add_piece"
+   ],
+   [
+    "things.examples.yaml",
+    16,
+    "notice",
+    "coverage",
+    "no example takes 9 transitions of things, by its request, a step, a setup or a cascade it expects: Bit.add, Bit.stop, Other.go, Other.scrap, Piece.add, Piece.stop, Thing.open_limited, Thing.scrap, Thing.spawn"
+   ],
+   [
+    "things.examples.yaml",
+    27,
+    "fatal",
+    "example",
+    "bit: expected the clause Piece.piece_ready, and it is refused as unsatisfied Bit.bit_ready dependent cascading to piece-2: cascading to bit-3:"
+   ],
+   [
+    "things.yaml",
+    60,
+    "notice",
+    "unbounded_reach",
+    "Whole.pieces's cascade on close takes at most 10 of it, and no invariant of Whole holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in pieces) <= 10 (ADR-0201)"
+   ],
+   [
+    "things.yaml",
+    86,
+    "notice",
+    "unbounded_reach",
+    "Piece.bits's cascade on stop takes at most 10 of it, and no invariant of Piece holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in bits) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Bit": [
+    1,
+    1
+   ],
+   "Other": [
+    0,
+    0
+   ],
+   "Piece": [
+    1,
+    1
+   ],
+   "Thing": [
+    2,
+    2
+   ],
+   "Whole": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
  },
  {
   "label": "type_loop_plants: a loop over a set input",

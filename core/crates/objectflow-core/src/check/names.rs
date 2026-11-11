@@ -1802,6 +1802,41 @@ type Passed = (String, Env, Option<String>, String, String, Path);
 
 /// The module's types, those checked before it, and the observation kinds
 /// they declare, as check 10 reads them.
+/// Each composite end of a type, its own or inherited, with its cascade
+/// clauses and where they are given.
+pub(crate) fn composite_parts(tn: &str, kinds: &Obj) -> Vec<(Value, Vec<Value>, Path)> {
+    let t = kinds.get(tn).unwrap_or(&super::doc::NULL);
+    let mut out: Vec<(Value, Vec<Value>, Path)> = obj(t, "attributes")
+        .iter()
+        .filter(|(_, spec)| text(spec, "aggregation") == Some("composite"))
+        .map(|(an, spec)| {
+            (
+                spec.clone(),
+                list(spec, "cascade").to_vec(),
+                segs!["types", tn, "attributes", an],
+            )
+        })
+        .collect();
+    let mut inherited: Obj = Default::default();
+    for b in bases(tn, kinds).iter().rev() {
+        for (an, spec) in obj(&kinds[b.as_str()], "attributes") {
+            if text(spec, "aggregation") == Some("composite") {
+                inherited.insert(an.clone(), spec.clone());
+            }
+        }
+    }
+    for (an, ip) in obj(t, "inherited_parts") {
+        if let Some(spec) = inherited.get(an) {
+            out.push((
+                spec.clone(),
+                list(ip, "cascade").to_vec(),
+                segs!["types", tn, "inherited_parts", an],
+            ));
+        }
+    }
+    out
+}
+
 struct Personal<'a> {
     kinds: &'a Obj,
     fields: BTreeMap<String, Value>,
@@ -1863,41 +1898,6 @@ impl Personal<'_> {
         })
     }
 
-    /// Each composite end of a type, its own or inherited, with its cascade
-    /// clauses and where they are given.
-    fn parts(&self, tn: &str) -> Vec<(Value, Vec<Value>, Path)> {
-        let t = self.kinds.get(tn).unwrap_or(&super::doc::NULL);
-        let mut out: Vec<(Value, Vec<Value>, Path)> = obj(t, "attributes")
-            .iter()
-            .filter(|(_, spec)| text(spec, "aggregation") == Some("composite"))
-            .map(|(an, spec)| {
-                (
-                    spec.clone(),
-                    list(spec, "cascade").to_vec(),
-                    segs!["types", tn, "attributes", an],
-                )
-            })
-            .collect();
-        let mut inherited: Obj = Default::default();
-        for b in bases(tn, self.kinds).iter().rev() {
-            for (an, spec) in obj(&self.kinds[b.as_str()], "attributes") {
-                if text(spec, "aggregation") == Some("composite") {
-                    inherited.insert(an.clone(), spec.clone());
-                }
-            }
-        }
-        for (an, ip) in obj(t, "inherited_parts") {
-            if let Some(spec) = inherited.get(an) {
-                out.push((
-                    spec.clone(),
-                    list(ip, "cascade").to_vec(),
-                    segs!["types", tn, "inherited_parts", an],
-                ));
-            }
-        }
-        out
-    }
-
     /// Each argument a transition passes by a `call` or a `create`.
     fn passes(&self, tn: &str, x: &Value) -> Vec<Passed> {
         let t = self.kinds.get(tn).unwrap_or(&super::doc::NULL);
@@ -1932,7 +1932,7 @@ impl Personal<'_> {
     /// is.
     fn cascades(&self, tn: &str, xn: &str) -> Vec<Passed> {
         let mut out = Vec::new();
-        for (spec, clauses, here) in self.parts(tn) {
+        for (spec, clauses, here) in composite_parts(tn, self.kinds) {
             for (i, c) in clauses.iter().enumerate() {
                 if !list(c, "on").iter().any(|w| py_str(w) == xn) {
                     continue;
