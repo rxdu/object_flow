@@ -40,9 +40,10 @@ SHA-256, from the modules as 0.16.0 shipped them, those under release-0.17.0/ by
 built at c61d83a and checked against its SHA-256, from the modules as 0.17.0 shipped them, those under
 release-0.18.0/ by the service published as v0.18.0, built at 32c18b3 and checked against its SHA-256, from the
 modules as 0.18.0 shipped them, those under release-0.19.0/ by the service published as v0.19.0, built at
-4d125be and checked against its SHA-256, from the modules as 0.19.0 shipped them, and those under release-0.20.0/ by
+4d125be and checked against its SHA-256, from the modules as 0.19.0 shipped them, those under release-0.20.0/ by
 the service published as v0.20.0, built at d6d4314 and checked against its SHA-256, from the modules as 0.20.0
-shipped them.
+shipped them, and those under release-0.21.0/ by the service published as v0.21.0, built at abcf0c1 and checked
+against its SHA-256, from the modules as 0.21.0 shipped them.
 """
 import json
 import pathlib

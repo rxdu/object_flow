@@ -2,7 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.22.0, 2026-11-11
+
+A release before 1.0.0, as 0.21.0 was (ADR-0214), with issue #83: the examples' checkers take an `unsatisfied` example's clause only as the request's refusal names it, and say where a guard a call or a creation reaches gives `call_refused`.
 
 ### Changed, and may refuse what 0.21.0 accepted
 
