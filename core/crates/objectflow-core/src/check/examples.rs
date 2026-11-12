@@ -820,51 +820,7 @@ pub fn example_errors(
     // an observation kind is recorded by its generated creation, `record`
     let mut kinds = library.clone();
     for m in modules.values() {
-        for (tn, t) in obj(m, "types") {
-            for ob in obj(t, "observations").values() {
-                let fields = obj(ob, "attributes").clone();
-                let mut attrs = fields.clone();
-                attrs.insert("subject".into(), json!({"reference": tn}));
-                attrs.insert(
-                    "corrects".into(),
-                    json!({"reference": str_or(ob, "kind", ""), "optional": true}),
-                );
-                attrs.insert("occurred_at".into(), json!({"type": "timestamp"}));
-                attrs.insert("recorded_at".into(), json!({"type": "timestamp"}));
-                let required: Vec<String> = std::iter::once("subject".to_string())
-                    .chain(
-                        fields
-                            .iter()
-                            .filter(|(_, f)| !optional(f))
-                            .map(|(a, _)| a.clone()),
-                    )
-                    .collect();
-                let optional_inputs: Vec<String> = std::iter::once("corrects".to_string())
-                    .chain(
-                        fields
-                            .iter()
-                            .filter(|(_, f)| optional(f))
-                            .map(|(a, _)| a.clone()),
-                    )
-                    .collect();
-                let mut transitions = Map::new();
-                transitions.insert(
-                    "record".into(),
-                    json!({"kind": "initial", "to": "RECORDED", "required_inputs": required, "optional_inputs": optional_inputs}),
-                );
-                if fields.values().any(|f| flag(f, "personal")) {
-                    transitions.insert(
-                        "forget".into(),
-                        json!({"kind": "erasure", "inputs": {"reason": {"type": "string"}}}),
-                    );
-                }
-                kinds.insert(
-                    str_or(ob, "kind", ""),
-                    json!({"attributes": attrs, "states": {"RECORDED": {"final": true}},
-                           "invariants": ob.get("invariants").cloned().unwrap_or(json!({})), "transitions": transitions}),
-                );
-            }
-        }
+        kinds.extend(super::view::observation_kinds(obj(m, "types")));
     }
     let enums: BTreeMap<String, BTreeSet<String>> = modules
         .values()

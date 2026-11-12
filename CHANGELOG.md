@@ -6,6 +6,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Added
 
+- An effect may record an observation, as `declaration-syntax.md` §6.8 says, by a `create` of its kind's `record`: `create: { type: Custody, transition: record, inputs: { subject: thing, to_whom: inputs.to_whom } }`. The recording is dated by the request and stamps its subject's collection, as a caller's does. A module may import an observation kind by name from the module whose type declares it, so another module's act may record it. The checks hold its inputs to the record's, each fitting, and a personal value to a personal field (issue #84, ADR-0270).
 - A kind of actor may be written qualified, `ActorKind.service`, wherever a bare one may, and no member of a type hides it (issue #85, ADR-0269). The invariant `taken_by` generates writes its kinds so, so a type with a member named `human`, `agent` or `service`, such as a line's `service`, may declare `taken_by`; it was refused, its invariant comparing an actor kind with the member. A bare kind reads as before, and one a member hides, compared with an actor kind, is refused naming the member and the qualified spelling.
 
 ### Changed, and may refuse what 0.22.0 accepted

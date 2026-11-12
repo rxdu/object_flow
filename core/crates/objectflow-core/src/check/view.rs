@@ -461,6 +461,66 @@ pub fn taken_by_errors(doc: &Value) -> Found {
 
 /// The bases a type extends, nearest first; the walk stops at an unknown
 /// name or where it would come back to a type it has passed.
+/// Each observation kind the types given declare, as the checks see one
+/// (`declaration-syntax.md` §6.8; `check-flows.py`'s `observation_kinds`): a
+/// type born final, recorded by its generated creation, `record`, by a
+/// caller or an effect's `create` (ADR-0270), taking the subject and each
+/// field, and optionally the observation it corrects; a kind with a personal
+/// field has a generated erasure, `forget`, too (ADR-0147). Its occurred and
+/// recorded times are read, and never given as inputs.
+pub(crate) fn observation_kinds(kinds: &Obj) -> Obj {
+    let mut out = Obj::new();
+    for (tn, t) in kinds {
+        for ob in obj(t, "observations").values() {
+            let Some(kind) = ob.get("kind").and_then(Value::as_str) else {
+                continue;
+            };
+            let fields = obj(ob, "attributes").clone();
+            let mut attrs = fields.clone();
+            attrs.insert("subject".into(), json!({"reference": tn}));
+            attrs.insert(
+                "corrects".into(),
+                json!({"reference": kind, "optional": true}),
+            );
+            attrs.insert("occurred_at".into(), json!({"type": "timestamp"}));
+            attrs.insert("recorded_at".into(), json!({"type": "timestamp"}));
+            let required: Vec<String> = std::iter::once("subject".to_string())
+                .chain(
+                    fields
+                        .iter()
+                        .filter(|(_, f)| !super::doc::optional(f))
+                        .map(|(a, _)| a.clone()),
+                )
+                .collect();
+            let optional_inputs: Vec<String> = std::iter::once("corrects".to_string())
+                .chain(
+                    fields
+                        .iter()
+                        .filter(|(_, f)| super::doc::optional(f))
+                        .map(|(a, _)| a.clone()),
+                )
+                .collect();
+            let mut transitions = Map::new();
+            transitions.insert(
+                "record".into(),
+                json!({"kind": "initial", "to": "RECORDED", "required_inputs": required, "optional_inputs": optional_inputs}),
+            );
+            if fields.values().any(|f| flag(f, "personal")) {
+                transitions.insert(
+                    "forget".into(),
+                    json!({"kind": "erasure", "inputs": {"reason": {"type": "string"}}}),
+                );
+            }
+            out.insert(
+                kind.to_string(),
+                json!({"attributes": attrs, "states": {"RECORDED": {"final": true}},
+                       "invariants": ob.get("invariants").cloned().unwrap_or(json!({})), "transitions": transitions}),
+            );
+        }
+    }
+    out
+}
+
 pub fn bases(tn: &str, kinds: &Obj) -> Vec<String> {
     let mut chain = Vec::new();
     let mut seen = vec![tn.to_string()];

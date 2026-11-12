@@ -1251,6 +1251,30 @@ def reparent_errors(doc, library):
     return out
 
 
+def observation_kinds(kinds):
+    """Each observation kind the types given declare, as the checks see one (declaration-syntax.md §6.8): a type born
+    final, recorded by its generated creation, `record`, by a caller or an effect's `create` (ADR-0270), taking the
+    subject and each field, and optionally the observation it corrects; a kind with a personal field has a generated
+    erasure, `forget`, too (ADR-0147). Its occurred and recorded times are read, and never given as inputs."""
+    out = {}
+    for tn, t in kinds.items():
+        for ob in ((t or {}).get("observations") or {}).values():
+            if not isinstance(ob, dict) or not isinstance(ob.get("kind"), str):
+                continue
+            fields = ob.get("attributes") or {}
+            out[ob["kind"]] = {
+                "attributes": dict(fields, subject={"reference": tn}, corrects={"reference": ob["kind"], "optional": True},
+                                   occurred_at={"type": "timestamp"}, recorded_at={"type": "timestamp"}),
+                "states": {"RECORDED": {"final": True}},
+                "invariants": ob.get("invariants") or {},
+                "transitions": {"record": {"kind": "initial", "to": "RECORDED",
+                                           "required_inputs": ["subject"] + [a for a, f in fields.items() if not optional(f)],
+                                           "optional_inputs": ["corrects"] + [a for a, f in fields.items() if optional(f)]}}}
+            if any((f or {}).get("personal") for f in fields.values()):
+                out[ob["kind"]]["transitions"]["forget"] = {"kind": "erasure", "inputs": {"reason": {"type": "string"}}}
+    return out
+
+
 def composite_parts(tn, kinds):
     """Each composite end of a type, its own or inherited, with its cascade clauses and where they are given."""
     t = kinds.get(tn) or {}
@@ -1313,6 +1337,7 @@ def personal_errors(doc, library):
     kinds = dict(library or {})
     kinds.update(dict(types(doc)))
     fields = {o["kind"]: o for t in kinds.values() for o in (t.get("observations") or {}).values() if "kind" in o}
+    kinds.update(observation_kinds(kinds))       # a create recording an observation passes into its fields (ADR-0270)
 
     def personal(u, m):
         spec = ((kinds.get(u) or fields.get(u) or {}).get("attributes") or {}).get(m)
@@ -2781,9 +2806,11 @@ def create_errors(doc, library, where, tn, xn, c):
     """A create names a type of the module, or an imported one, and an initial
     transition of it, and supplies that transition's required inputs."""
     imported = {n for names in (doc.get("imports") or {}).values() for n in names}
-    if c["type"] not in (doc.get("types") or {}) and c["type"] not in imported:
+    # an observation kind a type of the module declares, or one it imports, is recorded by its `record` (ADR-0270)
+    own = observation_kinds(doc.get("types") or {})
+    if c["type"] not in (doc.get("types") or {}) and c["type"] not in imported and c["type"] not in own:
         return [(where, "names", f"{tn}.{xn} creates a {c['type']}, which is neither declared in this module nor imported")]
-    target = library.get(c["type"])
+    target = library.get(c["type"]) or observation_kinds(library).get(c["type"])
     if target is None:
         return []
     t = (target.get("transitions") or {}).get(c["transition"])
@@ -3934,6 +3961,7 @@ def argument_type_errors(doc, library):
     input, which writes the attribute of its name (the model's check 2, its types; check 17's fit)."""
     kinds = dict(library or {})
     kinds.update(dict(types(doc)))
+    kinds.update(observation_kinds(kinds))       # a create recording an observation passes its fields (ADR-0270)
     enums = set(doc.get("enumerations") or {})
     # a value no literal or name tells is typed as an expression is, where an
     # int passed to a time or an amount to an int was taken and the core
@@ -6246,25 +6274,9 @@ def example_errors(doc, kinds, modules):
     mod = doc["examples_for"]
     if mod not in modules:
         return [(("examples_for",), "names", f"examples for {mod}, which is not among the modules checked")], {}, set()
-    # an observation kind is recorded by a request of its generated creation, `record`, taking each field and the
-    # subject, and optionally the observation it corrects (declaration-syntax.md §6.8)
     kinds = dict(kinds)
     for m in modules.values():
-        for tn, t in (m.get("types") or {}).items():
-            for ob in (t.get("observations") or {}).values():
-                fields = ob.get("attributes") or {}
-                # its occurred and recorded times are read, as an expectation's values, and never given as inputs
-                kinds[ob["kind"]] = {
-                    "attributes": dict(fields, subject={"reference": tn}, corrects={"reference": ob["kind"], "optional": True},
-                                       occurred_at={"type": "timestamp"}, recorded_at={"type": "timestamp"}),
-                    "states": {"RECORDED": {"final": True}},
-                    "invariants": ob.get("invariants") or {},
-                    "transitions": {"record": {"kind": "initial", "to": "RECORDED",
-                                               "required_inputs": ["subject"] + [a for a, f in fields.items() if not optional(f)],
-                                               "optional_inputs": ["corrects"] + [a for a, f in fields.items() if optional(f)]}}}
-                if any((f or {}).get("personal") for f in fields.values()):
-                    # a kind with a personal field has a generated erasure, `forget`, a step may request (ADR-0147)
-                    kinds[ob["kind"]]["transitions"]["forget"] = {"kind": "erasure", "inputs": {"reason": {"type": "string"}}}
+        kinds.update(observation_kinds(m.get("types") or {}))
     enums = {n: set(v) for m in modules.values() for n, v in (m.get("enumerations") or {}).items()}
     functions = {f"{e}.{fn}" for m in modules.values() for e, ev in (m.get("evaluators") or {}).items()
                  for fn in (ev.get("functions") or {})}
@@ -6851,8 +6863,10 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
                 notes.append((f, line_of(idx, ("imports", mod)), "notice", "imports",
                               f"{mod} is not among the files checked, so steps 2 and 3 cannot check what is imported from it"))
                 continue
+            # an observation kind a type of the module declares is imported by name, as a create records it (ADR-0270)
+            recorded = set(observation_kinds((modules.get(mod) or {}).get("types") or {}))
             for n in names:
-                if n not in declared[mod]:
+                if n not in declared[mod] and n not in recorded:
                     found.append((f, line_of(idx, ("imports", mod)), "fatal", "names",
                                   f"imports '{n}' from {mod}, which does not declare it"))
                 elif n in ((modules.get(mod) or {}).get("values") or {}):
@@ -12542,6 +12556,76 @@ def actor_kind_plants():
     print(f"  a kind of actor, run by the reference runner's examples: {'as expected' if hit else 'NOT: ' + str(found or wrong)}")
     return ok
 
+def effect_recording_plants():
+    """An effect records an observation by its kind's `record`, as a caller does (issue #84, ADR-0270): a create of a
+    kind its module's type declares, and of one another module's type declares that it imports by name, is clean, and
+    runs; a kind not imported, an import naming no kind, a creation other than `record`, a field left out, an argument
+    that does not fit its input, a subject of another type, and a personal value passed to a field that is not
+    personal are refused."""
+    module = (
+        "module: probe\ncategories: [live, closed]\ntypes:\n"
+        "  Thing:\n    description: A thing whose hands change.\n    tracking: record\n"
+        "    observations:\n      custody:\n        kind: Custody\n        description: Who holds the thing.\n"
+        "        attributes:\n          to_whom: { type: string }\n"
+        "    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+        "    transitions:\n      add: { kind: initial, to: ON }\n      scrap: { kind: external, from: [ON], to: OFF }\n"
+        "  Mover:\n    description: Moves things.\n    tracking: record\n    attributes:\n      thing: { reference: Thing }\n"
+        "    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+        "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [thing] }\n"
+        "      move:\n        kind: internal\n        from: ON\n"
+        "        inputs:\n          to_whom: { type: string, description: Who takes it. }\n"
+        "        effect:\n"
+        "          - create: { type: Custody, transition: record, inputs: { subject: thing, to_whom: inputs.to_whom } }\n"
+        "      scrap: { kind: external, from: [ON], to: OFF }\n")
+    step = "          - create: { type: Custody, transition: record, inputs: { subject: thing, to_whom: inputs.to_whom } }"
+    things, movers = module.split("  Mover:\n")
+    a = things
+    b = ("module: probe_b\nimports: { probe: [Thing, Custody] }\ncategories: [live, closed]\ntypes:\n  Mover:\n" + movers)
+    passes = "Mover.move passes {}, to Custody.record's input '{}', which takes {}: an argument must fit its input (the model's check 2)"
+    cases = [
+        ("a create of a kind its module declares", [("probe.yaml", module)], []),
+        ("a create of a kind imported by name", [("probe.yaml", a), ("probe_b.yaml", b)], []),
+        ("a kind of another module not imported", [("probe.yaml", a), ("probe_b.yaml", b.replace("[Thing, Custody]", "[Thing]"))],
+         ["Mover.move creates a Custody, which is neither declared in this module nor imported"]),
+        ("an import naming no kind", [("probe.yaml", a), ("probe_b.yaml", b.replace("[Thing, Custody]", "[Thing, Custody, Holding]"))],
+         ["imports 'Holding' from probe, which does not declare it"]),
+        ("a creation other than record", [("probe.yaml", module.replace(step, step.replace("transition: record", "transition: add")))],
+         ["Mover.move creates a Custody by 'add', which is not an initial transition of Custody"]),
+        ("a field left out", [("probe.yaml", module.replace(step, step.replace(", to_whom: inputs.to_whom", "")))],
+         ["Mover.move creates a Custody without the input 'to_whom', which Custody.record requires"]),
+        ("an argument that does not fit", [("probe.yaml", module.replace(step, step.replace("to_whom: inputs.to_whom", "to_whom: 3")))],
+         [passes.format("3, number", "to_whom", "string")]),
+        ("a subject of another type", [("probe.yaml", module.replace(step, step.replace("subject: thing", "subject: this")))],
+         [passes.format("this, reference Mover", "subject", "reference Thing")]),
+        ("a personal value passed to a field not personal",
+         [("probe.yaml", module.replace("to_whom: { type: string, description: Who takes it. }",
+                                        "to_whom: { type: string, description: Who takes it., personal: true }"))],
+         ["Mover holds the personal input move.to_whom and declares no erasure (check 60)",
+          "Mover.move passes the personal input 'to_whom' to Custody.record's input 'to_whom', which writes it to "
+          "Custody.to_whom, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"]),
+    ]
+    ok = True
+    for name, files, want in cases:
+        found, _notes = check(files)
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  an effect recording an observation, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    # run by the reference runner: the move records the custody in its own request; one expecting no recording fails
+    examples = ("examples_for: probe\nsetups:\n  a_thing:\n    description: A thing and its mover.\n    steps:\n"
+                "      - request: { type: Thing, transition: add, as: thing }\n"
+                "      - request: { type: Mover, transition: add, as: mover, inputs: { thing: thing } }\n"
+                "examples:\n  a_move_records_custody:\n    description: Moving the thing records who holds it.\n"
+                "    given: a_thing\n    request: { object: mover, transition: move, inputs: { to_whom: Ana } }\n"
+                "    expect: { verdict: applied, state: ON, cascaded: [Custody.record] }\n")
+    found, _notes = check([("probe.yaml", module), ("probe.examples.yaml", examples)])
+    wrong, _notes = check([("probe.yaml", module), ("probe.examples.yaml", examples.replace("cascaded: [Custody.record]", "cascaded: []"))])
+    hit = found == [] and [x[3] for x in wrong] == ["example"] and "a_move_records_custody" in wrong[0][4]
+    ok &= hit
+    print(f"  an effect recording an observation, run by the reference runner's examples: "
+          f"{'as expected' if hit else 'NOT: ' + str(found or wrong)}")
+    return ok
+
 def type_loop_plants():
     """A loop runs over a set or a range, never over every object of a type, which neither the core nor the runner
     runs (ADR-0266, issue #73): a loop over a type is refused, and one over a set input is clean."""
@@ -12895,6 +12979,7 @@ def main():
     ok &= clear_plants()
     ok &= unsatisfied_clause_plants()
     ok &= actor_kind_plants()
+    ok &= effect_recording_plants()
     ok &= type_loop_plants()
     ok &= named_to_plants()
     ok &= actor_move_plants()

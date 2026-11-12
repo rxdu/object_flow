@@ -1,0 +1,22 @@
+module: probe_b
+imports: { probe: [Thing] }
+categories: [live, closed]
+types:
+  Mover:
+    description: Moves things.
+    tracking: record
+    attributes:
+      thing: { reference: Thing }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [thing] }
+      move:
+        kind: internal
+        from: ON
+        inputs:
+          to_whom: { type: string, description: Who takes it. }
+        effect:
+          - create: { type: Custody, transition: record, inputs: { subject: thing, to_whom: inputs.to_whom } }
+      scrap: { kind: external, from: [ON], to: OFF }

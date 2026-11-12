@@ -20,7 +20,7 @@ use super::steps::{
     Step, assigns, body_text, cleared, input_reads, kind, required_input_names, sources,
     step_expressions, step_kind, taken, targets, walk,
 };
-use super::view::{TAKEN, bases, inherited, types};
+use super::view::{TAKEN, bases, inherited, observation_kinds, types};
 use crate::eval::ACTOR_KIND;
 use crate::expr::{BinOp, Expr, Number, parse};
 use crate::yaml::Seg;
@@ -2023,6 +2023,9 @@ fn personal_errors(doc: &Value, library: &Obj) -> Found {
             }
         }
     }
+    // a create recording an observation passes into its fields (ADR-0270)
+    let recorded = observation_kinds(&kinds);
+    kinds.extend(recorded);
     let check = Personal {
         kinds: &kinds,
         fields,
@@ -2642,7 +2645,13 @@ fn create_errors(
     c: &Value,
 ) -> Found {
     let ty = c.get("type").map(py_str).unwrap_or_default();
-    if !obj(doc, "types").contains_key(&ty) && !imported(doc).contains(&ty) {
+    // an observation kind a type of the module declares, or one it imports,
+    // is recorded by its `record` (ADR-0270)
+    let own = observation_kinds(obj(doc, "types"));
+    if !obj(doc, "types").contains_key(&ty)
+        && !imported(doc).contains(&ty)
+        && !own.contains_key(&ty)
+    {
         return vec![finding(
             where_.clone(),
             "names",
@@ -2651,7 +2660,8 @@ fn create_errors(
             ),
         )];
     }
-    let Some(target) = library.get(&ty) else {
+    let recorded = observation_kinds(library);
+    let Some(target) = library.get(&ty).or_else(|| recorded.get(&ty)) else {
         return Found::new();
     };
     let xt = c.get("transition").map(py_str).unwrap_or_default();
@@ -5280,6 +5290,9 @@ fn argument_type_errors(doc: &Value, library: &Obj) -> Found {
     for (tn, t) in types(doc) {
         kinds.insert(tn, t.clone());
     }
+    // a create recording an observation passes its fields (ADR-0270)
+    let recorded = observation_kinds(&kinds);
+    kinds.extend(recorded);
     let enums: BTreeSet<String> = keys(doc, "enumerations").into_iter().collect();
     // a value no literal or name tells is typed as an expression is, where an
     // int passed to a time or an amount to an int was taken and the core

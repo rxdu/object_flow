@@ -8979,6 +8979,97 @@ types:
         }
     }
 
+    /// An effect records an observation of another object by its kind's
+    /// `record`, as a caller does (issue #84, ADR-0270): the mover's `move`
+    /// records the thing's custody in its own request, dated as it is
+    /// recorded, and the thing's collection is stamped with the recording's
+    /// own event, the move's next.
+    #[test]
+    fn an_effect_records_an_observation() {
+        const MOVES: &str = r#"
+module: moves
+categories: [live, closed]
+types:
+  Thing:
+    observations:
+      custody:
+        kind: Custody
+        attributes:
+          to_whom: { type: string }
+    states: { ON: { category: live } }
+    transitions:
+      add: { kind: initial, to: ON }
+  Mover:
+    attributes:
+      thing: { reference: Thing }
+    states: { ON: { category: live } }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [thing] }
+      move:
+        kind: internal
+        from: ON
+        inputs:
+          to_whom: { type: string }
+        effect:
+          - create: { type: Custody, transition: record, inputs: { subject: thing, to_whom: inputs.to_whom } }
+"#;
+        let lib = Library::load(&[("moves.yaml".into(), MOVES.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let thing = created(&req(&mut s, "add", OPERATOR, ("Thing", true), json!({})));
+        let mover = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Mover", true),
+            json!({"thing": thing}),
+        ));
+        created(&req(
+            &mut s,
+            "move",
+            OPERATOR,
+            (&mover, false),
+            json!({"to_whom": "Ana"}),
+        ));
+        let moved = s
+            .history(&mover)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.transition == "move")
+            .unwrap();
+        let w = s.snapshot().unwrap();
+        let custody: Vec<String> = w
+            .of_type("Custody")
+            .unwrap()
+            .iter()
+            .map(|c| c.id.clone())
+            .collect();
+        assert_eq!(custody.len(), 1, "{custody:?}");
+        let c = w.whole(&custody[0]).unwrap().unwrap();
+        assert_eq!(c.attr("to_whom"), Value::Text("Ana".into()));
+        assert_eq!(c.attr("subject"), Value::Object(thing.clone()));
+        assert!(
+            matches!(c.attr("occurred_at"), Value::Timestamp(_)),
+            "{c:?}"
+        );
+        assert!(
+            matches!(c.attr("recorded_at"), Value::Timestamp(_)),
+            "{c:?}"
+        );
+        let recorded = s
+            .history(&custody[0])
+            .unwrap()
+            .into_iter()
+            .find(|e| e.transition == "record")
+            .unwrap();
+        assert_eq!(recorded.position, moved.position + 1);
+        let subject = w.whole(&thing).unwrap().unwrap();
+        assert_eq!(
+            w.parts(subject).unwrap().writes.get("custody"),
+            Some(&recorded.position),
+            "the custody collection stamped with the recording's position"
+        );
+    }
+
     /// A member named like a kind of actor hides no kind from the invariant
     /// `taken_by` generates, which writes each kind qualified (issue #85,
     /// ADR-0269): beside a reference named `service`, a service's closing

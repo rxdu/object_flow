@@ -1,0 +1,13 @@
+examples_for: probe
+setups:
+  a_thing:
+    description: A thing and its mover.
+    steps:
+      - request: { type: Thing, transition: add, as: thing }
+      - request: { type: Mover, transition: add, as: mover, inputs: { thing: thing } }
+examples:
+  a_move_records_custody:
+    description: Moving the thing records who holds it.
+    given: a_thing
+    request: { object: mover, transition: move, inputs: { to_whom: Ana } }
+    expect: { verdict: applied, state: ON, cascaded: [Custody.record] }

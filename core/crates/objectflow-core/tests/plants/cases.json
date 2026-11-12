@@ -33659,6 +33659,316 @@
   }
  },
  {
+  "label": "effect_recording_plants: a create of a kind its module declares",
+  "files": [
+   [
+    "probe.yaml",
+    "46dd0e61f2add275"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "effect_recording_plants: a create of a kind imported by name",
+  "files": [
+   [
+    "probe.yaml",
+    "5aee0bffd46702c9"
+   ],
+   [
+    "probe_b.yaml",
+    "2f1f5d28dab8983c"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "effect_recording_plants: a kind of another module not imported",
+  "files": [
+   [
+    "probe.yaml",
+    "5aee0bffd46702c9"
+   ],
+   [
+    "probe_b.yaml",
+    "786830e1a184e7b6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe_b.yaml",
+    21,
+    "fatal",
+    "names",
+    "Mover.move creates a Custody, which is neither declared in this module nor imported"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "effect_recording_plants: an import naming no kind",
+  "files": [
+   [
+    "probe.yaml",
+    "5aee0bffd46702c9"
+   ],
+   [
+    "probe_b.yaml",
+    "4fe7ea619e2c1cff"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe_b.yaml",
+    2,
+    "fatal",
+    "names",
+    "imports 'Holding' from probe, which does not declare it"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "effect_recording_plants: a creation other than record",
+  "files": [
+   [
+    "probe.yaml",
+    "7723e7d4856d7d04"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    35,
+    "fatal",
+    "names",
+    "Mover.move creates a Custody by 'add', which is not an initial transition of Custody"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "effect_recording_plants: a field left out",
+  "files": [
+   [
+    "probe.yaml",
+    "fb0a4abcc05ad84c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    35,
+    "fatal",
+    "names",
+    "Mover.move creates a Custody without the input 'to_whom', which Custody.record requires"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "effect_recording_plants: an argument that does not fit",
+  "files": [
+   [
+    "probe.yaml",
+    "77bf21382ab6832a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    35,
+    "fatal",
+    "names",
+    "Mover.move passes 3, number, to Custody.record's input 'to_whom', which takes string: an argument must fit its input (the model's check 2)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "effect_recording_plants: a subject of another type",
+  "files": [
+   [
+    "probe.yaml",
+    "6d27f3ea36fef247"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    35,
+    "fatal",
+    "names",
+    "Mover.move passes this, reference Mover, to Custody.record's input 'subject', which takes reference Thing: an argument must fit its input (the model's check 2)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "effect_recording_plants: a personal value passed to a field not personal",
+  "files": [
+   [
+    "probe.yaml",
+    "3e0c4579d6945a26"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    19,
+    "fatal",
+    "names",
+    "Mover holds the personal input move.to_whom and declares no erasure (check 60)"
+   ],
+   [
+    "probe.yaml",
+    35,
+    "fatal",
+    "names",
+    "Mover.move passes the personal input 'to_whom' to Custody.record's input 'to_whom', which writes it to Custody.to_whom, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "effect_recording_plants: a personal value passed to a field not personal",
+  "files": [
+   [
+    "probe.yaml",
+    "46dd0e61f2add275"
+   ],
+   [
+    "probe.examples.yaml",
+    "556afde96cd5fb9e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of probe as the request under test, which only a setup, a step or an expected cascade takes: Mover.add, Thing.add"
+   ],
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of probe, by its request, a step, a setup or a cascade it expects: Mover.scrap, Thing.scrap"
+   ]
+  ],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "effect_recording_plants: a personal value passed to a field not personal",
+  "files": [
+   [
+    "probe.yaml",
+    "46dd0e61f2add275"
+   ],
+   [
+    "probe.examples.yaml",
+    "6d1553e1e9c1ceda"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of probe as the request under test, which only a setup, a step or an expected cascade takes: Mover.add, Thing.add"
+   ],
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of probe, by its request, a step, a setup or a cascade it expects: Mover.scrap, Thing.scrap"
+   ],
+   [
+    "probe.examples.yaml",
+    9,
+    "fatal",
+    "example",
+    "a_move_records_custody: expected the request to cause nothing, and it causes ['Custody.record']"
+   ]
+  ],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "type_loop_plants: a loop over a set input",
   "files": [
    [

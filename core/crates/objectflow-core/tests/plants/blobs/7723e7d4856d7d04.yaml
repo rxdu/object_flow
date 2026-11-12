@@ -1,0 +1,36 @@
+module: probe
+categories: [live, closed]
+types:
+  Thing:
+    description: A thing whose hands change.
+    tracking: record
+    observations:
+      custody:
+        kind: Custody
+        description: Who holds the thing.
+        attributes:
+          to_whom: { type: string }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON }
+      scrap: { kind: external, from: [ON], to: OFF }
+  Mover:
+    description: Moves things.
+    tracking: record
+    attributes:
+      thing: { reference: Thing }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [thing] }
+      move:
+        kind: internal
+        from: ON
+        inputs:
+          to_whom: { type: string, description: Who takes it. }
+        effect:
+          - create: { type: Custody, transition: add, inputs: { subject: thing, to_whom: inputs.to_whom } }
+      scrap: { kind: external, from: [ON], to: OFF }

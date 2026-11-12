@@ -269,6 +269,8 @@ pub fn checked_as(
     // each module's values, which no other module imports in this release
     // (ADR-0254)
     let mut values_of: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // each module's observation kinds, which another imports by name (ADR-0270)
+    let mut recorded_of: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     // each module that declares who approves a version, in the order
     // checked, with the kinds it declares, sorted (ADR-0187 decision 1)
     let mut approvers: Vec<(String, Vec<String>)> = Vec::new();
@@ -445,8 +447,11 @@ pub fn checked_as(
                 });
                 continue;
             };
+            // an observation kind a type of the module declares is imported by
+            // name, as a create records it (ADR-0270)
+            let recorded = recorded_of.get(m);
             for n in names {
-                if !theirs.contains(n) {
+                if !theirs.contains(n) && !recorded.is_some_and(|r| r.contains(n)) {
                     fatal(
                         found,
                         at,
@@ -659,6 +664,13 @@ pub fn checked_as(
         }
         stored.insert(module.clone(), held);
         declared.insert(module.clone(), mine.keys().cloned().collect());
+        recorded_of.insert(
+            module.clone(),
+            view::observation_kinds(doc::obj(&doc, "types"))
+                .keys()
+                .cloned()
+                .collect(),
+        );
         values_of.insert(
             module.clone(),
             doc::keys(&doc, "values").into_iter().collect(),

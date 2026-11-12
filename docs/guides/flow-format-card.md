@@ -161,7 +161,7 @@ Required: a module's `module`, `categories` and `types`; a type's `description` 
 | Key | Takes | § |
 |---|---|---|
 | `module` | the module's name, lower case | 4.1 |
-| `imports` | by module, the `types`, `machines`, `enumerations`, `sequences` and `evaluators` used from it | 4.1 |
+| `imports` | by module, the `types`, `machines`, `enumerations`, `sequences` and `evaluators` used from it, and the observation kinds it records | 4.1 |
 | `publishing` | `taken_by`: the kinds that approve the store's next version, read from the installed one; the operator always may | 4.1 |
 | `categories` | the state categories its states use, such as `[live, closed]` | 4.1 |
 | `enumerations` | each a list of upper-case values, read qualified, `Condition.WORN` | 4.1 |
