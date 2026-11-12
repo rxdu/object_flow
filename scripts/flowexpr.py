@@ -318,6 +318,10 @@ class Parser:
                 body = self.expr()
             if body is None and (fn in BODIED or distinct):
                 self.fail(f"a body after ':', which {'a distinct count' if distinct else fn} requires")
+            if body is None and fn == "all":
+                # a `where` only selects, so `all` with no body holds whatever it selects (ADR-0273, issue #86)
+                self.fail("a body after ':', the condition each element meets, which all requires: a where only selects "
+                          "the elements, so all(x in c where p) holds whatever they are; write all(x in c: p)")
             self.take(")")
             return ("agg", fn, distinct, var, collection, where, body)
         if fn == "metric":

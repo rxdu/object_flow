@@ -12239,6 +12239,66 @@
   }
  },
  {
+  "label": "self_test: an all with no body, which holds whatever it selects (ADR-0273, issue #86)",
+  "files": [
+   [
+    "people.yaml",
+    "b11fb2a62f4cf338"
+   ],
+   [
+    "servicedesk.yaml",
+    "1375fe8112b8541b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "servicedesk.yaml",
+    556,
+    "fatal",
+    "syntax",
+    "a body after ':', the condition each element meets, which all requires: a where only selects the elements, so all(x in c where p) holds whatever they are; write all(x in c: p), found ')', at 63 of 'all(a in affected_service.change_approvers where a is not null)': not an expression of declaration-syntax.md §8"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Agent.issue_taken_by": "local",
+   "Agent.revoke_taken_by": "local",
+   "Service.register_taken_by": "local",
+   "Service.retire_taken_by": "local",
+   "User.add_taken_by": "local",
+   "User.leave_taken_by": "local",
+   "User.rename_taken_by": "local"
+  },
+  "could_violate": {
+   "Agent.issue_taken_by": [
+    "Agent.issue"
+   ],
+   "Agent.revoke_taken_by": [
+    "Agent.issue",
+    "Agent.revoke"
+   ],
+   "Service.register_taken_by": [
+    "Service.register"
+   ],
+   "Service.retire_taken_by": [
+    "Service.register",
+    "Service.retire"
+   ],
+   "User.add_taken_by": [
+    "User.add"
+   ],
+   "User.leave_taken_by": [
+    "User.add",
+    "User.leave"
+   ],
+   "User.rename_taken_by": [
+    "User.add",
+    "User.rename"
+   ]
+  }
+ },
+ {
   "label": "self_test: a step made conditional on an optional input",
   "files": [
    [

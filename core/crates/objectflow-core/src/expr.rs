@@ -791,6 +791,13 @@ impl Parser {
             }
             // the aggregates whose value is their body have one (§8, §6.9;
             // the model's check 47)
+            // a `where` only selects, so `all` with no body holds whatever it
+            // selects (ADR-0273, issue #86)
+            if body.is_none() && function == "all" {
+                return self.fail(
+                    "a body after ':', the condition each element meets, which all requires: a where only selects the elements, so all(x in c where p) holds whatever they are; write all(x in c: p)",
+                );
+            }
             if body.is_none() && (BODIED.contains(&function) || distinct) {
                 let which = if distinct {
                     "a distinct count"
@@ -1051,9 +1058,18 @@ mod tests {
         for kept in [
             "count(x in lines)",
             "sum(x in lines: x.qty)",
-            "all(x in lines where x.ok)",
+            "all(x in lines: x.ok)",
+            "any(x in lines where x.ok)",
         ] {
             assert!(parse(kept).is_ok(), "{kept}");
+        }
+        // an `all` whose `where` selects and whose body is missing holds
+        // whatever it selects (ADR-0273, issue #86)
+        for bodiless in ["all(x in lines where x.ok)", "all(x in lines)"] {
+            assert!(
+                refused(bodiless).starts_with("a body after ':', the condition each element meets"),
+                "{bodiless}"
+            );
         }
     }
 

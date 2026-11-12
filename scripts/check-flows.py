@@ -7315,6 +7315,11 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
         ("a sum with no body, whose value its body is (the model's check 47)", "syntax", "servicedesk.yaml",
          plant(servicedesk, "              and i.state != CANCELED and i.state != CLOSED: i.duration)\n",
                "              and i.state != CANCELED and i.state != CLOSED)\n")),
+        ("an all with no body, which holds whatever it selects (ADR-0273, issue #86)", "syntax", "servicedesk.yaml",
+         plant(servicedesk, "          all(a in affected_service.change_approvers: any(o in approvals where o.stage == ReviewStage.CAB\n"
+                            "              and o.approver == a and o.decision == Decision.APPROVE\n"
+                            "              and o.occurred_at > entered_at(AWAITING_CAB_APPROVAL)))\n",
+               "          all(a in affected_service.change_approvers where a is not null)\n")),
         ("a step made conditional on an optional input", "names", "service.yaml",
          plant(service, "          note:   { type: string, optional: true, personal: true }\n        guards:\n          engineer_active: deny\n",
                "          note:   { type: string, optional: true, personal: true }\n        guards:\n          engineer_active: deny\n"
