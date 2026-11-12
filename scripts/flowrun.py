@@ -963,6 +963,8 @@ class Evaluator:
                 return ABSENT
             return {"id": self.actor["id"], "kind": self.actor["kind"], "principal": ABSENT}.get(m, ABSENT)
         if isinstance(base, tuple) and base[0] == "typeref":
+            if base[1] == "ActorKind" and m in ACTOR_KINDS:
+                return m                        # a kind of actor, written qualified (ADR-0269)
             if base[1] in self.s.enums and m in self.s.enums[base[1]]:
                 return ("enum", base[1], m)
             if m in ((self.s.kinds.get(base[1]) or {}).get("states") or {}):
@@ -4053,7 +4055,7 @@ def reads_only_its_rows(e, bound, kinds, enums):
     if not isinstance(e, tuple) or not e:
         return True
     if e[0] == "name":
-        return e[1] in bound or e[1] in ("now",) + ACTOR_KINDS or e[1] in kinds or e[1] in enums
+        return e[1] in bound or e[1] in ("now", "ActorKind") + ACTOR_KINDS or e[1] in kinds or e[1] in enums
     if e[0] == "agg" and isinstance(e[3], str):
         bound = bound | {e[3]}
     return all(reads_only_its_rows(p, bound, kinds, enums) for p in e[1:] if isinstance(p, tuple)) and \

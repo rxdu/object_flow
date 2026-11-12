@@ -360,7 +360,7 @@ def with_taken_by(t):
             attributes[a] = {"type": "actor_kind", "optional": True, TAKEN: xn,
                              "description": f"The kind of actor that took {xn}, recorded as it was taken."}
         if i not in invariants:
-            invariants[i] = {"expression": " or ".join([f"{a} is null"] + [f"{a} == {k}" for k in kinds]), TAKEN: xn,
+            invariants[i] = {"expression": " or ".join([f"{a} is null"] + [f"{a} == ActorKind.{k}" for k in kinds]), TAKEN: xn,
                              "description": f"{xn} is taken by {' or '.join(kinds)} only."}
         transitions[xn] = dict(x, effect=[{"assign": {"location": a, "expr": "actor.kind"}}] + list(x.get("effect") or []))
     return dict(t, attributes=attributes, invariants=invariants, transitions=transitions)
@@ -3006,6 +3006,8 @@ def value_kind(e, tn, t, x, enums):
         return written_kind(attrs.get(e[1]), enums)
     if k == "path" and e[1][0] == "name":
         base, m = e[1][1], e[2]
+        if base == ACTOR_KIND and m in ACTOR_KINDS:
+            return ("actor_kind",)
         if base in enums:
             return ("enumeration", base)
         if base == "this":
@@ -3233,6 +3235,11 @@ class Typing:
                 # who acted, as an outcome value reads it (§8.1): `.id` an identity, `.kind` an actor kind, `.principal`
                 # a string, where they typed as nothing, so `"by " + actor.id` passed and the core did not run it (D687)
                 return {"id": ("identity",), "kind": ("actor_kind",), "principal": ("string",)}.get(m)
+            if base[0] == "name" and base[1] not in env and base[1] == ACTOR_KIND:
+                if m in ACTOR_KINDS:
+                    return ("actor_kind",)
+                self.fail(f"{ACTOR_KIND}.{m} names no kind of actor: a kind is {', '.join(ACTOR_KINDS)} (ADR-0269)")
+                return None
             if base[0] == "name" and base[1] not in env and base[1] in self.enums:
                 return ("enumeration", base[1])
             if base[0] == "name" and base[1] not in env and base[1] in self.kinds and m.isupper():
@@ -3465,7 +3472,13 @@ class Typing:
                         break
                 return ("bool",)
             if op in ("==", "!=", "<", "<=", ">", ">="):
-                if l is not None and r is not None and not self.alike(l, r):
+                hidden = [s[1] for s, v in ((e[3], l), (e[2], r)) if v == ("actor_kind",) and s[0] == "name"
+                          and s[1] in ACTOR_KINDS and s[1] not in env and self.member(tn, s[1], seen) is not None]
+                if l is not None and r is not None and not self.alike(l, r) and hidden:
+                    k = hidden[0]
+                    self.fail(f"{k} names {tn}'s member {k}, which hides the kind of actor {k}: write "
+                              f"{ACTOR_KIND}.{k} (ADR-0269)")
+                elif l is not None and r is not None and not self.alike(l, r):
                     self.fail(f"it compares {type_text(l)} with {type_text(r)}")
                 elif op not in ("==", "!=") and any(v is not None and v[0] == "enumeration" for v in (l, r)):
                     # an enumeration has no order, which the core did not run (the values audit's K-4)
@@ -4267,6 +4280,7 @@ def indexed_errors(tn, t, library):
 BUILT_IN_TYPES = ("string", "bool", "int", "decimal", "money", "timestamp", "duration", "identity", "file", "event", "date",
                   "actor_kind")
 ACTOR_KINDS = ("human", "agent", "service")    # the values of actor_kind, written bare (ADR-0145)
+ACTOR_KIND = "ActorKind"                        # or qualified by it, which no member hides (ADR-0269)
 DECIMAL = re.compile(r"^decimal\(\s*(\d+)\s*,\s*(\d+)\s*\)(\[\])?$")
 
 
@@ -6885,6 +6899,14 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
         named += [(o["kind"], ("types", tn, "observations", on, "kind"), False)
                   for tn, t in (doc.get("types") or {}).items() for on, o in ((t or {}).get("observations") or {}).items()
                   if isinstance(o, dict) and isinstance(o.get("kind"), str)]
+        # an actor kind is written qualified as ActorKind.<kind>, so nothing a module declares takes that name (ADR-0269)
+        what = {"enumerations": "an enumeration", "values": "a value", "sequences": "a sequence",
+                "evaluators": "an evaluator", "machines": "a machine", "types": "a type"}
+        for n, where, called in [(n, (k, n), what[k]) for n, k in mine.items()] + \
+                [(n, w, "an observation kind") for n, w, is_type in named if not is_type]:
+            if n == ACTOR_KIND:
+                found.append((f, line_of(idx, where), "fatal", "names",
+                              f"{n} cannot name {called}: {ACTOR_KIND}.<kind> names a kind of actor (ADR-0269)"))
         for n, where, is_type in named:
             low = n.lower()
             if low in BUILT_IN_TABLES:
@@ -12467,6 +12489,59 @@ def unsatisfied_clause_plants():
     return ok
 
 
+def actor_kind_plants():
+    """A kind of actor written qualified, ActorKind.<kind>, is no member's to hide (issue #85, ADR-0269): taken_by beside
+    a member named service or human is clean, and its invariant refuses an agent and lets a person act when run; an
+    authored comparison written qualified is clean; a bare kind a member hides is refused, naming the member and the
+    qualified spelling; ActorKind.<x> naming no kind is refused; and a module's name ActorKind is refused."""
+    def member(name, extra=""):
+        return TAKEN_FLOW.replace("      title: { type: string }\n",
+                                  f"      title: {{ type: string }}\n      {name}: {{ reference: User, optional: true }}\n"
+                                  ).replace("      reject:  { kind: external, from: OPEN, to: REJECTED, taken_by: [human, service] }\n",
+                                            "      reject:  { kind: external, from: OPEN, to: REJECTED, taken_by: [human, service] }\n" + extra)
+
+    def invariant(expr):
+        # an authored invariant, declared before the transitions, on the request
+        return member("service").replace(
+            "    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [title] }",
+            f"    invariants:\n      kind_named:\n        description: Who rejected it.\n        expression: '{expr}'\n"
+            "    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [title] }")
+    typed = "invariant kind_named does not type: {} (the model's check 24)"
+    cases = [
+        ("taken_by beside a member named service", member("service"), []),
+        ("taken_by beside a member named human", member("human"), []),
+        ("a comparison written qualified", invariant("reject_by_kind is null or reject_by_kind != ActorKind.service"), []),
+        ("a bare kind a member hides", invariant("reject_by_kind is null or reject_by_kind != service"),
+         [typed.format("service names Request's member service, which hides the kind of actor service: write "
+                       "ActorKind.service (ADR-0269)")]),
+        ("a qualified name of no kind", invariant("reject_by_kind is null or reject_by_kind != ActorKind.robot"),
+         [typed.format("ActorKind.robot names no kind of actor: a kind is human, agent, service (ADR-0269)")]),
+        ("an enumeration named ActorKind", member("service").replace("categories: [live, closed]\n",
+                                                                     "categories: [live, closed]\n\nenumerations:\n  ActorKind: [HUMAN]\n"),
+         ["ActorKind cannot name an enumeration: ActorKind.<kind> names a kind of actor (ADR-0269)"]),
+    ]
+    ok = True
+    for name, module, want in cases:
+        found, _notes = check([("taken.yaml", module)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a kind of actor, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    # run by the reference runner beside a member named service: the taken_by sample's examples as written, and an
+    # agent's rejection refused by the invariant its taken_by generates; one expecting it to apply fails its run
+    refused = ("\n  the_agent_may_not_reject:\n    description: Reject is a person's or a service's, not an agent's.\n"
+               "    given: a_request\n    request: { object: request, transition: reject, actor: scout }\n"
+               "    expect: { verdict: invariant_violated, clause: reject_taken_by, remedy: delegable }\n")
+    examples = TAKEN_EXAMPLES.rstrip("\n") + "\n" + refused
+    found, _notes = check([("taken.yaml", member("service")), ("taken.examples.yaml", examples)])
+    wrong, _notes = check([("taken.yaml", member("service")), ("taken.examples.yaml", examples.replace(
+        "expect: { verdict: invariant_violated, clause: reject_taken_by, remedy: delegable }",
+        "expect: { verdict: applied, state: REJECTED, values: { reject_by_kind: agent } }"))])
+    hit = found == [] and [x[3] for x in wrong] == ["example"] and "the_agent_may_not_reject" in wrong[0][4]
+    ok &= hit
+    print(f"  a kind of actor, run by the reference runner's examples: {'as expected' if hit else 'NOT: ' + str(found or wrong)}")
+    return ok
+
 def type_loop_plants():
     """A loop runs over a set or a range, never over every object of a type, which neither the core nor the runner
     runs (ADR-0266, issue #73): a loop over a type is refused, and one over a set input is clean."""
@@ -12819,6 +12894,7 @@ def main():
     ok &= index_name_plants()
     ok &= clear_plants()
     ok &= unsatisfied_clause_plants()
+    ok &= actor_kind_plants()
     ok &= type_loop_plants()
     ok &= named_to_plants()
     ok &= actor_move_plants()

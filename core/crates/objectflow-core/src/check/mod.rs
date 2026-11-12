@@ -37,6 +37,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
+use crate::eval::ACTOR_KIND;
 use crate::yaml::Seg;
 use schema::Schema;
 
@@ -583,6 +584,42 @@ pub fn checked_as(
                     ));
                 }
             }
+        }
+        // a kind of actor is written qualified as `ActorKind.<kind>`, so
+        // nothing a module declares takes that name (ADR-0269)
+        let called = |k: &str| match k {
+            "enumerations" => "an enumeration",
+            "values" => "a value",
+            "sequences" => "a sequence",
+            "evaluators" => "an evaluator",
+            "machines" => "a machine",
+            _ => "a type",
+        };
+        let reserved = mine
+            .get(ACTOR_KIND)
+            .map(|k| {
+                (
+                    vec![Seg::Key((*k).to_string()), Seg::Key(ACTOR_KIND.into())],
+                    called(k),
+                )
+            })
+            .into_iter()
+            .chain(
+                named
+                    .iter()
+                    .filter(|(n, _, is_type)| !is_type && n == ACTOR_KIND)
+                    .map(|(_, at, _)| (at.clone(), "an observation kind")),
+            )
+            .collect::<Vec<_>>();
+        for (at, what) in reserved {
+            fatal(
+                found,
+                node.line_at(&at),
+                "names",
+                format!(
+                    "{ACTOR_KIND} cannot name {what}: {ACTOR_KIND}.<kind> names a kind of actor (ADR-0269)"
+                ),
+            );
         }
         for (n, at, is_type) in named {
             let low = n.to_lowercase();

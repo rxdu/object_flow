@@ -129,11 +129,14 @@ def certain(e, env):
     if k == "bin" and e[1] in ("==", "!="):
         sides = (e[2], e[3])
         for left, right in (sides, sides[::-1]):
-            if left[0] == "name" and right[0] == "name" and right[1] in ACTOR_KINDS and right[1] not in env:
+            # a kind of actor, bare or qualified as ActorKind.<kind> (ADR-0269)
+            kind = right[1] if right[0] == "name" and right[1] in ACTOR_KINDS and right[1] not in env else \
+                right[2] if right[0] == "path" and right[1] == ("name", "ActorKind") and right[2] in ACTOR_KINDS else None
+            if left[0] == "name" and kind is not None:
                 held = env.get(left[1])
                 if held is None or held[0] == PRESENT:
                     return None
-                same = held[0] == KNOWN and held[1] == right[1]
+                same = held[0] == KNOWN and held[1] == kind
                 return same if e[1] == "==" else not same
     return None
 

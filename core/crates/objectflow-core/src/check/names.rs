@@ -21,6 +21,7 @@ use super::steps::{
     step_expressions, step_kind, taken, targets, walk,
 };
 use super::view::{TAKEN, bases, inherited, types};
+use crate::eval::ACTOR_KIND;
 use crate::expr::{BinOp, Expr, Number, parse};
 use crate::yaml::Seg;
 
@@ -3127,6 +3128,9 @@ fn value_kind(
         },
         Expr::Path(base, m) => {
             let Expr::Name(b) = &**base else { return None };
+            if b == ACTOR_KIND && ACTOR_KINDS.contains(&m.as_str()) {
+                return one("actor_kind");
+            }
             if enums.contains(b) {
                 return Some(vec!["enumeration".into(), b.clone()]);
             }
@@ -3728,6 +3732,17 @@ impl Typing<'_> {
                 if let Expr::Name(b) = &**base
                     && !env.contains_key(b)
                 {
+                    // a kind of actor, written qualified (ADR-0269)
+                    if b == ACTOR_KIND {
+                        if ACTOR_KINDS.contains(&m.as_str()) {
+                            return Some(Ty::ActorKind);
+                        }
+                        self.fail(format!(
+                            "{ACTOR_KIND}.{m} names no kind of actor: a kind is {} (ADR-0269)",
+                            ACTOR_KINDS.join(", ")
+                        ));
+                        return None;
+                    }
                     if self.enums.contains(b) {
                         return Some(Ty::Enumeration(b.clone()));
                     }
@@ -4194,7 +4209,29 @@ impl Typing<'_> {
                         Some(Ty::Bool)
                     }
                     BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                        // a kind of actor's name a member of the type hides,
+                        // compared with an actor kind (ADR-0269)
+                        let hidden =
+                            [(&**re, &l), (&**le, &r)].into_iter().find_map(|(s, v)| {
+                                match (s, v) {
+                                    (Expr::Name(k), Some(Ty::ActorKind))
+                                        if ACTOR_KINDS.contains(&k.as_str())
+                                            && !env.contains_key(k)
+                                            && self.member(tn, k, seen).is_some() =>
+                                    {
+                                        Some(k.clone())
+                                    }
+                                    _ => None,
+                                }
+                            });
                         if let (Some(lv), Some(rv)) = (&l, &r)
+                            && !self.alike(lv, rv)
+                            && let Some(k) = hidden
+                        {
+                            self.fail(format!(
+                                "{k} names {tn}'s member {k}, which hides the kind of actor {k}: write {ACTOR_KIND}.{k} (ADR-0269)"
+                            ));
+                        } else if let (Some(lv), Some(rv)) = (&l, &r)
                             && !self.alike(lv, rv)
                         {
                             self.fail(format!("it compares {} with {}", lv.text(), rv.text()));

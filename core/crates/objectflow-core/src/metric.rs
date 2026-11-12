@@ -1919,7 +1919,8 @@ fn reads_only_its_rows(lib: &Library, item: &str, e: &Expr) -> bool {
         match e {
             Expr::Name(n) => {
                 bound.contains(&n.as_str())
-                    || ["now", "human", "agent", "service"].contains(&n.as_str())
+                    || ["now", "human", "agent", "service", crate::eval::ACTOR_KIND]
+                        .contains(&n.as_str())
                     || lib.types.contains_key(n)
                     || lib.enumerations.contains_key(n)
             }

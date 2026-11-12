@@ -1066,3 +1066,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Correction:** Box a large payload on a type a deep recursion holds in each frame, `Record(Box<(String, Obj)>)`, so the type stays as small as its other variants. A stack overflow that a larger `RUST_MIN_STACK` cures is a frame grown, to be found in the types the recursion returns and holds.
 - **Context:** The core's checker (`check/names.rs`), and any recursive Rust code tested on cargo's default test threads.
 
+### A mutant runner that reads "failed" counts "0 failed" as caught
+- **Pattern:** On 2026-11-12, planting defects for #85, the runner judged a mutant caught where any output line held " failed". cargo's summary of a passing run reads "1 passed; 0 failed", so a mutant of the core model's `taken_by` generator was reported caught while the test it ran passed. Its test had no actor of the one kind a member hid, so no assertion reached the defect.
+- **Correction:** Judge a mutant caught on a failure count above zero (`[1-9]\d* failed`), cargo's "test result: FAILED", or the plant runner's own "NOT", and print the line that decided it. Read each caught mutant's deciding line before counting it. A test of a hidden name needs the case the name hides: here, an actor of the hidden kind.
+- **Context:** Planted-defect runs over cargo, pytest and `check-flows.py`'s plants in this repository.
+

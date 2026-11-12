@@ -120,6 +120,14 @@ pub const YIELDING_MEMBERS: &[&str] = &[
     "labels",
 ];
 
+/// The kinds of actor, which an expression writes bare or qualified by
+/// [`ACTOR_KIND`], as `ActorKind.service`, which no member of a type hides
+/// (ADR-0269).
+pub const ACTOR_KINDS: [&str; 3] = ["human", "agent", "service"];
+/// The name a kind of actor is qualified by, which nothing a module declares
+/// takes.
+pub const ACTOR_KIND: &str = "ActorKind";
+
 /// Whether a type declares a member of the name, an attribute, a derived
 /// attribute or an observation, which comes before a yielding member.
 pub fn declares_member(t: &Type, m: &str) -> bool {
@@ -867,6 +875,10 @@ impl<'a> Evaluator<'a> {
                 }));
             }
             Term::TypeRef(name) => {
+                // a kind of actor, written qualified (ADR-0269)
+                if name == ACTOR_KIND && ACTOR_KINDS.contains(&m) {
+                    return Ok(Term::Value(Value::Text(m.to_string())));
+                }
                 if self
                     .world
                     .lib

@@ -266,7 +266,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 - **Logic**: `and`, `or`, `not`, `implies`; `is null`, `is not null`. A comparison with an absent value is **unknown**, and an unknown guard fails as a false one does.
 - **Aggregates**: `count`, `sum`, `any`, `all`, `none`, `min`, `max`, `avg`, `median`, `percentile`, written `count(l in loans where l.open)`; over nothing, `count` and `sum` are 0, `all` and `none` true, `any` false, the others absent.
 - **Values**: money `USD 12.50`, a date `date(now) + 30 days`, a duration `2 h`, text quoted inside the YAML string, `'"HQ"'`; `true`, `false` and numbers bare.
-- **Who acted**: only an effect reads `actor`, `actor.id` and `actor.kind`; a rule reads what an effect recorded.
+- **Who acted**: only an effect reads `actor`, `actor.id` and `actor.kind`; a rule reads what an effect recorded. A kind of actor is written bare, `human`, or qualified, `ActorKind.human`, which a member named `human` cannot hide; nothing a module declares is named `ActorKind`.
 
 ## The examples file (§11)
 

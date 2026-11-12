@@ -33131,6 +33131,534 @@
   "could_violate": {}
  },
  {
+  "label": "actor_kind_plants: taken_by beside a member named service",
+  "files": [
+   [
+    "taken.yaml",
+    "bf89cbaf3bce00c3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "taken.yaml",
+    34,
+    "notice",
+    "unwritten",
+    "Request.service is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Request": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "actor_kind_plants: taken_by beside a member named human",
+  "files": [
+   [
+    "taken.yaml",
+    "f0b2ebf3f7ebd6b0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "taken.yaml",
+    34,
+    "notice",
+    "unwritten",
+    "Request.human is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Request": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "actor_kind_plants: a comparison written qualified",
+  "files": [
+   [
+    "taken.yaml",
+    "a71207e73dd682d3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "taken.yaml",
+    34,
+    "notice",
+    "unwritten",
+    "Request.service is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Request": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.kind_named": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.kind_named": [
+    "Request.open",
+    "Request.reject"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "actor_kind_plants: a bare kind a member hides",
+  "files": [
+   [
+    "taken.yaml",
+    "f313e18e9576a433"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "taken.yaml",
+    34,
+    "notice",
+    "unwritten",
+    "Request.service is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "taken.yaml",
+    42,
+    "fatal",
+    "names",
+    "invariant kind_named does not type: service names Request's member service, which hides the kind of actor service: write ActorKind.service (ADR-0269) (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.kind_named": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.kind_named": [
+    "Request.open",
+    "Request.reject"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "actor_kind_plants: a qualified name of no kind",
+  "files": [
+   [
+    "taken.yaml",
+    "f33458e627c030ab"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "taken.yaml",
+    34,
+    "notice",
+    "unwritten",
+    "Request.service is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "taken.yaml",
+    42,
+    "fatal",
+    "names",
+    "invariant kind_named does not type: ActorKind.robot names no kind of actor: a kind is human, agent, service (ADR-0269) (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.kind_named": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.kind_named": [
+    "Request.open",
+    "Request.reject"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "actor_kind_plants: an enumeration named ActorKind",
+  "files": [
+   [
+    "taken.yaml",
+    "9787b83d921c0f8e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "taken.yaml",
+    5,
+    "fatal",
+    "names",
+    "ActorKind cannot name an enumeration: ActorKind.<kind> names a kind of actor (ADR-0269)"
+   ],
+   [
+    "taken.yaml",
+    37,
+    "notice",
+    "unwritten",
+    "Request.service is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "actor_kind_plants: an enumeration named ActorKind",
+  "files": [
+   [
+    "taken.yaml",
+    "bf89cbaf3bce00c3"
+   ],
+   [
+    "taken.examples.yaml",
+    "6e57371ee160f8db"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.examples.yaml",
+    11,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of taken as the request under test, which only a setup, a step or an expected cascade takes: Agent.issue, Request.open, User.add"
+   ],
+   [
+    "taken.examples.yaml",
+    11,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of taken, by its request, a step, a setup or a cascade it expects: Agent.retire, User.leave"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "taken.yaml",
+    34,
+    "notice",
+    "unwritten",
+    "Request.service is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Request": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
+  "label": "actor_kind_plants: an enumeration named ActorKind",
+  "files": [
+   [
+    "taken.yaml",
+    "bf89cbaf3bce00c3"
+   ],
+   [
+    "taken.examples.yaml",
+    "85284f2e96ceb26c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "taken.examples.yaml",
+    11,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of taken as the request under test, which only a setup, a step or an expected cascade takes: Agent.issue, Request.open, User.add"
+   ],
+   [
+    "taken.examples.yaml",
+    11,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of taken, by its request, a step, a setup or a cascade it expects: Agent.retire, User.leave"
+   ],
+   [
+    "taken.examples.yaml",
+    38,
+    "fatal",
+    "example",
+    "the_agent_may_not_reject: expected the request to apply, and it is refused as invariant_violated reject_taken_by delegable"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "agent_open",
+    "an agent may take on the wire the transitions here that name no taken_by: Agent (2), Request (2), User (2), since the version declares an agent kind of actor (Agent.key); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "taken.yaml",
+    1,
+    "notice",
+    "publishing_open",
+    "the version declares an agent kind of actor (Agent.key) and no module declares publishing.taken_by, so an agent's approval of the next version is refused and any other kind's taken; declare publishing: { taken_by: [human] } to say who approves (ADR-0195)"
+   ],
+   [
+    "taken.yaml",
+    34,
+    "notice",
+    "unwritten",
+    "Request.service is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Agent": [
+    0,
+    0
+   ],
+   "Request": [
+    0,
+    0
+   ],
+   "User": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Request.approve_taken_by": "local",
+   "Request.reject_taken_by": "local"
+  },
+  "could_violate": {
+   "Request.approve_taken_by": [
+    "Request.approve",
+    "Request.open"
+   ],
+   "Request.reject_taken_by": [
+    "Request.open",
+    "Request.reject"
+   ]
+  }
+ },
+ {
   "label": "type_loop_plants: a loop over a set input",
   "files": [
    [

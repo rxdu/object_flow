@@ -266,7 +266,7 @@ fn with_taken_by(t: Value) -> Value {
         }
         if !invariants.contains_key(&i) {
             let expression = std::iter::once(format!("{a} is null"))
-                .chain(kinds.iter().map(|k| format!("{a} == {k}")))
+                .chain(kinds.iter().map(|k| format!("{a} == ActorKind.{k}")))
                 .collect::<Vec<_>>()
                 .join(" or ");
             let mut spec = Map::new();

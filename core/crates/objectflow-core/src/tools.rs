@@ -277,10 +277,21 @@ fn certain(e: &Expr, env: &BTreeMap<String, Held>) -> Option<bool> {
         }
         Expr::Bin(op @ (BinOp::Eq | BinOp::Ne), a, b) => {
             for (left, right) in [(a, b), (b, a)] {
-                if let (Expr::Name(l), Expr::Name(r)) = (left.as_ref(), right.as_ref())
-                    && ACTOR_KINDS.contains(&r.as_str())
-                    && !env.contains_key(r)
-                {
+                // a kind of actor, bare or qualified as `ActorKind.<kind>`
+                // (ADR-0269)
+                let kind = match right.as_ref() {
+                    Expr::Name(r) if ACTOR_KINDS.contains(&r.as_str()) && !env.contains_key(r) => {
+                        Some(r)
+                    }
+                    Expr::Path(base, r)
+                        if matches!(base.as_ref(), Expr::Name(q) if q == crate::eval::ACTOR_KIND)
+                            && ACTOR_KINDS.contains(&r.as_str()) =>
+                    {
+                        Some(r)
+                    }
+                    _ => None,
+                };
+                if let (Expr::Name(l), Some(r)) = (left.as_ref(), kind) {
                     let same = match env.get(l)? {
                         Held::Present => return None,
                         Held::Known(k) => k == r,

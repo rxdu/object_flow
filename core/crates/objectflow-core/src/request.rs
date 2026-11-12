@@ -6064,6 +6064,10 @@ fn reads_only_this(lib: &Library, t: &Type, e: &Expr, seen: &mut BTreeSet<String
         Expr::Path(base, m) => match base.as_ref() {
             Expr::Name(b) if b == "this" => name(m, seen),
             Expr::Name(b) if b == "state" => m == "category",
+            // a kind of actor, written qualified (ADR-0269)
+            Expr::Name(b) if b == crate::eval::ACTOR_KIND => {
+                crate::eval::ACTOR_KINDS.contains(&m.as_str())
+            }
             // a state of a type, or a member of an enumeration, by name
             Expr::Name(b) if t.attribute(b).is_none() && !t.derived.iter().any(|(d, _)| d == b) => {
                 lib.type_(b).is_some_and(|bt| bt.state(m).is_some())
@@ -8973,6 +8977,92 @@ types:
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// A member named like a kind of actor hides no kind from the invariant
+    /// `taken_by` generates, which writes each kind qualified (issue #85,
+    /// ADR-0269): beside a reference named `service`, a service's closing
+    /// applies, which the member hid, a person's too, and an agent's is
+    /// refused.
+    #[test]
+    fn a_member_named_like_a_kind_hides_none_from_taken_by() {
+        const LINES: &str = r#"
+module: lines
+categories: [live, closed]
+types:
+  Bot:
+    attributes:
+      key: { type: identity, actor_kind: agent, unique: true }
+    states: { ACTIVE: { category: live } }
+    transitions:
+      register: { kind: initial, to: ACTIVE, required_inputs: [key] }
+  User:
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states: { ACTIVE: { category: live } }
+    transitions:
+      join: { kind: initial, to: ACTIVE, required_inputs: [login] }
+  Feed:
+    attributes:
+      name: { type: identity, actor_kind: service, unique: true }
+    states: { ACTIVE: { category: live } }
+    transitions:
+      connect: { kind: initial, to: ACTIVE, required_inputs: [name] }
+  Job:
+    states: { OPEN: { category: live } }
+    transitions:
+      open: { kind: initial, to: OPEN }
+  Line:
+    taken_by: [human, service]
+    attributes:
+      service: { reference: Job }
+    states: { OPEN: { category: live }, DONE: { category: closed, final: true } }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [service] }
+      close: { kind: external, from: [OPEN], to: DONE }
+"#;
+        let lib = Library::load(&[("lines.yaml".into(), LINES.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        created(&req(
+            &mut s,
+            "register",
+            OPERATOR,
+            ("Bot", true),
+            json!({"key": "bot"}),
+        ));
+        created(&req(
+            &mut s,
+            "join",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        created(&req(
+            &mut s,
+            "connect",
+            OPERATOR,
+            ("Feed", true),
+            json!({"name": "feed"}),
+        ));
+        let job = created(&req(&mut s, "open", OPERATOR, ("Job", true), json!({})));
+        let mut line = || {
+            created(&req(
+                &mut s,
+                "add",
+                OPERATOR,
+                ("Line", true),
+                json!({"service": job}),
+            ))
+        };
+        let (first, second) = (line(), line());
+        match req(&mut s, "close", "bot", (&first, false), json!({})) {
+            Verdict::InvariantViolated { failures, .. } => {
+                assert_eq!(failures[0].invariant, "close_taken_by");
+            }
+            other => panic!("{other:?}"),
+        }
+        created(&req(&mut s, "close", "feed", (&first, false), json!({})));
+        created(&req(&mut s, "close", "ana", (&second, false), json!({})));
     }
 
     /// The optimistic check of ADR-0023 (`DESIGN.md` §6 step 3): a request

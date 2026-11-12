@@ -1597,7 +1597,7 @@ fn taken_by(t: &mut Type) -> Result<(), String> {
             ));
         }
         let text = std::iter::once(format!("{a} is null"))
-            .chain(kinds.iter().map(|k| format!("{a} == {k}")))
+            .chain(kinds.iter().map(|k| format!("{a} == ActorKind.{k}")))
             .collect::<Vec<_>>()
             .join(" or ");
         let (Ok(holds), Ok(kind)) = (expr::parse(&text), expr::parse("actor.kind")) else {
