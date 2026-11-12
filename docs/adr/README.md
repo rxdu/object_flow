@@ -272,4 +272,5 @@
 | [0269](0269-a-kind-of-actor-written-qualified-is-no-members-to-hide.md) | A kind of actor written qualified is no member's to hide | Decided by the author; built |
 | [0270](0270-an-effect-records-an-observation-and-a-module-imports-a-kind.md) | An effect records an observation, and a module imports a kind | Decided by the author; built |
 | [0271](0271-an-acts-inputs-are-derived-from-the-record-it-makes.md) | An act's inputs are derived from the record it makes | Decided by the author |
+| [0272](0272-a-types-closed-history-before-a-freeze-is-imported-into-the-owned-type.md) | A type's closed history before a freeze is imported into the type the store owns | Decided by the author |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |
