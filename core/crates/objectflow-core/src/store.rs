@@ -6196,6 +6196,20 @@ pub(crate) fn read_external(
     Ok(rows.next().transpose()?)
 }
 
+/// The object whose legacy key an external identifier is, a key the import
+/// keeps and no attribute holds (`TODO.md` H4).
+pub(crate) fn read_legacy_key(
+    conn: &Connection,
+    source: &str,
+    value: &str,
+) -> Stored<Option<String>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT object_id FROM of_external_id WHERE source = ?1 AND value = ?2 AND attribute = ''",
+    )?;
+    let mut rows = stmt.query_map(params![source, value], |r| r.get::<_, String>(0))?;
+    Ok(rows.next().transpose()?)
+}
+
 /// An object's legacy entries, by ordinal, a damaged one refused.
 pub(crate) fn read_legacy(conn: &Connection, id: &str) -> Stored<Vec<crate::world::LegacyEntry>> {
     let mut entries = conn.prepare_cached(
@@ -8355,11 +8369,21 @@ fn write(
         )?;
     }
     for (source, value, id, attribute) in &change.external {
-        tx.execute(
+        // a key another object holds as its legacy key is never moved to
+        // this one: the change fails whole, where it took the key unchecked
+        // (`TODO.md` H4); a key an attribute held may pass on, as one an
+        // import's refresh left behind does
+        let written = tx.execute(
             "INSERT INTO of_external_id (source, value, object_id, attribute) VALUES (?1, ?2, ?3, ?4) \
-             ON CONFLICT (source, value) DO UPDATE SET object_id = excluded.object_id, attribute = excluded.attribute",
+             ON CONFLICT (source, value) DO UPDATE SET object_id = excluded.object_id, attribute = excluded.attribute \
+             WHERE of_external_id.attribute <> '' OR of_external_id.object_id = excluded.object_id",
             params![source, value, id, attribute],
         )?;
+        if written == 0 {
+            return Err(StoreError(format!(
+                "the external identifier {source} {value} is another object's legacy key, which {id} may not take"
+            )));
+        }
     }
     for (sequence, scope, value) in &change.raised {
         // raised past the legacy system's last value, never lowered

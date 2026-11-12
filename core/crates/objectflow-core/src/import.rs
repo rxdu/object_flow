@@ -237,6 +237,10 @@ const NAMES_NOTHING: &str = "names nothing";
 /// A `FIELD` class's shape: a field an entry says is about an object the
 /// batch, as it stands, and the store do not hold (ADR-0163 decision 4).
 const ABOUT_NOT_HELD: &str = "is about an object neither the batch nor the store holds";
+/// A `FIELD` class's shape: a field an entry says is about an object of a
+/// type this store owns, which no import reaches (ADR-0101 decision 1,
+/// `TODO.md` H3).
+const ABOUT_OWNED: &str = "is about an object of a type this store owns";
 
 /// Import a batch, or report what importing it would decide (`dry_run`).
 pub fn import_batch(
@@ -273,6 +277,16 @@ struct Placed {
 fn about_target(lib: &Library, target: &str) -> Option<(String, String)> {
     let (tn, key) = target.split_once(':')?;
     lib.type_(tn).map(|_| legacy(lib, tn, key))
+}
+
+/// Whether a field's `about` names a type the import may not write, an
+/// owned one, whose objects take no legacy entry, as they take no other
+/// write of an import (ADR-0101 decision 1, `TODO.md` H3).
+fn about_owned(lib: &Library, target: &str) -> bool {
+    target
+        .split_once(':')
+        .and_then(|(tn, _)| lib.type_(tn))
+        .is_some_and(|t| !t.mirror && t.observation_on.is_none())
 }
 
 /// Whether the store, or the batch as it stands, holds the object a legacy
@@ -829,18 +843,23 @@ fn decide(
             let o = &batch.objects[p.index];
             for e in &o.legacy_entries {
                 for (field, target) in &e.about {
-                    if about_target(lib, target)
+                    let shape = if about_owned(lib, target) {
+                        ABOUT_OWNED
+                    } else if about_target(lib, target)
                         .is_none_or(|k| !held_key(&k, &ids, &excluded_keys, external))
                     {
-                        found(
-                            &mut these,
-                            o,
-                            p.index,
-                            ViolationKind::Field,
-                            format!("{}.{field}", e.kind),
-                            ABOUT_NOT_HELD,
-                        );
-                    }
+                        ABOUT_NOT_HELD
+                    } else {
+                        continue;
+                    };
+                    found(
+                        &mut these,
+                        o,
+                        p.index,
+                        ViolationKind::Field,
+                        format!("{}.{field}", e.kind),
+                        shape,
+                    );
                 }
             }
         }
@@ -956,6 +975,13 @@ fn decide(
                                 x.id != obj.id && x.type_ == tn && text_of(&x.attr(a)) == value
                             });
                     }
+                    // or another object's legacy key, the store's or one the
+                    // batch places, which no attribute holds (`TODO.md` H4)
+                    let key = (source.clone(), value.clone());
+                    shared |= ids.get(&key).is_some_and(|id| *id != obj.id)
+                        || work
+                            .legacy_key_holder(source, &value)?
+                            .is_some_and(|id| id != obj.id);
                     if shared {
                         found(
                             &mut these,
@@ -1179,6 +1205,7 @@ fn decide(
             for (field, target) in &e.about {
                 let value = own.remove(field);
                 let held = about_target(lib, target)
+                    .filter(|_| !about_owned(lib, target))
                     .filter(|k| held_key(k, &ids, &excluded_keys, external))
                     .and_then(|k| ids.get(&k).or_else(|| external.get(&k)).cloned());
                 if let (Some(id), Some(v)) = (held, value) {
@@ -3453,6 +3480,294 @@ types:
         floor.created_at = Some(IMPORT_FLOOR);
         let r = run(&mut s, vec![floor], &[], false);
         assert_eq!((r.written, r.refusal), (1, None));
+    }
+
+    /// The store's next version, `hr.yaml` as given, drafted, submitted and
+    /// approved.
+    fn published(s: &mut Store, text: &str) {
+        let ask = |s: &mut Store, xn: &str, target: (&str, bool), inputs: Json| {
+            let (object_id, type_) = if target.1 {
+                (None, Some(target.0.to_string()))
+            } else {
+                (Some(target.0.to_string()), None)
+            };
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id,
+                type_,
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            match request(s, &r).unwrap().unwrap() {
+                Verdict::Satisfied { object_id, .. } => object_id,
+                other => panic!("{xn}: {other:?}"),
+            }
+        };
+        let change = ask(
+            s,
+            "draft",
+            (crate::model::DECLARATION_CHANGE, true),
+            json!({"source": {"hr": text}, "source_ref": "test:hr"}),
+        );
+        let report = crate::publish::dry_run(
+            &s.snapshot().unwrap(),
+            &crate::publish::Draft {
+                change_id: Some(&change),
+                source: &[("hr".to_string(), text.to_string())],
+                source_ref: Some("test:hr"),
+                source_digest: None,
+                actor: OPERATOR,
+            },
+        )
+        .unwrap();
+        assert!(report.accepted, "{:#?}", report.findings);
+        ask(s, "submit", (&change, false), json!({}));
+        let version = s
+            .snapshot()
+            .unwrap()
+            .whole(&change)
+            .unwrap()
+            .unwrap()
+            .version;
+        let (verdict, report) = s.publish(OPERATOR, &change, version).unwrap().unwrap();
+        assert!(
+            matches!(verdict, Verdict::Satisfied { .. }),
+            "{verdict:?} {report:#?}"
+        );
+    }
+
+    /// Two mirrors a version publishes clean, the second cut over by
+    /// `owned` (`TODO.md` H3).
+    const PORTED: &str = r#"
+module: hr
+categories: [active, closed]
+types:
+  Employee:
+    description: A person on the payroll, kept by the legacy system.
+    mirror: true
+    tracking: record
+    attributes:
+      employee_id: { type: string, external: hr }
+    states:
+      EMPLOYED: { category: active, description: Employed. }
+      LEFT: { category: closed, final: true, description: Left. }
+  Team:
+    description: A team, kept by the legacy system.
+    mirror: true
+    tracking: record
+    attributes:
+      code: { type: string, external: hr }
+    states:
+      ACTIVE: { category: active, description: Active. }
+      GONE: { category: closed, final: true, description: Gone. }
+"#;
+
+    /// `PORTED` with its team cut over: owned, and taking transitions.
+    fn owned() -> String {
+        PORTED.replace(
+            "  Team:\n    description: A team, kept by the legacy system.\n    mirror: true\n",
+            "  Team:\n    description: A team, this store's own.\n",
+        ) + "    transitions:\n      open: { kind: initial, to: ACTIVE, required_inputs: [code] }\n      close: { kind: external, from: [ACTIVE], to: GONE }\n"
+    }
+
+    /// No import reaches an owned type, a legacy entry's field `about` one
+    /// of its objects included (ADR-0101 decision 1, `TODO.md` H3): a team
+    /// imported as a mirror and then cut over takes no entry an employee's
+    /// later batch says is about it.
+    #[test]
+    fn an_entry_about_an_owned_object_is_not_attached() {
+        let day = 86_400;
+        let lib = Library::load(&[("hr.yaml".into(), PORTED.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let port = s.now;
+        let mut team = employee("T-1", "ACTIVE", json!({"code": "T1"}));
+        team.type_ = "Team".into();
+        assert_eq!(run(&mut s, vec![team], &[], false).written, 1);
+        published(&mut s, &owned());
+        assert!(!s.lib.type_("Team").unwrap().mirror);
+        let mut ana = employee("E-1", "EMPLOYED", json!({"employee_id": "1"}));
+        ana.legacy_entries = vec![EntryIn {
+            kind: "audit".into(),
+            occurred_at: port - day,
+            payload: json!({"action": "moved", "team_name": "Tools"})
+                .as_object()
+                .cloned()
+                .unwrap(),
+            about: BTreeMap::from([("team_name".to_string(), "Team:T-1".to_string())]),
+        }];
+        // a FIELD class of its own: reported by a dry run, refused undecided
+        let dry = run(&mut s, vec![ana.clone()], &[], true);
+        let class = dry
+            .findings
+            .iter()
+            .find(|c| c.kind == ViolationKind::Field)
+            .cloned()
+            .expect("a FIELD class");
+        assert_eq!(
+            (class.rule.as_str(), class.shape.as_str()),
+            ("audit.team_name", ABOUT_OWNED)
+        );
+        let undecided = run(&mut s, vec![ana.clone()], &[], false);
+        assert!(undecided.refusal.unwrap().reason.contains("is undecided"));
+        // dropped, the field is left behind, and the team takes nothing
+        let file = [decided(&class, Disposition::Drop, "the team is ours now")];
+        let r = run(&mut s, vec![ana], &file, false);
+        assert_eq!((r.written, r.refusal), (1, None));
+        let w = s.snapshot().unwrap();
+        let held = w.external_all().unwrap();
+        let team_id = held[&("legacy".to_string(), "Team:T-1".to_string())].clone();
+        assert_eq!(w.legacy_of(&team_id).unwrap(), Vec::new());
+        let ana_id = held[&("legacy".to_string(), "Employee:E-1".to_string())].clone();
+        let own = w.legacy_of(&ana_id).unwrap();
+        assert_eq!(own.len(), 1);
+        assert_eq!(
+            serde_json::Value::Object(own[0].payload.clone()),
+            json!({"action": "moved"})
+        );
+    }
+
+    /// A request's value never takes a legacy key the import holds
+    /// (`TODO.md` H4): a memo whose identifier, of the source `legacy` the
+    /// import keeps its keys under, equals an imported order's qualified
+    /// key leaves the key with the order, and a refresh of the order writes
+    /// the order.
+    #[test]
+    fn a_requests_value_takes_no_key_the_import_holds() {
+        const BUYING: &str = r#"
+module: buying
+categories: [active, closed]
+types:
+  Order:
+    mirror: true
+    attributes:
+      legacy_key: { type: string, external: legacy }
+      note: { type: string, optional: true }
+    states:
+      OPEN: { category: active }
+  Memo:
+    attributes:
+      ref: { type: string, external: legacy, optional: true }
+    states:
+      KEPT: { category: active }
+    transitions:
+      keep: { kind: initial, to: KEPT, optional_inputs: [ref] }
+"#;
+        let lib = Library::load(&[("buying.yaml".into(), BUYING.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let order = |note: &str| ImportedObject {
+            type_: "Order".into(),
+            legacy_key: "4300".into(),
+            state: "OPEN".into(),
+            attributes: [
+                ("legacy_key".to_string(), json!("4300")),
+                ("note".to_string(), json!(note)),
+            ]
+            .into_iter()
+            .collect(),
+            ..ImportedObject::default()
+        };
+        assert_eq!(run(&mut s, vec![order("first")], &[], false).written, 1);
+        let key = ("legacy".to_string(), "Order:4300".to_string());
+        let order_id = s.snapshot().unwrap().external_all().unwrap()[&key].clone();
+        let keep = Request {
+            transition: "keep".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Memo".into()),
+            inputs: [("ref".to_string(), json!("Order:4300"))]
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let verdict = request(&mut s, &keep).unwrap().unwrap();
+        assert!(
+            matches!(&verdict, Verdict::InvariantViolated { failures, .. }
+                if failures.iter().any(|f| f.invariant == "ref_unique")),
+            "{verdict:?}"
+        );
+        let w = s.snapshot().unwrap();
+        assert_eq!(w.external_all().unwrap()[&key], order_id);
+        drop(w);
+        let r = run(&mut s, vec![order("second")], &[], false);
+        let w = s.snapshot().unwrap();
+        let o = w.whole(&order_id).unwrap().unwrap();
+        assert_eq!(o.attr("note"), Value::Text("second".into()), "{r:?}");
+        drop(w);
+        // an imported value equal to a legacy key, the store's or one the
+        // same batch places, is shared, which nothing admits
+        let taking = |key: &str, value: &str| {
+            let mut o = order("taking");
+            o.legacy_key = key.into();
+            o.attributes.insert("legacy_key".into(), json!(value));
+            o
+        };
+        let mut placed = order("placed");
+        placed.legacy_key = "4302".into();
+        placed.attributes.insert("legacy_key".into(), json!("4302"));
+        for objects in [
+            vec![taking("4301", "Order:4300")],
+            vec![placed, taking("4303", "Order:4302")],
+        ] {
+            let dry = run(&mut s, objects, &[], true);
+            assert!(
+                dry.findings.iter().any(|c| c.rule == "legacy_key_unique"
+                    && c.shape == IS_SHARED
+                    && c.kind == ViolationKind::Guard),
+                "{dry:?}"
+            );
+        }
+        assert_eq!(
+            s.snapshot().unwrap().external_all().unwrap()[&key],
+            order_id
+        );
+        // and the store never moves a legacy key to another object, whatever
+        // writes it: the change fails whole, the key left with the order
+        let memo = match request(
+            &mut s,
+            &Request {
+                inputs: BTreeMap::new(),
+                ..keep
+            },
+        )
+        .unwrap()
+        .unwrap()
+        {
+            Verdict::Satisfied { object_id, .. } => object_id,
+            other => panic!("{other:?}"),
+        };
+        let mut change = Change::default();
+        for value in ["M-1", "Order:4300"] {
+            change
+                .external
+                .push(("legacy".into(), value.into(), memo.clone(), "ref".into()));
+        }
+        let written = s.transact(|_, _| Ok::<_, ()>(((), Some(change))));
+        let e = written.expect_err("a legacy key moved");
+        assert!(e.0.contains("is another object's legacy key"), "{e:?}");
+        let w = s.snapshot().unwrap();
+        let all = w.external_all().unwrap();
+        assert_eq!(all[&key], order_id);
+        assert!(!all.contains_key(&("legacy".to_string(), "M-1".to_string())));
     }
 
     /// Legacy entries (ADR-0163 decisions 2 to 4, `publish-and-import.md` §4):

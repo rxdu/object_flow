@@ -14,6 +14,8 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Changed, and may refuse what 0.23.0 accepted
 
+- No import reaches a type this store owns through a legacy entry: a field an entry says is `about` an object of an owned type is a `FIELD` class, `is about an object of a type this store owns`, decided by `DROP` or `EXCLUDE`, where it was attached to that object's history. A batch with such an entry is refused until its file decides the class.
+- An external identifier's value equal to another object's legacy key, which the import keeps under `legacy`, is refused `<attribute>_unique` on a request, and is the import's `<attribute>_unique` class `is shared`. The key passed to the request's object, so the legacy object could no longer be refreshed and a lookup of its key answered the other object. The store refuses to move a legacy key to another object whatever writes it, failing the write whole.
 - An `all` with no body is refused at step 2, by check 47 in both checkers: a `where` only selects, so `all(x in c where p)` held whatever its elements were, and a guard written so refused nothing (issue #86, ADR-0273). Write `all(x in c: p)`. `count`, `any` and `none` keep an optional body.
 
 ## 0.23.0, 2026-11-12

@@ -6342,6 +6342,16 @@ fn failing_invariants_reading(
                 }
             }
         }
+        // an import's legacy key of the source, which no attribute holds and
+        // the scan above does not find, held by another object (`TODO.md` H4)
+        if let Some(text) = external_text(&mine)
+            && let Some(other) = world.legacy_key_holder(source, &text)?
+            && other != o.id
+            && !holders.iter().any(|h| h.id == other)
+            && let Some(h) = world.get(&other)?
+        {
+            holders.push(h);
+        }
         // a scan of every type holding an identifier of the source, by type
         for (tn, ot) in &world.lib.types {
             if ot

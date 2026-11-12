@@ -1429,6 +1429,23 @@ impl<'l> World<'l> {
         }
     }
 
+    /// The object whose legacy key an external identifier is, a key the
+    /// import keeps and no attribute holds (`TODO.md` H4).
+    pub fn legacy_key_holder(
+        &self,
+        source: &str,
+        value: &str,
+    ) -> Result<Option<String>, crate::eval::NotRun> {
+        match self.conn {
+            Some(conn) => crate::store::read_legacy_key(conn, source, value).map_err(|e| {
+                crate::eval::NotRun::Unreadable(format!(
+                    "the store's legacy key {source} {value}, which could not be read: {e}"
+                ))
+            }),
+            None => Ok(None),
+        }
+    }
+
     /// An object's legacy entries, by ordinal, read by its id.
     pub fn legacy_of(&self, id: &str) -> Result<Vec<LegacyEntry>, crate::eval::NotRun> {
         match self.conn {
