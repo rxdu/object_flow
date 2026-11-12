@@ -2,7 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.23.0, 2026-11-12
+
+A release before 1.0.0, as 0.22.0 was (ADR-0214), with issues #84 and #85: an effect may record an observation, and a module import an observation kind (ADR-0270); and a kind of actor may be written qualified, `ActorKind.service`, which no member hides, so a type with a member named like a kind may declare `taken_by` (ADR-0269).
 
 ### Added
 
