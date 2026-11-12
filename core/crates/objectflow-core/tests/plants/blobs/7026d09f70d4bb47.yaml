@@ -1,0 +1,20 @@
+module: kit
+categories: [live, closed]
+types:
+  Asset:
+    description: Anything kept.
+    abstract: true
+    history: { before: 2026-10-01T00:00:00Z }
+    tracking: record
+    attributes:
+      tag: { type: string }
+  Tool:
+    description: A tool.
+    extends: Asset
+    history: { before: 2026-10-01T00:00:00Z }
+    states:
+      KEPT: { description: Kept., category: live }
+      GONE: { description: Gone., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: KEPT, required_inputs: [tag] }
+      lose: { kind: external, from: [KEPT], to: GONE }

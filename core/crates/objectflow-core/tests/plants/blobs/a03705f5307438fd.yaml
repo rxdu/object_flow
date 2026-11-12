@@ -1,0 +1,32 @@
+module: works
+categories: [live, closed]
+sequences:
+  job_number: { description: Job numbers. }
+types:
+  Job:
+    description: A job, its history before the freeze imported.
+    history: { before: 2026-10-01T00:00:00Z }
+    tracking: record
+    attributes:
+      title: { type: string }
+      number: { type: string, identifier: { sequence: job_number, format: 'J-{n:5}' } }
+      tasks: { reference: 'Task[]', aggregation: composite, opposite: job, survives: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title] }
+      finish: { kind: external, from: [OPEN], to: DONE }
+  Task:
+    description: A task of a job.
+    history: { before: 2026-10-01T00:00:00Z }
+    tracking: record
+    attributes:
+      job: { reference: Job, opposite: tasks }
+      what: { type: string }
+    states:
+      TODO: { description: To do., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: TODO, required_inputs: [job, what], only_via: [any] }
+      finish: { kind: external, from: [TODO], to: DONE }

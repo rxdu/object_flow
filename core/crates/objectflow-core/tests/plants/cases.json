@@ -34534,6 +34534,358 @@
   "could_violate": {}
  },
  {
+  "label": "history_plants: an owned whole and its parts alike, its identifier unique",
+  "files": [
+   [
+    "works.yaml",
+    "b258a33b5b1fa460"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Job": [
+    0,
+    0
+   ],
+   "Task": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_plants: an identifier minted in scope, unique in scope",
+  "files": [
+   [
+    "works.yaml",
+    "f4eb98e6d03ce707"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Job": [
+    0,
+    0
+   ],
+   "Task": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_plants: a family alike",
+  "files": [
+   [
+    "kit.yaml",
+    "7026d09f70d4bb47"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Tool": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_plants: on a mirror",
+  "files": [
+   [
+    "works.yaml",
+    "fb7ff94630cd8899"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "works.yaml",
+    20,
+    "fatal",
+    "names",
+    "Task is a mirror and declares no external identifier, by which the import matches its objects"
+   ],
+   [
+    "works.yaml",
+    23,
+    "fatal",
+    "names",
+    "Task is a mirror and declares a history: a mirror's objects arrive by its import, and a history before a freeze is a type's this store owns (ADR-0272)"
+   ],
+   [
+    "works.yaml",
+    26,
+    "fatal",
+    "names",
+    "Task.job is a mirror's reference to Job, which this store owns: a type is cut over only after every type that references it (ADR-0075), so a mirror references only mirrors"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_plants: naming no instant",
+  "files": [
+   [
+    "kit.yaml",
+    "6036867e6b5c4816"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "kit.yaml",
+    7,
+    "fatal",
+    "names",
+    "Asset's history names '2026-13-01T00:00:00Z', which is no instant: write it as 2026-10-01T00:00:00Z"
+   ],
+   [
+    "kit.yaml",
+    11,
+    "fatal",
+    "names",
+    "Tool declares its history before 2026-10-01T00:00:00Z and extends Asset, which declares its history before 2026-13-01T00:00:00Z: a family's history is open alike, every type of it the same or none (ADR-0272)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_plants: a subtype declaring none",
+  "files": [
+   [
+    "kit.yaml",
+    "74fccca1a68783f8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "kit.yaml",
+    11,
+    "fatal",
+    "names",
+    "Tool declares no history and extends Asset, which declares its history before 2026-10-01T00:00:00Z: a family's history is open alike, every type of it the same or none (ADR-0272)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_plants: parts declaring none",
+  "files": [
+   [
+    "works.yaml",
+    "915a20f6c0c9a048"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "works.yaml",
+    13,
+    "fatal",
+    "names",
+    "Job.tasks's part type Task declares no history, where Job declares its history before 2026-10-01T00:00:00Z: a whole and its parts open their history alike (ADR-0272)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_plants: an identifier minted that is not unique",
+  "files": [
+   [
+    "works.yaml",
+    "a03705f5307438fd"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "works.yaml",
+    12,
+    "fatal",
+    "names",
+    "Job.number is minted from job_number on a type whose history is open, and is not unique: a raise missed would mint a legacy number again unseen; mark it unique, or unique: in_scope (ADR-0272)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_pair_plants: a mirror cut over, its history open",
+  "files": [
+   [
+    "works.yaml",
+    "a9730807b2a109da"
+   ]
+  ],
+  "previous": {
+   "works.yaml": "1bd5ef8a757913d1"
+  },
+  "findings": [],
+  "analysed": {
+   "Job": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_pair_plants: a new type opening it",
+  "files": [
+   [
+    "works.yaml",
+    "a9730807b2a109da"
+   ]
+  ],
+  "previous": {
+   "works.yaml": "f93db23606bf2b10"
+  },
+  "findings": [],
+  "analysed": {
+   "Job": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_pair_plants: kept open as it was",
+  "files": [
+   [
+    "works.yaml",
+    "a9730807b2a109da"
+   ]
+  ],
+  "previous": {
+   "works.yaml": "a9730807b2a109da"
+  },
+  "findings": [],
+  "analysed": {
+   "Job": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_pair_plants: closed",
+  "files": [
+   [
+    "works.yaml",
+    "1fa18c2e5a6e635f"
+   ]
+  ],
+  "previous": {
+   "works.yaml": "a9730807b2a109da"
+  },
+  "findings": [],
+  "analysed": {
+   "Job": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_pair_plants: opened on a type owned without one",
+  "files": [
+   [
+    "works.yaml",
+    "a9730807b2a109da"
+   ]
+  ],
+  "previous": {
+   "works.yaml": "1fa18c2e5a6e635f"
+  },
+  "findings": [
+   [
+    "works.yaml",
+    6,
+    "fatal",
+    "names",
+    "Job opens its history, where the version before owned it without one: a history opens only where a type becomes owned, new or a mirror cut over, and once closed stays closed (ADR-0272)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_pair_plants: its freeze moved",
+  "files": [
+   [
+    "works.yaml",
+    "b162b0d61eff7001"
+   ]
+  ],
+  "previous": {
+   "works.yaml": "a9730807b2a109da"
+  },
+  "findings": [
+   [
+    "works.yaml",
+    6,
+    "fatal",
+    "names",
+    "Job's history moves its freeze from 2026-10-01T00:00:00Z to 2026-09-01T00:00:00Z: a freeze is fixed while its history is open (ADR-0272)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "history_pair_plants: a move into it",
+  "files": [
+   [
+    "works.yaml",
+    "b7e5148694351602"
+   ]
+  ],
+  "previous": {
+   "works.yaml": "64e3290ceffe1483"
+  },
+  "findings": [
+   [
+    "works.yaml",
+    21,
+    "fatal",
+    "names",
+    "the migration moves Chore's objects into Job, whose history is open: a history's objects arrive by its import alone (ADR-0272)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "type_loop_plants: a loop over a set input",
   "files": [
    [

@@ -5246,3 +5246,56 @@ def test_a_new_invariant_over_a_renamed_attribute_reads_its_writes_alike(
     assert (v["verdict"]["kind"], v["verdict"].get("clause")) == (
         "unsatisfied", "decision_unresolved"), v
     alike(tee)
+
+
+NOTES = """module: hr
+categories: [live, closed]
+types:
+  Note:
+    description: A note.
+    tracking: record
+    states:
+      KEPT: { description: Kept., category: closed, final: true }
+    transitions:
+      keep: { kind: initial, to: KEPT }
+"""
+
+
+def jobs(before: str) -> str:
+    """`NOTES` with an owned job whose history before a freeze is open."""
+    return NOTES + (
+        "  Job:\n    description: A job.\n"
+        f"    history: {{ before: {before} }}\n    tracking: record\n"
+        "    attributes:\n      title: { type: string }\n"
+        "    states:\n      OPEN: { description: Open., category: live }\n"
+        "      DONE: { description: Done., category: closed, final: true }\n"
+        "    transitions:\n"
+        "      open: { kind: initial, to: OPEN, required_inputs: [title] }\n"
+        "      finish: { kind: external, from: [OPEN], to: DONE }\n")
+
+
+def test_a_history_opens_once_on_a_freeze_already_past_alike(tee):
+    """A type's history opens once, on a freeze already past, alike through
+    both backends (ADR-0272 decision 5): a freeze after the publish is
+    refused; one past opens; and a type removed, its history so closed,
+    cannot open it again when a later version declares it anew."""
+    load(tee, "hr", NOTES)
+    tee.post("/sandbox/clock", {"set": "2026-10-02T00:00:00Z"})
+    tee.found.clear()
+
+    def fatal(text: str, ref: str) -> list:
+        c = change(tee, "draft", source={"hr": text}, source_ref=ref)
+        report = tee.post("/v1/publish", {"actor": OP, "change": c["object_id"],
+                                          "dry_run": True})["report"]
+        return [f["code"] for f in report["findings"]
+                if f["severity"] == "fatal"]
+
+    assert fatal(jobs("2026-10-03T00:00:00Z"), "git:hr@2") == [
+        "history_after_publish:Job"]
+    for ref, text in (("git:hr@3", jobs("2026-10-01T00:00:00Z")),
+                      ("git:hr@4", NOTES)):
+        c = change(tee, "draft", source={"hr": text}, source_ref=ref)
+        approved(tee, c["object_id"])
+    assert fatal(jobs("2026-10-01T00:00:00Z"), "git:hr@5") == [
+        "history_closed:Job"]
+    alike(tee)

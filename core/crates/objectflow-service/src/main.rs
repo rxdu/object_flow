@@ -3934,6 +3934,7 @@ fn report(r: &ImportReport) -> J {
         })).collect::<Vec<_>>(),
         "refused_types": r.refused_types,
         "refusal": r.refusal.as_ref().map(|f| json!({"type": f.type_, "legacy_key": f.legacy_key, "reason": f.reason})),
+        "created": r.created,
     })
 }
 

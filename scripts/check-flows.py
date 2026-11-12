@@ -98,7 +98,7 @@ ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "e
                  "survives"}
 METRIC_ORDER = ["description", "measure", "state", "transition", "source", "item", "split_by", "filter", "dimensions",
                 "group_by", "time_dimension", "expression", "flag_when"]
-TYPE_ORDER = ["description", "abstract", "extends", "mirror", "tracking", "state_machine", "taken_by", "attributes", "inherited_parts", "observations", "states",
+TYPE_ORDER = ["description", "abstract", "extends", "mirror", "history", "tracking", "state_machine", "taken_by", "attributes", "inherited_parts", "observations", "states",
               "derived_attributes", "summary", "invariants", "conditions", "transitions", "metrics"]
 
 
@@ -1810,6 +1810,9 @@ def family_errors(doc, library):
                                            f"{'is not' if t.get('mirror') else 'is'}; a family is ported together, every type "
                                            "of it a mirror or none (ADR-0148)"))
                 break
+        # an owned type's history before a freeze, open alike across a family and a composition, its minted identifiers
+        # unique (ADR-0272 decisions 1, 6 and 7)
+        out += history_errors(tn, t, chain, kinds)
         if t.get("mirror") and not t.get("abstract") and not any(a.get("external") for a in members.values()):
             out.append((here, "names", f"{tn} is a mirror and declares no external identifier, by which the import matches its objects"))
         if t.get("mirror"):
@@ -1830,6 +1833,50 @@ def family_errors(doc, library):
         for a, spec in (t.get("attributes") or {}).items():
             if spec.get("external") and "reference" in spec:
                 out.append((here + ("attributes", a, "external"), "names", f"{tn}.{a} is a reference; an external identifier is a value the other system gives"))
+    return out
+
+
+def history_instant(t):
+    """The instant a type's `history` opens it before, in seconds, or None where it declares none or names no instant."""
+    before = (t.get("history") or {}).get("before") if isinstance(t.get("history"), dict) else None
+    if not isinstance(before, str) or not flowrun.TIMESTAMP_TEXT.fullmatch(before):
+        return None
+    try:
+        return flowrun.timestamp(before)
+    except ValueError:
+        return None
+
+
+def history_errors(tn, t, chain, kinds):
+    """A type's history before a freeze (ADR-0272): on a type this store owns, naming an instant, the same across its
+    family and between a whole and its parts, and every identifier a sequence mints on it unique."""
+    here = ("types", tn)
+    out = []
+    said = lambda k: f"declares its history before {k['history'].get('before')}" if isinstance(k.get("history"), dict) \
+        else "declares no history"
+    if "history" in t:
+        if t.get("mirror"):
+            out.append((here + ("history",), "names", f"{tn} is a mirror and declares a history: a mirror's objects arrive by "
+                                                      "its import, and a history before a freeze is a type's this store owns (ADR-0272)"))
+        elif history_instant(t) is None:
+            out.append((here + ("history", "before"), "names", f"{tn}'s history names {(t.get('history') or {}).get('before')!r}, "
+                                                               "which is no instant: write it as 2026-10-01T00:00:00Z"))
+    for c in chain:
+        if history_instant(kinds[c]) != history_instant(t) or ("history" in kinds[c]) != ("history" in t):
+            out.append((here, "names", f"{tn} {said(t)} and extends {c}, which {said(kinds[c])}: a family's history is open "
+                                       "alike, every type of it the same or none (ADR-0272)"))
+            break
+    for a, spec in (t.get("attributes") or {}).items():
+        if (spec or {}).get("aggregation") == "composite":
+            part = str(spec.get("reference", "")).rstrip("[]")
+            p = kinds.get(part)
+            if p is not None and (history_instant(p) != history_instant(t) or ("history" in p) != ("history" in t)):
+                out.append((here + ("attributes", a), "names", f"{tn}.{a}'s part type {part} {said(p)}, where {tn} "
+                                                              f"{said(t)}: a whole and its parts open their history alike (ADR-0272)"))
+        if "history" in t and isinstance((spec or {}).get("identifier"), dict) and (spec or {}).get("unique") not in (True, "in_scope"):
+            out.append((here + ("attributes", a), "names", f"{tn}.{a} is minted from {spec['identifier'].get('sequence')} on a type "
+                                                          "whose history is open, and is not unique: a raise missed would mint a "
+                                                          "legacy number again unseen; mark it unique, or unique: in_scope (ADR-0272)"))
     return out
 
 
@@ -2228,6 +2275,34 @@ def value_pair_errors(prev, doc, old, new):
     return out
 
 
+def history_pair_errors(old, new, m):
+    """A type's history against the version before (ADR-0272 decision 5): it opens only where its type becomes owned,
+    new or a mirror cut over, so one closed stays closed; its freeze is fixed while it is open; and no move takes
+    objects into a type whose history is open. A root the store records closed is the publish's to refuse."""
+    out = []
+    for tn, t in new.items():
+        if "history" not in t:
+            continue
+        ot = old.get(tn)
+        if ot is None or ot.get("mirror"):
+            continue
+        if "history" not in ot:
+            out.append((("types", tn, "history"), "names", f"{tn} opens its history, where the version before owned it "
+                        "without one: a history opens only where a type becomes owned, new or a mirror cut over, and once "
+                        "closed stays closed (ADR-0272)"))
+        elif history_instant(ot) != history_instant(t):
+            out.append((("types", tn, "history", "before"), "names", f"{tn}'s history moves its freeze from "
+                        f"{(ot['history'] or {}).get('before')} to {(t['history'] or {}).get('before')}: a freeze is fixed "
+                        "while its history is open (ADR-0272)"))
+    for was, entries in sorted((m.get("moved_types") or {}).items()):
+        for i, e in enumerate(entries if isinstance(entries, list) else []):
+            to = (e or {}).get("to")
+            if "history" in (new.get(to) or {}):
+                out.append((("migration", "moved_types", was, i, "to"), "names", f"the migration moves {was}'s objects into "
+                            f"{to}, whose history is open: a history's objects arrive by its import alone (ADR-0272)"))
+    return out
+
+
 def migration_pair_errors(prev, doc, library, before=None, installed=False, moved=None, enum_renames=None,
                           enums_before=None):
     """This version against the one before it: every state it removes from a
@@ -2257,6 +2332,7 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
     enums_before = set(prev.get("enumerations") or {}) if enums_before is None else enums_before
     fatal, notes = [], []
     fatal += value_pair_errors(prev, doc, old, new)
+    fatal += history_pair_errors(old, new, m)
     # an enumeration renamed: one the version before had, into a name it did not, since a rename does not merge two
     # enumerations (ADR-0247 decision 1)
     for was_named, now_named in sorted(own.items()):
@@ -12836,6 +12912,115 @@ def rest_inputs_plants():
           f"{'as expected' if hit else 'NOT: ' + str(found)}")
     return ok
 
+def history_plants():
+    """A type's history before a freeze at step 3 (issue #89, ADR-0272): clean on an owned whole and its parts that
+    declare the same, an identifier minted on it unique or unique in scope; refused on a mirror, naming no instant,
+    differing across a family or between a whole and its parts, and an identifier minted on it that is not unique."""
+    module = (
+        "module: works\ncategories: [live, closed]\nsequences:\n  job_number: { description: Job numbers. }\ntypes:\n"
+        "  Job:\n    description: A job, its history before the freeze imported.\n    history: { before: 2026-10-01T00:00:00Z }\n"
+        "    tracking: record\n    attributes:\n      title: { type: string }\n"
+        "      number: { type: string, identifier: { sequence: job_number, format: 'J-{n:5}' }, unique: true }\n"
+        "      tasks: { reference: 'Task[]', aggregation: composite, opposite: job, survives: true }\n"
+        "    states:\n      OPEN: { description: Open., category: live }\n      DONE: { description: Done., category: closed, final: true }\n"
+        "    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [title] }\n      finish: { kind: external, from: [OPEN], to: DONE }\n"
+        "  Task:\n    description: A task of a job.\n    history: { before: 2026-10-01T00:00:00Z }\n    tracking: record\n"
+        "    attributes:\n      job: { reference: Job, opposite: tasks }\n      what: { type: string }\n"
+        "    states:\n      TODO: { description: To do., category: live }\n      DONE: { description: Done., category: closed, final: true }\n"
+        "    transitions:\n      add: { kind: initial, to: TODO, required_inputs: [job, what], only_via: [any] }\n"
+        "      finish: { kind: external, from: [TODO], to: DONE }\n")
+    history = "    history: { before: 2026-10-01T00:00:00Z }\n"
+    task = "  Task:\n    description: A task of a job.\n"
+    family = (
+        "module: kit\ncategories: [live, closed]\ntypes:\n"
+        "  Asset:\n    description: Anything kept.\n    abstract: true\n" + history + "    tracking: record\n"
+        "    attributes:\n      tag: { type: string }\n"
+        "  Tool:\n    description: A tool.\n    extends: Asset\n" + history +
+        "    states:\n      KEPT: { description: Kept., category: live }\n      GONE: { description: Gone., category: closed, final: true }\n"
+        "    transitions:\n      add: { kind: initial, to: KEPT, required_inputs: [tag] }\n      lose: { kind: external, from: [KEPT], to: GONE }\n")
+    tool = "    extends: Asset\n" + history
+    cases = [
+        ("an owned whole and its parts alike, its identifier unique", [("works.yaml", module)], []),
+        ("an identifier minted in scope, unique in scope",
+         [("works.yaml", module.replace("  job_number: { description: Job numbers. }\n",
+                                        "  job_number: { description: Job numbers. }\n  task_number: { description: Task numbers. }\n")
+                               .replace("      what: { type: string }\n",
+                                        "      what: { type: string }\n      number: { type: string, identifier: { sequence: task_number, "
+                                        "scope: job, format: 'T-{n:3}' }, unique: in_scope }\n"))], []),
+        ("a family alike", [("kit.yaml", family)], []),
+        ("on a mirror", [("works.yaml", module.replace(task + history, task + "    mirror: true\n" + history))],
+         ["Task is a mirror and declares a history: a mirror's objects arrive by its import, and a history before a freeze is a "
+          "type's this store owns (ADR-0272)",
+          "Task is a mirror and declares no external identifier, by which the import matches its objects",
+          "Task.job is a mirror's reference to Job, which this store owns: a type is cut over only after every type that "
+          "references it (ADR-0075), so a mirror references only mirrors"]),
+        ("naming no instant", [("kit.yaml", family.replace("history: { before: 2026-10-01T00:00:00Z }\n    tracking",
+                                                           "history: { before: 2026-13-01T00:00:00Z }\n    tracking"))],
+         ["Asset's history names '2026-13-01T00:00:00Z', which is no instant: write it as 2026-10-01T00:00:00Z",
+          "Tool declares its history before 2026-10-01T00:00:00Z and extends Asset, which declares its history before "
+          "2026-13-01T00:00:00Z: a family's history is open alike, every type of it the same or none (ADR-0272)"]),
+        ("a subtype declaring none", [("kit.yaml", family.replace(tool, "    extends: Asset\n"))],
+         ["Tool declares no history and extends Asset, which declares its history before 2026-10-01T00:00:00Z: a family's "
+          "history is open alike, every type of it the same or none (ADR-0272)"]),
+        ("parts declaring none", [("works.yaml", module.replace(task + history, task))],
+         ["Job.tasks's part type Task declares no history, where Job declares its history before 2026-10-01T00:00:00Z: a whole "
+          "and its parts open their history alike (ADR-0272)"]),
+        ("an identifier minted that is not unique", [("works.yaml", module.replace(", unique: true }", " }"))],
+         ["Job.number is minted from job_number on a type whose history is open, and is not unique: a raise missed would mint "
+          "a legacy number again unseen; mark it unique, or unique: in_scope (ADR-0272)"]),
+    ]
+    ok = True
+    for name, files, want in cases:
+        found, _notes = check(files)
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a type's history before a freeze, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+def history_pair_plants():
+    """A type's history against the version before (issue #89, ADR-0272 decision 5): clean where a mirror is cut over
+    with its history open, a new type opens one, one stays open as it was, and one closes; refused where an owned type
+    opens one, a freeze moves while open, and a move takes objects into a type whose history is open."""
+    history = "    history: { before: 2026-10-01T00:00:00Z }\n"
+    lifecycle = ("    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [title] }\n"
+                 "      finish: { kind: external, from: [OPEN], to: DONE }\n")
+
+    def module(head, extra=""):
+        return ("module: works\ncategories: [live, closed]\ntypes:\n"
+                "  Job:\n    description: A job.\n" + head + "    tracking: record\n"
+                "    attributes:\n      title: { type: string }\n      legacy_key: { type: string, external: legacy, optional: true }\n"
+                "    states:\n      OPEN: { description: Open., category: live }\n      DONE: { description: Done., category: closed, final: true }\n"
+                + ("" if "mirror" in head else lifecycle) + extra)
+    opened = module(history)
+    chores = module(history, "  Chore:\n    description: A chore.\n    tracking: record\n    attributes:\n      title: { type: string }\n"
+                             "    states:\n      OPEN: { description: Open., category: live }\n      DONE: { description: Done., category: closed, final: true }\n"
+                    + lifecycle)
+    moved = opened + "migration:\n  description: Chores become jobs.\n  moved_types:\n    Chore:\n      - to: Job\n"
+    cases = [
+        ("a mirror cut over, its history open", opened, module("    mirror: true\n"), []),
+        ("a new type opening it", opened, "module: works\ncategories: [live, closed]\ntypes: {}\n", []),
+        ("kept open as it was", opened, opened, []),
+        ("closed", module(""), opened, []),
+        ("opened on a type owned without one", opened, module(""),
+         ["Job opens its history, where the version before owned it without one: a history opens only where a type becomes "
+          "owned, new or a mirror cut over, and once closed stays closed (ADR-0272)"]),
+        ("its freeze moved", opened.replace("2026-10-01T00:00:00Z", "2026-09-01T00:00:00Z"), opened,
+         ["Job's history moves its freeze from 2026-10-01T00:00:00Z to 2026-09-01T00:00:00Z: a freeze is fixed while its "
+          "history is open (ADR-0272)"]),
+        ("a move into it", moved, chores,
+         ["the migration moves Chore's objects into Job, whose history is open: a history's objects arrive by its import "
+          "alone (ADR-0272)"]),
+    ]
+    ok = True
+    for name, now, was, want in cases:
+        found, _notes = check([("works.yaml", now)], previous={"works.yaml": was})
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a type's history against the version before, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
 def type_loop_plants():
     """A loop runs over a set or a range, never over every object of a type, which neither the core nor the runner
     runs (ADR-0266, issue #73): a loop over a type is refused, and one over a set input is clean."""
@@ -13192,6 +13377,8 @@ def main():
     ok &= effect_recording_plants()
     ok &= not_blank_step5_plants()
     ok &= rest_inputs_plants()
+    ok &= history_plants()
+    ok &= history_pair_plants()
     ok &= type_loop_plants()
     ok &= named_to_plants()
     ok &= actor_move_plants()

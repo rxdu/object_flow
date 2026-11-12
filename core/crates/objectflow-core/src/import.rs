@@ -216,6 +216,10 @@ pub struct ImportReport {
     /// Owned types the batch named, which the import may not write.
     pub refused_types: Vec<String>,
     pub refusal: Option<ImportRefusal>,
+    /// Each object the batch creates, by its legacy key as the store keeps
+    /// it, `<Root>:<key>`, in the batch's order; on a dry run, each it would
+    /// create; none where the batch is refused (ADR-0272 decision 3).
+    pub created: Vec<String>,
 }
 
 /// The earliest time an import takes, 1900-01-01: a legacy system's
@@ -241,6 +245,14 @@ const ABOUT_NOT_HELD: &str = "is about an object neither the batch nor the store
 /// type this store owns, which no import reaches (ADR-0101 decision 1,
 /// `TODO.md` H3).
 const ABOUT_OWNED: &str = "is about an object of a type this store owns";
+/// A `GUARD` class's shape: a row of a type whose history is open whose
+/// legacy key an object holds, created from another row, which only
+/// exclusion decides (ADR-0272 decision 2).
+const CREATED_FROM_ANOTHER: &str = "was created from another row";
+/// A `REFERENCE` class's shape: a part of a type whose history is open that
+/// names a whole an earlier batch created, where a part arrives with its
+/// whole (ADR-0272 decision 6).
+const WHOLE_EARLIER: &str = "names a whole an earlier batch created";
 
 /// Import a batch, or report what importing it would decide (`dry_run`).
 pub fn import_batch(
@@ -279,14 +291,91 @@ fn about_target(lib: &Library, target: &str) -> Option<(String, String)> {
     lib.type_(tn).map(|_| legacy(lib, tn, key))
 }
 
-/// Whether a field's `about` names a type the import may not write, an
-/// owned one, whose objects take no legacy entry, as they take no other
-/// write of an import (ADR-0101 decision 1, `TODO.md` H3).
-fn about_owned(lib: &Library, target: &str) -> bool {
-    target
-        .split_once(':')
-        .and_then(|(tn, _)| lib.type_(tn))
-        .is_some_and(|t| !t.mirror && t.observation_on.is_none())
+/// Whether a field's `about` names an object the import may not write: one
+/// of an owned type, which takes no legacy entry, as it takes no other write
+/// of an import (ADR-0101 decision 1, `TODO.md` H3), unless its type's
+/// history is open and the same batch creates it (ADR-0272 decision 4).
+fn about_owned(
+    lib: &Library,
+    target: &str,
+    created_here: impl Fn(&(String, String)) -> bool,
+) -> bool {
+    let Some(t) = target.split_once(':').and_then(|(tn, _)| lib.type_(tn)) else {
+        return false;
+    };
+    if t.mirror || t.observation_on.is_some() {
+        return false;
+    }
+    !(t.history.is_some() && about_target(lib, target).is_some_and(|k| created_here(&k)))
+}
+
+/// Whether an attribute of a type whose history is open is a part's end
+/// back to its whole: a reference whose opposite is the whole's composite
+/// end (ADR-0272 decision 6).
+fn is_whole_end(lib: &Library, type_: &str, attribute: &str) -> bool {
+    let Some(t) = lib
+        .type_(type_)
+        .filter(|t| t.history.is_some() && !t.mirror)
+    else {
+        return false;
+    };
+    match t.attribute(attribute).map(|a| (&a.declared, &a.opposite)) {
+        Some((Declared::Reference(target), Some(back))) => lib
+            .type_(target)
+            .and_then(|w| w.attribute(back))
+            .is_some_and(|b| b.composite),
+        _ => false,
+    }
+}
+
+/// A row's digest, which the event creating an object of a type whose
+/// history is open records, so the same row sent again writes nothing
+/// (ADR-0272 decision 2); an erasure of the object replaces it with
+/// `erased`, so it confirms no guess of what was erased.
+fn row_digest(o: &ImportedObject) -> String {
+    use sha2::{Digest, Sha256};
+    let entered: BTreeMap<&String, Json> = o
+        .entered
+        .iter()
+        .map(|(k, e)| (k, json!([e.at, e.by, e.by_kind])))
+        .collect();
+    let intervals: Vec<Json> = o
+        .legacy_intervals
+        .iter()
+        .map(|i| {
+            json!([
+                i.dimension,
+                i.value,
+                i.entered_at,
+                i.left_at,
+                i.entered_by,
+                i.entered_by_kind
+            ])
+        })
+        .collect();
+    let entries: Vec<Json> = o
+        .legacy_entries
+        .iter()
+        .map(|e| json!([e.kind, e.occurred_at, e.payload, e.about]))
+        .collect();
+    let row = json!({
+        "type": o.type_,
+        "legacy_key": o.legacy_key,
+        "state": o.state,
+        "attributes": o.attributes,
+        "entered": entered,
+        "created_at": o.created_at,
+        "created_by_kind": o.created_by_kind,
+        "legacy_intervals": intervals,
+        "silent_spans": o.silent_spans,
+        "occurred_at": o.occurred_at,
+        "legacy_entries": entries,
+    });
+    let hex: String = Sha256::digest(row.to_string().as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("sha256:{hex}")
 }
 
 /// Whether the store, or the batch as it stands, holds the object a legacy
@@ -360,6 +449,7 @@ fn decide(
     }
     let refused = |mut report: ImportReport, r: ImportRefusal| {
         report.refusal = Some(r);
+        report.created.clear();
         Ok((report, None))
     };
     let who = match resolve_actor(world, actor)? {
@@ -427,7 +517,7 @@ fn decide(
     }
     // owned types, which the import may not write (C33); an observation or
     // a label it writes on a mirror's object (publish-and-import.md §4)
-    let importable = |t: &Type| t.mirror || t.observation_on.is_some();
+    let importable = |t: &Type| t.mirror || t.observation_on.is_some() || t.history.is_some();
     for o in &batch.objects {
         if lib.type_(&o.type_).is_some_and(|t| !importable(t))
             && !report.refused_types.contains(&o.type_)
@@ -437,6 +527,9 @@ fn decide(
     }
     // every legacy key resolved before anything is placed
     let mut ids: BTreeMap<(String, String), String> = BTreeMap::new();
+    // the rows of a type whose history is open whose key an object created
+    // from another row holds (ADR-0272 decision 2)
+    let mut created_elsewhere: BTreeSet<usize> = BTreeSet::new();
     let mut placed: Vec<Placed> = Vec::new();
     for (index, o) in batch.objects.iter().enumerate() {
         let Some(t) = lib.type_(&o.type_) else {
@@ -546,6 +639,44 @@ fn decide(
                 );
             }
         }
+        // a type this store owns takes from the import its finished history
+        // before its freeze alone, each row giving its creation and its entry
+        // into its state (ADR-0272 decision 1)
+        if let Some(before) = t.history.filter(|_| !t.mirror) {
+            if t.state(&o.state).is_some_and(|s| !s.is_final) {
+                return refused(
+                    report,
+                    refusal(
+                        o,
+                        format!(
+                            "its state {}, which is not final: a history before a freeze brings finished records alone",
+                            o.state
+                        ),
+                    ),
+                );
+            }
+            if o.created_at.is_none() || !o.entered.contains_key("state") {
+                return refused(
+                    report,
+                    refusal(
+                        o,
+                        "no creation time or no time it entered its state, which a history before a freeze takes from each row",
+                    ),
+                );
+            }
+            if times.iter().any(|at| *at >= before) {
+                return refused(
+                    report,
+                    refusal(
+                        o,
+                        format!(
+                            "a time at or after its type's freeze, {}, which its history before the freeze does not take",
+                            crate::value::timestamp_text(before)
+                        ),
+                    ),
+                );
+            }
+        }
         if let Some(what) = t.beyond.first() {
             return Err(NotRun::Unsupported(what.clone()));
         }
@@ -573,6 +704,26 @@ fn decide(
             },
             None => None,
         };
+        // a type whose history is open is only created: the row its object
+        // was created from writes nothing again, and another row is a class
+        // only exclusion decides (ADR-0272 decision 2)
+        if let Some(h) = held.as_ref().filter(|_| t.history.is_some() && !t.mirror) {
+            let made = world
+                .events_of(&h.id)?
+                .into_iter()
+                .find(|e| e.transition == "import")
+                .and_then(|e| {
+                    e.payload
+                        .get("row")
+                        .and_then(Json::as_str)
+                        .map(str::to_string)
+                });
+            if made.as_deref() == Some(row_digest(o).as_str()) {
+                ids.insert(key, h.id.clone());
+                continue;
+            }
+            created_elsewhere.insert(index);
+        }
         let id = match &held {
             Some(h) => h.id.clone(),
             None => alloc.object_id(&o.type_),
@@ -630,6 +781,16 @@ fn decide(
                 ViolationKind::Guard,
                 "state".into(),
                 NOT_DECLARED,
+            );
+        }
+        if created_elsewhere.contains(&p.index) {
+            found(
+                &mut classes,
+                o,
+                p.index,
+                ViolationKind::Guard,
+                "legacy_key_held".into(),
+                CREATED_FROM_ANOTHER,
             );
         }
         // an observation the store records at the import, occurred when the
@@ -748,6 +909,16 @@ fn decide(
         .iter()
         .map(|p| (p.id.as_str(), batch.objects[p.index].type_.as_str()))
         .collect();
+    // the objects the batch creates, the only ones of a type whose history is
+    // open an observation, a legacy entry's field or a part may name
+    // (ADR-0272 decisions 4 and 6)
+    let created_ids: BTreeSet<String> = placed
+        .iter()
+        .filter(|p| p.held.is_none())
+        .map(|p| p.id.clone())
+        .collect();
+    let created_here =
+        |key: &(String, String)| ids.get(key).is_some_and(|id| created_ids.contains(id));
     for r in references.iter().filter(|r| r.attribute == "subject") {
         let o = &batch.objects[r.index];
         if lib
@@ -764,7 +935,9 @@ fn decide(
                 Some(t) => (*t).to_string(),
                 None => world.get(id)?.map(|s| s.type_.clone()).unwrap_or_default(),
             };
-            if lib.type_(&subject).is_none_or(|t| !t.mirror) {
+            if lib.type_(&subject).is_none_or(|t| {
+                !t.mirror && !(t.history.is_some() && created_ids.contains(id.as_str()))
+            }) {
                 return refused(
                     report,
                     refusal(
@@ -824,6 +997,21 @@ fn decide(
                     NAMES_NOTHING,
                 );
                 dropped.entry(*index).or_default().insert(k.clone());
+            } else if is_whole_end(lib, &batch.objects[*index].type_, k)
+                && named.iter().any(|key| !created_here(key))
+            {
+                // a part of a type whose history is open arrives with its
+                // whole, in one batch (ADR-0272 decision 6)
+                let o = &batch.objects[*index];
+                found(
+                    &mut these,
+                    o,
+                    *index,
+                    ViolationKind::Reference,
+                    k.clone(),
+                    WHOLE_EARLIER,
+                );
+                dropped.entry(*index).or_default().insert(k.clone());
             } else if named.iter().any(|key| excluded_keys.contains(key)) {
                 let o = &batch.objects[*index];
                 found(
@@ -843,7 +1031,7 @@ fn decide(
             let o = &batch.objects[p.index];
             for e in &o.legacy_entries {
                 for (field, target) in &e.about {
-                    let shape = if about_owned(lib, target) {
+                    let shape = if about_owned(lib, target, created_here) {
                         ABOUT_OWNED
                     } else if about_target(lib, target)
                         .is_none_or(|k| !held_key(&k, &ids, &excluded_keys, external))
@@ -1205,7 +1393,7 @@ fn decide(
             for (field, target) in &e.about {
                 let value = own.remove(field);
                 let held = about_target(lib, target)
-                    .filter(|_| !about_owned(lib, target))
+                    .filter(|_| !about_owned(lib, target, created_here))
                     .filter(|k| held_key(k, &ids, &excluded_keys, external))
                     .and_then(|k| ids.get(&k).or_else(|| external.get(&k)).cloned());
                 if let (Some(id), Some(v)) = (held, value) {
@@ -1352,10 +1540,18 @@ fn decide(
             imported: true,
             // what it wrote, which a fold of the log reproduces the row by
             // (ADR-0209 decision 1)
-            payload: crate::world::with_wrote(
-                json!({ "inputs": o.attributes }),
-                crate::world::wrote_between(&before, &obj.attrs),
-            ),
+            payload: {
+                let mut payload = crate::world::with_wrote(
+                    json!({ "inputs": o.attributes }),
+                    crate::world::wrote_between(&before, &obj.attrs),
+                );
+                // the row a history's object is created from, by its digest
+                // (ADR-0272 decision 2)
+                if t.history.is_some() && !t.mirror {
+                    payload["row"] = json!(row_digest(o));
+                }
+                payload
+            },
             reads: json!({}),
             context: None,
         };
@@ -1383,6 +1579,9 @@ fn decide(
             }
         }
         let created = p.held.is_none();
+        if created {
+            report.created.push(legacy(lib, &o.type_, &o.legacy_key).1);
+        }
         change.writes.push((obj, created, event));
         report.written += 1;
     }
@@ -3768,6 +3967,370 @@ types:
         let all = w.external_all().unwrap();
         assert_eq!(all[&key], order_id);
         assert!(!all.contains_key(&("legacy".to_string(), "M-1".to_string())));
+    }
+
+    /// Owned types whose history before a freeze is open (ADR-0272).
+    const WORKS: &str = r#"
+module: works
+categories: [live, closed]
+types:
+  Job:
+    history: { before: 2026-10-01T00:00:00Z }
+    attributes:
+      title: { type: string }
+      code: { type: string, unique: true, optional: true }
+      contact: { type: string, optional: true, personal: true }
+      tasks: { reference: "Task[]", aggregation: composite, opposite: job }
+    observations:
+      checks:
+        kind: Check
+        attributes:
+          result: { type: string }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title], optional_inputs: [code] }
+      finish: { kind: external, from: [OPEN], to: DONE }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Task:
+    history: { before: 2026-10-01T00:00:00Z }
+    attributes:
+      job: { reference: Job, opposite: tasks }
+      what: { type: string }
+    states:
+      TODO: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: TODO, required_inputs: [job, what] }
+"#;
+
+    /// The freeze `WORKS` declares, 2026-10-01T00:00:00Z.
+    const FREEZE: i64 = 1_790_812_800;
+
+    /// A finished job of `WORKS` as its legacy record gives it, made and
+    /// done a day and an hour before the freeze.
+    fn job(key: &str, attributes: Json) -> ImportedObject {
+        ImportedObject {
+            type_: "Job".into(),
+            legacy_key: key.into(),
+            state: "DONE".into(),
+            attributes: attributes
+                .as_object()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            created_at: Some(FREEZE - 86_400),
+            entered: BTreeMap::from([(
+                "state".to_string(),
+                EnteredAt {
+                    at: FREEZE - 3_600,
+                    by: None,
+                    by_kind: None,
+                },
+            )]),
+            ..ImportedObject::default()
+        }
+    }
+
+    /// A type the store owns takes its finished history before its freeze
+    /// from the import, while it takes requests (ADR-0272 decisions 1 and
+    /// 2): a finished row is created; a row not finished, without its
+    /// times, or with a time at the freeze is refused; the same row sent
+    /// again writes nothing, and another row of its key is a class only
+    /// exclusion decides; and an erasure leaves no digest of the row.
+    #[test]
+    fn an_owned_types_history_is_created_and_never_updated() {
+        assert_eq!(
+            crate::value::parse_timestamp("2026-10-01T00:00:00Z"),
+            Some(FREEZE)
+        );
+        let lib = Library::load(&[("works.yaml".into(), WORKS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, FREEZE + 30 * 86_400).unwrap();
+        // the type takes requests from the freeze
+        let live = Request {
+            transition: "open".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Job".into()),
+            inputs: [("title".to_string(), json!("Since the freeze"))]
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        assert!(matches!(
+            request(&mut s, &live).unwrap().unwrap(),
+            Verdict::Satisfied { .. }
+        ));
+        // a finished row is created, in its final state, dated as given; its
+        // dry run says it would create it
+        let first = job("J-1", json!({"title": "Pump", "contact": "Ana"}));
+        let dry = run(&mut s, vec![first.clone()], &[], true);
+        assert_eq!(
+            (dry.written, dry.created.clone()),
+            (0, vec!["Job:J-1".to_string()])
+        );
+        let r = run(&mut s, vec![first.clone()], &[], false);
+        assert_eq!(
+            (r.written, r.created, r.refusal),
+            (1, vec!["Job:J-1".to_string()], None)
+        );
+        let held = |s: &Store| {
+            s.snapshot().unwrap().external_all().unwrap()
+                [&("legacy".to_string(), "Job:J-1".to_string())]
+                .clone()
+        };
+        let id = held(&s);
+        let w = s.snapshot().unwrap();
+        let o = w.whole(&id).unwrap().unwrap();
+        assert_eq!((o.state.as_str(), o.created_at), ("DONE", FREEZE - 86_400));
+        drop(w);
+        // refused: a state not final, a row without its times, a time at the
+        // freeze
+        let mut open = job("J-2", json!({"title": "Valve"}));
+        open.state = "OPEN".into();
+        let mut undated = job("J-3", json!({"title": "Valve"}));
+        undated.created_at = None;
+        let mut unentered = job("J-4", json!({"title": "Valve"}));
+        unentered.entered.clear();
+        let mut late = job("J-5", json!({"title": "Valve"}));
+        late.legacy_entries = vec![EntryIn {
+            kind: "audit".into(),
+            occurred_at: FREEZE,
+            payload: serde_json::Map::new(),
+            about: BTreeMap::new(),
+        }];
+        let refused = run(
+            &mut s,
+            vec![job("J-6", json!({"title": "Hose"})), {
+                let mut o = job("J-7", json!({"title": "Hose"}));
+                o.state = "OPEN".into();
+                o
+            }],
+            &[],
+            true,
+        );
+        assert!(
+            refused.refusal.is_some() && refused.created.is_empty(),
+            "{refused:?}"
+        );
+        for (row, words) in [
+            (open, "which is not final"),
+            (undated, "no creation time"),
+            (unentered, "no time it entered its state"),
+            (late, "at or after its type's freeze, 2026-10-01T00:00:00Z"),
+        ] {
+            let r = run(&mut s, vec![row], &[], false);
+            let reason = r.refusal.map(|f| f.reason).unwrap_or_default();
+            assert!(reason.contains(words), "{words}: {reason}");
+            assert_eq!(r.written, 0, "{words}");
+        }
+        // the same row sent again writes nothing, and creates nothing
+        let again = run(&mut s, vec![first.clone()], &[], false);
+        assert_eq!((again.written, again.refusal), (0, None));
+        assert!(again.created.is_empty());
+        // another row of its key is a class, which only exclusion decides
+        let cleaned = job("J-1", json!({"title": "Pump, cleaned", "contact": "Ana"}));
+        let dry = run(&mut s, vec![cleaned.clone()], &[], true);
+        let class = dry
+            .findings
+            .iter()
+            .find(|c| c.rule == "legacy_key_held")
+            .cloned()
+            .expect("a legacy_key_held class");
+        assert_eq!(
+            (class.kind, class.shape.as_str()),
+            (ViolationKind::Guard, CREATED_FROM_ANOTHER)
+        );
+        let admitted = run(
+            &mut s,
+            vec![cleaned.clone()],
+            &[decided(&class, Disposition::Admit, "cleaned")],
+            false,
+        );
+        assert!(admitted.refusal.is_some(), "{admitted:?}");
+        let excluded = run(
+            &mut s,
+            vec![cleaned],
+            &[decided(&class, Disposition::Exclude, "imported already")],
+            false,
+        );
+        assert_eq!((excluded.written, excluded.refusal), (0, None));
+        let w = s.snapshot().unwrap();
+        assert_eq!(
+            w.whole(&id).unwrap().unwrap().attr("title"),
+            Value::Text("Pump".into())
+        );
+        drop(w);
+        // an erasure leaves no digest of the row, so the row sent again is
+        // the class
+        let forget = Request {
+            transition: "forget".into(),
+            object_id: Some(id.clone()),
+            type_: None,
+            inputs: [("reason".to_string(), json!("asked"))]
+                .into_iter()
+                .collect(),
+            ..live
+        };
+        assert!(matches!(
+            request(&mut s, &forget).unwrap().unwrap(),
+            Verdict::Satisfied { .. }
+        ));
+        let made = s
+            .history(&id)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.transition == "import")
+            .unwrap();
+        assert_eq!(made.payload["row"], json!(crate::store::ERASED_DIGEST));
+        let after = run(&mut s, vec![first], &[], true);
+        assert!(
+            after.findings.iter().any(|c| c.rule == "legacy_key_held"),
+            "{after:?}"
+        );
+    }
+
+    /// A version's dry run over the store as it stands: its findings' codes.
+    fn dry_codes(s: &mut Store, text: &str) -> Vec<String> {
+        let w = s.snapshot().unwrap();
+        crate::publish::dry_run(
+            &w,
+            &crate::publish::Draft {
+                change_id: None,
+                source: &[("hr".to_string(), text.to_string())],
+                source_ref: Some("test:hr"),
+                source_digest: None,
+                actor: OPERATOR,
+            },
+        )
+        .unwrap()
+        .findings
+        .into_iter()
+        .filter(|f| f.severity == crate::publish::Severity::Fatal)
+        .map(|f| f.code)
+        .collect()
+    }
+
+    /// A type's history opens once, on a freeze already past (ADR-0272
+    /// decision 5): a freeze after the publish is refused; one past opens;
+    /// and a type removed, its history so closed, cannot open it again when
+    /// a later version declares it anew.
+    #[test]
+    fn a_history_opens_once_on_a_freeze_already_past() {
+        let jobs = |before: &str| {
+            format!(
+                "module: hr\ncategories: [live, closed]\ntypes:\n  Note:\n    description: A note.\n    tracking: record\n    states:\n      KEPT: {{ description: Kept., category: closed, final: true }}\n    transitions:\n      keep: {{ kind: initial, to: KEPT }}\n  Job:\n    description: A job.\n    history: {{ before: {before} }}\n    tracking: record\n    attributes:\n      title: {{ type: string }}\n    states:\n      OPEN: {{ description: Open., category: live }}\n      DONE: {{ description: Done., category: closed, final: true }}\n    transitions:\n      open: {{ kind: initial, to: OPEN, required_inputs: [title] }}\n      finish: {{ kind: external, from: [OPEN], to: DONE }}\n"
+            )
+        };
+        let none = "module: hr\ncategories: [live, closed]\ntypes:\n  Note:\n    description: A note.\n    tracking: record\n    states:\n      KEPT: { description: Kept., category: closed, final: true }\n    transitions:\n      keep: { kind: initial, to: KEPT }\n";
+        let lib = Library::load(&[("hr.yaml".into(), none.into())]).unwrap();
+        let mut s = Store::sandbox(lib, FREEZE + 86_400).unwrap();
+        assert_eq!(
+            dry_codes(&mut s, &jobs("2026-10-03T00:00:00Z")),
+            ["history_after_publish:Job"]
+        );
+        published(&mut s, &jobs("2026-10-01T00:00:00Z"));
+        published(&mut s, none);
+        assert_eq!(
+            dry_codes(&mut s, &jobs("2026-10-01T00:00:00Z")),
+            ["history_closed:Job"]
+        );
+    }
+
+    /// What a history's batch names is the batch's own (ADR-0272 decisions 4
+    /// and 6): an observation, a legacy entry's field `about` and a part
+    /// name an object of a type whose history is open only where the same
+    /// batch creates it; an earlier batch's is refused or a class.
+    #[test]
+    fn a_historys_batch_names_only_what_it_creates() {
+        let lib = Library::load(&[("works.yaml".into(), WORKS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, FREEZE + 30 * 86_400).unwrap();
+        let task = |key: &str, of: &str| ImportedObject {
+            type_: "Task".into(),
+            attributes: [
+                ("job".to_string(), json!(of)),
+                ("what".to_string(), json!("Seal")),
+            ]
+            .into_iter()
+            .collect(),
+            state: "DONE".into(),
+            ..job(key, json!({}))
+        };
+        let check = |key: &str, of: &str| ImportedObject {
+            type_: "Check".into(),
+            legacy_key: key.into(),
+            state: "RECORDED".into(),
+            attributes: [
+                ("subject".to_string(), json!(of)),
+                ("result".to_string(), json!("ok")),
+            ]
+            .into_iter()
+            .collect(),
+            occurred_at: Some(FREEZE - 7_200),
+            ..ImportedObject::default()
+        };
+        let mut pump = job("J-1", json!({"title": "Pump"}));
+        pump.legacy_entries = vec![EntryIn {
+            kind: "audit".into(),
+            occurred_at: FREEZE - 50_000,
+            payload: json!({"done": "yes", "sibling": "Valve"})
+                .as_object()
+                .cloned()
+                .unwrap(),
+            about: BTreeMap::from([("sibling".to_string(), "Job:J-2".to_string())]),
+        }];
+        let valve = job("J-2", json!({"title": "Valve"}));
+        // in one batch: the whole, its part, its check and the entry about it
+        let r = run(
+            &mut s,
+            vec![pump, valve, task("T-1", "J-1"), check("C-1", "J-1")],
+            &[],
+            false,
+        );
+        assert_eq!((r.written, r.refusal.clone()), (4, None), "{r:?}");
+        let w = s.snapshot().unwrap();
+        let keys = w.external_all().unwrap().clone();
+        let valve_id = &keys[&("legacy".to_string(), "Job:J-2".to_string())];
+        assert_eq!(w.legacy_of(valve_id).unwrap().len(), 1);
+        drop(w);
+        // a later batch: a part of an earlier whole is a class, an
+        // observation on it refused, an entry about it a class
+        let dry = run(&mut s, vec![task("T-2", "J-1")], &[], true);
+        assert!(
+            dry.findings
+                .iter()
+                .any(|c| c.rule == "job" && c.shape == WHOLE_EARLIER),
+            "{dry:?}"
+        );
+        let r = run(&mut s, vec![check("C-2", "J-1")], &[], false);
+        assert!(
+            r.refusal
+                .is_some_and(|f| f.reason.contains("which this store owns")),
+            "an observation on an earlier batch's job"
+        );
+        let mut gauge = job("J-3", json!({"title": "Gauge"}));
+        gauge.legacy_entries = vec![EntryIn {
+            kind: "audit".into(),
+            occurred_at: FREEZE - 50_000,
+            payload: json!({"sibling": "Pump"}).as_object().cloned().unwrap(),
+            about: BTreeMap::from([("sibling".to_string(), "Job:J-1".to_string())]),
+        }];
+        let dry = run(&mut s, vec![gauge], &[], true);
+        assert!(
+            dry.findings
+                .iter()
+                .any(|c| c.kind == ViolationKind::Field && c.shape == ABOUT_OWNED),
+            "{dry:?}"
+        );
     }
 
     /// Legacy entries (ADR-0163 decisions 2 to 4, `publish-and-import.md` §4):

@@ -6,6 +6,8 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Added
 
+- A type this store owns may declare `history: { before: <instant> }`, the instant its legacy system froze, and the import then creates its finished legacy records while it takes requests (issue #89, ADR-0272). Each row is in a final state, gives its creation and the time it entered its state, every time before the freeze, and is created, never updated: the same row sent again writes nothing, and another row of its key is the class `legacy_key_held`, which only exclusion decides. A history opens where its type becomes owned, on a freeze already past, and once closed stays closed; a family and a whole with its parts declare it alike, and an identifier a sequence mints on the type is unique. `operate.md`'s *History after a freeze* gives the steps.
+- `import_batch`'s answer lists in `created` each object the batch creates, and on a dry run each it would create, by its legacy key as the store keeps it (ADR-0272 decision 3).
 - A `create` may take the rest of its target's inputs from the act's, `rest: inputs`: each input of the created transition the step does not name becomes an input of the act, of the same name, declared as the target declares it, required only where the target requires it with no default, and passed on (issue #88, ADR-0271). An observation kind's `subject` and `corrects` are never derived, and a name the act takes itself, or one two creates derive unlike, is refused. The text form writes `create T.t(subject := thing, ...inputs)`. `declaration` gives each derived input among its act's `inputs`, marked `derived_from` its target, as `Custody.record`.
 
 ### Fixed

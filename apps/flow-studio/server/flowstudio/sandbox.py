@@ -227,6 +227,10 @@ def out_of_range(e: "flowrun.OutOfRange") -> dict:
 
 # the keys a batch takes, and those an imported object takes, as the core reads them
 BATCH_KEYS = frozenset(("objects", "legacy_kinds", "sequences", "admitted"))
+# what an imported row carries of its history, which the core alone ports
+# (ADR-0154 decision 8)
+TIMED = ("entered", "created_at", "created_by_kind", "legacy_entries",
+         "legacy_intervals", "silent_spans", "occurred_at")
 IMPORTED_KEYS = frozenset(("type", "legacy_key", "state", "recorded_from", "attributes", "entered", "legacy_entries",
                            "legacy_intervals", "silent_spans", "created_at", "created_by_kind", "occurred_at"))
 
@@ -624,17 +628,21 @@ class Sandbox:
         kinds = self.runner.kinds
         objects = batch.get("objects") or []
         report: dict[str, Any] = {"written": 0, "findings": [],
-                                  "refused_types": [], "refusal": None}
+                                  "refused_types": [], "refusal": None,
+                                  "created": []}
+        # a type whose history before a freeze is open takes the import's
+        # finished history (ADR-0272), as a mirror takes its rows
+        importable = lambda t: t.get("mirror") or "history" in t
         for o in objects:
             tn = o.get("type")
-            if tn in kinds and not kinds[tn].get("mirror") \
+            if tn in kinds and not importable(kinds[tn]) \
                     and tn not in report["refused_types"]:
                 report["refused_types"].append(tn)
         backup, made, seen = copy.deepcopy(self.store), {}, set()
 
         def refused(o: dict, why: str) -> dict:
             self.store = backup
-            report.update(written=0, refusal={
+            report.update(written=0, created=[], refusal={
                 "type": o.get("type"), "legacy_key": o.get("legacy_key"),
                 "reason": why})
             return report
@@ -675,9 +683,22 @@ class Sandbox:
                 raise Fault(400, f"an imported object takes no key {unknown}")
         for o in objects:
             tn, key = o.get("type"), o.get("legacy_key")
-            for k in ("entered", "created_at", "created_by_kind",
-                      "legacy_entries", "legacy_intervals", "silent_spans",
-                      "occurred_at"):
+            # a history's row is finished and gives its creation and its entry
+            # into its state, as the core refuses one that is not; one carrying
+            # a time is the core's, which judges its times first (ADR-0272
+            # decision 1)
+            spec = kinds.get(tn) or {}
+            if "history" in spec and not spec.get("mirror") \
+                    and not any(o.get(k) for k in TIMED):
+                state = (spec.get("states") or {}).get(o.get("state"))
+                if state is not None and not state.get("final"):
+                    return refused(o, f"its state {o.get('state')}, which is not "
+                                      "final: a history before a freeze brings "
+                                      "finished records alone")
+                return refused(o, "no creation time or no time it entered its "
+                                  "state, which a history before a freeze takes "
+                                  "from each row")
+            for k in TIMED:
                 if o.get(k):
                     raise not_run(f"an import's {k}")
             qualified = ("legacy", f"{self.root(tn)}:{key}")
@@ -727,6 +748,9 @@ class Sandbox:
                 else:
                     made[qualified] = flowrun.import_object(
                         self.runner, self.store, tn, o.get("state"), given)
+                    # each object the batch creates, by its legacy key as the
+                    # store keeps it (ADR-0272 decision 3)
+                    report["created"].append(qualified[1])
             except flowrun.ImportRefused as r:
                 return refused(o, str(r))
             if self.store.position != position:

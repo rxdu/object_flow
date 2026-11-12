@@ -409,6 +409,7 @@ def simulate(store, change_id, flows, actor):
         found.add("fatal", "load", f"the source does not load as a version: {e}")
         new = None
     if new is not None:
+        history_window(store, new, flows, found)
         try:
             # the backfills and clears the installed version ran, each run once on a store (ADR-0230 decision 4,
             # ADR-0268)
@@ -436,6 +437,39 @@ def simulate(store, change_id, flows, actor):
         "could_violate": dict(sorted(violators.items())),
         "not_computed": NOT_COMPUTED,
     }, installed
+
+
+def history_roots(flows, kinds):
+    """The roots whose history a version holds open: each family's with a type declaring a history, retired ones
+    aside (ADR-0272 decision 5)."""
+    return {([tn] + flows.bases(tn, kinds))[-1] for tn, t in kinds.items()
+            if isinstance(t, dict) and "history" in t and not t.get("_retired")}
+
+
+def history_window(store, new, flows, found):
+    """A type's history before a freeze opens no later than the publish that opens it, and never on a root an earlier
+    version closed: one that version's successor no longer held open (ADR-0272 decision 5), as the core refuses it."""
+    held = getattr(store, "history", {})
+    versions = [held[v] for v in sorted(held) if v >= 1] + [store.kinds]
+    closed = set()
+    for a, b in zip(versions, versions[1:]):
+        closed |= history_roots(flows, a) - history_roots(flows, b)
+    for tn, t in sorted(new.kinds.items()):
+        if not isinstance(t, dict) or "history" not in t:
+            continue
+        ot = store.kinds.get(tn) or {}
+        if "history" in ot and not ot.get("_retired"):
+            continue
+        before = flows.history_instant(t)
+        if before is not None and before > store.now:
+            found.add("fatal", f"history_after_publish:{tn}",
+                      f"{tn} opens its history before {timestamp_text(before)}, which is after this publish: a history "
+                      "opens on a freeze already past (ADR-0272)")
+        root = ([tn] + flows.bases(tn, new.kinds))[-1]
+        if root in closed:
+            found.add("fatal", f"history_closed:{tn}",
+                      f"{tn} opens its history on {root}, which an earlier version closed: a type's history is opened once "
+                      "and closed for good (ADR-0272)")
 
 
 def report_person_dimensions(new):

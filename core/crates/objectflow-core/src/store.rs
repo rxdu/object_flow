@@ -7911,6 +7911,24 @@ fn write(
             [],
         )?;
     }
+    for (id, _) in &change.redacted {
+        // the digest of the row an import created the object from, which an
+        // erasure replaces, so it confirms no guess of what was erased
+        // (ADR-0272 decision 2)
+        rewrite_json(
+            tx,
+            "of_event",
+            "position",
+            "payload",
+            "SELECT position, payload FROM of_event WHERE object_id = ?1 AND json_type(payload, '$.row') IS NOT NULL",
+            params![id],
+            |_, payload| {
+                replaced_at(payload, &["row"], |_| {
+                    Some(serde_json::Value::String(ERASED_DIGEST.into()))
+                })
+            },
+        )?;
+    }
     for (id, attributes) in &change.redacted {
         // what each event before the change wrote of each attribute, a
         // correction's record of the value it replaced and wrote, and the

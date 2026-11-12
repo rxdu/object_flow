@@ -570,6 +570,25 @@ fn simulating<'l>(new: &'l Library, world: &World<'_>) -> World<'l> {
 /// Steps 2 and 3 over the objects, after the checks: the source loaded,
 /// compared with the installed version, and every object it touches read
 /// into the report.
+/// The type at the top of a type's family in a version, which its legacy
+/// keys and its history are kept by (ADR-0272).
+fn history_root(lib: &Library, tn: &str) -> String {
+    crate::model::bases(tn, &lib.types)
+        .last()
+        .cloned()
+        .unwrap_or_else(|| tn.to_string())
+}
+
+/// The roots whose history a version holds open: each family's with a type
+/// declaring a history, retired ones aside (ADR-0272 decision 5).
+fn history_roots(lib: &Library) -> BTreeSet<String> {
+    lib.types
+        .iter()
+        .filter(|(_, t)| t.history.is_some() && !t.retired)
+        .map(|(tn, _)| history_root(lib, tn))
+        .collect()
+}
+
 /// A type a version dropped, as the store keeps it: its objects and history
 /// readable, no transition but its erasure, so the personal data its objects
 /// hold can still be erased, where none could be once its type was dropped
@@ -1144,6 +1163,54 @@ fn impact(
     for (tn, t) in &old.types {
         if !new.types.contains_key(tn) {
             new.types.insert(tn.clone(), retired(t));
+        }
+    }
+    // a type's history before a freeze opens no later than the publish that
+    // opens it, and never on a root an earlier version closed: one that
+    // version's successor no longer held open (ADR-0272 decision 5)
+    let mut versions: Vec<&Library> = world.earlier.values().collect();
+    versions.push(old);
+    let closed: BTreeSet<String> = versions
+        .windows(2)
+        .flat_map(|pair| {
+            let after = history_roots(pair[1]);
+            history_roots(pair[0])
+                .into_iter()
+                .filter(move |r| !after.contains(r))
+        })
+        .collect();
+    for (tn, nt) in &new.types {
+        let Some(before) = nt.history.filter(|_| !nt.retired) else {
+            continue;
+        };
+        if old
+            .types
+            .get(tn)
+            .is_some_and(|ot| ot.history.is_some() && !ot.retired)
+        {
+            continue;
+        }
+        if before > world.now {
+            found.add(
+                Severity::Fatal,
+                format!("history_after_publish:{tn}"),
+                format!(
+                    "{tn} opens its history before {}, which is after this publish: a history opens on a freeze already past (ADR-0272)",
+                    crate::value::timestamp_text(before)
+                ),
+                None,
+            );
+        }
+        let root = history_root(&new, tn);
+        if closed.contains(&root) {
+            found.add(
+                Severity::Fatal,
+                format!("history_closed:{tn}"),
+                format!(
+                    "{tn} opens its history on {root}, which an earlier version closed: a type's history is opened once and closed for good (ADR-0272)"
+                ),
+                None,
+            );
         }
     }
     // a type the version adds names its objects `<type>-<n>`, which an

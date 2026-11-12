@@ -450,6 +450,19 @@ A deployment uses the wall clock, but the store's clock never moves back. If the
 
 On SIGTERM or SIGINT the service stops taking connections, answers the requests in flight, and exits, saying so. SIGHUP, as a log rotation's `kill -HUP` sends it, is logged and ignored: the log goes to standard error, so there is nothing to reopen; rotate a log file with `copytruncate`. One still running after 30 s is cut, and rolled back. A process killed outright loses no acknowledged write: every acknowledged write is durable. Its clients may get no answer, so send every write with an idempotency key and retry an unanswered one with it.
 
+## History after a freeze
+
+A legacy system frozen at an instant may be retired at once, and its finished records imported after (`publish-and-import.md` §7, ADR-0272).
+
+1. Import the type's open work as a mirror's objects, as any go-live does.
+2. Raise each sequence the type mints past the legacy system's last number, by a batch carrying only `sequences`.
+3. Publish the version that cuts the type over and declares `history: { before: <freeze> }`.
+4. Before each batch, remove every row about a person erased since the freeze, against your register of erasures.
+5. Dry run the batch, decide its classes, and import it.
+6. Once the history is in, publish a version without the marking, which closes it for good.
+
+The engine cannot tell that a row is about a person erased since the freeze, so step 4 is yours. A row cleaned again after its object was imported is corrected by your flow, by an assertion or a correction, never by the import. A figure over a type whose history is open may change as each batch lands; the version's `history` says which types, and from what instant.
+
 ## Housekeeping
 
 Refused attempts and idempotency records grow with use. Prune them with `maintain`, within the retention the service was started with:

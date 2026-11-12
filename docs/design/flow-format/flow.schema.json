@@ -217,6 +217,21 @@
           "type": "boolean",
           "description": "true for a type another system owns: this store holds it, only the import writes it, and it takes no transition but an erasure (ADR-0075, ADR-0101)."
         },
+        "history": {
+          "type": "object",
+          "description": "On a type this store owns, its history before a freeze, which the import may create while a version declares it: finished objects alone, created and never updated (ADR-0272).",
+          "properties": {
+            "before": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?(Z|\\+00:00)$",
+              "description": "The instant the legacy system froze, at UTC: every time a row gives is before it."
+            }
+          },
+          "required": [
+            "before"
+          ],
+          "additionalProperties": false
+        },
         "tracking": {
           "enum": [
             "record",

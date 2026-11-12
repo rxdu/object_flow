@@ -193,3 +193,42 @@ def test_an_imported_value_not_of_its_type_is_never_held(tee, tags):
     for w in (tee.core, tee.runner):
         assert raw(w, "POST", "/v1/import_batch",
                    {"actor": OP, "batch": batch})[1]["written"] == 1
+
+
+JOBS = """module: works
+categories: [live, closed]
+types:
+  Job:
+    description: A job, its history before the freeze imported.
+    history: { before: 2026-10-01T00:00:00Z }
+    tracking: record
+    attributes:
+      title: { type: string }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [title] }
+      finish: { kind: external, from: [OPEN], to: DONE }
+"""
+
+
+def test_a_historys_row_not_finished_or_undated_is_refused_alike(tee):
+    """An owned type whose history before a freeze is open is no type the
+    import refuses (ADR-0272 decision 1); a row of it in a state that is not
+    final, or without its creation or its entry into its state, is refused
+    alike through both backends, the type not listed refused."""
+    assert tee.post("/sandbox/load", {"files": [
+        {"name": "works.yaml", "text": JOBS}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tee.found.clear()
+    row = {"type": "Job", "legacy_key": "J-1", "state": "DONE",
+           "attributes": {"title": "Pump"}}
+    for given, why in (
+            ({"state": "OPEN"}, "which is not final"),
+            ({}, "no creation time or no time it entered its state")):
+        report = tee.post("/v1/import_batch", {"actor": OP, "batch": {
+            "objects": [{**row, **given}]}})
+        assert report["refused_types"] == [], report
+        assert why in ((report.get("refusal") or {}).get("reason") or ""), report
+    alike(tee)

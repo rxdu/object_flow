@@ -64,6 +64,7 @@ const TYPE_ORDER: &[&str] = &[
     "abstract",
     "extends",
     "mirror",
+    "history",
     "tracking",
     "state_machine",
     "taken_by",
@@ -591,6 +592,10 @@ pub fn family_errors(doc: &Value, library: &Obj) -> Found {
                 break;
             }
         }
+        // an owned type's history before a freeze, open alike across a
+        // family and a composition, its minted identifiers unique (ADR-0272
+        // decisions 1, 6 and 7)
+        out.extend(history_errors(&tn, t, &chain, &kinds));
         if mirror && !flag(t, "abstract") && !members.values().any(|a| flag(a, "external")) {
             out.push(finding(
                 here.clone(),
@@ -638,6 +643,113 @@ pub fn family_errors(doc: &Value, library: &Obj) -> Found {
                     format!("{tn}.{a} is a reference; an external identifier is a value the other system gives"),
                 ));
             }
+        }
+    }
+    out
+}
+
+/// The instant a type's `history` opens it before, in seconds, or none
+/// where it declares none or names no instant.
+pub(crate) fn history_instant(t: &Value) -> Option<i64> {
+    let before = t
+        .get("history")
+        .filter(|h| h.is_object())?
+        .get("before")?
+        .as_str()?;
+    static INSTANT: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?(Z|\+00:00)$")
+            .unwrap_or_else(|_| unreachable!())
+    });
+    INSTANT
+        .is_match(before)
+        .then(|| crate::value::parse_timestamp(before))
+        .flatten()
+}
+
+/// A type's history before a freeze (ADR-0272): on a type this store owns,
+/// naming an instant, the same across its family and between a whole and
+/// its parts, and every identifier a sequence mints on it unique.
+fn history_errors(tn: &str, t: &Value, chain: &[String], kinds: &Obj) -> Found {
+    let here = segs!["types", tn];
+    let mut out = Found::new();
+    let said = |k: &Value| match k.get("history").filter(|h| h.is_object()) {
+        Some(h) => format!(
+            "declares its history before {}",
+            py_str(h.get("before").unwrap_or(&Value::Null))
+        ),
+        None => "declares no history".to_string(),
+    };
+    let same = |k: &Value| {
+        history_instant(k) == history_instant(t) && has(k, "history") == has(t, "history")
+    };
+    if has(t, "history") {
+        if flag(t, "mirror") {
+            out.push(finding(
+                ext(&here, segs!["history"]),
+                "names",
+                format!(
+                    "{tn} is a mirror and declares a history: a mirror's objects arrive by its import, and a history before a freeze is a type's this store owns (ADR-0272)"
+                ),
+            ));
+        } else if history_instant(t).is_none() {
+            let before = t
+                .get("history")
+                .and_then(|h| h.get("before"))
+                .unwrap_or(&Value::Null);
+            out.push(finding(
+                ext(&here, segs!["history", "before"]),
+                "names",
+                format!(
+                    "{tn}'s history names {}, which is no instant: write it as 2026-10-01T00:00:00Z",
+                    crate::check::schema::repr(before)
+                ),
+            ));
+        }
+    }
+    if let Some(c) = chain.iter().find(|c| !same(&kinds[c.as_str()])) {
+        out.push(finding(
+            here.clone(),
+            "names",
+            format!(
+                "{tn} {} and extends {c}, which {}: a family's history is open alike, every type of it the same or none (ADR-0272)",
+                said(t),
+                said(&kinds[c.as_str()])
+            ),
+        ));
+    }
+    for (a, spec) in obj(t, "attributes") {
+        if text(spec, "aggregation") == Some("composite") {
+            let reference = spec.get("reference").map(py_str).unwrap_or_default();
+            let part = reference.trim_end_matches("[]");
+            if let Some(p) = kinds.get(part)
+                && !same(p)
+            {
+                out.push(finding(
+                    ext(&here, segs!["attributes", a]),
+                    "names",
+                    format!(
+                        "{tn}.{a}'s part type {part} {}, where {tn} {}: a whole and its parts open their history alike (ADR-0272)",
+                        said(p),
+                        said(t)
+                    ),
+                ));
+            }
+        }
+        let unique = matches!(spec.get("unique"), Some(Value::Bool(true)))
+            || spec.get("unique").and_then(Value::as_str) == Some("in_scope");
+        if has(t, "history") && spec.get("identifier").is_some_and(Value::is_object) && !unique {
+            let sequence = spec
+                .get("identifier")
+                .and_then(|i| i.get("sequence"))
+                .map(py_str)
+                .unwrap_or_else(|| "None".into());
+            out.push(finding(
+                ext(&here, segs!["attributes", a]),
+                "names",
+                format!(
+                    "{tn}.{a} is minted from {sequence} on a type whose history is open, and is not unique: a raise missed would mint a legacy number again unseen; mark it unique, or unique: in_scope (ADR-0272)"
+                ),
+            ));
         }
     }
     out

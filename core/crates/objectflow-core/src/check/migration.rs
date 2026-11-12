@@ -9,7 +9,7 @@ use regex::Regex;
 use serde_json::Value;
 
 use super::doc::{
-    Found, Obj, Path, ext, finding, flag, keys, list, obj, optional, py_str, re, reads, segs,
+    Found, Obj, Path, ext, finding, flag, has, keys, list, obj, optional, py_str, re, reads, segs,
     str_or,
 };
 use super::names::invariant_names;
@@ -819,6 +819,66 @@ fn value_pair_errors(prev: &Value, doc: &Value, old: &Obj, new: &Obj) -> Found {
     out
 }
 
+/// A type's history against the version before (ADR-0272 decision 5): it
+/// opens only where its type becomes owned, new or a mirror cut over, so one
+/// closed stays closed; its freeze is fixed while it is open; and no move
+/// takes objects into a type whose history is open. A root the store
+/// records closed is the publish's to refuse.
+fn history_pair_errors(old: &Obj, new: &Obj, m: &Value) -> Found {
+    let mut out = Found::new();
+    let before = |t: &Value| {
+        t.get("history")
+            .and_then(|h| h.get("before"))
+            .map(py_str)
+            .unwrap_or_else(|| "None".into())
+    };
+    for (tn, t) in new {
+        if !has(t, "history") {
+            continue;
+        }
+        let Some(ot) = old.get(tn) else {
+            continue;
+        };
+        if flag(ot, "mirror") {
+            continue;
+        }
+        if !has(ot, "history") {
+            out.push(finding(
+                segs!["types", tn, "history"],
+                "names",
+                format!(
+                    "{tn} opens its history, where the version before owned it without one: a history opens only where a type becomes owned, new or a mirror cut over, and once closed stays closed (ADR-0272)"
+                ),
+            ));
+        } else if super::raw::history_instant(ot) != super::raw::history_instant(t) {
+            out.push(finding(
+                segs!["types", tn, "history", "before"],
+                "names",
+                format!(
+                    "{tn}'s history moves its freeze from {} to {}: a freeze is fixed while its history is open (ADR-0272)",
+                    before(ot),
+                    before(t)
+                ),
+            ));
+        }
+    }
+    for (was, entries) in obj(m, "moved_types") {
+        for (i, e) in entries.as_array().into_iter().flatten().enumerate() {
+            let to = e.get("to").map(py_str).unwrap_or_default();
+            if new.get(&to).is_some_and(|t| has(t, "history")) {
+                out.push(finding(
+                    segs!["migration", "moved_types", was, i, "to"],
+                    "names",
+                    format!(
+                        "the migration moves {was}'s objects into {to}, whose history is open: a history's objects arrive by its import alone (ADR-0272)"
+                    ),
+                ));
+            }
+        }
+    }
+    out
+}
+
 /// This version against the one before it (the model's checks 22 and 23),
 /// as fatal findings and notices. `before` holds the version before's types
 /// in its other modules, where a type this version moves is read when this
@@ -852,6 +912,7 @@ pub fn migration_pair_errors(
     let m = doc.get("migration").cloned().unwrap_or(Value::Null);
     let (mut fatal, mut notes) = (Found::new(), Found::new());
     fatal.extend(value_pair_errors(prev, doc, &old, &new));
+    fatal.extend(history_pair_errors(&old, &new, &m));
     let own: BTreeMap<String, String> = obj(&m, "renamed_enumerations")
         .iter()
         .map(|(o, n)| (o.clone(), py_str(n)))

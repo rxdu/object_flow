@@ -319,6 +319,8 @@ export interface ImportReport {
   written: number;
   findings: Record<string, unknown>[];
   refused_types: string[];
+  /** each object the batch creates, or on a dry run would (ADR-0272) */
+  created: string[];
   refusal: { type: string; legacy_key: string; reason: string } | null;
 }
 

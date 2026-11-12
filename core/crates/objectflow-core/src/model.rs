@@ -350,6 +350,10 @@ pub struct Type {
     pub inherited_parts: Vec<(String, Vec<CascadeClause>, bool)>,
     /// Another system owns it, and only the import writes it (§4.15).
     pub mirror: bool,
+    /// `history: { before }` on a type this store owns: the instant its
+    /// legacy system froze, before which the import may create the type's
+    /// finished objects while a version declares it (ADR-0272).
+    pub history: Option<i64>,
     /// A base with no objects of its own.
     pub abstract_: bool,
     /// Dropped by a later version: its objects and history stay readable,
@@ -726,6 +730,25 @@ impl Reader<'_> {
         Ok(clauses)
     }
 
+    /// A type's `history`: the instant its legacy system froze, `before`
+    /// (ADR-0272).
+    fn history(&self, node: &Node) -> Loaded<Option<i64>> {
+        let Some(h) = node.get("history") else {
+            return Ok(None);
+        };
+        match h
+            .get("before")
+            .and_then(Node::text)
+            .and_then(crate::value::parse_timestamp)
+        {
+            Some(at) => Ok(Some(at)),
+            None => self.error(
+                h,
+                "a history names the instant its legacy system froze, as before: 2026-10-01T00:00:00Z",
+            ),
+        }
+    }
+
     fn input(&self, node: &Node) -> Loaded<Input> {
         let (declared, many) = self.declared(node)?;
         Ok(Input {
@@ -1013,6 +1036,7 @@ impl Reader<'_> {
             extends: node.get("extends").and_then(Node::text).map(str::to_string),
             inherited_parts,
             mirror: self.flag(node, "mirror")?,
+            history: self.history(node)?,
             abstract_: self.flag(node, "abstract")?,
             retired: false,
             inherited: BTreeMap::new(),
@@ -1194,6 +1218,7 @@ impl Reader<'_> {
             extends: None,
             inherited_parts: Vec::new(),
             mirror: false,
+            history: None,
             abstract_: false,
             retired: false,
             inherited: BTreeMap::new(),
@@ -1648,7 +1673,7 @@ fn taken_by(t: &mut Type) -> Result<(), String> {
 
 /// The bases a type extends, nearest first; the walk stops at an unknown
 /// name or where it would come back to a type it has passed.
-fn bases(name: &str, types: &BTreeMap<String, Type>) -> Vec<String> {
+pub(crate) fn bases(name: &str, types: &BTreeMap<String, Type>) -> Vec<String> {
     let mut chain = Vec::new();
     let mut seen = BTreeSet::from([name.to_string()]);
     let mut base = types.get(name).and_then(|t| t.extends.clone());
@@ -2090,6 +2115,7 @@ fn operator_type() -> Type {
         extends: None,
         inherited_parts: Vec::new(),
         mirror: false,
+        history: None,
         abstract_: false,
         retired: false,
         inherited: BTreeMap::new(),
@@ -2175,6 +2201,7 @@ fn proposal_type() -> Type {
         extends: None,
         inherited_parts: Vec::new(),
         mirror: false,
+        history: None,
         abstract_: false,
         retired: false,
         inherited: BTreeMap::new(),
@@ -2418,6 +2445,7 @@ fn label_type() -> Type {
         extends: None,
         inherited_parts: Vec::new(),
         mirror: false,
+        history: None,
         abstract_: false,
         retired: false,
         inherited: BTreeMap::new(),
@@ -2568,6 +2596,7 @@ fn subscription_type() -> Type {
         extends: None,
         inherited_parts: Vec::new(),
         mirror: false,
+        history: None,
         abstract_: false,
         retired: false,
         inherited: BTreeMap::new(),

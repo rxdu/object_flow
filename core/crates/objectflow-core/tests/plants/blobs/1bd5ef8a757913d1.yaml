@@ -1,0 +1,13 @@
+module: works
+categories: [live, closed]
+types:
+  Job:
+    description: A job.
+    mirror: true
+    tracking: record
+    attributes:
+      title: { type: string }
+      legacy_key: { type: string, external: legacy, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
