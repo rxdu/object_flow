@@ -249,10 +249,11 @@ const ABOUT_OWNED: &str = "is about an object of a type this store owns";
 /// legacy key an object holds, created from another row, which only
 /// exclusion decides (ADR-0272 decision 2).
 const CREATED_FROM_ANOTHER: &str = "was created from another row";
-/// A `REFERENCE` class's shape: a part of a type whose history is open that
-/// names a whole an earlier batch created, where a part arrives with its
-/// whole (ADR-0272 decision 6).
-const WHOLE_EARLIER: &str = "names a whole an earlier batch created";
+/// A `REFERENCE` class's shape: a link of a type whose history is open, a
+/// whole's parts, a part's whole or a set whose objects link back, naming an
+/// object an earlier batch created, where linked objects arrive together
+/// (ADR-0272 decision 6).
+const LINKS_EARLIER: &str = "links an object an earlier batch created";
 
 /// Import a batch, or report what importing it would decide (`dry_run`).
 pub fn import_batch(
@@ -309,46 +310,63 @@ fn about_owned(
     !(t.history.is_some() && about_target(lib, target).is_some_and(|k| created_here(&k)))
 }
 
-/// Whether an attribute of a type whose history is open is a part's end
-/// back to its whole: a reference whose opposite is the whole's composite
-/// end (ADR-0272 decision 6).
-fn is_whole_end(lib: &Library, type_: &str, attribute: &str) -> bool {
+/// Whether an attribute of a type whose history is open links objects that
+/// arrive together: a whole's composite end, a part's end back to its
+/// whole, or a set whose objects link back to this one (ADR-0272 decision
+/// 6). A single reference to a whole it is no part of may name an object
+/// an earlier batch created (decision 4).
+fn links_together(lib: &Library, type_: &str, attribute: &str) -> bool {
     let Some(t) = lib
         .type_(type_)
         .filter(|t| t.history.is_some() && !t.mirror)
     else {
         return false;
     };
-    match t.attribute(attribute).map(|a| (&a.declared, &a.opposite)) {
-        Some((Declared::Reference(target), Some(back))) => lib
-            .type_(target)
-            .and_then(|w| w.attribute(back))
-            .is_some_and(|b| b.composite),
-        _ => false,
+    let Some(a) = t.attribute(attribute) else {
+        return false;
+    };
+    let Declared::Reference(target) = &a.declared else {
+        return false;
+    };
+    if a.composite || (a.many && a.opposite.is_some()) {
+        return true;
     }
+    a.opposite.as_ref().is_some_and(|back| {
+        lib.type_(target)
+            .and_then(|w| w.attribute(back))
+            .is_some_and(|b| b.composite)
+    })
 }
 
 /// A row's digest, which the event creating an object of a type whose
 /// history is open records, so the same row sent again writes nothing
-/// (ADR-0272 decision 2); an erasure of the object replaces it with
-/// `erased`, so it confirms no guess of what was erased.
-fn row_digest(o: &ImportedObject) -> String {
+/// (ADR-0272 decision 2). It covers what no erasure touches: a personal
+/// attribute's value and its intervals, an actor named as a changer, and an
+/// entry's fields its kind does not keep through an erasure are left out,
+/// so a served event holds no digest a guess of them could be checked
+/// against; a row differing in them alone is the same row. An erasure of
+/// the object replaces it with `erased` all the same.
+fn row_digest(t: &Type, o: &ImportedObject, kinds: &BTreeMap<String, Vec<String>>) -> String {
     use sha2::{Digest, Sha256};
+    let personal = |k: &str| t.attribute(k).is_some_and(|a| a.personal);
+    let attributes: BTreeMap<&String, &Json> =
+        o.attributes.iter().filter(|(k, _)| !personal(k)).collect();
     let entered: BTreeMap<&String, Json> = o
         .entered
         .iter()
-        .map(|(k, e)| (k, json!([e.at, e.by, e.by_kind])))
+        .filter(|(k, _)| !personal(k))
+        .map(|(k, e)| (k, json!([e.at, e.by_kind])))
         .collect();
     let intervals: Vec<Json> = o
         .legacy_intervals
         .iter()
+        .filter(|i| !personal(&i.dimension))
         .map(|i| {
             json!([
                 i.dimension,
                 i.value,
                 i.entered_at,
                 i.left_at,
-                i.entered_by,
                 i.entered_by_kind
             ])
         })
@@ -356,13 +374,18 @@ fn row_digest(o: &ImportedObject) -> String {
     let entries: Vec<Json> = o
         .legacy_entries
         .iter()
-        .map(|e| json!([e.kind, e.occurred_at, e.payload, e.about]))
+        .map(|e| {
+            let kept = kinds.get(&e.kind).cloned().unwrap_or_default();
+            let fields: BTreeMap<&String, &Json> =
+                e.payload.iter().filter(|(k, _)| kept.contains(k)).collect();
+            json!([e.kind, e.occurred_at, fields, e.about])
+        })
         .collect();
     let row = json!({
         "type": o.type_,
         "legacy_key": o.legacy_key,
         "state": o.state,
-        "attributes": o.attributes,
+        "attributes": attributes,
         "entered": entered,
         "created_at": o.created_at,
         "created_by_kind": o.created_by_kind,
@@ -517,7 +540,10 @@ fn decide(
     }
     // owned types, which the import may not write (C33); an observation or
     // a label it writes on a mirror's object (publish-and-import.md §4)
-    let importable = |t: &Type| t.mirror || t.observation_on.is_some() || t.history.is_some();
+    // nor a retired type, whose objects nothing creates or changes
+    // (storage-schema.md §10, ADR-0272 decision 5)
+    let importable =
+        |t: &Type| !t.retired && (t.mirror || t.observation_on.is_some() || t.history.is_some());
     for o in &batch.objects {
         if lib.type_(&o.type_).is_some_and(|t| !importable(t))
             && !report.refused_types.contains(&o.type_)
@@ -536,13 +562,15 @@ fn decide(
             return refused(report, refusal(o, format!("names no type {}", o.type_)));
         };
         if !importable(t) {
-            return refused(
-                report,
-                refusal(
-                    o,
-                    format!("{} is owned by this store, not a mirror", o.type_),
-                ),
-            );
+            let why = if t.retired {
+                format!(
+                    "{} is retired: nothing creates or changes its objects",
+                    o.type_
+                )
+            } else {
+                format!("{} is owned by this store, not a mirror", o.type_)
+            };
+            return refused(report, refusal(o, why));
         }
         if o.occurred_at.is_some() && t.observation_on.is_none() {
             return refused(
@@ -718,7 +746,7 @@ fn decide(
                         .and_then(Json::as_str)
                         .map(str::to_string)
                 });
-            if made.as_deref() == Some(row_digest(o).as_str()) {
+            if made.as_deref() == Some(row_digest(t, o, &batch.legacy_kinds).as_str()) {
                 ids.insert(key, h.id.clone());
                 continue;
             }
@@ -997,11 +1025,11 @@ fn decide(
                     NAMES_NOTHING,
                 );
                 dropped.entry(*index).or_default().insert(k.clone());
-            } else if is_whole_end(lib, &batch.objects[*index].type_, k)
+            } else if links_together(lib, &batch.objects[*index].type_, k)
                 && named.iter().any(|key| !created_here(key))
             {
-                // a part of a type whose history is open arrives with its
-                // whole, in one batch (ADR-0272 decision 6)
+                // what a type whose history is open links arrives together,
+                // in one batch (ADR-0272 decision 6)
                 let o = &batch.objects[*index];
                 found(
                     &mut these,
@@ -1009,7 +1037,7 @@ fn decide(
                     *index,
                     ViolationKind::Reference,
                     k.clone(),
-                    WHOLE_EARLIER,
+                    LINKS_EARLIER,
                 );
                 dropped.entry(*index).or_default().insert(k.clone());
             } else if named.iter().any(|key| excluded_keys.contains(key)) {
@@ -1548,7 +1576,7 @@ fn decide(
                 // the row a history's object is created from, by its digest
                 // (ADR-0272 decision 2)
                 if t.history.is_some() && !t.mirror {
-                    payload["row"] = json!(row_digest(o));
+                    payload["row"] = json!(row_digest(t, o, &batch.legacy_kinds));
                 }
                 payload
             },
@@ -4137,6 +4165,11 @@ types:
         let again = run(&mut s, vec![first.clone()], &[], false);
         assert_eq!((again.written, again.refusal), (0, None));
         assert!(again.created.is_empty());
+        // a row differing in a personal value alone is the same row, which
+        // the digest covers nothing of
+        let renamed = job("J-1", json!({"title": "Pump", "contact": "Ana B."}));
+        let again = run(&mut s, vec![renamed], &[], false);
+        assert_eq!((again.written, again.refusal), (0, None));
         // another row of its key is a class, which only exclusion decides
         let cleaned = job("J-1", json!({"title": "Pump, cleaned", "contact": "Ana"}));
         let dry = run(&mut s, vec![cleaned.clone()], &[], true);
@@ -4246,6 +4279,52 @@ types:
         );
     }
 
+    /// A type a version dropped takes no import, a mirror's or one whose
+    /// history was open alike: nothing creates or changes a retired type's
+    /// objects (`storage-schema.md` §10, ADR-0272 decision 5).
+    #[test]
+    fn a_retired_type_takes_no_import() {
+        let lib = Library::load(&[("hr.yaml".into(), PORTED.into())]).unwrap();
+        let mut s = Store::sandbox(lib, FREEZE + 86_400).unwrap();
+        let mut team = employee("T-1", "ACTIVE", json!({"code": "T1"}));
+        team.type_ = "Team".into();
+        assert_eq!(run(&mut s, vec![team.clone()], &[], false).written, 1);
+        let jobs = PORTED.replace(
+            "  Team:\n    description: A team, kept by the legacy system.\n    mirror: true\n    tracking: record\n    attributes:\n      code: { type: string, external: hr }\n    states:\n      ACTIVE: { category: active, description: Active. }\n      GONE: { category: closed, final: true, description: Gone. }\n",
+            "  Job:\n    description: A job.\n    history: { before: 2026-10-01T00:00:00Z }\n    tracking: record\n    attributes:\n      title: { type: string }\n    states:\n      OPEN: { description: Open., category: active }\n      DONE: { description: Done., category: closed, final: true }\n    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [title] }\n      finish: { kind: external, from: [OPEN], to: DONE }\n",
+        ) + "migration:\n  description: Teams are no longer kept.\n  retired_types:\n    Team: Teams are no longer kept.\n";
+        published(&mut s, &jobs);
+        let mut done = job("J-1", json!({"title": "Pump"}));
+        done.attributes.clear();
+        done.attributes.insert("title".into(), json!("Pump"));
+        assert_eq!(run(&mut s, vec![done], &[], false).written, 1);
+        team.legacy_key = "T-2".into();
+        team.attributes.insert("code".into(), json!("T2"));
+        let r = run(&mut s, vec![team], &[], false);
+        assert_eq!(r.written, 0, "a retired mirror imported: {r:?}");
+        assert!(
+            r.refusal
+                .is_some_and(|f| f.reason.contains("Team is retired"))
+                && r.refused_types == ["Team"]
+        );
+        let employees = PORTED.replace(
+            "  Team:\n    description: A team, kept by the legacy system.\n    mirror: true\n    tracking: record\n    attributes:\n      code: { type: string, external: hr }\n    states:\n      ACTIVE: { category: active, description: Active. }\n      GONE: { category: closed, final: true, description: Gone. }\n",
+            "",
+        ) + "migration:\n  description: Jobs are no longer kept.\n  retired_types:\n    Job: Jobs are no longer kept.\n";
+        published(&mut s, &employees);
+        let r = run(
+            &mut s,
+            vec![job("J-2", json!({"title": "Valve"}))],
+            &[],
+            false,
+        );
+        assert_eq!(r.written, 0, "a retired history imported: {r:?}");
+        assert!(
+            r.refusal
+                .is_some_and(|f| f.reason.contains("Job is retired"))
+        );
+    }
+
     /// What a history's batch names is the batch's own (ADR-0272 decisions 4
     /// and 6): an observation, a legacy entry's field `about` and a part
     /// name an object of a type whose history is open only where the same
@@ -4308,8 +4387,17 @@ types:
         assert!(
             dry.findings
                 .iter()
-                .any(|c| c.rule == "job" && c.shape == WHOLE_EARLIER),
+                .any(|c| c.rule == "job" && c.shape == LINKS_EARLIER),
             "{dry:?}"
+        );
+        let mut crane = job("J-9", json!({"title": "Crane"}));
+        crane.attributes.insert("tasks".into(), json!(["T-1"]));
+        let dry = run(&mut s, vec![crane], &[], true);
+        assert!(
+            dry.findings
+                .iter()
+                .any(|c| c.rule == "tasks" && c.shape == LINKS_EARLIER),
+            "a whole naming an earlier batch's part: {dry:?}"
         );
         let r = run(&mut s, vec![check("C-2", "J-1")], &[], false);
         assert!(

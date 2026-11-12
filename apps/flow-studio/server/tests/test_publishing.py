@@ -5299,3 +5299,38 @@ def test_a_history_opens_once_on_a_freeze_already_past_alike(tee):
     assert fatal(jobs("2026-10-01T00:00:00Z"), "git:hr@5") == [
         "history_closed:Job"]
     alike(tee)
+
+
+TEAMS = NOTES + """  Team:
+    description: A team, kept by the legacy system.
+    mirror: true
+    tracking: record
+    attributes:
+      code: { type: string, external: hr }
+    states:
+      ACTIVE: { description: Active., category: live }
+"""
+
+
+def test_a_retired_type_takes_no_import_alike(tee):
+    """A mirror a version retires takes no import, alike through both
+    backends: nothing creates or changes a retired type's objects
+    (`storage-schema.md` §10), where both imported into it."""
+    load(tee, "hr", TEAMS)
+    tee.found.clear()
+
+    def team(key: str) -> dict:
+        return tee.post("/v1/import_batch", {"actor": OP, "batch": {"objects": [
+            {"type": "Team", "legacy_key": key, "state": "ACTIVE",
+             "attributes": {"code": key}}]}})
+
+    assert team("T-1")["written"] == 1
+    c = change(tee, "draft", source={"hr": NOTES + "migration:\n  description: "
+                                     "Teams are no longer kept.\n  retired_types:\n"
+                                     "    Team: Teams are no longer kept.\n"},
+               source_ref="git:hr@2")
+    approved(tee, c["object_id"])
+    refused = team("T-2")
+    assert refused["written"] == 0 and refused["refused_types"] == ["Team"], refused
+    assert "Team is retired" in refused["refusal"]["reason"], refused
+    alike(tee)

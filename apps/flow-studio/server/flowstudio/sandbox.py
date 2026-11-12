@@ -632,7 +632,8 @@ class Sandbox:
                                   "created": []}
         # a type whose history before a freeze is open takes the import's
         # finished history (ADR-0272), as a mirror takes its rows
-        importable = lambda t: t.get("mirror") or "history" in t
+        importable = lambda t: not t.get("_retired") and (
+            t.get("mirror") or "history" in t)
         for o in objects:
             tn = o.get("type")
             if tn in kinds and not importable(kinds[tn]) \
@@ -688,6 +689,11 @@ class Sandbox:
             # a time is the core's, which judges its times first (ADR-0272
             # decision 1)
             spec = kinds.get(tn) or {}
+            # a retired type's objects nothing creates or changes, as the core
+            # refuses them (storage-schema.md §10)
+            if spec.get("_retired"):
+                return refused(o, f"{tn} is retired: nothing creates or "
+                                  "changes its objects")
             if "history" in spec and not spec.get("mirror") \
                     and not any(o.get(k) for k in TIMED):
                 state = (spec.get("states") or {}).get(o.get("state"))

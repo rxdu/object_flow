@@ -668,8 +668,9 @@ class ImportRefusal:
 class ImportReport:
     written: int                          # zero on a dry run and on a refused batch
     findings: Sequence["ViolationClass"]  # the classes found, each with the file's decision
-    refused_types: Sequence[str] = ()     # owned types the batch named, their history not open, which the import
-                                          # may not write, on a dry run and a refused batch alike
+    refused_types: Sequence[str] = ()     # types the batch named that the import may not write, owned ones
+                                          # whose history is not open and retired ones, listed on a dry run
+                                          # and a refused batch alike
     refusal: ImportRefusal | None = None  # why the batch is refused, where it is
     created: Sequence[str] = ()           # each object the batch creates, or on a dry run would,
                                           # by `<Root>:<key>`, in the batch's order (ADR-0272)
