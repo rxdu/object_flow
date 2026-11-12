@@ -2,7 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.24.0, 2026-11-12
+
+A release before 1.0.0, as 0.23.0 was (ADR-0214), with issues #86 to #89: an owned type's finished history before a freeze imported beside its live objects (ADR-0272); a `create` taking the rest of its target's inputs from the act's (ADR-0271); an `all` with no body refused (ADR-0273); step 5 leaving out a `not_blank` invariant no other reads (ADR-0274); and holes the import's reviews found, closed: a legacy entry about an owned object, a request taking a key the import holds, and a retired type still importable.
 
 ### Added
 
