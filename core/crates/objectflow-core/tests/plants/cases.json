@@ -34174,6 +34174,366 @@
   }
  },
  {
+  "label": "rest_inputs_plants: from a kind its module declares",
+  "files": [
+   [
+    "probe.yaml",
+    "1aff3f898e262311"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_inputs_plants: from a kind another module declares, its enumeration not imported",
+  "files": [
+   [
+    "probe.yaml",
+    "45ab3cce1721a971"
+   ],
+   [
+    "probe_b.yaml",
+    "6ed69a028de1033d"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_inputs_plants: within a loop",
+  "files": [
+   [
+    "probe.yaml",
+    "5e38b18a206340c4"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_inputs_plants: from a type's initial transition",
+  "files": [
+   [
+    "probe.yaml",
+    "4c6cdb00288b6946"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_inputs_plants: from two creates deriving one name alike",
+  "files": [
+   [
+    "probe.yaml",
+    "1144e11c43b21885"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_inputs_plants: a derived name the act takes itself",
+  "files": [
+   [
+    "probe.yaml",
+    "161dfa0a14c81ad7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    39,
+    "fatal",
+    "names",
+    "Mover.move creates a Custody without the input 'to_whom', which Custody.record requires"
+   ],
+   [
+    "probe.yaml",
+    39,
+    "fatal",
+    "names",
+    "Mover.move's create of Custody.record takes the rest of its inputs, and derives 'to_whom', which the transition takes itself: name it in the step's inputs (ADR-0271)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_inputs_plants: two creates deriving one name unlike",
+  "files": [
+   [
+    "probe.yaml",
+    "c1d9237bed4e0f42"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    40,
+    "fatal",
+    "names",
+    "Mover.move creates a Thing without the input 'to_whom', which Thing.add requires"
+   ],
+   [
+    "probe.yaml",
+    40,
+    "fatal",
+    "names",
+    "two creates derive 'to_whom' unlike, Custody.record and Thing.add: name it in the step's inputs (ADR-0271)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_inputs_plants: no subject named, which is never derived",
+  "files": [
+   [
+    "probe.yaml",
+    "634662ecea4b904f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    38,
+    "fatal",
+    "names",
+    "Mover.move creates a Custody without the input 'subject', which Custody.record requires"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_inputs_plants: a personal field derived",
+  "files": [
+   [
+    "probe.yaml",
+    "ef7c0d08bdd78612"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    24,
+    "fatal",
+    "names",
+    "Mover holds the personal input move.to_whom and declares no erasure (check 60)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_inputs_plants: a call",
+  "files": [
+   [
+    "probe.yaml",
+    "6ac14bb28ab9074f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    38,
+    "fatal",
+    "schema",
+    "Additional properties are not allowed ('rest' was unexpected)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_inputs_plants: a call",
+  "files": [
+   [
+    "probe.yaml",
+    "1aff3f898e262311"
+   ],
+   [
+    "probe.examples.yaml",
+    "dfbfc0bd7d04f1ce"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of probe as the request under test, which only a setup, a step or an expected cascade takes: Mover.add, Thing.add"
+   ],
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of probe, by its request, a step, a setup or a cascade it expects: Mover.scrap, Thing.scrap"
+   ]
+  ],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_inputs_plants: a call",
+  "files": [
+   [
+    "probe.yaml",
+    "1aff3f898e262311"
+   ],
+   [
+    "probe.examples.yaml",
+    "6079b61f9dfe935b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of probe as the request under test, which only a setup, a step or an expected cascade takes: Mover.add, Thing.add"
+   ],
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of probe, by its request, a step, a setup or a cascade it expects: Mover.scrap, Thing.scrap"
+   ],
+   [
+    "probe.examples.yaml",
+    9,
+    "fatal",
+    "example",
+    "a_move_records_custody: expected the request to cause nothing, and it causes ['Custody.record']"
+   ]
+  ],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_inputs_plants: a call",
+  "files": [
+   [
+    "probe.yaml",
+    "1aff3f898e262311"
+   ],
+   [
+    "probe.examples.yaml",
+    "3e9f96d967b8339e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.examples.yaml",
+    18,
+    "fatal",
+    "names",
+    "the request leaves out to_whom, which is refused as invalid_input, and the example expects applied"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "type_loop_plants: a loop over a set input",
   "files": [
    [

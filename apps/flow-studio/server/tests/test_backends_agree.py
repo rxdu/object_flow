@@ -221,3 +221,82 @@ def test_a_history_newest_first_is_read_alike(tee):
     with pytest.raises(Failed):
         tee.post("/v1/history", {"actor": op, "id": a, "newest_first": "yes"})
     assert tee.found[before:] == [], tee.found[before:]
+
+
+MOVES = """module: moves
+categories: [live, closed]
+types:
+  Thing:
+    description: A thing whose hands change.
+    tracking: record
+    observations:
+      custody:
+        kind: Custody
+        description: Who holds the thing.
+        attributes:
+          to_whom: { type: string, description: Who takes it. }
+          note: { type: string, optional: true }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      add: { kind: initial, to: ON }
+      scrap: { kind: external, from: [ON], to: OFF }
+  Mover:
+    description: Moves a thing.
+    tracking: record
+    attributes:
+      thing: { reference: Thing }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [thing] }
+      scrap: { kind: external, from: [ON], to: OFF }
+      move:
+        kind: internal
+        from: ON
+        effect:
+          - create: { type: Custody, transition: record, inputs: { subject: thing }, rest: inputs }
+"""
+
+
+def test_derived_inputs_are_served_and_taken_alike(tee):
+    """A create taking the rest of its inputs (ADR-0271) is answered alike
+    by both backends: the act's declaration serves each derived input as
+    the record declares it, marked with the record it is derived from, and
+    the create as written; its offer and its tool take them; given, they
+    are recorded; and one the record requires, left out, is refused."""
+    tee.module = "moves (derived inputs)"
+    before = len(tee.found)
+    op = {"id": "operator"}
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "moves.yaml",
+                                                   "text": MOVES}]})
+    assert loaded["loaded"], loaded
+    move = tee.post("/v1/declaration", {"type": "Mover"})["transitions"]["move"]
+    assert move["inputs"] == {
+        "to_whom": {"type": "string", "description": "Who takes it.",
+                    "derived_from": "Custody.record"},
+        "note": {"type": "string", "optional": True,
+                 "derived_from": "Custody.record"}}, move
+    assert move["effect"][0]["create"]["rest"] == "inputs", move
+    thing = tee.post("/v1/request", {"actor": op, "type": "Thing",
+                                     "transition": "add"})["object_id"]
+    mover = tee.post("/v1/request", {"actor": op, "type": "Mover",
+                                     "transition": "add",
+                                     "inputs": {"thing": thing}})["object_id"]
+    tee.post("/v1/availability", {"actor": op, "id": mover})
+    tee.post("/v1/tools", {"actor_kind": "human"})
+    left_out = tee.post("/v1/request", {"actor": op, "object_id": mover,
+                                        "transition": "move",
+                                        "inputs": {"note": "At the gate"}})
+    assert left_out["kind"] == "invalid_input", left_out
+    assert left_out["reasons"] == {"to_whom": "missing"}, left_out
+    given = tee.post("/v1/request", {"actor": op, "object_id": mover,
+                                     "transition": "move",
+                                     "inputs": {"to_whom": "Ana"}})
+    assert given["kind"] == "satisfied" and given["object_id"] == mover, given
+    [custody] = given["created"]
+    recorded = tee.post("/v1/get", {"actor": op, "id": custody})
+    assert recorded["attributes"]["to_whom"] == "Ana", recorded
+    assert tee.found[before:] == [], tee.found[before:]

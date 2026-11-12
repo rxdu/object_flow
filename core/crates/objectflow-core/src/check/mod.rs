@@ -740,6 +740,7 @@ pub fn checked_as(
             .chain(names::name_errors(&v.doc, &library))
             .chain(view::taken_by_errors(&v.doc))
             .chain(view::column_errors(&v.doc))
+            .chain(view::rest_errors(&v.doc))
             .chain(migration::migration_errors(&doc, &v.doc))
             .chain(migration::renamed_enumeration_errors(
                 file,

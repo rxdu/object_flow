@@ -279,6 +279,9 @@ TAKEN = "_taken_by"     # on a member a transition's taken_by generates: the tra
 FIELDS = "_fields"      # beside an attribute or an input typed by a value: the value's fields (ADR-0254)
 VALUE_OF = "_value"     # on an invariant a value gives an attribute holding it: [value, invariant] (ADR-0255)
 NOT_BLANK = "_not_blank"    # on an invariant a text's not_blank generates: the attribute marked (ADR-0257)
+DERIVED = "_derived_from"   # on an input a create's `rest: inputs` derives: its target and the step's path (ADR-0271)
+RESTED = "_rest_clashes"    # on a transition: each name its `rest: inputs` could not derive, and why (ADR-0271)
+INPUT_KEYS = ("type", "reference", "optional", "personal", "not_blank", "media_types", "default", "description")
 
 
 def with_not_blank(t):
@@ -469,6 +472,9 @@ def view(doc, library=None):
     everything = dict(library or {})
     everything.update(kinds)
     kinds = {tn: inherit(tn, t, everything) for tn, t in kinds.items()}
+    everything = dict(library or {})
+    everything.update(kinds)
+    kinds = {tn: with_rest(tn, t, everything) for tn, t in kinds.items()}
     v = dict(doc, types=kinds)
 
     def back(path):
@@ -490,6 +496,11 @@ def view(doc, library=None):
         origin = (kinds.get(name) or {}).get("_from") or {}
         if len(path) >= 4 and (path[2], path[3]) in origin:
             return None
+        # an input a create's `rest: inputs` derives is reported at that step (ADR-0271)
+        if len(path) >= 6 and path[2] == "transitions" and path[4] == "inputs":
+            spec = ((((kinds.get(name) or {}).get("transitions") or {}).get(path[3]) or {}).get("inputs") or {}).get(path[5])
+            if isinstance(spec, dict) and spec.get(DERIVED):
+                return ("types", name, "transitions", path[3]) + tuple(spec[DERIVED][1])
         if name in machines:
             rest = path[2:]
             if rest[:1] == ("attributes",):
@@ -1273,6 +1284,79 @@ def observation_kinds(kinds):
             if any((f or {}).get("personal") for f in fields.values()):
                 out[ob["kind"]]["transitions"]["forget"] = {"kind": "erasure", "inputs": {"reason": {"type": "string"}}}
     return out
+
+
+def with_rest(tn, t, kinds):
+    """A type with each `rest: inputs` of its creates expanded (ADR-0271): each input of the created transition the step
+    does not name becomes an input of the transition making it, declared as the target declares it, required where the
+    target requires it and gives no default, marked with its target; and the step passes it as `inputs.<name>`. An
+    observation kind's `subject` and `corrects` are never derived. A name the transition takes itself, or two creates
+    deriving one name unlike, is left underived and recorded on the transition, which rest_errors reports."""
+    transitions = t.get("transitions") or {}
+    if not any(st[kind].get("rest") == "inputs" for x in transitions.values() if isinstance(x, dict)
+               for st, kind, _p, _d in walk(x.get("effect")) if kind == "create"):
+        return t
+    recorded = observation_kinds(kinds)
+    out = {}
+    for xn, x in transitions.items():
+        if not isinstance(x, dict) or not any(k == "create" and st[k].get("rest") == "inputs" for st, k, _p, _d in walk(x.get("effect"))):
+            out[xn] = x
+            continue
+        own = taken(x)
+        derived, clashes = {}, []
+
+        def expand(steps, path):
+            result = []
+            for i, st in enumerate(steps or []):
+                kind = next(k for k in STEP_KINDS if k in st)
+                if kind == "foreach":
+                    body = dict(st["foreach"], steps=expand(st["foreach"].get("steps"), path + (i, "foreach", "steps")))
+                    result.append(dict(st, foreach=body))
+                    continue
+                if kind != "create" or st["create"].get("rest") != "inputs":
+                    result.append(st)
+                    continue
+                c = dict(st["create"])
+                c.pop("rest")
+                k, tx = c.get("type"), c.get("transition")
+                target = kinds.get(k) or recorded.get(k) or {}
+                y = (target.get("transitions") or {}).get(tx)
+                given = dict(c.get("inputs") or {})
+                if isinstance(y, dict):
+                    required = required_input_names(y)
+                    left = {"subject", "corrects"} if k in recorded else set()
+                    for j in sorted(taken(y) - set(given) - left):
+                        spec = (y.get("inputs") or {}).get(j)
+                        if spec is None:
+                            spec = (target.get("attributes") or {}).get(j) or {}
+                        spec = {key: v for key, v in spec.items() if key in INPUT_KEYS and key not in ("optional", "default")}
+                        if j not in required or "default" in ((y.get("inputs") or {}).get(j) or {}):
+                            spec["optional"] = True
+                        mark = f"{k}.{tx}"
+                        if j in own:
+                            clashes.append((path + (i,), f"{tn}.{xn}'s create of {mark} takes the rest of its inputs, and derives "
+                                                          f"'{j}', which the transition takes itself: name it in the step's inputs (ADR-0271)"))
+                            continue
+                        if j in derived and {kk: v for kk, v in derived[j].items() if kk != DERIVED} != spec:
+                            clashes.append((path + (i,), f"two creates derive '{j}' unlike, {derived[j][DERIVED][0]} and {mark}: "
+                                                          f"name it in the step's inputs (ADR-0271)"))
+                            continue
+                        derived.setdefault(j, dict(spec, **{DERIVED: (mark, ("effect",) + path + (i,))}))
+                        given[j] = f"inputs.{j}"
+                c["inputs"] = given
+                result.append(dict(st, create=c))
+            return result
+
+        steps = expand(x.get("effect"), ())
+        out[xn] = dict(x, effect=steps, inputs=dict(x.get("inputs") or {}, **derived), **({RESTED: clashes} if clashes else {}))
+    return dict(t, transitions=out)
+
+
+def rest_errors(doc):
+    """A `rest: inputs` that derives a name its transition takes itself, or one two creates derive unlike (ADR-0271)."""
+    return [(("types", tn, "transitions", xn, "effect") + path, "names", message)
+            for tn, t in types(doc) for xn, x in (t.get("transitions") or {}).items() if isinstance(x, dict)
+            for path, message in x.get(RESTED) or []]
 
 
 def composite_parts(tn, kinds):
@@ -6078,7 +6162,9 @@ def effect_lines(steps, P, indent):
         elif "create" in st:
             c = st["create"]
             bound = f"{c['result']} = " if c.get("result") else ""
-            out.append((f"{indent}create {bound}{c['type']}.{c['transition']}({args(c.get('inputs'))})", path))
+            given = args(c.get("inputs"))
+            rest = (", ...inputs" if given else "...inputs") if c.get("rest") == "inputs" else ""
+            out.append((f"{indent}create {bound}{c['type']}.{c['transition']}({given}{rest})", path))
         elif "supersede" in st:
             out.append((f"{indent}supersede {one(st['supersede'])}", path))
         else:
@@ -6955,7 +7041,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
                                                      installed, moved, enum_renames, enums_before)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
         for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + acts_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc) + declared_value_errors(doc) + not_blank_errors(doc)
-                        + name_errors(v, library, ordered=False) + taken_by_errors(v) + column_errors(v)
+                        + name_errors(v, library, ordered=False) + taken_by_errors(v) + column_errors(v) + rest_errors(v)
                         + migration_errors(doc, v) + renamed_enumeration_errors(f, renames, enum_modules) + pair):
             p = back(p)
             if p is not None and p[0] == "machines" and "'" in m:
@@ -12661,6 +12747,95 @@ def not_blank_step5_plants():
         print(f"  step 5 and not_blank, {name}: {'as expected' if hit else 'NOT: ' + str((found, got))}")
     return ok
 
+def rest_inputs_plants():
+    """A create takes the rest of its target's inputs from the act's (issue #88, ADR-0271): clean from an observation
+    kind its module declares, from one another module declares, its field's enumeration not imported, within a loop,
+    from a type's initial transition, and from two creates deriving one name alike; refused where the act takes a
+    derived name itself, where two creates derive one name unlike, and where no subject is named; a personal field
+    derived makes the act hold a personal input (check 60), and a call takes none. Run by the reference runner, a
+    derived input is the act's own: given, it is recorded, and left out where the record requires it, refused."""
+    module = (
+        "module: probe\ncategories: [live, closed]\nenumerations:\n  Reason: [SALE, REPAIR]\ntypes:\n"
+        "  Thing:\n    description: A thing whose hands change.\n    tracking: record\n"
+        "    attributes:\n      label: { type: string }\n"
+        "    observations:\n      custody:\n        kind: Custody\n        description: Who holds the thing.\n"
+        "        attributes:\n          to_whom: { type: string, description: Who takes it. }\n"
+        "          reason: { type: Reason, optional: true }\n"
+        "    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+        "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [label] }\n"
+        "      scrap: { kind: external, from: [ON], to: OFF }\n"
+        "  Mover:\n    description: Moves things.\n    tracking: record\n    attributes:\n      thing: { reference: Thing }\n"
+        "    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+        "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [thing] }\n"
+        "      move:\n        kind: internal\n        from: ON\n"
+        "        effect:\n"
+        "          - create: { type: Custody, transition: record, inputs: { subject: thing }, rest: inputs }\n"
+        "      scrap: { kind: external, from: [ON], to: OFF }\n")
+    step = "          - create: { type: Custody, transition: record, inputs: { subject: thing }, rest: inputs }\n"
+    things, movers = module.split("  Mover:\n")
+    b = "module: probe_b\nimports: { probe: [Thing, Custody] }\ncategories: [live, closed]\ntypes:\n  Mover:\n" + movers
+    adds = step + "          - create: { type: Thing, transition: add, rest: inputs }\n"
+    both = module.replace(step, adds).replace("required_inputs: [label]", "required_inputs: [label, to_whom]")
+    cases = [
+        ("from a kind its module declares", [("probe.yaml", module)], []),
+        ("from a kind another module declares, its enumeration not imported", [("probe.yaml", things), ("probe_b.yaml", b)], []),
+        ("within a loop", [("probe.yaml", module.replace(step, "          - foreach: { item: i, range: '2', limit: 5, steps: "
+                                                         "[ { create: { type: Custody, transition: record, inputs: { subject: thing }, "
+                                                         "rest: inputs } } ] }\n"))], []),
+        ("from a type's initial transition", [("probe.yaml", module.replace(step, "          - create: { type: Thing, transition: add, rest: inputs }\n"))], []),
+        ("from two creates deriving one name alike",
+         [("probe.yaml", both.replace("label: { type: string }", "label: { type: string }\n      to_whom: { type: string, description: Who takes it. }"))], []),
+        ("a derived name the act takes itself",
+         [("probe.yaml", module.replace("        effect:\n" + step, "        inputs: { to_whom: { type: string } }\n        effect:\n" + step))],
+         ["Mover.move creates a Custody without the input 'to_whom', which Custody.record requires",
+          "Mover.move's create of Custody.record takes the rest of its inputs, and derives 'to_whom', which the transition takes "
+          "itself: name it in the step's inputs (ADR-0271)"]),
+        ("two creates deriving one name unlike",
+         [("probe.yaml", both.replace("label: { type: string }", "label: { type: string }\n      to_whom: { type: int }"))],
+         ["Mover.move creates a Thing without the input 'to_whom', which Thing.add requires",
+          "two creates derive 'to_whom' unlike, Custody.record and Thing.add: name it in the step's inputs (ADR-0271)"]),
+        ("no subject named, which is never derived", [("probe.yaml", module.replace(step, step.replace("inputs: { subject: thing }, ", "")))],
+         ["Mover.move creates a Custody without the input 'subject', which Custody.record requires"]),
+        ("a personal field derived",
+         [("probe.yaml", module.replace("to_whom: { type: string, description: Who takes it. }",
+                                        "to_whom: { type: string, description: Who takes it., optional: true, personal: true }"))],
+         ["Mover holds the personal input move.to_whom and declares no erasure (check 60)"]),
+        ("a call", [("probe.yaml", module.replace(step, "          - call: { target: thing, transition: scrap, rest: inputs }\n"))],
+         ["Additional properties are not allowed ('rest' was unexpected)"]),
+    ]
+    ok = True
+    for name, files, want in cases:
+        found, _notes = check(files)
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a create taking the rest of its inputs, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    # run by the reference runner: the derived inputs are the move's own; one expecting the record left unmade fails
+    examples = ("examples_for: probe\nsetups:\n  a_thing:\n    description: A thing and its mover.\n    steps:\n"
+                "      - request: { type: Thing, transition: add, as: thing, inputs: { label: Crate } }\n"
+                "      - request: { type: Mover, transition: add, as: mover, inputs: { thing: thing } }\n"
+                "examples:\n  a_move_records_custody:\n    description: Moving the thing records who holds it.\n"
+                "    given: a_thing\n    request: { object: mover, transition: move, inputs: { to_whom: Ana } }\n"
+                "    expect: { verdict: applied, state: ON, cascaded: [Custody.record] }\n"
+                "  the_receiver_is_required:\n    description: Who takes it is required, as the record requires it.\n"
+                "    given: a_thing\n    request: { object: mover, transition: move, inputs: { reason: Reason.SALE } }\n"
+                "    expect: { verdict: invalid_input }\n")
+    found, _notes = check([("probe.yaml", module), ("probe.examples.yaml", examples)])
+    wrong, _notes = check([("probe.yaml", module), ("probe.examples.yaml", examples.replace("cascaded: [Custody.record]", "cascaded: []"))])
+    hit = found == [] and [x[3] for x in wrong] == ["example"] and "a_move_records_custody" in wrong[0][4]
+    ok &= hit
+    print(f"  a create taking the rest of its inputs, run by the reference runner's examples: "
+          f"{'as expected' if hit else 'NOT: ' + str(found or wrong)}")
+    # step 3 reads a derived input as required where the record requires it, as it reads one the act declares
+    applies = examples.replace("    expect: { verdict: invalid_input }", "    expect: { verdict: applied, state: ON }")
+    found, _notes = check([("probe.yaml", module), ("probe.examples.yaml", applies)])
+    want = ["the request leaves out to_whom, which is refused as invalid_input, and the example expects applied"]
+    hit = [x[4] for x in found] == want
+    ok &= hit
+    print(f"  a create taking the rest of its inputs, an example leaving out a derived input the record requires: "
+          f"{'as expected' if hit else 'NOT: ' + str(found)}")
+    return ok
+
 def type_loop_plants():
     """A loop runs over a set or a range, never over every object of a type, which neither the core nor the runner
     runs (ADR-0266, issue #73): a loop over a type is refused, and one over a set input is clean."""
@@ -13016,6 +13191,7 @@ def main():
     ok &= actor_kind_plants()
     ok &= effect_recording_plants()
     ok &= not_blank_step5_plants()
+    ok &= rest_inputs_plants()
     ok &= type_loop_plants()
     ok &= named_to_plants()
     ok &= actor_move_plants()

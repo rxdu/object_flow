@@ -677,7 +677,7 @@ clear  <optional attribute or optional stored reference>  write absence, this ob
 add    <attribute> := <expression>                         this object only
 remove <attribute> := <expression>                         this object only
 call   <path>.<transition>(<arg> := <expr>, …)
-create [<name> =] <Type>.<transition>(<arg> := <expr>, …)
+create [<name> =] <Type>.<transition>(<arg> := <expr>, …[, ...inputs])
 supersede <expression>
 for    <name> in <collection> [where <expr>] limit <n> { … }
 for    <name> in 1..<expression> limit <n> { … }
@@ -686,6 +686,8 @@ for    <name> in 1..<expression> limit <n> { … }
 **Every write stays on `this`**, and its target may be an attribute or a stored relationship end; writing an `owner` re-parents a part, which is what makes splitting an object expressible. Reaching another object is `call`, which runs its transition, evaluates its guards and records an event on it.
 
 A path may be rooted at `this`, a relationship, a loop binder or an input.
+
+**`...inputs` takes the rest of a creation's inputs from the transition's own**, each of the same name, declared as the creation declares it (`flow-format.md` §4.8, ADR-0271).
 
 **`clear` writes absence**, and is the only way to. An unsupplied optional input *skips* its write, leaving the stored value alone, which is what a partial edit means; `clear` is the opposite and says so, so the two cannot be confused. It is a write like any other: it stamps the attribute's last-written index, appears in the event, and invalidates an approval that read the attribute. It reaches an optional, singular, stored `ref` end as well, which is how an assignee is removed or a binding released. Publishing rejects a `clear` on a required attribute, a counter, a required or set-valued end, a `part` or an `owner` (check 17, ADR-0099).
 

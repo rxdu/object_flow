@@ -1130,6 +1130,16 @@ class Sandbox:
             flowpublish.change_declaration()
             if tn == flowrun.DECLARATION_CHANGE
             else written_.get(tn, t)).items() if not k.startswith("_")})
+        # each input a create's `rest: inputs` derives, beside the act's own,
+        # naming the target it is derived from, as the core serves it
+        # (ADR-0271 decision 2)
+        for xn, x in (t.get("transitions") or {}).items():
+            for j, spec in ((x or {}).get("inputs") or {}).items():
+                if flows.DERIVED in spec:
+                    served = out["transitions"][xn].setdefault("inputs", {})
+                    served[j] = jsonable(
+                        {k: v for k, v in spec.items() if k != flows.DERIVED})
+                    served[j]["derived_from"] = spec[flows.DERIVED][0]
         # the members of each enumeration the type's attributes are of, which
         # its rules are read against
         used = {str((spec or {}).get("type", "")).removesuffix("[]")

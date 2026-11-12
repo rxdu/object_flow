@@ -128,11 +128,17 @@ fn effect_lines(
                 .filter(|r| super::doc::truthy(Some(r)))
                 .map(|r| format!("{} = ", py_str(r)))
                 .unwrap_or_default();
+            // the rest of its inputs from the transition's own (ADR-0271)
+            let given = args(c.get("inputs").unwrap_or(&Value::Null));
+            let rest = match (c.get("rest").map(py_str).as_deref(), given.is_empty()) {
+                (Some("inputs"), true) => "...inputs",
+                (Some("inputs"), false) => ", ...inputs",
+                _ => "",
+            };
             push(format!(
-                "create {bound}{}.{}({})",
+                "create {bound}{}.{}({given}{rest})",
                 str_or(c, "type", ""),
                 str_or(c, "transition", ""),
-                args(c.get("inputs").unwrap_or(&Value::Null))
             ));
         } else if let Some(s) = st.get("supersede") {
             push(format!("supersede {}", one(s)));

@@ -965,6 +965,10 @@
                 },
                 "result": {
                   "$ref": "#/definitions/memberName"
+                },
+                "rest": {
+                  "const": "inputs",
+                  "description": "Each other input of the transition this creates by is an input of the transition making it, declared as the target declares it, and passed on (ADR-0271)."
                 }
               },
               "description": "Creates an object by an initial transition of its type; result names it for later steps (UML CreateObjectAction)."

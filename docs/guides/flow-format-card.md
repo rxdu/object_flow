@@ -248,7 +248,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 | `clear: [<attribute>]` | removes optional values |
 | `add`, `remove: { location, expr }` | adds a value to a set, or removes one |
 | `call: { target: <path>, transition: <name>, inputs: { … } }` | takes another object's transition, its guards evaluated, its own event recorded |
-| `create: { type: <Type>, transition: <initial>, inputs: { … }, result: <name> }` | creates an object, `result` naming it for the steps after |
+| `create: { type: <Type>, transition: <initial>, inputs: { … }, result: <name> }` | creates an object, `result` naming it for the steps after; with `rest: inputs`, each input it does not name is the transition's own, of the same name (ADR-0271) |
 | `foreach: { item: <name>, array: <expression>, where: <expression>, limit: <n>, steps: [ … ] }` | runs steps per element of a set, never every object of a type, or per number with `range` in place of `array`; more than `limit` refuses `over-limit` |
 | `supersede: <successor>` | names the object superseding this one, into a `superseding` state (§4.19) |
 

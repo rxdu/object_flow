@@ -529,6 +529,8 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                         need = {n for n, sp in re.findall(r"^\s*input\s+(\w+)\s*:\s*([^\n]*)$", ct[3], flags=re.M)
                                 if "?" not in sp}
                         given = set(re.findall(r"(\w+)\s*:=", args))
+                        if "...inputs" in args:     # the rest of its inputs from the transition's own (ADR-0271)
+                            given |= need
                         for miss in need - given:
                             add(2, f"{d.name}.{tn} calls {tgt}.{tn2} without required '{miss}'", ln)
                     else:

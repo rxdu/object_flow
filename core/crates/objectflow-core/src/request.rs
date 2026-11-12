@@ -5139,6 +5139,7 @@ fn effects(
                 transition,
                 inputs: binds,
                 result,
+                ..
             } => {
                 let values = arguments(ctx, t, id, inputs, &env, position, binds)?;
                 let new =

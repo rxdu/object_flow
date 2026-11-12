@@ -1176,9 +1176,12 @@ fn calls(
             continue;
         };
         let callee_trans: Vec<&TransD> = callee.trans.iter().collect();
+        // a create taking the rest of its inputs from the transition's own
+        // passes each it does not name (ADR-0271)
+        let rest = s.kind == "create" && str_or(body, "rest", "") == "inputs";
         match callee_trans.iter().find(|c| c.name == tn2) {
             Some(ct) => {
-                for miss in needed(&ct.x).difference(&given) {
+                for miss in needed(&ct.x).difference(&given).filter(|_| !rest) {
                     add(
                         out,
                         2,

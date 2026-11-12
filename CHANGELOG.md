@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Added
+
+- A `create` may take the rest of its target's inputs from the act's, `rest: inputs`: each input of the created transition the step does not name becomes an input of the act, of the same name, declared as the target declares it, required only where the target requires it with no default, and passed on (issue #88, ADR-0271). An observation kind's `subject` and `corrects` are never derived, and a name the act takes itself, or one two creates derive unlike, is refused. The text form writes `create T.t(subject := thing, ...inputs)`. `declaration` gives each derived input among its act's `inputs`, marked `derived_from` its target, as `Custody.record`.
+
 ### Fixed
 
 - Step 5 leaves out the invariant a text's `not_blank` generates where no other invariant reads the text, as it leaves out `taken_by`'s: it reads its text alone and holds where the text is absent or not blank. A type with eight optional `not_blank` texts was reported `undecided` in every state, so step 5 decided nothing of its invariants there (issue #87, ADR-0274).
