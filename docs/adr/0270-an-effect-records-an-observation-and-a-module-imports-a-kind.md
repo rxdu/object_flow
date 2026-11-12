@@ -2,7 +2,7 @@
 
 - **Status:** **Decided** by the author 2026-11-12 ("proceed with your recommendations"), on the recommendation put the same day for issue #84. Built the same day.
 - **Date:** 2026-11-12
-- **Refined by:** ADR-0271 — proposed: a `create` takes the rest of its target's inputs from the act's, `rest: inputs`.
+- **Refined by:** ADR-0271 — a `create` takes the rest of its target's inputs from the act's, `rest: inputs`.
 - **Refines:** ADR-0099 (recording is a request, `declaration-syntax.md` §6.8)
 - **Relates to:** ADR-0078 and ADR-0263 (a personal value reaches only a personal attribute); ADR-0146, ADR-0147 (a recording's times, its correction and its erasure); issue #84
 
