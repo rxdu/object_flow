@@ -1184,11 +1184,25 @@ fn state_invariants(t: &Value) -> Vec<(String, Expr)> {
     // writes the attribute, so it holds together with any other, and
     // expanding it only multiplied the cases past what step 5 decides
     // (ADR-0176); `flowlogic.py`'s `state_invariants`
+    // and one a text's `not_blank` generates, which reads its attribute
+    // alone and holds where the text is absent or not blank (ADR-0274)
     let (transitions, attributes) = (obj(t, "transitions"), obj(t, "attributes"));
+    let invariants = obj(t, "invariants");
     let generated = |n: &str| -> Option<String> {
-        let x = n.strip_suffix("_taken_by")?;
-        (transitions.contains_key(x) && attributes.contains_key(&format!("{x}_by_kind")))
-            .then(|| format!("{x}_by_kind"))
+        if let Some(x) = n.strip_suffix("_taken_by")
+            && transitions.contains_key(x)
+            && attributes.contains_key(&format!("{x}_by_kind"))
+        {
+            return Some(format!("{x}_by_kind"));
+        }
+        let a = invariants
+            .get(n)
+            .and_then(|i| i.get(super::view::NOT_BLANK))
+            .map(py_str)?;
+        attributes
+            .get(&a)
+            .filter(|s| s.get("not_blank").and_then(Value::as_bool) == Some(true))
+            .map(|_| a)
     };
     let read: BTreeSet<String> = out
         .iter()

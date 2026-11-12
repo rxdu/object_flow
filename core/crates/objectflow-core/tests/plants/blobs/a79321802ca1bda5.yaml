@@ -1,0 +1,32 @@
+module: items
+categories: [live, closed]
+types:
+  Item:
+    description: A catalogue item.
+    tracking: record
+    attributes:
+      name: { type: string, not_blank: true }
+      note_0: { type: string, optional: true, not_blank: true }
+      note_1: { type: string, optional: true, not_blank: true }
+      note_2: { type: string, optional: true, not_blank: true }
+      note_3: { type: string, optional: true, not_blank: true }
+    states:
+      ACTIVE: { description: In use., category: live }
+      RETIRED: { description: Out of use., category: closed, final: true }
+    invariants:
+      note_0_short:
+        description: The note is short.
+        expression: note_0 is null or length(note_0) <= 200
+      note_1_short:
+        description: The note is short.
+        expression: note_1 is null or length(note_1) <= 200
+      note_2_short:
+        description: The note is short.
+        expression: note_2 is null or length(note_2) <= 200
+      note_3_short:
+        description: The note is short.
+        expression: note_3 is null or length(note_3) <= 200
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [name, note_0], optional_inputs: [note_1, note_2, note_3] }
+      edit: { kind: internal, from: [ACTIVE], optional_inputs: [note_0, note_1, note_2, note_3] }
+      retire: { kind: external, from: [ACTIVE], to: RETIRED }

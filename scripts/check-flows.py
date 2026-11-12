@@ -12631,6 +12631,36 @@ def effect_recording_plants():
           f"{'as expected' if hit else 'NOT: ' + str(found or wrong)}")
     return ok
 
+def not_blank_step5_plants():
+    """Step 5 leaves out an invariant a text's not_blank generates where no other invariant reads its attribute, as it
+    does `taken_by`'s (issue #87, ADR-0274): a type with one required and eight optional not_blank texts is decided in
+    each state, where it was undecided past the bound; and each kept where another invariant reads its text: four such,
+    their not_blank invariants kept, expand past the bound, where the four other invariants alone would not."""
+    def module(reads):
+        k = 4 if reads else 8
+        texts = "".join(f"      note_{i}: {{ type: string, optional: true, not_blank: true }}\n" for i in range(k))
+        rest = ", ".join(f"note_{i}" for i in range(1, k))
+        names = ", ".join(f"note_{i}" for i in range(k))
+        invariants = ("    invariants:\n" + "".join(
+            f"      note_{i}_short:\n        description: The note is short.\n"
+            f"        expression: note_{i} is null or length(note_{i}) <= 200\n" for i in range(k))) if reads else ""
+        return ("module: items\ncategories: [live, closed]\ntypes:\n  Item:\n    description: A catalogue item.\n"
+                "    tracking: record\n    attributes:\n      name: { type: string, not_blank: true }\n" + texts +
+                "    states:\n      ACTIVE: { description: In use., category: live }\n"
+                "      RETIRED: { description: Out of use., category: closed, final: true }\n" + invariants +
+                f"    transitions:\n      add: {{ kind: initial, to: ACTIVE, required_inputs: [name, note_0], optional_inputs: [{rest}] }}\n"
+                f"      edit: {{ kind: internal, from: [ACTIVE], optional_inputs: [{names}] }}\n"
+                "      retire: { kind: external, from: [ACTIVE], to: RETIRED }\n")
+    ok = True
+    for name, reads, want in [("eight optional texts, each read by nothing else, decided", False, []),
+                              ("four each read by another invariant, so kept, past the bound", True, ["undecided", "undecided"])]:
+        found, notes = check([("items.yaml", module(reads))])
+        got = sorted(n[3] for n in notes if n[3] in ("undecided", "contradiction"))
+        hit = found == [] and got == want
+        ok &= hit
+        print(f"  step 5 and not_blank, {name}: {'as expected' if hit else 'NOT: ' + str((found, got))}")
+    return ok
+
 def type_loop_plants():
     """A loop runs over a set or a range, never over every object of a type, which neither the core nor the runner
     runs (ADR-0266, issue #73): a loop over a type is refused, and one over a set input is clean."""
@@ -12985,6 +13015,7 @@ def main():
     ok &= unsatisfied_clause_plants()
     ok &= actor_kind_plants()
     ok &= effect_recording_plants()
+    ok &= not_blank_step5_plants()
     ok &= type_loop_plants()
     ok &= named_to_plants()
     ok &= actor_move_plants()

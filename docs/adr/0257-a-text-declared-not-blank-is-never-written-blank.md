@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-11-04 under the author's direction ("check the latest issues and address all of them properly"), on the recommendation formed the same day for issue #69, accepted in advance as the author directed for a confident recommendation. Built the same day.
 - **Date:** 2026-11-04
+- **Refined by:** ADR-0274 — step 5 leaves out the invariant `not_blank` generates where no other invariant reads its text.
 - **Refines:** ADR-0249 (`trim`), which refuses a blank text only through a guard on each act
 - **Relates to:** PRD F2; ADR-0176 decision 1 (a marking generating an invariant); ADR-0146 (a publish leaves no violation nobody admitted); ADR-0161 (a label's name empty once normalised refused); [`declaring-a-text-never-blank.md`](../research/declaring-a-text-never-blank.md); issue #69
 

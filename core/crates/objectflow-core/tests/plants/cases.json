@@ -34029,6 +34029,151 @@
   "could_violate": {}
  },
  {
+  "label": "not_blank_step5_plants: eight optional texts, each read by nothing else, decided",
+  "files": [
+   [
+    "items.yaml",
+    "0f8f3dc29dd0ec8a"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Item": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Item.name_not_blank": "local",
+   "Item.note_0_not_blank": "local",
+   "Item.note_1_not_blank": "local",
+   "Item.note_2_not_blank": "local",
+   "Item.note_3_not_blank": "local",
+   "Item.note_4_not_blank": "local",
+   "Item.note_5_not_blank": "local",
+   "Item.note_6_not_blank": "local",
+   "Item.note_7_not_blank": "local"
+  },
+  "could_violate": {
+   "Item.name_not_blank": [
+    "Item.add"
+   ],
+   "Item.note_0_not_blank": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_1_not_blank": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_2_not_blank": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_3_not_blank": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_4_not_blank": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_5_not_blank": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_6_not_blank": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_7_not_blank": [
+    "Item.add",
+    "Item.edit"
+   ]
+  }
+ },
+ {
+  "label": "not_blank_step5_plants: four each read by another invariant, so kept, past the bound",
+  "files": [
+   [
+    "items.yaml",
+    "a79321802ca1bda5"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "items.yaml",
+    14,
+    "notice",
+    "undecided",
+    "the invariants of Item in ACTIVE expand to more than 4096 cases, so whether they can hold together is not decided; they are still enforced when a request is taken. Each `and`, `or` and `implies` they join, and each value they read that may be absent, multiplies the cases: an attribute the state requires in place of an optional one, or fewer clauses in one invariant, brings them within it"
+   ],
+   [
+    "items.yaml",
+    15,
+    "notice",
+    "undecided",
+    "the invariants of Item in RETIRED expand to more than 4096 cases, so whether they can hold together is not decided; they are still enforced when a request is taken. Each `and`, `or` and `implies` they join, and each value they read that may be absent, multiplies the cases: an attribute the state requires in place of an optional one, or fewer clauses in one invariant, brings them within it"
+   ]
+  ],
+  "analysed": {
+   "Item": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Item.name_not_blank": "local",
+   "Item.note_0_not_blank": "local",
+   "Item.note_0_short": "local",
+   "Item.note_1_not_blank": "local",
+   "Item.note_1_short": "local",
+   "Item.note_2_not_blank": "local",
+   "Item.note_2_short": "local",
+   "Item.note_3_not_blank": "local",
+   "Item.note_3_short": "local"
+  },
+  "could_violate": {
+   "Item.name_not_blank": [
+    "Item.add"
+   ],
+   "Item.note_0_not_blank": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_0_short": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_1_not_blank": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_1_short": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_2_not_blank": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_2_short": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_3_not_blank": [
+    "Item.add",
+    "Item.edit"
+   ],
+   "Item.note_3_short": [
+    "Item.add",
+    "Item.edit"
+   ]
+  }
+ },
+ {
   "label": "type_loop_plants: a loop over a set input",
   "files": [
    [

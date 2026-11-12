@@ -508,7 +508,8 @@ def state_invariants(t):
     """A type's invariants by name, a state's required attributes among them as the invariant they generate. An invariant
     `taken_by` generates is left out where no other invariant reads its attribute: absence satisfies it and only its own
     transition writes the attribute, so it holds together with any other, and expanding it only multiplied the cases past
-    what step 5 decides (ADR-0176)."""
+    what step 5 decides (ADR-0176). So is one a text's `not_blank` generates, which reads its attribute alone and holds
+    where the text is absent or not blank (ADR-0274)."""
     out = {n: flowexpr.parse(i["expression"]) for n, i in (t.get("invariants") or {}).items()}
     for s, v in (t.get("states") or {}).items():
         if v.get("required_attributes"):
@@ -517,10 +518,14 @@ def state_invariants(t):
     transitions, attributes = t.get("transitions") or {}, t.get("attributes") or {}
 
     def generated(n):
+        """The attribute an invariant the engine generates reads alone, or None."""
         x = n[:-len("_taken_by")] if n.endswith("_taken_by") else None
-        return x if x in transitions and f"{x}_by_kind" in attributes else None
+        if x in transitions and f"{x}_by_kind" in attributes:
+            return f"{x}_by_kind"
+        a = ((t.get("invariants") or {}).get(n) or {}).get("_not_blank")       # the marker with_not_blank sets
+        return a if a in attributes and (attributes.get(a) or {}).get("not_blank") is True else None
     read = set().union(*(names_in(tree) for n, tree in out.items() if not generated(n)))
-    return {n: tree for n, tree in out.items() if not generated(n) or f"{generated(n)}_by_kind" in read}
+    return {n: tree for n, tree in out.items() if not generated(n) or generated(n) in read}
 
 
 def together(names):

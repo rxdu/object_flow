@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Fixed
+
+- Step 5 leaves out the invariant a text's `not_blank` generates where no other invariant reads the text, as it leaves out `taken_by`'s: it reads its text alone and holds where the text is absent or not blank. A type with eight optional `not_blank` texts was reported `undecided` in every state, so step 5 decided nothing of its invariants there (issue #87, ADR-0274).
+
 ### Changed, and may refuse what 0.23.0 accepted
 
 - An `all` with no body is refused at step 2, by check 47 in both checkers: a `where` only selects, so `all(x in c where p)` held whatever its elements were, and a guard written so refused nothing (issue #86, ADR-0273). Write `all(x in c: p)`. `count`, `any` and `none` keep an optional body.
