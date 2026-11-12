@@ -16,6 +16,7 @@ The rules a session working on ObjectFlow follows, whoever or whatever runs it. 
 - No write is ungated, under any condition: PRD F2, `DESIGN.md` §5.2. Cite F2, and do not ask whether to add it. Each write path names what makes it all or nothing, and is tested at every boundary on both backends.
 - The core's soundness weighs above the speed of building it, since every application on the engine inherits its faults (ADR-0132).
 - Before proposing a mechanism, find how proven platforms do it, and say which pattern the proposal follows or why it departs.
+- An issue or a request names a need and often a mechanism. Recommend the design that serves ObjectFlow's long-term goals and keeps its maintenance low, which may not be the mechanism asked for: first check what the engine already does for the need, and prefer reusing a construct to adding a parallel one that declares the same data twice. The author directed this on 2026-11-12.
 - A worked example or case study tests the design. Judge a case by the mechanism or requirement it stresses, not by its fidelity to a production rule.
 
 ## The first consumer
