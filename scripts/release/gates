@@ -11,7 +11,7 @@
 # waits for the machine's 1-minute load to fall under 1.0, checked every 20 s,
 # for at most --wait seconds; the run's own sampler still decides the run. Each
 # attempt's output is kept as <work>/<run>.log.<attempt>, and a line per attempt
-# is printed. Gate P's figures and each miss are the run's; whether a miss is one
+# is printed, its verdict first. Gate P's figures and each miss are the run's; whether a miss is one
 # a decision accepts by name is the release record's to say (TODO.md, F).
 #
 # Usage: scripts/release/gates <objectflow-service> <work dir> [options]
@@ -63,6 +63,10 @@ copy() {   # a Gate P run's fresh copy of the built PostgreSQL store, marked as 
   psql_ "DROP DATABASE IF EXISTS $1" && psql_ "CREATE DATABASE $1 TEMPLATE base" &&
     psql_ "INSERT INTO of_counter (name, value) VALUES ('copied', 1) ON CONFLICT (name) DO UPDATE SET value = 1" "$1"
 }
+said() {   # a run's log: its verdict, then why it is not decided, then each miss, cut to 300 characters
+  { grep -E '^Gate [IP]: (passed|failed|not decided)' "$1"; grep -E '^UNDECIDED' "$1"; grep -E '^(MISSED|FAILED)' "$1"; } |
+    tr '\n' ' ' | cut -c1-300
+}
 worst=0
 gate() {   # run name, PostgreSQL copy or "", command...: attempts while not decided
   local run=$1 db=$2 n rc=3
@@ -72,7 +76,7 @@ gate() {   # run name, PostgreSQL copy or "", command...: attempts while not dec
     if [ -n "$db" ]; then copy "$db" || { echo "   $run: no copy of the store"; rc=1; break; }; fi
     "$@" > "$W/$run.log.$n" 2>&1
     rc=$?
-    echo "   $run attempt $n exit $rc: $(grep -E '^(MISSED|FAILED|UNDECIDED)|^Gate [IP]: (passed|failed|not decided)' "$W/$run.log.$n" | tr '\n' ' ' | cut -c1-300)"
+    echo "   $run attempt $n exit $rc: $(said "$W/$run.log.$n")"
     [ "$rc" -ne 3 ] && break
   done
   if [ "$rc" -eq 1 ] || { [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ]; }; then worst=1
